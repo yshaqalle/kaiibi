@@ -32,6 +32,14 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Tukaanka to access your photos so you can add product images.",
+          "cameraPermission": "Allow Tukaanka to use your camera so you can photograph products.",
+          "microphonePermission": false
+        }
       ]
     ],
     "experiments": {
