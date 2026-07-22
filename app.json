@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "tukaanka",
-    "slug": "tukaanka",
+    "name": "kaiibi",
+    "slug": "kaiibi",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "tukaanka",
+    "scheme": "kaiibi",
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon"
@@ -36,8 +36,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Tukaanka to access your photos so you can add product images.",
-          "cameraPermission": "Allow Tukaanka to use your camera so you can photograph products.",
+          "photosPermission": "Allow Kaiibi to access your photos so you can add product images.",
+          "cameraPermission": "Allow Kaiibi to use your camera so you can photograph products.",
           "microphonePermission": false
         }
       ]

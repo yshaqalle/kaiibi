@@ -5,28 +5,17 @@ import { Colors } from '@/constants/theme';
 
 export default function AppTabs() {
   const scheme = useColorScheme();
-  const colors = Colors[scheme === 'unspecified' ? 'light' : scheme];
+  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
 
   return (
     <NativeTabs
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>My Store</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
+      labelStyle={{ color: colors.text }}>
+      <NativeTabs.Trigger name="index" options={{ title: 'Discover', icon: { src: require('@/assets/images/tabIcons/home.png') } }} />
+      <NativeTabs.Trigger name="explore" options={{ title: 'My Store', icon: { src: require('@/assets/images/tabIcons/explore.png') } }} />
+      <NativeTabs.Trigger name="about" options={{ title: 'How it works', icon: { src: require('@/assets/images/tabIcons/explore.png') } }} />
+      <NativeTabs.Trigger name="signup" options={{ title: 'Sign up', icon: { src: require('@/assets/images/tabIcons/home.png') } }} />
     </NativeTabs>
   );
 }
