@@ -40,7 +40,11 @@
           "cameraPermission": "Allow Ka Iibi to use your camera so you can photograph products.",
           "microphonePermission": false
         }
-      ]
+      ],
+      "expo-font",
+      "expo-image",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
