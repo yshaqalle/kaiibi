@@ -13,7 +13,7 @@ export default function OwnerTabs() {
       <TabSlot style={[styles.slot, compact && styles.slotCompact]} />
       <TabList asChild>
         <Header compact={compact}>
-          <TabTrigger name="index" href="/" asChild><NavButton compact={compact} position={0}>Dashboard</NavButton></TabTrigger>
+          <TabTrigger name="dashboard" href="/dashboard" asChild><NavButton compact={compact} position={0}>Dashboard</NavButton></TabTrigger>
           <TabTrigger name="sell" href="/sell" asChild><NavButton compact={compact} position={1}>Sell</NavButton></TabTrigger>
           <TabTrigger name="inventory" href="/inventory" asChild><NavButton compact={compact} position={2}>Inventory</NavButton></TabTrigger>
           <TabTrigger name="sales" href="/sales" asChild><NavButton compact={compact} position={3}>Sales</NavButton></TabTrigger>
