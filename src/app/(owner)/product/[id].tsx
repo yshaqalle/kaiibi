@@ -19,6 +19,7 @@ export default function EditProductScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ProductForm
         initial={product}
+        shopId={product.shopId}
         submitLabel="Save changes"
         onSubmit={async (input) => {
           await updateProduct(product.id, input);

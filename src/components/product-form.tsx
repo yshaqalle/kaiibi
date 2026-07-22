@@ -1,7 +1,10 @@
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { formatCents, toCents } from '@/lib/currency';
+import { uploadProductImage } from '@/lib/products';
 import type { NewProductInput, Product } from '@/types/models';
 
 const categories = ['Skincare', 'Makeup', 'Hair', 'Body', 'Supplements'];
@@ -10,10 +13,12 @@ export function ProductForm({
   initial,
   onSubmit,
   submitLabel,
+  shopId,
 }: {
   initial?: Product;
   onSubmit: (input: NewProductInput) => Promise<void>;
   submitLabel: string;
+  shopId: string;
 }) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
@@ -33,14 +38,33 @@ export function ProductForm({
   const [isListedOnline, setIsListedOnline] = useState(initial?.isListedOnline ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [imageUri, setImageUri] = useState<string | null>(initial?.imageUrl ?? null);
+  const [uploading, setUploading] = useState(false);
 
   const valid = Boolean(name.trim() && priceInput.trim());
+
+  const pickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!result.canceled) setImageUri(result.assets[0].uri);
+  };
 
   const submit = async () => {
     if (!valid) return;
     setSubmitting(true);
     setError(null);
     try {
+      let imageUrl = initial?.imageUrl ?? null;
+      // A freshly picked photo is a local URI, not the http(s) URL of an
+      // already-uploaded image. On native this is `file://`; on web
+      // expo-image-picker returns a `blob:` object URL instead, so check
+      // for "not already a remote URL" rather than a specific scheme.
+      if (imageUri && !/^https?:\/\//.test(imageUri)) {
+        setUploading(true);
+        imageUrl = await uploadProductImage(shopId, imageUri);
+        setUploading(false);
+      }
       await onSubmit({
         name: name.trim(),
         description: description.trim() || null,
@@ -57,18 +81,24 @@ export function ProductForm({
         shelfNumber: shelfNumber.trim() || null,
         expiryDate: expiryDate.trim() || null,
         batchNumber: batchNumber.trim() || null,
-        imageUrl: initial?.imageUrl ?? null,
+        imageUrl,
         isListedOnline,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this product.');
     } finally {
+      setUploading(false);
       setSubmitting(false);
     }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
+      <Field label="PHOTO">
+        <Pressable onPress={pickImage} style={styles.photoPicker}>
+          {imageUri ? <Image source={{ uri: imageUri }} contentFit="cover" style={styles.photoPreview} /> : <Text style={styles.photoHint}>Add a product photo</Text>}
+        </Pressable>
+      </Field>
       <Field label="PRODUCT NAME *"><TextInput value={name} onChangeText={setName} placeholder="e.g. ANUA Heartleaf Toner" placeholderTextColor="#89928B" style={styles.input} /></Field>
       <Field label="DESCRIPTION"><TextInput value={description} onChangeText={setDescription} placeholder="Materials, size, story…" placeholderTextColor="#89928B" style={[styles.input, styles.multiline]} multiline textAlignVertical="top" /></Field>
       <Row>
@@ -109,7 +139,7 @@ export function ProductForm({
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={submit} style={[styles.save, (!valid || submitting) && styles.saveDisabled]} disabled={!valid || submitting}>
-        <Text style={styles.saveText}>{submitting ? 'Saving…' : submitLabel}</Text>
+        <Text style={styles.saveText}>{uploading ? 'Uploading photo…' : submitting ? 'Saving…' : submitLabel}</Text>
       </Pressable>
     </ScrollView>
   );
@@ -125,6 +155,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 8 },
   half: { flex: 1 },
   fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#657269', marginBottom: 7, marginTop: 3 },
+  photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D5DED2', borderStyle: 'dashed', borderRadius: 11, marginBottom: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photoPreview: { width: '100%', height: '100%' },
+  photoHint: { color: '#78867C', fontSize: 13 },
   input: { backgroundColor: '#fff', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#17261F', marginBottom: 8 },
   multiline: { height: 78, paddingTop: 11 },
   chips: { gap: 7, paddingBottom: 12 },

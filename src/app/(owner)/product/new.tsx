@@ -9,12 +9,14 @@ export default function NewProductScreen() {
   const router = useRouter();
   const { shop } = useAuth();
 
+  if (!shop) return null;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ProductForm
+        shopId={shop.id}
         submitLabel="Save product"
         onSubmit={async (input) => {
-          if (!shop) throw new Error('No shop found for this account.');
           await createProduct(shop.id, input);
           router.back();
         }}
