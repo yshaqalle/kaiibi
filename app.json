@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "kaiibi",
+    "name": "Ka Iibi",
     "slug": "kaiibi",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -36,8 +36,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Kaiibi to access your photos so you can add product images.",
-          "cameraPermission": "Allow Kaiibi to use your camera so you can photograph products.",
+          "photosPermission": "Allow Ka Iibi to access your photos so you can add product images.",
+          "cameraPermission": "Allow Ka Iibi to use your camera so you can photograph products.",
           "microphonePermission": false
         }
       ]

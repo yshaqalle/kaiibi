@@ -57,7 +57,7 @@ export default function DiscoverScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, isDesktop && styles.contentDesktop]}>
         <View style={styles.topline}>
-          <Text style={styles.brand}>kaiibi</Text>
+          <Text style={styles.brand}>Ka Iibi</Text>
           <Pressable style={styles.cartButton} onPress={() => setSelectedShop(null)}>
             <Text style={styles.cartLabel}>Bag</Text><Text style={styles.cartCount}>{cart.length}</Text>
           </Pressable>

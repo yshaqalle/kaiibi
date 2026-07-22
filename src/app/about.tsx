@@ -4,12 +4,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 export default function AboutScreen() {
   return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.hero}>
-      <Text style={styles.eyebrow}>KAIIBI · HARGEISA, SOMALILAND</Text>
+      <Text style={styles.eyebrow}>KA IIBI · HARGEISA, SOMALILAND</Text>
       <Text style={styles.title}>A simpler way for local shops and local customers to meet.</Text>
-      <Text style={styles.intro}>Kaiibi starts with two people: the shop owner building a business, and the customer looking for something nearby.</Text>
+      <Text style={styles.intro}>Ka Iibi starts with two people: the shop owner building a business, and the customer looking for something nearby.</Text>
     </View>
 
-    <Text style={styles.sectionLabel}>WHO KAIIBI IS FOR</Text>
+    <Text style={styles.sectionLabel}>WHO KA IIBI IS FOR</Text>
     <View style={styles.userCards}>
       <View style={[styles.userCard, styles.ownerCard]}><Text style={styles.cardIcon}>▦</Text><Text style={styles.cardTitle}>Store owners</Text><Text style={styles.cardText}>Create a digital shelf for your Hargeisa shop, keep stock organized, and help new customers discover what you sell.</Text><Text style={styles.cardNeed}>You need: a simple catalog, clear inventory, and more reach.</Text></View>
       <View style={[styles.userCard, styles.customerCard]}><Text style={styles.cardIcon}>⌕</Text><Text style={styles.cardTitle}>Customers</Text><Text style={styles.cardText}>Browse familiar local shops, search for useful products, and find the right item before making a purchase.</Text><Text style={styles.cardNeed}>You need: trusted shops, useful details, and an easy way to browse.</Text></View>
