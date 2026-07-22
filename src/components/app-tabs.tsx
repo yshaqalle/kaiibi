@@ -16,10 +16,6 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>Discover</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>My Store</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
-      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="about">
         <NativeTabs.Trigger.Label>How it works</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
