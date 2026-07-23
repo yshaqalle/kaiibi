@@ -12,7 +12,7 @@ export default function AppTabs() {
       <TabList asChild>
         <Header compact={compact}>
           <TabTrigger name="about" href="/about" asChild><NavButton compact={compact} variant="about">{compact ? 'Info' : 'How it works'}</NavButton></TabTrigger>
-          <TabTrigger name="discover" href="/" asChild><NavButton compact={compact} variant="discover">Discover</NavButton></TabTrigger>
+          <TabTrigger name="discover" href="/" asChild><NavButton compact={compact} variant="discover">Home</NavButton></TabTrigger>
           <TabTrigger name="signup" href="/signup" asChild><NavButton compact={compact} variant="signup">Sign up</NavButton></TabTrigger>
         </Header>
       </TabList>
@@ -25,7 +25,7 @@ function Header({ compact, children, style, ...props }: TabListProps & { compact
   return <View {...props} style={[styles.header, style]}>
     <View style={styles.topbar}>
       <Pressable onPress={() => router.push('/')} accessibilityRole="link"><Text style={styles.brand}>Ka Iibi</Text></Pressable>
-      {!compact && <Text style={styles.location}>⌖ Shop online in Hargeisa · compare local prices · choose delivery or pickup</Text>}
+      {!compact && <Text style={styles.location}>⌖ Point of sale & inventory for shop owners in Hargeisa</Text>}
     </View>
     {children}
   </View>;
