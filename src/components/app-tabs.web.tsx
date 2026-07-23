@@ -25,7 +25,7 @@ function Header({ compact, children, style, ...props }: TabListProps & { compact
   return <View {...props} style={[styles.header, style]}>
     <View style={styles.topbar}>
       <Pressable onPress={() => router.push('/')} accessibilityRole="link"><Text style={styles.brand}>Ka Iibi</Text></Pressable>
-      {!compact && <Text style={styles.location}>⌖ Point of sale & inventory for shop owners in Hargeisa</Text>}
+      {!compact && <Text style={styles.location}>⌖ Simple, easy-to-use point of sale & inventory — for any shop, anywhere</Text>}
     </View>
     {children}
   </View>;

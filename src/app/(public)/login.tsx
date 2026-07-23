@@ -25,7 +25,7 @@ export default function LoginScreen() {
   };
 
   return <SafeAreaView style={styles.safeArea}><View style={styles.content}>
-    <Text style={styles.eyebrow}>KA IIBI · HARGEISA</Text>
+    <Text style={styles.eyebrow}>KA IIBI</Text>
     <Text style={styles.title}>Welcome back.</Text>
     <View style={styles.form}>
       <Text style={styles.fieldLabel}>EMAIL</Text>

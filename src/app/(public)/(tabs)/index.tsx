@@ -29,9 +29,9 @@ export default function DiscoverScreen() {
 
         <View style={[styles.hero, isDesktop && styles.heroDesktop]}>
           <View style={[styles.heroCopy, isDesktop && styles.heroCopyDesktop]}>
-            <Text style={styles.eyebrow}>POS & INVENTORY FOR SHOP OWNERS</Text>
+            <Text style={styles.eyebrow}>SIMPLE POS & INVENTORY FOR ANY SHOP</Text>
             <Text style={[styles.title, isDesktop && styles.titleDesktop]}>Sell fast.{'\n'}Stock smart.</Text>
-            <Text style={styles.subtitle}>Ka Iibi is a point-of-sale and inventory system built for Hargeisa shop owners — ring up sales in seconds, track every unit, and see what's selling today.</Text>
+            <Text style={styles.subtitle}>Ka Iibi is a simple, easy-to-use point-of-sale and inventory system for shop owners anywhere — ring up sales in seconds, track every unit, and see what's selling today.</Text>
             <View style={styles.ctaRow}>
               <Pressable style={styles.primaryButton} onPress={() => router.push('/signup')}>
                 <Text style={styles.primaryButtonText}>Create your shop — it's free</Text>
@@ -41,6 +41,10 @@ export default function DiscoverScreen() {
               </Pressable>
             </View>
             <Text style={styles.trustLine}>No monthly fees · Works on phone or browser · Cash, ZAAD & e-Dahab ready</Text>
+            <View style={styles.roadmapBadge}>
+              <Text style={styles.roadmapBadgeIcon}>🛍️</Text>
+              <Text style={styles.roadmapBadgeText}>Coming soon: an online marketplace to sell beyond your counter — new e-commerce opportunities for your shop.</Text>
+            </View>
           </View>
           <View style={[styles.heroVisual, isDesktop && styles.heroVisualDesktop]}>
             <PosPreviewMock />
@@ -99,6 +103,9 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
   secondaryLink: { color: '#17261F', fontSize: 14, fontWeight: '800', textDecorationLine: 'underline' },
   trustLine: { marginTop: 16, color: '#8A9089', fontSize: 12, fontWeight: '600' },
+  roadmapBadge: { marginTop: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: '#FBEADD', borderRadius: 13, padding: 13, maxWidth: 440 },
+  roadmapBadgeIcon: { fontSize: 16, marginTop: 1 },
+  roadmapBadgeText: { flex: 1, color: '#8A5A2E', fontSize: 12, lineHeight: 17, fontWeight: '700' },
 
   heroVisual: { marginTop: 28, alignItems: 'center' },
   heroVisualDesktop: { flex: 1, marginTop: 0 },

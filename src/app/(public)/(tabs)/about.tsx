@@ -6,21 +6,21 @@ import { PublicFooter } from '@/components/public-footer';
 export default function AboutScreen() {
   return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.hero}>
-      <Text style={styles.eyebrow}>KA IIBI · HARGEISA, SOMALILAND</Text>
-      <Text style={styles.title}>A simpler way for local shops and local customers to meet.</Text>
+      <Text style={styles.eyebrow}>KA IIBI · POS & INVENTORY</Text>
+      <Text style={styles.title}>A simpler way for shops and their customers to meet.</Text>
       <Text style={styles.intro}>Ka Iibi starts with two people: the shop owner building a business, and the customer looking for something nearby.</Text>
     </View>
 
     <Text style={styles.sectionLabel}>WHO KA IIBI IS FOR</Text>
     <View style={styles.userCards}>
-      <View style={[styles.userCard, styles.ownerCard]}><Text style={styles.cardIcon}>▦</Text><Text style={styles.cardTitle}>Store owners</Text><Text style={styles.cardText}>Create a digital shelf for your Hargeisa shop, keep stock organized, and help new customers discover what you sell.</Text><Text style={styles.cardNeed}>You need: a simple catalog, clear inventory, and more reach.</Text></View>
+      <View style={[styles.userCard, styles.ownerCard]}><Text style={styles.cardIcon}>▦</Text><Text style={styles.cardTitle}>Store owners</Text><Text style={styles.cardText}>Create a digital shelf for your shop, keep stock organized, and help new customers discover what you sell.</Text><Text style={styles.cardNeed}>You need: a simple catalog, clear inventory, and more reach.</Text></View>
       <View style={[styles.userCard, styles.customerCard]}><Text style={styles.cardIcon}>⌕</Text><Text style={styles.cardTitle}>Customers</Text><Text style={styles.cardText}>Browse familiar local shops, search for useful products, and find the right item before making a purchase.</Text><Text style={styles.cardNeed}>You need: trusted shops, useful details, and an easy way to browse.</Text></View>
     </View>
 
     <View style={styles.divider} />
     <Text style={styles.sectionLabel}>FOR STORE OWNERS</Text><Text style={styles.sectionTitle}>Set up your shop in four simple steps.</Text>
     <View style={styles.steps}>
-      <Step number="01" title="Create your shop" text="Add your shop name, location in Hargeisa, contact details, and a short introduction so customers know who you are." />
+      <Step number="01" title="Create your shop" text="Add your shop name, location, contact details, and a short introduction so customers know who you are." />
       <Step number="02" title="Add your first products" text="For every item, upload a photo, name it, set a price, choose a category, and write a useful description." />
       <Step number="03" title="Organize your inventory" text="Set the quantity you have available and add tags such as handmade, groceries, or home. Update stock as items sell." />
       <Step number="04" title="Keep your storefront current" text="Review low-stock items, add new arrivals, and make sure product photos and prices stay accurate." />
@@ -29,7 +29,7 @@ export default function AboutScreen() {
     <View style={styles.divider} />
     <Text style={styles.sectionLabel}>FOR CUSTOMERS</Text><Text style={styles.sectionTitle}>Find what you need, close to home.</Text>
     <View style={styles.customerSteps}><Text style={styles.customerStep}>1. Search or browse products and local shops.</Text><Text style={styles.customerStep}>2. Compare prices, product details, and available stock.</Text><Text style={styles.customerStep}>3. Choose a shop and purchase with confidence.</Text></View>
-    <View style={styles.mission}><Text style={styles.missionLabel}>THE MVP</Text><Text style={styles.missionTitle}>Built for Hargeisa’s local commerce.</Text><Text style={styles.missionText}>We are beginning with a focused marketplace that makes inventory and discovery easier for the businesses and people already shaping the city.</Text></View>
+    <View style={styles.mission}><Text style={styles.missionLabel}>THE MVP</Text><Text style={styles.missionTitle}>Built to work for any shop, anywhere.</Text><Text style={styles.missionText}>We are beginning with a focused, easy-to-use system that makes inventory and discovery easier for shop owners and their customers — no matter where they are.</Text></View>
 
     <PublicFooter />
   </ScrollView></SafeAreaView>;
