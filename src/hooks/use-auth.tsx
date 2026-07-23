@@ -11,6 +11,10 @@ type AuthState = {
   shop: Shop | null;
   loading: boolean;
   refreshShop: () => Promise<void>;
+  // Settings' profile editor already gets the freshly-updated row back from
+  // `updateProfile()`, so this just adopts it into context directly rather
+  // than a refetch — same effect as `refreshShop`, one less round trip.
+  setProfile: (profile: Profile) => void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -112,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ session, profile, shop, loading, refreshShop }}>
+    <AuthContext.Provider value={{ session, profile, shop, loading, refreshShop, setProfile }}>
       {children}
     </AuthContext.Provider>
   );
