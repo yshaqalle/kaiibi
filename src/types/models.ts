@@ -76,6 +76,34 @@ export type SalePayment = PaymentLine & {
   createdAt: string;
 };
 
+// A snapshotted line item inside a `SaleEdit.previousSnapshot` — same shape
+// as `SaleItem` but without an id/saleId, since it's frozen history rather
+// than a live row.
+export type SaleItemSnapshot = {
+  productId: string | null;
+  productName: string;
+  unitPriceCents: number;
+  quantity: number;
+  lineTotalCents: number;
+};
+
+// The full pre-edit state of a sale, captured atomically by `edit_sale`
+// before applying a change — this is what "each update is kept and shown"
+// means: the entire previous version, not a field-level diff.
+export type SaleEdit = {
+  id: string;
+  saleId: string;
+  editedBy: string | null;
+  createdAt: string;
+  previousSnapshot: {
+    totalCents: number;
+    itemCount: number;
+    paymentMethod: PaymentMethod;
+    items: SaleItemSnapshot[];
+    payments: PaymentLine[];
+  };
+};
+
 export type Sale = {
   id: string;
   shopId: string;
@@ -87,6 +115,7 @@ export type Sale = {
   createdAt: string;
   items?: SaleItem[];
   payments?: SalePayment[];
+  edits?: SaleEdit[];
 };
 
 export type Category = {
