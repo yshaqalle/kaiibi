@@ -7,6 +7,8 @@
     "playwright@claude-plugins-official": true,
     "github@claude-plugins-official": true,
     "claude-code-setup@claude-plugins-official": true,
-    "supabase@claude-plugins-official": true
+    "supabase@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true
   }
 }
