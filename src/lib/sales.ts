@@ -1,19 +1,20 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentMethod, Sale, SaleItem } from '@/types/models';
+import type { CartLine, PaymentLine, Sale, SaleItem, SalePayment } from '@/types/models';
 
-export async function completeSale(
-  shopId: string,
-  lines: CartLine[],
-  paymentMethod: PaymentMethod,
-  paymentNote?: string
-): Promise<string> {
+export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[]): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
+  if (payments.length === 0) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
     p_items: buildSalePayload(lines),
-    p_payment_method: paymentMethod,
-    p_payment_note: paymentNote ?? null,
+    p_payments: payments.map((p) => ({
+      method: p.method,
+      amount_cents: p.amountCents,
+      tendered_cents: p.tenderedCents,
+      customer_name: p.customerName,
+      customer_phone: p.customerPhone,
+    })),
   });
   if (error) throw error;
   return data as string;
@@ -42,13 +43,25 @@ function mapSaleRow(row: any): Sale {
         lineTotalCents: item.line_total_cents,
       })
     ),
+    payments: (row.sale_payments ?? []).map(
+      (payment: any): SalePayment => ({
+        id: payment.id,
+        saleId: payment.sale_id,
+        method: payment.method,
+        amountCents: payment.amount_cents,
+        tenderedCents: payment.tendered_cents,
+        customerName: payment.customer_name,
+        customerPhone: payment.customer_phone,
+        createdAt: payment.created_at,
+      })
+    ),
   };
 }
 
 export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
   const { data, error } = await supabase
     .from('sales')
-    .select('*, sale_items(*)')
+    .select('*, sale_items(*), sale_payments(*)')
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false })
     .limit(limit);

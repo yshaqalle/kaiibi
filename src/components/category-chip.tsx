@@ -9,8 +9,8 @@ export function CategoryChip({ label, active, onPress }: { label: string; active
 }
 
 const styles = StyleSheet.create({
-  chip: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2E2', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 16 },
+  chip: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2E2', paddingVertical: 11, paddingHorizontal: 20, borderRadius: 20 },
   chipActive: { backgroundColor: '#111111', borderColor: '#111111' },
-  chipText: { fontSize: 12, fontWeight: '600', color: '#444444' },
+  chipText: { fontSize: 13, fontWeight: '600', color: '#444444' },
   chipTextActive: { color: '#FFFFFF', fontWeight: '700' },
 });

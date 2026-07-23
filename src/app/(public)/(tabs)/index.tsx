@@ -5,6 +5,7 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensi
 import { PosPreviewMock } from '@/components/pos-preview-mock';
 import { PublicFooter } from '@/components/public-footer';
 import { Fonts } from '@/constants/theme';
+import { useAuth } from '@/hooks/use-auth';
 
 const markBlack = require('@/assets/images/kaiibi-mark-black.png');
 
@@ -19,6 +20,7 @@ export default function DiscoverScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 900;
+  const { session, shop } = useAuth();
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -28,9 +30,16 @@ export default function DiscoverScreen() {
             <Image source={markBlack} contentFit="contain" style={styles.brandMark} />
             <Text style={styles.brand}>Ka Iibi</Text>
           </View>
-          <Pressable style={styles.loginButton} onPress={() => router.push('/login')}>
-            <Text style={styles.loginLabel}>Log in</Text>
-          </Pressable>
+          {session ? (
+            <Pressable style={styles.loginButton} onPress={() => router.push('/dashboard')}>
+              <View style={styles.loginAvatar}><Text style={styles.loginAvatarText}>{(shop?.name || 'K').charAt(0).toUpperCase()}</Text></View>
+              <Text style={styles.loginLabel} numberOfLines={1}>{shop?.name || 'My shop'}</Text>
+            </Pressable>
+          ) : (
+            <Pressable style={styles.loginButton} onPress={() => router.push('/login')}>
+              <Text style={styles.loginLabel}>Log in</Text>
+            </Pressable>
+          )}
         </View>
 
         <View style={[styles.hero, isDesktop && styles.heroDesktop]}>
@@ -39,9 +48,15 @@ export default function DiscoverScreen() {
             <Text style={[styles.title, isDesktop && styles.titleDesktop]}>Sell fast.{'\n'}Stock smart.</Text>
             <Text style={styles.subtitle}>Ka Iibi is a simple, easy-to-use point-of-sale and inventory system for shop owners anywhere — ring up sales in seconds, track every unit, and see what's selling today.</Text>
             <View style={styles.ctaRow}>
-              <Pressable style={styles.primaryButton} onPress={() => router.push('/signup')}>
-                <Text style={styles.primaryButtonText}>Create your shop — it's free</Text>
-              </Pressable>
+              {session ? (
+                <Pressable style={styles.primaryButton} onPress={() => router.push('/dashboard')}>
+                  <Text style={styles.primaryButtonText}>Go to your dashboard</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.primaryButton} onPress={() => router.push('/signup')}>
+                  <Text style={styles.primaryButtonText}>Create your shop — it's free</Text>
+                </Pressable>
+              )}
               <Pressable onPress={() => router.push('/about')}>
                 <Text style={styles.secondaryLink}>See how it works →</Text>
               </Pressable>
@@ -88,51 +103,53 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FAF9F5' },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { paddingHorizontal: 20, paddingBottom: 48 },
   contentDesktop: { width: '100%', maxWidth: 1160, alignSelf: 'center', paddingHorizontal: 38 },
   topline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   brandMark: { width: 26, height: 28 },
-  brand: { fontFamily: Fonts.serif, fontSize: 26, fontWeight: '800', letterSpacing: -1, color: '#17261F' },
-  loginButton: { height: 38, borderRadius: 19, backgroundColor: '#EEEDE8', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
-  loginLabel: { fontSize: 12, fontWeight: '800', color: '#17261F' },
+  brand: { fontFamily: Fonts.serif, fontSize: 26, fontWeight: '800', letterSpacing: -1, color: '#111111' },
+  loginButton: { height: 38, borderRadius: 19, backgroundColor: '#F2F2F2', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, gap: 8, maxWidth: 220 },
+  loginLabel: { fontSize: 12, fontWeight: '800', color: '#111111', flexShrink: 1 },
+  loginAvatar: { width: 20, height: 20, borderRadius: 6, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  loginAvatarText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
 
   hero: { marginTop: 30 },
   heroDesktop: { flexDirection: 'row', alignItems: 'center', gap: 48, marginTop: 46 },
   heroCopy: {},
   heroCopyDesktop: { flex: 1, maxWidth: 520 },
-  eyebrow: { fontSize: 10, letterSpacing: 1.6, fontWeight: '800', color: '#E45B37' },
-  title: { fontFamily: Fonts.serif, marginTop: 10, fontSize: 40, lineHeight: 44, letterSpacing: -1, fontWeight: '700', color: '#17261F' },
+  eyebrow: { fontSize: 10, letterSpacing: 1.6, fontWeight: '800', color: '#999999' },
+  title: { fontFamily: Fonts.serif, marginTop: 10, fontSize: 40, lineHeight: 44, letterSpacing: -1, fontWeight: '700', color: '#111111' },
   titleDesktop: { fontSize: 54, lineHeight: 58 },
-  subtitle: { marginTop: 14, color: '#5B625E', fontSize: 15, lineHeight: 22, maxWidth: 440 },
+  subtitle: { marginTop: 14, color: '#666666', fontSize: 15, lineHeight: 22, maxWidth: 440 },
   ctaRow: { marginTop: 22, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 18 },
-  primaryButton: { height: 48, borderRadius: 24, backgroundColor: '#17261F', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
+  primaryButton: { height: 48, borderRadius: 24, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
   primaryButtonText: { color: '#FFFFFF', fontSize: 14, fontWeight: '800' },
-  secondaryLink: { color: '#17261F', fontSize: 14, fontWeight: '800', textDecorationLine: 'underline' },
-  trustLine: { marginTop: 16, color: '#8A9089', fontSize: 12, fontWeight: '600' },
-  roadmapBadge: { marginTop: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: '#FBEADD', borderRadius: 13, padding: 13, maxWidth: 440 },
+  secondaryLink: { color: '#111111', fontSize: 14, fontWeight: '800', textDecorationLine: 'underline' },
+  trustLine: { marginTop: 16, color: '#999999', fontSize: 12, fontWeight: '600' },
+  roadmapBadge: { marginTop: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 9, backgroundColor: '#F2F2F2', borderRadius: 13, padding: 13, maxWidth: 440 },
   roadmapBadgeIcon: { fontSize: 16, marginTop: 1 },
-  roadmapBadgeText: { flex: 1, color: '#8A5A2E', fontSize: 12, lineHeight: 17, fontWeight: '700' },
+  roadmapBadgeText: { flex: 1, color: '#555555', fontSize: 12, lineHeight: 17, fontWeight: '700' },
 
   heroVisual: { marginTop: 28, alignItems: 'center' },
   heroVisualDesktop: { flex: 1, marginTop: 0 },
 
   sectionHeading: { marginTop: 46, marginBottom: 18 },
-  sectionLabel: { fontSize: 10, letterSpacing: 1.2, fontWeight: '800', color: '#E45B37' },
-  sectionTitle: { marginTop: 8, fontSize: 24, letterSpacing: -0.8, fontWeight: '800', color: '#17261F', maxWidth: 480 },
+  sectionLabel: { fontSize: 10, letterSpacing: 1.2, fontWeight: '800', color: '#999999' },
+  sectionTitle: { marginTop: 8, fontSize: 24, letterSpacing: -0.8, fontWeight: '800', color: '#111111', maxWidth: 480 },
 
   featureGrid: { gap: 12 },
   featureGridDesktop: { flexDirection: 'row', flexWrap: 'wrap' },
-  featureCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EFEEE9', borderRadius: 16, padding: 18 },
+  featureCard: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderRadius: 16, padding: 18 },
   featureCardDesktop: { width: '48.5%' },
   featureIcon: { fontSize: 22 },
-  featureTitle: { marginTop: 10, fontSize: 16, fontWeight: '800', color: '#17261F' },
-  featureText: { marginTop: 6, fontSize: 13, lineHeight: 19, color: '#667069' },
+  featureTitle: { marginTop: 10, fontSize: 16, fontWeight: '800', color: '#111111' },
+  featureText: { marginTop: 6, fontSize: 13, lineHeight: 19, color: '#666666' },
 
-  shopCallout: { backgroundColor: '#DCE9DB', borderRadius: 19, padding: 23, marginTop: 40 },
-  calloutLabel: { fontSize: 10, letterSpacing: 1.2, fontWeight: '800', color: '#47705C' },
-  calloutTitle: { marginTop: 7, fontSize: 25, letterSpacing: -1, fontWeight: '800', color: '#17261F' },
-  calloutText: { marginTop: 8, fontSize: 14, lineHeight: 20, color: '#4D6355', maxWidth: 280 },
-  calloutLink: { marginTop: 18, fontWeight: '800', color: '#17261F', fontSize: 14 },
+  shopCallout: { backgroundColor: '#F2F2F2', borderRadius: 19, padding: 23, marginTop: 40 },
+  calloutLabel: { fontSize: 10, letterSpacing: 1.2, fontWeight: '800', color: '#999999' },
+  calloutTitle: { marginTop: 7, fontSize: 25, letterSpacing: -1, fontWeight: '800', color: '#111111' },
+  calloutText: { marginTop: 8, fontSize: 14, lineHeight: 20, color: '#666666', maxWidth: 280 },
+  calloutLink: { marginTop: 18, fontWeight: '800', color: '#111111', fontSize: 14 },
 });

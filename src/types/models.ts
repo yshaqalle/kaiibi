@@ -58,6 +58,24 @@ export type SaleItem = {
   lineTotalCents: number;
 };
 
+// One line of a (possibly split) checkout payment. `tenderedCents` is only
+// meaningful for cash (what the customer physically handed over, so change
+// due = tenderedCents - amountCents); `customerName`/`customerPhone` are
+// only meaningful for mobile-money methods like ZAAD/e-Dahab.
+export type PaymentLine = {
+  method: PaymentMethod;
+  amountCents: number;
+  tenderedCents: number | null;
+  customerName: string | null;
+  customerPhone: string | null;
+};
+
+export type SalePayment = PaymentLine & {
+  id: string;
+  saleId: string;
+  createdAt: string;
+};
+
 export type Sale = {
   id: string;
   shopId: string;
@@ -68,4 +86,19 @@ export type Sale = {
   itemCount: number;
   createdAt: string;
   items?: SaleItem[];
+  payments?: SalePayment[];
+};
+
+export type Category = {
+  id: string;
+  shopId: string;
+  name: string;
+  createdAt: string;
+};
+
+export type Tag = {
+  id: string;
+  shopId: string;
+  name: string;
+  createdAt: string;
 };

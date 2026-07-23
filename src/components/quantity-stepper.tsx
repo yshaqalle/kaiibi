@@ -11,8 +11,8 @@ export function QuantityStepper({ quantity, onChange }: { quantity: number; onCh
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  button: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#EEF2EB', alignItems: 'center', justifyContent: 'center' },
-  buttonText: { color: '#17261F', fontSize: 16, fontWeight: '800' },
-  quantity: { minWidth: 20, textAlign: 'center', color: '#17261F', fontWeight: '800' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  button: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#EEF2EB', alignItems: 'center', justifyContent: 'center' },
+  buttonText: { color: '#17261F', fontSize: 18, fontWeight: '800' },
+  quantity: { minWidth: 22, textAlign: 'center', color: '#17261F', fontWeight: '800', fontSize: 15 },
 });

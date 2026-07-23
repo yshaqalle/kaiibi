@@ -30,6 +30,7 @@ export default function OwnerLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="product/new" options={{ headerShown: true, title: 'Add product' }} />
       <Stack.Screen name="product/[id]" options={{ headerShown: true, title: 'Edit product' }} />
+      <Stack.Screen name="settings" options={{ headerShown: true, title: 'Settings' }} />
     </Stack>
   );
 }

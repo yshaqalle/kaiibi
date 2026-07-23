@@ -20,8 +20,8 @@ export function PublicFooter() {
 
 const styles = StyleSheet.create({
   footer: { marginTop: 40 },
-  divider: { height: 1, backgroundColor: '#E4E2DC' },
+  divider: { height: 1, backgroundColor: '#ECECEC' },
   row: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10, paddingVertical: 18 },
-  copyright: { color: '#8A9089', fontSize: 12, fontWeight: '600' },
-  loginLink: { color: '#17261F', fontSize: 12, fontWeight: '800' },
+  copyright: { color: '#999999', fontSize: 12, fontWeight: '600' },
+  loginLink: { color: '#111111', fontSize: 12, fontWeight: '800' },
 });

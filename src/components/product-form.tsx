@@ -4,9 +4,10 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { createCategory, listCategories } from '@/lib/categories';
 import { formatCents, toCents } from '@/lib/currency';
-import { listProducts, uploadProductImage } from '@/lib/products';
-import { deriveCategories, deriveTags } from '@/lib/product-taxonomy';
+import { uploadProductImage } from '@/lib/products';
+import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
 export function ProductForm({
@@ -32,10 +33,8 @@ export function ProductForm({
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
-    listProducts(shopId).then((products) => {
-      setCategorySuggestions(deriveCategories(products));
-      setTagSuggestions(deriveTags(products));
-    }).catch(() => {});
+    listCategories(shopId).then((rows) => setCategorySuggestions(rows.map((r) => r.name))).catch(() => {});
+    listTags(shopId).then((rows) => setTagSuggestions(rows.map((r) => r.name))).catch(() => {});
   }, [shopId]);
   const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '');
   const [costInput, setCostInput] = useState(initial?.costCents ? formatCents(initial.costCents).replace('$', '') : '');
@@ -75,6 +74,17 @@ export function ProductForm({
         imageUrl = await uploadProductImage(shopId, imageUri);
         setUploading(false);
       }
+
+      const tagList = tags.split(',').map((tag) => tag.trim()).filter(Boolean);
+      // A category/tag typed here for the first time (via "+ New", or typed
+      // into the tags field directly) only exists as free text on this
+      // product until it's also in the categories/tags tables — persist it
+      // now so it shows up as a suggestion and is manageable from Settings.
+      await Promise.all([
+        category.trim() && !categorySuggestions.includes(category.trim()) ? createCategory(shopId, category.trim()) : null,
+        ...tagList.filter((tag) => !tagSuggestions.includes(tag)).map((tag) => createTag(shopId, tag)),
+      ]);
+
       await onSubmit({
         name: name.trim(),
         description: description.trim() || null,
@@ -82,7 +92,7 @@ export function ProductForm({
         barcode: barcode.trim() || null,
         brand: brand.trim() || null,
         category,
-        tags: tags.split(',').map((tag) => tag.trim()).filter(Boolean),
+        tags: tagList,
         supplierName: supplierName.trim() || null,
         costCents: costInput.trim() ? toCents(costInput) : null,
         priceCents: toCents(priceInput),
@@ -133,7 +143,7 @@ export function ProductForm({
             style={styles.input}
           />
         )}
-        {!addingNewCategory && category && !categorySuggestions.includes(category) && (
+        {!addingNewCategory && Boolean(category) && !categorySuggestions.includes(category) && (
           <Text style={styles.categoryHint}>Selected: {category}</Text>
         )}
       </Field>
