@@ -55,10 +55,10 @@ export default function SignUpScreen() {
     }
   };
 
-  if (complete) return <SafeAreaView style={styles.safeArea}><View style={styles.successWrap}><View style={styles.successMark}><Text style={styles.successCheck}>✓</Text></View><Text style={styles.successTitle}>You’re all set.</Text><Text style={styles.successText}>Welcome to Ka Iibi. Start discovering local shops across Hargeisa.</Text></View></SafeAreaView>;
+  if (complete) return <SafeAreaView style={styles.safeArea}><View style={styles.successWrap}><View style={styles.successMark}><Text style={styles.successCheck}>✓</Text></View><Text style={styles.successTitle}>You’re all set.</Text><Text style={styles.successText}>Welcome to Ka Iibi. Start discovering local shops near you.</Text></View></SafeAreaView>;
 
   return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-    <Text style={styles.eyebrow}>KA IIBI · HARGEISA</Text><Text style={styles.title}>{role ? 'Create your account.' : 'Join your local marketplace.'}</Text><Text style={styles.subtitle}>{role ? (role === 'owner' ? 'We will get your shop ready in a few quick steps.' : 'A few details and you can start shopping local.') : 'Choose how you want to use Ka Iibi.'}</Text>
+    <Text style={styles.eyebrow}>KA IIBI</Text><Text style={styles.title}>{role ? 'Create your account.' : 'Join your local marketplace.'}</Text><Text style={styles.subtitle}>{role ? (role === 'owner' ? 'We will get your shop ready in a few quick steps.' : 'A few details and you can start shopping local.') : 'Choose how you want to use Ka Iibi.'}</Text>
     {!role ? <View style={styles.roleChoices}>
       <Pressable onPress={() => { setRole('customer'); setStep(1); }} style={[styles.roleCard, styles.customerCard]}><Text style={styles.roleIcon}>⌕</Text><Text style={styles.roleTitle}>I’m a customer</Text><Text style={styles.roleText}>Discover local shops and find what you need.</Text><Text style={styles.roleAction}>Continue as customer  →</Text></Pressable>
       <Pressable onPress={() => { setRole('owner'); setStep(1); }} style={[styles.roleCard, styles.ownerCard]}><Text style={styles.roleIcon}>▦</Text><Text style={styles.roleTitle}>I own a shop</Text><Text style={styles.roleText}>Create a storefront, manage stock, and reach new customers.</Text><Text style={styles.roleAction}>Continue as shop owner  →</Text></Pressable>
