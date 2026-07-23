@@ -4,11 +4,13 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 
 import { signUpOwner } from '@/lib/auth';
 import { createShop } from '@/lib/shops';
+import { useAuth } from '@/hooks/use-auth';
 
 type Role = 'customer' | 'owner' | null;
 
 export default function SignUpScreen() {
   const router = useRouter();
+  const { refreshShop } = useAuth();
   const [role, setRole] = useState<Role>(null);
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
@@ -44,6 +46,7 @@ export default function SignUpScreen() {
     try {
       await signUpOwner({ email: email.trim(), password, fullName: name.trim(), phone: contact.trim() });
       await createShop({ name: shopName.trim(), city: location.trim() || 'Hargeisa', neighborhood: area.trim() || undefined });
+      await refreshShop();
       router.replace('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.');

@@ -1,5 +1,5 @@
 import type { Session } from '@supabase/supabase-js';
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { getMyShop } from '@/lib/shops';
 import { supabase } from '@/lib/supabase';
@@ -20,17 +20,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
+  // Guards against out-of-order async writes to `shop`: the SIGNED_IN listener's
+  // own fetch and an explicit refreshShop() call (e.g. right after creating a shop
+  // during owner signup) can be in flight concurrently. Whichever fetch started
+  // most recently should win, even if an earlier-started fetch resolves later with
+  // a stale (e.g. pre-shop-creation) result.
+  const shopRequestSeq = useRef(0);
 
   useEffect(() => {
     let active = true;
 
     const loadForSession = async (nextSession: Session | null) => {
       if (!active) return;
+      const requestId = ++shopRequestSeq.current;
       setSession(nextSession);
       if (!nextSession) {
-        setProfile(null);
-        setShop(null);
-        setLoading(false);
+        if (shopRequestSeq.current === requestId) {
+          setProfile(null);
+          setShop(null);
+          setLoading(false);
+        }
         return;
       }
       const { data: profileRow } = await supabase
@@ -38,7 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('id', nextSession.user.id)
         .single();
-      if (!active) return;
+      if (!active || shopRequestSeq.current !== requestId) return;
       setProfile(
         profileRow
           ? {
@@ -51,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : null
       );
       const myShop = await getMyShop();
-      if (!active) return;
+      if (!active || shopRequestSeq.current !== requestId) return;
       setShop(myShop);
       setLoading(false);
     };
@@ -67,9 +76,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const refreshShop = async () => {
+    const requestId = ++shopRequestSeq.current;
+    const myShop = await getMyShop();
+    if (shopRequestSeq.current !== requestId) return;
+    setShop(myShop);
+  };
+
   return (
-    <AuthContext.Provider
-      value={{ session, profile, shop, loading, refreshShop: async () => setShop(await getMyShop()) }}>
+    <AuthContext.Provider value={{ session, profile, shop, loading, refreshShop }}>
       {children}
     </AuthContext.Provider>
   );
