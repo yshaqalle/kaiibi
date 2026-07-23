@@ -1,6 +1,8 @@
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { PublicFooter } from '@/components/public-footer';
+
 export default function AboutScreen() {
   return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.hero}>
@@ -28,6 +30,8 @@ export default function AboutScreen() {
     <Text style={styles.sectionLabel}>FOR CUSTOMERS</Text><Text style={styles.sectionTitle}>Find what you need, close to home.</Text>
     <View style={styles.customerSteps}><Text style={styles.customerStep}>1. Search or browse products and local shops.</Text><Text style={styles.customerStep}>2. Compare prices, product details, and available stock.</Text><Text style={styles.customerStep}>3. Choose a shop and purchase with confidence.</Text></View>
     <View style={styles.mission}><Text style={styles.missionLabel}>THE MVP</Text><Text style={styles.missionTitle}>Built for Hargeisa’s local commerce.</Text><Text style={styles.missionText}>We are beginning with a focused marketplace that makes inventory and discovery easier for the businesses and people already shaping the city.</Text></View>
+
+    <PublicFooter />
   </ScrollView></SafeAreaView>;
 }
 

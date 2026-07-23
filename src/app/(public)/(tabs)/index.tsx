@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { PosPreviewMock } from '@/components/pos-preview-mock';
+import { PublicFooter } from '@/components/public-footer';
 import { Fonts } from '@/constants/theme';
 
 const features = [
@@ -69,6 +70,8 @@ export default function DiscoverScreen() {
             <Text style={styles.calloutLink}>Create a shop account  →</Text>
           </Pressable>
         </View>
+
+        <PublicFooter />
       </ScrollView>
     </SafeAreaView>
   );
