@@ -17,6 +17,6 @@ export function RevenueChart({ data }: { data: { day: string; totalCents: number
 const styles = StyleSheet.create({
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, height: 130, paddingHorizontal: 4 },
   column: { flex: 1, alignItems: 'center' },
-  bar: { width: '100%', backgroundColor: '#E45B37', borderRadius: 4 },
+  bar: { width: '100%', backgroundColor: '#111111', borderRadius: 4 },
   dayLabel: { color: '#7B837C', fontSize: 10, marginTop: 6, fontWeight: '700' },
 });
