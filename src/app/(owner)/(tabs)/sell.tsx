@@ -16,6 +16,18 @@ const paymentMethods: { key: PaymentMethod; label: string }[] = [
   { key: 'other', label: 'Other' },
 ];
 
+// Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
+// (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
+// X: has 7, need 100") are plain `{code, details, hint, message}` objects
+// that are never `instanceof Error`. Check for a string `.message` on either
+// shape so the owner sees the RPC's actual reason instead of a generic one.
+function extractErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return 'Could not complete this sale.';
+}
+
 export default function SellScreen() {
   const { shop } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -57,7 +69,7 @@ export default function SellScreen() {
       setCart([]);
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not complete this sale.');
+      setError(extractErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
