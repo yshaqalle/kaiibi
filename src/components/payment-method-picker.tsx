@@ -14,7 +14,7 @@ const moreMethods: { key: PaymentMethod; label: string }[] = [
 ];
 
 export function PaymentMethodPicker({ value, onChange }: { value: PaymentMethod | null; onChange: (method: PaymentMethod) => void }) {
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => value === 'edahab' || value === 'other');
 
   return (
     <View>
@@ -50,6 +50,6 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   buttonTextActive: { color: '#FFFFFF' },
   moreToggle: { textAlign: 'center', fontSize: 11, color: '#999999', fontWeight: '700', textDecorationLine: 'underline', marginBottom: 8 },
-  moreButton: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: '#E2E2E2' },
-  moreButtonText: { fontSize: 12, fontWeight: '600', color: '#666666' },
+  moreButton: { flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: '#ECECEC' },
+  moreButtonText: { fontSize: 12, fontWeight: '600', color: '#777777' },
 });
