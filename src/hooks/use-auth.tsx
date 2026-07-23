@@ -20,26 +20,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
-  // Guards against out-of-order async writes to `shop`: the SIGNED_IN listener's
-  // own fetch and an explicit refreshShop() call (e.g. right after creating a shop
-  // during owner signup) can be in flight concurrently. Whichever fetch started
-  // most recently should win, even if an earlier-started fetch resolves later with
-  // a stale (e.g. pre-shop-creation) result.
-  const shopRequestSeq = useRef(0);
+  // Two independent counters guard against out-of-order async writes, one per
+  // logically distinct concern:
+  // - `loadSeq` guards a whole loadForSession() run (its `profile` write and
+  //   final `setLoading(false)`): if a newer session-load has started since this
+  //   one began, this one's results are stale and must not be applied.
+  // - `shopSeq` guards `shop` specifically, because it can be written by two
+  //   independent callers running concurrently: loadForSession's own fetch (as
+  //   part of a session reload) and an explicit refreshShop() call (e.g. right
+  //   after creating a shop during owner signup). These must NOT share a counter
+  //   with loadSeq: an earlier version of this guard used a single shared
+  //   counter, which meant refreshShop() bumping "its" sequence could cause an
+  //   unrelated, still in-flight profile fetch inside loadForSession to be
+  //   discarded -- silently leaving `profile: null` after a fresh signup and
+  //   bouncing the new owner back to /signup. Keeping `shop` on its own counter
+  //   preserves "last-started-shop-fetch-wins" without that cross-field damage.
+  //
+  // `session` itself is set synchronously, before any await, in every
+  // loadForSession call. Because there's no async gap before that assignment,
+  // whichever call was most recently *invoked* always applies its session value
+  // last, in deterministic call order -- there's no resolution-order race to
+  // guard against, so `session` intentionally has no counter.
+  const loadSeq = useRef(0);
+  const shopSeq = useRef(0);
 
   useEffect(() => {
     let active = true;
 
     const loadForSession = async (nextSession: Session | null) => {
       if (!active) return;
-      const requestId = ++shopRequestSeq.current;
+      const myLoadId = ++loadSeq.current;
       setSession(nextSession);
       if (!nextSession) {
-        if (shopRequestSeq.current === requestId) {
-          setProfile(null);
-          setShop(null);
-          setLoading(false);
-        }
+        setProfile(null);
+        setShop(null);
+        setLoading(false);
         return;
       }
       const { data: profileRow } = await supabase
@@ -47,7 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .select('*')
         .eq('id', nextSession.user.id)
         .single();
-      if (!active || shopRequestSeq.current !== requestId) return;
+      if (!active || loadSeq.current !== myLoadId) return;
       setProfile(
         profileRow
           ? {
@@ -59,9 +74,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           : null
       );
+      const myShopId = ++shopSeq.current;
       const myShop = await getMyShop();
-      if (!active || shopRequestSeq.current !== requestId) return;
-      setShop(myShop);
+      if (!active || loadSeq.current !== myLoadId) return;
+      if (shopSeq.current === myShopId) setShop(myShop);
       setLoading(false);
     };
 
@@ -77,9 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshShop = async () => {
-    const requestId = ++shopRequestSeq.current;
+    const myShopId = ++shopSeq.current;
     const myShop = await getMyShop();
-    if (shopRequestSeq.current !== requestId) return;
+    if (shopSeq.current !== myShopId) return;
     setShop(myShop);
   };
 
