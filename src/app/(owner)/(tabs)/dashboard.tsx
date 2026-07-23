@@ -15,7 +15,7 @@ export default function DashboardScreen() {
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [topProducts, setTopProducts] = useState<{ name: string; quantitySold: number; revenueCents: number }[]>([]);
   const [lowStock, setLowStock] = useState<Product[]>([]);
-  const [dailyTotals, setDailyTotals] = useState<{ day: string; totalCents: number }[]>([]);
+  const [dailyTotals, setDailyTotals] = useState<{ day: string; totalCents: number; orderCount: number }[]>([]);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -33,9 +33,8 @@ export default function DashboardScreen() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const todayTotalCents = dailyTotals.at(-1)?.totalCents ?? 0;
-  const todayOrders = recentSales.filter((sale) => new Date(sale.createdAt) >= todayStart).length;
+  const todayOrders = dailyTotals.at(-1)?.orderCount ?? 0;
 
   return (
     <SafeAreaView style={styles.safeArea}>

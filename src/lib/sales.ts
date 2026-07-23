@@ -84,16 +84,20 @@ export async function getDailyTotalsCents(shopId: string, days = 7) {
   since.setDate(since.getDate() - (days - 1));
   since.setHours(0, 0, 0, 0);
   const sales = await listSales(shopId, 500);
-  const buckets = new Map<string, number>();
+  const buckets = new Map<string, { totalCents: number; orderCount: number }>();
   for (let i = 0; i < days; i++) {
     const day = new Date(since); day.setDate(since.getDate() + i);
-    buckets.set(day.toDateString(), 0);
+    buckets.set(day.toDateString(), { totalCents: 0, orderCount: 0 });
   }
   for (const sale of sales) {
     const day = new Date(sale.createdAt);
     if (day < since) continue;
     const key = day.toDateString();
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + sale.totalCents);
+    const bucket = buckets.get(key);
+    if (bucket) {
+      bucket.totalCents += sale.totalCents;
+      bucket.orderCount += 1;
+    }
   }
-  return Array.from(buckets.entries()).map(([day, totalCents]) => ({ day, totalCents }));
+  return Array.from(buckets.entries()).map(([day, bucket]) => ({ day, ...bucket }));
 }
