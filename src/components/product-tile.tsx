@@ -65,7 +65,7 @@ export function ProductTile({
 }
 
 const styles = StyleSheet.create({
-  row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#F4F4F4', gap: 10 },
+  row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
   thumb: { width: 34, height: 34, borderRadius: 7 },
   thumbPlaceholder: { backgroundColor: '#F2F2F2' },
   info: { flex: 2 },
@@ -80,5 +80,5 @@ const styles = StyleSheet.create({
   stepperButton: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { color: '#111111', fontSize: 13, fontWeight: '800' },
   editButton: { width: 24, alignItems: 'center' },
-  editIcon: { color: '#BBBBBB', fontSize: 14 },
+  editIcon: { color: '#999999', fontSize: 14 },
 });
