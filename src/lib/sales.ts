@@ -55,3 +55,45 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
 }
+
+export async function getTopSellingProducts(shopId: string, days = 7) {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
+  const { data, error } = await supabase
+    .from('sale_items')
+    .select('product_name, quantity, line_total_cents, sales!inner(shop_id, created_at)')
+    .eq('sales.shop_id', shopId)
+    .gte('sales.created_at', since.toISOString());
+  if (error) throw error;
+
+  const totals = new Map<string, { quantitySold: number; revenueCents: number }>();
+  for (const row of data ?? []) {
+    const current = totals.get(row.product_name) ?? { quantitySold: 0, revenueCents: 0 };
+    current.quantitySold += row.quantity;
+    current.revenueCents += row.line_total_cents;
+    totals.set(row.product_name, current);
+  }
+  return Array.from(totals.entries())
+    .map(([name, totalsForName]) => ({ name, ...totalsForName }))
+    .sort((a, b) => b.quantitySold - a.quantitySold)
+    .slice(0, 5);
+}
+
+export async function getDailyTotalsCents(shopId: string, days = 7) {
+  const since = new Date();
+  since.setDate(since.getDate() - (days - 1));
+  since.setHours(0, 0, 0, 0);
+  const sales = await listSales(shopId, 500);
+  const buckets = new Map<string, number>();
+  for (let i = 0; i < days; i++) {
+    const day = new Date(since); day.setDate(since.getDate() + i);
+    buckets.set(day.toDateString(), 0);
+  }
+  for (const sale of sales) {
+    const day = new Date(sale.createdAt);
+    if (day < since) continue;
+    const key = day.toDateString();
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + sale.totalCents);
+  }
+  return Array.from(buckets.entries()).map(([day, totalCents]) => ({ day, totalCents }));
+}

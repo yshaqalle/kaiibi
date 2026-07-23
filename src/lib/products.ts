@@ -59,6 +59,11 @@ export async function listProducts(shopId: string): Promise<Product[]> {
   return (data ?? []).map(mapProductRow);
 }
 
+export async function getLowStockProducts(shopId: string): Promise<Product[]> {
+  const products = await listProducts(shopId);
+  return products.filter((p) => p.stock <= (p.reorderLevel ?? 5));
+}
+
 export async function getProduct(id: string): Promise<Product> {
   const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
   if (error) throw error;
