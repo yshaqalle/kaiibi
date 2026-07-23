@@ -8,7 +8,8 @@ node_modules/
 dist/
 web-build/
 expo-env.d.ts
-
+.superpowers/
+.playwright-mcp/
 # Native
 .kotlin/
 *.orig.*

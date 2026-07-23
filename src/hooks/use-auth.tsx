@@ -43,6 +43,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // guard against, so `session` intentionally has no counter.
   const loadSeq = useRef(0);
   const shopSeq = useRef(0);
+  // Tracks whose data `profile`/`shop` currently hold, so loadForSession can
+  // tell "a different user just signed in" (must re-arm `loading` so
+  // consumers like OwnerLayout wait for the new profile instead of judging
+  // the stale one) apart from "same user, background token refresh" (must
+  // NOT re-arm `loading`, or every silent refresh would flash a spinner over
+  // an already-loaded dashboard). `undefined` means "no session resolved
+  // yet" -- distinct from `null` (resolved as signed-out) so the very first
+  // loadForSession call always counts as a change.
+  const lastUserId = useRef<string | null | undefined>(undefined);
 
   useEffect(() => {
     let active = true;
@@ -50,6 +59,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const loadForSession = async (nextSession: Session | null) => {
       if (!active) return;
       const myLoadId = ++loadSeq.current;
+      const nextUserId = nextSession?.user.id ?? null;
+      if (lastUserId.current !== nextUserId) setLoading(true);
+      lastUserId.current = nextUserId;
       setSession(nextSession);
       if (!nextSession) {
         setProfile(null);
