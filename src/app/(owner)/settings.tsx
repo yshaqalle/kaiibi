@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { ScreenHeader } from '@/components/screen-header';
 import { useAuth } from '@/hooks/use-auth';
 import { createCategory, deleteCategory, listCategories, renameCategory } from '@/lib/categories';
 import { createTag, deleteTag, listTags, renameTag } from '@/lib/tags';
@@ -41,6 +42,7 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <ScreenHeader title="Settings" />
       <ScrollView contentContainerStyle={styles.content}>
         {error && <Text style={styles.error}>{error}</Text>}
         {loading ? (
@@ -104,7 +106,7 @@ function EditableList({
   const startEdit = (name: string) => { setEditing(name); setEditValue(name); setConfirmingDelete(null); };
   const submitEdit = () => {
     const trimmed = editValue.trim();
-    if (editing && trimmed && trimmed !== editing) onRename(editing, trimmed);
+    if (editing !== null && trimmed && trimmed !== editing) onRename(editing, trimmed);
     setEditing(null);
   };
 
@@ -126,7 +128,7 @@ function EditableList({
               </>
             ) : confirmingDelete === item ? (
               <>
-                <Text style={[styles.rowLabel, { flex: 1 }]}>Delete "{item}"?</Text>
+                <Text style={[styles.rowLabel, { flex: 1 }]}>Delete &quot;{item}&quot;?</Text>
                 <Pressable onPress={() => { onDelete(item); setConfirmingDelete(null); }} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Confirm</Text></Pressable>
                 <Pressable onPress={() => setConfirmingDelete(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
               </>

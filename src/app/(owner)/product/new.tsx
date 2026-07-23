@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router';
 import { SafeAreaView, StyleSheet } from 'react-native';
 
 import { ProductForm } from '@/components/product-form';
+import { ScreenHeader } from '@/components/screen-header';
 import { useAuth } from '@/hooks/use-auth';
 import { createProduct } from '@/lib/products';
 
@@ -13,6 +14,7 @@ export default function NewProductScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <ScreenHeader title="Add product" />
       <ProductForm
         shopId={shop.id}
         submitLabel="Save product"
@@ -25,4 +27,4 @@ export default function NewProductScreen() {
   );
 }
 
-const styles = StyleSheet.create({ safeArea: { flex: 1, backgroundColor: '#FAF9F5' } });
+const styles = StyleSheet.create({ safeArea: { flex: 1, backgroundColor: '#FFFFFF' } });

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, StyleSheet, Text } from 'react-native';
 
 import { ProductForm } from '@/components/product-form';
+import { ScreenHeader } from '@/components/screen-header';
 import { deleteProduct, getProduct, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
 
@@ -17,6 +18,7 @@ export default function EditProductScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      <ScreenHeader title="Edit product" />
       <ProductForm
         initial={product}
         shopId={product.shopId}
@@ -36,7 +38,7 @@ export default function EditProductScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FAF9F5' },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   deleteButton: { alignItems: 'center', paddingVertical: 16 },
   deleteText: { color: '#C0392B', fontWeight: '800', fontSize: 13 },
 });

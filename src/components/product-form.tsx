@@ -91,7 +91,7 @@ export function ProductForm({
         sku: sku.trim() || null,
         barcode: barcode.trim() || null,
         brand: brand.trim() || null,
-        category,
+        category: category.trim() || null,
         tags: tagList,
         supplierName: supplierName.trim() || null,
         costCents: costInput.trim() ? toCents(costInput) : null,

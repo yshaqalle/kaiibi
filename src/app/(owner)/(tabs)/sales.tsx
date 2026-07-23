@@ -11,7 +11,7 @@ import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot } from '@/types/models';
 
 const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
-const rangeStepDays = 14;
+const rangePresets = [7, 14, 30, 90] as const;
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -20,11 +20,21 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+function parseDateInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
+  const date = new Date(`${value.trim()}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 export default function SalesScreen() {
   const { shop } = useAuth();
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [daysBack, setDaysBack] = useState(rangeStepDays);
+  const [daysBack, setDaysBack] = useState<number>(14);
+  const [rangeMode, setRangeMode] = useState<'preset' | 'custom'>('preset');
+  const [customStartInput, setCustomStartInput] = useState('');
+  const [customEndInput, setCustomEndInput] = useState('');
+  const [appliedCustomRange, setAppliedCustomRange] = useState<{ start: string; end: string } | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -33,17 +43,44 @@ export default function SalesScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const sinceDate = useMemo(() => {
+    if (rangeMode === 'custom' && appliedCustomRange) {
+      return parseDateInput(appliedCustomRange.start) ?? new Date(0);
+    }
     const d = new Date();
     d.setDate(d.getDate() - daysBack);
     d.setHours(0, 0, 0, 0);
     return d;
-  }, [daysBack]);
+  }, [rangeMode, daysBack, appliedCustomRange]);
+
+  const untilDate = useMemo(() => {
+    if (rangeMode !== 'custom' || !appliedCustomRange) return undefined;
+    const end = parseDateInput(appliedCustomRange.end);
+    if (!end) return undefined;
+    end.setHours(23, 59, 59, 999);
+    return end;
+  }, [rangeMode, appliedCustomRange]);
+
+  const customRangeValid = useMemo(() => {
+    const start = parseDateInput(customStartInput);
+    const end = parseDateInput(customEndInput);
+    return Boolean(start && end && start <= end);
+  }, [customStartInput, customEndInput]);
+
+  const applyCustomRange = () => {
+    if (!customRangeValid) return;
+    setAppliedCustomRange({ start: customStartInput, end: customEndInput });
+  };
+
+  const selectPreset = (days: number) => {
+    setRangeMode('preset');
+    setDaysBack(days);
+  };
 
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
     try {
-      const [salesRows, productRows] = await Promise.all([listSalesInRange(shop.id, sinceDate), listProducts(shop.id)]);
+      const [salesRows, productRows] = await Promise.all([listSalesInRange(shop.id, sinceDate, untilDate), listProducts(shop.id)]);
       setSales(salesRows);
       setProducts(productRows);
     } catch (err) {
@@ -51,7 +88,7 @@ export default function SalesScreen() {
     } finally {
       setLoading(false);
     }
-  }, [shop, sinceDate]);
+  }, [shop, sinceDate, untilDate]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -66,6 +103,7 @@ export default function SalesScreen() {
   }, [sales, search]);
 
   const rangeTotalCents = filtered.reduce((sum, s) => sum + s.totalCents, 0);
+  const rangeLabel = rangeMode === 'custom' && appliedCustomRange ? `${appliedCustomRange.start} – ${appliedCustomRange.end}` : `Last ${daysBack} days`;
 
   const handleDelete = async (saleId: string) => {
     setError(null);
@@ -84,7 +122,7 @@ export default function SalesScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Sales</Text>
         <View style={styles.metricRow}>
-          <StatTile value={formatCents(rangeTotalCents)} label={`Last ${daysBack} days`} />
+          <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
           <StatTile value={String(filtered.length)} label="Orders" />
         </View>
 
@@ -96,12 +134,39 @@ export default function SalesScreen() {
           style={styles.search}
         />
 
+        <View style={styles.rangeRow}>
+          {rangePresets.map((days) => (
+            <Pressable key={days} onPress={() => selectPreset(days)} style={[styles.rangeChip, rangeMode === 'preset' && daysBack === days && styles.rangeChipActive]}>
+              <Text style={[styles.rangeChipText, rangeMode === 'preset' && daysBack === days && styles.rangeChipTextActive]}>{days}d</Text>
+            </Pressable>
+          ))}
+          <Pressable onPress={() => setRangeMode('custom')} style={[styles.rangeChip, rangeMode === 'custom' && styles.rangeChipActive]}>
+            <Text style={[styles.rangeChipText, rangeMode === 'custom' && styles.rangeChipTextActive]}>Custom range</Text>
+          </Pressable>
+        </View>
+
+        {rangeMode === 'custom' && (
+          <View style={styles.customRangeRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>FROM</Text>
+              <TextInput value={customStartInput} onChangeText={setCustomStartInput} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.dateInput} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.fieldLabel}>TO</Text>
+              <TextInput value={customEndInput} onChangeText={setCustomEndInput} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.dateInput} />
+            </View>
+            <Pressable onPress={applyCustomRange} disabled={!customRangeValid} style={[styles.applyButton, !customRangeValid && styles.applyButtonDisabled]}>
+              <Text style={styles.applyButtonText}>Apply</Text>
+            </Pressable>
+          </View>
+        )}
+
         {error && <Text style={styles.error}>{error}</Text>}
 
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
-          <Text style={styles.empty}>{search ? 'No sales match your search.' : `No sales in the last ${daysBack} days.`}</Text>
+          <Text style={styles.empty}>{search ? 'No sales match your search.' : rangeMode === 'custom' ? 'No sales in this range.' : `No sales in the last ${daysBack} days.`}</Text>
         ) : (
           <View style={styles.list}>
             {filtered.map((sale) => (
@@ -123,10 +188,6 @@ export default function SalesScreen() {
             ))}
           </View>
         )}
-
-        <Pressable onPress={() => setDaysBack((d) => d + rangeStepDays)} style={styles.loadMore}>
-          <Text style={styles.loadMoreText}>Load {rangeStepDays} more days</Text>
-        </Pressable>
       </ScrollView>
     </SafeAreaView>
   );
@@ -347,7 +408,18 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingBottom: 60 },
   title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
-  search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 18, color: '#111111' },
+  search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
+  rangeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  rangeChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, backgroundColor: '#F2F2F2' },
+  rangeChipActive: { backgroundColor: '#111111' },
+  rangeChipText: { fontSize: 12, fontWeight: '700', color: '#555555' },
+  rangeChipTextActive: { color: '#FFFFFF' },
+  customRangeRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginBottom: 18 },
+  fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
+  dateInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
+  applyButton: { backgroundColor: '#111111', height: 42, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  applyButtonDisabled: { backgroundColor: '#CCCCCC' },
+  applyButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
   list: { gap: 10 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', overflow: 'hidden' },
   saleRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
@@ -390,7 +462,4 @@ const styles = StyleSheet.create({
   saveButton: { backgroundColor: '#111111', paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10 },
   saveButtonDisabled: { backgroundColor: '#CCCCCC' },
   saveButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
-
-  loadMore: { alignItems: 'center', paddingVertical: 14, marginTop: 16 },
-  loadMoreText: { fontSize: 12, fontWeight: '700', color: '#999999', textDecorationLine: 'underline' },
 });

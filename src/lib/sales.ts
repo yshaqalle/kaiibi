@@ -126,14 +126,16 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
 // `listSales` (used by the dashboard's rolling daily-totals calculation)
 // since that call doesn't need edit history and a shop with a long history
 // shouldn't pay for fetching it on every dashboard load.
-export async function listSalesInRange(shopId: string, sinceDate: Date, limit = 300): Promise<Sale[]> {
-  const { data, error } = await supabase
+export async function listSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, limit = 300): Promise<Sale[]> {
+  let query = supabase
     .from('sales')
     .select('*, sale_items(*), sale_payments(*), sale_edits(*)')
     .eq('shop_id', shopId)
     .gte('created_at', sinceDate.toISOString())
     .order('created_at', { ascending: false })
     .limit(limit);
+  if (untilDate) query = query.lte('created_at', untilDate.toISOString());
+  const { data, error } = await query;
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
 }
