@@ -1,13 +1,13 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { CategoryChip } from '@/components/category-chip';
 import { formatCents, toCents } from '@/lib/currency';
-import { uploadProductImage } from '@/lib/products';
+import { listProducts, uploadProductImage } from '@/lib/products';
+import { deriveCategories, deriveTags } from '@/lib/product-taxonomy';
 import type { NewProductInput, Product } from '@/types/models';
-
-const categories = ['Skincare', 'Makeup', 'Hair', 'Body', 'Supplements'];
 
 export function ProductForm({
   initial,
@@ -25,8 +25,18 @@ export function ProductForm({
   const [sku, setSku] = useState(initial?.sku ?? '');
   const [barcode, setBarcode] = useState(initial?.barcode ?? '');
   const [brand, setBrand] = useState(initial?.brand ?? '');
-  const [category, setCategory] = useState(initial?.category ?? categories[0]);
+  const [category, setCategory] = useState(initial?.category ?? '');
+  const [addingNewCategory, setAddingNewCategory] = useState(false);
   const [tags, setTags] = useState(initial?.tags?.join(', ') ?? '');
+  const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+
+  useEffect(() => {
+    listProducts(shopId).then((products) => {
+      setCategorySuggestions(deriveCategories(products));
+      setTagSuggestions(deriveTags(products));
+    }).catch(() => {});
+  }, [shopId]);
   const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '');
   const [costInput, setCostInput] = useState(initial?.costCents ? formatCents(initial.costCents).replace('$', '') : '');
   const [priceInput, setPriceInput] = useState(initial?.priceCents ? formatCents(initial.priceCents).replace('$', '') : '');
@@ -99,36 +109,66 @@ export function ProductForm({
           {imageUri ? <Image source={{ uri: imageUri }} contentFit="cover" style={styles.photoPreview} /> : <Text style={styles.photoHint}>Add a product photo</Text>}
         </Pressable>
       </Field>
-      <Field label="PRODUCT NAME *"><TextInput value={name} onChangeText={setName} placeholder="e.g. ANUA Heartleaf Toner" placeholderTextColor="#89928B" style={styles.input} /></Field>
-      <Field label="DESCRIPTION"><TextInput value={description} onChangeText={setDescription} placeholder="Materials, size, story…" placeholderTextColor="#89928B" style={[styles.input, styles.multiline]} multiline textAlignVertical="top" /></Field>
+      <Field label="PRODUCT NAME *"><TextInput value={name} onChangeText={setName} placeholder="e.g. ANUA Heartleaf Toner" placeholderTextColor="#999999" style={styles.input} /></Field>
+      <Field label="DESCRIPTION"><TextInput value={description} onChangeText={setDescription} placeholder="Materials, size, story…" placeholderTextColor="#999999" style={[styles.input, styles.multiline]} multiline textAlignVertical="top" /></Field>
       <Row>
-        <Field label="SKU" style={styles.half}><TextInput value={sku} onChangeText={setSku} placeholder="SKU-001" placeholderTextColor="#89928B" style={styles.input} /></Field>
-        <Field label="BARCODE" style={styles.half}><TextInput value={barcode} onChangeText={setBarcode} placeholder="Optional" placeholderTextColor="#89928B" style={styles.input} /></Field>
+        <Field label="SKU" style={styles.half}><TextInput value={sku} onChangeText={setSku} placeholder="SKU-001" placeholderTextColor="#999999" style={styles.input} /></Field>
+        <Field label="BARCODE" style={styles.half}><TextInput value={barcode} onChangeText={setBarcode} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       </Row>
-      <Field label="BRAND"><TextInput value={brand} onChangeText={setBrand} placeholder="e.g. ANUA" placeholderTextColor="#89928B" style={styles.input} /></Field>
+      <Field label="BRAND"><TextInput value={brand} onChangeText={setBrand} placeholder="e.g. ANUA" placeholderTextColor="#999999" style={styles.input} /></Field>
       <Field label="CATEGORY">
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {categories.map((item) => (
-            <Pressable key={item} onPress={() => setCategory(item)} style={[styles.chip, category === item && styles.chipActive]}>
-              <Text style={[styles.chipText, category === item && styles.chipTextActive]}>{item}</Text>
-            </Pressable>
+          {categorySuggestions.map((item) => (
+            <CategoryChip key={item} label={item} active={category === item} onPress={() => { setCategory(item); setAddingNewCategory(false); }} />
           ))}
+          <CategoryChip label="+ New" active={addingNewCategory} onPress={() => setAddingNewCategory(true)} />
         </ScrollView>
+        {addingNewCategory && (
+          <TextInput
+            value={category}
+            onChangeText={setCategory}
+            placeholder="Type a new category"
+            placeholderTextColor="#999999"
+            autoFocus
+            style={styles.input}
+          />
+        )}
+        {!addingNewCategory && category && !categorySuggestions.includes(category) && (
+          <Text style={styles.categoryHint}>Selected: {category}</Text>
+        )}
       </Field>
-      <Field label="TAGS"><TextInput value={tags} onChangeText={setTags} placeholder="e.g. bestseller, toner" placeholderTextColor="#89928B" style={styles.input} /></Field>
-      <Field label="SUPPLIER"><TextInput value={supplierName} onChangeText={setSupplierName} placeholder="Optional" placeholderTextColor="#89928B" style={styles.input} /></Field>
+      <Field label="TAGS">
+        <TextInput value={tags} onChangeText={setTags} placeholder="e.g. bestseller, toner" placeholderTextColor="#999999" style={styles.input} />
+        {tagSuggestions.length > 0 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+            {tagSuggestions.map((tag) => (
+              <CategoryChip
+                key={tag}
+                label={tag}
+                active={tags.split(',').map((t) => t.trim()).includes(tag)}
+                onPress={() => {
+                  const current = tags.split(',').map((t) => t.trim()).filter(Boolean);
+                  if (current.includes(tag)) return;
+                  setTags([...current, tag].join(', '));
+                }}
+              />
+            ))}
+          </ScrollView>
+        )}
+      </Field>
+      <Field label="SUPPLIER"><TextInput value={supplierName} onChangeText={setSupplierName} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       <Row>
-        <Field label="PURCHASE COST" style={styles.half}><TextInput value={costInput} onChangeText={setCostInput} placeholder="0.00" placeholderTextColor="#89928B" keyboardType="decimal-pad" style={styles.input} /></Field>
-        <Field label="RETAIL PRICE *" style={styles.half}><TextInput value={priceInput} onChangeText={setPriceInput} placeholder="0.00" placeholderTextColor="#89928B" keyboardType="decimal-pad" style={styles.input} /></Field>
+        <Field label="PURCHASE COST" style={styles.half}><TextInput value={costInput} onChangeText={setCostInput} placeholder="0.00" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} /></Field>
+        <Field label="RETAIL PRICE *" style={styles.half}><TextInput value={priceInput} onChangeText={setPriceInput} placeholder="0.00" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} /></Field>
       </Row>
       <Row>
-        <Field label="STOCK" style={styles.half}><TextInput value={stock} onChangeText={setStock} placeholder="0" placeholderTextColor="#89928B" keyboardType="number-pad" style={styles.input} /></Field>
-        <Field label="REORDER LEVEL" style={styles.half}><TextInput value={reorderLevel} onChangeText={setReorderLevel} placeholder="5" placeholderTextColor="#89928B" keyboardType="number-pad" style={styles.input} /></Field>
+        <Field label="STOCK" style={styles.half}><TextInput value={stock} onChangeText={setStock} placeholder="0" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
+        <Field label="REORDER LEVEL" style={styles.half}><TextInput value={reorderLevel} onChangeText={setReorderLevel} placeholder="5" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
       </Row>
-      <Field label="SHELF / LOCATION"><TextInput value={shelfNumber} onChangeText={setShelfNumber} placeholder="e.g. A3" placeholderTextColor="#89928B" style={styles.input} /></Field>
+      <Field label="SHELF / LOCATION"><TextInput value={shelfNumber} onChangeText={setShelfNumber} placeholder="e.g. A3" placeholderTextColor="#999999" style={styles.input} /></Field>
       <Row>
-        <Field label="EXPIRY DATE" style={styles.half}><TextInput value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor="#89928B" style={styles.input} /></Field>
-        <Field label="BATCH NUMBER" style={styles.half}><TextInput value={batchNumber} onChangeText={setBatchNumber} placeholder="Optional" placeholderTextColor="#89928B" style={styles.input} /></Field>
+        <Field label="EXPIRY DATE" style={styles.half}><TextInput value={expiryDate} onChangeText={setExpiryDate} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.input} /></Field>
+        <Field label="BATCH NUMBER" style={styles.half}><TextInput value={batchNumber} onChangeText={setBatchNumber} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       </Row>
       <View style={styles.toggleRow}>
         <View style={{ flex: 1 }}>
@@ -154,22 +194,19 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 60 },
   row: { flexDirection: 'row', gap: 8 },
   half: { flex: 1 },
-  fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#657269', marginBottom: 7, marginTop: 3 },
-  photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D5DED2', borderStyle: 'dashed', borderRadius: 11, marginBottom: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#999999', marginBottom: 7, marginTop: 3 },
+  photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', borderRadius: 11, marginBottom: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoPreview: { width: '100%', height: '100%' },
-  photoHint: { color: '#78867C', fontSize: 13 },
-  input: { backgroundColor: '#fff', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#17261F', marginBottom: 8 },
+  photoHint: { color: '#999999', fontSize: 13 },
+  input: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#111111', marginBottom: 8 },
   multiline: { height: 78, paddingTop: 11 },
   chips: { gap: 7, paddingBottom: 12 },
-  chip: { backgroundColor: '#FFFFFF', paddingVertical: 8, paddingHorizontal: 11, borderRadius: 16, borderWidth: 1, borderColor: '#D9E0D6' },
-  chipActive: { backgroundColor: '#31533A', borderColor: '#31533A' },
-  chipText: { fontSize: 11, fontWeight: '700', color: '#546158' },
-  chipTextActive: { color: '#FFFFFF' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#EEF2EB', borderRadius: 12, padding: 13, marginTop: 6, marginBottom: 14, gap: 10 },
-  toggleTitle: { color: '#17261F', fontSize: 13, fontWeight: '800' },
-  toggleHint: { color: '#657269', fontSize: 11, marginTop: 3 },
+  categoryHint: { color: '#999999', fontSize: 11, marginTop: 6 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F2', borderRadius: 12, padding: 13, marginTop: 6, marginBottom: 14, gap: 10 },
+  toggleTitle: { color: '#111111', fontSize: 13, fontWeight: '800' },
+  toggleHint: { color: '#999999', fontSize: 11, marginTop: 3 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 10 },
-  save: { backgroundColor: '#E45B37', height: 45, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
-  saveDisabled: { backgroundColor: '#C8CCC6' },
+  save: { backgroundColor: '#111111', height: 45, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  saveDisabled: { backgroundColor: '#CCCCCC' },
   saveText: { color: '#fff', fontWeight: '800' },
 });

@@ -19,6 +19,7 @@
   - Primary button/badge fill: `#111111` with white text
   - Low-stock warning (kept as functional exception): text `#B5793A`, border `#E8C99B`
   - Out-of-stock badge: solid `#111111` fill, white text (not red)
+  - `CategoryChip` inactive state (functional exception, from the approved design spec): border `#E2E2E2`, label text `#444444`. Slightly lighter/darker than the general border/text grays above because it needs to read as an interactive control against plain white, not a static card border — active state still uses `#111111` fill / white text like every other primary control.
   - Ka Iibi's terracotta `#E45B37` must not appear anywhere touched by this plan — including `revenue-chart.tsx`'s bar color (Task 8).
 - **Scope: web only.** Native (`owner-tabs.tsx`, `NativeTabs`) keeps its bottom tab bar exactly as laid out today — only its `sell` trigger name and label are renamed to `pos`/"POS" for route consistency (Task 6). No other native visual change.
 - **No database schema changes.** `Product.category: string | null` and `Product.tags: string[]` already support arbitrary values — Task 5 only changes how the picker UI populates its suggestions.

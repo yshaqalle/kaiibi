@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { MetricTile } from '@/components/metric-tile';
+import { Card } from '@/components/card';
+import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
 import { listSales } from '@/lib/sales';
@@ -32,15 +33,15 @@ export default function SalesScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.title}>Sales</Text>
         <View style={styles.metricRow}>
-          <MetricTile value={formatCents(todayTotalCents)} label="Sales today" tone="#E6D8C0" />
-          <MetricTile value={String(todaySales.length)} label="Orders today" tone="#D8E6D7" />
+          <StatTile value={formatCents(todayTotalCents)} label="Sales today" />
+          <StatTile value={String(todaySales.length)} label="Orders today" />
         </View>
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : sales.length === 0 ? (
           <Text style={styles.empty}>No sales yet.</Text>
         ) : (
-          <View style={styles.list}>
+          <Card style={styles.list}>
             {sales.map((sale) => (
               <View key={sale.id} style={styles.saleRow}>
                 <View style={{ flex: 1 }}>
@@ -50,7 +51,7 @@ export default function SalesScreen() {
                 <Text style={styles.saleTotal}>{formatCents(sale.totalCents)}</Text>
               </View>
             ))}
-          </View>
+          </Card>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -58,14 +59,14 @@ export default function SalesScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FAF9F5' },
-  content: { padding: 20, paddingBottom: 42 },
-  title: { color: '#17261F', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
-  metricRow: { flexDirection: 'row', gap: 8, marginBottom: 24 },
-  list: { backgroundColor: '#fff', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: '#EFEEE9' },
-  saleRow: { flexDirection: 'row', alignItems: 'center', padding: 13, borderBottomWidth: 1, borderBottomColor: '#F0EFEB' },
-  saleItems: { color: '#26342D', fontSize: 13, fontWeight: '700' },
-  saleMeta: { color: '#8A908A', fontSize: 11, marginTop: 3 },
-  saleTotal: { color: '#17261F', fontSize: 14, fontWeight: '800' },
-  empty: { color: '#7B837C', fontSize: 13, marginTop: 20, textAlign: 'center' },
+  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  content: { padding: 24, paddingBottom: 42 },
+  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
+  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 26 },
+  list: { overflow: 'hidden' },
+  saleRow: { flexDirection: 'row', alignItems: 'center', padding: 13, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
+  saleItems: { color: '#111111', fontSize: 13, fontWeight: '700' },
+  saleMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
+  saleTotal: { color: '#111111', fontSize: 14, fontWeight: '800' },
+  empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
 });
