@@ -1,6 +1,9 @@
+import { Image } from 'expo-image';
 import { Tabs, TabList, TabListProps, TabSlot, TabTrigger, TabTriggerSlotProps } from 'expo-router/ui';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+
+const markWhite = require('@/assets/images/kaiibi-mark-white.png');
 
 export default function AppTabs() {
   const { width } = useWindowDimensions();
@@ -24,7 +27,10 @@ function Header({ compact, children, style, ...props }: TabListProps & { compact
   const router = useRouter();
   return <View {...props} style={[styles.header, style]}>
     <View style={styles.topbar}>
-      <Pressable onPress={() => router.push('/')} accessibilityRole="link"><Text style={styles.brand}>Ka Iibi</Text></Pressable>
+      <Pressable onPress={() => router.push('/')} accessibilityRole="link" style={styles.brandRow}>
+        <Image source={markWhite} contentFit="contain" style={styles.brandMark} />
+        <Text style={styles.brand}>Ka Iibi</Text>
+      </Pressable>
       {!compact && <Text style={styles.location}>⌖ Simple, easy-to-use point of sale & inventory — for any shop, anywhere</Text>}
     </View>
     {children}
@@ -41,6 +47,8 @@ const styles = StyleSheet.create({
   slotCompact: { paddingTop: 62 },
   header: { position: 'absolute', top: 0, width: '100%', zIndex: 20, backgroundColor: '#17261F' },
   topbar: { minHeight: 62, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 26, gap: 30, maxWidth: 1440, width: '100%', alignSelf: 'center' },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandMark: { width: 27, height: 29 },
   brand: { color: '#FFFFFF', fontSize: 29, lineHeight: 33, fontWeight: '900', letterSpacing: -1.8 },
   location: { color: '#DDE6DA', fontSize: 13, fontWeight: '600', flex: 1 },
   navButton: { position: 'absolute', top: 14, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 7 },
