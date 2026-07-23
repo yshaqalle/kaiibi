@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
-  avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#17261F', alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   shopName: { color: '#111111', fontSize: 15, fontWeight: '800', maxWidth: 140 },
   shopSubtitle: { color: '#999999', fontSize: 11, marginTop: 1 },
