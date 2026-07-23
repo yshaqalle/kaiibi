@@ -16,8 +16,8 @@ export default function OwnerTabs() {
         <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="sell">
-        <NativeTabs.Trigger.Label>Sell</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="pos">
+        <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="inventory">
