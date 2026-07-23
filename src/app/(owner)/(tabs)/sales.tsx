@@ -64,7 +64,7 @@ const styles = StyleSheet.create({
   title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 26 },
   list: { overflow: 'hidden' },
-  saleRow: { flexDirection: 'row', alignItems: 'center', padding: 13, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
+  saleRow: { flexDirection: 'row', alignItems: 'center', padding: 13, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   saleItems: { color: '#111111', fontSize: 13, fontWeight: '700' },
   saleMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
   saleTotal: { color: '#111111', fontSize: 14, fontWeight: '800' },

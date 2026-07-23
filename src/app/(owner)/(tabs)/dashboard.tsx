@@ -100,7 +100,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: '#111111', fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },
   list: { overflow: 'hidden', marginBottom: 8 },
-  topRow: { padding: 13, borderBottomWidth: 1, borderBottomColor: '#F4F4F4' },
+  topRow: { padding: 13, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   topName: { color: '#111111', fontSize: 13, fontWeight: '700' },
   topMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
   empty: { color: '#999999', fontSize: 13, marginBottom: 8 },

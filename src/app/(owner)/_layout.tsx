@@ -18,7 +18,7 @@ export default function OwnerLayout() {
     return <Redirect href="/signup" />;
   }
 
-  // `(tabs)` hosts the 4 tab-bar routes (dashboard/sell/inventory/sales) via
+  // `(tabs)` hosts the 4 tab-bar routes (dashboard/pos/inventory/sales) via
   // OwnerTabs. `product/new` and `product/[id]` are not tabs — they're detail
   // screens that should push on top of the tab bar, the same way they do
   // automatically on native. This Stack is what makes that push-over-tabs

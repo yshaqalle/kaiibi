@@ -25,8 +25,12 @@ export default function InventoryScreen() {
   useEffect(() => { reload(); }, [reload]);
 
   const adjustStock = async (product: Product, nextStock: number) => {
-    const updated = await updateProduct(product.id, { stock: nextStock });
-    setProducts((current) => current.map((p) => (p.id === updated.id ? updated : p)));
+    try {
+      const updated = await updateProduct(product.id, { stock: nextStock });
+      setProducts((current) => current.map((p) => (p.id === updated.id ? updated : p)));
+    } catch {
+      await reload();
+    }
   };
 
   const filtered = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.brand?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()));
