@@ -69,6 +69,7 @@ export default function PosScreen() {
     try {
       await completeSale(shop.id, cart, paymentMethod);
       setCart([]);
+      setPaymentMethod(null);
       await reload();
     } catch (err) {
       setError(extractErrorMessage(err));
