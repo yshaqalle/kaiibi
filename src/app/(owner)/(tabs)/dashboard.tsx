@@ -1,16 +1,19 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { MetricTile } from '@/components/metric-tile';
 import { ProductTile } from '@/components/product-tile';
 import { RevenueChart } from '@/components/revenue-chart';
 import { useAuth } from '@/hooks/use-auth';
+import { signOut } from '@/lib/auth';
 import { formatCents } from '@/lib/currency';
 import { getLowStockProducts } from '@/lib/products';
 import { getDailyTotalsCents, getTopSellingProducts, listSales } from '@/lib/sales';
 import type { Product, Sale } from '@/types/models';
 
 export default function DashboardScreen() {
+  const router = useRouter();
   const { shop, profile } = useAuth();
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [topProducts, setTopProducts] = useState<{ name: string; quantitySold: number; revenueCents: number }[]>([]);
@@ -39,6 +42,15 @@ export default function DashboardScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
+        <Pressable
+          onPress={async () => {
+            await signOut();
+            router.replace('/signup');
+          }}
+          style={styles.signOutButton}>
+          <Text style={styles.signOutText}>Sign out</Text>
+        </Pressable>
+
         <Text style={styles.greeting}>{shop?.name ?? 'Your shop'}</Text>
 
         <View style={styles.metricRow}>
@@ -94,6 +106,8 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FAF9F5' },
   content: { padding: 20, paddingBottom: 42 },
+  signOutButton: { alignSelf: 'flex-end', marginBottom: 8 },
+  signOutText: { color: '#7B837C', fontSize: 12, fontWeight: '700' },
   greeting: { color: '#17261F', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
   metricRow: { flexDirection: 'row', gap: 8, marginBottom: 26 },
   sectionTitle: { color: '#17261F', fontSize: 16, fontWeight: '800', marginTop: 10, marginBottom: 12 },
