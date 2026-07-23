@@ -1,9 +1,12 @@
+import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { PosPreviewMock } from '@/components/pos-preview-mock';
 import { PublicFooter } from '@/components/public-footer';
 import { Fonts } from '@/constants/theme';
+
+const markBlack = require('@/assets/images/kaiibi-mark-black.png');
 
 const features = [
   { icon: '⚡', title: 'Fast checkout', text: 'Ring up a sale in seconds and accept Cash, ZAAD, e-Dahab, or another wallet.' },
@@ -21,7 +24,10 @@ export default function DiscoverScreen() {
     <SafeAreaView style={styles.safeArea}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.content, isDesktop && styles.contentDesktop]}>
         <View style={styles.topline}>
-          <Text style={styles.brand}>Ka Iibi</Text>
+          <View style={styles.brandRow}>
+            <Image source={markBlack} contentFit="contain" style={styles.brandMark} />
+            <Text style={styles.brand}>Ka Iibi</Text>
+          </View>
           <Pressable style={styles.loginButton} onPress={() => router.push('/login')}>
             <Text style={styles.loginLabel}>Log in</Text>
           </Pressable>
@@ -86,6 +92,8 @@ const styles = StyleSheet.create({
   content: { paddingHorizontal: 20, paddingBottom: 48 },
   contentDesktop: { width: '100%', maxWidth: 1160, alignSelf: 'center', paddingHorizontal: 38 },
   topline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  brandMark: { width: 26, height: 28 },
   brand: { fontFamily: Fonts.serif, fontSize: 26, fontWeight: '800', letterSpacing: -1, color: '#17261F' },
   loginButton: { height: 38, borderRadius: 19, backgroundColor: '#EEEDE8', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
   loginLabel: { fontSize: 12, fontWeight: '800', color: '#17261F' },
