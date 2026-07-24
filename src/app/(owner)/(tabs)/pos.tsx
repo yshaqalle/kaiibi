@@ -37,6 +37,10 @@ export default function PosScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [customerOpen, setCustomerOpen] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -77,9 +81,17 @@ export default function PosScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await completeSale(shop.id, cart, payments);
+      await completeSale(shop.id, cart, payments, {
+        name: customerName.trim() || null,
+        phone: customerPhone.trim() || null,
+        email: customerEmail.trim() || null,
+      });
       setCart([]);
       setPayments([]);
+      setCustomerName('');
+      setCustomerPhone('');
+      setCustomerEmail('');
+      setCustomerOpen(false);
       await reload();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -171,6 +183,20 @@ export default function PosScreen() {
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>{formatCents(total)}</Text>
           </View>
+
+          <Pressable onPress={() => setCustomerOpen((v) => !v)} style={styles.customerToggle}>
+            <Text style={styles.customerToggleText}>
+              {customerOpen ? '▴' : '▾'} {customerName.trim() ? `Customer: ${customerName.trim()}` : 'Add customer info (optional)'}
+            </Text>
+          </Pressable>
+          {customerOpen && (
+            <View style={styles.customerFields}>
+              <TextInput value={customerName} onChangeText={setCustomerName} placeholder="Name" placeholderTextColor="#9B9B9B" style={styles.customerInput} />
+              <TextInput value={customerPhone} onChangeText={setCustomerPhone} placeholder="Phone" placeholderTextColor="#9B9B9B" keyboardType="phone-pad" style={styles.customerInput} />
+              <TextInput value={customerEmail} onChangeText={setCustomerEmail} placeholder="Email" placeholderTextColor="#9B9B9B" keyboardType="email-address" autoCapitalize="none" style={styles.customerInput} />
+            </View>
+          )}
+
           <PaymentMethodPicker totalCents={total} payments={payments} onChange={setPayments} />
           {error && <Text style={styles.error}>{error}</Text>}
           <Pressable onPress={checkout} disabled={cart.length === 0 || !fullyPaid || submitting} style={[styles.checkout, (cart.length === 0 || !fullyPaid || submitting) && styles.checkoutDisabled]}>
@@ -222,6 +248,10 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 15, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 26, fontWeight: '800' },
+  customerToggle: { paddingVertical: 4 },
+  customerToggleText: { fontSize: 12, fontWeight: '700', color: '#999999' },
+  customerFields: { gap: 8, marginTop: 10 },
+  customerInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 10 },
   checkout: { backgroundColor: '#111111', height: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
   checkoutDisabled: { backgroundColor: '#CCCCCC' },

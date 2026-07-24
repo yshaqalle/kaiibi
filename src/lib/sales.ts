@@ -2,13 +2,18 @@ import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
 import type { CartLine, PaymentLine, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
-export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[]): Promise<string> {
+export type SaleCustomer = { name?: string | null; phone?: string | null; email?: string | null };
+
+export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[], customer?: SaleCustomer): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
     p_items: buildSalePayload(lines),
     p_payments: buildPaymentPayload(payments),
+    p_customer_name: customer?.name ?? null,
+    p_customer_phone: customer?.phone ?? null,
+    p_customer_email: customer?.email ?? null,
   });
   if (error) throw error;
   return data as string;
@@ -18,13 +23,21 @@ export async function completeSale(shopId: string, lines: CartLine[], payments: 
 // the product id + quantity), so it takes a lighter shape than `CartLine[]`
 // — that lets the edit UI reuse existing sale items without re-fetching
 // their full product record just to satisfy `CartLine`'s type.
-export async function editSale(saleId: string, items: { productId: string; quantity: number }[], payments: PaymentLine[]): Promise<void> {
+export async function editSale(
+  saleId: string,
+  items: { productId: string; quantity: number }[],
+  payments: PaymentLine[],
+  customer?: SaleCustomer
+): Promise<void> {
   if (items.length === 0) throw new Error('A sale must have at least one item');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { error } = await supabase.rpc('edit_sale', {
     p_sale_id: saleId,
     p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity })),
     p_payments: buildPaymentPayload(payments),
+    p_customer_name: customer?.name ?? null,
+    p_customer_phone: customer?.phone ?? null,
+    p_customer_email: customer?.email ?? null,
   });
   if (error) throw error;
 }
@@ -54,6 +67,9 @@ function mapSaleRow(row: any): Sale {
     createdBy: row.created_by,
     paymentMethod: row.payment_method,
     paymentNote: row.payment_note,
+    customerName: row.customer_name,
+    customerPhone: row.customer_phone,
+    customerEmail: row.customer_email,
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,
@@ -90,6 +106,9 @@ function mapSaleRow(row: any): Sale {
           totalCents: edit.previous_snapshot.total_cents,
           itemCount: edit.previous_snapshot.item_count,
           paymentMethod: edit.previous_snapshot.payment_method,
+          customerName: edit.previous_snapshot.customer_name ?? null,
+          customerPhone: edit.previous_snapshot.customer_phone ?? null,
+          customerEmail: edit.previous_snapshot.customer_email ?? null,
           items: (edit.previous_snapshot.items ?? []).map((item: any): SaleItemSnapshot => ({
             productId: item.product_id,
             productName: item.product_name,

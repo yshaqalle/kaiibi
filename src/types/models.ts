@@ -99,6 +99,9 @@ export type SaleEdit = {
     totalCents: number;
     itemCount: number;
     paymentMethod: PaymentMethod;
+    customerName: string | null;
+    customerPhone: string | null;
+    customerEmail: string | null;
     items: SaleItemSnapshot[];
     payments: PaymentLine[];
   };
@@ -110,6 +113,13 @@ export type Sale = {
   createdBy: string | null;
   paymentMethod: PaymentMethod;
   paymentNote: string | null;
+  // Who the sale was for, independent of payment method — unlike
+  // `SalePayment.customerName/customerPhone` (only meaningful for
+  // ZAAD/e-Dahab payment lines), this applies to any sale regardless of how
+  // it was paid, including cash.
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
   totalCents: number;
   itemCount: number;
   createdAt: string;

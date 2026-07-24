@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { DateInput } from '@/components/date-input';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { StatTile } from '@/components/stat-tile';
@@ -98,6 +99,9 @@ export default function SalesScreen() {
     return sales.filter((sale) =>
       (sale.items ?? []).some((item) => item.productName.toLowerCase().includes(q)) ||
       (sale.payments ?? []).some((p) => (p.customerName ?? '').toLowerCase().includes(q) || (p.customerPhone ?? '').toLowerCase().includes(q)) ||
+      (sale.customerName ?? '').toLowerCase().includes(q) ||
+      (sale.customerPhone ?? '').toLowerCase().includes(q) ||
+      (sale.customerEmail ?? '').toLowerCase().includes(q) ||
       paymentLabels[sale.paymentMethod].toLowerCase().includes(q)
     );
   }, [sales, search]);
@@ -149,11 +153,11 @@ export default function SalesScreen() {
           <View style={styles.customRangeRow}>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>FROM</Text>
-              <TextInput value={customStartInput} onChangeText={setCustomStartInput} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.dateInput} />
+              <DateInput value={customStartInput} onChangeText={setCustomStartInput} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.fieldLabel}>TO</Text>
-              <TextInput value={customEndInput} onChangeText={setCustomEndInput} placeholder="YYYY-MM-DD" placeholderTextColor="#999999" style={styles.dateInput} />
+              <DateInput value={customEndInput} onChangeText={setCustomEndInput} />
             </View>
             <Pressable onPress={applyCustomRange} disabled={!customRangeValid} style={[styles.applyButton, !customRangeValid && styles.applyButtonDisabled]}>
               <Text style={styles.applyButtonText}>Apply</Text>
@@ -230,6 +234,7 @@ function SaleRow({
           <Text style={styles.saleItems} numberOfLines={1}>{sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ')}</Text>
           <Text style={styles.saleMeta}>
             {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
+            {sale.customerName ? ` · ${sale.customerName}` : ''}
             {editCount > 0 ? ` · Edited ${editCount}×` : ''}
           </Text>
         </View>
@@ -238,7 +243,16 @@ function SaleRow({
 
       {expanded && !editing && (
         <View style={styles.detail}>
-          <Text style={styles.detailLabel}>ITEMS</Text>
+          {(sale.customerName || sale.customerPhone || sale.customerEmail) && (
+            <>
+              <Text style={styles.detailLabel}>CUSTOMER</Text>
+              {sale.customerName && <Text style={styles.detailItemName}>{sale.customerName}</Text>}
+              {sale.customerPhone && <Text style={styles.saleMeta}>{sale.customerPhone}</Text>}
+              {sale.customerEmail && <Text style={styles.saleMeta}>{sale.customerEmail}</Text>}
+            </>
+          )}
+
+          <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
           {sale.items?.map((item) => (
             <View key={item.id} style={styles.detailRow}>
               <Text style={styles.detailItemName}>{item.quantity}× {item.productName}</Text>
@@ -270,6 +284,11 @@ function SaleRow({
                   {sale.edits?.map((edit) => (
                     <View key={edit.id} style={styles.historyEntry}>
                       <Text style={styles.historyDate}>Previous version — {new Date(edit.createdAt).toLocaleString()}</Text>
+                      {(edit.previousSnapshot.customerName || edit.previousSnapshot.customerPhone || edit.previousSnapshot.customerEmail) && (
+                        <Text style={styles.historyItem}>
+                          {[edit.previousSnapshot.customerName, edit.previousSnapshot.customerPhone, edit.previousSnapshot.customerEmail].filter(Boolean).join(' · ')}
+                        </Text>
+                      )}
                       {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
                         <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
                       ))}
@@ -314,6 +333,9 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
   const [payments, setPayments] = useState<PaymentLine[]>(() =>
     (sale.payments ?? []).map((p) => ({ method: p.method, amountCents: p.amountCents, tenderedCents: p.tenderedCents, customerName: p.customerName, customerPhone: p.customerPhone }))
   );
+  const [customerName, setCustomerName] = useState(sale.customerName ?? '');
+  const [customerPhone, setCustomerPhone] = useState(sale.customerPhone ?? '');
+  const [customerEmail, setCustomerEmail] = useState(sale.customerEmail ?? '');
   const [droppedCount] = useState(() => (sale.items?.length ?? 0) - items.length);
   const [addSearch, setAddSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -346,7 +368,11 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
     setSubmitting(true);
     setError(null);
     try {
-      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity })), payments);
+      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity })), payments, {
+        name: customerName.trim() || null,
+        phone: customerPhone.trim() || null,
+        email: customerEmail.trim() || null,
+      });
       onSaved();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -360,6 +386,13 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
       {droppedCount > 0 && (
         <Text style={styles.warningText}>{droppedCount} item{droppedCount > 1 ? 's' : ''} from this sale no longer exist and were dropped.</Text>
       )}
+
+      <Text style={styles.detailLabel}>CUSTOMER (OPTIONAL)</Text>
+      <View style={styles.editCustomerRow}>
+        <TextInput value={customerName} onChangeText={setCustomerName} placeholder="Name" placeholderTextColor="#999999" style={styles.editCustomerInput} />
+        <TextInput value={customerPhone} onChangeText={setCustomerPhone} placeholder="Phone" placeholderTextColor="#999999" keyboardType="phone-pad" style={styles.editCustomerInput} />
+      </View>
+      <TextInput value={customerEmail} onChangeText={setCustomerEmail} placeholder="Email" placeholderTextColor="#999999" keyboardType="email-address" autoCapitalize="none" style={[styles.editCustomerInput, { flexGrow: 0, flexShrink: 0, marginBottom: 8 }]} />
 
       <Text style={styles.detailLabel}>ITEMS</Text>
       {items.map((item) => (
@@ -416,7 +449,6 @@ const styles = StyleSheet.create({
   rangeChipTextActive: { color: '#FFFFFF' },
   customRangeRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginBottom: 18 },
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
-  dateInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   applyButton: { backgroundColor: '#111111', height: 42, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   applyButtonDisabled: { backgroundColor: '#CCCCCC' },
   applyButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
@@ -452,6 +484,8 @@ const styles = StyleSheet.create({
   confirmDanger: { fontSize: 12, fontWeight: '800', color: '#C0392B' },
   confirmCancel: { fontSize: 12, fontWeight: '700', color: '#999999' },
 
+  editCustomerRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  editCustomerInput: { flex: 1, backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111' },
   editItemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10, marginBottom: 6 },
   addSearchInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginTop: 8 },
   matchList: { marginTop: 6, gap: 4 },
