@@ -13,7 +13,8 @@
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.kaiibisteam.kaiibi"
     },
     "web": {
       "output": "single",
@@ -45,6 +46,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "68141ba4-c9de-4fb2-b96c-02e628fee7d6"
+      }
+    },
+    "owner": "kaiibis-team",
+    "ios": {
+      "bundleIdentifier": "com.kaiibisteam.kaiibi",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     }
   }
 }
