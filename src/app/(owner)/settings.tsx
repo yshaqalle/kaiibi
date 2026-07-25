@@ -112,6 +112,25 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>Loading…</Text>
         ) : (
           <>
+            <PromotionsSection
+              shopId={shop.id}
+              promotions={promotions}
+              brands={brands}
+              categories={categories}
+              onChange={reload}
+            />
+            <CurrenciesSection shopId={shop.id} currencies={currencies} onChange={reload} />
+            <CategorySection
+              title="CASHIERS"
+              itemLabel="cashier"
+              hint="Who can be picked as the cashier at checkout in the POS. Shown on the receipt as “Served by”. Renaming or removing one only affects future sales — past receipts keep the name as it was at the time."
+              items={cashiers}
+              usage={emptyUsage}
+              showUsage={false}
+              onAdd={(name) => runOrShowError(async () => { await createCashier(shop.id, name); await reload(); })}
+              onRename={(oldName, newName) => runOrShowError(async () => { await renameCashier(shop.id, oldName, newName); await reload(); })}
+              onDelete={(name) => runOrShowError(async () => { await deleteCashier(shop.id, name); await reload(); })}
+            />
             <CategorySection
               title="BRANDS"
               itemLabel="brand"
@@ -148,25 +167,6 @@ export default function SettingsScreen() {
               onDelete={(name) => runOrShowError(async () => { await deleteTag(shop.id, name); await reload(); })}
               onColorChange={(name, color) => runOrShowError(async () => { await updateTagColor(shop.id, name, color); await reload(); })}
             />
-            <CategorySection
-              title="CASHIERS"
-              itemLabel="cashier"
-              hint="Who can be picked as the cashier at checkout in the POS. Shown on the receipt as “Served by”. Renaming or removing one only affects future sales — past receipts keep the name as it was at the time."
-              items={cashiers}
-              usage={emptyUsage}
-              showUsage={false}
-              onAdd={(name) => runOrShowError(async () => { await createCashier(shop.id, name); await reload(); })}
-              onRename={(oldName, newName) => runOrShowError(async () => { await renameCashier(shop.id, oldName, newName); await reload(); })}
-              onDelete={(name) => runOrShowError(async () => { await deleteCashier(shop.id, name); await reload(); })}
-            />
-            <PromotionsSection
-              shopId={shop.id}
-              promotions={promotions}
-              brands={brands}
-              categories={categories}
-              onChange={reload}
-            />
-            <CurrenciesSection shopId={shop.id} currencies={currencies} onChange={reload} />
           </>
         )}
       </ScrollView>
