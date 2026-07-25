@@ -15,6 +15,8 @@ function mapShopRow(row: any): Shop {
     logoUrl: row.logo_url,
     categories: row.categories ?? [],
     monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
+    taxEnabled: row.tax_enabled,
+    taxRatePercent: Number(row.tax_rate_percent),
     createdAt: row.created_at,
   };
 }
@@ -65,7 +67,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null;
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; taxEnabled: boolean; taxRatePercent: number;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -79,6 +81,8 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
       ...(input.categories !== undefined && { categories: input.categories }),
       ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
+      ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
+      ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),
     })
     .eq('id', id)
     .select('*')
