@@ -10,7 +10,7 @@ import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } f
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
 import { createCategory, deleteCategory, listCategories, renameCategory, updateCategoryColor } from '@/lib/categories';
 import { nextTaxonomyColor, taxonomyPalette } from '@/lib/colors';
-import { formatCents } from '@/lib/currency';
+import { formatCents, toCents } from '@/lib/currency';
 import { updateProfile } from '@/lib/profile';
 import { listProducts } from '@/lib/products';
 import { createPromotion, deletePromotion, listPromotions, updatePromotion } from '@/lib/promotions';
@@ -230,6 +230,8 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   const [neighborhood, setNeighborhood] = useState(shop.neighborhood ?? '');
   const [description, setDescription] = useState(shop.description ?? '');
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
+  const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
+  const [goalInput, setGoalInput] = useState(shopGoalInput);
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -243,6 +245,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     neighborhood.trim() !== (shop.neighborhood ?? '') ||
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
+    goalInput.trim() !== shopGoalInput ||
     logoUri !== shop.logoUrl;
 
   const pickLogo = async () => {
@@ -273,6 +276,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         neighborhood: neighborhood.trim(),
         description: description.trim(),
         returnPolicy: returnPolicy.trim(),
+        monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
       });
       await onSaved();
@@ -328,6 +332,16 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         textAlignVertical="top"
       />
       <Text style={styles.hint}>Printed at the bottom of every receipt.</Text>
+      <Text style={styles.fieldLabel}>MONTHLY REVENUE GOAL</Text>
+      <TextInput
+        value={goalInput}
+        onChangeText={setGoalInput}
+        placeholder="e.g. 5000"
+        placeholderTextColor="#999999"
+        keyboardType="decimal-pad"
+        style={styles.input}
+      />
+      <Text style={styles.hint}>Shown as a progress meter on the dashboard. Leave blank to hide it.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>

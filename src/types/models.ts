@@ -21,6 +21,9 @@ export type Shop = {
   // Shown in the owner sidebar avatar and on receipts.
   logoUrl: string | null;
   categories: string[];
+  // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
+  // until the owner sets one — the meter is hidden until then.
+  monthlyRevenueGoalCents: number | null;
   createdAt: string;
 };
 

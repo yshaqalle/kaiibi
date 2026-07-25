@@ -267,3 +267,96 @@ export async function getDailyTotalsCents(shopId: string, sinceDate: Date, until
   }
   return Array.from(buckets.entries()).map(([day, bucket]) => ({ day, ...bucket }));
 }
+
+type SaleItemCategoryRow = { quantity: number; line_total_cents: number; products: { category: string | null } | null; sales: { created_at: string } };
+
+async function fetchSaleItemsWithCategory(shopId: string, sinceDate: Date, untilDate?: Date): Promise<SaleItemCategoryRow[]> {
+  let query = supabase
+    .from('sale_items')
+    .select('quantity, line_total_cents, products(category), sales!inner(shop_id, created_at)')
+    .eq('sales.shop_id', shopId)
+    .gte('sales.created_at', sinceDate.toISOString());
+  if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as unknown as SaleItemCategoryRow[];
+}
+
+// Units sold per product category over the range, for the dashboard's
+// category donut. Line items whose product was deleted (`product_id` set
+// null on delete) or was never categorized fall into "Uncategorized" rather
+// than being dropped.
+export async function getCategoryBreakdown(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const rows = await fetchSaleItemsWithCategory(shopId, sinceDate, untilDate);
+  const totals = new Map<string, { unitsSold: number; revenueCents: number }>();
+  for (const row of rows) {
+    const category = row.products?.category ?? 'Uncategorized';
+    const current = totals.get(category) ?? { unitsSold: 0, revenueCents: 0 };
+    current.unitsSold += row.quantity;
+    current.revenueCents += row.line_total_cents;
+    totals.set(category, current);
+  }
+  return Array.from(totals.entries())
+    .map(([category, totalsForCategory]) => ({ category, ...totalsForCategory }))
+    .sort((a, b) => b.unitsSold - a.unitsSold);
+}
+
+// Revenue per product category, bucketed by calendar month across the
+// range — powers the stacked-bar "revenue by category over time" chart.
+// Only the top 3 categories (by total revenue across the whole range) get
+// their own segment; the rest fold into "Other" so the chart never grows a
+// 5th+ series (see dataviz series-count ladder).
+export async function getCategoryRevenueByMonth(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const rows = await fetchSaleItemsWithCategory(shopId, sinceDate, untilDate);
+  const until = untilDate ?? new Date();
+
+  const categoryTotals = new Map<string, number>();
+  const perMonth = new Map<string, Map<string, number>>();
+  for (const row of rows) {
+    const category = row.products?.category ?? 'Uncategorized';
+    const created = new Date(row.sales.created_at);
+    const monthKey = `${created.getFullYear()}-${created.getMonth()}`;
+    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + row.line_total_cents);
+    if (!perMonth.has(monthKey)) perMonth.set(monthKey, new Map());
+    const monthMap = perMonth.get(monthKey)!;
+    monthMap.set(category, (monthMap.get(category) ?? 0) + row.line_total_cents);
+  }
+
+  const topCategories = Array.from(categoryTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([category]) => category);
+
+  const months: { key: string; label: string }[] = [];
+  const cursor = new Date(sinceDate.getFullYear(), sinceDate.getMonth(), 1);
+  const end = new Date(until.getFullYear(), until.getMonth(), 1);
+  while (cursor <= end) {
+    months.push({ key: `${cursor.getFullYear()}-${cursor.getMonth()}`, label: cursor.toLocaleDateString(undefined, { month: 'short' }) });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  return months.map((month) => {
+    const monthMap = perMonth.get(month.key) ?? new Map<string, number>();
+    const otherCents = Array.from(monthMap.entries())
+      .filter(([category]) => !topCategories.includes(category))
+      .reduce((sum, [, cents]) => sum + cents, 0);
+    return {
+      label: month.label,
+      segments: [
+        ...topCategories.map((category) => ({ category, revenueCents: monthMap.get(category) ?? 0 })),
+        ...(otherCents > 0 ? [{ category: 'Other', revenueCents: otherCents }] : []),
+      ],
+    };
+  });
+}
+
+// This calendar month's revenue to date, for the dashboard's goal meter —
+// deliberately independent of the dashboard's own date-range selector, since
+// a monthly goal is always measured against the current calendar month.
+export async function getMonthToDateRevenueCents(shopId: string): Promise<number> {
+  const since = new Date();
+  since.setDate(1);
+  since.setHours(0, 0, 0, 0);
+  const sales = await listSalesInRange(shopId, since, undefined, 1000);
+  return sales.reduce((sum, sale) => sum + sale.totalCents, 0);
+}

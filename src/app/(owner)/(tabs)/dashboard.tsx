@@ -2,6 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/card';
+import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
+import { CategoryOverTimeChart, type MonthlyCategoryBucket } from '@/components/category-over-time-chart';
+import { GoalMeter } from '@/components/goal-meter';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import { ProductTile } from '@/components/product-tile';
 import { RangeSelector, type DateRange } from '@/components/range-selector';
@@ -15,7 +18,10 @@ import { formatCents } from '@/lib/currency';
 import { getLowStockProducts } from '@/lib/products';
 import {
   getCashierPerformance,
+  getCategoryBreakdown,
+  getCategoryRevenueByMonth,
   getDailyTotalsCents,
+  getMonthToDateRevenueCents,
   getPaymentMethodMix,
   getTopSellingProducts,
   listSales,
@@ -55,17 +61,22 @@ export default function DashboardScreen() {
   const [cashierPerformance, setCashierPerformance] = useState<{ name: string; revenueCents: number }[]>([]);
   const [paymentMix, setPaymentMix] = useState<PaymentMixItem[]>([]);
   const [lowStock, setLowStock] = useState<Product[]>([]);
+  const [categoryBreakdown, setCategoryBreakdown] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
+  const [categoryByMonth, setCategoryByMonth] = useState<MonthlyCategoryBucket[]>([]);
+  const [monthToDateCents, setMonthToDateCents] = useState(0);
 
   const reload = useCallback(async () => {
     if (!shop || !dateRange) return;
     const { since, until } = dateRange;
-    const [sales, daily, top, cashiers, mix, low] = await Promise.all([
+    const [sales, daily, top, cashiers, mix, low, categories, categoriesByMonth] = await Promise.all([
       listSales(shop.id, 5),
       getDailyTotalsCents(shop.id, since, until),
       getTopSellingProducts(shop.id, since, until),
       getCashierPerformance(shop.id, since, until),
       getPaymentMethodMix(shop.id, since, until),
       getLowStockProducts(shop.id),
+      getCategoryBreakdown(shop.id, since, until),
+      getCategoryRevenueByMonth(shop.id, since, until),
     ]);
     setRecentSales(sales);
     setDailyMetrics(daily);
@@ -73,9 +84,19 @@ export default function DashboardScreen() {
     setCashierPerformance(cashiers);
     setPaymentMix(mix);
     setLowStock(low);
+    setCategoryBreakdown(categories);
+    setCategoryByMonth(categoriesByMonth);
   }, [shop, dateRange]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Independent of the range selector above — a monthly goal is always
+  // measured against the current calendar month, not whatever range the
+  // trend/rankings/category charts happen to be scoped to.
+  useEffect(() => {
+    if (!shop) return;
+    getMonthToDateRevenueCents(shop.id).then(setMonthToDateCents);
+  }, [shop]);
 
   const today = dailyMetrics.at(-1);
   const yesterday = dailyMetrics.at(-2);
@@ -132,6 +153,21 @@ export default function DashboardScreen() {
       };
     }, [rankMetric, topProducts, cashierPerformance]);
 
+  const insight = useMemo(() => {
+    const top = topProducts.byRevenue.slice(0, 2);
+    if (top.length === 0) return null;
+    const names = top.map((p) => p.name).join(' and ');
+    const revenue = top.reduce((sum, p) => sum + p.revenueCents, 0);
+    return top.length > 1
+      ? `${names} are your top sellers, generating ${formatCents(revenue)} this period.`
+      : `${names} is your top seller, generating ${formatCents(revenue)} this period.`;
+  }, [topProducts]);
+
+  const categorySlices: CategorySlice[] = useMemo(
+    () => categoryBreakdown.map((c) => ({ category: c.category, value: c.unitsSold })),
+    [categoryBreakdown]
+  );
+
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.surface }]}>
       <ScrollView contentContainerStyle={styles.content}>
@@ -143,6 +179,15 @@ export default function DashboardScreen() {
           <StatTile value={String(lowStock.length)} label="Low stock" tone={lowStock.length > 0 ? 'warning' : 'default'} />
         </View>
 
+        {shop?.monthlyRevenueGoalCents ? (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue goal this month</Text>
+            <Card style={styles.chartCard}>
+              <GoalMeter valueCents={monthToDateCents} goalCents={shop.monthlyRevenueGoalCents} />
+            </Card>
+          </>
+        ) : null}
+
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
         <Card style={styles.chartCard}>
           <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={setTrendMetric} />
@@ -151,9 +196,20 @@ export default function DashboardScreen() {
         </Card>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Rankings</Text>
+        {insight ? <Text style={[styles.insight, { color: theme.textSecondary }]}>{insight}</Text> : null}
         <Card style={styles.chartCard}>
           <SegmentedControl options={RANK_OPTIONS} value={rankMetric} onChange={setRankMetric} />
           <RankingChart items={rankItems} formatValue={rankFormatValue} emptyLabel={rankEmptyLabel} />
+        </Card>
+
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Category mix</Text>
+        <Card style={styles.chartCard}>
+          <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
+        </Card>
+
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue by category</Text>
+        <Card style={styles.chartCard}>
+          <CategoryOverTimeChart months={categoryByMonth} />
         </Card>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment mix</Text>
@@ -194,6 +250,7 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
+  insight: { fontSize: 12.5, marginTop: -8, marginBottom: 10, lineHeight: 17 },
   chartCard: { padding: 16, marginBottom: 8 },
   list: { overflow: 'hidden', marginBottom: 8 },
   topRow: { padding: 13, borderBottomWidth: 1 },

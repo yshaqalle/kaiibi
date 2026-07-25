@@ -14,6 +14,7 @@ function mapShopRow(row: any): Shop {
     returnPolicy: row.return_policy,
     logoUrl: row.logo_url,
     categories: row.categories ?? [],
+    monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
     createdAt: row.created_at,
   };
 }
@@ -64,7 +65,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[];
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -77,6 +78,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.returnPolicy !== undefined && { return_policy: input.returnPolicy }),
       ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
       ...(input.categories !== undefined && { categories: input.categories }),
+      ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
     })
     .eq('id', id)
     .select('*')
