@@ -67,7 +67,7 @@ export default function OwnerTabs() {
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
           </View>
           <View style={styles.mobileHeaderRight}>
-            <Pressable onPress={() => router.push('/settings')} style={styles.settingsButtonCompact}>
+            <Pressable onPress={() => router.push('/settings')} style={styles.settingsButtonCompact} hitSlop={8}>
               <Text style={styles.settingsIcon}>⚙</Text>
             </Pressable>
             <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
@@ -123,8 +123,9 @@ export default function OwnerTabs() {
         <View style={styles.footer}>
           <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
           <View style={styles.footerRow}>
-            <Pressable onPress={() => router.push('/settings')}>
-              <Text style={styles.settingsLink}>⚙ Settings</Text>
+            <Pressable onPress={() => router.push('/settings')} style={styles.settingsLinkRow}>
+              <Text style={styles.settingsLinkIcon}>⚙</Text>
+              <Text style={styles.settingsLink}>Settings</Text>
             </Pressable>
             <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
               <Text style={styles.signOut}>Sign out</Text>
@@ -155,6 +156,8 @@ const styles = StyleSheet.create({
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  settingsLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  settingsLinkIcon: { fontSize: 17, color: '#666666' },
   settingsLink: { color: '#999999', fontSize: 11, fontWeight: '700' },
   signOut: { color: '#999999', fontSize: 11, fontWeight: '700' },
   slot: { flex: 1 },
@@ -166,7 +169,7 @@ const styles = StyleSheet.create({
   shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
   mobileHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   settingsButtonCompact: { padding: 2 },
-  settingsIcon: { fontSize: 16, color: '#666666' },
+  settingsIcon: { fontSize: 24, color: '#555555' },
   signOutCompact: { color: '#999999', fontSize: 12, fontWeight: '700' },
   mobileSlot: { flex: 1 },
   bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ECECEC', backgroundColor: '#FFFFFF', paddingBottom: 10, paddingTop: 8 },

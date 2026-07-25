@@ -12,13 +12,35 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
   const location = [receipt.shopCity, receipt.shopNeighborhood].filter((p) => p && p.trim()).join(' · ') || null;
 
   const openPrintWindow = () => {
-    // @ts-ignore — `window` only exists on web; this whole branch is guarded by Platform.OS === 'web' below.
-    const win = window.open('', '_blank');
-    if (!win) return;
-    win.document.write(buildReceiptHtml(receipt));
-    win.document.close();
-    win.focus();
-    win.print();
+    // A hidden same-page <iframe> instead of window.open(..., '_blank'):
+    // some browsers (notably mobile ones, and any with popups blocked)
+    // silently reuse the *current* tab for a blocked/failed popup instead
+    // of opening a new one — which meant `win.document.write(...)` was
+    // overwriting this entire app's DOM with the receipt page, so "closing"
+    // what looked like a new tab was actually navigating away from the app.
+    // An iframe never leaves the current page at all, so there's nothing
+    // to navigate to or "close" that could affect the app underneath.
+    // @ts-ignore — web-only DOM APIs, guarded by Platform.OS === 'web' below.
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = 'none';
+    // @ts-ignore
+    document.body.appendChild(iframe);
+    const frameWindow = iframe.contentWindow;
+    if (!frameWindow) { iframe.remove(); return; }
+    frameWindow.document.open();
+    frameWindow.document.write(buildReceiptHtml(receipt));
+    frameWindow.document.close();
+    frameWindow.focus();
+    frameWindow.print();
+    // The print dialog is effectively synchronous from the browser's
+    // perspective, so a short delay is enough before tearing the iframe
+    // down — removing it immediately can cancel the print on some browsers.
+    setTimeout(() => iframe.remove(), 1000);
   };
 
   const saveAsFile = () => {
@@ -35,16 +57,40 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
     URL.revokeObjectURL(url);
   };
 
+  // On web, `Linking.openURL` just calls `window.open(url, '_blank')` under
+  // the hood — and browsers (mobile ones especially, or with popups
+  // blocked) sometimes silently reuse the *current* tab for a blocked/failed
+  // `window.open` instead of a new one, navigating the whole app away to
+  // the mailto:/wa.me URL. A real `<a target="_blank" rel="noopener">`
+  // click is far more reliably respected as "open elsewhere, don't touch
+  // this tab" by browsers/popup blockers. Native has no such tab concept —
+  // `Linking.openURL` there goes through the OS bridge correctly.
+  const openExternal = (url: string) => {
+    if (Platform.OS !== 'web') {
+      Linking.openURL(url).catch(() => {});
+      return;
+    }
+    // @ts-ignore — web-only DOM APIs.
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    // @ts-ignore
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
   const shareEmail = () => {
     const subject = encodeURIComponent(`Receipt from ${receipt.shopName}`);
     const body = encodeURIComponent(buildReceiptText(receipt));
     const to = receipt.customer.email ?? '';
-    Linking.openURL(`mailto:${to}?subject=${subject}&body=${body}`).catch(() => {});
+    openExternal(`mailto:${to}?subject=${subject}&body=${body}`);
   };
 
   const shareWhatsApp = () => {
     const digits = receipt.customer.phone ? receipt.customer.phone.replace(/[^\d]/g, '') : '';
-    Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`).catch(() => {});
+    openExternal(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
   };
 
   const shareGeneric = () => {
