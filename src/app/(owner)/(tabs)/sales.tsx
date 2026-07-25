@@ -11,7 +11,8 @@ import { formatCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
-import type { PaymentLine, Product, Sale, SaleItemSnapshot } from '@/types/models';
+import { taxCentsFor } from '@/lib/tax';
+import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 
 const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
 const rangePresets = [7, 14, 30, 90] as const;
@@ -402,7 +403,7 @@ function SaleRow({
       )}
 
       {expanded && editing && (
-        <SaleEditor sale={sale} products={products} onCancel={onCancelEdit} onSaved={onSaved} />
+        <SaleEditor sale={sale} products={products} shop={shop} onCancel={onCancelEdit} onSaved={onSaved} />
       )}
 
       {shop && <ReceiptModal receipt={showReceipt ? buildReceiptFromSale(sale, shop) : null} onClose={() => setShowReceipt(false)} title="Receipt" />}
@@ -412,7 +413,7 @@ function SaleRow({
 
 type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number };
 
-function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; products: Product[]; onCancel: () => void; onSaved: () => void }) {
+function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; products: Product[]; shop: Shop | null; onCancel: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<EditableItem[]>(() =>
     (sale.items ?? [])
       .filter((item) => item.productId !== null)
@@ -439,7 +440,9 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const total = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const preTaxTotalCents = items.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
+  const taxCents = shop?.taxEnabled ? taxCentsFor(preTaxTotalCents, shop.taxRatePercent) : 0;
+  const total = preTaxTotalCents + taxCents;
 
   const setQuantity = (productId: string, quantity: number) => {
     setItems((current) => (quantity === 0 ? current.filter((i) => i.productId !== productId) : current.map((i) => (i.productId === productId ? { ...i, quantity } : i))));
@@ -515,6 +518,12 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
         </View>
       )}
 
+      {taxCents > 0 && (
+        <View style={styles.detailRow}>
+          <Text style={styles.saleMeta}>Tax ({shop?.taxRatePercent}%)</Text>
+          <Text style={styles.detailItemPrice}>{formatCents(taxCents)}</Text>
+        </View>
+      )}
       <View style={styles.totalRow}>
         <Text style={styles.totalLabel}>Total</Text>
         <Text style={styles.totalValue}>{formatCents(total)}</Text>

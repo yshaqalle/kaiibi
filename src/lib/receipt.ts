@@ -85,7 +85,10 @@ export function buildReceiptFromSale(
 function formatPaymentLine(payment: PaymentLine): string {
   const base = `${methodLabel(payment.method)}: ${formatCents(payment.amountCents)}`;
   if (!payment.currencyCode || payment.foreignAmountCents === null || payment.exchangeRate === null) return base;
-  return `${methodLabel(payment.method)} (${payment.currencyCode}): ${formatForeignCents(payment.foreignAmountCents, payment.currencyCode)} @ ${payment.exchangeRate}/$ = ${formatCents(payment.amountCents)}`;
+  const changeSuffix = payment.foreignChangeCents && payment.foreignChangeCents > 0
+    ? ` (change ${formatForeignCents(payment.foreignChangeCents, payment.currencyCode)})`
+    : '';
+  return `${methodLabel(payment.method)} (${payment.currencyCode}): ${formatForeignCents(payment.foreignAmountCents, payment.currencyCode)} @ ${payment.exchangeRate}/$ = ${formatCents(payment.amountCents)}${changeSuffix}`;
 }
 
 // Plain text — used for the Email body and the WhatsApp prefilled message,
@@ -156,8 +159,11 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
   const paymentRows = receipt.payments
     .map((p) => {
       const hasCurrency = p.currencyCode && p.foreignAmountCents !== null && p.exchangeRate !== null;
+      const changeSuffix = hasCurrency && p.foreignChangeCents && p.foreignChangeCents > 0
+        ? ` (change ${esc(formatForeignCents(p.foreignChangeCents, p.currencyCode as string))})`
+        : '';
       const line = hasCurrency
-        ? `${methodLabel(p.method)} (${esc(p.currencyCode as string)}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$`
+        ? `${methodLabel(p.method)} (${esc(p.currencyCode as string)}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$${changeSuffix}`
         : methodLabel(p.method);
       return `<div class="row muted"><span>${line}</span><span>${formatCents(p.amountCents)}</span></div>`;
     })

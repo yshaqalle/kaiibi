@@ -165,6 +165,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
               </View>
               {receipt.payments.map((payment, i) => {
                 const hasCurrency = payment.currencyCode && payment.foreignAmountCents !== null && payment.exchangeRate !== null;
+                const hasChange = hasCurrency && payment.foreignChangeCents && payment.foreignChangeCents > 0;
                 return (
                   <View key={i} style={styles.row}>
                     <View style={{ flex: 1 }}>
@@ -172,6 +173,11 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
                       {hasCurrency && (
                         <Text style={styles.muted}>
                           {formatForeignCents(payment.foreignAmountCents as number, payment.currencyCode as string)} @ {payment.exchangeRate}/$
+                        </Text>
+                      )}
+                      {hasChange && (
+                        <Text style={styles.muted}>
+                          Change {formatForeignCents(payment.foreignChangeCents as number, payment.currencyCode as string)}
                         </Text>
                       )}
                     </View>
