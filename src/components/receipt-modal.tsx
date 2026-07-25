@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { Linking, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
-import { formatCents } from '@/lib/currency';
+import { formatCents, formatForeignCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
 import { buildReceiptHtml, buildReceiptText, type ReceiptData } from '@/lib/receipt';
 
@@ -153,16 +153,32 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
                   </View>
                 </>
               )}
+              {Boolean(receipt.taxCents && receipt.taxCents > 0) && (
+                <View style={styles.row}>
+                  <Text style={styles.muted}>Tax ({receipt.taxRatePercent}%)</Text>
+                  <Text style={styles.muted}>{formatCents(receipt.taxCents ?? 0)}</Text>
+                </View>
+              )}
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total</Text>
                 <Text style={styles.totalValue}>{formatCents(receipt.totalCents)}</Text>
               </View>
-              {receipt.payments.map((payment, i) => (
-                <View key={i} style={styles.row}>
-                  <Text style={styles.muted}>{methodLabel(payment.method)}</Text>
-                  <Text style={styles.muted}>{formatCents(payment.amountCents)}</Text>
-                </View>
-              ))}
+              {receipt.payments.map((payment, i) => {
+                const hasCurrency = payment.currencyCode && payment.foreignAmountCents !== null && payment.exchangeRate !== null;
+                return (
+                  <View key={i} style={styles.row}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.muted}>{methodLabel(payment.method)}</Text>
+                      {hasCurrency && (
+                        <Text style={styles.muted}>
+                          {formatForeignCents(payment.foreignAmountCents as number, payment.currencyCode as string)} @ {payment.exchangeRate}/$
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={styles.muted}>{formatCents(payment.amountCents)}</Text>
+                  </View>
+                );
+              })}
 
               {(receipt.customer.name || receipt.customer.phone || receipt.customer.email) && (
                 <>
