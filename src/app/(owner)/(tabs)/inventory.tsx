@@ -1,16 +1,15 @@
-import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { Card } from '@/components/card';
+import { ProductModal } from '@/components/product-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
 import { useAuth } from '@/hooks/use-auth';
-import { listProducts, updateProduct } from '@/lib/products';
+import { createProduct, listProducts, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
 
 export default function InventoryScreen() {
-  const router = useRouter();
   const { shop } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -19,6 +18,8 @@ export default function InventoryScreen() {
   const [loading, setLoading] = useState(true);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -81,7 +82,7 @@ export default function InventoryScreen() {
             <Text style={styles.title}>Inventory</Text>
             <Text style={styles.subtitle}>{products.length} products · {needsAttention} need attention</Text>
           </View>
-          <Pressable onPress={() => router.push('/product/new')} style={styles.addButton}>
+          <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
             <Text style={styles.addButtonText}>+ Add product</Text>
           </Pressable>
         </View>
@@ -97,7 +98,7 @@ export default function InventoryScreen() {
                 <ProductTile
                   key={product.id}
                   product={product}
-                  onEdit={() => router.push(`/product/${product.id}`)}
+                  onEdit={() => setEditingProduct(product)}
                   onStockChange={(next) => adjustStock(product, next)}
                 />
               ))
@@ -108,7 +109,7 @@ export default function InventoryScreen() {
                   <ProductTableRow
                     key={product.id}
                     product={product}
-                    onEdit={() => router.push(`/product/${product.id}`)}
+                    onEdit={() => setEditingProduct(product)}
                     onStockChange={(next) => adjustStock(product, next)}
                   />
                 ))}
@@ -117,6 +118,25 @@ export default function InventoryScreen() {
           </Card>
         )}
       </ScrollView>
+
+      {shop && (
+        <ProductModal
+          visible={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          shopId={shop.id}
+          onSubmit={async (input) => { await createProduct(shop.id, input); await reload(); }}
+        />
+      )}
+      {shop && (
+        <ProductModal
+          visible={editingProduct !== null}
+          onClose={() => setEditingProduct(null)}
+          shopId={shop.id}
+          initial={editingProduct ?? undefined}
+          onSubmit={async (input) => { if (editingProduct) await updateProduct(editingProduct.id, input); await reload(); }}
+          onDeleted={reload}
+        />
+      )}
     </SafeAreaView>
   );
 }

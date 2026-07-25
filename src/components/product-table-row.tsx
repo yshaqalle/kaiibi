@@ -41,12 +41,14 @@ export function ProductTableHeader({
 
   return (
     <View style={styles.headerRow}>
-      <HeaderCell field="name" label="PRODUCT" style={colProduct} />
-      <HeaderCell field="brand" label="BRAND" style={colBrand} />
-      <HeaderCell field="category" label="CATEGORY" style={colCategory} />
-      <Text style={[styles.headerLabel, colTags]}>TAGS</Text>
-      <HeaderCell field="price" label="PRICE" style={colPrice} />
-      <HeaderCell field="stock" label="STOCK" style={colStock} />
+      <View style={styles.dataCols}>
+        <HeaderCell field="name" label="PRODUCT" style={colProduct} />
+        <HeaderCell field="brand" label="BRAND" style={colBrand} />
+        <HeaderCell field="category" label="CATEGORY" style={colCategory} />
+        <Text style={[styles.headerLabel, colTags]}>TAGS</Text>
+        <HeaderCell field="price" label="PRICE" style={colPrice} />
+        <HeaderCell field="stock" label="STOCK" style={colStock} />
+      </View>
       <View style={styles.colEdit} />
     </View>
   );
@@ -68,49 +70,52 @@ export function ProductTableRow({
 
   return (
     <View style={styles.row}>
-      <View style={[styles.cell, colProduct]}>
-        {product.imageUrl ? (
-          <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
-        ) : (
-          <View style={[styles.thumb, styles.thumbPlaceholder]} />
-        )}
-        <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
-      </View>
+      <View style={styles.dataCols}>
+        <View style={[styles.cell, colProduct]}>
+          {product.imageUrl ? (
+            <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
+          ) : (
+            <View style={[styles.thumb, styles.thumbPlaceholder]} />
+          )}
+          <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
+        </View>
 
-      <Text style={[styles.cellText, styles.muted, colBrand]} numberOfLines={1}>{product.brand || '—'}</Text>
-      <Text style={[styles.cellText, colCategory]} numberOfLines={1}>{product.category || '—'}</Text>
+        <Text style={[styles.cellText, styles.muted, colBrand]} numberOfLines={1}>{product.brand || '—'}</Text>
+        <Text style={[styles.cellText, colCategory]} numberOfLines={1}>{product.category || '—'}</Text>
 
-      <View style={[styles.cell, colTags]}>
-        {product.tags.length === 0 ? (
-          <Text style={[styles.cellText, styles.muted]}>—</Text>
-        ) : (
-          <>
-            {visibleTags.map((tag) => (
-              <View key={tag} style={styles.tagChip}>
-                <Text style={styles.tagChipText} numberOfLines={1}>{tag}</Text>
-              </View>
-            ))}
-            {hiddenTagCount > 0 && <Text style={[styles.cellText, styles.muted]}>{`+${hiddenTagCount}`}</Text>}
-          </>
-        )}
-      </View>
+        <View style={[styles.cell, colTags]}>
+          {product.tags.length === 0 ? (
+            <Text style={[styles.cellText, styles.muted]}>—</Text>
+          ) : (
+            <>
+              {visibleTags.map((tag) => (
+                <View key={tag} style={styles.tagChip}>
+                  <Text style={styles.tagChipText} numberOfLines={1}>{tag}</Text>
+                </View>
+              ))}
+              {hiddenTagCount > 0 && <Text style={[styles.cellText, styles.muted]}>{`+${hiddenTagCount}`}</Text>}
+            </>
+          )}
+        </View>
 
-      <Text style={[styles.cellText, styles.price, colPrice]}>{formatCents(product.priceCents)}</Text>
+        <Text style={[styles.cellText, styles.price, colPrice]}>{formatCents(product.priceCents)}</Text>
 
-      <View style={[styles.cell, colStock]}>
-        <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
-          <Text style={styles.stepperButtonText}>−</Text>
-        </Pressable>
-        {outOfStock ? (
-          <Text style={styles.stockPill}>⚠ Out of stock</Text>
-        ) : lowStock ? (
-          <Text style={styles.stockPill}>⚠ Low stock</Text>
-        ) : (
-          <Text style={styles.stockCount}>{product.stock} in stock</Text>
-        )}
-        <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
-          <Text style={styles.stepperButtonText}>+</Text>
-        </Pressable>
+        <View style={[styles.cell, colStock]}>
+          <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
+            <Text style={styles.stepperButtonText}>−</Text>
+          </Pressable>
+          {outOfStock ? (
+            <Text style={styles.stockPill}>⚠ Out of stock</Text>
+          ) : (
+            <View style={styles.stockWithBadge}>
+              <Text style={styles.stockCount}>{product.stock}</Text>
+              {lowStock && <Text style={styles.stockPill}>⚠ Low stock</Text>}
+            </View>
+          )}
+          <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
+            <Text style={styles.stepperButtonText}>+</Text>
+          </Pressable>
+        </View>
       </View>
 
       <Pressable onPress={onEdit} style={styles.colEdit}>
@@ -127,6 +132,14 @@ const styles = StyleSheet.create({
   sortArrow: { fontSize: 8, color: '#555555' },
 
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
+  // The six data columns' percentage widths are relative to this flex:1
+  // wrapper's own resolved width, not the whole row — so the fixed-width
+  // edit button (a sibling, not one of the percentage columns) gets its
+  // 28px + gap first and the percentages divide up whatever's left. When
+  // this used to be one flat row, the columns' percentages already summed
+  // to 100% of the FULL row width, leaving no room for the edit button —
+  // it rendered past the row's clipped edge and was invisible.
+  dataCols: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   cell: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
   cellText: { fontSize: 13, color: '#111111' },
   muted: { color: '#999999' },
@@ -143,8 +156,9 @@ const styles = StyleSheet.create({
 
   stepperButton: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { color: '#111111', fontSize: 14, fontWeight: '800' },
-  stockCount: { fontSize: 13, color: '#111111', marginHorizontal: 10 },
-  stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, marginHorizontal: 10 },
+  stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 10 },
+  stockCount: { fontSize: 13, color: '#111111' },
+  stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12 },
 
   editIcon: { color: '#999999', fontSize: 15 },
 });

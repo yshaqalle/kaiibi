@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { DateInput } from '@/components/date-input';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
@@ -15,6 +15,17 @@ import type { PaymentLine, Product, Sale, SaleItemSnapshot } from '@/types/model
 
 const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
 const rangePresets = [7, 14, 30, 90] as const;
+type SaleSortField = 'date' | 'customer' | 'payment' | 'total';
+
+// Column widths as plain inline objects, not StyleSheet.create entries —
+// see product-table-row.tsx for why (RN's Text/View style types disagree
+// on some properties, so a shared const can't be typed to satisfy both).
+const colDate = { flexBasis: '16%', flexGrow: 0, flexShrink: 0 } as const;
+const colItems = { flexBasis: '26%', flexGrow: 0, flexShrink: 0 } as const;
+const colCustomer = { flexBasis: '16%', flexGrow: 0, flexShrink: 0 } as const;
+const colPayment = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colCashier = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colTotal = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -31,9 +42,13 @@ function parseDateInput(value: string): Date | null {
 
 export default function SalesScreen() {
   const { shop } = useAuth();
+  const { width } = useWindowDimensions();
+  const compact = width < 860;
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [daysBack, setDaysBack] = useState<number>(14);
+  const [sortField, setSortField] = useState<SaleSortField>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [rangeMode, setRangeMode] = useState<'preset' | 'custom'>('preset');
   const [customStartInput, setCustomStartInput] = useState('');
   const [customEndInput, setCustomEndInput] = useState('');
@@ -97,16 +112,36 @@ export default function SalesScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return sales;
-    return sales.filter((sale) =>
-      (sale.items ?? []).some((item) => item.productName.toLowerCase().includes(q)) ||
-      (sale.payments ?? []).some((p) => (p.customerName ?? '').toLowerCase().includes(q) || (p.customerPhone ?? '').toLowerCase().includes(q)) ||
-      (sale.customerName ?? '').toLowerCase().includes(q) ||
-      (sale.customerPhone ?? '').toLowerCase().includes(q) ||
-      (sale.customerEmail ?? '').toLowerCase().includes(q) ||
-      paymentLabels[sale.paymentMethod].toLowerCase().includes(q)
-    );
-  }, [sales, search]);
+    const matches = !q
+      ? sales
+      : sales.filter((sale) =>
+          (sale.items ?? []).some((item) => item.productName.toLowerCase().includes(q)) ||
+          (sale.payments ?? []).some((p) => (p.customerName ?? '').toLowerCase().includes(q) || (p.customerPhone ?? '').toLowerCase().includes(q)) ||
+          (sale.customerName ?? '').toLowerCase().includes(q) ||
+          (sale.customerPhone ?? '').toLowerCase().includes(q) ||
+          (sale.customerEmail ?? '').toLowerCase().includes(q) ||
+          (sale.cashierName ?? '').toLowerCase().includes(q) ||
+          paymentLabels[sale.paymentMethod].toLowerCase().includes(q)
+        );
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    return [...matches].sort((a, b) => {
+      switch (sortField) {
+        case 'date': return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
+        case 'customer': return (a.customerName ?? '').localeCompare(b.customerName ?? '') * dir;
+        case 'payment': return paymentLabels[a.paymentMethod].localeCompare(paymentLabels[b.paymentMethod]) * dir;
+        case 'total': return (a.totalCents - b.totalCents) * dir;
+      }
+    });
+  }, [sales, search, sortField, sortDirection]);
+
+  const toggleSort = (field: SaleSortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection(field === 'date' || field === 'total' ? 'desc' : 'asc');
+    }
+  };
 
   const rangeTotalCents = filtered.reduce((sum, s) => sum + s.totalCents, 0);
   const rangeLabel = rangeMode === 'custom' && appliedCustomRange ? `${appliedCustomRange.start} – ${appliedCustomRange.end}` : `Last ${daysBack} days`;
@@ -174,12 +209,14 @@ export default function SalesScreen() {
         ) : filtered.length === 0 ? (
           <Text style={styles.empty}>{search ? 'No sales match your search.' : rangeMode === 'custom' ? 'No sales in this range.' : `No sales in the last ${daysBack} days.`}</Text>
         ) : (
-          <View style={styles.list}>
+          <View style={[styles.list, !compact && styles.listTable]}>
+            {!compact && <SalesTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />}
             {filtered.map((sale) => (
               <SaleRow
                 key={sale.id}
                 sale={sale}
                 products={products}
+                compact={compact}
                 expanded={expandedId === sale.id}
                 editing={editingId === sale.id}
                 confirmingDelete={confirmDeleteId === sale.id}
@@ -199,9 +236,41 @@ export default function SalesScreen() {
   );
 }
 
+function SalesTableHeader({
+  sortField,
+  sortDirection,
+  onSort,
+}: {
+  sortField: SaleSortField;
+  sortDirection: 'asc' | 'desc';
+  onSort: (field: SaleSortField) => void;
+}) {
+  const HeaderCell = ({ field, label, style }: { field: SaleSortField; label: string; style: object }) => (
+    <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
+      <Text style={styles.headerLabel}>{label}</Text>
+      {sortField === field && <Text style={styles.sortArrow}>{sortDirection === 'asc' ? '▲' : '▼'}</Text>}
+    </Pressable>
+  );
+
+  return (
+    <View style={styles.tableHeaderRow}>
+      <View style={styles.dataCols}>
+        <HeaderCell field="date" label="DATE" style={colDate} />
+        <Text style={[styles.headerLabel, colItems]}>ITEMS</Text>
+        <HeaderCell field="customer" label="CUSTOMER" style={colCustomer} />
+        <HeaderCell field="payment" label="PAYMENT" style={colPayment} />
+        <Text style={[styles.headerLabel, colCashier]}>CASHIER</Text>
+        <HeaderCell field="total" label="TOTAL" style={colTotal} />
+      </View>
+      <View style={styles.colExpand} />
+    </View>
+  );
+}
+
 function SaleRow({
   sale,
   products,
+  compact,
   expanded,
   editing,
   confirmingDelete,
@@ -215,6 +284,7 @@ function SaleRow({
 }: {
   sale: Sale;
   products: Product[];
+  compact: boolean;
   expanded: boolean;
   editing: boolean;
   confirmingDelete: boolean;
@@ -230,20 +300,37 @@ function SaleRow({
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const editCount = sale.edits?.length ?? 0;
+  const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
 
   return (
-    <View style={styles.card}>
-      <Pressable onPress={onToggle} style={styles.saleRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.saleItems} numberOfLines={1}>{sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ')}</Text>
-          <Text style={styles.saleMeta}>
-            {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
-            {sale.customerName ? ` · ${sale.customerName}` : ''}
-            {editCount > 0 ? ` · Edited ${editCount}×` : ''}
-          </Text>
-        </View>
-        <Text style={styles.saleTotal}>{formatCents(sale.totalCents)}</Text>
-      </Pressable>
+    <View style={[styles.card, !compact && styles.cardTableRow]}>
+      {compact ? (
+        <Pressable onPress={onToggle} style={styles.saleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.saleItems} numberOfLines={1}>{itemsSummary}</Text>
+            <Text style={styles.saleMeta}>
+              {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
+              {sale.customerName ? ` · ${sale.customerName}` : ''}
+              {editCount > 0 ? ` · Edited ${editCount}×` : ''}
+            </Text>
+          </View>
+          <Text style={styles.saleTotal}>{formatCents(sale.totalCents)}</Text>
+        </Pressable>
+      ) : (
+        <Pressable onPress={onToggle} style={styles.tableRow}>
+          <View style={styles.dataCols}>
+            <Text style={[styles.cellText, colDate]} numberOfLines={1}>{new Date(sale.createdAt).toLocaleString()}</Text>
+            <Text style={[styles.cellText, colItems]} numberOfLines={1}>{itemsSummary}</Text>
+            <Text style={[styles.cellText, styles.muted, colCustomer]} numberOfLines={1}>{sale.customerName || '—'}</Text>
+            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}{editCount > 0 ? ` · ${editCount}✎` : ''}</Text>
+            <Text style={[styles.cellText, styles.muted, colCashier]} numberOfLines={1}>{sale.cashierName || '—'}</Text>
+            <Text style={[styles.cellText, styles.price, colTotal]} numberOfLines={1}>{formatCents(sale.totalCents)}</Text>
+          </View>
+          <View style={styles.colExpand}>
+            <Text style={styles.expandIcon}>{expanded ? '▴' : '▾'}</Text>
+          </View>
+        </Pressable>
+      )}
 
       {expanded && !editing && (
         <View style={styles.detail}>
@@ -460,8 +547,26 @@ const styles = StyleSheet.create({
   applyButtonDisabled: { backgroundColor: '#CCCCCC' },
   applyButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
   list: { gap: 10 },
+  listTable: { gap: 0 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', overflow: 'hidden' },
+  cardTableRow: { borderRadius: 0, borderWidth: 1, borderColor: '#ECECEC', borderTopWidth: 0 },
   saleRow: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+
+  tableHeaderRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#ECECEC', borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
+  headerCell: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6 },
+  sortArrow: { fontSize: 8, color: '#555555' },
+  // Same fix as product-table-row.tsx: the six percentage-width columns
+  // resolve against this flex:1 wrapper's own width, not the whole row, so
+  // the fixed-width trailing chevron (a sibling, not part of the percentage
+  // group) doesn't push the row past 100% and get clipped off-screen.
+  dataCols: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
+  cellText: { fontSize: 13, color: '#111111' },
+  muted: { color: '#999999' },
+  price: { fontWeight: '800' },
+  tableRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, gap: 10 },
+  colExpand: { width: 20, alignItems: 'flex-end' },
+  expandIcon: { color: '#999999', fontSize: 12, fontWeight: '800' },
   saleItems: { color: '#111111', fontSize: 13, fontWeight: '700' },
   saleMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
   saleTotal: { color: '#111111', fontSize: 14, fontWeight: '800' },
