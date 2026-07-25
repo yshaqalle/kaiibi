@@ -1,23 +1,27 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatCents, toCents } from '@/lib/currency';
+import { CategoryChip } from '@/components/category-chip';
+import { foreignCentsToUsdCents, formatCents, toCents, usdCentsToForeignCents } from '@/lib/currency';
 import { methodLabel, paymentMethods as methods } from '@/lib/payment-methods';
-import type { PaymentLine, PaymentMethod } from '@/types/models';
+import type { Currency, PaymentLine, PaymentMethod } from '@/types/models';
 
 export function PaymentMethodPicker({
   totalCents,
   payments,
+  currencies = [],
   onChange,
 }: {
   totalCents: number;
   payments: PaymentLine[];
+  currencies?: Currency[];
   onChange: (payments: PaymentLine[]) => void;
 }) {
   const [draftMethod, setDraftMethod] = useState<PaymentMethod | null>(null);
   const [amountInput, setAmountInput] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [draftCurrency, setDraftCurrency] = useState<Currency | null>(null);
 
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const remainingCents = totalCents - paidCents;
@@ -25,12 +29,20 @@ export function PaymentMethodPicker({
 
   const startDraft = (method: PaymentMethod) => {
     setDraftMethod(method);
+    setDraftCurrency(null);
     setAmountInput(remainingCents > 0 ? (remainingCents / 100).toFixed(2) : '');
     setCustomerName('');
     setCustomerPhone('');
   };
 
   const cancelDraft = () => setDraftMethod(null);
+
+  const pickCurrency = (currency: Currency | null) => {
+    setDraftCurrency(currency);
+    if (remainingCents <= 0) { setAmountInput(''); return; }
+    const remainingInCurrency = currency ? usdCentsToForeignCents(remainingCents, currency.rateToUsd) : remainingCents;
+    setAmountInput((remainingInCurrency / 100).toFixed(2));
+  };
 
   // For cash, the single amount field is what the customer actually handed
   // over: if it's less than what's still owed, that's a genuine partial
@@ -41,10 +53,16 @@ export function PaymentMethodPicker({
   // queued a full payment. Every other method has no change concept, so
   // the amount entered must directly be what's applied (capped at what's
   // still owed).
-  const enteredCents = toCents(amountInput || '0');
-  const draftAppliedCents = isCash ? Math.min(enteredCents, remainingCents) : enteredCents;
-  const draftChangeCents = isCash && enteredCents > remainingCents ? enteredCents - remainingCents : 0;
-  const draftValid = enteredCents > 0 && draftAppliedCents > 0 && draftAppliedCents <= remainingCents;
+  // Whatever's typed is always in `draftCurrency`'s minor unit (or USD
+  // cents when draftCurrency is null) — converted to USD cents here once,
+  // so every downstream calculation (applied amount, cap at remaining,
+  // change) is identical to the existing USD-only logic, just fed a
+  // converted number.
+  const enteredForeignCents = toCents(amountInput || '0');
+  const enteredCentsUsd = draftCurrency ? foreignCentsToUsdCents(enteredForeignCents, draftCurrency.rateToUsd) : enteredForeignCents;
+  const draftAppliedCents = isCash ? Math.min(enteredCentsUsd, remainingCents) : enteredCentsUsd;
+  const draftChangeCentsUsd = isCash && enteredCentsUsd > remainingCents ? enteredCentsUsd - remainingCents : 0;
+  const draftValid = enteredCentsUsd > 0 && draftAppliedCents > 0 && draftAppliedCents <= remainingCents;
 
   const addDraft = () => {
     if (!draftMethod || !draftValid) return;
@@ -53,12 +71,17 @@ export function PaymentMethodPicker({
       {
         method: draftMethod,
         amountCents: draftAppliedCents,
-        tenderedCents: draftChangeCents > 0 ? enteredCents : null,
+        tenderedCents: draftChangeCentsUsd > 0 ? enteredCentsUsd : null,
         customerName: (draftMethod === 'zaad' || draftMethod === 'edahab') && customerName.trim() ? customerName.trim() : null,
         customerPhone: (draftMethod === 'zaad' || draftMethod === 'edahab') && customerPhone.trim() ? customerPhone.trim() : null,
+        currencyCode: draftCurrency ? draftCurrency.code : null,
+        exchangeRate: draftCurrency ? draftCurrency.rateToUsd : null,
+        foreignAmountCents: draftCurrency ? enteredForeignCents : null,
+        foreignChangeCents: draftCurrency && draftChangeCentsUsd > 0 ? usdCentsToForeignCents(draftChangeCentsUsd, draftCurrency.rateToUsd) : null,
       },
     ]);
     setDraftMethod(null);
+    setDraftCurrency(null);
   };
 
   const removePayment = (index: number) => onChange(payments.filter((_, i) => i !== index));
@@ -104,11 +127,28 @@ export function PaymentMethodPicker({
                 <Pressable onPress={cancelDraft}><Text style={styles.draftCancel}>Cancel</Text></Pressable>
               </View>
 
-              <Text style={styles.fieldLabel}>{isCash ? 'CASH RECEIVED' : 'AMOUNT'}</Text>
+              {currencies.length > 0 && (
+                <>
+                  <Text style={styles.fieldLabel}>CURRENCY</Text>
+                  <View style={styles.currencyRow}>
+                    <CategoryChip label="USD" active={draftCurrency === null} onPress={() => pickCurrency(null)} />
+                    {currencies.map((c) => (
+                      <CategoryChip key={c.id} label={c.code} active={draftCurrency?.id === c.id} onPress={() => pickCurrency(c)} />
+                    ))}
+                  </View>
+                </>
+              )}
+
+              <Text style={styles.fieldLabel}>{isCash ? (draftCurrency ? `${draftCurrency.code} RECEIVED` : 'CASH RECEIVED') : `AMOUNT${draftCurrency ? ` (${draftCurrency.code})` : ''}`}</Text>
               <TextInput value={amountInput} onChangeText={setAmountInput} placeholder="0.00" placeholderTextColor="#9B9B9B" keyboardType="decimal-pad" style={styles.input} />
-              {isCash && draftChangeCents > 0 && <Text style={styles.changeText}>Change due: {formatCents(draftChangeCents)}</Text>}
-              {isCash && enteredCents > 0 && enteredCents < remainingCents && (
-                <Text style={styles.partialText}>Applies {formatCents(enteredCents)} to this sale — {formatCents(remainingCents - enteredCents)} will still be owed.</Text>
+              {draftCurrency && enteredForeignCents > 0 && <Text style={styles.conversionText}>≈ {formatCents(enteredCentsUsd)}</Text>}
+              {isCash && draftChangeCentsUsd > 0 && (
+                <Text style={styles.changeText}>
+                  Change due: {draftCurrency ? `${formatCents(draftChangeCentsUsd)} (${usdCentsToForeignCents(draftChangeCentsUsd, draftCurrency.rateToUsd) / 100} ${draftCurrency.code})` : formatCents(draftChangeCentsUsd)}
+                </Text>
+              )}
+              {isCash && enteredCentsUsd > 0 && enteredCentsUsd < remainingCents && (
+                <Text style={styles.partialText}>Applies {formatCents(enteredCentsUsd)} to this sale — {formatCents(remainingCents - enteredCentsUsd)} will still be owed.</Text>
               )}
 
               {(draftMethod === 'zaad' || draftMethod === 'edahab') && (
@@ -153,6 +193,8 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#FFFFFF', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   changeText: { fontSize: 12, fontWeight: '700', color: '#438254', marginTop: 8 },
   partialText: { fontSize: 12, fontWeight: '600', color: '#B5793A', marginTop: 8, lineHeight: 17 },
+  currencyRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  conversionText: { fontSize: 12, fontWeight: '600', color: '#777777', marginTop: 6 },
   addButton: { backgroundColor: '#111111', height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 12 },
   addButtonDisabled: { backgroundColor: '#CCCCCC' },
   addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
