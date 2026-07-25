@@ -10,13 +10,14 @@ import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } f
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
 import { createCategory, deleteCategory, listCategories, renameCategory, updateCategoryColor } from '@/lib/categories';
 import { nextTaxonomyColor, taxonomyPalette } from '@/lib/colors';
+import { createCurrency, deleteCurrency, listCurrencies, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents, toCents } from '@/lib/currency';
 import { updateProfile } from '@/lib/profile';
 import { listProducts } from '@/lib/products';
 import { createPromotion, deletePromotion, listPromotions, updatePromotion } from '@/lib/promotions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
-import type { Product, Profile, Promotion, Shop } from '@/types/models';
+import type { Currency, Product, Profile, Promotion, Shop } from '@/types/models';
 
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
@@ -33,6 +34,7 @@ export default function SettingsScreen() {
   const [cashiers, setCashiers] = useState<string[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,13 +42,14 @@ export default function SettingsScreen() {
     if (!shop) return;
     setLoading(true);
     try {
-      const [brandRows, cats, tagRows, cashierRows, productRows, promotionRows] = await Promise.all([
+      const [brandRows, cats, tagRows, cashierRows, productRows, promotionRows, currencyRows] = await Promise.all([
         listBrands(shop.id),
         listCategories(shop.id),
         listTags(shop.id),
         listCashiers(shop.id),
         listProducts(shop.id),
         listPromotions(shop.id),
+        listCurrencies(shop.id),
       ]);
       setBrands(brandRows.map((b) => b.name));
       setBrandColors(new Map(brandRows.map((b) => [b.name, b.color])));
@@ -57,6 +60,7 @@ export default function SettingsScreen() {
       setCashiers(cashierRows.map((c) => c.name));
       setProducts(productRows);
       setPromotions(promotionRows);
+      setCurrencies(currencyRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load brands, categories, and tags.');
     } finally {
@@ -162,6 +166,7 @@ export default function SettingsScreen() {
               categories={categories}
               onChange={reload}
             />
+            <CurrenciesSection shopId={shop.id} currencies={currencies} onChange={reload} />
           </>
         )}
       </ScrollView>
@@ -232,6 +237,8 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
   const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
   const [goalInput, setGoalInput] = useState(shopGoalInput);
+  const [taxEnabled, setTaxEnabled] = useState(shop.taxEnabled);
+  const [taxRateInput, setTaxRateInput] = useState(String(shop.taxRatePercent));
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -246,7 +253,9 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
     goalInput.trim() !== shopGoalInput ||
-    logoUri !== shop.logoUrl;
+    logoUri !== shop.logoUrl ||
+    taxEnabled !== shop.taxEnabled ||
+    taxRateInput.trim() !== String(shop.taxRatePercent);
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -278,6 +287,8 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         returnPolicy: returnPolicy.trim(),
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
+        taxEnabled,
+        taxRatePercent: Number(taxRateInput) || 0,
       });
       await onSaved();
       setSaved(true);
@@ -342,6 +353,19 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         style={styles.input}
       />
       <Text style={styles.hint}>Shown as a progress meter on the dashboard. Leave blank to hide it.</Text>
+      <Text style={styles.fieldLabel}>TAX</Text>
+      <View style={styles.taxRow}>
+        <Pressable onPress={() => setTaxEnabled((v) => !v)} style={[styles.taxToggle, taxEnabled && styles.taxToggleOn]}>
+          <Text style={[styles.taxToggleText, taxEnabled && styles.taxToggleTextOn]}>{taxEnabled ? 'Enabled' : 'Disabled'}</Text>
+        </Pressable>
+        {taxEnabled && (
+          <View style={styles.taxRateInputWrap}>
+            <TextInput value={taxRateInput} onChangeText={setTaxRateInput} placeholder="2.5" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.taxRateInput} />
+            <Text style={styles.taxRatePercentSign}>%</Text>
+          </View>
+        )}
+      </View>
+      <Text style={styles.hint}>When enabled, this rate is added to every sale's total, on top of any discounts.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>
@@ -787,6 +811,195 @@ function PromotionsModal({
   );
 }
 
+function CurrenciesSection({
+  shopId,
+  currencies,
+  onChange,
+}: {
+  shopId: string;
+  currencies: Currency[];
+  onChange: () => Promise<void>;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const preview = currencies.slice(0, previewCount);
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>CURRENCIES</Text>
+          <Text style={styles.hint}>Alternate currencies a cashier can accept at checkout, converted to USD by the rate below. Sales are always recorded in USD.</Text>
+        </View>
+        <Pressable onPress={() => setModalOpen(true)} style={styles.manageButton}>
+          <Text style={styles.manageButtonText}>Manage ({currencies.length})</Text>
+        </Pressable>
+      </View>
+
+      {currencies.length === 0 ? (
+        <Text style={styles.empty}>None yet.</Text>
+      ) : (
+        <View style={styles.previewRow}>
+          {preview.map((c) => (
+            <View key={c.id} style={[styles.previewChip, !c.active && styles.previewChipInactive]}>
+              <Text style={styles.previewChipText}>{c.code}</Text>
+              <Text style={styles.previewChipCount}>{c.rateToUsd}/$1</Text>
+            </View>
+          ))}
+        </View>
+      )}
+
+      <CurrenciesModal visible={modalOpen} onClose={() => setModalOpen(false)} shopId={shopId} currencies={currencies} onChange={onChange} />
+    </View>
+  );
+}
+
+function CurrenciesModal({
+  visible,
+  onClose,
+  shopId,
+  currencies,
+  onChange,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  shopId: string;
+  currencies: Currency[];
+  onChange: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [code, setCode] = useState('');
+  const [name, setName] = useState('');
+  const [symbol, setSymbol] = useState('');
+  const [rateInput, setRateInput] = useState('');
+
+  const resetForm = () => {
+    setEditingId(null);
+    setCode('');
+    setName('');
+    setSymbol('');
+    setRateInput('');
+  };
+
+  const startEdit = (currency: Currency) => {
+    setEditingId(currency.id);
+    setCode(currency.code);
+    setName(currency.name);
+    setSymbol(currency.symbol);
+    setRateInput(String(currency.rateToUsd));
+    setConfirmingDelete(null);
+  };
+
+  const run = async (action: () => Promise<void>) => {
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
+  };
+
+  const submit = () => {
+    const trimmedCode = code.trim().toUpperCase();
+    const trimmedName = name.trim();
+    const trimmedSymbol = symbol.trim();
+    const rate = Number(rateInput);
+    if (!trimmedName || !trimmedSymbol || !rate || rate <= 0) return;
+    run(async () => {
+      if (editingId) {
+        await updateCurrency(editingId, { name: trimmedName, symbol: trimmedSymbol, rateToUsd: rate });
+      } else {
+        if (!trimmedCode) return;
+        await createCurrency(shopId, { code: trimmedCode, name: trimmedName, symbol: trimmedSymbol, rateToUsd: rate });
+      }
+      await onChange();
+      resetForm();
+    });
+  };
+
+  const toggleActive = (currency: Currency) => run(async () => { await setCurrencyActive(currency.id, !currency.active); await onChange(); });
+
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Currencies</Text>
+            <Pressable onPress={onClose}><Text style={styles.modalClose}>Done</Text></Pressable>
+          </View>
+
+          {error && <Text style={styles.error}>{error}</Text>}
+
+          <ScrollView style={styles.modalList}>
+            {currencies.length === 0 && <Text style={styles.empty}>None yet — add one below.</Text>}
+            {currencies.map((currency) => (
+              <View key={currency.id} style={styles.row}>
+                {confirmingDelete === currency.id ? (
+                  <>
+                    <Text style={[styles.rowLabel, { flex: 1 }]}>Delete &quot;{currency.code}&quot;?</Text>
+                    <Pressable onPress={() => run(async () => { await deleteCurrency(currency.id); await onChange(); setConfirmingDelete(null); })} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Confirm</Text></Pressable>
+                    <Pressable onPress={() => setConfirmingDelete(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
+                  </>
+                ) : (
+                  <>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowLabel}>{currency.code} · {currency.name}</Text>
+                      <Text style={styles.rowSubLabel}>{currency.symbol} · {currency.rateToUsd} per $1</Text>
+                    </View>
+                    <Pressable onPress={() => toggleActive(currency)} style={styles.rowAction}>
+                      <Text style={currency.active ? styles.rowActionText : styles.rowActionTextMuted}>{currency.active ? 'Active' : 'Inactive'}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => startEdit(currency)} style={styles.rowAction}><Text style={styles.rowActionText}>Edit</Text></Pressable>
+                    <Pressable onPress={() => setConfirmingDelete(currency.id)} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Delete</Text></Pressable>
+                  </>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.promoForm}>
+            <Text style={styles.fieldLabel}>{editingId ? 'EDIT CURRENCY' : 'NEW CURRENCY'}</Text>
+            <View style={styles.formRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>CODE</Text>
+                {editingId ? (
+                  <View style={styles.readOnlyField}><Text style={styles.readOnlyFieldText}>{code}</Text></View>
+                ) : (
+                  <TextInput value={code} onChangeText={setCode} placeholder="SLSH" placeholderTextColor="#999999" autoCapitalize="characters" style={styles.input} />
+                )}
+              </View>
+              <View style={{ flex: 2 }}>
+                <Text style={styles.fieldLabel}>NAME</Text>
+                <TextInput value={name} onChangeText={setName} placeholder="Somaliland Shilling" placeholderTextColor="#999999" style={styles.input} />
+              </View>
+            </View>
+            <View style={styles.formRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>SYMBOL</Text>
+                <TextInput value={symbol} onChangeText={setSymbol} placeholder="Sl Sh" placeholderTextColor="#999999" style={styles.input} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.fieldLabel}>RATE (PER $1)</Text>
+                <TextInput value={rateInput} onChangeText={setRateInput} placeholder="115" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} />
+              </View>
+            </View>
+            <View style={styles.promoFormActions}>
+              {editingId && (
+                <Pressable onPress={resetForm} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel edit</Text></Pressable>
+              )}
+              <Pressable onPress={submit} style={styles.addButton}>
+                <Text style={styles.addButtonText}>{editingId ? 'Save changes' : 'Add currency'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 24, paddingBottom: 60, maxWidth: 640, width: '100%', alignSelf: 'center' },
@@ -852,4 +1065,13 @@ const styles = StyleSheet.create({
   promoRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
   promoValueInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111', minWidth: 90 },
   promoFormActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 4 },
+
+  taxRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  taxToggle: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingVertical: 9, paddingHorizontal: 16 },
+  taxToggleOn: { backgroundColor: '#111111' },
+  taxToggleText: { fontSize: 12, fontWeight: '700', color: '#999999' },
+  taxToggleTextOn: { color: '#FFFFFF' },
+  taxRateInputWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, gap: 4 },
+  taxRateInput: { width: 50, color: '#111111', fontSize: 14 },
+  taxRatePercentSign: { color: '#999999', fontSize: 14, fontWeight: '700' },
 });
