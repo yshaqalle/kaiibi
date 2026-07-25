@@ -29,56 +29,63 @@ export function ProductTile({
         <Text style={styles.meta} numberOfLines={1}>
           {product.brand ?? 'No brand'}{product.sku ? ` · ${product.sku}` : ''} · {product.category || 'Uncategorized'}
         </Text>
+        {product.description ? (
+          <Text style={styles.description} numberOfLines={1}>{product.description}</Text>
+        ) : null}
+
+        <View style={styles.controlsRow}>
+          <Text style={styles.price}>{formatCents(product.priceCents)}</Text>
+
+          {onStockChange ? (
+            <View style={styles.stepper}>
+              <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}><Text style={styles.stepperButtonText}>−</Text></Pressable>
+              {outOfStock ? (
+                <Text style={styles.outOfStockPill}>Out of stock</Text>
+              ) : (
+                <View style={styles.stockWithBadge}>
+                  <Text style={styles.stockCount}>{product.stock}</Text>
+                  {lowStock && <Text style={styles.lowStockPill}>⚠ Low</Text>}
+                </View>
+              )}
+              <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}><Text style={styles.stepperButtonText}>+</Text></Pressable>
+            </View>
+          ) : outOfStock ? (
+            <Text style={styles.outOfStockPill}>Out of stock</Text>
+          ) : (
+            <View style={styles.stockWithBadge}>
+              <Text style={styles.stockCount}>{product.stock} units</Text>
+              {lowStock && <Text style={styles.lowStockPill}>⚠ Low</Text>}
+            </View>
+          )}
+
+          {onEdit && (
+            <Pressable onPress={onEdit} style={styles.editButton}>
+              <Text style={styles.editIcon}>✎</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
-
-      <Text style={styles.price}>{formatCents(product.priceCents)}</Text>
-
-      <View style={styles.stockSection}>
-        {onStockChange ? (
-          <View style={styles.stepper}>
-            <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}><Text style={styles.stepperButtonText}>−</Text></Pressable>
-            {outOfStock ? (
-              <Text style={styles.outOfStockPill}>Out of stock</Text>
-            ) : lowStock ? (
-              <Text style={styles.lowStockPill}>⚠ Low stock</Text>
-            ) : (
-              <Text style={styles.stockCount}>{product.stock}</Text>
-            )}
-            <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}><Text style={styles.stepperButtonText}>+</Text></Pressable>
-          </View>
-        ) : outOfStock ? (
-          <Text style={styles.outOfStockPill}>Out of stock</Text>
-        ) : lowStock ? (
-          <Text style={styles.lowStockPill}>⚠ Low stock</Text>
-        ) : (
-          <Text style={styles.stockCount}>{product.stock} units</Text>
-        )}
-      </View>
-
-      {onEdit && (
-        <Pressable onPress={onEdit} style={styles.editButton}>
-          <Text style={styles.editIcon}>✎</Text>
-        </Pressable>
-      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: { minHeight: 64, flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', padding: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
   thumb: { width: 34, height: 34, borderRadius: 7 },
   thumbPlaceholder: { backgroundColor: '#F2F2F2' },
-  info: { flex: 2 },
+  info: { flex: 1 },
   name: { color: '#111111', fontSize: 12, fontWeight: '700' },
   meta: { color: '#999999', fontSize: 10, marginTop: 2 },
-  price: { flex: 1, color: '#111111', fontSize: 12, fontWeight: '700' },
-  stockSection: { flex: 1.4, alignItems: 'flex-start' },
+  description: { color: '#AAAAAA', fontSize: 10, marginTop: 2 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 8 },
+  price: { color: '#111111', fontSize: 12, fontWeight: '700' },
   stockCount: { color: '#111111', fontSize: 12 },
+  stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   lowStockPill: { fontSize: 9, fontWeight: '700', color: '#B5793A', borderWidth: 1, borderColor: '#E8C99B', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   outOfStockPill: { fontSize: 9, fontWeight: '700', color: '#FFFFFF', backgroundColor: '#111111', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperButton: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { color: '#111111', fontSize: 13, fontWeight: '800' },
-  editButton: { width: 24, alignItems: 'center' },
+  editButton: { marginLeft: 'auto', width: 24, alignItems: 'center' },
   editIcon: { color: '#999999', fontSize: 14 },
 });

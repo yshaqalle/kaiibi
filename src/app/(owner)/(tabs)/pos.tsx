@@ -149,10 +149,11 @@ export default function PosScreen() {
                   <Text style={styles.gridPrice}>{formatCents(product.priceCents)}</Text>
                   {product.stock <= 0 ? (
                     <Text style={styles.outOfStockPill}>Out of stock</Text>
-                  ) : product.stock <= (product.reorderLevel ?? 5) ? (
-                    <Text style={styles.lowStockPill}>⚠ Low stock</Text>
                   ) : (
-                    <Text style={styles.gridStock}>{product.stock} in stock</Text>
+                    <View style={styles.gridStockWithBadge}>
+                      <Text style={styles.gridStock}>{product.stock} in stock</Text>
+                      {product.stock <= (product.reorderLevel ?? 5) && <Text style={styles.lowStockPill}>⚠ Low</Text>}
+                    </View>
                   )}
                 </View>
               </Pressable>
@@ -222,8 +223,8 @@ const styles = StyleSheet.create({
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 24 },
   categoryRowCompact: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
-  gridTile: { flexBasis: '31%', flexGrow: 1, minWidth: 190, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#EDEDED' },
-  gridTileCompact: { flexBasis: '47%', minWidth: 140 },
+  gridTile: { flexBasis: '31%', flexGrow: 0, flexShrink: 0, minWidth: 190, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#EDEDED' },
+  gridTileCompact: { flexBasis: '47%', minWidth: 140, flexGrow: 0, flexShrink: 0 },
   gridTileDisabled: { opacity: 0.4 },
   gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, marginBottom: 14 },
   gridThumbPlaceholder: { backgroundColor: '#F2F2F2' },
@@ -232,6 +233,7 @@ const styles = StyleSheet.create({
   gridFooter: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   gridPrice: { color: '#111111', fontSize: 18, fontWeight: '800' },
   gridStock: { color: '#999999', fontSize: 12 },
+  gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   lowStockPill: { fontSize: 11, fontWeight: '700', color: '#B5793A', borderWidth: 1, borderColor: '#E8C99B', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
   outOfStockPill: { fontSize: 11, fontWeight: '700', color: '#FFFFFF', backgroundColor: '#111111', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
   cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
