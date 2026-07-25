@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { createBrand, listBrands } from '@/lib/brands';
 import { createCategory, listCategories } from '@/lib/categories';
 import { formatCents, toCents } from '@/lib/currency';
 import { uploadProductImage } from '@/lib/products';
@@ -27,12 +28,13 @@ export function ProductForm({
   const [barcode, setBarcode] = useState(initial?.barcode ?? '');
   const [brand, setBrand] = useState(initial?.brand ?? '');
   const [category, setCategory] = useState(initial?.category ?? '');
-  const [addingNewCategory, setAddingNewCategory] = useState(false);
   const [tags, setTags] = useState(initial?.tags?.join(', ') ?? '');
+  const [brandSuggestions, setBrandSuggestions] = useState<string[]>([]);
   const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
 
   useEffect(() => {
+    listBrands(shopId).then((rows) => setBrandSuggestions(rows.map((r) => r.name))).catch(() => {});
     listCategories(shopId).then((rows) => setCategorySuggestions(rows.map((r) => r.name))).catch(() => {});
     listTags(shopId).then((rows) => setTagSuggestions(rows.map((r) => r.name))).catch(() => {});
   }, [shopId]);
@@ -76,11 +78,12 @@ export function ProductForm({
       }
 
       const tagList = tags.split(',').map((tag) => tag.trim()).filter(Boolean);
-      // A category/tag typed here for the first time (via "+ New", or typed
-      // into the tags field directly) only exists as free text on this
-      // product until it's also in the categories/tags tables — persist it
-      // now so it shows up as a suggestion and is manageable from Settings.
+      // A brand/category/tag typed here for the first time (via "+ Add …")
+      // only exists as free text on this product until it's also in the
+      // brands/categories/tags tables — persist it now so it shows up as a
+      // suggestion and is manageable from Settings.
       await Promise.all([
+        brand.trim() && !brandSuggestions.includes(brand.trim()) ? createBrand(shopId, brand.trim()) : null,
         category.trim() && !categorySuggestions.includes(category.trim()) ? createCategory(shopId, category.trim()) : null,
         ...tagList.filter((tag) => !tagSuggestions.includes(tag)).map((tag) => createTag(shopId, tag)),
       ]);
@@ -125,46 +128,35 @@ export function ProductForm({
         <Field label="SKU" style={styles.half}><TextInput value={sku} onChangeText={setSku} placeholder="SKU-001" placeholderTextColor="#999999" style={styles.input} /></Field>
         <Field label="BARCODE" style={styles.half}><TextInput value={barcode} onChangeText={setBarcode} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       </Row>
-      <Field label="BRAND"><TextInput value={brand} onChangeText={setBrand} placeholder="e.g. ANUA" placeholderTextColor="#999999" style={styles.input} /></Field>
+      <Field label="BRAND">
+        <SearchableChipField
+          value={brand}
+          onChange={(next) => {
+            setBrand(next);
+            if (next && !brandSuggestions.includes(next)) setBrandSuggestions((prev) => [...prev, next].sort((a, b) => a.localeCompare(b)));
+          }}
+          suggestions={brandSuggestions}
+          placeholder="Search or add a brand…"
+        />
+      </Field>
       <Field label="CATEGORY">
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-          {categorySuggestions.map((item) => (
-            <CategoryChip key={item} label={item} active={category === item} onPress={() => { setCategory(item); setAddingNewCategory(false); }} />
-          ))}
-          <CategoryChip label="+ New" active={addingNewCategory} onPress={() => setAddingNewCategory(true)} />
-        </ScrollView>
-        {addingNewCategory && (
-          <TextInput
-            value={category}
-            onChangeText={setCategory}
-            placeholder="Type a new category"
-            placeholderTextColor="#999999"
-            autoFocus
-            style={styles.input}
-          />
-        )}
-        {!addingNewCategory && Boolean(category) && !categorySuggestions.includes(category) && (
-          <Text style={styles.categoryHint}>Selected: {category}</Text>
-        )}
+        <SearchableChipField
+          value={category}
+          onChange={(next) => {
+            setCategory(next);
+            if (next && !categorySuggestions.includes(next)) setCategorySuggestions((prev) => [...prev, next].sort((a, b) => a.localeCompare(b)));
+          }}
+          suggestions={categorySuggestions}
+          placeholder="Search or add a category…"
+        />
       </Field>
       <Field label="TAGS">
-        <TextInput value={tags} onChangeText={setTags} placeholder="e.g. bestseller, toner" placeholderTextColor="#999999" style={styles.input} />
-        {tagSuggestions.length > 0 && (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-            {tagSuggestions.map((tag) => (
-              <CategoryChip
-                key={tag}
-                label={tag}
-                active={tags.split(',').map((t) => t.trim()).includes(tag)}
-                onPress={() => {
-                  const current = tags.split(',').map((t) => t.trim()).filter(Boolean);
-                  if (current.includes(tag)) return;
-                  setTags([...current, tag].join(', '));
-                }}
-              />
-            ))}
-          </ScrollView>
-        )}
+        <TagsField
+          value={tags}
+          onChange={setTags}
+          suggestions={tagSuggestions}
+          onNewTag={(tag) => setTagSuggestions((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b)))}
+        />
       </Field>
       <Field label="SUPPLIER"><TextInput value={supplierName} onChangeText={setSupplierName} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
       <Row>
@@ -198,6 +190,89 @@ export function ProductForm({
 function Row({ children }: { children: React.ReactNode }) { return <View style={styles.row}>{children}</View>; }
 function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: object }) {
   return <View style={style}><Text style={styles.fieldLabel}>{label}</Text>{children}</View>;
+}
+
+// A single-value picker: type to search existing suggestions (shown as
+// chips below), or add a brand-new value on the fly — used for both BRAND
+// and CATEGORY, which behave identically (pick one, or create one).
+function SearchableChipField({
+  value,
+  onChange,
+  suggestions,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: string[];
+  placeholder: string;
+}) {
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const filtered = q ? suggestions.filter((item) => item.toLowerCase().includes(q)) : suggestions;
+  const exactMatch = suggestions.some((item) => item.toLowerCase() === q);
+
+  const select = (item: string) => { onChange(item); setQuery(''); };
+  const toggle = (item: string) => select(value === item ? '' : item);
+
+  return (
+    <>
+      <TextInput value={query} onChangeText={setQuery} placeholder={placeholder} placeholderTextColor="#999999" style={styles.input} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        {filtered.map((item) => (
+          <CategoryChip key={item} label={item} active={value === item} onPress={() => toggle(item)} />
+        ))}
+        {q.length > 0 && !exactMatch && (
+          <CategoryChip label={`+ Add "${query.trim()}"`} active={false} onPress={() => select(query.trim())} />
+        )}
+      </ScrollView>
+      {Boolean(value) && <Text style={styles.categoryHint}>Selected: {value}</Text>}
+    </>
+  );
+}
+
+// Tags are multi-select, kept as a comma-separated value the user can also
+// type into directly. The search box only filters which suggestion chips
+// are shown; tapping one (or the "+ Add" chip) appends to the CSV.
+function TagsField({
+  value,
+  onChange,
+  suggestions,
+  onNewTag,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: string[];
+  onNewTag?: (tag: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const selected = value.split(',').map((t) => t.trim()).filter(Boolean);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? suggestions.filter((tag) => tag.toLowerCase().includes(q)) : suggestions;
+  const exactMatch = suggestions.some((tag) => tag.toLowerCase() === q);
+
+  const addTag = (tag: string) => {
+    if (!tag || selected.includes(tag)) return;
+    onChange([...selected, tag].join(', '));
+    if (!suggestions.includes(tag)) onNewTag?.(tag);
+    setQuery('');
+  };
+  const removeTag = (tag: string) => onChange(selected.filter((t) => t !== tag).join(', '));
+  const toggleTag = (tag: string) => (selected.includes(tag) ? removeTag(tag) : addTag(tag));
+
+  return (
+    <>
+      <TextInput value={value} onChangeText={onChange} placeholder="e.g. bestseller, toner" placeholderTextColor="#999999" style={styles.input} />
+      <TextInput value={query} onChangeText={setQuery} placeholder="Search tags…" placeholderTextColor="#999999" style={styles.input} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        {filtered.map((tag) => (
+          <CategoryChip key={tag} label={tag} active={selected.includes(tag)} onPress={() => toggleTag(tag)} />
+        ))}
+        {q.length > 0 && !exactMatch && (
+          <CategoryChip label={`+ Add "${query.trim()}"`} active={false} onPress={() => addTag(query.trim())} />
+        )}
+      </ScrollView>
+    </>
+  );
 }
 
 const styles = StyleSheet.create({

@@ -10,6 +10,7 @@ function mapShopRow(row: any): Shop {
     city: row.city,
     neighborhood: row.neighborhood,
     contactPhone: row.contact_phone,
+    returnPolicy: row.return_policy,
     categories: row.categories ?? [],
     createdAt: row.created_at,
   };
@@ -57,7 +58,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; categories: string[];
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; categories: string[];
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -67,6 +68,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.city !== undefined && { city: input.city }),
       ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
       ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
+      ...(input.returnPolicy !== undefined && { return_policy: input.returnPolicy }),
       ...(input.categories !== undefined && { categories: input.categories }),
     })
     .eq('id', id)

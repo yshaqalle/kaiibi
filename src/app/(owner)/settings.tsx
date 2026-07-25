@@ -3,6 +3,8 @@ import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput
 
 import { ScreenHeader } from '@/components/screen-header';
 import { useAuth } from '@/hooks/use-auth';
+import { createBrand, deleteBrand, listBrands, renameBrand } from '@/lib/brands';
+import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
 import { createCategory, deleteCategory, listCategories, renameCategory } from '@/lib/categories';
 import { updateProfile } from '@/lib/profile';
 import { listProducts } from '@/lib/products';
@@ -11,11 +13,14 @@ import { createTag, deleteTag, listTags, renameTag } from '@/lib/tags';
 import type { Product, Profile, Shop } from '@/types/models';
 
 const previewCount = 6;
+const emptyUsage = new Map<string, number>();
 
 export default function SettingsScreen() {
   const { shop, profile, setProfile, refreshShop } = useAuth();
+  const [brands, setBrands] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [cashiers, setCashiers] = useState<string[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,18 +29,32 @@ export default function SettingsScreen() {
     if (!shop) return;
     setLoading(true);
     try {
-      const [cats, tagRows, productRows] = await Promise.all([listCategories(shop.id), listTags(shop.id), listProducts(shop.id)]);
+      const [brandRows, cats, tagRows, cashierRows, productRows] = await Promise.all([
+        listBrands(shop.id),
+        listCategories(shop.id),
+        listTags(shop.id),
+        listCashiers(shop.id),
+        listProducts(shop.id),
+      ]);
+      setBrands(brandRows.map((b) => b.name));
       setCategories(cats.map((c) => c.name));
       setTags(tagRows.map((t) => t.name));
+      setCashiers(cashierRows.map((c) => c.name));
       setProducts(productRows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load categories and tags.');
+      setError(err instanceof Error ? err.message : 'Could not load brands, categories, and tags.');
     } finally {
       setLoading(false);
     }
   }, [shop]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  const brandUsage = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const p of products) if (p.brand) counts.set(p.brand, (counts.get(p.brand) ?? 0) + 1);
+    return counts;
+  }, [products]);
 
   const categoryUsage = useMemo(() => {
     const counts = new Map<string, number>();
@@ -74,6 +93,16 @@ export default function SettingsScreen() {
         ) : (
           <>
             <CategorySection
+              title="BRANDS"
+              itemLabel="brand"
+              hint="Brands you carry. Renaming or removing a brand updates every product using it."
+              items={brands}
+              usage={brandUsage}
+              onAdd={(name) => runOrShowError(async () => { await createBrand(shop.id, name); await reload(); })}
+              onRename={(oldName, newName) => runOrShowError(async () => { await renameBrand(shop.id, oldName, newName); await reload(); })}
+              onDelete={(name) => runOrShowError(async () => { await deleteBrand(shop.id, name); await reload(); })}
+            />
+            <CategorySection
               title="CATEGORIES"
               itemLabel="category"
               hint="Group products in the POS and inventory screens. Renaming or removing a category updates every product using it."
@@ -92,6 +121,17 @@ export default function SettingsScreen() {
               onAdd={(name) => runOrShowError(async () => { await createTag(shop.id, name); await reload(); })}
               onRename={(oldName, newName) => runOrShowError(async () => { await renameTag(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteTag(shop.id, name); await reload(); })}
+            />
+            <CategorySection
+              title="CASHIERS"
+              itemLabel="cashier"
+              hint="Who can be picked as the cashier at checkout in the POS. Shown on the receipt as “Served by”. Renaming or removing one only affects future sales — past receipts keep the name as it was at the time."
+              items={cashiers}
+              usage={emptyUsage}
+              showUsage={false}
+              onAdd={(name) => runOrShowError(async () => { await createCashier(shop.id, name); await reload(); })}
+              onRename={(oldName, newName) => runOrShowError(async () => { await renameCashier(shop.id, oldName, newName); await reload(); })}
+              onDelete={(name) => runOrShowError(async () => { await deleteCashier(shop.id, name); await reload(); })}
             />
           </>
         )}
@@ -152,6 +192,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   const [city, setCity] = useState(shop.city ?? '');
   const [neighborhood, setNeighborhood] = useState(shop.neighborhood ?? '');
   const [description, setDescription] = useState(shop.description ?? '');
+  const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +202,8 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     contactPhone.trim() !== (shop.contactPhone ?? '') ||
     city.trim() !== (shop.city ?? '') ||
     neighborhood.trim() !== (shop.neighborhood ?? '') ||
-    description.trim() !== (shop.description ?? '');
+    description.trim() !== (shop.description ?? '') ||
+    returnPolicy.trim() !== (shop.returnPolicy ?? '');
 
   const save = async () => {
     setSaving(true);
@@ -173,6 +215,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         city: city.trim(),
         neighborhood: neighborhood.trim(),
         description: description.trim(),
+        returnPolicy: returnPolicy.trim(),
       });
       await onSaved();
       setSaved(true);
@@ -187,7 +230,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>SHOP</Text>
-      <Text style={styles.hint}>Shown to customers and used across the app.</Text>
+      <Text style={styles.hint}>Shown to customers and used across the app — name, city, neighborhood, and contact phone also appear on printed/shared receipts.</Text>
       <Text style={styles.fieldLabel}>SHOP NAME</Text>
       <TextInput value={name} onChangeText={setName} placeholder="Shop name" placeholderTextColor="#999999" style={styles.input} />
       <Text style={styles.fieldLabel}>DESCRIPTION</Text>
@@ -204,6 +247,17 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
       </View>
       <Text style={styles.fieldLabel}>CONTACT PHONE</Text>
       <TextInput value={contactPhone} onChangeText={setContactPhone} placeholder="Phone number" placeholderTextColor="#999999" keyboardType="phone-pad" style={styles.input} />
+      <Text style={styles.fieldLabel}>RETURN POLICY</Text>
+      <TextInput
+        value={returnPolicy}
+        onChangeText={setReturnPolicy}
+        placeholder="e.g. Returns accepted within 7 days with receipt."
+        placeholderTextColor="#999999"
+        style={[styles.input, styles.multilineInput]}
+        multiline
+        textAlignVertical="top"
+      />
+      <Text style={styles.hint}>Printed at the bottom of every receipt.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>
@@ -218,6 +272,7 @@ function CategorySection({
   hint,
   items,
   usage,
+  showUsage = true,
   onAdd,
   onRename,
   onDelete,
@@ -227,6 +282,7 @@ function CategorySection({
   hint: string;
   items: string[];
   usage: Map<string, number>;
+  showUsage?: boolean;
   onAdd: (name: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onDelete: (name: string) => void;
@@ -257,7 +313,7 @@ function CategorySection({
           {mostUsed.map((item) => (
             <View key={item} style={styles.previewChip}>
               <Text style={styles.previewChipText}>{item}</Text>
-              <Text style={styles.previewChipCount}>{usage.get(item) ?? 0}</Text>
+              {showUsage && <Text style={styles.previewChipCount}>{usage.get(item) ?? 0}</Text>}
             </View>
           ))}
           {items.length > previewCount && <Text style={styles.previewMore}>+{items.length - previewCount} more</Text>}
@@ -271,6 +327,7 @@ function CategorySection({
         itemLabel={itemLabel}
         items={items}
         usage={usage}
+        showUsage={showUsage}
         onAdd={onAdd}
         onRename={onRename}
         onDelete={onDelete}
@@ -286,6 +343,7 @@ function ManageModal({
   itemLabel,
   items,
   usage,
+  showUsage = true,
   onAdd,
   onRename,
   onDelete,
@@ -296,6 +354,7 @@ function ManageModal({
   itemLabel: string;
   items: string[];
   usage: Map<string, number>;
+  showUsage?: boolean;
   onAdd: (name: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onDelete: (name: string) => void;
@@ -362,7 +421,7 @@ function ManageModal({
                 ) : (
                   <>
                     <Text style={styles.rowLabel}>{item}</Text>
-                    <Text style={styles.rowCount}>{usage.get(item) ?? 0}</Text>
+                    {showUsage && <Text style={styles.rowCount}>{usage.get(item) ?? 0}</Text>}
                     <Pressable onPress={() => startEdit(item)} style={styles.rowAction}><Text style={styles.rowActionText}>Rename</Text></Pressable>
                     <Pressable onPress={() => setConfirmingDelete(item)} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Delete</Text></Pressable>
                   </>

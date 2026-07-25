@@ -16,6 +16,8 @@ export type Shop = {
   city: string | null;
   neighborhood: string | null;
   contactPhone: string | null;
+  // Printed on receipts (Print/Save/Email/WhatsApp) — see src/lib/receipt.ts.
+  returnPolicy: string | null;
   categories: string[];
   createdAt: string;
 };
@@ -120,6 +122,10 @@ export type Sale = {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  // Who rang up the sale — a frozen snapshot of a `Cashier` profile's name
+  // at checkout time, not a live reference (renaming/deleting the profile
+  // later doesn't change past sales, same as customer info).
+  cashierName: string | null;
   totalCents: number;
   itemCount: number;
   createdAt: string;
@@ -135,7 +141,21 @@ export type Category = {
   createdAt: string;
 };
 
+export type Brand = {
+  id: string;
+  shopId: string;
+  name: string;
+  createdAt: string;
+};
+
 export type Tag = {
+  id: string;
+  shopId: string;
+  name: string;
+  createdAt: string;
+};
+
+export type Cashier = {
   id: string;
   shopId: string;
   name: string;

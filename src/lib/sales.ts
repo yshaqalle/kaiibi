@@ -4,7 +4,7 @@ import type { CartLine, PaymentLine, Sale, SaleEdit, SaleItem, SaleItemSnapshot,
 
 export type SaleCustomer = { name?: string | null; phone?: string | null; email?: string | null };
 
-export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[], customer?: SaleCustomer): Promise<string> {
+export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[], customer?: SaleCustomer, cashierName?: string | null): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
@@ -14,6 +14,7 @@ export async function completeSale(shopId: string, lines: CartLine[], payments: 
     p_customer_name: customer?.name ?? null,
     p_customer_phone: customer?.phone ?? null,
     p_customer_email: customer?.email ?? null,
+    p_cashier_name: cashierName ?? null,
   });
   if (error) throw error;
   return data as string;
@@ -70,6 +71,7 @@ function mapSaleRow(row: any): Sale {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     customerEmail: row.customer_email,
+    cashierName: row.cashier_name,
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,

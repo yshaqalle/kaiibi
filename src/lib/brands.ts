@@ -1,0 +1,38 @@
+import { supabase } from '@/lib/supabase';
+import type { Brand } from '@/types/models';
+
+function mapBrandRow(row: any): Brand {
+  return { id: row.id, shopId: row.shop_id, name: row.name, createdAt: row.created_at };
+}
+
+export async function listBrands(shopId: string): Promise<Brand[]> {
+  const { data, error } = await supabase
+    .from('brands')
+    .select('*')
+    .eq('shop_id', shopId)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapBrandRow);
+}
+
+// Upsert (ignoring the row if it already exists) — see createCategory for
+// why: called both from Settings' "Add" button and from the product form
+// whenever someone types a brand that isn't in the table yet.
+export async function createBrand(shopId: string, name: string): Promise<void> {
+  const { error } = await supabase
+    .from('brands')
+    .upsert({ shop_id: shopId, name }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
+  if (error) throw error;
+}
+
+// Renaming/deleting must go through the RPCs so it cascades atomically to
+// every product's free-text `brand` field — see migration 0008.
+export async function renameBrand(shopId: string, oldName: string, newName: string): Promise<void> {
+  const { error } = await supabase.rpc('rename_brand', { p_shop_id: shopId, p_old_name: oldName, p_new_name: newName });
+  if (error) throw error;
+}
+
+export async function deleteBrand(shopId: string, name: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_brand', { p_shop_id: shopId, p_name: name });
+  if (error) throw error;
+}

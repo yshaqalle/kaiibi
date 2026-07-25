@@ -4,10 +4,12 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View 
 import { DateInput } from '@/components/date-input';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
+import { ReceiptModal } from '@/components/receipt-modal';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
+import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot } from '@/types/models';
 
@@ -224,7 +226,9 @@ function SaleRow({
   onCancelDelete: () => void;
   onDelete: () => void;
 }) {
+  const { shop } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [showReceipt, setShowReceipt] = useState(false);
   const editCount = sale.edits?.length ?? 0;
 
   return (
@@ -308,6 +312,7 @@ function SaleRow({
             </View>
           ) : (
             <View style={styles.actionRow}>
+              <Pressable onPress={() => setShowReceipt(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Receipt</Text></Pressable>
               <Pressable onPress={onStartEdit} style={styles.actionButton}><Text style={styles.actionButtonText}>Edit</Text></Pressable>
               <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
             </View>
@@ -318,6 +323,8 @@ function SaleRow({
       {expanded && editing && (
         <SaleEditor sale={sale} products={products} onCancel={onCancelEdit} onSaved={onSaved} />
       )}
+
+      {shop && <ReceiptModal receipt={showReceipt ? buildReceiptFromSale(sale, shop) : null} onClose={() => setShowReceipt(false)} title="Receipt" />}
     </View>
   );
 }

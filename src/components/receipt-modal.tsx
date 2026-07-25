@@ -1,0 +1,197 @@
+import { Linking, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+
+import { formatCents } from '@/lib/currency';
+import { methodLabel } from '@/lib/payment-methods';
+import { buildReceiptHtml, buildReceiptText, type ReceiptData } from '@/lib/receipt';
+
+const tornEdgeNotches = Array.from({ length: 18 });
+
+export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt: ReceiptData | null; onClose: () => void; title?: string }) {
+  if (!receipt) return null;
+  const location = [receipt.shopCity, receipt.shopNeighborhood].filter((p) => p && p.trim()).join(' · ') || null;
+
+  const openPrintWindow = () => {
+    // @ts-ignore — `window` only exists on web; this whole branch is guarded by Platform.OS === 'web' below.
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(buildReceiptHtml(receipt));
+    win.document.close();
+    win.focus();
+    win.print();
+  };
+
+  const saveAsFile = () => {
+    // @ts-ignore — web-only DOM APIs, guarded by Platform.OS === 'web' below.
+    const blob = new Blob([buildReceiptHtml(receipt)], { type: 'text/html' });
+    // @ts-ignore
+    const url = URL.createObjectURL(blob);
+    // @ts-ignore
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `receipt-${new Date(receipt.createdAt).getTime()}.html`;
+    a.click();
+    // @ts-ignore
+    URL.revokeObjectURL(url);
+  };
+
+  const shareEmail = () => {
+    const subject = encodeURIComponent(`Receipt from ${receipt.shopName}`);
+    const body = encodeURIComponent(buildReceiptText(receipt));
+    const to = receipt.customer.email ?? '';
+    Linking.openURL(`mailto:${to}?subject=${subject}&body=${body}`).catch(() => {});
+  };
+
+  const shareWhatsApp = () => {
+    const digits = receipt.customer.phone ? receipt.customer.phone.replace(/[^\d]/g, '') : '';
+    Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`).catch(() => {});
+  };
+
+  const shareGeneric = () => {
+    Share.share({ message: buildReceiptText(receipt) }).catch(() => {});
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <View style={styles.card}>
+          <View style={styles.header}>
+            <View style={styles.headerLeft}>
+              <View style={styles.badge}><Text style={styles.badgeCheck}>✓</Text></View>
+              <Text style={styles.title}>{title}</Text>
+            </View>
+            <Pressable onPress={onClose}><Text style={styles.close}>Done</Text></Pressable>
+          </View>
+
+          <View style={styles.receiptWrap}>
+            <View style={styles.receipt}>
+              <View style={styles.receiptHead}>
+                <Text style={styles.shopName}>{receipt.shopName}</Text>
+                {location && <Text style={styles.muted}>{location}</Text>}
+                {receipt.shopContactPhone && <Text style={styles.muted}>{receipt.shopContactPhone}</Text>}
+                <Text style={styles.muted}>{new Date(receipt.createdAt).toLocaleString()}</Text>
+                {receipt.cashierName && <Text style={styles.muted}>{`Served by ${receipt.cashierName}`}</Text>}
+              </View>
+
+              <View style={styles.dashedDivider} />
+              {receipt.items.map((line, i) => (
+                <View key={i} style={styles.row}>
+                  <Text style={styles.rowLabel} numberOfLines={1}>{`${line.quantity} × ${line.name}`}</Text>
+                  <Text style={styles.rowValue}>{formatCents(line.unitPriceCents * line.quantity)}</Text>
+                </View>
+              ))}
+
+              <View style={styles.dashedDivider} />
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Total</Text>
+                <Text style={styles.totalValue}>{formatCents(receipt.totalCents)}</Text>
+              </View>
+              {receipt.payments.map((payment, i) => (
+                <View key={i} style={styles.row}>
+                  <Text style={styles.muted}>{methodLabel(payment.method)}</Text>
+                  <Text style={styles.muted}>{formatCents(payment.amountCents)}</Text>
+                </View>
+              ))}
+
+              {(receipt.customer.name || receipt.customer.phone || receipt.customer.email) && (
+                <>
+                  <View style={styles.dashedDivider} />
+                  <Text style={styles.sectionLabel}>CUSTOMER</Text>
+                  {receipt.customer.name && <Text style={styles.muted}>{receipt.customer.name}</Text>}
+                  {receipt.customer.phone && <Text style={styles.muted}>{receipt.customer.phone}</Text>}
+                  {receipt.customer.email && <Text style={styles.muted}>{receipt.customer.email}</Text>}
+                </>
+              )}
+
+              {Boolean(receipt.returnPolicy && receipt.returnPolicy.trim()) && (
+                <>
+                  <View style={styles.dashedDivider} />
+                  <Text style={styles.returnPolicy}>{receipt.returnPolicy}</Text>
+                </>
+              )}
+
+              <Text style={styles.thanks}>Thank you for your purchase!</Text>
+            </View>
+            <View style={styles.tornEdge}>
+              {tornEdgeNotches.map((_, i) => <View key={i} style={styles.tornNotch} />)}
+            </View>
+          </View>
+
+          <View style={styles.actions}>
+            {Platform.OS === 'web' && (
+              <Pressable onPress={openPrintWindow} style={styles.actionButton}>
+                <Text style={styles.actionIcon}>🖨️</Text>
+                <Text style={styles.actionLabel}>Print</Text>
+              </Pressable>
+            )}
+            {Platform.OS === 'web' && (
+              <Pressable onPress={saveAsFile} style={styles.actionButton}>
+                <Text style={styles.actionIcon}>💾</Text>
+                <Text style={styles.actionLabel}>Save</Text>
+              </Pressable>
+            )}
+            <Pressable onPress={shareEmail} style={styles.actionButton}>
+              <Text style={styles.actionIcon}>✉️</Text>
+              <Text style={styles.actionLabel}>Email</Text>
+            </Pressable>
+            <Pressable onPress={shareWhatsApp} style={styles.actionButton}>
+              <Text style={styles.actionIcon}>💬</Text>
+              <Text style={styles.actionLabel}>WhatsApp</Text>
+            </Pressable>
+            {Platform.OS !== 'web' && (
+              <Pressable onPress={shareGeneric} style={styles.actionButton}>
+                <Text style={styles.actionIcon}>↗️</Text>
+                <Text style={styles.actionLabel}>Share</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '100%', maxWidth: 420, maxHeight: '88%' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  badge: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  badgeCheck: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  title: { fontSize: 16, fontWeight: '800', color: '#111111' },
+  close: { fontSize: 13, fontWeight: '700', color: '#999999' },
+
+  receiptWrap: { marginBottom: 18 },
+  receipt: { backgroundColor: '#F3F2ED', borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20 },
+  receiptHead: { alignItems: 'center', marginBottom: 4 },
+  shopName: { fontSize: 17, fontWeight: '800', color: '#111111', letterSpacing: 0.2 },
+  muted: { color: '#777777', fontSize: 12, marginTop: 2, textAlign: 'center' },
+  sectionLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 4, marginTop: 2 },
+  dashedDivider: { borderTopWidth: 1.5, borderTopColor: '#D9D9D3', borderStyle: 'dashed', marginVertical: 14 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 4, gap: 10 },
+  rowLabel: { flex: 1, fontSize: 13, color: '#333333' },
+  rowValue: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#111111', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, marginBottom: 4 },
+  totalLabel: { fontSize: 14, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.3 },
+  totalValue: { fontSize: 17, fontWeight: '800', color: '#FFFFFF' },
+  returnPolicy: { color: '#777777', fontSize: 11, lineHeight: 16, marginTop: 2 },
+  thanks: { marginTop: 16, textAlign: 'center', color: '#999999', fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+
+  tornEdge: { flexDirection: 'row', height: 10, backgroundColor: '#F3F2ED', overflow: 'hidden' },
+  tornNotch: {
+    width: 0,
+    height: 0,
+    flexGrow: 1,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderBottomWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderBottomColor: '#FFFFFF',
+    marginRight: -7,
+  },
+
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  actionButton: { flexGrow: 1, flexBasis: '22%', minWidth: 76, backgroundColor: '#F2F2F2', borderRadius: 12, paddingVertical: 13, alignItems: 'center', gap: 5 },
+  actionIcon: { fontSize: 19 },
+  actionLabel: { fontSize: 11, fontWeight: '700', color: '#111111' },
+});

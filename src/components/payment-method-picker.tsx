@@ -2,16 +2,8 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatCents, toCents } from '@/lib/currency';
+import { methodLabel, paymentMethods as methods } from '@/lib/payment-methods';
 import type { PaymentLine, PaymentMethod } from '@/types/models';
-
-const methods: { key: PaymentMethod; label: string; icon: string }[] = [
-  { key: 'cash', label: 'Cash', icon: '💵' },
-  { key: 'zaad', label: 'ZAAD', icon: '📱' },
-  { key: 'edahab', label: 'e-Dahab', icon: '📱' },
-  { key: 'other', label: 'Other', icon: '•' },
-];
-
-const methodLabel = (method: PaymentMethod) => methods.find((m) => m.key === method)?.label ?? method;
 
 export function PaymentMethodPicker({
   totalCents,

@@ -5,11 +5,14 @@ import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View,
 import { CategoryChip } from '@/components/category-chip';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
+import { ReceiptModal } from '@/components/receipt-modal';
 import { useAuth } from '@/hooks/use-auth';
+import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { formatCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
+import type { ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import type { CartLine, PaymentLine, Product } from '@/types/models';
 
@@ -41,6 +44,12 @@ export default function PosScreen() {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [cashiers, setCashiers] = useState<string[]>([]);
+  // Unlike customer info (cleared after every sale), the cashier stays
+  // selected across sales — whoever is running the register doesn't change
+  // sale-to-sale, so re-picking it each time would just be busywork.
+  const [cashierName, setCashierName] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -49,6 +58,7 @@ export default function PosScreen() {
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => { if (shop) listCategories(shop.id).then((rows) => setCategories(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
+  useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
 
   const filtered = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -81,10 +91,29 @@ export default function PosScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await completeSale(shop.id, cart, payments, {
-        name: customerName.trim() || null,
-        phone: customerPhone.trim() || null,
-        email: customerEmail.trim() || null,
+      await completeSale(
+        shop.id,
+        cart,
+        payments,
+        {
+          name: customerName.trim() || null,
+          phone: customerPhone.trim() || null,
+          email: customerEmail.trim() || null,
+        },
+        cashierName
+      );
+      setReceipt({
+        shopName: shop.name,
+        shopCity: shop.city,
+        shopNeighborhood: shop.neighborhood,
+        shopContactPhone: shop.contactPhone,
+        cashierName,
+        returnPolicy: shop.returnPolicy,
+        items: cart.map((line) => ({ name: line.product.name, quantity: line.quantity, unitPriceCents: line.product.priceCents })),
+        payments,
+        customer: { name: customerName.trim() || null, phone: customerPhone.trim() || null, email: customerEmail.trim() || null },
+        totalCents: total,
+        createdAt: new Date().toISOString(),
       });
       setCart([]);
       setPayments([]);
@@ -141,18 +170,20 @@ export default function PosScreen() {
                 {product.imageUrl ? (
                   <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.gridThumb} />
                 ) : (
-                  <View style={[styles.gridThumb, styles.gridThumbPlaceholder]} />
+                  <View style={[styles.gridThumb, styles.gridThumbPlaceholder]}>
+                    <View style={[styles.gridThumbDrop, product.stock <= 0 && styles.gridThumbDropMuted]} />
+                  </View>
                 )}
                 {product.brand && <Text style={styles.gridBrand}>{product.brand.toUpperCase()}</Text>}
                 <Text style={styles.gridName} numberOfLines={2}>{product.name}</Text>
                 <View style={styles.gridFooter}>
                   <Text style={styles.gridPrice}>{formatCents(product.priceCents)}</Text>
                   {product.stock <= 0 ? (
-                    <Text style={styles.outOfStockPill}>Out of stock</Text>
+                    <Text style={styles.stockPill}>⚠ Out of stock</Text>
                   ) : (
                     <View style={styles.gridStockWithBadge}>
                       <Text style={styles.gridStock}>{product.stock} in stock</Text>
-                      {product.stock <= (product.reorderLevel ?? 5) && <Text style={styles.lowStockPill}>⚠ Low</Text>}
+                      {product.stock <= (product.reorderLevel ?? 5) && <Text style={styles.stockPill}>⚠ Low stock</Text>}
                     </View>
                   )}
                 </View>
@@ -185,6 +216,17 @@ export default function PosScreen() {
             <Text style={styles.totalValue}>{formatCents(total)}</Text>
           </View>
 
+          {cashiers.length > 0 && (
+            <View style={styles.cashierSection}>
+              <Text style={styles.cashierLabel}>CASHIER</Text>
+              <View style={styles.cashierChips}>
+                {cashiers.map((name) => (
+                  <CategoryChip key={name} label={name} active={cashierName === name} onPress={() => setCashierName((current) => (current === name ? null : name))} />
+                ))}
+              </View>
+            </View>
+          )}
+
           <Pressable onPress={() => setCustomerOpen((v) => !v)} style={styles.customerToggle}>
             <Text style={styles.customerToggleText}>
               {customerOpen ? '▴' : '▾'} {customerName.trim() ? `Customer: ${customerName.trim()}` : 'Add customer info (optional)'}
@@ -205,6 +247,7 @@ export default function PosScreen() {
           </Pressable>
         </View>
       </Split>
+      <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} title="Sale complete ✓" />
     </SafeAreaView>
   );
 }
@@ -227,15 +270,29 @@ const styles = StyleSheet.create({
   gridTileCompact: { flexBasis: '47%', minWidth: 140, flexGrow: 0, flexShrink: 0 },
   gridTileDisabled: { opacity: 0.4 },
   gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, marginBottom: 14 },
-  gridThumbPlaceholder: { backgroundColor: '#F2F2F2' },
+  gridThumbPlaceholder: { backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
+  // A teardrop silhouette built from a rotated square with three rounded
+  // corners — avoids pulling in an icon/SVG library just for one glyph, and
+  // (unlike the 💧 emoji) its color is fully controllable to match the
+  // monochrome palette and dim for out-of-stock items.
+  gridThumbDrop: {
+    width: 30,
+    height: 30,
+    backgroundColor: '#111111',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    borderBottomRightRadius: 15,
+    borderBottomLeftRadius: 0,
+    transform: [{ rotate: '-45deg' }],
+  },
+  gridThumbDropMuted: { backgroundColor: '#C7C7C7' },
   gridBrand: { color: '#999999', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
   gridName: { color: '#111111', fontSize: 15, fontWeight: '700', minHeight: 40, marginTop: 4 },
   gridFooter: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   gridPrice: { color: '#111111', fontSize: 18, fontWeight: '800' },
   gridStock: { color: '#999999', fontSize: 12 },
   gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  lowStockPill: { fontSize: 11, fontWeight: '700', color: '#B5793A', borderWidth: 1, borderColor: '#E8C99B', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
-  outOfStockPill: { fontSize: 11, fontWeight: '700', color: '#FFFFFF', backgroundColor: '#111111', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
+  stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
   cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
   cartPaneCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderTopWidth: 1, borderTopColor: '#ECECEC', padding: 20, paddingTop: 16 },
   cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800', marginBottom: 20 },
@@ -250,7 +307,10 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 15, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 26, fontWeight: '800' },
-  customerToggle: { paddingVertical: 4 },
+  cashierSection: { marginTop: 14 },
+  cashierLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 8 },
+  cashierChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  customerToggle: { paddingVertical: 4, marginTop: 14 },
   customerToggleText: { fontSize: 12, fontWeight: '700', color: '#999999' },
   customerFields: { gap: 8, marginTop: 10 },
   customerInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
