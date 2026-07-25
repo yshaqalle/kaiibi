@@ -69,6 +69,10 @@ function buildPaymentPayload(payments: PaymentLine[]) {
     tendered_cents: p.tenderedCents,
     customer_name: p.customerName,
     customer_phone: p.customerPhone,
+    currency_code: p.currencyCode,
+    exchange_rate: p.exchangeRate,
+    foreign_amount_cents: p.foreignAmountCents,
+    foreign_change_cents: p.foreignChangeCents,
   }));
 }
 
@@ -86,6 +90,8 @@ function mapSaleRow(row: any): Sale {
     customerEmail: row.customer_email,
     cashierName: row.cashier_name,
     discountCents: row.discount_cents ?? 0,
+    taxCents: row.tax_cents ?? 0,
+    taxRatePercent: row.tax_rate_percent !== null && row.tax_rate_percent !== undefined ? Number(row.tax_rate_percent) : null,
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,
@@ -110,6 +116,10 @@ function mapSaleRow(row: any): Sale {
         tenderedCents: payment.tendered_cents,
         customerName: payment.customer_name,
         customerPhone: payment.customer_phone,
+        currencyCode: payment.currency_code,
+        exchangeRate: payment.exchange_rate !== null && payment.exchange_rate !== undefined ? Number(payment.exchange_rate) : null,
+        foreignAmountCents: payment.foreign_amount_cents,
+        foreignChangeCents: payment.foreign_change_cents,
         createdAt: payment.created_at,
       })
     ),
@@ -141,6 +151,10 @@ function mapSaleRow(row: any): Sale {
             tenderedCents: payment.tendered_cents,
             customerName: payment.customer_name,
             customerPhone: payment.customer_phone,
+            currencyCode: payment.currency_code ?? null,
+            exchangeRate: payment.exchange_rate !== null && payment.exchange_rate !== undefined ? Number(payment.exchange_rate) : null,
+            foreignAmountCents: payment.foreign_amount_cents ?? null,
+            foreignChangeCents: payment.foreign_change_cents ?? null,
           })),
         },
       }))
