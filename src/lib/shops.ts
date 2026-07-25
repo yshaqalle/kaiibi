@@ -1,3 +1,4 @@
+import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { Shop } from '@/types/models';
 
@@ -11,9 +12,14 @@ function mapShopRow(row: any): Shop {
     neighborhood: row.neighborhood,
     contactPhone: row.contact_phone,
     returnPolicy: row.return_policy,
+    logoUrl: row.logo_url,
     categories: row.categories ?? [],
     createdAt: row.created_at,
   };
+}
+
+export async function uploadShopLogo(shopId: string, localUri: string): Promise<string> {
+  return uploadImage(`${shopId}/logo-${Date.now()}`, localUri);
 }
 
 export async function getMyShop(): Promise<Shop | null> {
@@ -58,7 +64,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; categories: string[];
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[];
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -69,6 +75,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
       ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
       ...(input.returnPolicy !== undefined && { return_policy: input.returnPolicy }),
+      ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
       ...(input.categories !== undefined && { categories: input.categories }),
     })
     .eq('id', id)

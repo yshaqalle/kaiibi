@@ -1,25 +1,33 @@
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CategoryChip } from '@/components/category-chip';
 import { ScreenHeader } from '@/components/screen-header';
 import { useAuth } from '@/hooks/use-auth';
-import { createBrand, deleteBrand, listBrands, renameBrand } from '@/lib/brands';
+import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } from '@/lib/brands';
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
-import { createCategory, deleteCategory, listCategories, renameCategory } from '@/lib/categories';
+import { createCategory, deleteCategory, listCategories, renameCategory, updateCategoryColor } from '@/lib/categories';
+import { nextTaxonomyColor, taxonomyPalette } from '@/lib/colors';
 import { updateProfile } from '@/lib/profile';
 import { listProducts } from '@/lib/products';
-import { updateShop } from '@/lib/shops';
-import { createTag, deleteTag, listTags, renameTag } from '@/lib/tags';
+import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
 import type { Product, Profile, Shop } from '@/types/models';
 
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
+const emptyColors = new Map<string, string | null>();
 
 export default function SettingsScreen() {
-  const { shop, profile, setProfile, refreshShop } = useAuth();
+  const { shop, profile, session, setProfile, refreshShop } = useAuth();
   const [brands, setBrands] = useState<string[]>([]);
+  const [brandColors, setBrandColors] = useState<Map<string, string | null>>(emptyColors);
   const [categories, setCategories] = useState<string[]>([]);
+  const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(emptyColors);
   const [tags, setTags] = useState<string[]>([]);
+  const [tagColors, setTagColors] = useState<Map<string, string | null>>(emptyColors);
   const [cashiers, setCashiers] = useState<string[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,8 +45,11 @@ export default function SettingsScreen() {
         listProducts(shop.id),
       ]);
       setBrands(brandRows.map((b) => b.name));
+      setBrandColors(new Map(brandRows.map((b) => [b.name, b.color])));
       setCategories(cats.map((c) => c.name));
+      setCategoryColors(new Map(cats.map((c) => [c.name, c.color])));
       setTags(tagRows.map((t) => t.name));
+      setTagColors(new Map(tagRows.map((t) => [t.name, t.color])));
       setCashiers(cashierRows.map((c) => c.name));
       setProducts(productRows);
     } catch (err) {
@@ -85,7 +96,7 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         {error && <Text style={styles.error}>{error}</Text>}
 
-        {profile && <ProfileSection profile={profile} onSaved={setProfile} />}
+        {profile && <ProfileSection profile={profile} email={session?.user.email ?? null} onSaved={setProfile} />}
         <ShopSection shop={shop} onSaved={refreshShop} />
 
         {loading ? (
@@ -98,9 +109,11 @@ export default function SettingsScreen() {
               hint="Brands you carry. Renaming or removing a brand updates every product using it."
               items={brands}
               usage={brandUsage}
-              onAdd={(name) => runOrShowError(async () => { await createBrand(shop.id, name); await reload(); })}
+              colors={brandColors}
+              onAdd={(name) => runOrShowError(async () => { await createBrand(shop.id, name, nextTaxonomyColor(brands.length)); await reload(); })}
               onRename={(oldName, newName) => runOrShowError(async () => { await renameBrand(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteBrand(shop.id, name); await reload(); })}
+              onColorChange={(name, color) => runOrShowError(async () => { await updateBrandColor(shop.id, name, color); await reload(); })}
             />
             <CategorySection
               title="CATEGORIES"
@@ -108,9 +121,11 @@ export default function SettingsScreen() {
               hint="Group products in the POS and inventory screens. Renaming or removing a category updates every product using it."
               items={categories}
               usage={categoryUsage}
-              onAdd={(name) => runOrShowError(async () => { await createCategory(shop.id, name); await reload(); })}
+              colors={categoryColors}
+              onAdd={(name) => runOrShowError(async () => { await createCategory(shop.id, name, nextTaxonomyColor(categories.length)); await reload(); })}
               onRename={(oldName, newName) => runOrShowError(async () => { await renameCategory(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteCategory(shop.id, name); await reload(); })}
+              onColorChange={(name, color) => runOrShowError(async () => { await updateCategoryColor(shop.id, name, color); await reload(); })}
             />
             <CategorySection
               title="TAGS"
@@ -118,9 +133,11 @@ export default function SettingsScreen() {
               hint="Extra keywords for products, like bestseller or handmade."
               items={tags}
               usage={tagUsage}
-              onAdd={(name) => runOrShowError(async () => { await createTag(shop.id, name); await reload(); })}
+              colors={tagColors}
+              onAdd={(name) => runOrShowError(async () => { await createTag(shop.id, name, nextTaxonomyColor(tags.length)); await reload(); })}
               onRename={(oldName, newName) => runOrShowError(async () => { await renameTag(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteTag(shop.id, name); await reload(); })}
+              onColorChange={(name, color) => runOrShowError(async () => { await updateTagColor(shop.id, name, color); await reload(); })}
             />
             <CategorySection
               title="CASHIERS"
@@ -140,7 +157,7 @@ export default function SettingsScreen() {
   );
 }
 
-function ProfileSection({ profile, onSaved }: { profile: Profile; onSaved: (profile: Profile) => void }) {
+function ProfileSection({ profile, email, onSaved }: { profile: Profile; email: string | null; onSaved: (profile: Profile) => void }) {
   const [fullName, setFullName] = useState(profile.fullName ?? '');
   const [phone, setPhone] = useState(profile.phone ?? '');
   const [saving, setSaving] = useState(false);
@@ -168,6 +185,14 @@ function ProfileSection({ profile, onSaved }: { profile: Profile; onSaved: (prof
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>YOUR PROFILE</Text>
       <Text style={styles.hint}>Your name and phone number.</Text>
+      {email && (
+        <>
+          <Text style={styles.fieldLabel}>EMAIL</Text>
+          <View style={styles.readOnlyField}>
+            <Text style={styles.readOnlyFieldText}>{email}</Text>
+          </View>
+        </>
+      )}
       <View style={styles.formRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>FULL NAME</Text>
@@ -193,7 +218,9 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   const [neighborhood, setNeighborhood] = useState(shop.neighborhood ?? '');
   const [description, setDescription] = useState(shop.description ?? '');
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
+  const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -203,12 +230,30 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     city.trim() !== (shop.city ?? '') ||
     neighborhood.trim() !== (shop.neighborhood ?? '') ||
     description.trim() !== (shop.description ?? '') ||
-    returnPolicy.trim() !== (shop.returnPolicy ?? '');
+    returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
+    logoUri !== shop.logoUrl;
+
+  const pickLogo = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!result.canceled) setLogoUri(result.assets[0].uri);
+  };
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
+      let logoUrl = shop.logoUrl;
+      // A freshly picked logo is a local URI, not the http(s) URL of an
+      // already-uploaded one — see product-form.tsx for the same check.
+      if (logoUri && !/^https?:\/\//.test(logoUri)) {
+        setUploadingLogo(true);
+        logoUrl = await uploadShopLogo(shop.id, logoUri);
+        setUploadingLogo(false);
+      } else if (logoUri === null) {
+        logoUrl = null;
+      }
       await updateShop(shop.id, {
         name: name.trim(),
         contactPhone: contactPhone.trim(),
@@ -216,6 +261,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         neighborhood: neighborhood.trim(),
         description: description.trim(),
         returnPolicy: returnPolicy.trim(),
+        logoUrl,
       });
       await onSaved();
       setSaved(true);
@@ -223,6 +269,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save changes.');
     } finally {
+      setUploadingLogo(false);
       setSaving(false);
     }
   };
@@ -231,6 +278,17 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>SHOP</Text>
       <Text style={styles.hint}>Shown to customers and used across the app — name, city, neighborhood, and contact phone also appear on printed/shared receipts.</Text>
+      <Text style={styles.fieldLabel}>LOGO</Text>
+      <View style={styles.logoRow}>
+        <Pressable onPress={pickLogo} style={styles.logoPicker}>
+          {logoUri ? <Image source={{ uri: logoUri }} contentFit="cover" style={styles.logoPreview} /> : <Text style={styles.logoHint}>Add logo</Text>}
+        </Pressable>
+        {logoUri && (
+          <Pressable onPress={() => setLogoUri(null)}>
+            <Text style={styles.logoRemove}>Remove</Text>
+          </Pressable>
+        )}
+      </View>
       <Text style={styles.fieldLabel}>SHOP NAME</Text>
       <TextInput value={name} onChangeText={setName} placeholder="Shop name" placeholderTextColor="#999999" style={styles.input} />
       <Text style={styles.fieldLabel}>DESCRIPTION</Text>
@@ -272,20 +330,24 @@ function CategorySection({
   hint,
   items,
   usage,
+  colors = emptyColors,
   showUsage = true,
   onAdd,
   onRename,
   onDelete,
+  onColorChange,
 }: {
   title: string;
   itemLabel: string;
   hint: string;
   items: string[];
   usage: Map<string, number>;
+  colors?: Map<string, string | null>;
   showUsage?: boolean;
   onAdd: (name: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onDelete: (name: string) => void;
+  onColorChange?: (name: string, color: string) => void;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -312,6 +374,7 @@ function CategorySection({
         <View style={styles.previewRow}>
           {mostUsed.map((item) => (
             <View key={item} style={styles.previewChip}>
+              {colors.get(item) && <View style={[styles.previewDot, { backgroundColor: colors.get(item) as string }]} />}
               <Text style={styles.previewChipText}>{item}</Text>
               {showUsage && <Text style={styles.previewChipCount}>{usage.get(item) ?? 0}</Text>}
             </View>
@@ -327,10 +390,12 @@ function CategorySection({
         itemLabel={itemLabel}
         items={items}
         usage={usage}
+        colors={colors}
         showUsage={showUsage}
         onAdd={onAdd}
         onRename={onRename}
         onDelete={onDelete}
+        onColorChange={onColorChange}
       />
     </View>
   );
@@ -343,10 +408,12 @@ function ManageModal({
   itemLabel,
   items,
   usage,
+  colors = emptyColors,
   showUsage = true,
   onAdd,
   onRename,
   onDelete,
+  onColorChange,
 }: {
   visible: boolean;
   onClose: () => void;
@@ -354,16 +421,19 @@ function ManageModal({
   itemLabel: string;
   items: string[];
   usage: Map<string, number>;
+  colors?: Map<string, string | null>;
   showUsage?: boolean;
   onAdd: (name: string) => void;
   onRename: (oldName: string, newName: string) => void;
   onDelete: (name: string) => void;
+  onColorChange?: (name: string, color: string) => void;
 }) {
   const [search, setSearch] = useState('');
   const [newValue, setNewValue] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [pickingColorFor, setPickingColorFor] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -405,26 +475,42 @@ function ManageModal({
           <ScrollView style={styles.modalList}>
             {filtered.length === 0 && <Text style={styles.empty}>{search ? 'No matches.' : 'None yet — add one below.'}</Text>}
             {filtered.map((item) => (
-              <View key={item} style={styles.row}>
-                {editing === item ? (
-                  <>
-                    <TextInput value={editValue} onChangeText={setEditValue} autoFocus style={styles.editInput} onSubmitEditing={submitEdit} />
-                    <Pressable onPress={submitEdit} style={styles.rowAction}><Text style={styles.rowActionText}>Save</Text></Pressable>
-                    <Pressable onPress={() => setEditing(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
-                  </>
-                ) : confirmingDelete === item ? (
-                  <>
-                    <Text style={[styles.rowLabel, { flex: 1 }]}>Delete &quot;{item}&quot;?</Text>
-                    <Pressable onPress={() => { onDelete(item); setConfirmingDelete(null); }} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Confirm</Text></Pressable>
-                    <Pressable onPress={() => setConfirmingDelete(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
-                  </>
-                ) : (
-                  <>
-                    <Text style={styles.rowLabel}>{item}</Text>
-                    {showUsage && <Text style={styles.rowCount}>{usage.get(item) ?? 0}</Text>}
-                    <Pressable onPress={() => startEdit(item)} style={styles.rowAction}><Text style={styles.rowActionText}>Rename</Text></Pressable>
-                    <Pressable onPress={() => setConfirmingDelete(item)} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Delete</Text></Pressable>
-                  </>
+              <View key={item}>
+                <View style={styles.row}>
+                  {editing === item ? (
+                    <>
+                      <TextInput value={editValue} onChangeText={setEditValue} autoFocus style={styles.editInput} onSubmitEditing={submitEdit} />
+                      <Pressable onPress={submitEdit} style={styles.rowAction}><Text style={styles.rowActionText}>Save</Text></Pressable>
+                      <Pressable onPress={() => setEditing(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
+                    </>
+                  ) : confirmingDelete === item ? (
+                    <>
+                      <Text style={[styles.rowLabel, { flex: 1 }]}>Delete &quot;{item}&quot;?</Text>
+                      <Pressable onPress={() => { onDelete(item); setConfirmingDelete(null); }} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Confirm</Text></Pressable>
+                      <Pressable onPress={() => setConfirmingDelete(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
+                    </>
+                  ) : (
+                    <>
+                      {onColorChange && (
+                        <Pressable onPress={() => setPickingColorFor((current) => (current === item ? null : item))} style={[styles.colorDot, { backgroundColor: colors.get(item) ?? '#DDDDDD' }]} />
+                      )}
+                      <Text style={styles.rowLabel}>{item}</Text>
+                      {showUsage && <Text style={styles.rowCount}>{usage.get(item) ?? 0}</Text>}
+                      <Pressable onPress={() => startEdit(item)} style={styles.rowAction}><Text style={styles.rowActionText}>Rename</Text></Pressable>
+                      <Pressable onPress={() => setConfirmingDelete(item)} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Delete</Text></Pressable>
+                    </>
+                  )}
+                </View>
+                {pickingColorFor === item && (
+                  <View style={styles.colorPalette}>
+                    {taxonomyPalette.map((color) => (
+                      <Pressable
+                        key={color}
+                        onPress={() => { onColorChange?.(item, color); setPickingColorFor(null); }}
+                        style={[styles.colorSwatch, { backgroundColor: color }, colors.get(item) === color && styles.colorSwatchSelected]}
+                      />
+                    ))}
+                  </View>
                 )}
               </View>
             ))}
@@ -449,6 +535,13 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6, marginTop: 10 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   multilineInput: { height: 76, paddingTop: 11 },
+  readOnlyField: { backgroundColor: '#F7F7F7', borderRadius: 10, height: 42, paddingHorizontal: 12, justifyContent: 'center' },
+  readOnlyFieldText: { color: '#666666', fontSize: 14 },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 6 },
+  logoPicker: { width: 64, height: 64, borderRadius: 14, backgroundColor: '#F2F2F2', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  logoPreview: { width: '100%', height: '100%' },
+  logoHint: { color: '#999999', fontSize: 10, textAlign: 'center' },
+  logoRemove: { color: '#C0392B', fontSize: 12, fontWeight: '700' },
   saveButton: { backgroundColor: '#111111', borderRadius: 10, height: 42, alignItems: 'center', justifyContent: 'center', marginTop: 14, alignSelf: 'flex-start', paddingHorizontal: 22 },
   saveButtonDisabled: { backgroundColor: '#CCCCCC' },
   saveButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
@@ -463,6 +556,11 @@ const styles = StyleSheet.create({
   previewChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F2F2F2', borderRadius: 16, paddingVertical: 7, paddingHorizontal: 12 },
   previewChipText: { fontSize: 12, fontWeight: '700', color: '#111111' },
   previewChipCount: { fontSize: 11, fontWeight: '700', color: '#999999' },
+  previewDot: { width: 8, height: 8, borderRadius: 4 },
+  colorDot: { width: 16, height: 16, borderRadius: 8 },
+  colorPalette: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 8, paddingHorizontal: 12, marginBottom: 8, backgroundColor: '#F2F2F2', borderRadius: 10 },
+  colorSwatch: { width: 22, height: 22, borderRadius: 11 },
+  colorSwatchSelected: { borderWidth: 2, borderColor: '#111111' },
   previewMore: { fontSize: 12, fontWeight: '600', color: '#999999' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },

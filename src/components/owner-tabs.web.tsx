@@ -1,8 +1,12 @@
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { Link, Slot, usePathname, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // This intentionally avoids expo-router/ui's `Tabs`/`TabList`/`TabTrigger`:
 // on web that combo lays out each `TabTrigger` as if positioning items in a
@@ -27,18 +31,39 @@ const compactBreakpoint = 820;
 export default function OwnerTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { shop } = useAuth();
+  const { shop, refreshShop } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < compactBreakpoint;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Lets the shop logo be changed straight from the sidebar avatar, not
+  // just from Settings — a quick "click your logo to change it" affordance.
+  const editLogo = async () => {
+    if (!shop || uploadingLogo) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (result.canceled) return;
+    setUploadingLogo(true);
+    try {
+      const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
+      await updateShop(shop.id, { logoUrl });
+      await refreshShop();
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   if (compact) {
     return (
       <View style={styles.mobileRoot}>
         <View style={styles.mobileHeader}>
           <View style={styles.mobileHeaderLeft}>
-            <View style={styles.avatarSmall}><Text style={styles.avatarText}>{initial}</Text></View>
+            <Pressable onPress={editLogo} style={styles.avatarSmall}>
+              {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
+            </Pressable>
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
           </View>
           <View style={styles.mobileHeaderRight}>
@@ -74,7 +99,9 @@ export default function OwnerTabs() {
     <View style={styles.tabs}>
       <View style={styles.sidebar}>
         <View style={styles.header}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
+          <Pressable onPress={editLogo} style={styles.avatar}>
+            {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
+          </Pressable>
           <View>
             <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
             {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
@@ -114,7 +141,8 @@ const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
-  avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   shopName: { color: '#111111', fontSize: 15, fontWeight: '800', maxWidth: 140 },
   shopSubtitle: { color: '#999999', fontSize: 11, marginTop: 1 },
@@ -134,7 +162,7 @@ const styles = StyleSheet.create({
   mobileRoot: { flex: 1 },
   mobileHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
   mobileHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 12 },
-  avatarSmall: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  avatarSmall: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
   mobileHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   settingsButtonCompact: { padding: 2 },

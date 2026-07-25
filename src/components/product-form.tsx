@@ -30,13 +30,16 @@ export function ProductForm({
   const [category, setCategory] = useState(initial?.category ?? '');
   const [tags, setTags] = useState(initial?.tags?.join(', ') ?? '');
   const [brandSuggestions, setBrandSuggestions] = useState<string[]>([]);
+  const [brandColors, setBrandColors] = useState<Map<string, string | null>>(new Map());
   const [categorySuggestions, setCategorySuggestions] = useState<string[]>([]);
+  const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+  const [tagColors, setTagColors] = useState<Map<string, string | null>>(new Map());
 
   useEffect(() => {
-    listBrands(shopId).then((rows) => setBrandSuggestions(rows.map((r) => r.name))).catch(() => {});
-    listCategories(shopId).then((rows) => setCategorySuggestions(rows.map((r) => r.name))).catch(() => {});
-    listTags(shopId).then((rows) => setTagSuggestions(rows.map((r) => r.name))).catch(() => {});
+    listBrands(shopId).then((rows) => { setBrandSuggestions(rows.map((r) => r.name)); setBrandColors(new Map(rows.map((r) => [r.name, r.color]))); }).catch(() => {});
+    listCategories(shopId).then((rows) => { setCategorySuggestions(rows.map((r) => r.name)); setCategoryColors(new Map(rows.map((r) => [r.name, r.color]))); }).catch(() => {});
+    listTags(shopId).then((rows) => { setTagSuggestions(rows.map((r) => r.name)); setTagColors(new Map(rows.map((r) => [r.name, r.color]))); }).catch(() => {});
   }, [shopId]);
   const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '');
   const [costInput, setCostInput] = useState(initial?.costCents ? formatCents(initial.costCents).replace('$', '') : '');
@@ -136,6 +139,7 @@ export function ProductForm({
             if (next && !brandSuggestions.includes(next)) setBrandSuggestions((prev) => [...prev, next].sort((a, b) => a.localeCompare(b)));
           }}
           suggestions={brandSuggestions}
+          colors={brandColors}
           placeholder="Search or add a brand…"
         />
       </Field>
@@ -147,6 +151,7 @@ export function ProductForm({
             if (next && !categorySuggestions.includes(next)) setCategorySuggestions((prev) => [...prev, next].sort((a, b) => a.localeCompare(b)));
           }}
           suggestions={categorySuggestions}
+          colors={categoryColors}
           placeholder="Search or add a category…"
         />
       </Field>
@@ -155,6 +160,7 @@ export function ProductForm({
           value={tags}
           onChange={setTags}
           suggestions={tagSuggestions}
+          colors={tagColors}
           onNewTag={(tag) => setTagSuggestions((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b)))}
         />
       </Field>
@@ -199,11 +205,13 @@ function SearchableChipField({
   value,
   onChange,
   suggestions,
+  colors,
   placeholder,
 }: {
   value: string;
   onChange: (value: string) => void;
   suggestions: string[];
+  colors?: Map<string, string | null>;
   placeholder: string;
 }) {
   const [query, setQuery] = useState('');
@@ -219,7 +227,7 @@ function SearchableChipField({
       <TextInput value={query} onChangeText={setQuery} placeholder={placeholder} placeholderTextColor="#999999" style={styles.input} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {filtered.map((item) => (
-          <CategoryChip key={item} label={item} active={value === item} onPress={() => toggle(item)} />
+          <CategoryChip key={item} label={item} color={colors?.get(item)} active={value === item} onPress={() => toggle(item)} />
         ))}
         {q.length > 0 && !exactMatch && (
           <CategoryChip label={`+ Add "${query.trim()}"`} active={false} onPress={() => select(query.trim())} />
@@ -237,11 +245,13 @@ function TagsField({
   value,
   onChange,
   suggestions,
+  colors,
   onNewTag,
 }: {
   value: string;
   onChange: (value: string) => void;
   suggestions: string[];
+  colors?: Map<string, string | null>;
   onNewTag?: (tag: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -265,7 +275,7 @@ function TagsField({
       <TextInput value={query} onChangeText={setQuery} placeholder="Search tags…" placeholderTextColor="#999999" style={styles.input} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
         {filtered.map((tag) => (
-          <CategoryChip key={tag} label={tag} active={selected.includes(tag)} onPress={() => toggleTag(tag)} />
+          <CategoryChip key={tag} label={tag} color={colors?.get(tag)} active={selected.includes(tag)} onPress={() => toggleTag(tag)} />
         ))}
         {q.length > 0 && !exactMatch && (
           <CategoryChip label={`+ Add "${query.trim()}"`} active={false} onPress={() => addTag(query.trim())} />

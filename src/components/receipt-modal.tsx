@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { Linking, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents } from '@/lib/currency';
@@ -65,6 +66,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
           <View style={styles.receiptWrap}>
             <View style={styles.receipt}>
               <View style={styles.receiptHead}>
+                {receipt.shopLogoUrl && <Image source={{ uri: receipt.shopLogoUrl }} contentFit="cover" style={styles.logo} />}
                 <Text style={styles.shopName}>{receipt.shopName}</Text>
                 {location && <Text style={styles.muted}>{location}</Text>}
                 {receipt.shopContactPhone && <Text style={styles.muted}>{receipt.shopContactPhone}</Text>}
@@ -163,6 +165,7 @@ const styles = StyleSheet.create({
   receiptWrap: { marginBottom: 18 },
   receipt: { backgroundColor: '#F3F2ED', borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20 },
   receiptHead: { alignItems: 'center', marginBottom: 4 },
+  logo: { width: 48, height: 48, borderRadius: 11, marginBottom: 8 },
   shopName: { fontSize: 17, fontWeight: '800', color: '#111111', letterSpacing: 0.2 },
   muted: { color: '#777777', fontSize: 12, marginTop: 2, textAlign: 'center' },
   sectionLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 4, marginTop: 2 },

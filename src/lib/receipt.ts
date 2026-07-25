@@ -10,6 +10,7 @@ export type ReceiptItem = { name: string; quantity: number; unitPriceCents: numb
 
 export type ReceiptData = {
   shopName: string;
+  shopLogoUrl: string | null;
   shopCity: string | null;
   shopNeighborhood: string | null;
   shopContactPhone: string | null;
@@ -37,10 +38,11 @@ function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhoo
 // not just right after checkout.
 export function buildReceiptFromSale(
   sale: Sale,
-  shop: { name: string; city: string | null; neighborhood: string | null; contactPhone: string | null; returnPolicy: string | null }
+  shop: { name: string; logoUrl: string | null; city: string | null; neighborhood: string | null; contactPhone: string | null; returnPolicy: string | null }
 ): ReceiptData {
   return {
     shopName: shop.name,
+    shopLogoUrl: shop.logoUrl,
     shopCity: shop.city,
     shopNeighborhood: shop.neighborhood,
     shopContactPhone: shop.contactPhone,
@@ -127,15 +129,20 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
   .total span { font-weight: 800; font-size: 16px; }
   .label { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; color: #999999; margin-bottom: 4px; }
   .thanks { margin-top: 20px; text-align: center; color: #999999; font-size: 13px; }
+  .logo { display: block; width: 56px; height: 56px; object-fit: cover; border-radius: 12px; margin: 0 auto 10px; }
+  .head { text-align: center; }
   @media print { body { margin: 0 auto; } }
 </style>
 </head>
 <body>
-  <div class="shop">${esc(receipt.shopName)}</div>
-  ${location ? `<div class="muted">${esc(location)}</div>` : ''}
-  ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
-  <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
-  ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
+  <div class="head">
+    ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
+    <div class="shop">${esc(receipt.shopName)}</div>
+    ${location ? `<div class="muted">${esc(location)}</div>` : ''}
+    ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
+    <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
+    ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
+  </div>
   <div class="divider"></div>
   ${itemRows}
   <div class="divider"></div>

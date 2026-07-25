@@ -18,6 +18,8 @@ export type Shop = {
   contactPhone: string | null;
   // Printed on receipts (Print/Save/Email/WhatsApp) — see src/lib/receipt.ts.
   returnPolicy: string | null;
+  // Shown in the owner sidebar avatar and on receipts.
+  logoUrl: string | null;
   categories: string[];
   createdAt: string;
 };
@@ -138,6 +140,7 @@ export type Category = {
   id: string;
   shopId: string;
   name: string;
+  color: string | null;
   createdAt: string;
 };
 
@@ -145,6 +148,7 @@ export type Brand = {
   id: string;
   shopId: string;
   name: string;
+  color: string | null;
   createdAt: string;
 };
 
@@ -152,6 +156,7 @@ export type Tag = {
   id: string;
   shopId: string;
   name: string;
+  color: string | null;
   createdAt: string;
 };
 

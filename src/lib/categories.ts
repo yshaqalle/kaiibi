@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Category } from '@/types/models';
 
 function mapCategoryRow(row: any): Category {
-  return { id: row.id, shopId: row.shop_id, name: row.name, createdAt: row.created_at };
+  return { id: row.id, shopId: row.shop_id, name: row.name, color: row.color, createdAt: row.created_at };
 }
 
 export async function listCategories(shopId: string): Promise<Category[]> {
@@ -22,10 +22,10 @@ export async function listCategories(shopId: string): Promise<Category[]> {
 // `ignoreDuplicates` means a conflicting row comes back empty from
 // `RETURNING`, so this doesn't try to select/return the row — callers that
 // need the up-to-date list should re-fetch via `listCategories`.
-export async function createCategory(shopId: string, name: string): Promise<void> {
+export async function createCategory(shopId: string, name: string, color?: string | null): Promise<void> {
   const { error } = await supabase
     .from('categories')
-    .upsert({ shop_id: shopId, name }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
+    .upsert({ shop_id: shopId, name, color: color ?? null }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
   if (error) throw error;
 }
 
@@ -39,5 +39,12 @@ export async function renameCategory(shopId: string, oldName: string, newName: s
 
 export async function deleteCategory(shopId: string, name: string): Promise<void> {
   const { error } = await supabase.rpc('delete_category', { p_shop_id: shopId, p_name: name });
+  if (error) throw error;
+}
+
+// Color isn't part of the rename/delete cascade concern (it doesn't appear
+// anywhere on `products`), so it's a plain table write, not an RPC.
+export async function updateCategoryColor(shopId: string, name: string, color: string): Promise<void> {
+  const { error } = await supabase.from('categories').update({ color }).eq('shop_id', shopId).eq('name', name);
   if (error) throw error;
 }

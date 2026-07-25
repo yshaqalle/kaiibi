@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Tag } from '@/types/models';
 
 function mapTagRow(row: any): Tag {
-  return { id: row.id, shopId: row.shop_id, name: row.name, createdAt: row.created_at };
+  return { id: row.id, shopId: row.shop_id, name: row.name, color: row.color, createdAt: row.created_at };
 }
 
 export async function listTags(shopId: string): Promise<Tag[]> {
@@ -19,10 +19,10 @@ export async function listTags(shopId: string): Promise<Tag[]> {
 // this is called both from Settings' explicit "Add" button and from the
 // product form whenever someone types a tag that isn't in the table yet, so
 // it must be safe to call redundantly without a duplicate-key error.
-export async function createTag(shopId: string, name: string): Promise<void> {
+export async function createTag(shopId: string, name: string, color?: string | null): Promise<void> {
   const { error } = await supabase
     .from('tags')
-    .upsert({ shop_id: shopId, name }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
+    .upsert({ shop_id: shopId, name, color: color ?? null }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
   if (error) throw error;
 }
 
@@ -36,5 +36,10 @@ export async function renameTag(shopId: string, oldName: string, newName: string
 
 export async function deleteTag(shopId: string, name: string): Promise<void> {
   const { error } = await supabase.rpc('delete_tag', { p_shop_id: shopId, p_name: name });
+  if (error) throw error;
+}
+
+export async function updateTagColor(shopId: string, name: string, color: string): Promise<void> {
+  const { error } = await supabase.from('tags').update({ color }).eq('shop_id', shopId).eq('name', name);
   if (error) throw error;
 }

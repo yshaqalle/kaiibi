@@ -40,6 +40,7 @@ export default function PosScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
+  const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [customerOpen, setCustomerOpen] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -57,7 +58,15 @@ export default function PosScreen() {
   }, [shop]);
 
   useEffect(() => { reload(); }, [reload]);
-  useEffect(() => { if (shop) listCategories(shop.id).then((rows) => setCategories(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
+  useEffect(() => {
+    if (!shop) return;
+    listCategories(shop.id)
+      .then((rows) => {
+        setCategories(rows.map((r) => r.name));
+        setCategoryColors(new Map(rows.map((r) => [r.name, r.color])));
+      })
+      .catch(() => {});
+  }, [shop]);
   useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
 
   const filtered = products.filter((p) =>
@@ -104,6 +113,7 @@ export default function PosScreen() {
       );
       setReceipt({
         shopName: shop.name,
+        shopLogoUrl: shop.logoUrl,
         shopCity: shop.city,
         shopNeighborhood: shop.neighborhood,
         shopContactPhone: shop.contactPhone,
@@ -161,7 +171,7 @@ export default function PosScreen() {
           <CategoryList {...categoryListProps}>
             <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
             {categories.map((item) => (
-              <CategoryChip key={item} label={item} active={category === item} onPress={() => setCategory(item)} />
+              <CategoryChip key={item} label={item} color={categoryColors.get(item)} active={category === item} onPress={() => setCategory(item)} />
             ))}
           </CategoryList>
           <GridList {...gridListProps}>
