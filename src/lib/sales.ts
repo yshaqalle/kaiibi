@@ -1,6 +1,6 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentLine, Promotion, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
+import type { CartLine, PaymentLine, PaymentMethod, Promotion, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
 export type SaleCustomer = { name?: string | null; phone?: string | null; email?: string | null };
 
@@ -159,11 +159,11 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
   return (data ?? []).map(mapSaleRow);
 }
 
-// Powers the Sales screen: a date-bounded (default last 14 days), fuller
-// fetch that also includes each sale's edit history. Kept separate from
-// `listSales` (used by the dashboard's rolling daily-totals calculation)
-// since that call doesn't need edit history and a shop with a long history
-// shouldn't pay for fetching it on every dashboard load.
+// Powers the Sales screen (date-bounded, default last 14 days) and the
+// dashboard's range-scoped aggregates — a fuller fetch that also includes
+// each sale's edit history. Kept separate from `listSales` (used for a plain
+// most-recent-N fetch, e.g. the dashboard's "recent transactions" list) since
+// that caller doesn't need edit history.
 export async function listSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, limit = 300): Promise<Sale[]> {
   let query = supabase
     .from('sales')
@@ -178,14 +178,17 @@ export async function listSalesInRange(shopId: string, sinceDate: Date, untilDat
   return (data ?? []).map(mapSaleRow);
 }
 
-export async function getTopSellingProducts(shopId: string, days = 7) {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  const { data, error } = await supabase
+// Returns products ranked both ways from a single query — the dashboard's
+// ranking chart switches between them instantly (no refetch) since a product
+// popular by units isn't necessarily the one bringing in the most revenue.
+export async function getTopSellingProducts(shopId: string, sinceDate: Date, untilDate?: Date) {
+  let query = supabase
     .from('sale_items')
     .select('product_name, quantity, line_total_cents, sales!inner(shop_id, created_at)')
     .eq('sales.shop_id', shopId)
-    .gte('sales.created_at', since.toISOString());
+    .gte('sales.created_at', sinceDate.toISOString());
+  if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
+  const { data, error } = await query;
   if (error) throw error;
 
   const totals = new Map<string, { quantitySold: number; revenueCents: number }>();
@@ -195,30 +198,71 @@ export async function getTopSellingProducts(shopId: string, days = 7) {
     current.revenueCents += row.line_total_cents;
     totals.set(row.product_name, current);
   }
+  const ranked = Array.from(totals.entries()).map(([name, totalsForName]) => ({ name, ...totalsForName }));
+  return {
+    byRevenue: [...ranked].sort((a, b) => b.revenueCents - a.revenueCents).slice(0, 5),
+    byUnits: [...ranked].sort((a, b) => b.quantitySold - a.quantitySold).slice(0, 5),
+  };
+}
+
+// Revenue per cashier over the range, for the ranking chart's "Cashiers"
+// view. Sales rung up without a cashier assigned are excluded from the
+// ranking rather than lumped into an "Unassigned" bar.
+export async function getCashierPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const sales = await listSalesInRange(shopId, sinceDate, untilDate, 1000);
+  const totals = new Map<string, number>();
+  for (const sale of sales) {
+    if (!sale.cashierName) continue;
+    totals.set(sale.cashierName, (totals.get(sale.cashierName) ?? 0) + sale.totalCents);
+  }
   return Array.from(totals.entries())
-    .map(([name, totalsForName]) => ({ name, ...totalsForName }))
-    .sort((a, b) => b.quantitySold - a.quantitySold)
+    .map(([name, revenueCents]) => ({ name, revenueCents }))
+    .sort((a, b) => b.revenueCents - a.revenueCents)
     .slice(0, 5);
 }
 
-export async function getDailyTotalsCents(shopId: string, days = 7) {
-  const since = new Date();
-  since.setDate(since.getDate() - (days - 1));
+// Amount and share of revenue per payment method over the range, for the
+// payment-mix chart. Multi-line (split) payments are summed by their own
+// method rather than attributed whole to the sale's top-level method.
+export async function getPaymentMethodMix(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const sales = await listSalesInRange(shopId, sinceDate, untilDate, 1000);
+  const totals = new Map<PaymentMethod, number>();
+  for (const sale of sales) {
+    if (sale.payments && sale.payments.length > 0) {
+      for (const payment of sale.payments) {
+        totals.set(payment.method, (totals.get(payment.method) ?? 0) + payment.amountCents);
+      }
+    } else {
+      totals.set(sale.paymentMethod, (totals.get(sale.paymentMethod) ?? 0) + sale.totalCents);
+    }
+  }
+  const grandTotal = Array.from(totals.values()).reduce((sum, cents) => sum + cents, 0);
+  return Array.from(totals.entries())
+    .map(([method, amountCents]) => ({ method, amountCents, pct: grandTotal > 0 ? (amountCents / grandTotal) * 100 : 0 }))
+    .sort((a, b) => b.amountCents - a.amountCents);
+}
+
+// Daily revenue/order/discount buckets between sinceDate and untilDate
+// (defaults to now) — powers the dashboard's trend chart, which lets the
+// owner switch which of the three series is plotted without a refetch.
+export async function getDailyTotalsCents(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const since = new Date(sinceDate);
   since.setHours(0, 0, 0, 0);
-  const sales = await listSales(shopId, 500);
-  const buckets = new Map<string, { totalCents: number; orderCount: number }>();
-  for (let i = 0; i < days; i++) {
+  const until = untilDate ? new Date(untilDate) : new Date();
+  const dayCount = Math.max(1, Math.floor((until.getTime() - since.getTime()) / 86_400_000) + 1);
+  const sales = await listSalesInRange(shopId, since, untilDate, dayCount <= 7 ? 500 : 1000);
+  const buckets = new Map<string, { totalCents: number; orderCount: number; discountCents: number }>();
+  for (let i = 0; i < dayCount; i++) {
     const day = new Date(since); day.setDate(since.getDate() + i);
-    buckets.set(day.toDateString(), { totalCents: 0, orderCount: 0 });
+    buckets.set(day.toDateString(), { totalCents: 0, orderCount: 0, discountCents: 0 });
   }
   for (const sale of sales) {
-    const day = new Date(sale.createdAt);
-    if (day < since) continue;
-    const key = day.toDateString();
+    const key = new Date(sale.createdAt).toDateString();
     const bucket = buckets.get(key);
     if (bucket) {
       bucket.totalCents += sale.totalCents;
       bucket.orderCount += 1;
+      bucket.discountCents += sale.discountCents + (sale.items ?? []).reduce((sum, item) => sum + item.discountCents, 0);
     }
   }
   return Array.from(buckets.entries()).map(([day, bucket]) => ({ day, ...bucket }));

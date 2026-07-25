@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
-import { DateInput } from '@/components/date-input';
+import { DateInput, parseDateInput } from '@/components/date-input';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
@@ -32,12 +32,6 @@ function extractErrorMessage(err: unknown): string {
     return (err as { message: string }).message;
   }
   return 'Something went wrong.';
-}
-
-function parseDateInput(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
-  const date = new Date(`${value.trim()}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 export default function SalesScreen() {

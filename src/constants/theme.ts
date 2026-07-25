@@ -25,6 +25,21 @@ export const Colors = {
     danger: '#C0392B',
     green: '#47705C',
     greenDark: '#31533A',
+    // Categorical chart series (e.g. payment-method mix) — a validated 4-hue
+    // set (dataviz skill: OKLab CVD separation + contrast), kept distinct
+    // from `accent`/status colors so a chart series never impersonates them.
+    chartSeries1: '#2a78d6',
+    chartSeries2: '#1baf7a',
+    chartSeries3: '#eda100',
+    chartSeries4: '#e87ba4',
+    // Single-hue mark color for magnitude/trend charts (line, bars,
+    // sparklines) — same blue as `chartSeries1`, the reference palette's
+    // designated sequential default. Kept as its own name so single-series
+    // chart code doesn't read "categorical slot 1" for what is, there, just
+    // "the chart's ink." Deliberately not `accent`: that orange is reserved
+    // for actionable UI (buttons, selected states), so data ink and
+    // call-to-action never share a hue.
+    chartAccent: '#2a78d6',
   },
   dark: {
     text: '#ffffff',
@@ -43,6 +58,11 @@ export const Colors = {
     danger: '#E0655A',
     green: '#6FA085',
     greenDark: '#5A8A6C',
+    chartSeries1: '#3987e5',
+    chartSeries2: '#199e70',
+    chartSeries3: '#c98500',
+    chartSeries4: '#d55181',
+    chartAccent: '#3987e5',
   },
 } as const;
 

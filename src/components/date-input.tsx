@@ -32,3 +32,9 @@ const webInputStyle = {
 const styles = StyleSheet.create({
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
 });
+
+export function parseDateInput(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return null;
+  const date = new Date(`${value.trim()}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
