@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { Card } from '@/components/card';
+import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
 import { useAuth } from '@/hooks/use-auth';
 import { listProducts, updateProduct } from '@/lib/products';
@@ -11,9 +12,13 @@ import type { Product } from '@/types/models';
 export default function InventoryScreen() {
   const router = useRouter();
   const { shop } = useAuth();
+  const { width } = useWindowDimensions();
+  const compact = width < 860;
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -33,7 +38,39 @@ export default function InventoryScreen() {
     }
   };
 
-  const filtered = products.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.brand?.toLowerCase().includes(search.toLowerCase()) || p.sku?.toLowerCase().includes(search.toLowerCase()));
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const matches = !q
+      ? products
+      : products.filter((p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.brand ?? '').toLowerCase().includes(q) ||
+          (p.sku ?? '').toLowerCase().includes(q) ||
+          (p.category ?? '').toLowerCase().includes(q) ||
+          p.tags.some((tag) => tag.toLowerCase().includes(q))
+        );
+    if (!sortField) return matches;
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    return [...matches].sort((a, b) => {
+      switch (sortField) {
+        case 'name': return a.name.localeCompare(b.name) * dir;
+        case 'brand': return (a.brand ?? '').localeCompare(b.brand ?? '') * dir;
+        case 'category': return (a.category ?? '').localeCompare(b.category ?? '') * dir;
+        case 'price': return (a.priceCents - b.priceCents) * dir;
+        case 'stock': return (a.stock - b.stock) * dir;
+      }
+    });
+  }, [products, search, sortField, sortDirection]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? 5)).length;
 
   return (
@@ -48,21 +85,35 @@ export default function InventoryScreen() {
             <Text style={styles.addButtonText}>+ Add product</Text>
           </Pressable>
         </View>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, or SKU" placeholderTextColor="#999999" style={styles.search} />
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           <Text style={styles.empty}>No products yet. Add your first one above.</Text>
         ) : (
           <Card style={styles.list}>
-            {filtered.map((product) => (
-              <ProductTile
-                key={product.id}
-                product={product}
-                onEdit={() => router.push(`/product/${product.id}`)}
-                onStockChange={(next) => adjustStock(product, next)}
-              />
-            ))}
+            {compact ? (
+              filtered.map((product) => (
+                <ProductTile
+                  key={product.id}
+                  product={product}
+                  onEdit={() => router.push(`/product/${product.id}`)}
+                  onStockChange={(next) => adjustStock(product, next)}
+                />
+              ))
+            ) : (
+              <>
+                <ProductTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />
+                {filtered.map((product) => (
+                  <ProductTableRow
+                    key={product.id}
+                    product={product}
+                    onEdit={() => router.push(`/product/${product.id}`)}
+                    onStockChange={(next) => adjustStock(product, next)}
+                  />
+                ))}
+              </>
+            )}
           </Card>
         )}
       </ScrollView>
