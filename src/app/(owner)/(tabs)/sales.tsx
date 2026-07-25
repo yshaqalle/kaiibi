@@ -554,7 +554,7 @@ const styles = StyleSheet.create({
 
   tableHeaderRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#ECECEC', borderTopLeftRadius: 14, borderTopRightRadius: 14, paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
   headerCell: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  headerLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6 },
+  headerLabel: { fontSize: 10, fontWeight: '900', color: '#555555', letterSpacing: 0.6 },
   sortArrow: { fontSize: 8, color: '#555555' },
   // Same fix as product-table-row.tsx: the six percentage-width columns
   // resolve against this flex:1 wrapper's own width, not the whole row, so

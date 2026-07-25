@@ -128,7 +128,7 @@ export function ProductTableRow({
 const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
   headerCell: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  headerLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6 },
+  headerLabel: { fontSize: 10, fontWeight: '900', color: '#555555', letterSpacing: 0.6 },
   sortArrow: { fontSize: 8, color: '#555555' },
 
   row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
