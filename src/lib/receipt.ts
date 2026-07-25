@@ -114,42 +114,57 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
 
   const location = formatLocation(receipt);
 
+  const returnPolicyBlock = receipt.returnPolicy && receipt.returnPolicy.trim()
+    ? `<div class="divider"></div><div class="policy">${esc(receipt.returnPolicy.trim())}</div>`
+    : '';
+
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
 <title>Receipt</title>
 <style>
-  body { font-family: -apple-system, Helvetica, Arial, sans-serif; max-width: 380px; margin: 24px auto; padding: 0 16px; color: #111111; }
-  .shop { font-size: 18px; font-weight: 800; }
-  .muted { color: #666666; font-size: 13px; margin-top: 2px; }
-  .divider { border-top: 1px solid #ECECEC; margin: 14px 0; }
-  .row { display: flex; justify-content: space-between; font-size: 14px; margin: 4px 0; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: #FFFFFF; margin: 0; padding: 24px 16px; color: #111111; display: flex; justify-content: center; }
+  .card { width: 100%; max-width: 380px; background: #F3F2ED; border-radius: 16px; padding: 22px 20px; }
+  .head { text-align: center; margin-bottom: 4px; }
+  .logo { display: block; width: 52px; height: 52px; object-fit: cover; border-radius: 12px; margin: 0 auto 10px; }
+  .shop { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
+  .muted { color: #777777; font-size: 12px; margin-top: 2px; }
+  .divider { border-top: 1.5px dashed #D9D9D3; margin: 16px 0; }
+  .row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 5px 0; }
   .row.muted span { color: #666666; font-size: 13px; }
-  .total span { font-weight: 800; font-size: 16px; }
-  .label { font-size: 11px; font-weight: 800; letter-spacing: 0.5px; color: #999999; margin-bottom: 4px; }
-  .thanks { margin-top: 20px; text-align: center; color: #999999; font-size: 13px; }
-  .logo { display: block; width: 56px; height: 56px; object-fit: cover; border-radius: 12px; margin: 0 auto 10px; }
-  .head { text-align: center; }
-  @media print { body { margin: 0 auto; } }
+  .row span:first-child { color: #333333; }
+  .row span:last-child { font-weight: 700; }
+  .total { background: #111111; color: #FFFFFF; border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; }
+  .total span { font-weight: 800; }
+  .total span:first-child { color: #FFFFFF; font-size: 14px; letter-spacing: 0.3px; }
+  .total span:last-child { color: #FFFFFF; font-size: 17px; }
+  .label { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: #999999; margin: 2px 0 4px; }
+  .policy { color: #777777; font-size: 11px; line-height: 1.5; }
+  .thanks { margin-top: 18px; text-align: center; color: #999999; font-size: 12px; font-weight: 700; letter-spacing: 0.3px; }
+  @media print { body { padding: 0; } .card { border-radius: 0; max-width: 100%; } }
 </style>
 </head>
 <body>
-  <div class="head">
-    ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
-    <div class="shop">${esc(receipt.shopName)}</div>
-    ${location ? `<div class="muted">${esc(location)}</div>` : ''}
-    ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
-    <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
-    ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
+  <div class="card">
+    <div class="head">
+      ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
+      <div class="shop">${esc(receipt.shopName)}</div>
+      ${location ? `<div class="muted">${esc(location)}</div>` : ''}
+      ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
+      <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
+      ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
+    </div>
+    <div class="divider"></div>
+    ${itemRows}
+    <div class="divider"></div>
+    <div class="row total"><span>Total</span><span>${formatCents(receipt.totalCents)}</span></div>
+    ${paymentRows}
+    ${customerBlock}
+    ${returnPolicyBlock}
+    <div class="thanks">Thank you for your purchase!</div>
   </div>
-  <div class="divider"></div>
-  ${itemRows}
-  <div class="divider"></div>
-  <div class="row total"><span>Total</span><span>${formatCents(receipt.totalCents)}</span></div>
-  ${paymentRows}
-  ${customerBlock}
-  <div class="thanks">Thank you for your purchase!</div>
 </body>
 </html>`;
 }
