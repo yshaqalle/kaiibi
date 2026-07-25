@@ -11,13 +11,15 @@ import { useAuth } from '@/hooks/use-auth';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
+import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import type { ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
-import type { CartLine, Discount, PaymentLine, Product, Promotion } from '@/types/models';
+import { taxCentsFor } from '@/lib/tax';
+import type { CartLine, Currency, Discount, PaymentLine, Product, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -58,6 +60,7 @@ export default function PosScreen() {
   const [editingLineDiscount, setEditingLineDiscount] = useState<string | null>(null);
   const [transactionDiscount, setTransactionDiscount] = useState<Discount | null>(null);
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -76,6 +79,10 @@ export default function PosScreen() {
   }, [shop]);
   useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
   useEffect(() => { if (shop) listPromotions(shop.id).then(setPromotions).catch(() => {}); }, [shop]);
+  useEffect(() => {
+    if (!shop) return;
+    listCurrencies(shop.id).then((rows) => setCurrencies(rows.filter((c) => c.active))).catch(() => {});
+  }, [shop]);
 
   const filtered = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -101,8 +108,10 @@ export default function PosScreen() {
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
   const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
-  const total = subtotalCents - transactionDiscountCents;
-  const hasAnyDiscount = grossCents !== total;
+  const preTaxTotalCents = subtotalCents - transactionDiscountCents;
+  const taxCents = shop?.taxEnabled ? taxCentsFor(preTaxTotalCents, shop.taxRatePercent) : 0;
+  const total = preTaxTotalCents + taxCents;
+  const hasAnyDiscount = grossCents !== preTaxTotalCents;
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const fullyPaid = payments.length > 0 && paidCents === total;
 
@@ -146,7 +155,9 @@ export default function PosScreen() {
         payments,
         customer: { name: customerName.trim() || null, phone: customerPhone.trim() || null, email: customerEmail.trim() || null },
         subtotalCents: grossCents,
-        discountCents: grossCents - total,
+        discountCents: grossCents - preTaxTotalCents,
+        taxCents,
+        taxRatePercent: shop.taxEnabled ? shop.taxRatePercent : null,
         totalCents: total,
         createdAt: new Date().toISOString(),
       });
@@ -286,9 +297,15 @@ export default function PosScreen() {
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Discount</Text>
-                  <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - total)}</Text>
+                  <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - preTaxTotalCents)}</Text>
                 </View>
               </>
+            )}
+            {taxCents > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Tax ({shop?.taxRatePercent}%)</Text>
+                <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
+              </View>
             )}
             <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
               <Text style={styles.cartLineDiscountToggle}>
@@ -332,7 +349,7 @@ export default function PosScreen() {
             </View>
           )}
 
-          <PaymentMethodPicker totalCents={total} payments={payments} onChange={setPayments} />
+          <PaymentMethodPicker totalCents={total} payments={payments} currencies={currencies} onChange={setPayments} />
           {error && <Text style={styles.error}>{error}</Text>}
           <Pressable onPress={checkout} disabled={cart.length === 0 || !fullyPaid || submitting} style={[styles.checkout, (cart.length === 0 || !fullyPaid || submitting) && styles.checkoutDisabled]}>
             <Text style={styles.checkoutText}>{submitting ? 'Completing…' : 'Complete sale'}</Text>
