@@ -1,4 +1,4 @@
-import { formatCents } from '@/lib/currency';
+import { formatCents, formatForeignCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
 import type { PaymentLine, Sale } from '@/types/models';
 
@@ -29,6 +29,10 @@ export type ReceiptData = {
   // breakdown and just show the total, same as before this feature existed.
   subtotalCents?: number;
   discountCents?: number;
+  // Tax applied on top of the discounted subtotal, and the rate that
+  // produced it — omitted (or 0) when tax wasn't enabled for this sale.
+  taxCents?: number;
+  taxRatePercent?: number | null;
   totalCents: number;
   createdAt: string;
 };
@@ -55,13 +59,33 @@ export function buildReceiptFromSale(
     cashierName: sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
-    payments: (sale.payments ?? []).map((p) => ({ method: p.method, amountCents: p.amountCents, tenderedCents: p.tenderedCents, customerName: p.customerName, customerPhone: p.customerPhone })),
+    payments: (sale.payments ?? []).map((p) => ({
+      method: p.method,
+      amountCents: p.amountCents,
+      tenderedCents: p.tenderedCents,
+      customerName: p.customerName,
+      customerPhone: p.customerPhone,
+      currencyCode: p.currencyCode,
+      exchangeRate: p.exchangeRate,
+      foreignAmountCents: p.foreignAmountCents,
+      foreignChangeCents: p.foreignChangeCents,
+    })),
     customer: { name: sale.customerName, phone: sale.customerPhone, email: sale.customerEmail },
     subtotalCents,
-    discountCents: subtotalCents - sale.totalCents,
+    discountCents: subtotalCents - (sale.totalCents - sale.taxCents),
+    taxCents: sale.taxCents,
+    taxRatePercent: sale.taxRatePercent,
     totalCents: sale.totalCents,
     createdAt: sale.createdAt,
   };
+}
+
+// Renders a single payment's amount, plus the foreign-currency detail it was
+// tendered in (if any) — e.g. a customer paying in EUR for a USD-priced sale.
+function formatPaymentLine(payment: PaymentLine): string {
+  const base = `${methodLabel(payment.method)}: ${formatCents(payment.amountCents)}`;
+  if (!payment.currencyCode || payment.foreignAmountCents === null || payment.exchangeRate === null) return base;
+  return `${methodLabel(payment.method)} (${payment.currencyCode}): ${formatForeignCents(payment.foreignAmountCents, payment.currencyCode)} @ ${payment.exchangeRate}/$ = ${formatCents(payment.amountCents)}`;
 }
 
 // Plain text — used for the Email body and the WhatsApp prefilled message,
@@ -86,9 +110,12 @@ export function buildReceiptText(receipt: ReceiptData): string {
     lines.push(`SUBTOTAL: ${formatCents(receipt.subtotalCents ?? receipt.totalCents + receipt.discountCents)}`);
     lines.push(`DISCOUNT: -${formatCents(receipt.discountCents)}`);
   }
+  if (receipt.taxCents && receipt.taxCents > 0) {
+    lines.push(`TAX (${receipt.taxRatePercent}%): ${formatCents(receipt.taxCents)}`);
+  }
   lines.push(`TOTAL: ${formatCents(receipt.totalCents)}`);
   for (const payment of receipt.payments) {
-    lines.push(`${methodLabel(payment.method)}: ${formatCents(payment.amountCents)}`);
+    lines.push(formatPaymentLine(payment));
   }
   if (receipt.customer.name || receipt.customer.phone || receipt.customer.email) {
     lines.push('');
@@ -122,13 +149,18 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     .join('');
 
   const hasDiscount = Boolean(receipt.discountCents && receipt.discountCents > 0);
-  const summaryRows = hasDiscount
-    ? `<div class="row muted"><span>Subtotal</span><span>${formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
-       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>`
-    : '';
+  const hasTax = Boolean(receipt.taxCents && receipt.taxCents > 0);
+  const summaryRows = `${hasDiscount ? `<div class="row muted"><span>Subtotal</span><span>${formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
+       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>` : ''}${hasTax ? `<div class="row muted"><span>Tax (${receipt.taxRatePercent}%)</span><span>${formatCents(receipt.taxCents ?? 0)}</span></div>` : ''}`;
 
   const paymentRows = receipt.payments
-    .map((p) => `<div class="row muted"><span>${methodLabel(p.method)}</span><span>${formatCents(p.amountCents)}</span></div>`)
+    .map((p) => {
+      const hasCurrency = p.currencyCode && p.foreignAmountCents !== null && p.exchangeRate !== null;
+      const line = hasCurrency
+        ? `${methodLabel(p.method)} (${p.currencyCode}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$`
+        : methodLabel(p.method);
+      return `<div class="row muted"><span>${line}</span><span>${formatCents(p.amountCents)}</span></div>`;
+    })
     .join('');
 
   const customerBlock = receipt.customer.name || receipt.customer.phone || receipt.customer.email
