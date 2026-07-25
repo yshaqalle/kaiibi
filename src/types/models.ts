@@ -50,7 +50,35 @@ export type Product = {
 
 export type NewProductInput = Omit<Product, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
 
-export type CartLine = { product: Product; quantity: number };
+// `value` is a percentage (0-100) for 'percentage', or a cents amount for
+// 'fixed'. Used both for a manual per-line discount the cashier types into
+// the POS cart, and for a `Promotion`'s configured discount.
+export type Discount = { type: 'percentage'; value: number } | { type: 'fixed'; value: number };
+
+export type CartLine = {
+  product: Product;
+  quantity: number;
+  // Set when the cashier overrides/enters a discount directly on this cart
+  // line in the POS — takes precedence over any auto-applied `Promotion`
+  // for the same line (see src/lib/discounts.ts).
+  manualDiscount?: Discount | null;
+};
+
+// A "sale"/promotion the owner configures in Settings — auto-applies to
+// any matching cart line in the POS (see src/lib/discounts.ts) unless the
+// cashier enters a manual override for that line.
+export type Promotion = {
+  id: string;
+  shopId: string;
+  name: string;
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;
+  scope: 'store' | 'brand' | 'category';
+  // The brand or category name for those two scopes; null for 'store'.
+  scopeValue: string | null;
+  active: boolean;
+  createdAt: string;
+};
 
 export type SaleItem = {
   id: string;
@@ -60,6 +88,9 @@ export type SaleItem = {
   unitPriceCents: number;
   quantity: number;
   lineTotalCents: number;
+  // How much was knocked off this line (already reflected in
+  // `lineTotalCents`) — kept separately so receipts/history can show it.
+  discountCents: number;
 };
 
 // One line of a (possibly split) checkout payment. `tenderedCents` is only
@@ -89,6 +120,7 @@ export type SaleItemSnapshot = {
   unitPriceCents: number;
   quantity: number;
   lineTotalCents: number;
+  discountCents: number;
 };
 
 // The full pre-edit state of a sale, captured atomically by `edit_sale`
@@ -106,6 +138,7 @@ export type SaleEdit = {
     customerName: string | null;
     customerPhone: string | null;
     customerEmail: string | null;
+    discountCents: number;
     items: SaleItemSnapshot[];
     payments: PaymentLine[];
   };
@@ -128,6 +161,10 @@ export type Sale = {
   // at checkout time, not a live reference (renaming/deleting the profile
   // later doesn't change past sales, same as customer info).
   cashierName: string | null;
+  // Whole-transaction discount entered at checkout, on top of any per-line
+  // discounts (already reflected in each item's `lineTotalCents`) — see
+  // src/lib/discounts.ts.
+  discountCents: number;
   totalCents: number;
   itemCount: number;
   createdAt: string;

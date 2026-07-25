@@ -10,11 +10,13 @@ import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } f
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
 import { createCategory, deleteCategory, listCategories, renameCategory, updateCategoryColor } from '@/lib/categories';
 import { nextTaxonomyColor, taxonomyPalette } from '@/lib/colors';
+import { formatCents } from '@/lib/currency';
 import { updateProfile } from '@/lib/profile';
 import { listProducts } from '@/lib/products';
+import { createPromotion, deletePromotion, listPromotions, updatePromotion } from '@/lib/promotions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
-import type { Product, Profile, Shop } from '@/types/models';
+import type { Product, Profile, Promotion, Shop } from '@/types/models';
 
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
@@ -30,6 +32,7 @@ export default function SettingsScreen() {
   const [tagColors, setTagColors] = useState<Map<string, string | null>>(emptyColors);
   const [cashiers, setCashiers] = useState<string[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,12 +40,13 @@ export default function SettingsScreen() {
     if (!shop) return;
     setLoading(true);
     try {
-      const [brandRows, cats, tagRows, cashierRows, productRows] = await Promise.all([
+      const [brandRows, cats, tagRows, cashierRows, productRows, promotionRows] = await Promise.all([
         listBrands(shop.id),
         listCategories(shop.id),
         listTags(shop.id),
         listCashiers(shop.id),
         listProducts(shop.id),
+        listPromotions(shop.id),
       ]);
       setBrands(brandRows.map((b) => b.name));
       setBrandColors(new Map(brandRows.map((b) => [b.name, b.color])));
@@ -52,6 +56,7 @@ export default function SettingsScreen() {
       setTagColors(new Map(tagRows.map((t) => [t.name, t.color])));
       setCashiers(cashierRows.map((c) => c.name));
       setProducts(productRows);
+      setPromotions(promotionRows);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load brands, categories, and tags.');
     } finally {
@@ -149,6 +154,13 @@ export default function SettingsScreen() {
               onAdd={(name) => runOrShowError(async () => { await createCashier(shop.id, name); await reload(); })}
               onRename={(oldName, newName) => runOrShowError(async () => { await renameCashier(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteCashier(shop.id, name); await reload(); })}
+            />
+            <PromotionsSection
+              shopId={shop.id}
+              promotions={promotions}
+              brands={brands}
+              categories={categories}
+              onChange={reload}
             />
           </>
         )}
@@ -526,6 +538,241 @@ function ManageModal({
   );
 }
 
+function discountLabel(p: Promotion): string {
+  return p.discountType === 'percentage' ? `${p.discountValue}% off` : `${formatCents(p.discountValue)} off`;
+}
+
+function scopeLabel(p: Promotion): string {
+  if (p.scope === 'store') return 'Entire store';
+  if (p.scope === 'brand') return `Brand · ${p.scopeValue}`;
+  return `Category · ${p.scopeValue}`;
+}
+
+function PromotionsSection({
+  shopId,
+  promotions,
+  brands,
+  categories,
+  onChange,
+}: {
+  shopId: string;
+  promotions: Promotion[];
+  brands: string[];
+  categories: string[];
+  onChange: () => Promise<void>;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const preview = promotions.slice(0, previewCount);
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>SALES & PROMOTIONS</Text>
+          <Text style={styles.hint}>Discounts that apply automatically at checkout — for the whole store, a brand, or a category. The cashier can still override with a manual discount per item.</Text>
+        </View>
+        <Pressable onPress={() => setModalOpen(true)} style={styles.manageButton}>
+          <Text style={styles.manageButtonText}>Manage ({promotions.length})</Text>
+        </Pressable>
+      </View>
+
+      {promotions.length === 0 ? (
+        <Text style={styles.empty}>None yet.</Text>
+      ) : (
+        <View style={styles.previewRow}>
+          {preview.map((promo) => (
+            <View key={promo.id} style={[styles.previewChip, !promo.active && styles.previewChipInactive]}>
+              <Text style={styles.previewChipText}>{promo.name}</Text>
+              <Text style={styles.previewChipCount}>{discountLabel(promo)}</Text>
+            </View>
+          ))}
+          {promotions.length > previewCount && <Text style={styles.previewMore}>+{promotions.length - previewCount} more</Text>}
+        </View>
+      )}
+
+      <PromotionsModal
+        visible={modalOpen}
+        onClose={() => setModalOpen(false)}
+        shopId={shopId}
+        promotions={promotions}
+        brands={brands}
+        categories={categories}
+        onChange={onChange}
+      />
+    </View>
+  );
+}
+
+function PromotionsModal({
+  visible,
+  onClose,
+  shopId,
+  promotions,
+  brands,
+  categories,
+  onChange,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  shopId: string;
+  promotions: Promotion[];
+  brands: string[];
+  categories: string[];
+  onChange: () => Promise<void>;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [name, setName] = useState('');
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
+  const [discountValue, setDiscountValue] = useState('');
+  const [scope, setScope] = useState<'store' | 'brand' | 'category'>('store');
+  const [scopeValue, setScopeValue] = useState<string | null>(null);
+
+  const resetForm = () => {
+    setEditingId(null);
+    setName('');
+    setDiscountType('percentage');
+    setDiscountValue('');
+    setScope('store');
+    setScopeValue(null);
+  };
+
+  const startEdit = (promo: Promotion) => {
+    setEditingId(promo.id);
+    setName(promo.name);
+    setDiscountType(promo.discountType);
+    setDiscountValue(promo.discountType === 'fixed' ? (promo.discountValue / 100).toFixed(2) : String(promo.discountValue));
+    setScope(promo.scope);
+    setScopeValue(promo.scopeValue);
+    setConfirmingDelete(null);
+  };
+
+  const run = async (action: () => Promise<void>) => {
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
+  };
+
+  const submit = () => {
+    const trimmedName = name.trim();
+    const num = Number(discountValue);
+    if (!trimmedName || !num || num <= 0) return;
+    if (scope !== 'store' && !scopeValue) return;
+    const input = {
+      name: trimmedName,
+      discountType,
+      discountValue: discountType === 'fixed' ? Math.round(num * 100) : Math.min(num, 100),
+      scope,
+      scopeValue: scope === 'store' ? null : scopeValue,
+      active: true,
+    };
+    run(async () => {
+      if (editingId) await updatePromotion(editingId, input);
+      else await createPromotion(shopId, input);
+      await onChange();
+      resetForm();
+    });
+  };
+
+  const toggleActive = (promo: Promotion) => run(async () => { await updatePromotion(promo.id, { active: !promo.active }); await onChange(); });
+
+  return (
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Sales & promotions</Text>
+            <Pressable onPress={onClose}><Text style={styles.modalClose}>Done</Text></Pressable>
+          </View>
+
+          {error && <Text style={styles.error}>{error}</Text>}
+
+          <ScrollView style={styles.modalList}>
+            {promotions.length === 0 && <Text style={styles.empty}>None yet — add one below.</Text>}
+            {promotions.map((promo) => (
+              <View key={promo.id} style={styles.row}>
+                {confirmingDelete === promo.id ? (
+                  <>
+                    <Text style={[styles.rowLabel, { flex: 1 }]}>Delete &quot;{promo.name}&quot;?</Text>
+                    <Pressable onPress={() => run(async () => { await deletePromotion(promo.id); await onChange(); setConfirmingDelete(null); })} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Confirm</Text></Pressable>
+                    <Pressable onPress={() => setConfirmingDelete(null)} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel</Text></Pressable>
+                  </>
+                ) : (
+                  <>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowLabel}>{promo.name}</Text>
+                      <Text style={styles.rowSubLabel}>{discountLabel(promo)} · {scopeLabel(promo)}</Text>
+                    </View>
+                    <Pressable onPress={() => toggleActive(promo)} style={styles.rowAction}>
+                      <Text style={promo.active ? styles.rowActionText : styles.rowActionTextMuted}>{promo.active ? 'Active' : 'Paused'}</Text>
+                    </Pressable>
+                    <Pressable onPress={() => startEdit(promo)} style={styles.rowAction}><Text style={styles.rowActionText}>Edit</Text></Pressable>
+                    <Pressable onPress={() => setConfirmingDelete(promo.id)} style={styles.rowAction}><Text style={styles.rowActionTextDanger}>Delete</Text></Pressable>
+                  </>
+                )}
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.promoForm}>
+            <Text style={styles.fieldLabel}>{editingId ? 'EDIT SALE' : 'NEW SALE'}</Text>
+            <TextInput value={name} onChangeText={setName} placeholder="Sale name, e.g. Summer Sale" placeholderTextColor="#999999" style={styles.addInput} />
+            <View style={styles.promoRow}>
+              <CategoryChip label="% off" active={discountType === 'percentage'} onPress={() => setDiscountType('percentage')} />
+              <CategoryChip label="$ off" active={discountType === 'fixed'} onPress={() => setDiscountType('fixed')} />
+              <TextInput
+                value={discountValue}
+                onChangeText={setDiscountValue}
+                placeholder={discountType === 'percentage' ? '10' : '5.00'}
+                placeholderTextColor="#999999"
+                keyboardType="decimal-pad"
+                style={styles.promoValueInput}
+              />
+            </View>
+            <Text style={styles.fieldLabel}>APPLIES TO</Text>
+            <View style={styles.promoRow}>
+              <CategoryChip label="Entire store" active={scope === 'store'} onPress={() => { setScope('store'); setScopeValue(null); }} />
+              <CategoryChip label="A brand" active={scope === 'brand'} onPress={() => { setScope('brand'); setScopeValue(null); }} />
+              <CategoryChip label="A category" active={scope === 'category'} onPress={() => { setScope('category'); setScopeValue(null); }} />
+            </View>
+            {scope === 'brand' && (
+              <View style={styles.promoRow}>
+                {brands.length === 0 ? (
+                  <Text style={styles.empty}>No brands yet — add one above first.</Text>
+                ) : (
+                  brands.map((b) => <CategoryChip key={b} label={b} active={scopeValue === b} onPress={() => setScopeValue(b)} />)
+                )}
+              </View>
+            )}
+            {scope === 'category' && (
+              <View style={styles.promoRow}>
+                {categories.length === 0 ? (
+                  <Text style={styles.empty}>No categories yet — add one above first.</Text>
+                ) : (
+                  categories.map((c) => <CategoryChip key={c} label={c} active={scopeValue === c} onPress={() => setScopeValue(c)} />)
+                )}
+              </View>
+            )}
+            <View style={styles.promoFormActions}>
+              {editingId && (
+                <Pressable onPress={resetForm} style={styles.rowAction}><Text style={styles.rowActionTextMuted}>Cancel edit</Text></Pressable>
+              )}
+              <Pressable onPress={submit} style={styles.addButton}>
+                <Text style={styles.addButtonText}>{editingId ? 'Save changes' : 'Add sale'}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 24, paddingBottom: 60, maxWidth: 640, width: '100%', alignSelf: 'center' },
@@ -554,6 +801,7 @@ const styles = StyleSheet.create({
 
   previewRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   previewChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F2F2F2', borderRadius: 16, paddingVertical: 7, paddingHorizontal: 12 },
+  previewChipInactive: { opacity: 0.45 },
   previewChipText: { fontSize: 12, fontWeight: '700', color: '#111111' },
   previewChipCount: { fontSize: 11, fontWeight: '700', color: '#999999' },
   previewDot: { width: 8, height: 8, borderRadius: 4 },
@@ -574,6 +822,7 @@ const styles = StyleSheet.create({
   list: { gap: 8, marginBottom: 14 },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F2', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, gap: 10, marginBottom: 8 },
   rowLabel: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
+  rowSubLabel: { fontSize: 11, color: '#999999', marginTop: 2 },
   rowCount: { fontSize: 12, fontWeight: '700', color: '#999999' },
   rowAction: { paddingVertical: 4, paddingHorizontal: 4 },
   rowActionText: { fontSize: 12, fontWeight: '700', color: '#111111' },
@@ -584,4 +833,9 @@ const styles = StyleSheet.create({
   addInput: { flex: 1, backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   addButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, alignItems: 'center', justifyContent: 'center' },
   addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+
+  promoForm: { borderTopWidth: 1, borderTopColor: '#ECECEC', paddingTop: 14, gap: 8 },
+  promoRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  promoValueInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111', minWidth: 90 },
+  promoFormActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 4 },
 });

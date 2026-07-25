@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { DiscountEditor } from '@/components/discount-editor';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
@@ -11,10 +12,12 @@ import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { formatCents } from '@/lib/currency';
+import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { listProducts } from '@/lib/products';
+import { listPromotions } from '@/lib/promotions';
 import type { ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
-import type { CartLine, PaymentLine, Product } from '@/types/models';
+import type { CartLine, Discount, PaymentLine, Product, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -51,6 +54,10 @@ export default function PosScreen() {
   // selected across sales — whoever is running the register doesn't change
   // sale-to-sale, so re-picking it each time would just be busywork.
   const [cashierName, setCashierName] = useState<string | null>(null);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [editingLineDiscount, setEditingLineDiscount] = useState<string | null>(null);
+  const [transactionDiscount, setTransactionDiscount] = useState<Discount | null>(null);
+  const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -68,6 +75,7 @@ export default function PosScreen() {
       .catch(() => {});
   }, [shop]);
   useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
+  useEffect(() => { if (shop) listPromotions(shop.id).then(setPromotions).catch(() => {}); }, [shop]);
 
   const filtered = products.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase()) &&
@@ -86,7 +94,15 @@ export default function PosScreen() {
     setCart((current) => (quantity === 0 ? current.filter((line) => line.product.id !== productId) : current.map((line) => (line.product.id === productId ? { ...line, quantity } : line))));
   };
 
-  const total = cartTotalCents(cart);
+  const setLineDiscount = (productId: string, discount: Discount | null) => {
+    setCart((current) => current.map((line) => (line.product.id === productId ? { ...line, manualDiscount: discount } : line)));
+  };
+
+  const grossCents = cartTotalCents(cart);
+  const subtotalCents = cartSubtotalCents(cart, promotions);
+  const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
+  const total = subtotalCents - transactionDiscountCents;
+  const hasAnyDiscount = grossCents !== total;
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const fullyPaid = payments.length > 0 && paidCents === total;
 
@@ -109,7 +125,9 @@ export default function PosScreen() {
           phone: customerPhone.trim() || null,
           email: customerEmail.trim() || null,
         },
-        cashierName
+        cashierName,
+        promotions,
+        transactionDiscountCents
       );
       setReceipt({
         shopName: shop.name,
@@ -119,9 +137,16 @@ export default function PosScreen() {
         shopContactPhone: shop.contactPhone,
         cashierName,
         returnPolicy: shop.returnPolicy,
-        items: cart.map((line) => ({ name: line.product.name, quantity: line.quantity, unitPriceCents: line.product.priceCents })),
+        items: cart.map((line) => ({
+          name: line.product.name,
+          quantity: line.quantity,
+          unitPriceCents: line.product.priceCents,
+          discountCents: lineDiscountCents(line, promotions),
+        })),
         payments,
         customer: { name: customerName.trim() || null, phone: customerPhone.trim() || null, email: customerEmail.trim() || null },
+        subtotalCents: grossCents,
+        discountCents: grossCents - total,
         totalCents: total,
         createdAt: new Date().toISOString(),
       });
@@ -131,6 +156,9 @@ export default function PosScreen() {
       setCustomerPhone('');
       setCustomerEmail('');
       setCustomerOpen(false);
+      setTransactionDiscount(null);
+      setEditingTransactionDiscount(false);
+      setEditingLineDiscount(null);
       await reload();
     } catch (err) {
       setError(extractErrorMessage(err));
@@ -210,17 +238,71 @@ export default function PosScreen() {
                 <Text style={styles.empty}>Cart is empty.{'\n'}Tap a product to add it.</Text>
               </View>
             ) : (
-              cart.map((line) => (
-                <View key={line.product.id} style={styles.cartLine}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cartLineName}>{line.product.name}</Text>
-                    <Text style={styles.cartLinePrice}>{formatCents(line.product.priceCents)}</Text>
+              cart.map((line) => {
+                const gross = lineGrossCents(line);
+                const discountCents = lineDiscountCents(line, promotions);
+                const promo = appliedPromotionForLine(line, promotions);
+                const isEditing = editingLineDiscount === line.product.id;
+                return (
+                  <View key={line.product.id} style={styles.cartLine}>
+                    <View style={styles.cartLineRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.cartLineName}>{line.product.name}</Text>
+                        <View style={styles.cartLinePriceRow}>
+                          {discountCents > 0 ? (
+                            <>
+                              <Text style={styles.cartLinePriceStruck}>{formatCents(gross)}</Text>
+                              <Text style={styles.cartLinePrice}>{formatCents(gross - discountCents)}</Text>
+                            </>
+                          ) : (
+                            <Text style={styles.cartLinePrice}>{formatCents(line.product.priceCents)}</Text>
+                          )}
+                        </View>
+                        {promo && !line.manualDiscount && <Text style={styles.cartLinePromo}>🏷 {promo.name}</Text>}
+                        <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
+                          <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
+                        </Pressable>
+                      </View>
+                      <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
+                    </View>
+                    {isEditing && (
+                      <DiscountEditor
+                        initial={line.manualDiscount}
+                        onApply={(discount) => { setLineDiscount(line.product.id, discount); setEditingLineDiscount(null); }}
+                        onRemove={line.manualDiscount ? () => { setLineDiscount(line.product.id, null); setEditingLineDiscount(null); } : undefined}
+                      />
+                    )}
                   </View>
-                  <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
-                </View>
-              ))
+                );
+              })
             )}
           </CartList>
+          <View style={styles.discountSection}>
+            {hasAnyDiscount && (
+              <>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Subtotal</Text>
+                  <Text style={styles.summaryValue}>{formatCents(grossCents)}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Discount</Text>
+                  <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - total)}</Text>
+                </View>
+              </>
+            )}
+            <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
+              <Text style={styles.cartLineDiscountToggle}>
+                {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
+              </Text>
+            </Pressable>
+            {editingTransactionDiscount && (
+              <DiscountEditor
+                initial={transactionDiscount}
+                onApply={(discount) => { setTransactionDiscount(discount); setEditingTransactionDiscount(false); }}
+                onRemove={transactionDiscount ? () => { setTransactionDiscount(null); setEditingTransactionDiscount(false); } : undefined}
+              />
+            )}
+          </View>
           <View style={styles.totalRow}>
             <Text style={styles.totalLabel}>Total</Text>
             <Text style={styles.totalValue}>{formatCents(total)}</Text>
@@ -311,9 +393,19 @@ const styles = StyleSheet.create({
   emptyWrap: { alignItems: 'center', marginTop: 56 },
   emptyIcon: { fontSize: 32, marginBottom: 12, opacity: 0.5 },
   empty: { color: '#BBBBBB', fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  cartLine: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FAFAFA', borderRadius: 14, padding: 14, marginBottom: 10 },
+  cartLine: { backgroundColor: '#FAFAFA', borderRadius: 14, padding: 14, marginBottom: 10 },
+  cartLineRow: { flexDirection: 'row', alignItems: 'center' },
   cartLineName: { color: '#111111', fontSize: 14, fontWeight: '700' },
-  cartLinePrice: { color: '#999999', fontSize: 12, marginTop: 2 },
+  cartLinePriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 },
+  cartLinePrice: { color: '#999999', fontSize: 12 },
+  cartLinePriceStruck: { color: '#BBBBBB', fontSize: 12, textDecorationLine: 'line-through' },
+  cartLinePromo: { color: '#111111', fontSize: 11, fontWeight: '700', marginTop: 4 },
+  cartLineDiscountToggle: { color: '#999999', fontSize: 11, fontWeight: '700', marginTop: 6 },
+  discountSection: { marginTop: 4 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
+  summaryLabel: { color: '#999999', fontSize: 13 },
+  summaryValue: { color: '#111111', fontSize: 13, fontWeight: '600' },
+  summaryValueDiscount: { color: '#C0392B', fontSize: 13, fontWeight: '700' },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 15, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 26, fontWeight: '800' },

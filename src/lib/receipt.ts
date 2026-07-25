@@ -6,7 +6,7 @@ import type { PaymentLine, Sale } from '@/types/models';
 // print a line, so both a fresh POS cart and a historical `Sale` (whose
 // items reference a product that may since have been renamed or deleted)
 // can build one the same way.
-export type ReceiptItem = { name: string; quantity: number; unitPriceCents: number };
+export type ReceiptItem = { name: string; quantity: number; unitPriceCents: number; discountCents?: number };
 
 export type ReceiptData = {
   shopName: string;
@@ -24,6 +24,11 @@ export type ReceiptData = {
   items: ReceiptItem[];
   payments: PaymentLine[];
   customer: { name: string | null; phone: string | null; email: string | null };
+  // Gross (pre-discount) total and the total discount taken off it — both
+  // optional/omittable so a receipt with no discount at all can skip the
+  // breakdown and just show the total, same as before this feature existed.
+  subtotalCents?: number;
+  discountCents?: number;
   totalCents: number;
   createdAt: string;
 };
@@ -40,6 +45,7 @@ export function buildReceiptFromSale(
   sale: Sale,
   shop: { name: string; logoUrl: string | null; city: string | null; neighborhood: string | null; contactPhone: string | null; returnPolicy: string | null }
 ): ReceiptData {
+  const subtotalCents = (sale.items ?? []).reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   return {
     shopName: shop.name,
     shopLogoUrl: shop.logoUrl,
@@ -48,9 +54,11 @@ export function buildReceiptFromSale(
     shopContactPhone: shop.contactPhone,
     cashierName: sale.cashierName,
     returnPolicy: shop.returnPolicy,
-    items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents })),
+    items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
     payments: (sale.payments ?? []).map((p) => ({ method: p.method, amountCents: p.amountCents, tenderedCents: p.tenderedCents, customerName: p.customerName, customerPhone: p.customerPhone })),
     customer: { name: sale.customerName, phone: sale.customerPhone, email: sale.customerEmail },
+    subtotalCents,
+    discountCents: subtotalCents - sale.totalCents,
     totalCents: sale.totalCents,
     createdAt: sale.createdAt,
   };
@@ -68,9 +76,16 @@ export function buildReceiptText(receipt: ReceiptData): string {
   if (receipt.cashierName) lines.push(`Served by ${receipt.cashierName}`);
   lines.push('');
   for (const line of receipt.items) {
-    lines.push(`${line.quantity} x ${line.name} - ${formatCents(line.unitPriceCents * line.quantity)}`);
+    const gross = line.unitPriceCents * line.quantity;
+    const discount = line.discountCents ?? 0;
+    lines.push(`${line.quantity} x ${line.name} - ${formatCents(gross - discount)}`);
+    if (discount > 0) lines.push(`  discount: -${formatCents(discount)}`);
   }
   lines.push('');
+  if (receipt.discountCents && receipt.discountCents > 0) {
+    lines.push(`SUBTOTAL: ${formatCents(receipt.subtotalCents ?? receipt.totalCents + receipt.discountCents)}`);
+    lines.push(`DISCOUNT: -${formatCents(receipt.discountCents)}`);
+  }
   lines.push(`TOTAL: ${formatCents(receipt.totalCents)}`);
   for (const payment of receipt.payments) {
     lines.push(`${methodLabel(payment.method)}: ${formatCents(payment.amountCents)}`);
@@ -98,8 +113,19 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
   const itemRows = receipt.items
-    .map((line) => `<div class="row"><span>${line.quantity} &times; ${esc(line.name)}</span><span>${formatCents(line.unitPriceCents * line.quantity)}</span></div>`)
+    .map((line) => {
+      const gross = line.unitPriceCents * line.quantity;
+      const discount = line.discountCents ?? 0;
+      const discountLine = discount > 0 ? `<div class="row muted"><span>&nbsp;&nbsp;discount</span><span>-${formatCents(discount)}</span></div>` : '';
+      return `<div class="row"><span>${line.quantity} &times; ${esc(line.name)}</span><span>${formatCents(gross - discount)}</span></div>${discountLine}`;
+    })
     .join('');
+
+  const hasDiscount = Boolean(receipt.discountCents && receipt.discountCents > 0);
+  const summaryRows = hasDiscount
+    ? `<div class="row muted"><span>Subtotal</span><span>${formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
+       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>`
+    : '';
 
   const paymentRows = receipt.payments
     .map((p) => `<div class="row muted"><span>${methodLabel(p.method)}</span><span>${formatCents(p.amountCents)}</span></div>`)
@@ -159,6 +185,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     <div class="divider"></div>
     ${itemRows}
     <div class="divider"></div>
+    ${summaryRows}
     <div class="row total"><span>Total</span><span>${formatCents(receipt.totalCents)}</span></div>
     ${paymentRows}
     ${customerBlock}

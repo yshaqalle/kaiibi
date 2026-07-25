@@ -121,14 +121,38 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
               </View>
 
               <View style={styles.dashedDivider} />
-              {receipt.items.map((line, i) => (
-                <View key={i} style={styles.row}>
-                  <Text style={styles.rowLabel} numberOfLines={1}>{`${line.quantity} × ${line.name}`}</Text>
-                  <Text style={styles.rowValue}>{formatCents(line.unitPriceCents * line.quantity)}</Text>
-                </View>
-              ))}
+              {receipt.items.map((line, i) => {
+                const gross = line.unitPriceCents * line.quantity;
+                const discount = line.discountCents ?? 0;
+                return (
+                  <View key={i}>
+                    <View style={styles.row}>
+                      <Text style={styles.rowLabel} numberOfLines={1}>{`${line.quantity} × ${line.name}`}</Text>
+                      <Text style={styles.rowValue}>{formatCents(gross - discount)}</Text>
+                    </View>
+                    {discount > 0 && (
+                      <View style={styles.row}>
+                        <Text style={styles.muted}>Discount</Text>
+                        <Text style={styles.muted}>-{formatCents(discount)}</Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
 
               <View style={styles.dashedDivider} />
+              {Boolean(receipt.discountCents && receipt.discountCents > 0) && (
+                <>
+                  <View style={styles.row}>
+                    <Text style={styles.muted}>Subtotal</Text>
+                    <Text style={styles.muted}>{formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</Text>
+                  </View>
+                  <View style={styles.row}>
+                    <Text style={styles.muted}>Discount</Text>
+                    <Text style={styles.muted}>-{formatCents(receipt.discountCents ?? 0)}</Text>
+                  </View>
+                </>
+              )}
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>Total</Text>
                 <Text style={styles.totalValue}>{formatCents(receipt.totalCents)}</Text>

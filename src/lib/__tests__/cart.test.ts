@@ -25,8 +25,13 @@ describe('cartTotalCents', () => {
 });
 
 describe('buildSalePayload', () => {
-  it('maps cart lines to product_id/quantity pairs', () => {
+  it('maps cart lines to product_id/quantity/discount_cents triples', () => {
     const lines: CartLine[] = [{ product: makeProduct({ id: 'p1' }), quantity: 3 }];
-    expect(buildSalePayload(lines)).toEqual([{ product_id: 'p1', quantity: 3 }]);
+    expect(buildSalePayload(lines)).toEqual([{ product_id: 'p1', quantity: 3, discount_cents: 0 }]);
+  });
+
+  it('includes a manual per-line discount when set', () => {
+    const lines: CartLine[] = [{ product: makeProduct({ id: 'p1', priceCents: 1000 }), quantity: 2, manualDiscount: { type: 'fixed', value: 300 } }];
+    expect(buildSalePayload(lines)).toEqual([{ product_id: 'p1', quantity: 2, discount_cents: 300 }]);
   });
 });

@@ -1,20 +1,29 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentLine, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
+import type { CartLine, PaymentLine, Promotion, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
 export type SaleCustomer = { name?: string | null; phone?: string | null; email?: string | null };
 
-export async function completeSale(shopId: string, lines: CartLine[], payments: PaymentLine[], customer?: SaleCustomer, cashierName?: string | null): Promise<string> {
+export async function completeSale(
+  shopId: string,
+  lines: CartLine[],
+  payments: PaymentLine[],
+  customer?: SaleCustomer,
+  cashierName?: string | null,
+  promotions: Promotion[] = [],
+  transactionDiscountCents = 0
+): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
-    p_items: buildSalePayload(lines),
+    p_items: buildSalePayload(lines, promotions),
     p_payments: buildPaymentPayload(payments),
     p_customer_name: customer?.name ?? null,
     p_customer_phone: customer?.phone ?? null,
     p_customer_email: customer?.email ?? null,
     p_cashier_name: cashierName ?? null,
+    p_discount_cents: transactionDiscountCents,
   });
   if (error) throw error;
   return data as string;
@@ -23,22 +32,26 @@ export async function completeSale(shopId: string, lines: CartLine[], payments: 
 // Editing doesn't need full `Product` objects for existing line items (only
 // the product id + quantity), so it takes a lighter shape than `CartLine[]`
 // — that lets the edit UI reuse existing sale items without re-fetching
-// their full product record just to satisfy `CartLine`'s type.
+// their full product record just to satisfy `CartLine`'s type. `discountCents`
+// per item is carried through unchanged from the original sale (the editor
+// doesn't currently offer a way to change discounts, only quantities/items).
 export async function editSale(
   saleId: string,
-  items: { productId: string; quantity: number }[],
+  items: { productId: string; quantity: number; discountCents?: number }[],
   payments: PaymentLine[],
-  customer?: SaleCustomer
+  customer?: SaleCustomer,
+  transactionDiscountCents = 0
 ): Promise<void> {
   if (items.length === 0) throw new Error('A sale must have at least one item');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { error } = await supabase.rpc('edit_sale', {
     p_sale_id: saleId,
-    p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity })),
+    p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity, discount_cents: item.discountCents ?? 0 })),
     p_payments: buildPaymentPayload(payments),
     p_customer_name: customer?.name ?? null,
     p_customer_phone: customer?.phone ?? null,
     p_customer_email: customer?.email ?? null,
+    p_discount_cents: transactionDiscountCents,
   });
   if (error) throw error;
 }
@@ -72,6 +85,7 @@ function mapSaleRow(row: any): Sale {
     customerPhone: row.customer_phone,
     customerEmail: row.customer_email,
     cashierName: row.cashier_name,
+    discountCents: row.discount_cents ?? 0,
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,
@@ -84,6 +98,7 @@ function mapSaleRow(row: any): Sale {
         unitPriceCents: item.unit_price_cents,
         quantity: item.quantity,
         lineTotalCents: item.line_total_cents,
+        discountCents: item.discount_cents ?? 0,
       })
     ),
     payments: (row.sale_payments ?? []).map(
@@ -111,12 +126,14 @@ function mapSaleRow(row: any): Sale {
           customerName: edit.previous_snapshot.customer_name ?? null,
           customerPhone: edit.previous_snapshot.customer_phone ?? null,
           customerEmail: edit.previous_snapshot.customer_email ?? null,
+          discountCents: edit.previous_snapshot.discount_cents ?? 0,
           items: (edit.previous_snapshot.items ?? []).map((item: any): SaleItemSnapshot => ({
             productId: item.product_id,
             productName: item.product_name,
             unitPriceCents: item.unit_price_cents,
             quantity: item.quantity,
             lineTotalCents: item.line_total_cents,
+            discountCents: item.discount_cents ?? 0,
           })),
           payments: (edit.previous_snapshot.payments ?? []).map((payment: any): PaymentLine => ({
             method: payment.method,
