@@ -365,7 +365,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
           </View>
         )}
       </View>
-      <Text style={styles.hint}>When enabled, this rate is added to every sale's total, on top of any discounts.</Text>
+      <Text style={styles.hint}>When enabled, this rate is added to every sale total, on top of any discounts.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>

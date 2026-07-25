@@ -1,4 +1,4 @@
-import { formatCents, toCents } from '@/lib/currency';
+import { foreignCentsToUsdCents, formatCents, formatForeignCents, toCents, usdCentsToForeignCents } from '@/lib/currency';
 
 describe('toCents', () => {
   it('converts a decimal string to integer cents', () => {
@@ -36,8 +36,6 @@ describe('formatCents', () => {
     expect(formatCents(0)).toBe('$0.00');
   });
 });
-
-import { foreignCentsToUsdCents, formatForeignCents, usdCentsToForeignCents } from '@/lib/currency';
 
 describe('foreignCentsToUsdCents', () => {
   it('converts foreign cents to USD cents using the rate (units of foreign currency per $1)', () => {
