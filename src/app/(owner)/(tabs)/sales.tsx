@@ -419,7 +419,17 @@ function SaleEditor({ sale, products, onCancel, onSaved }: { sale: Sale; product
       .map((item) => ({ productId: item.productId as string, productName: item.productName, unitPriceCents: item.unitPriceCents, quantity: item.quantity }))
   );
   const [payments, setPayments] = useState<PaymentLine[]>(() =>
-    (sale.payments ?? []).map((p) => ({ method: p.method, amountCents: p.amountCents, tenderedCents: p.tenderedCents, customerName: p.customerName, customerPhone: p.customerPhone }))
+    (sale.payments ?? []).map((p) => ({
+      method: p.method,
+      amountCents: p.amountCents,
+      tenderedCents: p.tenderedCents,
+      customerName: p.customerName,
+      customerPhone: p.customerPhone,
+      currencyCode: p.currencyCode,
+      exchangeRate: p.exchangeRate,
+      foreignAmountCents: p.foreignAmountCents,
+      foreignChangeCents: p.foreignChangeCents,
+    }))
   );
   const [customerName, setCustomerName] = useState(sale.customerName ?? '');
   const [customerPhone, setCustomerPhone] = useState(sale.customerPhone ?? '');
