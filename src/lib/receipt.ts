@@ -157,7 +157,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     .map((p) => {
       const hasCurrency = p.currencyCode && p.foreignAmountCents !== null && p.exchangeRate !== null;
       const line = hasCurrency
-        ? `${methodLabel(p.method)} (${p.currencyCode}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$`
+        ? `${methodLabel(p.method)} (${esc(p.currencyCode as string)}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$`
         : methodLabel(p.method);
       return `<div class="row muted"><span>${line}</span><span>${formatCents(p.amountCents)}</span></div>`;
     })
