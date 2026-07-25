@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/card';
 import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
@@ -169,9 +170,9 @@ export default function DashboardScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.surface }]}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.greeting, { color: theme.text }]}>{shop?.name ?? 'Your shop'}</Text>
+        <Text style={[styles.greeting, { color: theme.text }]}>Dashboard</Text>
 
         <View style={styles.metricRow}>
           <StatTile value={formatCents(todayTotalCents)} label="Today's sales" delta={salesDelta} sparkline={dailyMetrics.map((d) => d.totalCents)} />

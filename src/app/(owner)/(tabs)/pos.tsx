@@ -1,6 +1,7 @@
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryChip } from '@/components/category-chip';
 import { DiscountEditor } from '@/components/discount-editor';
@@ -195,12 +196,12 @@ export default function PosScreen() {
     ? { style: styles.categoryRowCompact }
     : { horizontal: true, showsHorizontalScrollIndicator: false, style: styles.categoryScroll, contentContainerStyle: styles.categoryRow };
   const GridList = compact ? View : ScrollView;
-  const gridListProps = compact ? { style: styles.grid } : { contentContainerStyle: styles.grid };
+  const gridListProps = compact ? { style: [styles.grid, styles.gridCompact] } : { contentContainerStyle: styles.grid };
   const CartList = compact ? View : ScrollView;
   const cartListProps = compact ? { style: styles.cartListCompact } : { style: styles.cartList };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <Split style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
         <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
           <View style={styles.searchWrap}>
@@ -217,22 +218,22 @@ export default function PosScreen() {
             {filtered.map((product) => (
               <Pressable key={product.id} onPress={() => addToCart(product)} disabled={product.stock <= 0} style={[styles.gridTile, compact && styles.gridTileCompact, product.stock <= 0 && styles.gridTileDisabled]}>
                 {product.imageUrl ? (
-                  <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.gridThumb} />
+                  <Image source={{ uri: product.imageUrl }} contentFit="cover" style={[styles.gridThumb, compact && styles.gridThumbCompact]} />
                 ) : (
-                  <View style={[styles.gridThumb, styles.gridThumbPlaceholder]}>
-                    <View style={[styles.gridThumbDrop, product.stock <= 0 && styles.gridThumbDropMuted]} />
+                  <View style={[styles.gridThumb, compact && styles.gridThumbCompact, styles.gridThumbPlaceholder]}>
+                    <View style={[styles.gridThumbDrop, compact && styles.gridThumbDropCompact, product.stock <= 0 && styles.gridThumbDropMuted]} />
                   </View>
                 )}
-                {product.brand && <Text style={styles.gridBrand}>{product.brand.toUpperCase()}</Text>}
-                <Text style={styles.gridName} numberOfLines={2}>{product.name}</Text>
-                <View style={styles.gridFooter}>
-                  <Text style={styles.gridPrice}>{formatCents(product.priceCents)}</Text>
+                {product.brand && <Text style={[styles.gridBrand, compact && styles.gridBrandCompact]}>{product.brand.toUpperCase()}</Text>}
+                <Text style={[styles.gridName, compact && styles.gridNameCompact]} numberOfLines={2}>{product.name}</Text>
+                <View style={[styles.gridFooter, compact && styles.gridFooterCompact]}>
+                  <Text style={[styles.gridPrice, compact && styles.gridPriceCompact]}>{formatCents(product.priceCents)}</Text>
                   {product.stock <= 0 ? (
-                    <Text style={styles.stockPill}>⚠ Out of stock</Text>
+                    <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Out of stock</Text>
                   ) : (
                     <View style={styles.gridStockWithBadge}>
-                      <Text style={styles.gridStock}>{product.stock} in stock</Text>
-                      {product.stock <= (product.reorderLevel ?? 5) && <Text style={styles.stockPill}>⚠ Low stock</Text>}
+                      <Text style={[styles.gridStock, compact && styles.gridStockCompact]}>{product.stock} in stock</Text>
+                      {product.stock <= (product.reorderLevel ?? 5) && <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Low stock</Text>}
                     </View>
                   )}
                 </View>
@@ -364,10 +365,10 @@ export default function PosScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   split: { flex: 1, flexDirection: 'row' },
-  splitCompact: { flex: 1 },
+  splitCompact: { flex: 1, flexDirection: 'column' },
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },
   browsePane: { flex: 2, padding: 32 },
-  browsePaneCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 20, paddingBottom: 12 },
+  browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 20, paddingBottom: 12 },
   searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 20 },
   searchIcon: { position: 'absolute', left: 18, color: '#9B9B9B', fontSize: 18, zIndex: 1 },
   search: { backgroundColor: '#F4F4F4', borderRadius: 14, height: 52, paddingLeft: 42, paddingRight: 16, fontSize: 15, color: '#111111' },
@@ -375,10 +376,12 @@ const styles = StyleSheet.create({
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 24 },
   categoryRowCompact: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
+  gridCompact: { gap: 8 },
   gridTile: { flexBasis: '31%', flexGrow: 0, flexShrink: 0, minWidth: 190, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#EDEDED' },
-  gridTileCompact: { flexBasis: '47%', minWidth: 140, flexGrow: 0, flexShrink: 0 },
+  gridTileCompact: { flexBasis: '31%', minWidth: 90, flexGrow: 0, flexShrink: 0, borderRadius: 12, padding: 8 },
   gridTileDisabled: { opacity: 0.4 },
   gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, marginBottom: 14 },
+  gridThumbCompact: { aspectRatio: 1.3, borderRadius: 8, marginBottom: 6 },
   gridThumbPlaceholder: { backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   // A teardrop silhouette built from a rotated square with three rounded
   // corners — avoids pulling in an icon/SVG library just for one glyph, and
@@ -394,16 +397,23 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 0,
     transform: [{ rotate: '-45deg' }],
   },
+  gridThumbDropCompact: { width: 16, height: 16, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
   gridThumbDropMuted: { backgroundColor: '#C7C7C7' },
   gridBrand: { color: '#999999', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  gridBrandCompact: { fontSize: 8 },
   gridName: { color: '#111111', fontSize: 15, fontWeight: '700', minHeight: 40, marginTop: 4 },
+  gridNameCompact: { fontSize: 11, minHeight: 15, marginTop: 2 },
   gridFooter: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  gridFooterCompact: { marginTop: 5, flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   gridPrice: { color: '#111111', fontSize: 18, fontWeight: '800' },
+  gridPriceCompact: { fontSize: 13 },
   gridStock: { color: '#999999', fontSize: 12 },
-  gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gridStockCompact: { fontSize: 9 },
+  gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
+  stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8 },
   cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
-  cartPaneCompact: { flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderTopWidth: 1, borderTopColor: '#ECECEC', padding: 20, paddingTop: 16 },
+  cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderTopWidth: 1, borderTopColor: '#ECECEC', padding: 20, paddingTop: 16 },
   cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800', marginBottom: 20 },
   cartList: { flex: 1 },
   cartListCompact: { marginBottom: 4 },
