@@ -63,7 +63,15 @@ export async function createShop(input: {
     .select('*')
     .single();
   if (error) throw error;
-  return mapShopRow(data);
+  const shop = mapShopRow(data);
+  // Same starting currencies the migration backfills for shops that
+  // existed before this feature shipped — see migration 0015.
+  const { error: currencyError } = await supabase.from('shop_currencies').insert([
+    { shop_id: shop.id, code: 'SLSH', name: 'Somaliland Shilling', symbol: 'Sl Sh', rate_to_usd: 115, active: true },
+    { shop_id: shop.id, code: 'ETB', name: 'Ethiopian Birr', symbol: 'Br', rate_to_usd: 130, active: false },
+  ]);
+  if (currencyError) throw currencyError;
+  return shop;
 }
 
 export async function updateShop(id: string, input: Partial<{
