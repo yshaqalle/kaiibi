@@ -22,6 +22,27 @@ const navItems = [
   { href: '/sales', label: 'Sales', icon: '📈' },
 ] as const;
 
+type NavItem = (typeof navItems)[number];
+
+// Extracted so each row can own its own hover state (react-native-web fires
+// onHoverIn/onHoverOut on Pressable; native no-ops these harmlessly) without
+// the parent re-rendering the whole nav on every mouse move.
+function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Link href={item.href} asChild>
+      <Pressable
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={StyleSheet.flatten([styles.navButton, hovered && !focused && styles.navButtonHovered, focused && styles.navButtonFocused])}
+      >
+        <Text style={[styles.navIcon, focused && styles.navIconFocused]}>{item.icon}</Text>
+        <Text style={[styles.navText, focused && styles.navTextFocused]}>{item.label}</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
 // Below this width the persistent 220px sidebar would eat more than half a
 // phone screen (and leave two-pane screens like POS with almost nothing to
 // work with), so it collapses into a slim top header + bottom tab bar
@@ -85,7 +106,7 @@ export default function OwnerTabs() {
                   <View style={[styles.bottomNavIconWrap, isFocused && styles.bottomNavIconWrapFocused]}>
                     <Text style={[styles.bottomNavIcon, isFocused && styles.bottomNavIconFocused]}>{item.icon}</Text>
                   </View>
-                  <Text style={[styles.bottomNavText, isFocused && styles.bottomNavTextFocused]}>{item.label}</Text>
+                  <Text style={[styles.bottomNavText, isFocused && styles.bottomNavTextFocused]} numberOfLines={1}>{item.label}</Text>
                 </Pressable>
               </Link>
             );
@@ -108,17 +129,9 @@ export default function OwnerTabs() {
           </View>
         </View>
         <View style={styles.nav}>
-          {navItems.map((item) => {
-            const isFocused = pathname === item.href;
-            return (
-              <Link key={item.href} href={item.href} asChild>
-                <Pressable style={StyleSheet.flatten([styles.navButton, isFocused && styles.navButtonFocused])}>
-                  <Text style={styles.navIcon}>{item.icon}</Text>
-                  <Text style={[styles.navText, isFocused && styles.navTextFocused]}>{item.label}</Text>
-                </Pressable>
-              </Link>
-            );
-          })}
+          {navItems.map((item) => (
+            <SidebarNavItem key={item.href} item={item} focused={pathname === item.href} />
+          ))}
         </View>
         <View style={styles.footer}>
           <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
@@ -147,11 +160,22 @@ const styles = StyleSheet.create({
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   shopName: { color: '#111111', fontSize: 15, fontWeight: '800', maxWidth: 140 },
   shopSubtitle: { color: '#999999', fontSize: 11, marginTop: 1 },
-  nav: { paddingHorizontal: 10, gap: 6 },
-  navButton: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8 },
-  navButtonFocused: { backgroundColor: '#F2F2F2' },
-  navIcon: { fontSize: 15, width: 18, textAlign: 'center' },
-  navText: { color: '#555555', fontSize: 13, fontWeight: '600' },
+  nav: { paddingHorizontal: 10, gap: 4 },
+  navButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: 'transparent',
+  },
+  navButtonHovered: { backgroundColor: '#F5F5F2' },
+  navButtonFocused: { backgroundColor: '#F2F2F2', borderLeftColor: '#111111' },
+  navIcon: { fontSize: 19, width: 22, textAlign: 'center', color: '#777777' },
+  navIconFocused: { color: '#111111' },
+  navText: { color: '#555555', fontSize: 14.5, fontWeight: '700' },
   navTextFocused: { color: '#111111', fontWeight: '800' },
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
@@ -172,12 +196,12 @@ const styles = StyleSheet.create({
   settingsIcon: { fontSize: 24, color: '#555555' },
   signOutCompact: { color: '#999999', fontSize: 12, fontWeight: '700' },
   mobileSlot: { flex: 1 },
-  bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ECECEC', backgroundColor: '#FFFFFF', paddingBottom: 10, paddingTop: 8 },
-  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 3, paddingVertical: 4 },
-  bottomNavIconWrap: { width: 40, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ECECEC', backgroundColor: '#FFFFFF', paddingBottom: 12, paddingTop: 10 },
+  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
+  bottomNavIconWrap: { width: 46, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
   bottomNavIconWrapFocused: { backgroundColor: '#111111' },
-  bottomNavIcon: { fontSize: 15, color: '#999999' },
+  bottomNavIcon: { fontSize: 18, color: '#999999' },
   bottomNavIconFocused: { color: '#FFFFFF' },
-  bottomNavText: { color: '#999999', fontSize: 11, fontWeight: '700' },
+  bottomNavText: { color: '#999999', fontSize: 11.5, fontWeight: '700' },
   bottomNavTextFocused: { color: '#111111', fontWeight: '800' },
 });
