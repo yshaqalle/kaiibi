@@ -24,6 +24,26 @@ export type Shop = {
   // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
   // until the owner sets one — the meter is hidden until then.
   monthlyRevenueGoalCents: number | null;
+  // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
+  // 2.5, editable) is applied server-side to every sale's post-discount
+  // subtotal — see complete_sale/edit_sale in migration 0015.
+  taxEnabled: boolean;
+  taxRatePercent: number;
+  createdAt: string;
+};
+
+// An alternate currency a shop accepts as a way to settle a payment line
+// (see PaymentLine below) — USD itself is not a row here, it's the
+// implicit default when a payment's currencyCode is null. `rateToUsd` is
+// units of this currency per $1 USD (e.g. 115 for Somaliland Shilling).
+export type Currency = {
+  id: string;
+  shopId: string;
+  code: string;
+  name: string;
+  symbol: string;
+  rateToUsd: number;
+  active: boolean;
   createdAt: string;
 };
 
@@ -100,12 +120,20 @@ export type SaleItem = {
 // meaningful for cash (what the customer physically handed over, so change
 // due = tenderedCents - amountCents); `customerName`/`customerPhone` are
 // only meaningful for mobile-money methods like ZAAD/e-Dahab.
+// `amountCents` is always the USD-cents amount applied to the sale, even
+// when this line was settled in a foreign currency — `currencyCode`
+// through `foreignChangeCents` are display/audit-only for that case, all
+// null for a plain USD payment.
 export type PaymentLine = {
   method: PaymentMethod;
   amountCents: number;
   tenderedCents: number | null;
   customerName: string | null;
   customerPhone: string | null;
+  currencyCode: string | null;
+  exchangeRate: number | null;
+  foreignAmountCents: number | null;
+  foreignChangeCents: number | null;
 };
 
 export type SalePayment = PaymentLine & {
@@ -168,6 +196,11 @@ export type Sale = {
   // discounts (already reflected in each item's `lineTotalCents`) — see
   // src/lib/discounts.ts.
   discountCents: number;
+  // Tax applied on top of the post-discount subtotal, and the rate that
+  // produced it — both a frozen snapshot at sale time (see migration
+  // 0015), independent of the shop's tax settings changing later.
+  taxCents: number;
+  taxRatePercent: number | null;
   totalCents: number;
   itemCount: number;
   createdAt: string;
