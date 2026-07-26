@@ -62,10 +62,14 @@ export default function OwnerTabs() {
         </View>
       </View>
       <View style={styles.slot}>
+        {/* blurEffect="none" stops iOS from compositing backgroundColor with a
+            system blur material, which otherwise pulls in dark-mode tinting
+            regardless of userInterfaceStyle and defeats the fixed white bar. */}
         <NativeTabs
           backgroundColor={tabBarColors.background}
           iconColor={{ default: tabBarColors.iconDefault, selected: tabBarColors.iconSelected }}
           disableTransparentOnScrollEdge
+          blurEffect="none"
           labelStyle={{
             default: { color: tabBarColors.labelDefault, fontWeight: '600' },
             selected: { color: tabBarColors.labelSelected, fontWeight: '800' },
@@ -76,15 +80,15 @@ export default function OwnerTabs() {
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="pos">
             <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
+            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/cart.png')} />
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="inventory">
             <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
+            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/grid.png')} />
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="sales">
             <NativeTabs.Trigger.Label>Sales</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
+            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />
           </NativeTabs.Trigger>
         </NativeTabs>
       </View>
