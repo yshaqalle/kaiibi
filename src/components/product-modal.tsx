@@ -30,7 +30,9 @@ export function ProductModal({
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>{initial ? 'Edit product' : 'Add product'}</Text>
-            <Pressable onPress={onClose}><Text style={styles.close}>Done</Text></Pressable>
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
+              <Text style={styles.closeText}>Done</Text>
+            </Pressable>
           </View>
           <View style={styles.formWrap}>
             <ProductForm
@@ -63,7 +65,9 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#FFFFFF', borderRadius: 18, width: '100%', maxWidth: 560, height: '90%', overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
-  close: { fontSize: 13, fontWeight: '700', color: '#999999' },
+  close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  closePressed: { opacity: 0.6 },
+  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   formWrap: { flex: 1 },
   deleteButton: { alignItems: 'center', paddingVertical: 14, borderTopWidth: 1, borderTopColor: '#ECECEC' },
   deleteText: { color: '#C0392B', fontWeight: '800', fontSize: 13 },

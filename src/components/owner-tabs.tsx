@@ -29,12 +29,20 @@ export default function OwnerTabs() {
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
         </View>
         <View style={styles.headerRight}>
-          <Pressable onPress={() => router.push('/settings')} hitSlop={8} style={styles.settingsButton}>
+          <Pressable
+            onPress={() => router.push('/settings')}
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
+          >
             <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
-            <Text style={[styles.settingsLabel, { color: colors.text }]}>Settings</Text>
+            <Text style={[styles.headerButtonText, { color: colors.text }]}>Settings</Text>
           </Pressable>
-          <Pressable onPress={() => signOut().then(() => router.replace('/signup'))} hitSlop={8}>
-            <Text style={[styles.signOut, { color: colors.textSecondary }]}>Sign out</Text>
+          <Pressable
+            onPress={() => signOut().then(() => router.replace('/signup'))}
+            hitSlop={8}
+            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
+          >
+            <Text style={[styles.headerButtonText, { color: colors.text }]}>Sign out</Text>
           </Pressable>
         </View>
       </View>
@@ -78,10 +86,9 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%', height: '100%' },
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  settingsButton: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 2 },
-  settingsIcon: { fontSize: 18 },
-  settingsLabel: { fontSize: 12, fontWeight: '700' },
-  signOut: { fontSize: 12, fontWeight: '700' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
+  settingsIcon: { fontSize: 15 },
+  headerButtonText: { fontSize: 12, fontWeight: '700' },
   slot: { flex: 1 },
 });

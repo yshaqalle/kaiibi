@@ -106,7 +106,9 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
               <View style={styles.badge}><Text style={styles.badgeCheck}>✓</Text></View>
               <Text style={styles.title}>{title}</Text>
             </View>
-            <Pressable onPress={onClose}><Text style={styles.close}>Done</Text></Pressable>
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
+              <Text style={styles.closeText}>Done</Text>
+            </Pressable>
           </View>
 
           <ScrollView style={styles.receiptScroll}>
@@ -258,7 +260,9 @@ const styles = StyleSheet.create({
   badge: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
   badgeCheck: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
-  close: { fontSize: 13, fontWeight: '700', color: '#999999' },
+  close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  closePressed: { opacity: 0.6 },
+  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
 
   receiptScroll: { flex: 1 },
   receiptWrap: { marginBottom: 18 },

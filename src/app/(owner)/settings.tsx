@@ -561,7 +561,9 @@ function ManageModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>{title}</Text>
-            <Pressable onPress={onClose}><Text style={styles.modalClose}>Done</Text></Pressable>
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </Pressable>
           </View>
 
           <TextInput
@@ -775,7 +777,9 @@ function PromotionsModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Sales & promotions</Text>
-            <Pressable onPress={onClose}><Text style={styles.modalClose}>Done</Text></Pressable>
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </Pressable>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -977,7 +981,9 @@ function CurrenciesModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Currencies</Text>
-            <Pressable onPress={onClose}><Text style={styles.modalClose}>Done</Text></Pressable>
+            <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </Pressable>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -1097,7 +1103,9 @@ const styles = StyleSheet.create({
   modalCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, height: '80%', overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   modalTitle: { fontSize: 16, fontWeight: '800', color: '#111111' },
-  modalClose: { fontSize: 13, fontWeight: '700', color: '#999999' },
+  modalClose: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  modalClosePressed: { opacity: 0.6 },
+  modalCloseText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   modalSearch: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginBottom: 12 },
   modalList: { flex: 1, marginBottom: 12 },
 
