@@ -173,6 +173,7 @@ export default function DashboardScreen() {
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.greeting, { color: theme.text }]}>Dashboard</Text>
+        <View style={[styles.headerDivider, { backgroundColor: theme.border }]} />
 
         <View style={styles.metricRow}>
           <StatTile value={formatCents(todayTotalCents)} label="Today's sales" delta={salesDelta} sparkline={dailyMetrics.map((d) => d.totalCents)} />
@@ -248,7 +249,8 @@ export default function DashboardScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: 24, paddingBottom: 42 },
-  greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
+  greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 14 },
+  headerDivider: { height: 1, marginBottom: 20 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   insight: { fontSize: 12.5, marginTop: -8, marginBottom: 10, lineHeight: 17 },

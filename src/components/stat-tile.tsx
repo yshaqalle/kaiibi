@@ -59,7 +59,7 @@ function Sparkline({ values }: { values: number[] }) {
 
 const styles = StyleSheet.create({
   tile: { flex: 1, minHeight: 90, padding: 14, justifyContent: 'flex-end' },
-  valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  valueRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 4 },
   value: { fontSize: 22, letterSpacing: -1, fontWeight: '800' },
   delta: { fontSize: 10.5, fontWeight: '700' },
   spark: { marginTop: 6 },
