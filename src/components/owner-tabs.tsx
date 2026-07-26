@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useState } from 'react';
@@ -10,6 +11,7 @@ import { Colors } from '@/constants/theme';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // The top header is deliberately always dark — matching the marketing site's
 // black header brand treatment — regardless of the device's system color
@@ -34,10 +36,30 @@ export default function OwnerTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shop } = useAuth();
+  const { shop, refreshShop } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Lets the shop logo be changed straight from the header avatar, not just
+  // from Settings — mirrors the same affordance on the sidebar (tablet/web)
+  // and mobile-web headers.
+  const editLogo = async () => {
+    if (!shop || uploadingLogo) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (result.canceled) return;
+    setUploadingLogo(true);
+    try {
+      const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
+      await updateShop(shop.id, { logoUrl });
+      await refreshShop();
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
 
   // Tablets (iPad, Android tablets — unlocked to landscape via
   // use-tablet-orientation) get the same sidebar as web's desktop layout
@@ -54,9 +76,9 @@ export default function OwnerTabs() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background, borderBottomColor: colors.backgroundElement }]}>
         <View style={styles.headerLeft}>
-          <View style={[styles.avatar, { backgroundColor: colors.text }]}>
+          <Pressable onPress={editLogo} style={[styles.avatar, { backgroundColor: colors.text }]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.background }]}>{initial}</Text>}
-          </View>
+          </Pressable>
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
         </View>
         <View style={styles.headerRight}>

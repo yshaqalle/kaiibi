@@ -58,9 +58,9 @@
     "owner": "kaiibis-team",
     "ios": {
       "bundleIdentifier": "com.kaiibisteam.kaiibi",
+      "requireFullScreen": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "UIRequiresFullScreen": true,
         "UISupportedInterfaceOrientations": ["UIInterfaceOrientationPortrait"],
         "UISupportedInterfaceOrientations~ipad": [
           "UIInterfaceOrientationPortrait",
