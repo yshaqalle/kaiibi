@@ -8,6 +8,7 @@ import { DiscountEditor } from '@/components/discount-editor';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
@@ -37,7 +38,7 @@ function extractErrorMessage(err: unknown): string {
 export default function PosScreen() {
   const { shop } = useAuth();
   const { width } = useWindowDimensions();
-  const compact = width < 820;
+  const compact = width < TABLET_BREAKPOINT;
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);

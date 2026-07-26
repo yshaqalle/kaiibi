@@ -1,12 +1,17 @@
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { OwnerSidebar } from '@/components/owner-sidebar';
 import { Colors } from '@/constants/theme';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // The top header is deliberately always dark — matching the marketing site's
 // black header brand treatment — regardless of the device's system color
@@ -31,36 +36,87 @@ export default function OwnerTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shop } = useAuth();
+  const { shop, refreshShop } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
+  const { width } = useWindowDimensions();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+
+  // Lets the shop logo be changed straight from the header avatar, not just
+  // from Settings — mirrors the same affordance on the sidebar (tablet/web)
+  // and mobile-web headers.
+  const editLogo = async () => {
+    if (!shop || uploadingLogo) return;
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (result.canceled) return;
+    setUploadingLogo(true);
+    try {
+      const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
+      await updateShop(shop.id, { logoUrl });
+      await refreshShop();
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
+  // Tablets (iPad, Android tablets — unlocked to landscape via
+  // use-tablet-orientation) get the same sidebar as web's desktop layout
+  // instead of a phone-shaped bottom bar. Phones keep NativeTabs below.
+  if (width >= TABLET_BREAKPOINT) {
+    return (
+      <OwnerSidebar>
+        <Slot />
+      </OwnerSidebar>
+    );
+  }
 
   return (
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background, borderBottomColor: colors.backgroundElement }]}>
         <View style={styles.headerLeft}>
-          <View style={[styles.avatar, { backgroundColor: colors.text }]}>
+          <Pressable onPress={editLogo} style={[styles.avatar, { backgroundColor: colors.text }]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.background }]}>{initial}</Text>}
-          </View>
+          </Pressable>
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
         </View>
         <View style={styles.headerRight}>
           <Pressable
-            onPress={() => router.push('/settings')}
+            onPress={() => setMenuOpen(true)}
             hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [styles.menuButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
           >
-            <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
-            <Text style={[styles.headerButtonText, { color: colors.text }]}>Settings</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => signOut().then(() => router.replace('/signup'))}
-            hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Text style={[styles.headerButtonText, { color: colors.text }]}>Sign out</Text>
+            <Text style={[styles.menuIcon, { color: colors.text }]}>☰</Text>
           </Pressable>
         </View>
       </View>
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                router.push('/settings');
+              }}
+              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
+              <Text style={[styles.menuItemText, { color: colors.text }]}>Settings</Text>
+            </Pressable>
+            <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                signOut().then(() => router.replace('/signup'));
+              }}
+              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.menuItemText, { color: colors.text }]}>Sign out</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting
@@ -105,8 +161,13 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
+  menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
+  menuIcon: { fontSize: 16 },
   settingsIcon: { fontSize: 15 },
-  headerButtonText: { fontSize: 12, fontWeight: '700' },
   slot: { flex: 1 },
+  menuBackdrop: { flex: 1 },
+  menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
+  menuItemText: { fontSize: 14, fontWeight: '700' },
+  menuDivider: { height: StyleSheet.hairlineWidth },
 });

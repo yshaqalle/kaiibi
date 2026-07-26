@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
@@ -11,17 +11,23 @@ import { uploadProductImage } from '@/lib/products';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
-export function ProductForm({
-  initial,
-  onSubmit,
-  submitLabel,
-  shopId,
-}: {
+export type ProductFormHandle = {
+  submit: () => void;
+};
+
+export const ProductForm = forwardRef<ProductFormHandle, {
   initial?: Product;
   onSubmit: (input: NewProductInput) => Promise<void>;
   submitLabel: string;
   shopId: string;
-}) {
+  onStatusChange?: (status: { valid: boolean; submitting: boolean }) => void;
+}>(function ProductForm({
+  initial,
+  onSubmit,
+  submitLabel,
+  shopId,
+  onStatusChange,
+}, ref) {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [sku, setSku] = useState(initial?.sku ?? '');
@@ -118,6 +124,9 @@ export function ProductForm({
     }
   };
 
+  useImperativeHandle(ref, () => ({ submit }), [submit]);
+  useEffect(() => { onStatusChange?.({ valid, submitting }); }, [valid, submitting, onStatusChange]);
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Field label="PHOTO">
@@ -191,7 +200,7 @@ export function ProductForm({
       </Pressable>
     </ScrollView>
   );
-}
+});
 
 function Row({ children }: { children: React.ReactNode }) { return <View style={styles.row}>{children}</View>; }
 function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: object }) {

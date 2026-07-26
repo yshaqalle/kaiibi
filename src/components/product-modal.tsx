@@ -1,6 +1,7 @@
+import { useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { ProductForm } from '@/components/product-form';
+import { ProductForm, type ProductFormHandle } from '@/components/product-form';
 import { deleteProduct } from '@/lib/products';
 import type { NewProductInput, Product } from '@/types/models';
 
@@ -22,6 +23,9 @@ export function ProductModal({
   onSubmit: (input: NewProductInput) => Promise<void>;
   onDeleted?: () => void;
 }) {
+  const formRef = useRef<ProductFormHandle>(null);
+  const [status, setStatus] = useState({ valid: false, submitting: false });
+
   if (!visible) return null;
 
   return (
@@ -30,16 +34,27 @@ export function ProductModal({
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>{initial ? 'Edit product' : 'Add product'}</Text>
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
-              <Text style={styles.closeText}>Done</Text>
-            </Pressable>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => formRef.current?.submit()}
+                disabled={!status.valid || status.submitting}
+                style={({ pressed }) => [styles.save, (!status.valid || status.submitting) && styles.saveDisabled, pressed && styles.savePressed]}
+              >
+                <Text style={styles.saveText}>{status.submitting ? 'Saving…' : 'Save'}</Text>
+              </Pressable>
+              <Pressable onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
+                <Text style={styles.closeText}>Done</Text>
+              </Pressable>
+            </View>
           </View>
           <View style={styles.formWrap}>
             <ProductForm
+              ref={formRef}
               initial={initial}
               shopId={shopId}
               submitLabel={initial ? 'Save changes' : 'Save product'}
               onSubmit={async (input) => { await onSubmit(input); onClose(); }}
+              onStatusChange={setStatus}
             />
           </View>
           {initial && onDeleted && (
@@ -65,6 +80,11 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#FFFFFF', borderRadius: 18, width: '100%', maxWidth: 560, height: '90%', overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  save: { backgroundColor: '#111111', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  saveDisabled: { backgroundColor: '#CCCCCC' },
+  savePressed: { opacity: 0.7 },
+  saveText: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
   close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
   closePressed: { opacity: 0.6 },
   closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
