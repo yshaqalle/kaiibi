@@ -10,7 +10,7 @@ export default function PublicLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="login" options={{ headerShown: true, title: 'Log in' }} />
+      <Stack.Screen name="login" options={{ headerShown: true, title: 'Log in', headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>
   );
 }

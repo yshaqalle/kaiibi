@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryChip } from '@/components/category-chip';
 import { ScreenHeader } from '@/components/screen-header';
+import { SegmentedControl } from '@/components/segmented-control';
 import { useAuth } from '@/hooks/use-auth';
 import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } from '@/lib/brands';
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
@@ -24,8 +25,17 @@ const previewCount = 6;
 const emptyUsage = new Map<string, number>();
 const emptyColors = new Map<string, string | null>();
 
+type SettingsSection = 'profile' | 'shop' | 'catalog' | 'sales';
+const sectionOptions: { key: SettingsSection; label: string }[] = [
+  { key: 'profile', label: 'Profile' },
+  { key: 'shop', label: 'Shop' },
+  { key: 'catalog', label: 'Catalog' },
+  { key: 'sales', label: 'Sales' },
+];
+
 export default function SettingsScreen() {
   const { shop, profile, session, setProfile, refreshShop } = useAuth();
+  const [section, setSection] = useState<SettingsSection>('profile');
   const [brands, setBrands] = useState<string[]>([]);
   const [brandColors, setBrandColors] = useState<Map<string, string | null>>(emptyColors);
   const [categories, setCategories] = useState<string[]>([]);
@@ -101,17 +111,22 @@ export default function SettingsScreen() {
   if (!shop) return null;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScreenHeader title="Settings" />
+      <View style={styles.sectionNav}>
+        <SegmentedControl options={sectionOptions} value={section} onChange={setSection} />
+      </View>
       <ScrollView contentContainerStyle={styles.content}>
         {error && <Text style={styles.error}>{error}</Text>}
 
-        {profile && <ProfileSection profile={profile} email={session?.user.email ?? null} onSaved={setProfile} />}
-        <ShopSection shop={shop} onSaved={refreshShop} />
+        {section === 'profile' && profile && (
+          <ProfileSection profile={profile} email={session?.user.email ?? null} onSaved={setProfile} />
+        )}
+        {section === 'shop' && <ShopSection shop={shop} onSaved={refreshShop} />}
 
-        {loading ? (
-          <Text style={styles.hint}>Loading…</Text>
-        ) : (
+        {(section === 'catalog' || section === 'sales') && loading && <Text style={styles.hint}>Loading…</Text>}
+
+        {section === 'sales' && !loading && (
           <>
             <PromotionsSection
               shopId={shop.id}
@@ -120,6 +135,7 @@ export default function SettingsScreen() {
               categories={categories}
               onChange={reload}
             />
+            <TaxSection shop={shop} onSaved={refreshShop} />
             <CurrenciesSection shopId={shop.id} currencies={currencies} onChange={reload} />
             <CategorySection
               title="CASHIERS"
@@ -132,6 +148,11 @@ export default function SettingsScreen() {
               onRename={(oldName, newName) => runOrShowError(async () => { await renameCashier(shop.id, oldName, newName); await reload(); })}
               onDelete={(name) => runOrShowError(async () => { await deleteCashier(shop.id, name); await reload(); })}
             />
+          </>
+        )}
+
+        {section === 'catalog' && !loading && (
+          <>
             <CategorySection
               title="BRANDS"
               itemLabel="brand"
@@ -238,8 +259,6 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
   const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
   const [goalInput, setGoalInput] = useState(shopGoalInput);
-  const [taxEnabled, setTaxEnabled] = useState(shop.taxEnabled);
-  const [taxRateInput, setTaxRateInput] = useState(String(shop.taxRatePercent));
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -254,9 +273,7 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
     goalInput.trim() !== shopGoalInput ||
-    logoUri !== shop.logoUrl ||
-    taxEnabled !== shop.taxEnabled ||
-    taxRateInput.trim() !== String(shop.taxRatePercent);
+    logoUri !== shop.logoUrl;
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -288,8 +305,6 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         returnPolicy: returnPolicy.trim(),
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
-        taxEnabled,
-        taxRatePercent: Number(taxRateInput) || 0,
       });
       await onSaved();
       setSaved(true);
@@ -354,7 +369,42 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
         style={styles.input}
       />
       <Text style={styles.hint}>Shown as a progress meter on the dashboard. Leave blank to hide it.</Text>
-      <Text style={styles.fieldLabel}>TAX</Text>
+      {error && <Text style={styles.error}>{error}</Text>}
+      <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
+        <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function TaxSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+  const [taxEnabled, setTaxEnabled] = useState(shop.taxEnabled);
+  const [taxRateInput, setTaxRateInput] = useState(String(shop.taxRatePercent));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty = taxEnabled !== shop.taxEnabled || taxRateInput.trim() !== String(shop.taxRatePercent);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateShop(shop.id, { taxEnabled, taxRatePercent: Number(taxRateInput) || 0 });
+      await onSaved();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>TAX</Text>
+      <Text style={styles.hint}>When enabled, this rate is added to every sale total, on top of any discounts.</Text>
       <View style={styles.taxRow}>
         <Pressable onPress={() => setTaxEnabled((v) => !v)} style={[styles.taxToggle, taxEnabled && styles.taxToggleOn]}>
           <Text style={[styles.taxToggleText, taxEnabled && styles.taxToggleTextOn]}>{taxEnabled ? 'Enabled' : 'Disabled'}</Text>
@@ -366,7 +416,6 @@ function ShopSection({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<voi
           </View>
         )}
       </View>
-      <Text style={styles.hint}>When enabled, this rate is added to every sale total, on top of any discounts.</Text>
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={save} disabled={!dirty || saving} style={[styles.saveButton, (!dirty || saving) && styles.saveButtonDisabled]}>
         <Text style={styles.saveButtonText}>{saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}</Text>
@@ -565,12 +614,12 @@ function ManageModal({
                 )}
               </View>
             ))}
-          </ScrollView>
 
-          <View style={styles.addRow}>
-            <TextInput value={newValue} onChangeText={setNewValue} placeholder={`Add a ${itemLabel}…`} placeholderTextColor="#999999" style={styles.addInput} onSubmitEditing={submitAdd} />
-            <Pressable onPress={submitAdd} style={styles.addButton}><Text style={styles.addButtonText}>Add</Text></Pressable>
-          </View>
+            <View style={styles.addRow}>
+              <TextInput value={newValue} onChangeText={setNewValue} placeholder={`Add a ${itemLabel}…`} placeholderTextColor="#999999" style={styles.addInput} onSubmitEditing={submitAdd} />
+              <Pressable onPress={submitAdd} style={styles.addButton}><Text style={styles.addButtonText}>Add</Text></Pressable>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -756,7 +805,6 @@ function PromotionsModal({
                 )}
               </View>
             ))}
-          </ScrollView>
 
           <View style={styles.promoForm}>
             <Text style={styles.fieldLabel}>{editingId ? 'EDIT SALE' : 'NEW SALE'}</Text>
@@ -806,6 +854,7 @@ function PromotionsModal({
               </Pressable>
             </View>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -958,7 +1007,6 @@ function CurrenciesModal({
                 )}
               </View>
             ))}
-          </ScrollView>
 
           <View style={styles.promoForm}>
             <Text style={styles.fieldLabel}>{editingId ? 'EDIT CURRENCY' : 'NEW CURRENCY'}</Text>
@@ -995,6 +1043,7 @@ function CurrenciesModal({
               </Pressable>
             </View>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -1003,6 +1052,7 @@ function CurrenciesModal({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  sectionNav: { paddingHorizontal: 24, paddingTop: 16, maxWidth: 640, width: '100%', alignSelf: 'center' },
   content: { padding: 24, paddingBottom: 60, maxWidth: 640, width: '100%', alignSelf: 'center' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 16 },
   section: { marginBottom: 32 },
@@ -1040,12 +1090,16 @@ const styles = StyleSheet.create({
   previewMore: { fontSize: 12, fontWeight: '600', color: '#999999' },
 
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, maxHeight: '80%' },
+  // `height` (not `maxHeight`) so `modalList` below has a concrete parent
+  // size to flex against — a `flex: 1` child inside a `maxHeight`-only,
+  // content-sized parent resolves to zero height instead of scrolling (the
+  // same Yoga flex-basis pitfall as the POS split panes; see pos.tsx).
+  modalCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, height: '80%', overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   modalTitle: { fontSize: 16, fontWeight: '800', color: '#111111' },
   modalClose: { fontSize: 13, fontWeight: '700', color: '#999999' },
   modalSearch: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginBottom: 12 },
-  modalList: { marginBottom: 12 },
+  modalList: { flex: 1, marginBottom: 12 },
 
   list: { gap: 8, marginBottom: 14 },
   row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F2F2F2', borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, gap: 10, marginBottom: 8 },

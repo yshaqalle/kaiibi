@@ -1,16 +1,19 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { Pressable, StyleSheet, Text, View, useColorScheme } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 
+// The top header and bottom tab bar are deliberately always dark — matching
+// the marketing site's black header/footer brand treatment — regardless of
+// the device's system color scheme. The screens they wrap stay on the light
+// palette, so this isn't a dark-mode toggle, just fixed shell chrome.
 export default function OwnerTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { shop } = useAuth();
@@ -28,6 +31,7 @@ export default function OwnerTabs() {
         <View style={styles.headerRight}>
           <Pressable onPress={() => router.push('/settings')} hitSlop={8} style={styles.settingsButton}>
             <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
+            <Text style={[styles.settingsLabel, { color: colors.text }]}>Settings</Text>
           </Pressable>
           <Pressable onPress={() => signOut().then(() => router.replace('/signup'))} hitSlop={8}>
             <Text style={[styles.signOut, { color: colors.textSecondary }]}>Sign out</Text>
@@ -39,6 +43,7 @@ export default function OwnerTabs() {
           backgroundColor={colors.background}
           indicatorColor={colors.backgroundElement}
           iconColor={{ default: colors.textSecondary, selected: colors.text }}
+          disableTransparentOnScrollEdge
           labelStyle={{
             default: { color: colors.textSecondary, fontWeight: '600' },
             selected: { color: colors.text, fontWeight: '800' },
@@ -74,8 +79,9 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  settingsButton: { padding: 2 },
-  settingsIcon: { fontSize: 22 },
+  settingsButton: { flexDirection: 'row', alignItems: 'center', gap: 5, padding: 2 },
+  settingsIcon: { fontSize: 18 },
+  settingsLabel: { fontSize: 12, fontWeight: '700' },
   signOut: { fontSize: 12, fontWeight: '700' },
   slot: { flex: 1 },
 });

@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Linking, Modal, Platform, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents, formatForeignCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
@@ -109,6 +109,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
             <Pressable onPress={onClose}><Text style={styles.close}>Done</Text></Pressable>
           </View>
 
+          <ScrollView style={styles.receiptScroll}>
           <View style={styles.receiptWrap}>
             <View style={styles.receipt}>
               <View style={styles.receiptHead}>
@@ -209,6 +210,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
               {tornEdgeNotches.map((_, i) => <View key={i} style={styles.tornNotch} />)}
             </View>
           </View>
+          </ScrollView>
 
           <View style={styles.actions}>
             {Platform.OS === 'web' && (
@@ -246,7 +248,11 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '100%', maxWidth: 420, maxHeight: '88%' },
+  // `height` (not `maxHeight`) — `receiptScroll` below is `flex: 1` and
+  // needs a concrete parent size to fill; against a `maxHeight`-only,
+  // content-sized parent it resolves to zero height instead of scrolling
+  // (the same Yoga flex-basis pitfall as the POS split panes; see pos.tsx).
+  card: { backgroundColor: '#FFFFFF', borderRadius: 20, padding: 20, width: '100%', maxWidth: 420, height: '88%', overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   badge: { width: 22, height: 22, borderRadius: 11, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
@@ -254,6 +260,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
   close: { fontSize: 13, fontWeight: '700', color: '#999999' },
 
+  receiptScroll: { flex: 1 },
   receiptWrap: { marginBottom: 18 },
   receipt: { backgroundColor: '#F3F2ED', borderTopLeftRadius: 14, borderTopRightRadius: 14, padding: 20 },
   receiptHead: { alignItems: 'center', marginBottom: 4 },

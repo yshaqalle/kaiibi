@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
-import { SafeAreaView, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProductForm } from '@/components/product-form';
 import { ScreenHeader } from '@/components/screen-header';
@@ -13,7 +14,7 @@ export default function NewProductScreen() {
   if (!shop) return null;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScreenHeader title="Add product" />
       <ProductForm
         shopId={shop.id}

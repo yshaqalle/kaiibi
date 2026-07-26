@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProductForm } from '@/components/product-form';
 import { ScreenHeader } from '@/components/screen-header';
@@ -17,7 +18,7 @@ export default function EditProductScreen() {
   if (!product) return null;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScreenHeader title="Edit product" />
       <ProductForm
         initial={product}

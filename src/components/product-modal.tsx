@@ -56,7 +56,11 @@ export function ProductModal({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
-  card: { backgroundColor: '#FFFFFF', borderRadius: 18, width: '100%', maxWidth: 560, maxHeight: '90%', overflow: 'hidden' },
+  // `height` (not `maxHeight`) — `formWrap` below is `flex: 1` and needs a
+  // concrete parent size to fill; against a `maxHeight`-only, content-sized
+  // parent it resolves to zero height instead, collapsing the whole form
+  // (the same Yoga flex-basis pitfall as the POS split panes; see pos.tsx).
+  card: { backgroundColor: '#FFFFFF', borderRadius: 18, width: '100%', maxWidth: 560, height: '90%', overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 18, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
   close: { fontSize: 13, fontWeight: '700', color: '#999999' },
