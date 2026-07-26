@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OwnerSidebar } from '@/components/owner-sidebar';
@@ -36,6 +37,7 @@ export default function OwnerTabs() {
   const { shop } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const { width } = useWindowDimensions();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Tablets (iPad, Android tablets — unlocked to landscape via
   // use-tablet-orientation) get the same sidebar as web's desktop layout
@@ -59,22 +61,40 @@ export default function OwnerTabs() {
         </View>
         <View style={styles.headerRight}>
           <Pressable
-            onPress={() => router.push('/settings')}
+            onPress={() => setMenuOpen(true)}
             hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
+            style={({ pressed }) => [styles.menuButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
           >
-            <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
-            <Text style={[styles.headerButtonText, { color: colors.text }]}>Settings</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => signOut().then(() => router.replace('/signup'))}
-            hitSlop={8}
-            style={({ pressed }) => [styles.headerButton, { backgroundColor: colors.backgroundElement, opacity: pressed ? 0.6 : 1 }]}
-          >
-            <Text style={[styles.headerButtonText, { color: colors.text }]}>Sign out</Text>
+            <Text style={[styles.menuIcon, { color: colors.text }]}>☰</Text>
           </Pressable>
         </View>
       </View>
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                router.push('/settings');
+              }}
+              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
+              <Text style={[styles.menuItemText, { color: colors.text }]}>Settings</Text>
+            </Pressable>
+            <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                signOut().then(() => router.replace('/signup'));
+              }}
+              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={[styles.menuItemText, { color: colors.text }]}>Sign out</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting
@@ -119,8 +139,13 @@ const styles = StyleSheet.create({
   avatarText: { fontSize: 14, fontWeight: '800' },
   shopName: { fontSize: 15, fontWeight: '800', flexShrink: 1 },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  headerButton: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
+  menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
+  menuIcon: { fontSize: 16 },
   settingsIcon: { fontSize: 15 },
-  headerButtonText: { fontSize: 12, fontWeight: '700' },
   slot: { flex: 1 },
+  menuBackdrop: { flex: 1 },
+  menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
+  menuItemText: { fontSize: 14, fontWeight: '700' },
+  menuDivider: { height: StyleSheet.hairlineWidth },
 });
