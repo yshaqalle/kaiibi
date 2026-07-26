@@ -58,6 +58,7 @@
     "owner": "kaiibis-team",
     "ios": {
       "bundleIdentifier": "com.kaiibisteam.kaiibi",
+      "supportsTablet": true,
       "requireFullScreen": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
