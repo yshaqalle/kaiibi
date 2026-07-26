@@ -1,13 +1,18 @@
 import { Image } from 'expo-image';
-import { Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import * as MailComposer from 'expo-mail-composer';
+import * as Sharing from 'expo-sharing';
+import { useState } from 'react';
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents, formatForeignCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
 import { buildReceiptHtml, buildReceiptText, type ReceiptData } from '@/lib/receipt';
+import { generateReceiptPdf } from '@/lib/receipt-pdf';
 
 const tornEdgeNotches = Array.from({ length: 18 });
 
 export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt: ReceiptData | null; onClose: () => void; title?: string }) {
+  const [busy, setBusy] = useState<'share' | 'email' | null>(null);
   if (!receipt) return null;
   const location = [receipt.shopCity, receipt.shopNeighborhood].filter((p) => p && p.trim()).join(' · ') || null;
 
@@ -43,20 +48,6 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
     setTimeout(() => iframe.remove(), 1000);
   };
 
-  const saveAsFile = () => {
-    // @ts-ignore — web-only DOM APIs, guarded by Platform.OS === 'web' below.
-    const blob = new Blob([buildReceiptHtml(receipt)], { type: 'text/html' });
-    // @ts-ignore
-    const url = URL.createObjectURL(blob);
-    // @ts-ignore
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `receipt-${new Date(receipt.createdAt).getTime()}.html`;
-    a.click();
-    // @ts-ignore
-    URL.revokeObjectURL(url);
-  };
-
   // On web, `Linking.openURL` just calls `window.open(url, '_blank')` under
   // the hood — and browsers (mobile ones especially, or with popups
   // blocked) sometimes silently reuse the *current* tab for a blocked/failed
@@ -81,20 +72,52 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
     a.remove();
   };
 
-  const shareEmail = () => {
+  const mailtoFallback = () => {
     const subject = encodeURIComponent(`Receipt from ${receipt.shopName}`);
     const body = encodeURIComponent(buildReceiptText(receipt));
     const to = receipt.customer.email ?? '';
     openExternal(`mailto:${to}?subject=${subject}&body=${body}`);
   };
 
-  const shareWhatsApp = () => {
-    const digits = receipt.customer.phone ? receipt.customer.phone.replace(/[^\d]/g, '') : '';
-    openExternal(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+  const shareEmail = async () => {
+    if (Platform.OS === 'web') {
+      mailtoFallback();
+      return;
+    }
+    setBusy('email');
+    try {
+      const available = await MailComposer.isAvailableAsync();
+      if (!available) throw new Error('mail composer unavailable');
+      const uri = await generateReceiptPdf(receipt);
+      await MailComposer.composeAsync({
+        recipients: receipt.customer.email ? [receipt.customer.email] : [],
+        subject: `Receipt from ${receipt.shopName}`,
+        body: buildReceiptText(receipt),
+        attachments: [uri],
+      });
+    } catch {
+      mailtoFallback();
+    } finally {
+      setBusy(null);
+    }
   };
 
-  const shareGeneric = () => {
-    Share.share({ message: buildReceiptText(receipt) }).catch(() => {});
+  const shareGeneric = async () => {
+    setBusy('share');
+    try {
+      const uri = await generateReceiptPdf(receipt);
+      const available = await Sharing.isAvailableAsync();
+      if (!available) throw new Error('sharing unavailable');
+      await Sharing.shareAsync(uri, {
+        mimeType: 'application/pdf',
+        UTI: 'com.adobe.pdf',
+        dialogTitle: `Receipt from ${receipt.shopName}`,
+      });
+    } catch {
+      Share.share({ message: buildReceiptText(receipt) }).catch(() => {});
+    } finally {
+      setBusy(null);
+    }
   };
 
   return (
@@ -221,23 +244,13 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
                 <Text style={styles.actionLabel}>Print</Text>
               </Pressable>
             )}
-            {Platform.OS === 'web' && (
-              <Pressable onPress={saveAsFile} style={styles.actionButton}>
-                <Text style={styles.actionIcon}>💾</Text>
-                <Text style={styles.actionLabel}>Save</Text>
-              </Pressable>
-            )}
-            <Pressable onPress={shareEmail} style={styles.actionButton}>
-              <Text style={styles.actionIcon}>✉️</Text>
+            <Pressable onPress={shareEmail} disabled={busy !== null} style={styles.actionButton}>
+              {busy === 'email' ? <ActivityIndicator size="small" /> : <Text style={styles.actionIcon}>✉️</Text>}
               <Text style={styles.actionLabel}>Email</Text>
             </Pressable>
-            <Pressable onPress={shareWhatsApp} style={styles.actionButton}>
-              <Text style={styles.actionIcon}>💬</Text>
-              <Text style={styles.actionLabel}>WhatsApp</Text>
-            </Pressable>
             {Platform.OS !== 'web' && (
-              <Pressable onPress={shareGeneric} style={styles.actionButton}>
-                <Text style={styles.actionIcon}>↗️</Text>
+              <Pressable onPress={shareGeneric} disabled={busy !== null} style={styles.actionButton}>
+                {busy === 'share' ? <ActivityIndicator size="small" /> : <Text style={styles.actionIcon}>↗️</Text>}
                 <Text style={styles.actionLabel}>Share</Text>
               </Pressable>
             )}
@@ -297,7 +310,7 @@ const styles = StyleSheet.create({
   },
 
   actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  actionButton: { flexGrow: 1, flexBasis: '22%', minWidth: 76, backgroundColor: '#F2F2F2', borderRadius: 12, paddingVertical: 13, alignItems: 'center', gap: 5 },
+  actionButton: { flexGrow: 1, flexBasis: '22%', minWidth: 76, backgroundColor: '#111111', borderRadius: 12, paddingVertical: 13, alignItems: 'center', gap: 5 },
   actionIcon: { fontSize: 19 },
-  actionLabel: { fontSize: 11, fontWeight: '700', color: '#111111' },
+  actionLabel: { fontSize: 11, fontWeight: '700', color: '#FFFFFF' },
 });
