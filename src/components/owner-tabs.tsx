@@ -8,10 +8,25 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 
-// The top header and bottom tab bar are deliberately always dark — matching
-// the marketing site's black header/footer brand treatment — regardless of
-// the device's system color scheme. The screens they wrap stay on the light
-// palette, so this isn't a dark-mode toggle, just fixed shell chrome.
+// The top header is deliberately always dark — matching the marketing site's
+// black header brand treatment — regardless of the device's system color
+// scheme. The screens it wraps stay on the light palette, so this isn't a
+// dark-mode toggle, just fixed shell chrome.
+//
+// The bottom tab bar mirrors the mobile-web nav (see owner-tabs.web.tsx):
+// white bar, gray unselected icons/labels, black selected label. It uses its
+// own literal colors instead of the header's `Colors.dark` because those web
+// nav colors (#999999 / #111111 / #FFFFFF) are a distinct grayscale from the
+// green-tinted `Colors.light` theme palette, and matching the web nav pixel
+// for pixel is the point.
+const tabBarColors = {
+  background: '#FFFFFF',
+  iconDefault: '#999999',
+  iconSelected: '#111111',
+  labelDefault: '#999999',
+  labelSelected: '#111111',
+};
+
 export default function OwnerTabs() {
   const colors = Colors.dark;
   const router = useRouter();
@@ -48,13 +63,12 @@ export default function OwnerTabs() {
       </View>
       <View style={styles.slot}>
         <NativeTabs
-          backgroundColor={colors.background}
-          indicatorColor={colors.backgroundElement}
-          iconColor={{ default: colors.textSecondary, selected: colors.text }}
+          backgroundColor={tabBarColors.background}
+          iconColor={{ default: tabBarColors.iconDefault, selected: tabBarColors.iconSelected }}
           disableTransparentOnScrollEdge
           labelStyle={{
-            default: { color: colors.textSecondary, fontWeight: '600' },
-            selected: { color: colors.text, fontWeight: '800' },
+            default: { color: tabBarColors.labelDefault, fontWeight: '600' },
+            selected: { color: tabBarColors.labelSelected, fontWeight: '800' },
           }}>
           <NativeTabs.Trigger name="dashboard">
             <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
