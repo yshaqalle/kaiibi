@@ -4,17 +4,14 @@ import { Link, Slot, usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { OwnerSidebar } from '@/components/owner-sidebar';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
-// This intentionally avoids expo-router/ui's `Tabs`/`TabList`/`TabTrigger`:
-// on web that combo lays out each `TabTrigger` as if positioning items in a
-// horizontal bar (it's built around an animated indicator that needs
-// per-item x-offsets), so wrapping them in a plain vertical `View` produced
-// a nav column whose items rendered past the sidebar's right edge, hidden
-// under the main content. A plain `Link` + `usePathname` sidesteps that
-// layout math entirely and gives full control over the vertical stack.
+// Bottom nav for narrow/mobile-web only — the wide layout uses the shared
+// `OwnerSidebar` (see owner-sidebar.tsx), which has its own icon set.
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { href: '/pos', label: 'POS', icon: '🛒' },
@@ -22,45 +19,22 @@ const navItems = [
   { href: '/sales', label: 'Sales', icon: '📈' },
 ] as const;
 
-type NavItem = (typeof navItems)[number];
-
-// Extracted so each row can own its own hover state (react-native-web fires
-// onHoverIn/onHoverOut on Pressable; native no-ops these harmlessly) without
-// the parent re-rendering the whole nav on every mouse move.
-function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) {
-  const [hovered, setHovered] = useState(false);
-  return (
-    <Link href={item.href} asChild>
-      <Pressable
-        onHoverIn={() => setHovered(true)}
-        onHoverOut={() => setHovered(false)}
-        style={StyleSheet.flatten([styles.navButton, hovered && !focused && styles.navButtonHovered, focused && styles.navButtonFocused])}
-      >
-        <Text style={[styles.navIcon, focused && styles.navIconFocused]}>{item.icon}</Text>
-        <Text style={[styles.navText, focused && styles.navTextFocused]}>{item.label}</Text>
-      </Pressable>
-    </Link>
-  );
-}
-
-// Below this width the persistent 220px sidebar would eat more than half a
-// phone screen (and leave two-pane screens like POS with almost nothing to
-// work with), so it collapses into a slim top header + bottom tab bar
+// Below `compactBreakpoint` the persistent sidebar would eat more than half
+// a phone screen (and leave two-pane screens like POS with almost nothing
+// to work with), so it collapses into a slim top header + bottom tab bar
 // instead — the standard mobile-web nav shape.
-const compactBreakpoint = 820;
-
 export default function OwnerTabs() {
   const router = useRouter();
   const pathname = usePathname();
   const { shop, refreshShop } = useAuth();
   const { width } = useWindowDimensions();
-  const compact = width < compactBreakpoint;
+  const compact = width < TABLET_BREAKPOINT;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
-  const subtitle = shop?.categories?.[0];
   const [uploadingLogo, setUploadingLogo] = useState(false);
 
-  // Lets the shop logo be changed straight from the sidebar avatar, not
-  // just from Settings — a quick "click your logo to change it" affordance.
+  // Lets the shop logo be changed straight from the mobile header avatar,
+  // not just from Settings — a quick "click your logo to change it"
+  // affordance. The wide-layout equivalent lives in OwnerSidebar.
   const editLogo = async () => {
     if (!shop || uploadingLogo) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -117,74 +91,15 @@ export default function OwnerTabs() {
   }
 
   return (
-    <View style={styles.tabs}>
-      <View style={styles.sidebar}>
-        <View style={styles.header}>
-          <Pressable onPress={editLogo} style={styles.avatar}>
-            {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
-          </Pressable>
-          <View>
-            <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
-            {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
-          </View>
-        </View>
-        <View style={styles.nav}>
-          {navItems.map((item) => (
-            <SidebarNavItem key={item.href} item={item} focused={pathname === item.href} />
-          ))}
-        </View>
-        <View style={styles.footer}>
-          <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
-          <View style={styles.footerRow}>
-            <Pressable onPress={() => router.push('/settings')} style={styles.settingsLinkRow}>
-              <Text style={styles.settingsLinkIcon}>⚙</Text>
-              <Text style={styles.settingsLink}>Settings</Text>
-            </Pressable>
-            <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
-              <Text style={styles.signOut}>Sign out</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-      <View style={styles.slot}><Slot /></View>
-    </View>
+    <OwnerSidebar>
+      <Slot />
+    </OwnerSidebar>
   );
 }
 
 const styles = StyleSheet.create({
-  tabs: { flex: 1, flexDirection: 'row' },
-  sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
-  avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  shopName: { color: '#111111', fontSize: 15, fontWeight: '800', maxWidth: 140 },
-  shopSubtitle: { color: '#999999', fontSize: 11, marginTop: 1 },
-  nav: { paddingHorizontal: 10, gap: 4 },
-  navButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 10,
-    borderLeftWidth: 3,
-    borderLeftColor: 'transparent',
-  },
-  navButtonHovered: { backgroundColor: '#F5F5F2' },
-  navButtonFocused: { backgroundColor: '#F2F2F2', borderLeftColor: '#111111' },
-  navIcon: { fontSize: 19, width: 22, textAlign: 'center', color: '#777777' },
-  navIconFocused: { color: '#111111' },
-  navText: { color: '#555555', fontSize: 14.5, fontWeight: '700' },
-  navTextFocused: { color: '#111111', fontWeight: '800' },
-  footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
-  poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  settingsLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  settingsLinkIcon: { fontSize: 17, color: '#666666' },
-  settingsLink: { color: '#999999', fontSize: 11, fontWeight: '700' },
-  signOut: { color: '#999999', fontSize: 11, fontWeight: '700' },
-  slot: { flex: 1 },
 
   mobileRoot: { flex: 1 },
   mobileHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },

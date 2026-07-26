@@ -1,10 +1,12 @@
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { OwnerSidebar } from '@/components/owner-sidebar';
 import { Colors } from '@/constants/theme';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 
@@ -33,6 +35,18 @@ export default function OwnerTabs() {
   const insets = useSafeAreaInsets();
   const { shop } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
+  const { width } = useWindowDimensions();
+
+  // Tablets (iPad, Android tablets — unlocked to landscape via
+  // use-tablet-orientation) get the same sidebar as web's desktop layout
+  // instead of a phone-shaped bottom bar. Phones keep NativeTabs below.
+  if (width >= TABLET_BREAKPOINT) {
+    return (
+      <OwnerSidebar>
+        <Slot />
+      </OwnerSidebar>
+    );
+  }
 
   return (
     <View style={styles.root}>
