@@ -43,6 +43,14 @@ const RANK_OPTIONS: { key: RankMetric; label: string }[] = [
   { key: 'cashiers', label: 'Cashiers' },
 ];
 
+type DashboardSection = 'trends' | 'breakdown' | 'activity';
+
+const SECTION_OPTIONS: { key: DashboardSection; label: string }[] = [
+  { key: 'trends', label: 'Trends' },
+  { key: 'breakdown', label: 'Breakdown' },
+  { key: 'activity', label: 'Activity' },
+];
+
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
@@ -52,6 +60,7 @@ export default function DashboardScreen() {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [trendMetric, setTrendMetric] = useState<TrendMetric>('revenue');
   const [rankMetric, setRankMetric] = useState<RankMetric>('products');
+  const [section, setSection] = useState<DashboardSection>('trends');
 
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<{ day: string; totalCents: number; orderCount: number; discountCents: number }[]>([]);
@@ -171,7 +180,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <View style={styles.headerFixed}>
         <Text style={[styles.greeting, { color: theme.text }]}>Dashboard</Text>
         <View style={[styles.headerDivider, { backgroundColor: theme.border }]} />
 
@@ -189,22 +198,32 @@ export default function DashboardScreen() {
             </Card>
           </>
         ) : null}
+      </View>
 
-        <TrendsSection
-          trendMetric={trendMetric}
-          onTrendMetricChange={setTrendMetric}
-          onDateRangeChange={setDateRange}
-          trendData={trendData}
-          trendFormatValue={trendFormatValue}
-          rankMetric={rankMetric}
-          onRankMetricChange={setRankMetric}
-          insight={insight}
-          rankItems={rankItems}
-          rankFormatValue={rankFormatValue}
-          rankEmptyLabel={rankEmptyLabel}
-        />
-        <BreakdownSection categorySlices={categorySlices} categoryByMonth={categoryByMonth} paymentMix={paymentMix} />
-        <ActivitySection lowStock={lowStock} recentSales={recentSales} />
+      <View style={styles.sectionNav}>
+        <SegmentedControl options={SECTION_OPTIONS} value={section} onChange={setSection} />
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {section === 'trends' && (
+          <TrendsSection
+            trendMetric={trendMetric}
+            onTrendMetricChange={setTrendMetric}
+            onDateRangeChange={setDateRange}
+            trendData={trendData}
+            trendFormatValue={trendFormatValue}
+            rankMetric={rankMetric}
+            onRankMetricChange={setRankMetric}
+            insight={insight}
+            rankItems={rankItems}
+            rankFormatValue={rankFormatValue}
+            rankEmptyLabel={rankEmptyLabel}
+          />
+        )}
+        {section === 'breakdown' && (
+          <BreakdownSection categorySlices={categorySlices} categoryByMonth={categoryByMonth} paymentMix={paymentMix} />
+        )}
+        {section === 'activity' && <ActivitySection lowStock={lowStock} recentSales={recentSales} />}
       </ScrollView>
     </SafeAreaView>
   );
@@ -319,6 +338,8 @@ function ActivitySection({ lowStock, recentSales }: ActivitySectionProps) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
+  headerFixed: { paddingHorizontal: 24, paddingTop: 24 },
+  sectionNav: { paddingHorizontal: 24, paddingTop: 16 },
   content: { padding: 24, paddingBottom: 42 },
   greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 14 },
   headerDivider: { height: 1, marginBottom: 20 },
