@@ -14,15 +14,22 @@ content that swaps which block of content is mounted, instead of stacking everyt
 
 - Add `const [section, setSection] = useState<'trends' | 'breakdown' | 'activity'>('trends')`.
 - Render the pinned header unconditionally, same as today: "Dashboard" title, the 3
-  `StatTile`s (today's sales, orders, low stock), and the revenue goal `GoalMeter` card
-  (still conditional on `shop.monthlyRevenueGoalCents`).
+  `StatTile`s (today's sales, orders, low stock), `RangeSelector`, and the revenue goal
+  `GoalMeter` card (still conditional on `shop.monthlyRevenueGoalCents`).
 - Immediately below the pinned header, render `SegmentedControl` with options
   `Trends` / `Breakdown` / `Activity`, placed the same way Settings places its
   `sectionNav` — above the `ScrollView`, not inside it.
+- **Amendment (post-implementation review):** `RangeSelector` must live in the pinned
+  header, not inside the Trends tab. `RangeSelector` owns its own mount-time state and
+  fires `onChange` on mount; the `dateRange` it produces scopes both the Trends charts
+  and three of the Breakdown charts (category mix, revenue by category, payment mix).
+  Placing it inside a conditionally-rendered tab caused it to unmount/remount on every
+  tab switch, silently resetting the date range and refetching all dashboard data each
+  time Trends was revisited. Keeping it pinned avoids this and makes the range visible
+  regardless of which tab governs the data it's currently viewing.
 - Inside the `ScrollView`, render only the active section's content:
-  - **Trends** — "Overview" card (trend metric `SegmentedControl` + `RangeSelector` +
-    `TrendChart`) and "Rankings" card (rank metric `SegmentedControl` + insight text +
-    `RankingChart`).
+  - **Trends** — "Overview" card (trend metric `SegmentedControl` + `TrendChart`) and
+    "Rankings" card (rank metric `SegmentedControl` + insight text + `RankingChart`).
   - **Breakdown** — "Category mix" (`CategoryDonutChart`), "Revenue by category"
     (`CategoryOverTimeChart`), "Payment mix" (`PaymentMixChart`).
   - **Activity** — "Inventory alerts" (low-stock `ProductTile` list) and "Recent
