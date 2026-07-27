@@ -190,6 +190,8 @@ export default function DashboardScreen() {
           <StatTile value={String(lowStock.length)} label="Low stock" tone={lowStock.length > 0 ? 'warning' : 'default'} />
         </View>
 
+        <RangeSelector onChange={setDateRange} />
+
         {shop?.monthlyRevenueGoalCents ? (
           <>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue goal this month</Text>
@@ -209,7 +211,6 @@ export default function DashboardScreen() {
           <TrendsSection
             trendMetric={trendMetric}
             onTrendMetricChange={setTrendMetric}
-            onDateRangeChange={setDateRange}
             trendData={trendData}
             trendFormatValue={trendFormatValue}
             rankMetric={rankMetric}
@@ -232,7 +233,6 @@ export default function DashboardScreen() {
 type TrendsSectionProps = {
   trendMetric: TrendMetric;
   onTrendMetricChange: (metric: TrendMetric) => void;
-  onDateRangeChange: (range: DateRange) => void;
   trendData: TrendPoint[];
   trendFormatValue: (value: number) => string;
   rankMetric: RankMetric;
@@ -246,7 +246,6 @@ type TrendsSectionProps = {
 function TrendsSection({
   trendMetric,
   onTrendMetricChange,
-  onDateRangeChange,
   trendData,
   trendFormatValue,
   rankMetric,
@@ -261,7 +260,6 @@ function TrendsSection({
       <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
       <Card style={styles.chartCard}>
         <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={onTrendMetricChange} />
-        <RangeSelector onChange={onDateRangeChange} />
         <TrendChart data={trendData} formatValue={trendFormatValue} />
       </Card>
 
