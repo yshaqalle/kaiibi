@@ -190,59 +190,130 @@ export default function DashboardScreen() {
           </>
         ) : null}
 
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
-        <Card style={styles.chartCard}>
-          <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={setTrendMetric} />
-          <RangeSelector onChange={setDateRange} />
-          <TrendChart data={trendData} formatValue={trendFormatValue} />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Rankings</Text>
-        {insight ? <Text style={[styles.insight, { color: theme.textSecondary }]}>{insight}</Text> : null}
-        <Card style={styles.chartCard}>
-          <SegmentedControl options={RANK_OPTIONS} value={rankMetric} onChange={setRankMetric} />
-          <RankingChart items={rankItems} formatValue={rankFormatValue} emptyLabel={rankEmptyLabel} />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Category mix</Text>
-        <Card style={styles.chartCard}>
-          <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue by category</Text>
-        <Card style={styles.chartCard}>
-          <CategoryOverTimeChart months={categoryByMonth} />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment mix</Text>
-        <Card style={styles.chartCard}>
-          <PaymentMixChart items={paymentMix} />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Inventory alerts</Text>
-        {lowStock.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textSecondary }]}>Everything is well stocked.</Text>
-        ) : (
-          <Card style={styles.list}>
-            {lowStock.map((product) => <ProductTile key={product.id} product={product} />)}
-          </Card>
-        )}
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent transactions</Text>
-        {recentSales.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textSecondary }]}>No transactions yet.</Text>
-        ) : (
-          <Card style={styles.list}>
-            {recentSales.map((sale) => (
-              <View key={sale.id} style={[styles.topRow, { borderBottomColor: theme.border }]}>
-                <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>{sale.items?.map((item) => item.productName).join(', ')}</Text>
-                <Text style={[styles.topMeta, { color: theme.textSecondary }]}>{formatCents(sale.totalCents)}</Text>
-              </View>
-            ))}
-          </Card>
-        )}
+        <TrendsSection
+          trendMetric={trendMetric}
+          onTrendMetricChange={setTrendMetric}
+          onDateRangeChange={setDateRange}
+          trendData={trendData}
+          trendFormatValue={trendFormatValue}
+          rankMetric={rankMetric}
+          onRankMetricChange={setRankMetric}
+          insight={insight}
+          rankItems={rankItems}
+          rankFormatValue={rankFormatValue}
+          rankEmptyLabel={rankEmptyLabel}
+        />
+        <BreakdownSection categorySlices={categorySlices} categoryByMonth={categoryByMonth} paymentMix={paymentMix} />
+        <ActivitySection lowStock={lowStock} recentSales={recentSales} />
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+type TrendsSectionProps = {
+  trendMetric: TrendMetric;
+  onTrendMetricChange: (metric: TrendMetric) => void;
+  onDateRangeChange: (range: DateRange) => void;
+  trendData: TrendPoint[];
+  trendFormatValue: (value: number) => string;
+  rankMetric: RankMetric;
+  onRankMetricChange: (metric: RankMetric) => void;
+  insight: string | null;
+  rankItems: RankingItem[];
+  rankFormatValue: (value: number) => string;
+  rankEmptyLabel: string;
+};
+
+function TrendsSection({
+  trendMetric,
+  onTrendMetricChange,
+  onDateRangeChange,
+  trendData,
+  trendFormatValue,
+  rankMetric,
+  onRankMetricChange,
+  insight,
+  rankItems,
+  rankFormatValue,
+  rankEmptyLabel,
+}: TrendsSectionProps) {
+  return (
+    <>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Overview</Text>
+      <Card style={styles.chartCard}>
+        <SegmentedControl options={TREND_OPTIONS} value={trendMetric} onChange={onTrendMetricChange} />
+        <RangeSelector onChange={onDateRangeChange} />
+        <TrendChart data={trendData} formatValue={trendFormatValue} />
+      </Card>
+
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Rankings</Text>
+      {insight ? <Text style={[styles.insight, { color: theme.textSecondary }]}>{insight}</Text> : null}
+      <Card style={styles.chartCard}>
+        <SegmentedControl options={RANK_OPTIONS} value={rankMetric} onChange={onRankMetricChange} />
+        <RankingChart items={rankItems} formatValue={rankFormatValue} emptyLabel={rankEmptyLabel} />
+      </Card>
+    </>
+  );
+}
+
+type BreakdownSectionProps = {
+  categorySlices: CategorySlice[];
+  categoryByMonth: MonthlyCategoryBucket[];
+  paymentMix: PaymentMixItem[];
+};
+
+function BreakdownSection({ categorySlices, categoryByMonth, paymentMix }: BreakdownSectionProps) {
+  return (
+    <>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Category mix</Text>
+      <Card style={styles.chartCard}>
+        <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
+      </Card>
+
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue by category</Text>
+      <Card style={styles.chartCard}>
+        <CategoryOverTimeChart months={categoryByMonth} />
+      </Card>
+
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Payment mix</Text>
+      <Card style={styles.chartCard}>
+        <PaymentMixChart items={paymentMix} />
+      </Card>
+    </>
+  );
+}
+
+type ActivitySectionProps = {
+  lowStock: Product[];
+  recentSales: Sale[];
+};
+
+function ActivitySection({ lowStock, recentSales }: ActivitySectionProps) {
+  return (
+    <>
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Inventory alerts</Text>
+      {lowStock.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textSecondary }]}>Everything is well stocked.</Text>
+      ) : (
+        <Card style={styles.list}>
+          {lowStock.map((product) => <ProductTile key={product.id} product={product} />)}
+        </Card>
+      )}
+
+      <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent transactions</Text>
+      {recentSales.length === 0 ? (
+        <Text style={[styles.empty, { color: theme.textSecondary }]}>No transactions yet.</Text>
+      ) : (
+        <Card style={styles.list}>
+          {recentSales.map((sale) => (
+            <View key={sale.id} style={[styles.topRow, { borderBottomColor: theme.border }]}>
+              <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>{sale.items?.map((item) => item.productName).join(', ')}</Text>
+              <Text style={[styles.topMeta, { color: theme.textSecondary }]}>{formatCents(sale.totalCents)}</Text>
+            </View>
+          ))}
+        </Card>
+      )}
+    </>
   );
 }
 
