@@ -38,6 +38,12 @@ export function TaxonomyManageModal({
   const [search, setSearch] = useState('');
   const [editingItem, setEditingItem] = useState<TaxonomyRow | 'new' | null>(null);
 
+  const dismiss = () => {
+    setEditingItem(null);
+    setSearch('');
+    onClose();
+  };
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const sorted = [...items].sort((a, b) => (usage.get(b.name) ?? 0) - (usage.get(a.name) ?? 0));
@@ -45,14 +51,14 @@ export function TaxonomyManageModal({
   }, [items, usage, search]);
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           {editingItem === null ? (
             <>
               <View style={styles.header}>
                 <Text style={styles.title}>{title}</Text>
-                <Pressable onPress={onClose} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
+                <Pressable onPress={dismiss} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
                   <Text style={styles.closeText}>Done</Text>
                 </Pressable>
               </View>

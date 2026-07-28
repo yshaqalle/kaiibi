@@ -169,7 +169,13 @@ export default function SettingsScreen() {
               hint="Brands you carry. Renaming or removing a brand updates every product using it."
               items={brandRows}
               usage={brandUsage}
-              onCreate={async (input) => { await createBrand(shop.id, input.name, input); await reload(); }}
+              onCreate={async (input) => {
+                if (brandRows.some((b) => b.name.toLowerCase() === input.name.trim().toLowerCase())) {
+                  throw new Error(`A brand named "${input.name.trim()}" already exists.`);
+                }
+                await createBrand(shop.id, input.name, input);
+                await reload();
+              }}
               onUpdate={async (item, input) => {
                 if (input.name !== item.name) await renameBrand(shop.id, item.name, input.name);
                 await updateBrand(shop.id, input.name, { color: input.color, description: input.description, imageUrl: input.imageUrl });
@@ -184,7 +190,13 @@ export default function SettingsScreen() {
               hint="Group products in the POS and inventory screens. Renaming or removing a category updates every product using it."
               items={categoryRows}
               usage={categoryUsage}
-              onCreate={async (input) => { await createCategory(shop.id, input.name, input); await reload(); }}
+              onCreate={async (input) => {
+                if (categoryRows.some((c) => c.name.toLowerCase() === input.name.trim().toLowerCase())) {
+                  throw new Error(`A category named "${input.name.trim()}" already exists.`);
+                }
+                await createCategory(shop.id, input.name, input);
+                await reload();
+              }}
               onUpdate={async (item, input) => {
                 if (input.name !== item.name) await renameCategory(shop.id, item.name, input.name);
                 await updateCategory(shop.id, input.name, { color: input.color, description: input.description, imageUrl: input.imageUrl });
