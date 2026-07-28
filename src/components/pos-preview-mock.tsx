@@ -5,111 +5,122 @@ const previewProducts = [
   { brand: 'COSRX', name: 'Snail 96 Mucin Essence', price: '$21.00', status: 'Low stock', tone: 'warn' as const, wash: '#F3E3DD', bottle: '#C08D7B' },
 ];
 
-const navTabs = ['Dashboard', 'POS', 'Inventory', 'Sales'];
-const categoryChips = ['All', 'Toners', 'Serums', 'Sun Care'];
+const sidebarNav = ['Dashboard', 'POS', 'Inventory', 'Sales'];
+const categoryChips = [{ label: 'All' }, { label: 'Toners' }, { label: 'Serums', dot: '#8B6FD9' }, { label: 'Sun Care' }];
 const cashierChips = ['Amina', 'Yusuf'];
 const paymentChips = ['Cash', 'ZAAD', 'e-Dahab'];
 
 export function PosPreviewMock() {
   return (
     <View style={styles.card}>
-      <View style={styles.topRow}>
-        <Text style={styles.brand}>● Ka Iibi POS</Text>
-        <View style={styles.navPills}>
-          {navTabs.map((tab) =>
-            tab === 'POS' ? (
-              <View key={tab} style={styles.navPillActive}><Text style={styles.navPillTextActive}>{tab}</Text></View>
-            ) : (
-              <Text key={tab} style={styles.navPillText}>{tab}</Text>
-            )
-          )}
+      <View style={styles.sidebar}>
+        <View style={styles.sidebarHeader}>
+          <View style={styles.sidebarAvatar}><Text style={styles.sidebarAvatarText}>B</Text></View>
+          <Text style={styles.sidebarShopName} numberOfLines={1}>Bloom</Text>
         </View>
-      </View>
 
-      <View style={styles.search}><Text style={styles.searchText}>⌕  Search products or brands</Text></View>
-
-      <View style={styles.chipsRow}>
-        {categoryChips.map((chip, index) => (
-          <View key={chip} style={index === 0 ? styles.chipActive : styles.chip}>
-            <Text style={index === 0 ? styles.chipTextActive : styles.chipText}>{chip}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.body}>
-        <View style={styles.products}>
-          {previewProducts.map((product) => (
-            <View key={product.name} style={styles.productCard}>
-              <View style={[styles.productThumb, { backgroundColor: product.wash }]}>
-                <View style={[styles.productBottleCap, { backgroundColor: product.bottle }]} />
-                <View style={[styles.productBottleBody, { backgroundColor: product.bottle }]} />
-              </View>
-              <Text style={styles.productBrand}>{product.brand}</Text>
-              <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
-              <View style={styles.productFooter}>
-                <Text style={styles.productPrice}>{product.price}</Text>
-                <View style={product.tone === 'warn' ? styles.statusPillWarn : styles.statusPillOk}>
-                  <Text style={styles.statusPillText}>{product.status}</Text>
-                </View>
-              </View>
+        <View style={styles.sidebarNav}>
+          {sidebarNav.map((item) => (
+            <View key={item} style={item === 'POS' ? styles.sidebarNavItemActive : styles.sidebarNavItem}>
+              <View style={item === 'POS' ? styles.sidebarNavDotActive : styles.sidebarNavDot} />
+              <Text style={item === 'POS' ? styles.sidebarNavTextActive : styles.sidebarNavText}>{item}</Text>
             </View>
           ))}
         </View>
 
-        <View style={styles.cart}>
-          <Text style={styles.cartTitle}>Current sale</Text>
+        <View style={styles.sidebarFooter}>
+          <Text style={styles.sidebarPoweredBy}>Powered by Ka Iibi</Text>
+          <Text style={styles.sidebarSettings}>Settings</Text>
+        </View>
+      </View>
 
-          <View style={styles.cartLine}>
-            <View style={styles.cartLineTop}>
-              <Text style={styles.cartLineName} numberOfLines={1}>Heartleaf 77% Toner</Text>
-              <Text style={styles.cartLineQty}>×1</Text>
+      <View style={styles.main}>
+        <View style={styles.search}><Text style={styles.searchText}>⌕  Search products or brands</Text></View>
+
+        <View style={styles.chipsRow}>
+          {categoryChips.map((chip, index) => (
+            <View key={chip.label} style={index === 0 ? styles.chipActive : styles.chip}>
+              {chip.dot && <View style={[styles.chipDot, { backgroundColor: chip.dot }]} />}
+              <Text style={index === 0 ? styles.chipTextActive : styles.chipText}>{chip.label}</Text>
             </View>
-            <View style={styles.cartLinePriceRow}>
-              <Text style={styles.cartLinePriceStruck}>$19.99</Text>
-              <Text style={styles.cartLinePrice}>$16.99</Text>
-            </View>
-            <Text style={styles.cartLinePromo}>🏷 Skincare Week</Text>
-          </View>
+          ))}
+        </View>
 
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Subtotal</Text>
-            <Text style={styles.summaryValue}>$19.99</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Discount</Text>
-            <Text style={styles.summaryValueDiscount}>-$3.00</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tax (5%)</Text>
-            <Text style={styles.summaryValue}>$0.85</Text>
-          </View>
-
-          <View style={styles.cartTotalRow}>
-            <Text style={styles.cartTotalLabel}>Total</Text>
-            <Text style={styles.cartTotalValue}>$17.84</Text>
-          </View>
-
-          <View style={styles.cashierRow}>
-            <Text style={styles.cashierLabel}>CASHIER</Text>
-            <View style={styles.cashierChips}>
-              {cashierChips.map((name, index) => (
-                <View key={name} style={index === 0 ? styles.cashierChipActive : styles.cashierChip}>
-                  <Text style={index === 0 ? styles.cashierChipTextActive : styles.cashierChipText}>{name}</Text>
+        <View style={styles.body}>
+          <View style={styles.products}>
+            {previewProducts.map((product) => (
+              <View key={product.name} style={styles.productCard}>
+                <View style={[styles.productThumb, { backgroundColor: product.wash }]}>
+                  <View style={[styles.productBottleCap, { backgroundColor: product.bottle }]} />
+                  <View style={[styles.productBottleBody, { backgroundColor: product.bottle }]} />
                 </View>
-              ))}
-            </View>
-          </View>
-
-          <View style={styles.payRow}>
-            {paymentChips.map((chip, index) => (
-              <View key={chip} style={index === 0 ? styles.payChipActive : styles.payChip}>
-                <Text style={index === 0 ? styles.payChipTextActive : styles.payChipText}>{chip}</Text>
+                <Text style={styles.productBrand}>{product.brand}</Text>
+                <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
+                <View style={styles.productFooter}>
+                  <Text style={styles.productPrice}>{product.price}</Text>
+                  <View style={product.tone === 'warn' ? styles.statusPillWarn : styles.statusPillOk}>
+                    <Text style={styles.statusPillText}>{product.status}</Text>
+                  </View>
+                </View>
               </View>
             ))}
           </View>
 
-          <View style={styles.checkoutButton}>
-            <Text style={styles.checkoutButtonText}>Complete sale</Text>
+          <View style={styles.cart}>
+            <Text style={styles.cartTitle}>Current sale</Text>
+
+            <View style={styles.cartLine}>
+              <View style={styles.cartLineTop}>
+                <Text style={styles.cartLineName} numberOfLines={1}>Heartleaf 77% Toner</Text>
+                <Text style={styles.cartLineQty}>×1</Text>
+              </View>
+              <View style={styles.cartLinePriceRow}>
+                <Text style={styles.cartLinePriceStruck}>$19.99</Text>
+                <Text style={styles.cartLinePrice}>$16.99</Text>
+              </View>
+              <Text style={styles.cartLinePromo}>🏷 Skincare Week</Text>
+            </View>
+
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Subtotal</Text>
+              <Text style={styles.summaryValue}>$19.99</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Discount</Text>
+              <Text style={styles.summaryValueDiscount}>-$3.00</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Tax (5%)</Text>
+              <Text style={styles.summaryValue}>$0.85</Text>
+            </View>
+
+            <View style={styles.cartTotalRow}>
+              <Text style={styles.cartTotalLabel}>Total</Text>
+              <Text style={styles.cartTotalValue}>$17.84</Text>
+            </View>
+
+            <View style={styles.cashierRow}>
+              <Text style={styles.cashierLabel}>CASHIER</Text>
+              <View style={styles.cashierChips}>
+                {cashierChips.map((name, index) => (
+                  <View key={name} style={index === 0 ? styles.cashierChipActive : styles.cashierChip}>
+                    <Text style={index === 0 ? styles.cashierChipTextActive : styles.cashierChipText}>{name}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.payRow}>
+              {paymentChips.map((chip, index) => (
+                <View key={chip} style={index === 0 ? styles.payChipActive : styles.payChip}>
+                  <Text style={index === 0 ? styles.payChipTextActive : styles.payChipText}>{chip}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.checkoutButton}>
+              <Text style={styles.checkoutButtonText}>Complete sale</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -118,18 +129,31 @@ export function PosPreviewMock() {
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#FFFFFF', borderRadius: 20, borderWidth: 1, borderColor: '#ECECEC', padding: 16, width: '100%', maxWidth: 460 },
-  topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
-  brand: { fontSize: 13, fontWeight: '800', color: '#111111', letterSpacing: -0.3 },
-  navPills: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  navPillActive: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 4 },
-  navPillTextActive: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
-  navPillText: { color: '#999999', fontSize: 10, fontWeight: '700' },
+  card: { flexDirection: 'row', backgroundColor: '#FFFFFF', borderRadius: 20, borderWidth: 1, borderColor: '#ECECEC', width: '100%', maxWidth: 520, overflow: 'hidden' },
+
+  sidebar: { width: 92, flexShrink: 0, borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 14, paddingHorizontal: 10 },
+  sidebarHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
+  sidebarAvatar: { width: 20, height: 20, borderRadius: 6, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  sidebarAvatarText: { fontSize: 9, fontWeight: '800', color: '#FFFFFF' },
+  sidebarShopName: { flex: 1, fontSize: 9, fontWeight: '800', color: '#111111' },
+  sidebarNav: { gap: 3 },
+  sidebarNavItem: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 6, borderRadius: 7, borderLeftWidth: 2, borderLeftColor: 'transparent' },
+  sidebarNavItemActive: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 6, borderRadius: 7, borderLeftWidth: 2, borderLeftColor: '#111111', backgroundColor: '#F2F2F2' },
+  sidebarNavDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#BBBBBB' },
+  sidebarNavDotActive: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#111111' },
+  sidebarNavText: { fontSize: 9, fontWeight: '700', color: '#666666' },
+  sidebarNavTextActive: { fontSize: 9, fontWeight: '800', color: '#111111' },
+  sidebarFooter: { marginTop: 'auto', paddingTop: 10, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 4 },
+  sidebarPoweredBy: { fontSize: 7, fontWeight: '700', color: '#BBBBBB' },
+  sidebarSettings: { fontSize: 8, fontWeight: '700', color: '#999999' },
+
+  main: { flex: 1, padding: 16 },
   search: { height: 34, borderRadius: 9, backgroundColor: '#F4F4F4', justifyContent: 'center', paddingHorizontal: 11, marginBottom: 10 },
   searchText: { color: '#999999', fontSize: 11 },
-  chipsRow: { flexDirection: 'row', gap: 6, marginBottom: 14 },
-  chip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#F4F4F4' },
-  chipActive: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#111111' },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
+  chip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#F4F4F4' },
+  chipActive: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: '#111111' },
+  chipDot: { width: 6, height: 6, borderRadius: 3 },
   chipText: { fontSize: 10, fontWeight: '700', color: '#999999' },
   chipTextActive: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
   body: { flexDirection: 'row', gap: 10 },
