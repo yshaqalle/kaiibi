@@ -6,7 +6,7 @@ export default function MarketplaceComingSoonScreen() {
   return <SafeAreaView style={styles.safeArea}><View style={styles.content}>
     <Text style={styles.eyebrow}>KA IIBI · MARKETPLACE</Text>
     <Text style={styles.title}>Coming soon.</Text>
-    <Text style={styles.text}>The Ka Iibi marketplace for shoppers isn't ready yet — we're building it. Check back soon.</Text>
+    <Text style={styles.text}>The Ka Iibi marketplace for shoppers isn&apos;t ready yet — we&apos;re building it. Check back soon.</Text>
     <Pressable onPress={() => signOut()} style={styles.logoutButton}>
       <Text style={styles.logoutText}>Log out</Text>
     </Pressable>
