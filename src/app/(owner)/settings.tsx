@@ -7,10 +7,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { CategoryChip } from '@/components/category-chip';
 import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
+import { TaxonomyManageModal, type TaxonomyInput, type TaxonomyRow } from '@/components/taxonomy-manage-modal';
 import { useAuth } from '@/hooks/use-auth';
-import { createBrand, deleteBrand, listBrands, renameBrand, updateBrandColor } from '@/lib/brands';
+import { createBrand, deleteBrand, listBrands, renameBrand, updateBrand, uploadBrandImage } from '@/lib/brands';
 import { createCashier, deleteCashier, listCashiers, renameCashier } from '@/lib/cashiers';
-import { createCategory, deleteCategory, listCategories, renameCategory, updateCategoryColor } from '@/lib/categories';
+import { createCategory, deleteCategory, listCategories, renameCategory, updateCategory, uploadCategoryImage } from '@/lib/categories';
 import { nextTaxonomyColor, taxonomyPalette } from '@/lib/colors';
 import { createCurrency, deleteCurrency, listCurrencies, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents, toCents } from '@/lib/currency';
@@ -19,7 +20,7 @@ import { listProducts } from '@/lib/products';
 import { createPromotion, deletePromotion, listPromotions, updatePromotion } from '@/lib/promotions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
-import type { Currency, Product, Profile, Promotion, Shop } from '@/types/models';
+import type { Brand, Category, Currency, Product, Profile, Promotion, Shop } from '@/types/models';
 
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
@@ -36,10 +37,8 @@ const sectionOptions: { key: SettingsSection; label: string }[] = [
 export default function SettingsScreen() {
   const { shop, profile, session, setProfile, refreshShop } = useAuth();
   const [section, setSection] = useState<SettingsSection>('profile');
-  const [brands, setBrands] = useState<string[]>([]);
-  const [brandColors, setBrandColors] = useState<Map<string, string | null>>(emptyColors);
-  const [categories, setCategories] = useState<string[]>([]);
-  const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(emptyColors);
+  const [brandRows, setBrandRows] = useState<Brand[]>([]);
+  const [categoryRows, setCategoryRows] = useState<Category[]>([]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagColors, setTagColors] = useState<Map<string, string | null>>(emptyColors);
   const [cashiers, setCashiers] = useState<string[]>([]);
@@ -49,11 +48,18 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // PromotionsSection's scope picker just needs plain names, same as before
+  // this task's state change from string[] to full Brand[]/Category[] rows.
+  const brands = useMemo(() => brandRows.map((b) => b.name), [brandRows]);
+  const categories = useMemo(() => categoryRows.map((c) => c.name), [categoryRows]);
+
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
-    try {
-      const [brandRows, cats, tagRows, cashierRows, productRows, promotionRows, currencyRows] = await Promise.all([
+    // Not reset to true on subsequent calls -- reload() also runs after every
+    // add/rename/delete/color-change, and flipping loading back to true would
+    // unmount CategorySection (and close its ManageModal) each time.
+    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult] =
+      await Promise.allSettled([
         listBrands(shop.id),
         listCategories(shop.id),
         listTags(shop.id),
@@ -62,21 +68,25 @@ export default function SettingsScreen() {
         listPromotions(shop.id),
         listCurrencies(shop.id),
       ]);
-      setBrands(brandRows.map((b) => b.name));
-      setBrandColors(new Map(brandRows.map((b) => [b.name, b.color])));
-      setCategories(cats.map((c) => c.name));
-      setCategoryColors(new Map(cats.map((c) => [c.name, c.color])));
-      setTags(tagRows.map((t) => t.name));
-      setTagColors(new Map(tagRows.map((t) => [t.name, t.color])));
-      setCashiers(cashierRows.map((c) => c.name));
-      setProducts(productRows);
-      setPromotions(promotionRows);
-      setCurrencies(currencyRows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load brands, categories, and tags.');
-    } finally {
-      setLoading(false);
+    // Each section is applied independently so one failing query (e.g. a
+    // newer, unrelated one like promotions/currencies) can't blank out
+    // sections whose own fetch actually succeeded.
+    if (brandsResult.status === 'fulfilled') setBrandRows(brandsResult.value);
+    if (categoriesResult.status === 'fulfilled') setCategoryRows(categoriesResult.value);
+    if (tagsResult.status === 'fulfilled') {
+      setTags(tagsResult.value.map((t) => t.name));
+      setTagColors(new Map(tagsResult.value.map((t) => [t.name, t.color])));
     }
+    if (cashiersResult.status === 'fulfilled') setCashiers(cashiersResult.value.map((c) => c.name));
+    if (productsResult.status === 'fulfilled') setProducts(productsResult.value);
+    if (promotionsResult.status === 'fulfilled') setPromotions(promotionsResult.value);
+    if (currenciesResult.status === 'fulfilled') setCurrencies(currenciesResult.value);
+
+    const firstRejected = [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult].find(
+      (r): r is PromiseRejectedResult => r.status === 'rejected'
+    );
+    setError(firstRejected ? (firstRejected.reason instanceof Error ? firstRejected.reason.message : 'Could not load some settings data.') : null);
+    setLoading(false);
   }, [shop]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -153,29 +163,35 @@ export default function SettingsScreen() {
 
         {section === 'catalog' && !loading && (
           <>
-            <CategorySection
+            <TaxonomySection
               title="BRANDS"
               itemLabel="brand"
               hint="Brands you carry. Renaming or removing a brand updates every product using it."
-              items={brands}
+              items={brandRows}
               usage={brandUsage}
-              colors={brandColors}
-              onAdd={(name) => runOrShowError(async () => { await createBrand(shop.id, name, nextTaxonomyColor(brands.length)); await reload(); })}
-              onRename={(oldName, newName) => runOrShowError(async () => { await renameBrand(shop.id, oldName, newName); await reload(); })}
-              onDelete={(name) => runOrShowError(async () => { await deleteBrand(shop.id, name); await reload(); })}
-              onColorChange={(name, color) => runOrShowError(async () => { await updateBrandColor(shop.id, name, color); await reload(); })}
+              onCreate={async (input) => { await createBrand(shop.id, input.name, input); await reload(); }}
+              onUpdate={async (item, input) => {
+                if (input.name !== item.name) await renameBrand(shop.id, item.name, input.name);
+                await updateBrand(shop.id, input.name, { color: input.color, description: input.description, imageUrl: input.imageUrl });
+                await reload();
+              }}
+              onDelete={async (item) => { await deleteBrand(shop.id, item.name); await reload(); }}
+              uploadImage={(localUri) => uploadBrandImage(shop.id, localUri)}
             />
-            <CategorySection
+            <TaxonomySection
               title="CATEGORIES"
               itemLabel="category"
               hint="Group products in the POS and inventory screens. Renaming or removing a category updates every product using it."
-              items={categories}
+              items={categoryRows}
               usage={categoryUsage}
-              colors={categoryColors}
-              onAdd={(name) => runOrShowError(async () => { await createCategory(shop.id, name, nextTaxonomyColor(categories.length)); await reload(); })}
-              onRename={(oldName, newName) => runOrShowError(async () => { await renameCategory(shop.id, oldName, newName); await reload(); })}
-              onDelete={(name) => runOrShowError(async () => { await deleteCategory(shop.id, name); await reload(); })}
-              onColorChange={(name, color) => runOrShowError(async () => { await updateCategoryColor(shop.id, name, color); await reload(); })}
+              onCreate={async (input) => { await createCategory(shop.id, input.name, input); await reload(); }}
+              onUpdate={async (item, input) => {
+                if (input.name !== item.name) await renameCategory(shop.id, item.name, input.name);
+                await updateCategory(shop.id, input.name, { color: input.color, description: input.description, imageUrl: input.imageUrl });
+                await reload();
+              }}
+              onDelete={async (item) => { await deleteCategory(shop.id, item.name); await reload(); }}
+              uploadImage={(localUri) => uploadCategoryImage(shop.id, localUri)}
             />
             <CategorySection
               title="TAGS"
@@ -193,6 +209,82 @@ export default function SettingsScreen() {
         )}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+// Header + preview chips + "View/Update" button, same markup as
+// CategorySection (below), but opens TaxonomyManageModal (photo/description
+// support) instead of ManageModal — used for Brands/Categories only. Tags
+// and Cashiers keep using CategorySection/ManageModal directly.
+function TaxonomySection({
+  title,
+  itemLabel,
+  hint,
+  items,
+  usage,
+  onCreate,
+  onUpdate,
+  onDelete,
+  uploadImage,
+}: {
+  title: string;
+  itemLabel: string;
+  hint: string;
+  items: TaxonomyRow[];
+  usage: Map<string, number>;
+  onCreate: (input: TaxonomyInput) => Promise<void>;
+  onUpdate: (item: TaxonomyRow, input: TaxonomyInput) => Promise<void>;
+  onDelete: (item: TaxonomyRow) => Promise<void>;
+  uploadImage: (localUri: string) => Promise<string>;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  const mostUsed = useMemo(
+    () => [...items].sort((a, b) => (usage.get(b.name) ?? 0) - (usage.get(a.name) ?? 0)).slice(0, previewCount),
+    [items, usage]
+  );
+
+  return (
+    <View style={styles.section}>
+      <View style={styles.sectionHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.sectionTitle}>{title}</Text>
+          <Text style={styles.hint}>{hint}</Text>
+        </View>
+        <Pressable onPress={() => setModalOpen(true)} style={styles.manageButton}>
+          <Text style={styles.manageButtonText}>View/Update ({items.length})</Text>
+        </Pressable>
+      </View>
+
+      {items.length === 0 ? (
+        <Text style={styles.empty}>None yet.</Text>
+      ) : (
+        <View style={styles.previewRow}>
+          {mostUsed.map((item) => (
+            <View key={item.id} style={styles.previewChip}>
+              {item.color && <View style={[styles.previewDot, { backgroundColor: item.color }]} />}
+              <Text style={styles.previewChipText}>{item.name}</Text>
+              <Text style={styles.previewChipCount}>{usage.get(item.name) ?? 0}</Text>
+            </View>
+          ))}
+          {items.length > previewCount && <Text style={styles.previewMore}>+{items.length - previewCount} more</Text>}
+        </View>
+      )}
+
+      <TaxonomyManageModal
+        visible={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={title}
+        itemLabel={itemLabel}
+        items={items}
+        usage={usage}
+        nextColor={nextTaxonomyColor(items.length)}
+        onCreate={onCreate}
+        onUpdate={onUpdate}
+        onDelete={onDelete}
+        uploadImage={uploadImage}
+      />
+    </View>
   );
 }
 
