@@ -340,12 +340,15 @@ function SaleRow({
           )}
 
           <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
-          {sale.items?.map((item) => (
-            <View key={item.id} style={styles.detailRow}>
-              <Text style={styles.detailItemName}>{item.quantity}× {item.productName}</Text>
-              <Text style={styles.detailItemPrice}>{formatCents(item.lineTotalCents)}</Text>
-            </View>
-          ))}
+          <View style={styles.itemsList}>
+            {sale.items?.map((item, index) => (
+              <View key={item.id} style={[styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast]}>
+                <Text style={styles.itemQty}>{item.quantity}×</Text>
+                <Text style={styles.itemName}>{item.productName}</Text>
+                <Text style={styles.itemPrice}>{formatCents(item.lineTotalCents)}</Text>
+              </View>
+            ))}
+          </View>
 
           <Text style={[styles.detailLabel, { marginTop: 14 }]}>PAYMENT</Text>
           {sale.payments?.map((payment) => (
@@ -593,6 +596,13 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
   detailItemName: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
   detailItemPrice: { fontSize: 13, fontWeight: '700', color: '#111111' },
+
+  itemsList: { backgroundColor: '#FAFAFA', borderRadius: 10, paddingHorizontal: 12 },
+  itemRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },
+  itemRowLast: { borderBottomWidth: 0 },
+  itemQty: { fontSize: 13, fontWeight: '700', color: '#999999', marginRight: 6, lineHeight: 18 },
+  itemName: { fontSize: 13, fontWeight: '600', color: '#111111', flex: 1, marginRight: 12, lineHeight: 18 },
+  itemPrice: { fontSize: 13, fontWeight: '700', color: '#111111', lineHeight: 18 },
 
   historyToggle: { fontSize: 12, fontWeight: '700', color: '#999999' },
   historyList: { gap: 10, marginTop: 10 },
