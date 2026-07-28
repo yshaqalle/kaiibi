@@ -1,29 +1,18 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
-import { useColorScheme } from 'react-native';
+import { Stack } from 'expo-router';
 
-import { Colors } from '@/constants/theme';
-
+// Native only — web's version of this component (`app-tabs.web.tsx`) keeps
+// its own top-nav `Tabs`/`TabSlot` implementation, untouched. On native,
+// `login` (see `(public)/_layout.tsx`) is the app's home screen; `about`
+// and `signup` are pushed screens reached via buttons/links from login or
+// from each other. `index` is never actually shown to a user — it's Task
+// 3's redirect-to-`/login` stub, kept headerless so no header flashes
+// before the redirect fires.
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
-
   return (
-    <NativeTabs
-      backgroundColor={colors.background}
-      indicatorColor={colors.backgroundElement}
-      labelStyle={{ color: colors.text }}>
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="about">
-        <NativeTabs.Trigger.Label>How it works</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/explore.png')} />
-      </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="signup">
-        <NativeTabs.Trigger.Label>Sign up</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
-      </NativeTabs.Trigger>
-    </NativeTabs>
+    <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
+      <Stack.Screen name="index" options={{ headerShown: false }} />
+      <Stack.Screen name="about" options={{ headerShown: true, title: 'How it works' }} />
+      <Stack.Screen name="signup" options={{ headerShown: true, title: 'Create your shop' }} />
+    </Stack>
   );
 }
