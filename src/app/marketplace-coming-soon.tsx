@@ -1,13 +1,15 @@
+import { useRouter } from 'expo-router';
 import { Pressable, SafeAreaView, StyleSheet, Text, View } from 'react-native';
 
 import { signOut } from '@/lib/auth';
 
 export default function MarketplaceComingSoonScreen() {
+  const router = useRouter();
   return <SafeAreaView style={styles.safeArea}><View style={styles.content}>
     <Text style={styles.eyebrow}>KA IIBI · MARKETPLACE</Text>
     <Text style={styles.title}>Coming soon.</Text>
     <Text style={styles.text}>The Ka Iibi marketplace for shoppers isn&apos;t ready yet — we&apos;re building it. Check back soon.</Text>
-    <Pressable onPress={() => signOut()} style={styles.logoutButton}>
+    <Pressable onPress={() => signOut().then(() => router.replace('/login'))} style={styles.logoutButton}>
       <Text style={styles.logoutText}>Log out</Text>
     </Pressable>
   </View></SafeAreaView>;
