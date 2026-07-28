@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, SafeAreaView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { signIn } from '@/lib/auth';
 import { Fonts } from '@/constants/theme';
@@ -28,7 +28,7 @@ export default function LoginScreen() {
     }
   };
 
-  return <SafeAreaView style={styles.safeArea}><View style={styles.content}>
+  return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.hero}>
       <Image source={kMark} contentFit="contain" style={styles.heroMark} />
       <Text style={styles.heroEyebrow}>SIMPLE POS & INVENTORY</Text>
@@ -52,12 +52,12 @@ export default function LoginScreen() {
       {error && <Text style={styles.error}>{error}</Text>}
       <Pressable onPress={submit} style={[styles.submit, submitting && styles.submitDisabled]} disabled={submitting}><Text style={styles.submitText}>{submitting ? 'Logging in…' : 'Log in'}</Text></Pressable>
     </View>
-  </View></SafeAreaView>;
+  </ScrollView></SafeAreaView>;
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center', padding: 22, justifyContent: 'center' },
+  content: { width: '100%', maxWidth: 480, alignSelf: 'center', padding: 22, paddingTop: 38, paddingBottom: 60 },
   hero: { position: 'relative', overflow: 'hidden', backgroundColor: '#111111', borderRadius: 19, padding: 20, marginBottom: 22 },
   heroMark: { position: 'absolute', top: -30, right: -50, width: 200, height: 200, opacity: 0.18 },
   heroEyebrow: { color: '#999999', letterSpacing: 1.4, fontSize: 9, fontWeight: '800' },
