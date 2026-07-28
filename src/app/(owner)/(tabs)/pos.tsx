@@ -63,6 +63,10 @@ export default function PosScreen() {
   const [transactionDiscount, setTransactionDiscount] = useState<Discount | null>(null);
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  // Height of a single compact grid tile, measured from the first rendered
+  // tile — rows stretch every tile to match the tallest in that row, so this
+  // doubles as the row height. Used to cap the mobile product grid at 2 rows.
+  const [compactTileHeight, setCompactTileHeight] = useState<number | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -183,21 +187,34 @@ export default function PosScreen() {
   // On desktop, browse + cart are independently-scrolling side-by-side
   // panes, each owning its own `ScrollView` for its category row / grid /
   // cart list. On mobile there's no room for two panes side by side, so the
-  // whole screen becomes one vertical scroller instead — and nesting a nested
-  // `ScrollView` inside that (even with `scrollEnabled={false}`) fights React
-  // Native's own default flex sizing for `ScrollView` (it wants to flex/grow
-  // along whichever axis its container scrolls) in ways that are very hard to
-  // fully override, producing zero-height or overflowing panes. Swapping to
-  // plain `View`s for those inner containers on mobile sidesteps that
-  // entirely — they just flow with the outer page scroll like normal content.
+  // whole screen becomes one vertical scroller instead — and nesting a
+  // flex-sized `ScrollView` inside that (even with `scrollEnabled={false}`)
+  // fights React Native's own default flex sizing for `ScrollView` (it wants
+  // to flex/grow along whichever axis its container scrolls) in ways that
+  // are very hard to fully override, producing zero-height or overflowing
+  // panes. Swapping to plain `View`s for those inner containers on mobile
+  // sidesteps that entirely — they just flow with the outer page scroll like
+  // normal content.
+  //
+  // The product grid is the one exception: it's given an explicit pixel
+  // height (2 rows, via `compactTileHeight`) rather than a flex size, so it
+  // doesn't hit the sizing fight above — it can scroll on its own, letting
+  // shoppers reach the cart without paging through every product first.
   const Split = compact ? ScrollView : View;
   const splitProps = compact ? { contentContainerStyle: styles.splitCompactContent } : {};
   const CategoryList = compact ? View : ScrollView;
   const categoryListProps = compact
     ? { style: styles.categoryRowCompact }
     : { horizontal: true, showsHorizontalScrollIndicator: false, style: styles.categoryScroll, contentContainerStyle: styles.categoryRow };
-  const GridList = compact ? View : ScrollView;
-  const gridListProps = compact ? { style: [styles.grid, styles.gridCompact] } : { contentContainerStyle: styles.grid };
+  const GridList = ScrollView;
+  const compactGridHeight = compactTileHeight ? compactTileHeight * 2 + 8 : undefined;
+  const gridListProps = compact
+    ? {
+        style: [styles.gridScrollCompact, compactGridHeight ? { maxHeight: compactGridHeight } : null],
+        contentContainerStyle: [styles.grid, styles.gridCompact],
+        nestedScrollEnabled: true,
+      }
+    : { contentContainerStyle: styles.grid };
   const CartList = compact ? View : ScrollView;
   const cartListProps = compact ? { style: styles.cartListCompact } : { style: styles.cartList };
 
@@ -216,8 +233,14 @@ export default function PosScreen() {
             ))}
           </CategoryList>
           <GridList {...gridListProps}>
-            {filtered.map((product) => (
-              <Pressable key={product.id} onPress={() => addToCart(product)} disabled={product.stock <= 0} style={[styles.gridTile, compact && styles.gridTileCompact, product.stock <= 0 && styles.gridTileDisabled]}>
+            {filtered.map((product, index) => (
+              <Pressable
+                key={product.id}
+                onPress={() => addToCart(product)}
+                disabled={product.stock <= 0}
+                onLayout={compact && index === 0 ? (e) => setCompactTileHeight(e.nativeEvent.layout.height) : undefined}
+                style={[styles.gridTile, compact && styles.gridTileCompact, product.stock <= 0 && styles.gridTileDisabled]}
+              >
                 {product.imageUrl ? (
                   <Image source={{ uri: product.imageUrl }} contentFit="cover" style={[styles.gridThumb, compact && styles.gridThumbCompact]} />
                 ) : (
@@ -378,6 +401,7 @@ const styles = StyleSheet.create({
   categoryRowCompact: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
   gridCompact: { gap: 8 },
+  gridScrollCompact: { flexGrow: 0, flexShrink: 0 },
   gridTile: { flexBasis: '31%', flexGrow: 0, flexShrink: 0, minWidth: 190, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#EDEDED' },
   gridTileCompact: { flexBasis: '31%', minWidth: 90, flexGrow: 0, flexShrink: 0, borderRadius: 12, padding: 8 },
   gridTileDisabled: { opacity: 0.4 },
