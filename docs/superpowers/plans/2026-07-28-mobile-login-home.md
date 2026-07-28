@@ -4,7 +4,7 @@
 
 **Goal:** Make native (iOS/Android) open directly to login (or straight to the dashboard/marketplace stub if already signed in), with the marketing landing page and "How it works" demoted to link-accessible screens — while web keeps its current landing-first, tab-based homepage untouched.
 
-**Architecture:** Split `src/app/(public)/_layout.tsx` by platform using Expo Router's supported `_layout.web.tsx` / `_layout.tsx` convention (same mechanism already used for `app-tabs.web.tsx`/`app-tabs.tsx`): the web file is an unmodified copy of today's layout; the native file gains an auth/role-aware redirect gate (mirroring the existing pattern in `src/app/(admin)/_layout.tsx`) and makes `login` its initial route. Native's public tab bar (`src/components/app-tabs.tsx`) is converted from `NativeTabs` to a plain `Stack`, so landing/how-it-works/signup become pushed screens with native headers instead of tabs. `login.tsx` gains a black hero band (tagline + links + the new K mark as a watermark) above the existing form.
+**Architecture:** Split `src/app/(public)/_layout.tsx` by platform using Expo Router's supported `_layout.web.tsx` / `_layout.tsx` convention (same mechanism already used for `app-tabs.web.tsx`/`app-tabs.tsx`): the web file is an unmodified copy of today's layout; the native file gains an auth/role-aware redirect gate (mirroring the existing pattern in `src/app/(admin)/_layout.tsx`). Because Expo Router resolves the URL `/` to whatever file literally matches it (here, `(tabs)/index.tsx`) before any Stack `initialRouteName` setting applies, "login is native's home screen" is actually enforced by splitting `(tabs)/index.tsx` itself: `index.web.tsx` keeps today's landing content for web, and native's `index.tsx` becomes a one-line redirect to `/login`. This also retires the standalone landing page as a native destination — nothing in the app links to it, and its pitch is now covered by the login screen's own hero band plus `/about`. Native's public tab bar (`src/components/app-tabs.tsx`) is converted from `NativeTabs` to a plain `Stack`, so how-it-works/signup become pushed screens with native headers instead of tabs. `login.tsx` gains a black hero band (tagline + links + the new K mark as a watermark) above the existing form.
 
 **Tech Stack:** Expo Router (SDK 57), React Native, `expo-image`, Supabase auth via `src/lib/auth.ts` / `src/hooks/use-auth.tsx`. No new dependencies.
 
@@ -134,11 +134,13 @@ git commit -m "Add marketplace-coming-soon placeholder for customer-role session
 
 **Files:**
 - Modify: `src/app/(public)/_layout.tsx` (full rewrite — native only, since Task 1 moved web's copy to `_layout.web.tsx`)
+- Rename: `src/app/(public)/(tabs)/index.tsx` → `src/app/(public)/(tabs)/index.web.tsx` (content unchanged, web-only from here on)
+- Create: `src/app/(public)/(tabs)/index.tsx` (native — thin redirect stub)
 - Reference: `src/hooks/use-auth.tsx` (`useAuth()` shape: `{ session, profile, shop, loading, refreshShop, setProfile }`), `src/app/(admin)/_layout.tsx` (existing loading/redirect pattern this mirrors)
 
 **Interfaces:**
 - Consumes: `useAuth()` from `@/hooks/use-auth` — `loading: boolean`, `session: Session | null`, `profile: Profile | null` where `profile.role: 'admin' | 'customer' | 'staff'` (`src/types/models.ts:5`). Route `/marketplace-coming-soon` (Task 2). Pre-existing routes `/dashboard`, `/login`.
-- Produces: native's `(public)` group now redirects authenticated sessions away entirely and shows `login` as the first screen for everyone else. `(tabs)` and `login` remain declared as sibling `Stack.Screen`s so Task 4's changes to `app-tabs.tsx` continue to be reachable at `/`, `/about`, `/signup`.
+- Produces: native's `(public)` group now redirects authenticated sessions away entirely; everyone else lands on `login` — enforced by `(tabs)/index.tsx`'s redirect stub, since Expo Router resolves `/` to that literal file before any Stack `initialRouteName` setting is consulted (confirmed against `expo-router`'s route-tree resolution and live-device testing; a `<Stack initialRouteName="login">` prop does not affect which file a URL resolves to). `(tabs)` and `login` remain declared as sibling `Stack.Screen`s so Task 4's changes to `app-tabs.tsx` continue to be reachable at `/about`, `/signup`. Native has no reachable standalone landing page after this task — `index.web.tsx` preserves that content for web only.
 
 - [ ] **Step 1: Rewrite `src/app/(public)/_layout.tsx`**
 
@@ -152,8 +154,10 @@ import { useAuth } from '@/hooks/use-auth';
 // unaffected by anything below. On native, `(public)` is now gated: an
 // authenticated admin/staff session skips straight to the dashboard, an
 // authenticated customer session goes to the marketplace stub, and
-// everyone else lands on `login` (this Stack's initial route) instead of
-// the marketing tabs. `(tabs)` (landing/how-it-works/signup) and the new
+// everyone else lands on `login`. `login` is reached at cold launch via
+// `(tabs)/index.tsx`'s native redirect stub (Step 2 below) — NOT via a
+// Stack `initialRouteName`, which does not affect Expo Router's URL-to-file
+// resolution. `(tabs)` (how-it-works/signup) and the new
 // `marketplace-coming-soon` screen are still reachable as pushed screens —
 // see `app-tabs.tsx` for how native reaches `(tabs)`'s children without a
 // tab bar.
@@ -177,7 +181,7 @@ export default function PublicLayout() {
   }
 
   return (
-    <Stack initialRouteName="login" screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="marketplace-coming-soon" options={{ headerShown: true, title: '', headerBackButtonDisplayMode: 'minimal' }} />
@@ -186,25 +190,49 @@ export default function PublicLayout() {
 }
 ```
 
-Note: `login` gets no `options` override here (unlike web's `_layout.web.tsx`, which sets `headerShown: true, title: 'Log in'`), so it inherits this Stack's `headerShown: false` default. On native it's the Stack's initial route with nothing to go "back" to, and Task 5's hero band already carries the branding a header would otherwise provide — a header bar here would be redundant chrome. Web still shows a header for `login` because it's always a pushed screen there.
+Note: `login` gets no `options` override here (unlike web's `_layout.web.tsx`, which sets `headerShown: true, title: 'Log in'`), so it inherits this Stack's `headerShown: false` default. On native it's reached via a redirect with nothing to go "back" to, and Task 5's hero band already carries the branding a header would otherwise provide — a header bar here would be redundant chrome. Web still shows a header for `login` because it's always a pushed screen there.
 
-- [ ] **Step 2: Typecheck and lint**
+- [ ] **Step 2: Split `(tabs)/index.tsx` so native's `/` redirects to `/login`**
+
+```bash
+git mv "src/app/(public)/(tabs)/index.tsx" "src/app/(public)/(tabs)/index.web.tsx"
+```
+
+Then create a new `src/app/(public)/(tabs)/index.tsx` (native only — this is a brand-new file, not a copy of the content you just moved):
+
+```tsx
+import { Redirect } from 'expo-router';
+
+// Native only — web's landing content lives in `index.web.tsx`, moved here
+// unchanged. On native, nothing links to `/` anymore: the login screen's
+// own hero band (see Task 5) replaces the marketing pitch this page used
+// to carry, and no other screen references it. This file exists only so
+// the literal URL `/` resolves somewhere sane — a bare redirect to
+// `/login` — instead of falling through to stale landing content. See
+// `(public)/_layout.tsx` for why this file, not a Stack `initialRouteName`,
+// is the actual login-first mechanism.
+export default function IndexRedirect() {
+  return <Redirect href="/login" />;
+}
+```
+
+- [ ] **Step 3: Typecheck and lint**
 
 Run: `npx tsc --noEmit`
-Expected: no errors mentioning `(public)/_layout.tsx`. (A pre-existing type error may appear because `login.tsx` doesn't yet accept being an initial/headerless route — that's fine, Task 5 finishes it.)
+Expected: no errors mentioning `(public)/_layout.tsx`, `index.tsx`, or `index.web.tsx`. (A pre-existing type error may appear because `login.tsx` doesn't yet accept being reached this way — that's fine, Task 5 finishes it.)
 
 Run: `npm run lint`
 Expected: no new warnings/errors.
 
-- [ ] **Step 3: Verify native redirect behavior manually**
+- [ ] **Step 4: Verify native redirect behavior manually**
 
-Run: `npx expo start` and open on an iOS or Android simulator.
-Expected, before Task 5's login redesign lands: app opens directly to the (currently still old-styled) `login` screen when signed out, with no header bar and no tab bar visible. Sign in with an admin/staff test account and relaunch — expect an immediate jump to `/dashboard`, no login/landing screen shown at all.
+Run: `npx expo start` and open on an iOS or Android simulator — use a true cold launch (e.g. force-quit and relaunch, or `xcrun simctl launch`), not just a dev-client deep-link relaunch, since those can mask this exact bug.
+Expected, before Task 5's login redesign lands: app opens directly to the (currently still old-styled) `login` screen when signed out — no old landing/tab content flashes first. Sign in with an admin/staff test account and relaunch — expect an immediate jump to `/dashboard`, no login/landing screen shown at all.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add src/app/\(public\)/_layout.tsx
+git add src/app/\(public\)/_layout.tsx "src/app/(public)/(tabs)/index.tsx" "src/app/(public)/(tabs)/index.web.tsx"
 git commit -m "Add native login-first auth gate to (public) layout"
 ```
 
@@ -217,8 +245,8 @@ git commit -m "Add native login-first auth gate to (public) layout"
 - Reference (do not modify): `src/components/app-tabs.web.tsx`, `src/app/(public)/(tabs)/_layout.tsx` (still just renders `<AppTabs />`, unchanged)
 
 **Interfaces:**
-- Consumes: nothing new — still the default export rendered by `src/app/(public)/(tabs)/_layout.tsx:8-9`.
-- Produces: on native, `/` (landing), `/about`, `/signup` are now reachable as pushed Stack screens with native headers instead of `NativeTabs` tab-bar items. Web (`app-tabs.web.tsx`) is untouched and keeps its own top-nav `Tabs`/`TabSlot` implementation.
+- Consumes: nothing new — still the default export rendered by `src/app/(public)/(tabs)/_layout.tsx:8-9`. Relies on Task 3 having split `index.tsx` into a native redirect stub + `index.web.tsx`.
+- Produces: on native, `/about` and `/signup` are now reachable as pushed Stack screens with native headers instead of `NativeTabs` tab-bar items. `index` (native) is Task 3's redirect-to-`/login` stub — declared here headerless so no header flashes before it redirects; it is never actually shown to the user. Web (`app-tabs.web.tsx`) is untouched and keeps its own top-nav `Tabs`/`TabSlot` implementation.
 
 - [ ] **Step 1: Rewrite `src/components/app-tabs.tsx`**
 
@@ -227,13 +255,15 @@ import { Stack } from 'expo-router';
 
 // Native only — web's version of this component (`app-tabs.web.tsx`) keeps
 // its own top-nav `Tabs`/`TabSlot` implementation, untouched. On native,
-// `login` (see `(public)/_layout.tsx`) is the app's home screen; these 3
-// screens are no longer parallel tab destinations, just pushed screens
-// reached via buttons/links from login or from each other.
+// `login` (see `(public)/_layout.tsx`) is the app's home screen; `about`
+// and `signup` are pushed screens reached via buttons/links from login or
+// from each other. `index` is never actually shown to a user — it's Task
+// 3's redirect-to-`/login` stub, kept headerless so no header flashes
+// before the redirect fires.
 export default function AppTabs() {
   return (
     <Stack screenOptions={{ headerBackButtonDisplayMode: 'minimal' }}>
-      <Stack.Screen name="index" options={{ headerShown: true, title: '' }} />
+      <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="about" options={{ headerShown: true, title: 'How it works' }} />
       <Stack.Screen name="signup" options={{ headerShown: true, title: 'Create your shop' }} />
     </Stack>
@@ -400,7 +430,7 @@ Sign in with a customer-role account, relaunch. Expected: app opens to `marketpl
 
 - [ ] **Step 4: Web — fully unchanged**
 
-Open `expo start --web`. Expected: `/` shows the marketing landing page with the tab bar (Home / How it works / Sign up) exactly as before this plan, "Log in" button pushes the redesigned `login.tsx` (new hero band — expected, since `login.tsx` isn't platform-split) with its native-style header ("Log in", back button) still present. Confirm the tab bar itself and landing/about/signup content are pixel-identical to `main` (compare against `git diff main -- 'src/app/(public)/(tabs)/**'`, expect no changes).
+Open `expo start --web`. Expected: `/` shows the marketing landing page (now served from `index.web.tsx`) with the tab bar (Home / How it works / Sign up) exactly as before this plan, "Log in" button pushes the redesigned `login.tsx` (new hero band — expected, since `login.tsx` isn't platform-split) with its native-style header ("Log in", back button) still present. Confirm `index.web.tsx`'s content is unchanged from the pre-plan `index.tsx` (`git diff main -- 'src/app/(public)/(tabs)/index.web.tsx'` should show only the file being added with identical content to the old `index.tsx`, and `git diff main -- 'src/app/(public)/(tabs)/about.tsx' 'src/app/(public)/(tabs)/signup.tsx'` should show no changes at all).
 
 - [ ] **Step 5: Run full verification suite**
 
