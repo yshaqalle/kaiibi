@@ -243,3 +243,23 @@ export type Cashier = {
   name: string;
   createdAt: string;
 };
+
+export type Role = {
+  id: string;
+  shopId: string;
+  name: string;
+  permissions: string[];
+  createdAt: string;
+};
+
+export type StaffMember = {
+  id: string;
+  shopId: string;
+  userId: string;
+  roleId: string;
+  roleName: string;
+  active: boolean;
+  fullName: string | null;
+  email: string | null;
+  createdAt: string;
+};

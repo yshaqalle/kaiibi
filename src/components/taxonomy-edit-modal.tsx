@@ -106,7 +106,9 @@ export function TaxonomyEditModal({
           <Text style={styles.backText}>‹ Back</Text>
         </Pressable>
         <Text style={styles.title}>{initial ? `Edit ${itemLabel}` : `Add ${itemLabel}`}</Text>
-        <View style={styles.backSpacer} />
+        <Pressable onPress={submit} disabled={!valid || submitting} style={[styles.headerSave, (!valid || submitting) && styles.headerSaveDisabled]}>
+          <Text style={styles.headerSaveText}>Save</Text>
+        </Pressable>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -179,8 +181,10 @@ const styles = StyleSheet.create({
   back: { paddingVertical: 6, paddingHorizontal: 4 },
   backPressed: { opacity: 0.6 },
   backText: { fontSize: 14, fontWeight: '700', color: '#111111' },
-  backSpacer: { width: 44 },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
+  headerSave: { backgroundColor: '#111111', borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
+  headerSaveDisabled: { backgroundColor: '#CCCCCC' },
+  headerSaveText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
   content: { padding: 16, paddingBottom: 24 },
   fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#999999', marginBottom: 7, marginTop: 3 },
   photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', borderRadius: 11, marginBottom: 8, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },

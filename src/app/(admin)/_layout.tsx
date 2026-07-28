@@ -36,6 +36,7 @@ export default function AdminLayout() {
       <Stack.Screen name="product/new" />
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="account" />
     </Stack>
   );
 }
