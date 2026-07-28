@@ -108,7 +108,38 @@ Alternatively, export an `.ipa` from the archive and upload it later using Apple
 eas build --platform ios --profile production --local
 ```
 
-`eas build --local` runs on your Mac instead of using EAS cloud build credits, but it still requires the local iOS toolchain, signing credentials, and EAS CLI login.
+`eas build --local` runs on your Mac instead of using EAS cloud build credits, but it still requires the local iOS toolchain, signing credentials, and EAS CLI login. Install Fastlane and CocoaPods first, then confirm Fastlane is available before retrying:
+
+```bash
+brew install fastlane cocoapods
+fastlane --version
+eas build --platform ios --profile production --local
+```
+
+If `fastlane --version` fails, reopen the terminal after Homebrew installation so its bin directory is available on `PATH`.
+
+If Fastlane is found but reports missing Ruby gems after a Homebrew Ruby upgrade, repair its per-user dependency bundle and try the local build again:
+
+```bash
+gem install fastlane --version 2.237.0 --install-dir "$HOME/.local/share/fastlane/4.0.0" --no-document
+fastlane --version
+```
+
+#### Troubleshooting EAS signing credentials
+
+If a local EAS build reports that a distribution certificate was not imported successfully, the EAS-stored `.p12` certificate bundle does not contain a valid identity for its provisioning profile. Repair the credentials before retrying:
+
+```bash
+eas credentials --platform ios
+```
+
+Choose the `production` profile, remove the invalid **Distribution Certificate** and its **Provisioning Profile** from EAS, then create a new distribution certificate and provisioning profile when prompted. Removing credentials from EAS does not invalidate previous App Store builds; revoke the Apple certificate only if it is compromised or cannot be reused. Then retry:
+
+```bash
+eas build --platform ios --profile production --local
+```
+
+Alternatively, use the Xcode archive path above and let Xcode manage signing with your Apple Developer team.
 
 ### Android deployment
 
