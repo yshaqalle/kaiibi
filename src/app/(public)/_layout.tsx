@@ -1,16 +1,41 @@
-import { Stack } from 'expo-router';
+import { Redirect, Stack } from 'expo-router';
+import { ActivityIndicator, View } from 'react-native';
 
-// `(tabs)` hosts the 3 tab-bar routes (index/about/signup) via AppTabs.
-// `login` is not a tab — it's a screen that should push on top of the tab
-// bar, the same way it does automatically on native. This Stack is what
-// makes that push-over-tabs behavior work on web too: expo-router/ui's
-// `Tabs`/`TabSlot` only ever renders routes declared as `<TabTrigger>`, so a
-// route outside that set needs a real Stack screen to host it.
+import { useAuth } from '@/hooks/use-auth';
+
+// Native only — web's (public) layout lives in `_layout.web.tsx` and is
+// unaffected by anything below. On native, `(public)` is now gated: an
+// authenticated admin/staff session skips straight to the dashboard, an
+// authenticated customer session goes to the marketplace stub, and
+// everyone else lands on `login` (this Stack's initial route) instead of
+// the marketing tabs. `(tabs)` (landing/how-it-works/signup) and the new
+// `marketplace-coming-soon` screen are still reachable as pushed screens —
+// see `app-tabs.tsx` for how native reaches `(tabs)`'s children without a
+// tab bar.
 export default function PublicLayout() {
+  const { loading, session, profile } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
+
+  if (session && (profile?.role === 'admin' || profile?.role === 'staff')) {
+    return <Redirect href="/dashboard" />;
+  }
+
+  if (session && profile?.role === 'customer') {
+    return <Redirect href="/marketplace-coming-soon" />;
+  }
+
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack initialRouteName="login" screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="login" options={{ headerShown: true, title: 'Log in', headerBackButtonDisplayMode: 'minimal' }} />
+      <Stack.Screen name="marketplace-coming-soon" options={{ headerShown: true, title: '', headerBackButtonDisplayMode: 'minimal' }} />
     </Stack>
   );
 }
