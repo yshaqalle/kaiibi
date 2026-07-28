@@ -108,7 +108,7 @@ export default function AdminTabs() {
             <Pressable
               onPress={() => {
                 setMenuOpen(false);
-                signOut().then(() => router.replace('/signup'));
+                signOut().then(() => router.replace('/login'));
               }}
               style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
             >

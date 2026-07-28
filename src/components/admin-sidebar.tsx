@@ -91,7 +91,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
               <Text style={styles.settingsLinkIcon}>⚙</Text>
               <Text style={styles.settingsLink}>Settings</Text>
             </Pressable>
-            <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
+            <Pressable onPress={() => signOut().then(() => router.replace('/login'))}>
               <Text style={styles.signOut}>Sign out</Text>
             </Pressable>
           </View>
