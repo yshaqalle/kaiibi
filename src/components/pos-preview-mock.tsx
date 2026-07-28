@@ -1,11 +1,13 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 const previewProducts = [
-  { brand: 'ANUA', name: 'Heartleaf 77% Toner', price: '$19.99', status: 'In stock', tone: 'ok' as const },
-  { brand: 'COSRX', name: 'Snail 96 Mucin Essence', price: '$21.00', status: 'Low stock', tone: 'warn' as const },
+  { brand: 'ANUA', name: 'Heartleaf 77% Toner', price: '$19.99', status: 'In stock', tone: 'ok' as const, wash: '#E3EAE0', bottle: '#7E9470' },
+  { brand: 'COSRX', name: 'Snail 96 Mucin Essence', price: '$21.00', status: 'Low stock', tone: 'warn' as const, wash: '#F3E3DD', bottle: '#C08D7B' },
 ];
 
+const navTabs = ['Dashboard', 'POS', 'Inventory', 'Sales'];
 const categoryChips = ['All', 'Toners', 'Serums', 'Sun Care'];
+const cashierChips = ['Amina', 'Yusuf'];
 const paymentChips = ['Cash', 'ZAAD', 'e-Dahab'];
 
 export function PosPreviewMock() {
@@ -14,9 +16,13 @@ export function PosPreviewMock() {
       <View style={styles.topRow}>
         <Text style={styles.brand}>● Ka Iibi POS</Text>
         <View style={styles.navPills}>
-          <View style={styles.navPillActive}><Text style={styles.navPillTextActive}>Sale</Text></View>
-          <Text style={styles.navPillText}>Inventory</Text>
-          <Text style={styles.navPillText}>Reports</Text>
+          {navTabs.map((tab) =>
+            tab === 'POS' ? (
+              <View key={tab} style={styles.navPillActive}><Text style={styles.navPillTextActive}>{tab}</Text></View>
+            ) : (
+              <Text key={tab} style={styles.navPillText}>{tab}</Text>
+            )
+          )}
         </View>
       </View>
 
@@ -34,7 +40,10 @@ export function PosPreviewMock() {
         <View style={styles.products}>
           {previewProducts.map((product) => (
             <View key={product.name} style={styles.productCard}>
-              <View style={styles.productThumb} />
+              <View style={[styles.productThumb, { backgroundColor: product.wash }]}>
+                <View style={[styles.productBottleCap, { backgroundColor: product.bottle }]} />
+                <View style={[styles.productBottleBody, { backgroundColor: product.bottle }]} />
+              </View>
               <Text style={styles.productBrand}>{product.brand}</Text>
               <Text style={styles.productName} numberOfLines={1}>{product.name}</Text>
               <View style={styles.productFooter}>
@@ -49,19 +58,58 @@ export function PosPreviewMock() {
 
         <View style={styles.cart}>
           <Text style={styles.cartTitle}>Current sale</Text>
-          <View style={styles.cartEmpty}>
-            <Text style={styles.cartEmptyText}>Tap a product{'\n'}to add it</Text>
+
+          <View style={styles.cartLine}>
+            <View style={styles.cartLineTop}>
+              <Text style={styles.cartLineName} numberOfLines={1}>Heartleaf 77% Toner</Text>
+              <Text style={styles.cartLineQty}>×1</Text>
+            </View>
+            <View style={styles.cartLinePriceRow}>
+              <Text style={styles.cartLinePriceStruck}>$19.99</Text>
+              <Text style={styles.cartLinePrice}>$16.99</Text>
+            </View>
+            <Text style={styles.cartLinePromo}>🏷 Skincare Week</Text>
           </View>
+
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Subtotal</Text>
+            <Text style={styles.summaryValue}>$19.99</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Discount</Text>
+            <Text style={styles.summaryValueDiscount}>-$3.00</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Tax (5%)</Text>
+            <Text style={styles.summaryValue}>$0.85</Text>
+          </View>
+
           <View style={styles.cartTotalRow}>
             <Text style={styles.cartTotalLabel}>Total</Text>
-            <Text style={styles.cartTotalValue}>$0.00</Text>
+            <Text style={styles.cartTotalValue}>$17.84</Text>
           </View>
+
+          <View style={styles.cashierRow}>
+            <Text style={styles.cashierLabel}>CASHIER</Text>
+            <View style={styles.cashierChips}>
+              {cashierChips.map((name, index) => (
+                <View key={name} style={index === 0 ? styles.cashierChipActive : styles.cashierChip}>
+                  <Text style={index === 0 ? styles.cashierChipTextActive : styles.cashierChipText}>{name}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+
           <View style={styles.payRow}>
             {paymentChips.map((chip, index) => (
               <View key={chip} style={index === 0 ? styles.payChipActive : styles.payChip}>
                 <Text style={index === 0 ? styles.payChipTextActive : styles.payChipText}>{chip}</Text>
               </View>
             ))}
+          </View>
+
+          <View style={styles.checkoutButton}>
+            <Text style={styles.checkoutButtonText}>Complete sale</Text>
           </View>
         </View>
       </View>
@@ -73,7 +121,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#FFFFFF', borderRadius: 20, borderWidth: 1, borderColor: '#ECECEC', padding: 16, width: '100%', maxWidth: 460 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   brand: { fontSize: 13, fontWeight: '800', color: '#111111', letterSpacing: -0.3 },
-  navPills: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  navPills: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   navPillActive: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 9, paddingVertical: 4 },
   navPillTextActive: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
   navPillText: { color: '#999999', fontSize: 10, fontWeight: '700' },
@@ -87,7 +135,9 @@ const styles = StyleSheet.create({
   body: { flexDirection: 'row', gap: 10 },
   products: { flex: 3, gap: 8 },
   productCard: { borderWidth: 1, borderColor: '#EDEDED', borderRadius: 12, padding: 9 },
-  productThumb: { height: 34, borderRadius: 7, backgroundColor: '#F2F2F2', marginBottom: 7 },
+  productThumb: { height: 34, borderRadius: 7, marginBottom: 7, alignItems: 'center', justifyContent: 'center', gap: 1.5 },
+  productBottleCap: { width: 8, height: 4, borderRadius: 1.5 },
+  productBottleBody: { width: 14, height: 17, borderRadius: 4 },
   productBrand: { fontSize: 8, fontWeight: '800', color: '#999999', letterSpacing: 0.4 },
   productName: { fontSize: 11, fontWeight: '700', color: '#111111', marginTop: 2 },
   productFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
@@ -95,10 +145,29 @@ const styles = StyleSheet.create({
   statusPillOk: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
   statusPillWarn: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2 },
   statusPillText: { fontSize: 8, fontWeight: '800', color: '#666666' },
-  cart: { flex: 2, backgroundColor: '#FAFAFA', borderRadius: 12, padding: 10 },
+  cart: { flex: 3, backgroundColor: '#FAFAFA', borderRadius: 12, padding: 10 },
   cartTitle: { fontSize: 10, fontWeight: '800', color: '#111111', marginBottom: 8 },
-  cartEmpty: { alignItems: 'center', paddingVertical: 10 },
-  cartEmptyText: { fontSize: 9, color: '#999999', textAlign: 'center', lineHeight: 13 },
+  cartLine: { paddingBottom: 8, marginBottom: 6, borderBottomWidth: 1, borderBottomColor: '#EDEDED' },
+  cartLineTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  cartLineName: { flex: 1, fontSize: 11, fontWeight: '700', color: '#111111' },
+  cartLineQty: { fontSize: 9, fontWeight: '700', color: '#999999' },
+  cartLinePriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 },
+  cartLinePriceStruck: { fontSize: 10, color: '#BBBBBB', textDecorationLine: 'line-through' },
+  cartLinePrice: { fontSize: 11, fontWeight: '800', color: '#111111' },
+  cartLinePromo: { fontSize: 9, fontWeight: '700', color: '#111111', marginTop: 2 },
+  summaryRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 2 },
+  summaryLabel: { fontSize: 9, color: '#999999' },
+  summaryValue: { fontSize: 9, fontWeight: '600', color: '#111111' },
+  summaryValueDiscount: { fontSize: 9, fontWeight: '700', color: '#C0392B' },
+  cashierRow: { marginTop: 8 },
+  cashierLabel: { fontSize: 8, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 5 },
+  cashierChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 5 },
+  cashierChipActive: { backgroundColor: '#111111', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  cashierChip: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
+  cashierChipTextActive: { fontSize: 9, fontWeight: '800', color: '#FFFFFF' },
+  cashierChipText: { fontSize: 9, fontWeight: '700', color: '#666666' },
+  checkoutButton: { backgroundColor: '#111111', borderRadius: 10, height: 34, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
+  checkoutButtonText: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
   cartTotalRow: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#EDEDED', paddingTop: 8, marginTop: 4 },
   cartTotalLabel: { fontSize: 10, fontWeight: '700', color: '#666666' },
   cartTotalValue: { fontSize: 13, fontWeight: '800', color: '#111111' },
