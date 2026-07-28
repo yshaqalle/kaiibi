@@ -57,7 +57,7 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { width: '100%', maxWidth: 480, alignSelf: 'center', padding: 22, paddingTop: 38, paddingBottom: 60 },
+  content: { flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center', padding: 22, justifyContent: 'center' },
   hero: { position: 'relative', overflow: 'hidden', backgroundColor: '#111111', borderRadius: 19, padding: 20, marginBottom: 22 },
   heroMark: { position: 'absolute', top: -30, right: -50, width: 200, height: 200, opacity: 0.18 },
   heroEyebrow: { color: '#999999', letterSpacing: 1.4, fontSize: 9, fontWeight: '800' },
