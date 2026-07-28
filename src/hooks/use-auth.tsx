@@ -32,12 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // - `shopSeq` guards `shop` specifically, because it can be written by two
   //   independent callers running concurrently: loadForSession's own fetch (as
   //   part of a session reload) and an explicit refreshShop() call (e.g. right
-  //   after creating a shop during owner signup). These must NOT share a counter
+  //   after creating a shop during admin signup). These must NOT share a counter
   //   with loadSeq: an earlier version of this guard used a single shared
   //   counter, which meant refreshShop() bumping "its" sequence could cause an
   //   unrelated, still in-flight profile fetch inside loadForSession to be
   //   discarded -- silently leaving `profile: null` after a fresh signup and
-  //   bouncing the new owner back to /signup. Keeping `shop` on its own counter
+  //   bouncing the new admin back to /signup. Keeping `shop` on its own counter
   //   preserves "last-started-shop-fetch-wins" without that cross-field damage.
   //
   // `session` itself is set synchronously, before any await, in every
@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const shopSeq = useRef(0);
   // Tracks whose data `profile`/`shop` currently hold, so loadForSession can
   // tell "a different user just signed in" (must re-arm `loading` so
-  // consumers like OwnerLayout wait for the new profile instead of judging
+  // consumers like AdminLayout wait for the new profile instead of judging
   // the stale one) apart from "same user, background token refresh" (must
   // NOT re-arm `loading`, or every silent refresh would flash a spinner over
   // an already-loaded dashboard). `undefined` means "no session resolved

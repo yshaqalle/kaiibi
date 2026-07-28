@@ -8,8 +8,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
-// Shared between owner-tabs.tsx (native, tablet width) and
-// owner-tabs.web.tsx (web, desktop width) so the wide-layout nav only has
+// Shared between admin-tabs.tsx (native, tablet width) and
+// admin-tabs.web.tsx (web, desktop width) so the wide-layout nav only has
 // one implementation to keep in sync. Narrow layouts stay
 // platform-specific: native phones keep `NativeTabs`, web mobile keeps its
 // own hand-rolled bottom nav.
@@ -41,7 +41,7 @@ function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) 
   );
 }
 
-export function OwnerSidebar({ children }: { children: ReactNode }) {
+export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const { shop, refreshShop } = useAuth();

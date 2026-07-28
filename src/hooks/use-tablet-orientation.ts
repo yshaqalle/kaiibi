@@ -15,7 +15,7 @@ function isTabletDevice() {
 }
 
 // Phones stay portrait-locked (existing app-wide behavior via app.json).
-// Tablets (iPad, Android tablets) are unlocked so the owner sidebar layout
+// Tablets (iPad, Android tablets) are unlocked so the admin sidebar layout
 // can actually use landscape width instead of being letterboxed into a
 // portrait-shaped window.
 export function useTabletOrientation() {

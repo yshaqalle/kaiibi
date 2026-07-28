@@ -2,7 +2,7 @@ export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
 
 export type Profile = {
   id: string;
-  role: 'owner' | 'customer';
+  role: 'admin' | 'customer' | 'staff';
   fullName: string | null;
   phone: string | null;
   createdAt: string;
@@ -18,11 +18,11 @@ export type Shop = {
   contactPhone: string | null;
   // Printed on receipts (Print/Save/Email/WhatsApp) — see src/lib/receipt.ts.
   returnPolicy: string | null;
-  // Shown in the owner sidebar avatar and on receipts.
+  // Shown in the admin sidebar avatar and on receipts.
   logoUrl: string | null;
   categories: string[];
   // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
-  // until the owner sets one — the meter is hidden until then.
+  // until the admin sets one — the meter is hidden until then.
   monthlyRevenueGoalCents: number | null;
   // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
   // 2.5, editable) is applied server-side to every sale's post-discount

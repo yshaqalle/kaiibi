@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { OwnerSidebar } from '@/components/owner-sidebar';
+import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,7 +18,7 @@ import { updateShop, uploadShopLogo } from '@/lib/shops';
 // scheme. The screens it wraps stay on the light palette, so this isn't a
 // dark-mode toggle, just fixed shell chrome.
 //
-// The bottom tab bar mirrors the mobile-web nav (see owner-tabs.web.tsx):
+// The bottom tab bar mirrors the mobile-web nav (see admin-tabs.web.tsx):
 // white bar, gray unselected icons/labels, black selected label. It uses its
 // own literal colors instead of the header's `Colors.dark` because those web
 // nav colors (#999999 / #111111 / #FFFFFF) are a distinct grayscale from the
@@ -32,7 +32,7 @@ const tabBarColors = {
   labelSelected: '#111111',
 };
 
-export default function OwnerTabs() {
+export default function AdminTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -66,9 +66,9 @@ export default function OwnerTabs() {
   // instead of a phone-shaped bottom bar. Phones keep NativeTabs below.
   if (width >= TABLET_BREAKPOINT) {
     return (
-      <OwnerSidebar>
+      <AdminSidebar>
         <Slot />
-      </OwnerSidebar>
+      </AdminSidebar>
     );
   }
 

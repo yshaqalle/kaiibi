@@ -4,10 +4,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
 
-// Used by screens that are pushed on top of the owner tab shell (Settings,
+// Used by screens that are pushed on top of the admin tab shell (Settings,
 // Add/Edit product) rather than living inside it — those have no persistent
 // sidebar/bottom-nav, so without this they'd have no way back except the
-// browser's own back button. Always dark (matching OwnerTabs' header and the
+// browser's own back button. Always dark (matching AdminTabs' header and the
 // marketing site's black header/footer) regardless of system color scheme —
 // this is fixed shell chrome, not a dark-mode toggle. It also owns the top
 // safe-area inset itself (paints black behind the status bar), so screens
