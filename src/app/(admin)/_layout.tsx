@@ -1,5 +1,5 @@
 import { Redirect, Stack } from 'expo-router';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Platform, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 
@@ -15,7 +15,12 @@ export default function AdminLayout() {
   }
 
   if (!session || (profile?.role !== 'admin' && profile?.role !== 'staff')) {
-    return <Redirect href="/signup" />;
+    // This file isn't platform-split, so it serves both web and native.
+    // Web's post-logout/unauthenticated landing spot is still `/signup`
+    // (unchanged). Native's `/signup` is no longer a reasonable landing
+    // spot — it's now a bare pushed wizard, not a tab — so native goes to
+    // `/login` instead, matching this app's native-only login-first home.
+    return <Redirect href={Platform.OS === 'web' ? '/signup' : '/login'} />;
   }
 
   // `(tabs)` hosts the 4 tab-bar routes (dashboard/pos/inventory/sales) via
