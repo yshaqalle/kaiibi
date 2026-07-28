@@ -102,6 +102,11 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
     }
   };
 
+  const shareWhatsApp = () => {
+    const digits = receipt.customer.phone?.replace(/\D/g, '') ?? '';
+    openExternal(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+  };
+
   const shareGeneric = async () => {
     setBusy('share');
     try {
@@ -247,6 +252,10 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
             <Pressable onPress={shareEmail} disabled={busy !== null} style={styles.actionButton}>
               {busy === 'email' ? <ActivityIndicator size="small" /> : <Text style={styles.actionIcon}>✉️</Text>}
               <Text style={styles.actionLabel}>Email</Text>
+            </Pressable>
+            <Pressable onPress={shareWhatsApp} style={styles.actionButton}>
+              <Text style={styles.actionIcon}>💬</Text>
+              <Text style={styles.actionLabel}>WhatsApp</Text>
             </Pressable>
             {Platform.OS !== 'web' && (
               <Pressable onPress={shareGeneric} disabled={busy !== null} style={styles.actionButton}>

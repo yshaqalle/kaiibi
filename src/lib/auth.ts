@@ -1,10 +1,10 @@
 import { supabase } from '@/lib/supabase';
 
-export async function signUpOwner(params: { email: string; password: string; fullName: string; phone: string }) {
+export async function signUpAdmin(params: { email: string; password: string; fullName: string; phone: string }) {
   const { data, error } = await supabase.auth.signUp({
     email: params.email,
     password: params.password,
-    options: { data: { role: 'owner', full_name: params.fullName, phone: params.phone } },
+    options: { data: { role: 'admin', full_name: params.fullName, phone: params.phone } },
   });
   if (error) throw error;
   return data;

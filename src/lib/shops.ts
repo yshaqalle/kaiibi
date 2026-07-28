@@ -36,7 +36,18 @@ export async function getMyShop(): Promise<Shop | null> {
     .limit(1)
     .maybeSingle();
   if (error) throw error;
-  return data ? mapShopRow(data) : null;
+  if (data) return mapShopRow(data);
+
+  // Not an admin (no shop they own) -- check if they're staff at one instead.
+  const { data: membership, error: membershipError } = await supabase
+    .from('shop_members')
+    .select('shop:shops(*)')
+    .eq('user_id', userData.user.id)
+    .eq('active', true)
+    .limit(1)
+    .maybeSingle();
+  if (membershipError) throw membershipError;
+  return membership?.shop ? mapShopRow(membership.shop) : null;
 }
 
 export async function createShop(input: {

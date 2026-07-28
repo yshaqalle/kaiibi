@@ -18,7 +18,7 @@ export default function RootLayout() {
         <AnimatedSplashOverlay />
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(public)" />
-          <Stack.Screen name="(owner)" />
+          <Stack.Screen name="(admin)" />
         </Stack>
       </AuthProvider>
     </ThemeProvider>

@@ -3,7 +3,7 @@ import { ActivityIndicator, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 
-export default function OwnerLayout() {
+export default function AdminLayout() {
   const { loading, session, profile } = useAuth();
 
   if (loading) {
@@ -14,12 +14,12 @@ export default function OwnerLayout() {
     );
   }
 
-  if (!session || profile?.role !== 'owner') {
+  if (!session || (profile?.role !== 'admin' && profile?.role !== 'staff')) {
     return <Redirect href="/signup" />;
   }
 
   // `(tabs)` hosts the 4 tab-bar routes (dashboard/pos/inventory/sales) via
-  // OwnerTabs. `product/new`, `product/[id]` and `settings` are not tabs —
+  // AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
   // they're detail screens that should push on top of the tab bar, the same
   // way they do automatically on native. This Stack is what makes that
   // push-over-tabs behavior work on web too: expo-router/ui's
@@ -36,6 +36,7 @@ export default function OwnerLayout() {
       <Stack.Screen name="product/new" />
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="settings" />
+      <Stack.Screen name="account" />
     </Stack>
   );
 }

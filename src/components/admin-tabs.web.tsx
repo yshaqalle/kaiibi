@@ -4,14 +4,14 @@ import { Link, Slot, usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
-import { OwnerSidebar } from '@/components/owner-sidebar';
+import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // Bottom nav for narrow/mobile-web only — the wide layout uses the shared
-// `OwnerSidebar` (see owner-sidebar.tsx), which has its own icon set.
+// `AdminSidebar` (see admin-sidebar.tsx), which has its own icon set.
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { href: '/pos', label: 'POS', icon: '🛒' },
@@ -23,7 +23,7 @@ const navItems = [
 // a phone screen (and leave two-pane screens like POS with almost nothing
 // to work with), so it collapses into a slim top header + bottom tab bar
 // instead — the standard mobile-web nav shape.
-export default function OwnerTabs() {
+export default function AdminTabs() {
   const router = useRouter();
   const pathname = usePathname();
   const { shop, refreshShop } = useAuth();
@@ -34,7 +34,7 @@ export default function OwnerTabs() {
 
   // Lets the shop logo be changed straight from the mobile header avatar,
   // not just from Settings — a quick "click your logo to change it"
-  // affordance. The wide-layout equivalent lives in OwnerSidebar.
+  // affordance. The wide-layout equivalent lives in AdminSidebar.
   const editLogo = async () => {
     if (!shop || uploadingLogo) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -91,9 +91,9 @@ export default function OwnerTabs() {
   }
 
   return (
-    <OwnerSidebar>
+    <AdminSidebar>
       <Slot />
-    </OwnerSidebar>
+    </AdminSidebar>
   );
 }
 

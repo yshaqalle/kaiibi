@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -132,7 +133,12 @@ export default function SettingsScreen() {
         {section === 'profile' && profile && (
           <ProfileSection profile={profile} email={session?.user.email ?? null} onSaved={setProfile} />
         )}
-        {section === 'shop' && <ShopSection shop={shop} onSaved={refreshShop} />}
+        {section === 'shop' && (
+          <>
+            {profile?.role === 'admin' && <StaffRolesLink />}
+            <ShopSection shop={shop} onSaved={refreshShop} />
+          </>
+        )}
 
         {(section === 'catalog' || section === 'sales') && loading && <Text style={styles.hint}>Loading…</Text>}
 
@@ -297,6 +303,19 @@ function TaxonomySection({
         uploadImage={uploadImage}
       />
     </View>
+  );
+}
+
+function StaffRolesLink() {
+  const router = useRouter();
+  return (
+    <Pressable onPress={() => router.push('/account')} style={[styles.row, { marginBottom: 24 }]}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowLabel}>Staff & roles</Text>
+        <Text style={styles.rowSubLabel}>Add staff logins and control what each role can access.</Text>
+      </View>
+      <Text style={styles.rowActionText}>Manage ›</Text>
+    </Pressable>
   );
 }
 
@@ -881,9 +900,14 @@ function PromotionsModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Sales & promotions</Text>
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
-              <Text style={styles.modalCloseText}>Done</Text>
-            </Pressable>
+            <View style={styles.modalHeaderActions}>
+              <Pressable onPress={submit} style={styles.addButton}>
+                <Text style={styles.addButtonText}>{editingId ? 'Save changes' : 'Add sale'}</Text>
+              </Pressable>
+              <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
+                <Text style={styles.modalCloseText}>Done</Text>
+              </Pressable>
+            </View>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -1085,9 +1109,14 @@ function CurrenciesModal({
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Currencies</Text>
-            <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
-              <Text style={styles.modalCloseText}>Done</Text>
-            </Pressable>
+            <View style={styles.modalHeaderActions}>
+              <Pressable onPress={submit} style={styles.addButton}>
+                <Text style={styles.addButtonText}>{editingId ? 'Save changes' : 'Add currency'}</Text>
+              </Pressable>
+              <Pressable onPress={onClose} style={({ pressed }) => [styles.modalClose, pressed && styles.modalClosePressed]}>
+                <Text style={styles.modalCloseText}>Done</Text>
+              </Pressable>
+            </View>
           </View>
 
           {error && <Text style={styles.error}>{error}</Text>}
@@ -1206,6 +1235,7 @@ const styles = StyleSheet.create({
   // same Yoga flex-basis pitfall as the POS split panes; see pos.tsx).
   modalCard: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, height: '80%', overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  modalHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   modalTitle: { fontSize: 16, fontWeight: '800', color: '#111111' },
   modalClose: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
   modalClosePressed: { opacity: 0.6 },

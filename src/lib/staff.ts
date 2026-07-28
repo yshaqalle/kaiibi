@@ -1,0 +1,107 @@
+import { supabase } from '@/lib/supabase';
+import type { Role, StaffMember } from '@/types/models';
+
+function mapRoleRow(row: any): Role {
+  return { id: row.id, shopId: row.shop_id, name: row.name, permissions: row.permissions ?? [], createdAt: row.created_at };
+}
+
+export async function listRoles(shopId: string): Promise<Role[]> {
+  const { data, error } = await supabase.from('roles').select('*').eq('shop_id', shopId).order('name', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapRoleRow);
+}
+
+export async function createRole(shopId: string, name: string, permissions: string[]): Promise<Role> {
+  const { data, error } = await supabase.from('roles').insert({ shop_id: shopId, name, permissions }).select('*').single();
+  if (error) throw error;
+  return mapRoleRow(data);
+}
+
+export async function updateRole(roleId: string, input: { name?: string; permissions?: string[] }): Promise<Role> {
+  const { data, error } = await supabase
+    .from('roles')
+    .update({ ...(input.name !== undefined && { name: input.name }), ...(input.permissions !== undefined && { permissions: input.permissions }) })
+    .eq('id', roleId)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return mapRoleRow(data);
+}
+
+export async function deleteRole(roleId: string): Promise<void> {
+  const { error } = await supabase.from('roles').delete().eq('id', roleId);
+  if (error) throw error;
+}
+
+// How many staff currently use each role -- lets the Roles UI block/warn on
+// deleting a role that's still assigned, mirroring the taxonomy usage-count
+// pattern in settings.tsx.
+export async function countStaffByRole(shopId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase.from('shop_members').select('role_id').eq('shop_id', shopId);
+  if (error) throw error;
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) counts.set(row.role_id, (counts.get(row.role_id) ?? 0) + 1);
+  return counts;
+}
+
+function mapStaffRow(row: any): StaffMember {
+  return {
+    id: row.id,
+    shopId: row.shop_id,
+    userId: row.user_id,
+    roleId: row.role_id,
+    roleName: row.role?.name ?? '',
+    active: row.active,
+    fullName: row.full_name,
+    email: row.email,
+    createdAt: row.created_at,
+  };
+}
+
+export async function listStaff(shopId: string): Promise<StaffMember[]> {
+  // `profiles` isn't embeddable here -- shop_members and profiles both
+  // reference auth.users but have no direct FK to each other, so
+  // PostgREST can't join them. full_name/email are denormalized onto
+  // shop_members at provision time instead (see migrations 0019, 0021).
+  const { data, error } = await supabase
+    .from('shop_members')
+    .select('*, role:roles(name)')
+    .eq('shop_id', shopId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapStaffRow);
+}
+
+export async function updateStaffRole(memberId: string, roleId: string): Promise<void> {
+  const { error } = await supabase.from('shop_members').update({ role_id: roleId }).eq('id', memberId);
+  if (error) throw error;
+}
+
+export async function setStaffActive(memberId: string, active: boolean): Promise<void> {
+  const { error } = await supabase.from('shop_members').update({ active }).eq('id', memberId);
+  if (error) throw error;
+}
+
+export type ProvisionStaffResult = {
+  userId: string;
+  email: string;
+  temporaryPassword: string | null;
+};
+
+export type ProvisionStaffError = { error: 'forbidden' | 'invalid_role' | 'duplicate_email' | 'unknown'; message: string };
+
+export async function provisionStaff(input: {
+  shopId: string;
+  fullName: string;
+  email: string;
+  password?: string;
+  roleId: string;
+}): Promise<ProvisionStaffResult> {
+  const { data, error } = await supabase.functions.invoke<ProvisionStaffResult | ProvisionStaffError>('provision-staff', {
+    body: { shopId: input.shopId, fullName: input.fullName, email: input.email, password: input.password, roleId: input.roleId },
+  });
+  if (error) throw error;
+  if (data && 'error' in data) throw new Error(data.message);
+  if (!data) throw new Error('No response from provision-staff.');
+  return data;
+}

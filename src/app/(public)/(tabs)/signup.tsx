@@ -2,7 +2,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { signUpOwner } from '@/lib/auth';
+import { signUpAdmin } from '@/lib/auth';
 import { createShop } from '@/lib/shops';
 import { useAuth } from '@/hooks/use-auth';
 
@@ -37,7 +37,7 @@ export default function SignUpScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await signUpOwner({ email: email.trim(), password, fullName: name.trim(), phone: contact.trim() });
+      await signUpAdmin({ email: email.trim(), password, fullName: name.trim(), phone: contact.trim() });
       await createShop({ name: shopName.trim(), city: location.trim() || 'Hargeisa', neighborhood: area.trim() || undefined });
       await refreshShop();
       router.replace('/dashboard');

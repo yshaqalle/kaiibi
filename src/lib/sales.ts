@@ -258,7 +258,7 @@ export async function getPaymentMethodMix(shopId: string, sinceDate: Date, until
 
 // Daily revenue/order/discount buckets between sinceDate and untilDate
 // (defaults to now) — powers the dashboard's trend chart, which lets the
-// owner switch which of the three series is plotted without a refetch.
+// viewer switch which of the three series is plotted without a refetch.
 export async function getDailyTotalsCents(shopId: string, sinceDate: Date, untilDate?: Date) {
   const since = new Date(sinceDate);
   since.setHours(0, 0, 0, 0);
