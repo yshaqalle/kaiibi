@@ -214,6 +214,8 @@ export type Category = {
   shopId: string;
   name: string;
   color: string | null;
+  description: string | null;
+  imageUrl: string | null;
   createdAt: string;
 };
 
@@ -222,6 +224,8 @@ export type Brand = {
   shopId: string;
   name: string;
   color: string | null;
+  description: string | null;
+  imageUrl: string | null;
   createdAt: string;
 };
 
