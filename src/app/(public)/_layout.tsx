@@ -7,8 +7,10 @@ import { useAuth } from '@/hooks/use-auth';
 // unaffected by anything below. On native, `(public)` is now gated: an
 // authenticated admin/staff session skips straight to the dashboard, an
 // authenticated customer session goes to the marketplace stub, and
-// everyone else lands on `login` (this Stack's initial route) instead of
-// the marketing tabs. `(tabs)` (landing/how-it-works/signup) and the new
+// everyone else lands on `login`. `login` is reached at cold launch via
+// `(tabs)/index.tsx`'s native redirect stub (Step 2 below) — NOT via a
+// Stack `initialRouteName`, which does not affect Expo Router's URL-to-file
+// resolution. `(tabs)` (how-it-works/signup) and the new
 // `marketplace-coming-soon` screen are still reachable as pushed screens —
 // see `app-tabs.tsx` for how native reaches `(tabs)`'s children without a
 // tab bar.
@@ -32,7 +34,7 @@ export default function PublicLayout() {
   }
 
   return (
-    <Stack initialRouteName="login" screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="login" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="marketplace-coming-soon" options={{ headerShown: true, title: '', headerBackButtonDisplayMode: 'minimal' }} />
