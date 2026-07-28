@@ -33,7 +33,7 @@ export default function LoginScreen() {
       <Image source={kMark} contentFit="contain" style={styles.heroMark} />
       <Text style={styles.heroEyebrow}>SIMPLE POS & INVENTORY</Text>
       <Text style={styles.heroTitle}>Sell fast.{'\n'}Stock smart.</Text>
-      <Text style={styles.heroTrust}>No monthly fees · Works on phone or browser</Text>
+      <Text style={styles.heroTrust}>Free to start · Works on phone or browser</Text>
       <View style={styles.heroLinks}>
         <Pressable onPress={() => router.push('/about')}><Text style={styles.heroLink}>How it works</Text></Pressable>
         <Pressable onPress={() => router.push('/signup')}><Text style={styles.heroLink}>Create a shop</Text></Pressable>

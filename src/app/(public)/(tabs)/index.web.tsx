@@ -61,7 +61,7 @@ export default function DiscoverScreen() {
                 <Text style={styles.secondaryLink}>See how it works →</Text>
               </Pressable>
             </View>
-            <Text style={styles.trustLine}>No monthly fees · Works on phone or browser · Cash, ZAAD & e-Dahab ready</Text>
+            <Text style={styles.trustLine}>Free to start · Works on phone or browser · Cash, ZAAD & e-Dahab ready</Text>
             <View style={styles.roadmapBadge}>
               <Text style={styles.roadmapBadgeIcon}>🛍️</Text>
               <Text style={styles.roadmapBadgeText}>Coming soon: an online marketplace to sell beyond your counter — new e-commerce opportunities for your shop.</Text>
