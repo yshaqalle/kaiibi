@@ -73,6 +73,23 @@ export type Product = {
 
 export type NewProductInput = Omit<Product, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
 
+export type Customer = {
+  id: string;
+  shopId: string;
+  firstName: string;
+  lastName: string | null;
+  email: string | null;
+  phone: string | null;
+  street: string | null;
+  city: string | null;
+  neighborhood: string | null;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewCustomerInput = Omit<Customer, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
 // `value` is a percentage (0-100) for 'percentage', or a cents amount for
 // 'fixed'. Used both for a manual per-line discount the cashier types into
 // the POS cart, and for a `Promotion`'s configured discount.
@@ -188,6 +205,10 @@ export type Sale = {
   customerName: string | null;
   customerPhone: string | null;
   customerEmail: string | null;
+  // The linked customer record, if this sale was attached to one at
+  // checkout/edit time -- independent of the frozen name/phone/email
+  // snapshot above, which never changes even if the customer record does.
+  customerId: string | null;
   // Who rang up the sale — a frozen snapshot of a `Cashier` profile's name
   // at checkout time, not a live reference (renaming/deleting the profile
   // later doesn't change past sales, same as customer info).
