@@ -160,5 +160,5 @@ const styles = StyleSheet.create({
   stockCount: { fontSize: 13, color: '#111111' },
   stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12 },
 
-  editIcon: { color: '#999999', fontSize: 15 },
+  editIcon: { color: '#111111', fontSize: 20 },
 });
