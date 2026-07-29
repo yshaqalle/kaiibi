@@ -142,6 +142,10 @@ export default function AdminTabs() {
             <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/grid.png')} />
           </NativeTabs.Trigger>
+          <NativeTabs.Trigger name="customers">
+            <NativeTabs.Trigger.Label>Customers</NativeTabs.Trigger.Label>
+            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/customers.png')} />
+          </NativeTabs.Trigger>
           <NativeTabs.Trigger name="sales">
             <NativeTabs.Trigger.Label>Sales</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />

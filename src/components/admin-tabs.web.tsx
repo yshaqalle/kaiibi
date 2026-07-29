@@ -16,6 +16,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
   { href: '/pos', label: 'POS', icon: '🛒' },
   { href: '/inventory', label: 'Inventory', icon: '▦' },
+  { href: '/customers', label: 'Customers', icon: '👥' },
   { href: '/sales', label: 'Sales', icon: '📈' },
 ] as const;
 
