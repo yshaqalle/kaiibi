@@ -40,6 +40,8 @@ export default function AdminLayout() {
       <Stack.Screen name="(tabs)" />
       <Stack.Screen name="product/new" />
       <Stack.Screen name="product/[id]" />
+      <Stack.Screen name="customer/new" />
+      <Stack.Screen name="customer/[id]" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="account" />
     </Stack>
