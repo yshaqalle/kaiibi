@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/card';
 import { CustomerModal } from '@/components/customer-modal';
+import { CustomerTableHeader, CustomerTableRow, type SortDirection, type SortField } from '@/components/customer-table-row';
 import { useAuth } from '@/hooks/use-auth';
 import { createCustomer, listCustomers, updateCustomer } from '@/lib/customers';
 import type { Customer } from '@/types/models';
@@ -15,6 +16,8 @@ export default function CustomersScreen() {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -27,14 +30,33 @@ export default function CustomersScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter((c) =>
-      c.firstName.toLowerCase().includes(q) ||
-      (c.lastName ?? '').toLowerCase().includes(q) ||
-      (c.phone ?? '').toLowerCase().includes(q) ||
-      c.tags.some((tag) => tag.toLowerCase().includes(q))
-    );
-  }, [customers, search]);
+    const matches = !q
+      ? customers
+      : customers.filter((c) =>
+          c.firstName.toLowerCase().includes(q) ||
+          (c.lastName ?? '').toLowerCase().includes(q) ||
+          (c.phone ?? '').toLowerCase().includes(q) ||
+          c.tags.some((tag) => tag.toLowerCase().includes(q))
+        );
+    if (!sortField) return matches;
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    return [...matches].sort((a, b) => {
+      switch (sortField) {
+        case 'name': return `${a.firstName} ${a.lastName ?? ''}`.localeCompare(`${b.firstName} ${b.lastName ?? ''}`) * dir;
+        case 'phone': return (a.phone ?? '').localeCompare(b.phone ?? '') * dir;
+        case 'email': return (a.email ?? '').localeCompare(b.email ?? '') * dir;
+      }
+    });
+  }, [customers, search, sortField, sortDirection]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -55,16 +77,9 @@ export default function CustomersScreen() {
           <Text style={styles.empty}>No customers yet. Add your first one above.</Text>
         ) : (
           <Card style={styles.list}>
+            <CustomerTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />
             {filtered.map((customer) => (
-              <Pressable key={customer.id} onPress={() => setEditingCustomer(customer)} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowName}>{customer.firstName} {customer.lastName ?? ''}</Text>
-                  {customer.phone && <Text style={styles.rowMeta}>{customer.phone}</Text>}
-                </View>
-                {customer.tags.length > 0 && (
-                  <Text style={styles.rowTags} numberOfLines={1}>{customer.tags.slice(0, 3).join(', ')}</Text>
-                )}
-              </Pressable>
+              <CustomerTableRow key={customer.id} customer={customer} onEdit={() => setEditingCustomer(customer)} />
             ))}
           </Card>
         )}
@@ -103,8 +118,4 @@ const styles = StyleSheet.create({
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
   list: { overflow: 'hidden' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
-  rowName: { color: '#111111', fontSize: 14, fontWeight: '700' },
-  rowMeta: { color: '#999999', fontSize: 12, marginTop: 2 },
-  rowTags: { color: '#999999', fontSize: 11, maxWidth: 140 },
 });
