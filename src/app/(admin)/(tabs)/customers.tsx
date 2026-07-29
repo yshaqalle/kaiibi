@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/card';
+import { CustomerModal } from '@/components/customer-modal';
 import { useAuth } from '@/hooks/use-auth';
-import { listCustomers } from '@/lib/customers';
+import { createCustomer, listCustomers, updateCustomer } from '@/lib/customers';
 import type { Customer } from '@/types/models';
 
 export default function CustomersScreen() {
   const { shop } = useAuth();
-  const router = useRouter();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -43,7 +44,7 @@ export default function CustomersScreen() {
             <Text style={styles.title}>Customers</Text>
             <Text style={styles.subtitle}>{customers.length} customers</Text>
           </View>
-          <Pressable onPress={() => router.push('/customer/new')} style={styles.addButton}>
+          <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
             <Text style={styles.addButtonText}>+ New</Text>
           </Pressable>
         </View>
@@ -55,7 +56,7 @@ export default function CustomersScreen() {
         ) : (
           <Card style={styles.list}>
             {filtered.map((customer) => (
-              <Pressable key={customer.id} onPress={() => router.push(`/customer/${customer.id}`)} style={styles.row}>
+              <Pressable key={customer.id} onPress={() => setEditingCustomer(customer)} style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowName}>{customer.firstName} {customer.lastName ?? ''}</Text>
                   {customer.phone && <Text style={styles.rowMeta}>{customer.phone}</Text>}
@@ -68,6 +69,25 @@ export default function CustomersScreen() {
           </Card>
         )}
       </ScrollView>
+
+      {shop && (
+        <CustomerModal
+          visible={showAddModal}
+          onClose={() => setShowAddModal(false)}
+          shopId={shop.id}
+          onSubmit={async (input) => { await createCustomer(shop.id, input); await reload(); }}
+        />
+      )}
+      {shop && (
+        <CustomerModal
+          visible={editingCustomer !== null}
+          onClose={() => setEditingCustomer(null)}
+          shopId={shop.id}
+          initial={editingCustomer ?? undefined}
+          onSubmit={async (input) => { if (editingCustomer) await updateCustomer(editingCustomer.id, input); await reload(); }}
+          onDeleted={reload}
+        />
+      )}
     </SafeAreaView>
   );
 }

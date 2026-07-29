@@ -1,23 +1,27 @@
-import { useEffect, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { createTag, listTags } from '@/lib/tags';
 import type { Customer, NewCustomerInput } from '@/types/models';
 
-export function CustomerForm({
-  initial,
-  onSubmit,
-  onDelete,
-  submitLabel,
-  shopId,
-}: {
+export type CustomerFormHandle = { submit: () => void };
+
+export const CustomerForm = forwardRef<CustomerFormHandle, {
   initial?: Customer;
   onSubmit: (input: NewCustomerInput) => Promise<void>;
   onDelete?: () => Promise<void>;
   submitLabel: string;
   shopId: string;
-}) {
+  onStatusChange?: (status: { valid: boolean; submitting: boolean }) => void;
+}>(function CustomerForm({
+  initial,
+  onSubmit,
+  onDelete,
+  submitLabel,
+  shopId,
+  onStatusChange,
+}, ref) {
   const [firstName, setFirstName] = useState(initial?.firstName ?? '');
   const [lastName, setLastName] = useState(initial?.lastName ?? '');
   const [email, setEmail] = useState(initial?.email ?? '');
@@ -82,6 +86,9 @@ export function CustomerForm({
     }
   };
 
+  useImperativeHandle(ref, () => ({ submit }), [submit]);
+  useEffect(() => { onStatusChange?.({ valid, submitting }); }, [valid, submitting, onStatusChange]);
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <Field label="FIRST NAME *"><TextInput value={firstName} onChangeText={setFirstName} placeholder="e.g. Amina" placeholderTextColor="#999999" style={styles.input} /></Field>
@@ -123,7 +130,7 @@ export function CustomerForm({
       )}
     </ScrollView>
   );
-}
+});
 
 function Row({ children }: { children: React.ReactNode }) { return <View style={styles.row}>{children}</View>; }
 function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: object }) {
