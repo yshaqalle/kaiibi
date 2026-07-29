@@ -17,6 +17,7 @@ const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: require('@/assets/images/tabIcons/home.png') },
   { href: '/pos', label: 'POS', icon: require('@/assets/images/tabIcons/cart.png') },
   { href: '/inventory', label: 'Inventory', icon: require('@/assets/images/tabIcons/grid.png') },
+  { href: '/customers', label: 'Customers', icon: require('@/assets/images/tabIcons/customers.png') },
   { href: '/sales', label: 'Sales', icon: require('@/assets/images/tabIcons/chart.png') },
 ] as const;
 

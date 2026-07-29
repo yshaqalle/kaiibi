@@ -2,7 +2,7 @@ import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
 import type { CartLine, PaymentLine, PaymentMethod, Promotion, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
-export type SaleCustomer = { name?: string | null; phone?: string | null; email?: string | null };
+export type SaleCustomer = { id?: string | null; name?: string | null; phone?: string | null; email?: string | null };
 
 export async function completeSale(
   shopId: string,
@@ -24,6 +24,7 @@ export async function completeSale(
     p_customer_email: customer?.email ?? null,
     p_cashier_name: cashierName ?? null,
     p_discount_cents: transactionDiscountCents,
+    p_customer_id: customer?.id ?? null,
   });
   if (error) throw error;
   return data as string;
@@ -52,6 +53,7 @@ export async function editSale(
     p_customer_phone: customer?.phone ?? null,
     p_customer_email: customer?.email ?? null,
     p_discount_cents: transactionDiscountCents,
+    p_customer_id: customer?.id ?? null,
   });
   if (error) throw error;
 }
@@ -88,6 +90,7 @@ function mapSaleRow(row: any): Sale {
     customerName: row.customer_name,
     customerPhone: row.customer_phone,
     customerEmail: row.customer_email,
+    customerId: row.customer_id,
     cashierName: row.cashier_name,
     discountCents: row.discount_cents ?? 0,
     taxCents: row.tax_cents ?? 0,

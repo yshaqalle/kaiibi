@@ -64,7 +64,7 @@ export function ProductTile({
 
           {onEdit && (
             <Pressable onPress={onEdit} style={styles.editButton}>
-              <Text style={[styles.editIcon, { color: theme.textSecondary }]}>✎</Text>
+              <Text style={[styles.editIcon, { color: theme.text }]}>✎</Text>
             </Pressable>
           )}
         </View>
@@ -90,5 +90,5 @@ const styles = StyleSheet.create({
   stepperButton: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { fontSize: 13, fontWeight: '800' },
   editButton: { marginLeft: 'auto', width: 24, alignItems: 'center' },
-  editIcon: { fontSize: 14 },
+  editIcon: { fontSize: 18 },
 });

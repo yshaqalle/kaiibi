@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
@@ -436,9 +437,9 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       foreignChangeCents: p.foreignChangeCents,
     }))
   );
-  const [customerName, setCustomerName] = useState(sale.customerName ?? '');
-  const [customerPhone, setCustomerPhone] = useState(sale.customerPhone ?? '');
-  const [customerEmail, setCustomerEmail] = useState(sale.customerEmail ?? '');
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
+    sale.customerId ? { id: sale.customerId, name: sale.customerName ?? '', phone: sale.customerPhone, email: sale.customerEmail } : null
+  );
   const [droppedCount] = useState(() => (sale.items?.length ?? 0) - items.length);
   const [addSearch, setAddSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -474,9 +475,10 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     setError(null);
     try {
       await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity })), payments, {
-        name: customerName.trim() || null,
-        phone: customerPhone.trim() || null,
-        email: customerEmail.trim() || null,
+        id: selectedCustomer?.id ?? null,
+        name: selectedCustomer?.name ?? null,
+        phone: selectedCustomer?.phone ?? null,
+        email: selectedCustomer?.email ?? null,
       });
       onSaved();
     } catch (err) {
@@ -493,11 +495,14 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
       )}
 
       <Text style={styles.detailLabel}>CUSTOMER (OPTIONAL)</Text>
-      <View style={styles.editCustomerRow}>
-        <TextInput value={customerName} onChangeText={setCustomerName} placeholder="Name" placeholderTextColor="#999999" style={styles.editCustomerInput} />
-        <TextInput value={customerPhone} onChangeText={setCustomerPhone} placeholder="Phone" placeholderTextColor="#999999" keyboardType="phone-pad" style={styles.editCustomerInput} />
-      </View>
-      <TextInput value={customerEmail} onChangeText={setCustomerEmail} placeholder="Email" placeholderTextColor="#999999" keyboardType="email-address" autoCapitalize="none" style={[styles.editCustomerInput, { flexGrow: 0, flexShrink: 0, marginBottom: 8 }]} />
+      {shop && (
+        <CustomerPicker
+          shopId={shop.id}
+          selected={selectedCustomer}
+          onSelect={setSelectedCustomer}
+          onClear={() => setSelectedCustomer(null)}
+        />
+      )}
 
       <Text style={styles.detailLabel}>ITEMS</Text>
       {items.map((item) => (
