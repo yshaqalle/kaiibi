@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDime
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryChip } from '@/components/category-chip';
+import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { DiscountEditor } from '@/components/discount-editor';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
@@ -48,10 +49,7 @@ export default function PosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
-  const [customerOpen, setCustomerOpen] = useState(false);
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [cashiers, setCashiers] = useState<string[]>([]);
   // Unlike customer info (cleared after every sale), the cashier stays
@@ -136,9 +134,10 @@ export default function PosScreen() {
         cart,
         payments,
         {
-          name: customerName.trim() || null,
-          phone: customerPhone.trim() || null,
-          email: customerEmail.trim() || null,
+          id: selectedCustomer?.id ?? null,
+          name: selectedCustomer?.name ?? null,
+          phone: selectedCustomer?.phone ?? null,
+          email: selectedCustomer?.email ?? null,
         },
         cashierName,
         promotions,
@@ -159,7 +158,7 @@ export default function PosScreen() {
           discountCents: lineDiscountCents(line, promotions),
         })),
         payments,
-        customer: { name: customerName.trim() || null, phone: customerPhone.trim() || null, email: customerEmail.trim() || null },
+        customer: { name: selectedCustomer?.name ?? null, phone: selectedCustomer?.phone ?? null, email: selectedCustomer?.email ?? null },
         subtotalCents: grossCents,
         discountCents: grossCents - preTaxTotalCents,
         taxCents,
@@ -169,10 +168,7 @@ export default function PosScreen() {
       });
       setCart([]);
       setPayments([]);
-      setCustomerName('');
-      setCustomerPhone('');
-      setCustomerEmail('');
-      setCustomerOpen(false);
+      setSelectedCustomer(null);
       setTransactionDiscount(null);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
@@ -361,17 +357,13 @@ export default function PosScreen() {
             </View>
           )}
 
-          <Pressable onPress={() => setCustomerOpen((v) => !v)} style={styles.customerToggle}>
-            <Text style={styles.customerToggleText}>
-              {customerOpen ? '▴' : '▾'} {customerName.trim() ? `Customer: ${customerName.trim()}` : 'Add customer info (optional)'}
-            </Text>
-          </Pressable>
-          {customerOpen && (
-            <View style={styles.customerFields}>
-              <TextInput value={customerName} onChangeText={setCustomerName} placeholder="Name" placeholderTextColor="#9B9B9B" style={styles.customerInput} />
-              <TextInput value={customerPhone} onChangeText={setCustomerPhone} placeholder="Phone" placeholderTextColor="#9B9B9B" keyboardType="phone-pad" style={styles.customerInput} />
-              <TextInput value={customerEmail} onChangeText={setCustomerEmail} placeholder="Email" placeholderTextColor="#9B9B9B" keyboardType="email-address" autoCapitalize="none" style={styles.customerInput} />
-            </View>
+          {shop && (
+            <CustomerPicker
+              shopId={shop.id}
+              selected={selectedCustomer}
+              onSelect={setSelectedCustomer}
+              onClear={() => setSelectedCustomer(null)}
+            />
           )}
 
           <PaymentMethodPicker totalCents={total} payments={payments} currencies={currencies} onChange={setPayments} />
