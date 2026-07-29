@@ -13,10 +13,20 @@ type RequestBody = {
   roleId: string;
 };
 
+// The web client calls this cross-origin (e.g. localhost:8081 -> supabase.co),
+// so the browser preflights with OPTIONS before the real POST. Without these
+// headers on every response, the browser blocks the request before our
+// handler logic ever runs.
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 function errorResponse(status: number, error: string, message: string) {
   return new Response(JSON.stringify({ error, message }), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
 }
 
@@ -26,6 +36,7 @@ function generatePassword(): string {
 }
 
 Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (req.method !== 'POST') return errorResponse(405, 'unknown', 'Method not allowed.');
 
   let body: RequestBody;
@@ -112,6 +123,6 @@ Deno.serve(async (req) => {
       temporaryPassword: body.password?.trim() ? null : password,
       member: { id: member.id, shopId: member.shop_id, userId: member.user_id, roleId: member.role_id, active: member.active },
     }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } }
+    { status: 200, headers: { 'Content-Type': 'application/json', ...corsHeaders } }
   );
 });
