@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { createCustomer, searchCustomers } from '@/lib/customers';
+import { quickAddCustomer, searchCustomers } from '@/lib/customers';
 import type { Customer } from '@/types/models';
 
 export type SelectedCustomer = { id: string; name: string; phone: string | null; email: string | null };
@@ -60,15 +60,11 @@ export function CustomerPicker({
     setCreating(true);
     setError(null);
     try {
-      const customer = await createCustomer(shopId, {
+      const customer = await quickAddCustomer(shopId, {
         firstName: firstName.trim(),
         lastName: lastName.trim() || null,
         phone: phone.trim() || null,
         email: email.trim() || null,
-        street: null,
-        city: null,
-        neighborhood: null,
-        tags: [],
       });
       pick(customer);
       setFirstName('');
