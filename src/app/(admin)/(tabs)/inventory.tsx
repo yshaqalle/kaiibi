@@ -11,9 +11,14 @@ import { createProduct, listProducts, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
 
 export default function InventoryScreen() {
-  const { shop } = useAuth();
+  const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
+  // `inventory.view` alone is a read-only view of the catalog (the seeded
+  // Cashier role's scope) — the add button, the row stock steppers, and the
+  // edit modals all need `inventory.edit`, which is what the products write
+  // policies check too.
+  const canEdit = can('inventory.edit');
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -83,9 +88,11 @@ export default function InventoryScreen() {
             <Text style={styles.title}>Inventory</Text>
             <Text style={styles.subtitle}>{products.length} products · {needsAttention} need attention</Text>
           </View>
-          <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
-            <Text style={styles.addButtonText}>+ Add product</Text>
-          </Pressable>
+          {canEdit && (
+            <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
+              <Text style={styles.addButtonText}>+ Add product</Text>
+            </Pressable>
+          )}
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
         {loading ? (
@@ -99,8 +106,8 @@ export default function InventoryScreen() {
                 <ProductTile
                   key={product.id}
                   product={product}
-                  onEdit={() => setEditingProduct(product)}
-                  onStockChange={(next) => adjustStock(product, next)}
+                  onEdit={canEdit ? () => setEditingProduct(product) : undefined}
+                  onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
                 />
               ))
             ) : (
@@ -110,8 +117,8 @@ export default function InventoryScreen() {
                   <ProductTableRow
                     key={product.id}
                     product={product}
-                    onEdit={() => setEditingProduct(product)}
-                    onStockChange={(next) => adjustStock(product, next)}
+                    onEdit={canEdit ? () => setEditingProduct(product) : undefined}
+                    onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
                   />
                 ))}
               </>
@@ -120,7 +127,7 @@ export default function InventoryScreen() {
         )}
       </ScrollView>
 
-      {shop && (
+      {shop && canEdit && (
         <ProductModal
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
@@ -128,7 +135,7 @@ export default function InventoryScreen() {
           onSubmit={async (input) => { await createProduct(shop.id, input); await reload(); }}
         />
       )}
-      {shop && (
+      {shop && canEdit && (
         <ProductModal
           visible={editingProduct !== null}
           onClose={() => setEditingProduct(null)}

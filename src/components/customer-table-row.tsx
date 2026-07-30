@@ -50,13 +50,15 @@ export function CustomerTableRow({
   onEdit,
 }: {
   customer: Customer;
-  onEdit: () => void;
+  // Omitted for a read-only viewer (`customers.view` without
+  // `customers.edit`), which also drops the row's edit pencil.
+  onEdit?: () => void;
 }) {
   const visibleTags = customer.tags.slice(0, 3);
   const hiddenTagCount = customer.tags.length - visibleTags.length;
 
   return (
-    <Pressable onPress={onEdit} style={styles.row}>
+    <Pressable onPress={onEdit} disabled={!onEdit} style={styles.row}>
       <View style={styles.dataCols}>
         <Text style={[styles.cellText, styles.name, colName]} numberOfLines={1}>
           {customer.firstName} {customer.lastName ?? ''}
@@ -81,7 +83,7 @@ export function CustomerTableRow({
       </View>
 
       <View style={styles.colEdit}>
-        <Text style={styles.editIcon}>✎</Text>
+        {onEdit && <Text style={styles.editIcon}>✎</Text>}
       </View>
     </Pressable>
   );

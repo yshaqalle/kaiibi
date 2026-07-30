@@ -36,17 +36,19 @@ export default function AdminTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop } = useAuth();
+  const { shop, refreshShop, can } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const canEditShop = can('settings.access');
 
   // Lets the shop logo be changed straight from the header avatar, not just
   // from Settings — mirrors the same affordance on the sidebar (tablet/web)
-  // and mobile-web headers.
+  // and mobile-web headers. Gated on the same permission as Settings, the
+  // screen it shortcuts.
   const editLogo = async () => {
-    if (!shop || uploadingLogo) return;
+    if (!shop || uploadingLogo || !canEditShop) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return;
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
@@ -76,7 +78,7 @@ export default function AdminTabs() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background, borderBottomColor: colors.backgroundElement }]}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={editLogo} style={[styles.avatar, { backgroundColor: colors.text }]}>
+          <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, { backgroundColor: shop?.logoUrl ? '#F5F5F2' : colors.text }]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.background }]}>{initial}</Text>}
           </Pressable>
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
@@ -94,17 +96,21 @@ export default function AdminTabs() {
       <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
-            <Pressable
-              onPress={() => {
-                setMenuOpen(false);
-                router.push('/settings');
-              }}
-              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
-            >
-              <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
-              <Text style={[styles.menuItemText, { color: colors.text }]}>Settings</Text>
-            </Pressable>
-            <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
+            {canEditShop && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/settings');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={[styles.settingsIcon, { color: colors.text }]}>⚙</Text>
+                  <Text style={[styles.menuItemText, { color: colors.text }]}>Settings</Text>
+                </Pressable>
+                <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
+              </>
+            )}
             <Pressable
               onPress={() => {
                 setMenuOpen(false);
@@ -130,23 +136,28 @@ export default function AdminTabs() {
             default: { color: tabBarColors.labelDefault, fontWeight: '600' },
             selected: { color: tabBarColors.labelSelected, fontWeight: '800' },
           }}>
-          <NativeTabs.Trigger name="dashboard">
+          {/* `hidden` rather than dropping the trigger: it both removes the
+              tab from the bar and makes the route unnavigable (see Expo's
+              native-tabs docs), while keeping every `(tabs)` route declared
+              so expo-router can still resolve the group. The route guard in
+              (admin)/_layout.tsx is the cross-platform backstop. */}
+          <NativeTabs.Trigger name="dashboard" hidden={!can('dashboard.view')}>
             <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="pos">
+          <NativeTabs.Trigger name="pos" hidden={!can('pos.access')}>
             <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/cart.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="inventory">
+          <NativeTabs.Trigger name="inventory" hidden={!can('inventory.view')}>
             <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/grid.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="customers">
+          <NativeTabs.Trigger name="customers" hidden={!can('customers.view')}>
             <NativeTabs.Trigger.Label>Customers</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/customers.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="sales">
+          <NativeTabs.Trigger name="sales" hidden={!can('sales.view')}>
             <NativeTabs.Trigger.Label>Sales</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />
           </NativeTabs.Trigger>

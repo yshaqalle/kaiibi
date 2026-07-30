@@ -45,22 +45,43 @@ export async function listCustomers(shopId: string): Promise<Customer[]> {
 // Powers the POS checkout picker's type-ahead -- server-side so it works
 // against the full customer list, not just whatever listCustomers already
 // fetched into a screen's local state.
+//
+// An RPC rather than a table query because the picker is reachable with only
+// `pos.access`/`sales.edit`, which don't grant read on `customers` (that's
+// `customers.view`, for the directory). `pos_search_customers` is a bounded
+// lookup -- 2+ character query, wildcards escaped, 10 rows max -- so ringing
+// up a sale can't double as a way to export the directory. See migration
+// 0025.
 export async function searchCustomers(shopId: string, query: string): Promise<Customer[]> {
   const q = query.trim();
-  if (!q) return [];
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('shop_id', shopId)
-    .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%,phone.ilike.%${q}%`)
-    .order('first_name', { ascending: true })
-    .limit(10);
+  if (q.length < 2) return [];
+  const { data, error } = await supabase.rpc('pos_search_customers', { p_shop_id: shopId, p_query: q });
   if (error) throw error;
-  return (data ?? []).map(mapCustomerRow);
+  return ((data as any[] | null) ?? []).map(mapCustomerRow);
 }
 
 export async function getCustomer(id: string): Promise<Customer> {
   const { data, error } = await supabase.from('customers').select('*').eq('id', id).single();
+  if (error) throw error;
+  return mapCustomerRow(data);
+}
+
+// The picker's "+ New customer" quick-add. Separate from `createCustomer`
+// below for the same reason `searchCustomers` is an RPC: the picker only has
+// `pos.access`/`sales.edit`, so it can neither insert into `customers` nor
+// read the row back. Takes only the four fields the picker collects -- the
+// rest of the record is filled in from the directory.
+export async function quickAddCustomer(
+  shopId: string,
+  input: { firstName: string; lastName?: string | null; phone?: string | null; email?: string | null }
+): Promise<Customer> {
+  const { data, error } = await supabase.rpc('pos_create_customer', {
+    p_shop_id: shopId,
+    p_first_name: input.firstName,
+    p_last_name: input.lastName ?? null,
+    p_phone: input.phone ?? null,
+    p_email: input.email ?? null,
+  });
   if (error) throw error;
   return mapCustomerRow(data);
 }

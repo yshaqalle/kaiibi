@@ -1,5 +1,19 @@
+import { ALL_PERMISSIONS, expandPermissions, type Permission } from '@/lib/permissions';
 import { supabase } from '@/lib/supabase';
-import type { Role, StaffMember } from '@/types/models';
+import type { Role, Shop, StaffMember } from '@/types/models';
+
+// What the signed-in user is allowed to do in `shop`. The admin (the shop's
+// owner_id) implicitly holds the whole catalog and deliberately has no
+// shop_members row (see migration 0017), so that case is resolved here rather
+// than duplicating the catalog in SQL. Staff go through the
+// `my_shop_permissions` RPC because `roles` itself is only readable with
+// staff.manage -- a cashier can't select its own role row directly.
+export async function getMyPermissions(shop: Shop, userId: string): Promise<Permission[]> {
+  if (shop.ownerId === userId) return [...ALL_PERMISSIONS];
+  const { data, error } = await supabase.rpc('my_shop_permissions', { p_shop_id: shop.id });
+  if (error) throw error;
+  return expandPermissions((data as string[] | null) ?? []);
+}
 
 function mapRoleRow(row: any): Role {
   return { id: row.id, shopId: row.shop_id, name: row.name, permissions: row.permissions ?? [], createdAt: row.created_at };

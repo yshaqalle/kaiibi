@@ -38,9 +38,13 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function SalesScreen() {
-  const { shop } = useAuth();
+  const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
+  // `sales.view` is read-only history (receipts included); rewriting or
+  // deleting a past sale needs `sales.edit`, which edit_sale/delete_sale
+  // check server-side too.
+  const canEdit = can('sales.edit');
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [daysBack, setDaysBack] = useState<number>(14);
@@ -214,6 +218,7 @@ export default function SalesScreen() {
                 sale={sale}
                 products={products}
                 compact={compact}
+                canEdit={canEdit}
                 expanded={expandedId === sale.id}
                 editing={editingId === sale.id}
                 confirmingDelete={confirmDeleteId === sale.id}
@@ -268,6 +273,7 @@ function SaleRow({
   sale,
   products,
   compact,
+  canEdit,
   expanded,
   editing,
   confirmingDelete,
@@ -282,6 +288,7 @@ function SaleRow({
   sale: Sale;
   products: Product[];
   compact: boolean;
+  canEdit: boolean;
   expanded: boolean;
   editing: boolean;
   confirmingDelete: boolean;
@@ -400,8 +407,12 @@ function SaleRow({
           ) : (
             <View style={styles.actionRow}>
               <Pressable onPress={() => setShowReceipt(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Receipt</Text></Pressable>
-              <Pressable onPress={onStartEdit} style={styles.actionButton}><Text style={styles.actionButtonText}>Edit</Text></Pressable>
-              <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
+              {canEdit && (
+                <>
+                  <Pressable onPress={onStartEdit} style={styles.actionButton}><Text style={styles.actionButtonText}>Edit</Text></Pressable>
+                  <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
+                </>
+              )}
             </View>
           )}
         </View>

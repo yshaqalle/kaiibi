@@ -1,7 +1,9 @@
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import type { Permission } from '@/lib/permissions';
 import { getMyShop } from '@/lib/shops';
+import { getMyPermissions } from '@/lib/staff';
 import { supabase } from '@/lib/supabase';
 import type { Profile, Shop } from '@/types/models';
 
@@ -9,6 +11,12 @@ type AuthState = {
   session: Session | null;
   profile: Profile | null;
   shop: Shop | null;
+  // What this user's role grants in `shop` — the whole catalog for the admin
+  // who owns it, their role's expanded permission set for staff, empty when
+  // there's no shop resolved yet. Consumers should use `can()` rather than
+  // reading this directly.
+  permissions: Permission[];
+  can: (permission: Permission) => boolean;
   loading: boolean;
   refreshShop: () => Promise<void>;
   // Settings' profile editor already gets the freshly-updated row back from
@@ -17,19 +25,48 @@ type AuthState = {
   setProfile: (profile: Profile) => void;
 };
 
+const noPermissions: Permission[] = [];
+
+// Permissions are always fetched together with the shop they apply to and
+// written under the same sequence guard, so the two can never disagree —
+// gating UI on a stale permission set is exactly the bug this is here to fix.
+//
+// The user is resolved here rather than taken from `session` state so this
+// stays callable the moment a shop is created during signup, before React has
+// committed the session that triggered it (the same reason `getMyShop()` asks
+// Supabase for the user itself).
+async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permissions: Permission[] }> {
+  const [{ data: userData }, shop] = await Promise.all([supabase.auth.getUser(), getMyShop()]);
+  const userId = userData.user?.id;
+  if (!shop || !userId) return { shop, permissions: noPermissions };
+  try {
+    return { shop, permissions: await getMyPermissions(shop, userId) };
+  } catch {
+    // Fail closed: an unresolved permission set must never read as "allow
+    // everything". Swallowed rather than rethrown so a failure here can't
+    // reject loadForSession() and strand the app on its loading spinner —
+    // the session still resolves, the user just lands on the "no access"
+    // screen and can retry. Only staff can reach this: an admin's
+    // permissions come from owning the shop, with no round trip to fail.
+    return { shop, permissions: noPermissions };
+  }
+}
+
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [shop, setShop] = useState<Shop | null>(null);
+  const [permissions, setPermissions] = useState<Permission[]>(noPermissions);
   const [loading, setLoading] = useState(true);
   // Two independent counters guard against out-of-order async writes, one per
   // logically distinct concern:
   // - `loadSeq` guards a whole loadForSession() run (its `profile` write and
   //   final `setLoading(false)`): if a newer session-load has started since this
   //   one began, this one's results are stale and must not be applied.
-  // - `shopSeq` guards `shop` specifically, because it can be written by two
+  // - `shopSeq` guards `shop` and the `permissions` fetched alongside it (both
+  //   written in the same guarded block), because it can be written by two
   //   independent callers running concurrently: loadForSession's own fetch (as
   //   part of a session reload) and an explicit refreshShop() call (e.g. right
   //   after creating a shop during admin signup). These must NOT share a counter
@@ -70,6 +107,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!nextSession) {
         setProfile(null);
         setShop(null);
+        setPermissions(noPermissions);
         setLoading(false);
         return;
       }
@@ -91,9 +129,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           : null
       );
       const myShopId = ++shopSeq.current;
-      const myShop = await getMyShop();
+      const resolved = await loadShopAndPermissions();
       if (!active || loadSeq.current !== myLoadId) return;
-      if (shopSeq.current === myShopId) setShop(myShop);
+      if (shopSeq.current === myShopId) {
+        setShop(resolved.shop);
+        setPermissions(resolved.permissions);
+      }
       setLoading(false);
     };
 
@@ -110,13 +151,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshShop = async () => {
     const myShopId = ++shopSeq.current;
-    const myShop = await getMyShop();
+    const resolved = await loadShopAndPermissions();
     if (shopSeq.current !== myShopId) return;
-    setShop(myShop);
+    setShop(resolved.shop);
+    setPermissions(resolved.permissions);
   };
 
+  const can = (permission: Permission) => permissions.includes(permission);
+
   return (
-    <AuthContext.Provider value={{ session, profile, shop, loading, refreshShop, setProfile }}>
+    <AuthContext.Provider value={{ session, profile, shop, permissions, can, loading, refreshShop, setProfile }}>
       {children}
     </AuthContext.Provider>
   );

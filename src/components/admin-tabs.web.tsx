@@ -8,17 +8,20 @@ import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // Bottom nav for narrow/mobile-web only — the wide layout uses the shared
 // `AdminSidebar` (see admin-sidebar.tsx), which has its own icon set.
+// `permission` mirrors the route guard in (admin)/_layout.tsx, so a role that
+// can't open a screen never sees a tab for it.
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: '🏠' },
-  { href: '/pos', label: 'POS', icon: '🛒' },
-  { href: '/inventory', label: 'Inventory', icon: '▦' },
-  { href: '/customers', label: 'Customers', icon: '👥' },
-  { href: '/sales', label: 'Sales', icon: '📈' },
-] as const;
+  { href: '/dashboard', label: 'Dashboard', permission: 'dashboard.view', icon: '🏠' },
+  { href: '/pos', label: 'POS', permission: 'pos.access', icon: '🛒' },
+  { href: '/inventory', label: 'Inventory', permission: 'inventory.view', icon: '▦' },
+  { href: '/customers', label: 'Customers', permission: 'customers.view', icon: '👥' },
+  { href: '/sales', label: 'Sales', permission: 'sales.view', icon: '📈' },
+] as const satisfies readonly { href: string; label: string; permission: Permission; icon: string }[];
 
 // Below `compactBreakpoint` the persistent sidebar would eat more than half
 // a phone screen (and leave two-pane screens like POS with almost nothing
@@ -27,17 +30,20 @@ const navItems = [
 export default function AdminTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { shop, refreshShop } = useAuth();
+  const { shop, refreshShop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const canEditShop = can('settings.access');
+  const visibleNavItems = navItems.filter((item) => can(item.permission));
 
   // Lets the shop logo be changed straight from the mobile header avatar,
   // not just from Settings — a quick "click your logo to change it"
-  // affordance. The wide-layout equivalent lives in AdminSidebar.
+  // affordance. The wide-layout equivalent lives in AdminSidebar. Gated on
+  // the same permission as Settings, the screen it shortcuts.
   const editLogo = async () => {
-    if (!shop || uploadingLogo) return;
+    if (!shop || uploadingLogo || !canEditShop) return;
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return;
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
@@ -57,15 +63,17 @@ export default function AdminTabs() {
       <View style={styles.mobileRoot}>
         <View style={styles.mobileHeader}>
           <View style={styles.mobileHeaderLeft}>
-            <Pressable onPress={editLogo} style={styles.avatarSmall}>
+            <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatarSmall, shop?.logoUrl && styles.avatarWithLogo]}>
               {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
             </Pressable>
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
           </View>
           <View style={styles.mobileHeaderRight}>
-            <Pressable onPress={() => router.push('/settings')} style={styles.settingsButtonCompact} hitSlop={8}>
-              <Text style={styles.settingsIcon}>⚙</Text>
-            </Pressable>
+            {canEditShop && (
+              <Pressable onPress={() => router.push('/settings')} style={styles.settingsButtonCompact} hitSlop={8}>
+                <Text style={styles.settingsIcon}>⚙</Text>
+              </Pressable>
+            )}
             <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
               <Text style={styles.signOutCompact}>Sign out</Text>
             </Pressable>
@@ -73,7 +81,7 @@ export default function AdminTabs() {
         </View>
         <View style={styles.mobileSlot}><Slot /></View>
         <View style={styles.bottomNav}>
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isFocused = pathname === item.href;
             return (
               <Link key={item.href} href={item.href} asChild>
@@ -106,6 +114,9 @@ const styles = StyleSheet.create({
   mobileHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
   mobileHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 12 },
   avatarSmall: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // See AdminSidebar's avatarWithLogo -- same reasoning: a logo's own dark
+  // ink needs a light backdrop, not the black no-logo fallback.
+  avatarWithLogo: { backgroundColor: '#F5F5F2' },
   shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
   mobileHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   settingsButtonCompact: { padding: 2 },

@@ -181,35 +181,65 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
 // each sale's edit history. Kept separate from `listSales` (used for a plain
 // most-recent-N fetch, e.g. the dashboard's "recent transactions" list) since
 // that caller doesn't need edit history.
-export async function listSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, limit = 300): Promise<Sale[]> {
+function salesInRangeQuery(shopId: string, sinceDate: Date, untilDate?: Date) {
   let query = supabase
     .from('sales')
     .select('*, sale_items(*), sale_payments(*), sale_edits(*)')
     .eq('shop_id', shopId)
     .gte('created_at', sinceDate.toISOString())
-    .order('created_at', { ascending: false })
-    .limit(limit);
+    .order('created_at', { ascending: false });
   if (untilDate) query = query.lte('created_at', untilDate.toISOString());
-  const { data, error } = await query;
+  return query;
+}
+
+export async function listSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, limit = 300): Promise<Sale[]> {
+  const { data, error } = await salesInRangeQuery(shopId, sinceDate, untilDate).limit(limit);
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
+}
+
+// PostgREST caps any unbounded select at a server-side default (1000 rows),
+// so a plain `.select()` silently truncates once a shop has more matching
+// rows than that -- fine for a bounded "recent sales" list, but not for
+// anything computing a total over the whole range. Pages through with
+// `.range()` instead of trusting a single fetch to be complete.
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(runPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await runPage(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    all.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
+}
+
+// Used by the dashboard's aggregate functions below, which need to see
+// every sale in range rather than a capped/recent slice.
+async function listAllSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<Sale[]> {
+  const rows = await fetchAllRows<any>((from, to) => salesInRangeQuery(shopId, sinceDate, untilDate).range(from, to));
+  return rows.map(mapSaleRow);
 }
 
 // Returns products ranked both ways from a single query — the dashboard's
 // ranking chart switches between them instantly (no refetch) since a product
 // popular by units isn't necessarily the one bringing in the most revenue.
 export async function getTopSellingProducts(shopId: string, sinceDate: Date, untilDate?: Date) {
-  let query = supabase
-    .from('sale_items')
-    .select('product_name, quantity, line_total_cents, sales!inner(shop_id, created_at)')
-    .eq('sales.shop_id', shopId)
-    .gte('sales.created_at', sinceDate.toISOString());
-  if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
-  const { data, error } = await query;
-  if (error) throw error;
+  const rows = await fetchAllRows<{ product_name: string; quantity: number; line_total_cents: number }>((from, to) => {
+    let query = supabase
+      .from('sale_items')
+      .select('product_name, quantity, line_total_cents, sales!inner(shop_id, created_at)')
+      .eq('sales.shop_id', shopId)
+      .gte('sales.created_at', sinceDate.toISOString());
+    if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
+    return query.range(from, to) as unknown as PromiseLike<{ data: { product_name: string; quantity: number; line_total_cents: number }[] | null; error: unknown }>;
+  });
 
   const totals = new Map<string, { quantitySold: number; revenueCents: number }>();
-  for (const row of data ?? []) {
+  for (const row of rows) {
     const current = totals.get(row.product_name) ?? { quantitySold: 0, revenueCents: 0 };
     current.quantitySold += row.quantity;
     current.revenueCents += row.line_total_cents;
@@ -226,7 +256,7 @@ export async function getTopSellingProducts(shopId: string, sinceDate: Date, unt
 // view. Sales rung up without a cashier assigned are excluded from the
 // ranking rather than lumped into an "Unassigned" bar.
 export async function getCashierPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const sales = await listSalesInRange(shopId, sinceDate, untilDate, 1000);
+  const sales = await listAllSalesInRange(shopId, sinceDate, untilDate);
   const totals = new Map<string, number>();
   for (const sale of sales) {
     if (!sale.cashierName) continue;
@@ -242,7 +272,7 @@ export async function getCashierPerformance(shopId: string, sinceDate: Date, unt
 // payment-mix chart. Multi-line (split) payments are summed by their own
 // method rather than attributed whole to the sale's top-level method.
 export async function getPaymentMethodMix(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const sales = await listSalesInRange(shopId, sinceDate, untilDate, 1000);
+  const sales = await listAllSalesInRange(shopId, sinceDate, untilDate);
   const totals = new Map<PaymentMethod, number>();
   for (const sale of sales) {
     if (sale.payments && sale.payments.length > 0) {
@@ -267,7 +297,7 @@ export async function getDailyTotalsCents(shopId: string, sinceDate: Date, until
   since.setHours(0, 0, 0, 0);
   const until = untilDate ? new Date(untilDate) : new Date();
   const dayCount = Math.max(1, Math.floor((until.getTime() - since.getTime()) / 86_400_000) + 1);
-  const sales = await listSalesInRange(shopId, since, untilDate, dayCount <= 7 ? 500 : 1000);
+  const sales = await listAllSalesInRange(shopId, since, untilDate);
   const buckets = new Map<string, { totalCents: number; orderCount: number; discountCents: number }>();
   for (let i = 0; i < dayCount; i++) {
     const day = new Date(since); day.setDate(since.getDate() + i);
@@ -288,15 +318,15 @@ export async function getDailyTotalsCents(shopId: string, sinceDate: Date, until
 type SaleItemCategoryRow = { quantity: number; line_total_cents: number; products: { category: string | null } | null; sales: { created_at: string } };
 
 async function fetchSaleItemsWithCategory(shopId: string, sinceDate: Date, untilDate?: Date): Promise<SaleItemCategoryRow[]> {
-  let query = supabase
-    .from('sale_items')
-    .select('quantity, line_total_cents, products(category), sales!inner(shop_id, created_at)')
-    .eq('sales.shop_id', shopId)
-    .gte('sales.created_at', sinceDate.toISOString());
-  if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as unknown as SaleItemCategoryRow[];
+  return fetchAllRows<SaleItemCategoryRow>((from, to) => {
+    let query = supabase
+      .from('sale_items')
+      .select('quantity, line_total_cents, products(category), sales!inner(shop_id, created_at)')
+      .eq('sales.shop_id', shopId)
+      .gte('sales.created_at', sinceDate.toISOString());
+    if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
+    return query.range(from, to) as unknown as PromiseLike<{ data: SaleItemCategoryRow[] | null; error: unknown }>;
+  });
 }
 
 // Units sold per product category over the range, for the dashboard's
@@ -374,6 +404,6 @@ export async function getMonthToDateRevenueCents(shopId: string): Promise<number
   const since = new Date();
   since.setDate(1);
   since.setHours(0, 0, 0, 0);
-  const sales = await listSalesInRange(shopId, since, undefined, 1000);
+  const sales = await listAllSalesInRange(shopId, since, undefined);
   return sales.reduce((sum, sale) => sum + sale.totalCents, 0);
 }
