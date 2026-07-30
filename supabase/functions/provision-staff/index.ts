@@ -71,15 +71,18 @@ Deno.serve(async (req) => {
   // done explicitly rather than relying on policies.
   const adminClient = createClient(supabaseUrl, serviceRoleKey);
 
-  const { data: shop, error: shopError } = await adminClient
-    .from('shops')
-    .select('id, owner_id')
-    .eq('id', shopId)
-    .maybeSingle();
-  if (shopError) return errorResponse(500, 'unknown', shopError.message);
-  // v1 scope: only the actual shop admin can provision staff, not a staff
-  // member with a hypothetical future `staff.manage` permission.
-  if (!shop || shop.owner_id !== callerData.user.id) {
+  // The shop owner or anyone whose role grants `staff.manage` (migration
+  // 0024). Asked of the DB rather than compared here, so this stays the same
+  // check the roles/shop_members RLS policies apply -- the service-role
+  // client bypasses RLS, so auth.uid() is null for it and the caller's id has
+  // to be passed explicitly.
+  const { data: canManageStaff, error: permissionError } = await adminClient.rpc('user_has_shop_permission', {
+    p_user_id: callerData.user.id,
+    p_shop_id: shopId,
+    p_permission: 'staff.manage',
+  });
+  if (permissionError) return errorResponse(500, 'unknown', permissionError.message);
+  if (!canManageStaff) {
     return errorResponse(403, 'forbidden', 'Not authorized to add staff to this shop.');
   }
 

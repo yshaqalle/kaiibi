@@ -36,7 +36,7 @@ const sectionOptions: { key: SettingsSection; label: string }[] = [
 ];
 
 export default function SettingsScreen() {
-  const { shop, profile, session, setProfile, refreshShop } = useAuth();
+  const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
   const [section, setSection] = useState<SettingsSection>('profile');
   const [brandRows, setBrandRows] = useState<Brand[]>([]);
   const [categoryRows, setCategoryRows] = useState<Category[]>([]);
@@ -135,7 +135,7 @@ export default function SettingsScreen() {
         )}
         {section === 'shop' && (
           <>
-            {profile?.role === 'admin' && <StaffRolesLink />}
+            {can('staff.manage') && <StaffRolesLink />}
             <ShopSection shop={shop} onSaved={refreshShop} />
           </>
         )}

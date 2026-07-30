@@ -60,8 +60,10 @@ export function ProductTableRow({
   onStockChange,
 }: {
   product: Product;
-  onEdit: () => void;
-  onStockChange: (nextStock: number) => void;
+  // Both omitted for a read-only viewer (a role with `inventory.view` but not
+  // `inventory.edit`) — same contract as ProductTile.
+  onEdit?: () => void;
+  onStockChange?: (nextStock: number) => void;
 }) {
   const lowStock = product.stock <= (product.reorderLevel ?? 5);
   const outOfStock = product.stock <= 0;
@@ -101,9 +103,11 @@ export function ProductTableRow({
         <Text style={[styles.cellText, styles.price, colPrice]}>{formatCents(product.priceCents)}</Text>
 
         <View style={[styles.cell, colStock]}>
-          <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
-            <Text style={styles.stepperButtonText}>−</Text>
-          </Pressable>
+          {onStockChange && (
+            <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
+              <Text style={styles.stepperButtonText}>−</Text>
+            </Pressable>
+          )}
           {outOfStock ? (
             <Text style={styles.stockPill}>⚠ Out of stock</Text>
           ) : (
@@ -112,15 +116,21 @@ export function ProductTableRow({
               {lowStock && <Text style={styles.stockPill}>⚠ Low stock</Text>}
             </View>
           )}
-          <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
-            <Text style={styles.stepperButtonText}>+</Text>
-          </Pressable>
+          {onStockChange && (
+            <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
+              <Text style={styles.stepperButtonText}>+</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
-      <Pressable onPress={onEdit} style={styles.colEdit}>
-        <Text style={styles.editIcon}>✎</Text>
-      </Pressable>
+      {onEdit ? (
+        <Pressable onPress={onEdit} style={styles.colEdit}>
+          <Text style={styles.editIcon}>✎</Text>
+        </Pressable>
+      ) : (
+        <View style={styles.colEdit} />
+      )}
     </View>
   );
 }

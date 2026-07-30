@@ -1,0 +1,120 @@
+import {
+  ALL_PERMISSIONS,
+  expandPermissions,
+  firstAllowedRoute,
+  permissionForPath,
+  type Permission,
+} from '@/lib/permissions';
+
+// The seeded roles from migration 0020 (plus 0024's customers additions) are
+// the concrete cases this gate has to get right.
+const CASHIER: string[] = ['pos.access', 'inventory.view'];
+const MANAGER: string[] = [
+  'pos.access',
+  'inventory.view',
+  'inventory.edit',
+  'sales.view',
+  'sales.edit',
+  'dashboard.view',
+  'customers.view',
+  'customers.edit',
+];
+
+describe('expandPermissions', () => {
+  it('keeps a stored set as-is when it needs no implications', () => {
+    expect(expandPermissions(CASHIER)).toEqual(['pos.access', 'inventory.view']);
+  });
+
+  it('folds in implied permissions so a writer can also read', () => {
+    expect(expandPermissions(['inventory.edit'])).toEqual(['inventory.view', 'inventory.edit']);
+    expect(expandPermissions(['sales.edit'])).toEqual(['sales.view', 'sales.edit']);
+    expect(expandPermissions(['customers.edit'])).toEqual(['customers.view', 'customers.edit']);
+  });
+
+  it('drops entries that are not in the catalog', () => {
+    expect(expandPermissions(['pos.access', 'reports.export', ''])).toEqual(['pos.access']);
+  });
+
+  it('deduplicates and returns catalog order regardless of stored order', () => {
+    expect(expandPermissions(['inventory.view', 'inventory.edit', 'pos.access', 'inventory.view'])).toEqual([
+      'pos.access',
+      'inventory.view',
+      'inventory.edit',
+    ]);
+  });
+
+  it('resolves an empty role to no permissions at all', () => {
+    expect(expandPermissions([])).toEqual([]);
+  });
+});
+
+describe('permissionForPath', () => {
+  it.each([
+    ['/dashboard', 'dashboard.view'],
+    ['/pos', 'pos.access'],
+    ['/inventory', 'inventory.view'],
+    ['/customers', 'customers.view'],
+    ['/sales', 'sales.view'],
+    ['/settings', 'settings.access'],
+    ['/account', 'staff.manage'],
+  ])('gates %s on %s', (path, permission) => {
+    expect(permissionForPath(path)).toBe(permission);
+  });
+
+  it('gates the product detail screens on inventory.edit, not inventory.view', () => {
+    expect(permissionForPath('/product/new')).toBe('inventory.edit');
+    expect(permissionForPath('/product/abc-123')).toBe('inventory.edit');
+  });
+
+  it('leaves routes outside the catalog ungated', () => {
+    expect(permissionForPath('/marketplace-coming-soon')).toBeNull();
+    expect(permissionForPath('/login')).toBeNull();
+  });
+
+  it('does not treat a longer unrelated segment as a prefix match', () => {
+    expect(permissionForPath('/salesperson')).toBeNull();
+  });
+});
+
+describe('firstAllowedRoute', () => {
+  it('lands an admin on the dashboard', () => {
+    expect(firstAllowedRoute(ALL_PERMISSIONS)).toBe('/dashboard');
+  });
+
+  it('lands a cashier on the POS, since the dashboard is off-limits', () => {
+    expect(firstAllowedRoute(expandPermissions(CASHIER))).toBe('/pos');
+  });
+
+  it('lands a manager on the dashboard', () => {
+    expect(firstAllowedRoute(expandPermissions(MANAGER))).toBe('/dashboard');
+  });
+
+  it('returns null when a role grants nothing navigable', () => {
+    expect(firstAllowedRoute([])).toBeNull();
+    // settings.access has no tab of its own -- it's reached from the nav
+    // footer, so it alone is not a landing spot.
+    expect(firstAllowedRoute(['settings.access'])).toBeNull();
+  });
+});
+
+describe('the cashier scope this gate exists to enforce', () => {
+  const cashier = expandPermissions(CASHIER);
+  const blocked: Permission[] = ['sales.view', 'sales.edit', 'dashboard.view', 'customers.view', 'settings.access', 'staff.manage', 'inventory.edit'];
+
+  it.each(blocked)('does not grant %s', (permission) => {
+    expect(cashier).not.toContain(permission);
+  });
+
+  it('blocks every route a cashier should not reach', () => {
+    for (const path of ['/dashboard', '/sales', '/customers', '/settings', '/account', '/product/new']) {
+      const required = permissionForPath(path);
+      expect(required).not.toBeNull();
+      expect(cashier).not.toContain(required as Permission);
+    }
+  });
+
+  it('still grants the two routes a cashier works from', () => {
+    expect(cashier).toContain(permissionForPath('/pos'));
+    expect(cashier).toContain(permissionForPath('/inventory'));
+  });
+});

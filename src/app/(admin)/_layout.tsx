@@ -1,10 +1,13 @@
-import { Redirect, Stack } from 'expo-router';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Redirect, Stack, usePathname, useRouter } from 'expo-router';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { signOut } from '@/lib/auth';
+import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile } = useAuth();
+  const { loading, session, profile, permissions, can } = useAuth();
+  const pathname = usePathname();
 
   if (loading) {
     return (
@@ -23,8 +26,24 @@ export default function AdminLayout() {
     return <Redirect href={Platform.OS === 'web' ? '/signup' : '/login'} />;
   }
 
-  // `(tabs)` hosts the 4 tab-bar routes (dashboard/pos/inventory/sales) via
-  // AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
+  // The single choke point for per-permission route access. Every `(admin)`
+  // route renders through this layout, so gating here covers deep links, a
+  // typed URL on web, and the default landing tab in one place — the nav
+  // filtering in AdminTabs/AdminSidebar is only there so the UI doesn't offer
+  // a route this would immediately bounce.
+  //
+  // This is the client half of the gate; the DB half (migration 0024's RLS)
+  // is what actually protects the data, since nothing stops a staff member
+  // querying the API directly.
+  const landing = firstAllowedRoute(permissions);
+  const required = permissionForPath(pathname);
+  if (required && !can(required)) {
+    return landing ? <Redirect href={landing} /> : <NoAccessScreen />;
+  }
+  if (!landing) return <NoAccessScreen />;
+
+  // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
+  // via AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
   // they're detail screens that should push on top of the tab bar, the same
   // way they do automatically on native. This Stack is what makes that
   // push-over-tabs behavior work on web too: expo-router/ui's
@@ -45,3 +64,29 @@ export default function AdminLayout() {
     </Stack>
   );
 }
+
+// A staff account whose role grants nothing (or whose role was emptied while
+// they were signed in) has no route to land on — show why instead of an
+// endless redirect or a blank shell.
+function NoAccessScreen() {
+  const router = useRouter();
+  return (
+    <View style={styles.noAccess}>
+      <Text style={styles.noAccessTitle}>No access yet</Text>
+      <Text style={styles.noAccessBody}>
+        Your account isn&apos;t allowed to open any part of this shop. Ask the shop owner to give your role
+        some permissions.
+      </Text>
+      <Pressable onPress={() => signOut().then(() => router.replace(Platform.OS === 'web' ? '/signup' : '/login'))}>
+        <Text style={styles.noAccessSignOut}>Sign out</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  noAccess: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, backgroundColor: '#FFFFFF' },
+  noAccessTitle: { color: '#111111', fontSize: 18, fontWeight: '800' },
+  noAccessBody: { color: '#777777', fontSize: 13, textAlign: 'center', maxWidth: 320, lineHeight: 19 },
+  noAccessSignOut: { color: '#111111', fontSize: 12, fontWeight: '800', marginTop: 8 },
+});

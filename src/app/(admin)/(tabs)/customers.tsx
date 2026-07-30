@@ -10,7 +10,10 @@ import { createCustomer, listCustomers, updateCustomer } from '@/lib/customers';
 import type { Customer } from '@/types/models';
 
 export default function CustomersScreen() {
-  const { shop } = useAuth();
+  const { shop, can } = useAuth();
+  // `customers.view` is a read-only directory; adding/editing/deleting a
+  // record needs `customers.edit`, matching the customers write policies.
+  const canEdit = can('customers.edit');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -66,9 +69,11 @@ export default function CustomersScreen() {
             <Text style={styles.title}>Customers</Text>
             <Text style={styles.subtitle}>{customers.length} customers</Text>
           </View>
-          <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
-            <Text style={styles.addButtonText}>+ New</Text>
-          </Pressable>
+          {canEdit && (
+            <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
+              <Text style={styles.addButtonText}>+ New</Text>
+            </Pressable>
+          )}
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, phone, or tag" placeholderTextColor="#999999" style={styles.search} />
         {loading ? (
@@ -79,13 +84,13 @@ export default function CustomersScreen() {
           <Card style={styles.list}>
             <CustomerTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />
             {filtered.map((customer) => (
-              <CustomerTableRow key={customer.id} customer={customer} onEdit={() => setEditingCustomer(customer)} />
+              <CustomerTableRow key={customer.id} customer={customer} onEdit={canEdit ? () => setEditingCustomer(customer) : undefined} />
             ))}
           </Card>
         )}
       </ScrollView>
 
-      {shop && (
+      {shop && canEdit && (
         <CustomerModal
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
@@ -93,7 +98,7 @@ export default function CustomersScreen() {
           onSubmit={async (input) => { await createCustomer(shop.id, input); await reload(); }}
         />
       )}
-      {shop && (
+      {shop && canEdit && (
         <CustomerModal
           visible={editingCustomer !== null}
           onClose={() => setEditingCustomer(null)}

@@ -1,4 +1,3 @@
-import { Redirect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +6,7 @@ import { CategoryChip } from '@/components/category-chip';
 import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { useAuth } from '@/hooks/use-auth';
-import { PERMISSIONS } from '@/lib/permissions';
+import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, PERMISSIONS, type Permission } from '@/lib/permissions';
 import {
   countStaffByRole,
   createRole,
@@ -28,10 +27,12 @@ const sectionOptions: { key: AccountSection; label: string }[] = [
 ];
 
 export default function AccountScreen() {
-  const { shop, profile } = useAuth();
-  // Staff.manage-style permission checks land in Phase 3 -- for now this
-  // screen (and the roles/shop_members RLS behind it) is admin-only, same
-  // as every other owner-only surface today.
+  const { shop } = useAuth();
+  // Gated on `staff.manage` by the route guard in (admin)/_layout.tsx, and by
+  // the roles/shop_members RLS behind it (migration 0024). Provisioning a
+  // *login* is still owner-only, though -- creating an auth.users row needs
+  // the service role, and the provision-staff Edge Function checks
+  // staff.manage itself.
   const [section, setSection] = useState<AccountSection>('roles');
   const [roles, setRoles] = useState<Role[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
@@ -56,7 +57,6 @@ export default function AccountScreen() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  if (profile && profile.role !== 'admin') return <Redirect href="/dashboard" />;
   if (!shop) return null;
 
   return (
@@ -173,8 +173,18 @@ function RoleEditorModal({
     }
   }, [visible, role]);
 
-  const togglePermission = (key: string) => {
-    setPermissions((current) => (current.includes(key) ? current.filter((p) => p !== key) : [...current, key]));
+  // The DB checks each permission literally (`'inventory.view' = any(...)`),
+  // so an implication has to be materialized into the stored array rather
+  // than left for a reader to infer: switching on "Edit inventory" also
+  // switches on "View inventory", and switching the view off switches the
+  // edit off with it instead of leaving a role that can write a table it
+  // can't read.
+  const togglePermission = (key: Permission) => {
+    setPermissions((current) => {
+      if (!current.includes(key)) return expandPermissions([...current, key]);
+      const dependents = ALL_PERMISSIONS.filter((p) => (IMPLIED_PERMISSIONS[p] ?? []).includes(key));
+      return current.filter((p) => p !== key && !dependents.includes(p as Permission));
+    });
   };
 
   const save = async () => {
@@ -183,7 +193,7 @@ function RoleEditorModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave({ name: trimmed, permissions });
+      await onSave({ name: trimmed, permissions: expandPermissions(permissions) });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this role.');
     } finally {
