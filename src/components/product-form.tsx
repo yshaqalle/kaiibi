@@ -61,7 +61,11 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const [imageUri, setImageUri] = useState<string | null>(initial?.imageUrl ?? null);
   const [uploading, setUploading] = useState(false);
 
-  const valid = Boolean(name.trim() && priceInput.trim());
+  // `toCents` leniently coerces anything it can't parse to 0 (see
+  // src/lib/currency.ts) so a non-empty-but-garbage price (e.g. "abc") isn't
+  // distinguishable from a real 0 by string-emptiness alone -- require the
+  // parsed value to actually be positive.
+  const valid = Boolean(name.trim() && priceInput.trim() && toCents(priceInput) > 0);
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();

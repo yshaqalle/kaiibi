@@ -112,6 +112,13 @@ export default function DashboardScreen() {
   const yesterday = dailyMetrics.at(-2);
   const todayTotalCents = today?.totalCents ?? 0;
   const todayOrders = today?.orderCount ?? 0;
+  // `today` is really just the range's last bucket -- for the default preset
+  // ranges that's always today, but a custom range (RangeSelector.applyCustom)
+  // can end on any past date, and the tile below would otherwise caption a
+  // historical day "Today's sales".
+  const latestSalesLabel = today && today.day !== new Date().toDateString()
+    ? `${new Date(today.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} sales`
+    : "Today's sales";
 
   const salesDelta = useMemo(() => {
     if (!yesterday || yesterday.totalCents <= 0) return undefined;
@@ -185,7 +192,7 @@ export default function DashboardScreen() {
         <View style={[styles.headerDivider, { backgroundColor: theme.border }]} />
 
         <View style={styles.metricRow}>
-          <StatTile value={formatCents(todayTotalCents)} label="Today's sales" delta={salesDelta} sparkline={dailyMetrics.map((d) => d.totalCents)} />
+          <StatTile value={formatCents(todayTotalCents)} label={latestSalesLabel} delta={salesDelta} sparkline={dailyMetrics.map((d) => d.totalCents)} />
           <StatTile value={String(todayOrders)} label="Orders" delta={ordersDelta} />
           <StatTile value={String(lowStock.length)} label="Low stock" tone={lowStock.length > 0 ? 'warning' : 'default'} />
         </View>
