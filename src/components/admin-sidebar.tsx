@@ -81,7 +81,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
     <View style={styles.tabs}>
       <View style={styles.sidebar}>
         <View style={styles.header}>
-          <Pressable onPress={editLogo} disabled={!canEditShop} style={styles.avatar}>
+          <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, shop?.logoUrl && styles.avatarWithLogo]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
           </Pressable>
           <View>
@@ -119,6 +119,12 @@ const styles = StyleSheet.create({
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
   avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // A shop's uploaded logo is usually dark ink on a transparent background
+  // (meant to sit on a light surface), so the black fallback swatch above
+  // would make a dark-ink logo unreadable against it. Only the no-logo
+  // initial keeps the black/white treatment; once there's a real image,
+  // give it a neutral light backdrop that works with either ink color.
+  avatarWithLogo: { backgroundColor: '#F5F5F2' },
   avatarImage: { width: '100%', height: '100%' },
   avatarText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
   shopName: { color: '#111111', fontSize: 15, fontWeight: '800', maxWidth: 140 },

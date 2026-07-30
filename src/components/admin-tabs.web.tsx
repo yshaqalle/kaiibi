@@ -63,7 +63,7 @@ export default function AdminTabs() {
       <View style={styles.mobileRoot}>
         <View style={styles.mobileHeader}>
           <View style={styles.mobileHeaderLeft}>
-            <Pressable onPress={editLogo} disabled={!canEditShop} style={styles.avatarSmall}>
+            <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatarSmall, shop?.logoUrl && styles.avatarWithLogo]}>
               {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
             </Pressable>
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
@@ -114,6 +114,9 @@ const styles = StyleSheet.create({
   mobileHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
   mobileHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 12 },
   avatarSmall: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  // See AdminSidebar's avatarWithLogo -- same reasoning: a logo's own dark
+  // ink needs a light backdrop, not the black no-logo fallback.
+  avatarWithLogo: { backgroundColor: '#F5F5F2' },
   shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
   mobileHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   settingsButtonCompact: { padding: 2 },

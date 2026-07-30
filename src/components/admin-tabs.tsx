@@ -78,7 +78,7 @@ export default function AdminTabs() {
     <View style={styles.root}>
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.background, borderBottomColor: colors.backgroundElement }]}>
         <View style={styles.headerLeft}>
-          <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, { backgroundColor: colors.text }]}>
+          <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, { backgroundColor: shop?.logoUrl ? '#F5F5F2' : colors.text }]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={[styles.avatarText, { color: colors.background }]}>{initial}</Text>}
           </Pressable>
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
