@@ -237,7 +237,7 @@ function RoleEditorModal({
             <Text style={[styles.fieldLabel, { marginTop: 16 }]}>PERMISSIONS</Text>
             {PERMISSIONS.map((p) => (
               <Pressable key={p.key} onPress={() => togglePermission(p.key)} style={styles.permissionRow}>
-                <Switch value={permissions.includes(p.key)} onValueChange={() => togglePermission(p.key)} />
+                <Switch value={permissions.includes(p.key)} pointerEvents="none" onValueChange={() => togglePermission(p.key)} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.rowLabel}>{p.label}</Text>
                   <Text style={styles.rowSubLabel}>{p.description}</Text>
