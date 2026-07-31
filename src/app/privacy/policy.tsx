@@ -1,39 +1,45 @@
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Public, unauthenticated page (same pattern as marketplace-coming-soon.tsx —
 // a standalone top-level route, not nested in (public)/(admin), so it's
 // reachable without signing in). Its URL (/privacy/policy) is what's on file
 // as the app's Privacy Policy URL in App Store Connect and Google Play's Data
-// Safety form, so the path shouldn't change without updating both.
-//
-// PLACEHOLDER CONTACT EMAIL: replace info@kaiibi.com. below with the real
-// inbox before shipping this. Also confirm CONTACT_EMAIL further down.
-const CONTACT_EMAIL = 'info@kaiibi.com.';
+// Safety form, so the path shouldn't change without updating both. Also
+// linked in-app from signup.tsx, per App Store guideline 5.1.1(i) (privacy
+// policy must be linked both in App Store Connect metadata and in-app).
+const CONTACT_EMAIL = 'info@kaiibi.com';
 const LAST_UPDATED = 'July 30, 2026';
 
 export default function PrivacyPolicyScreen() {
+  const router = useRouter();
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
+        {router.canGoBack() && (
+          <Pressable onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backButtonText}>‹ Back</Text>
+          </Pressable>
+        )}
         <Text style={styles.eyebrow}>KA IIBI</Text>
         <Text style={styles.title}>Privacy Policy</Text>
         <Text style={styles.updated}>Last updated: {LAST_UPDATED}</Text>
 
         <Text style={styles.paragraph}>
-          Ka Iibi ("Ka Iibi", "we", "us") provides a point-of-sale and shop-management app
+          Ka Iibi (&quot;Ka Iibi&quot;, &quot;we&quot;, &quot;us&quot;) provides a point-of-sale and shop-management app
           used by shop owners and their staff to manage inventory, take sales, and run their
           business. This policy explains what information we collect through the app, how
-          it's used, and who it's shared with.
+          it&apos;s used, and who it&apos;s shared with.
         </Text>
 
         <Section title="Who this policy covers">
           <Text style={styles.paragraph}>
             Ka Iibi is used by two kinds of people. <Text style={styles.bold}>Shop owners and staff</Text> create
-            an account to run the app. <Text style={styles.bold}>A shop's own customers</Text> aren't
+            an account to run the app. <Text style={styles.bold}>A shop&apos;s own customers</Text> aren&apos;t
             app users themselves — their contact details are entered into the app by shop staff (e.g. a
             phone number captured at checkout) so the shop can look up a repeat customer. We process that
-            customer data on the shop's behalf and behalf only; the shop, not Ka Iibi, decides what's
+            customer data on the shop&apos;s behalf and behalf only; the shop, not Ka Iibi, decides what&apos;s
             collected about its customers and is responsible for having the right to store it.
           </Text>
         </Section>
@@ -45,7 +51,7 @@ export default function PrivacyPolicyScreen() {
             never in plain text).
           </Bullet>
           <Bullet label="Shop data">
-            Your shop's name, category, logo, tax settings, and the roles and permissions you
+            Your shop&apos;s name, category, logo, tax settings, and the roles and permissions you
             configure for staff.
           </Bullet>
           <Bullet label="Product and inventory data">
@@ -57,12 +63,12 @@ export default function PrivacyPolicyScreen() {
             sale.
           </Bullet>
           <Bullet label="Customer directory data">
-            Name, phone number, email, address, and notes a shop's staff enter about that shop's
+            Name, phone number, email, address, and notes a shop&apos;s staff enter about that shop&apos;s
             own customers.
           </Bullet>
           <Bullet label="Photos and camera">
             With your permission, access to your photo library or camera — used only when you
-            choose to attach a photo to a product or your shop's logo. We don't access your
+            choose to attach a photo to a product or your shop&apos;s logo. We don&apos;t access your
             photos for any other purpose.
           </Bullet>
         </Section>
@@ -84,19 +90,20 @@ export default function PrivacyPolicyScreen() {
 
         <Section title="How we store and protect it">
           <Text style={styles.paragraph}>
-            App data is stored with our backend provider, Supabase, using access controls (row-level
-            security) that scope every shop's data to that shop's own account and its staff's
-            configured permissions — one shop can't see another shop's data. Data is encrypted in
-            transit.
+            App data is stored with our cloud infrastructure provider, using access controls
+            (row-level security) that scope every shop&apos;s data to that shop&apos;s own account and its
+            staff&apos;s configured permissions — one shop can&apos;t see another shop&apos;s data. Data is
+            encrypted in transit.
           </Text>
         </Section>
 
         <Section title="Who we share it with">
           <Text style={styles.paragraph}>
-            We don't sell or rent your information. We share it only with the infrastructure
-            providers that operate the app on our behalf (currently Supabase, for the database,
-            authentication, and file storage) under their own confidentiality and security
-            obligations, or when required to comply with the law.
+            We don&apos;t sell or rent your information, and we don&apos;t use any advertising or analytics
+            SDKs that would share it with a third party. We share it only with the cloud
+            infrastructure provider that operates the app on our behalf — for the database,
+            authentication, and file storage — which is contractually bound to protect it to the
+            same standard set out in this policy, or when required to comply with the law.
           </Text>
         </Section>
 
@@ -104,20 +111,20 @@ export default function PrivacyPolicyScreen() {
           <Text style={styles.paragraph}>
             We keep your account and shop data for as long as your account is active. You can ask
             us to delete your account and associated data at any time by contacting us below; a
-            shop's staff and customer records are deleted along with the shop's account.
+            shop&apos;s staff and customer records are deleted along with the shop&apos;s account.
           </Text>
         </Section>
 
         <Section title="Children's privacy">
           <Text style={styles.paragraph}>
-            Ka Iibi is a business tool and isn't directed at children. We don't knowingly collect
+            Ka Iibi is a business tool and isn&apos;t directed at children. We don&apos;t knowingly collect
             personal information from anyone under 16.
           </Text>
         </Section>
 
         <Section title="Changes to this policy">
           <Text style={styles.paragraph}>
-            If we make material changes to this policy, we'll update the "Last updated" date
+            If we make material changes to this policy, we&apos;ll update the &quot;Last updated&quot; date
             above. Continued use of the app after a change means you accept the updated policy.
           </Text>
         </Section>
@@ -154,6 +161,8 @@ function Bullet({ label, children }: { label: string; children: React.ReactNode 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { width: '100%', maxWidth: 680, alignSelf: 'center', padding: 24, paddingBottom: 60 },
+  backButton: { alignSelf: 'flex-start', backgroundColor: '#F2F2F2', borderRadius: 8, paddingVertical: 7, paddingHorizontal: 12, marginBottom: 16 },
+  backButtonText: { color: '#111111', fontSize: 12, fontWeight: '700' },
   eyebrow: { color: '#999999', letterSpacing: 1.3, fontSize: 10, fontWeight: '800' },
   title: { color: '#111111', fontSize: 28, letterSpacing: -1, fontWeight: '800', marginTop: 6 },
   updated: { color: '#999999', fontSize: 12, fontWeight: '600', marginTop: 6, marginBottom: 20 },
