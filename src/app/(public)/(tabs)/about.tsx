@@ -7,25 +7,25 @@ export default function AboutScreen() {
   return <SafeAreaView style={styles.safeArea}><ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
     <View style={styles.hero}>
       <Text style={styles.eyebrow}>KA IIBI · POS & INVENTORY</Text>
-      <Text style={styles.title}>A simpler way to run your shop.</Text>
-      <Text style={styles.intro}>Ka Iibi gives shop owners a fast till, real-time inventory, and daily sales insight — all in one simple app.</Text>
+      <Text style={styles.title}>A simpler way to run your store.</Text>
+      <Text style={styles.intro}>Ka Iibi gives store owners a fast till, real-time inventory, and daily sales insight — all in one simple app.</Text>
     </View>
 
-    <Text style={styles.sectionLabel}>BUILT FOR SHOP OWNERS</Text>
+    <Text style={styles.sectionLabel}>BUILT FOR STORE OWNERS</Text>
     <View style={styles.userCards}>
-      <View style={[styles.userCard, styles.ownerCard]}><Text style={styles.cardIcon}>▦</Text><Text style={styles.cardTitle}>Run your shop, end to end</Text><Text style={styles.cardText}>Ring up sales, keep stock organized, and see what's selling — all from your phone or browser.</Text><Text style={styles.cardNeed}>You need: a simple till, clear inventory, and real numbers.</Text></View>
+      <View style={[styles.userCard, styles.ownerCard]}><Text style={styles.cardIcon}>▦</Text><Text style={styles.cardTitle}>Run your store, end to end</Text><Text style={styles.cardText}>Ring up sales, keep stock organized, and see what's selling — all from your phone or browser.</Text><Text style={styles.cardNeed}>You need: a simple till, clear inventory, and real numbers.</Text></View>
     </View>
 
     <View style={styles.divider} />
-    <Text style={styles.sectionLabel}>GETTING STARTED</Text><Text style={styles.sectionTitle}>Set up your shop in four simple steps.</Text>
+    <Text style={styles.sectionLabel}>GETTING STARTED</Text><Text style={styles.sectionTitle}>Set up your store in four simple steps.</Text>
     <View style={styles.steps}>
-      <Step number="01" title="Create your shop" text="Add your shop name, location, contact details, and a short introduction so customers know who you are." />
+      <Step number="01" title="Create your store" text="Add your store name, location, contact details, and a short introduction so customers know who you are." />
       <Step number="02" title="Add your first products" text="For every item, upload a photo, name it, set a price, choose a category, and write a useful description." />
       <Step number="03" title="Organize your inventory" text="Set the quantity you have available and add tags such as handmade, groceries, or home. Update stock as items sell." />
       <Step number="04" title="Keep your storefront current" text="Review low-stock items, add new arrivals, and make sure product photos and prices stay accurate." />
     </View>
 
-    <View style={styles.mission}><Text style={styles.missionLabel}>THE MVP</Text><Text style={styles.missionTitle}>Built to work for any shop, anywhere.</Text><Text style={styles.missionText}>We are starting with a focused, easy-to-use POS and inventory system for shop owners. An online marketplace for customers is coming later.</Text></View>
+    <View style={styles.mission}><Text style={styles.missionLabel}>THE MVP</Text><Text style={styles.missionTitle}>Built to work for any store, anywhere.</Text><Text style={styles.missionText}>We are starting with a focused, easy-to-use POS and inventory system for store owners. An online marketplace for customers is coming later.</Text></View>
 
     <PublicFooter />
   </ScrollView></SafeAreaView>;

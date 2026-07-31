@@ -33,7 +33,7 @@ export default function DiscoverScreen() {
           {session ? (
             <Pressable style={styles.loginButton} onPress={() => router.push('/dashboard')}>
               <View style={styles.loginAvatar}><Text style={styles.loginAvatarText}>{(shop?.name || 'K').charAt(0).toUpperCase()}</Text></View>
-              <Text style={styles.loginLabel} numberOfLines={1}>{shop?.name || 'My shop'}</Text>
+              <Text style={styles.loginLabel} numberOfLines={1}>{shop?.name || 'My store'}</Text>
             </Pressable>
           ) : (
             <Pressable style={styles.loginButton} onPress={() => router.push('/login')}>
@@ -44,9 +44,9 @@ export default function DiscoverScreen() {
 
         <View style={[styles.hero, isDesktop && styles.heroDesktop]}>
           <View style={[styles.heroCopy, isDesktop && styles.heroCopyDesktop]}>
-            <Text style={styles.eyebrow}>SIMPLE POS & INVENTORY FOR ANY SHOP</Text>
+            <Text style={styles.eyebrow}>SIMPLE POS & INVENTORY FOR ANY STORE</Text>
             <Text style={[styles.title, isDesktop && styles.titleDesktop]}>Sell fast.{'\n'}Stock smart.</Text>
-            <Text style={styles.subtitle}>Ka Iibi is a simple, easy-to-use point-of-sale and inventory system for shop owners anywhere — ring up sales in seconds, track every unit, and see what's selling today.</Text>
+            <Text style={styles.subtitle}>Ka Iibi is a simple, easy-to-use point-of-sale and inventory system for store owners anywhere — ring up sales in seconds, track every unit, and see what's selling today.</Text>
             <View style={styles.ctaRow}>
               {session ? (
                 <Pressable style={styles.primaryButton} onPress={() => router.push('/dashboard')}>
@@ -54,7 +54,7 @@ export default function DiscoverScreen() {
                 </Pressable>
               ) : (
                 <Pressable style={styles.primaryButton} onPress={() => router.push('/signup')}>
-                  <Text style={styles.primaryButtonText}>Create your shop — it's free</Text>
+                  <Text style={styles.primaryButtonText}>Create your store — it's free</Text>
                 </Pressable>
               )}
               <Pressable onPress={() => router.push('/about')}>
@@ -64,7 +64,7 @@ export default function DiscoverScreen() {
             <Text style={styles.trustLine}>Free to start · Works on phone or browser · Cash, ZAAD & e-Dahab ready</Text>
             <View style={styles.roadmapBadge}>
               <Text style={styles.roadmapBadgeIcon}>🛍️</Text>
-              <Text style={styles.roadmapBadgeText}>Coming soon: an online marketplace to sell beyond your counter — new e-commerce opportunities for your shop.</Text>
+              <Text style={styles.roadmapBadgeText}>Coming soon: an online marketplace to sell beyond your counter — new e-commerce opportunities for your store.</Text>
             </View>
           </View>
           <View style={[styles.heroVisual, isDesktop && styles.heroVisualDesktop]}>
@@ -73,7 +73,7 @@ export default function DiscoverScreen() {
         </View>
 
         <View style={styles.sectionHeading}>
-          <Text style={styles.sectionLabel}>WHY SHOP OWNERS USE KA IIBI</Text>
+          <Text style={styles.sectionLabel}>WHY STORE OWNERS USE KA IIBI</Text>
           <Text style={styles.sectionTitle}>Everything your till and stockroom need.</Text>
         </View>
 
@@ -89,10 +89,10 @@ export default function DiscoverScreen() {
 
         <View style={styles.shopCallout}>
           <Text style={styles.calloutLabel}>GET STARTED</Text>
-          <Text style={styles.calloutTitle}>Your shop, organized in minutes.</Text>
-          <Text style={styles.calloutText}>Create your shop, add your first products, and start selling — all from your phone or browser.</Text>
+          <Text style={styles.calloutTitle}>Your store, organized in minutes.</Text>
+          <Text style={styles.calloutText}>Create your store, add your first products, and start selling — all from your phone or browser.</Text>
           <Pressable onPress={() => router.push('/signup')} accessibilityRole="link">
-            <Text style={styles.calloutLink}>Create a shop account  →</Text>
+            <Text style={styles.calloutLink}>Create a store account  →</Text>
           </Pressable>
         </View>
 
