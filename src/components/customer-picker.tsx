@@ -10,6 +10,17 @@ function fullName(c: Customer): string {
   return [c.firstName, c.lastName].filter(Boolean).join(' ');
 }
 
+// Supabase rpc() errors are plain {code, details, hint, message} objects,
+// never instanceof Error -- checking that first always falls through to the
+// fallback string and hides the real Postgres message. See pos.tsx's
+// extractErrorMessage for the same fix applied to checkout.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return fallback;
+}
+
 // Shared between pos.tsx (checkout) and sales.tsx (sale editing) -- both
 // need identical search-existing-or-quick-add-new behavior, per the design
 // spec's note that edit_sale's customer section "gets the same picker
@@ -39,11 +50,13 @@ export function CustomerPicker({
 
   const runSearch = async (text: string) => {
     setQuery(text);
+    setError(null);
     if (!text.trim()) { setResults([]); return; }
     try {
       setResults(await searchCustomers(shopId, text));
-    } catch {
+    } catch (err) {
       setResults([]);
+      setError(extractErrorMessage(err, 'Could not search customers.'));
     }
   };
 
@@ -72,7 +85,7 @@ export function CustomerPicker({
       setPhone('');
       setEmail('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not add this customer.');
+      setError(extractErrorMessage(err, 'Could not add this customer.'));
     } finally {
       setCreating(false);
     }
@@ -95,6 +108,7 @@ export function CustomerPicker({
       {open && (
         <View style={styles.panel}>
           <TextInput value={query} onChangeText={runSearch} placeholder="Search by name or phone…" placeholderTextColor="#9B9B9B" style={styles.input} />
+          {!quickAdd && error && <Text style={styles.error}>{error}</Text>}
           {results.map((customer) => (
             <Pressable key={customer.id} onPress={() => pick(customer)} style={styles.resultRow}>
               <Text style={styles.resultName}>{fullName(customer)}</Text>
@@ -102,7 +116,7 @@ export function CustomerPicker({
             </Pressable>
           ))}
           {!quickAdd ? (
-            <Pressable onPress={() => setQuickAdd(true)} style={styles.quickAddToggle}>
+            <Pressable onPress={() => { setQuickAdd(true); setError(null); }} style={styles.quickAddToggle}>
               <Text style={styles.quickAddToggleText}>+ New customer</Text>
             </Pressable>
           ) : (
