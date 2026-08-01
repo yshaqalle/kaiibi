@@ -47,16 +47,25 @@ function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhoo
 // not just right after checkout.
 export function buildReceiptFromSale(
   sale: Sale,
-  shop: { name: string; logoUrl: string | null; city: string | null; neighborhood: string | null; contactPhone: string | null; returnPolicy: string | null }
+  shop: {
+    name: string;
+    logoUrl: string | null;
+    city: string | null;
+    neighborhood: string | null;
+    contactPhone: string | null;
+    returnPolicy: string | null;
+    receiptShowLogo?: boolean;
+    receiptShowCashierName?: boolean;
+  }
 ): ReceiptData {
   const subtotalCents = (sale.items ?? []).reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   return {
     shopName: shop.name,
-    shopLogoUrl: shop.logoUrl,
+    shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
     shopCity: shop.city,
     shopNeighborhood: shop.neighborhood,
     shopContactPhone: shop.contactPhone,
-    cashierName: sale.cashierName,
+    cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
     payments: (sale.payments ?? []).map((p) => ({

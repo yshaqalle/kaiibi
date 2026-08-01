@@ -145,11 +145,11 @@ export default function PosScreen() {
       );
       setReceipt({
         shopName: shop.name,
-        shopLogoUrl: shop.logoUrl,
+        shopLogoUrl: shop.receiptShowLogo ? shop.logoUrl : null,
         shopCity: shop.city,
         shopNeighborhood: shop.neighborhood,
         shopContactPhone: shop.contactPhone,
-        cashierName,
+        cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,
         items: cart.map((line) => ({
           name: line.product.name,
@@ -373,7 +373,13 @@ export default function PosScreen() {
           </Pressable>
         </View>
       </Split>
-      <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} title="Sale complete ✓" />
+      <ReceiptModal
+        receipt={receipt}
+        onClose={() => setReceipt(null)}
+        title="Sale complete ✓"
+        autoPrint={shop?.receiptAutoPrint ?? false}
+        autoSendWhatsApp={shop?.receiptAutoWhatsapp ?? false}
+      />
     </SafeAreaView>
   );
 }

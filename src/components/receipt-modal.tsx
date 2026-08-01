@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents, formatForeignCents } from '@/lib/currency';
@@ -11,72 +11,111 @@ import { generateReceiptPdf } from '@/lib/receipt-pdf';
 
 const tornEdgeNotches = Array.from({ length: 18 });
 
-export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt: ReceiptData | null; onClose: () => void; title?: string }) {
+// Module-level (not component-scoped) so both the manual Print button and
+// the auto-print effect below can call it — the effect runs before these
+// would be declared if they lived inside the component body after the
+// early `!receipt` return, which the React Compiler rejects as "accessed
+// before declared".
+//
+// A hidden same-page <iframe> instead of window.open(..., '_blank'): some
+// browsers (notably mobile ones, and any with popups blocked) silently
+// reuse the *current* tab for a blocked/failed popup instead of opening a
+// new one — which meant `win.document.write(...)` was overwriting this
+// entire app's DOM with the receipt page, so "closing" what looked like a
+// new tab was actually navigating away from the app. An iframe never
+// leaves the current page at all, so there's nothing to navigate to or
+// "close" that could affect the app underneath.
+function printHtml(html: string) {
+  // @ts-ignore — web-only DOM APIs, only ever called on Platform.OS === 'web'.
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+  // @ts-ignore
+  document.body.appendChild(iframe);
+  const frameWindow = iframe.contentWindow;
+  if (!frameWindow) {
+    iframe.remove();
+    return;
+  }
+  frameWindow.document.open();
+  frameWindow.document.write(html);
+  frameWindow.document.close();
+  frameWindow.focus();
+  frameWindow.print();
+  // The print dialog is effectively synchronous from the browser's
+  // perspective, so a short delay is enough before tearing the iframe down
+  // — removing it immediately can cancel the print on some browsers.
+  setTimeout(() => iframe.remove(), 1000);
+}
+
+// On web, `Linking.openURL` just calls `window.open(url, '_blank')` under
+// the hood — and browsers (mobile ones especially, or with popups blocked)
+// sometimes silently reuse the *current* tab for a blocked/failed
+// `window.open` instead of a new one, navigating the whole app away to the
+// mailto:/wa.me URL. A real `<a target="_blank" rel="noopener">` click is
+// far more reliably respected as "open elsewhere, don't touch this tab" by
+// browsers/popup blockers. Native has no such tab concept — `Linking.openURL`
+// there goes through the OS bridge correctly.
+function openExternalUrl(url: string) {
+  if (Platform.OS !== 'web') {
+    Linking.openURL(url).catch(() => {});
+    return;
+  }
+  // @ts-ignore — web-only DOM APIs.
+  const a = document.createElement('a');
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  // @ts-ignore
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+export function ReceiptModal({
+  receipt,
+  onClose,
+  title = 'Receipt',
+  autoPrint = false,
+  autoSendWhatsApp = false,
+}: {
+  receipt: ReceiptData | null;
+  onClose: () => void;
+  title?: string;
+  // Set from the shop's Receipt settings (Settings → Receipt) — fires the
+  // same action the manual Print/WhatsApp buttons below do, once, right
+  // after a fresh checkout. Not used when reopening a past sale's receipt
+  // (see sales.tsx), only the just-completed one in pos.tsx.
+  autoPrint?: boolean;
+  autoSendWhatsApp?: boolean;
+}) {
   const [busy, setBusy] = useState<'share' | 'email' | null>(null);
+  // Effects must run unconditionally (before the `!receipt` early return
+  // below) to keep hook order stable across renders where `receipt` toggles
+  // between null and a value on this same mounted instance.
+  const autoTriggeredFor = useRef<ReceiptData | null>(null);
+  useEffect(() => {
+    if (!receipt || autoTriggeredFor.current === receipt) return;
+    autoTriggeredFor.current = receipt;
+    if (autoPrint && Platform.OS === 'web') printHtml(buildReceiptHtml(receipt));
+    if (autoSendWhatsApp && receipt.customer.phone) {
+      const digits = receipt.customer.phone.replace(/\D/g, '');
+      openExternalUrl(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+    }
+  }, [receipt, autoPrint, autoSendWhatsApp]);
+
   if (!receipt) return null;
   const location = [receipt.shopCity, receipt.shopNeighborhood].filter((p) => p && p.trim()).join(' · ') || null;
-
-  const openPrintWindow = () => {
-    // A hidden same-page <iframe> instead of window.open(..., '_blank'):
-    // some browsers (notably mobile ones, and any with popups blocked)
-    // silently reuse the *current* tab for a blocked/failed popup instead
-    // of opening a new one — which meant `win.document.write(...)` was
-    // overwriting this entire app's DOM with the receipt page, so "closing"
-    // what looked like a new tab was actually navigating away from the app.
-    // An iframe never leaves the current page at all, so there's nothing
-    // to navigate to or "close" that could affect the app underneath.
-    // @ts-ignore — web-only DOM APIs, guarded by Platform.OS === 'web' below.
-    const iframe = document.createElement('iframe');
-    iframe.style.position = 'fixed';
-    iframe.style.right = '0';
-    iframe.style.bottom = '0';
-    iframe.style.width = '0';
-    iframe.style.height = '0';
-    iframe.style.border = 'none';
-    // @ts-ignore
-    document.body.appendChild(iframe);
-    const frameWindow = iframe.contentWindow;
-    if (!frameWindow) { iframe.remove(); return; }
-    frameWindow.document.open();
-    frameWindow.document.write(buildReceiptHtml(receipt));
-    frameWindow.document.close();
-    frameWindow.focus();
-    frameWindow.print();
-    // The print dialog is effectively synchronous from the browser's
-    // perspective, so a short delay is enough before tearing the iframe
-    // down — removing it immediately can cancel the print on some browsers.
-    setTimeout(() => iframe.remove(), 1000);
-  };
-
-  // On web, `Linking.openURL` just calls `window.open(url, '_blank')` under
-  // the hood — and browsers (mobile ones especially, or with popups
-  // blocked) sometimes silently reuse the *current* tab for a blocked/failed
-  // `window.open` instead of a new one, navigating the whole app away to
-  // the mailto:/wa.me URL. A real `<a target="_blank" rel="noopener">`
-  // click is far more reliably respected as "open elsewhere, don't touch
-  // this tab" by browsers/popup blockers. Native has no such tab concept —
-  // `Linking.openURL` there goes through the OS bridge correctly.
-  const openExternal = (url: string) => {
-    if (Platform.OS !== 'web') {
-      Linking.openURL(url).catch(() => {});
-      return;
-    }
-    // @ts-ignore — web-only DOM APIs.
-    const a = document.createElement('a');
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    // @ts-ignore
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
 
   const mailtoFallback = () => {
     const subject = encodeURIComponent(`Receipt from ${receipt.shopName}`);
     const body = encodeURIComponent(buildReceiptText(receipt));
     const to = receipt.customer.email ?? '';
-    openExternal(`mailto:${to}?subject=${subject}&body=${body}`);
+    openExternalUrl(`mailto:${to}?subject=${subject}&body=${body}`);
   };
 
   const shareEmail = async () => {
@@ -104,7 +143,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
 
   const shareWhatsApp = () => {
     const digits = receipt.customer.phone?.replace(/\D/g, '') ?? '';
-    openExternal(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+    openExternalUrl(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
   };
 
   const shareGeneric = async () => {
@@ -244,7 +283,7 @@ export function ReceiptModal({ receipt, onClose, title = 'Receipt' }: { receipt:
 
           <View style={styles.actions}>
             {Platform.OS === 'web' && (
-              <Pressable onPress={openPrintWindow} style={styles.actionButton}>
+              <Pressable onPress={() => printHtml(buildReceiptHtml(receipt))} style={styles.actionButton}>
                 <Text style={styles.actionIcon}>🖨️</Text>
                 <Text style={styles.actionLabel}>Print</Text>
               </Pressable>

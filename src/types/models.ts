@@ -29,6 +29,12 @@ export type Shop = {
   // subtotal — see complete_sale/edit_sale in migration 0015.
   taxEnabled: boolean;
   taxRatePercent: number;
+  // Receipt customization — see src/lib/receipt.ts (show-logo/show-cashier
+  // name) and src/components/receipt-modal.tsx (auto-print/auto-whatsapp).
+  receiptShowLogo: boolean;
+  receiptShowCashierName: boolean;
+  receiptAutoPrint: boolean;
+  receiptAutoWhatsapp: boolean;
   createdAt: string;
 };
 

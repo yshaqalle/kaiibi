@@ -17,6 +17,10 @@ function mapShopRow(row: any): Shop {
     monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
     taxEnabled: row.tax_enabled,
     taxRatePercent: Number(row.tax_rate_percent),
+    receiptShowLogo: row.receipt_show_logo,
+    receiptShowCashierName: row.receipt_show_cashier_name,
+    receiptAutoPrint: row.receipt_auto_print,
+    receiptAutoWhatsapp: row.receipt_auto_whatsapp,
     createdAt: row.created_at,
   };
 }
@@ -87,6 +91,7 @@ export async function createShop(input: {
 
 export async function updateShop(id: string, input: Partial<{
   name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; taxEnabled: boolean; taxRatePercent: number;
+  receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -102,6 +107,10 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
       ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),
+      ...(input.receiptShowLogo !== undefined && { receipt_show_logo: input.receiptShowLogo }),
+      ...(input.receiptShowCashierName !== undefined && { receipt_show_cashier_name: input.receiptShowCashierName }),
+      ...(input.receiptAutoPrint !== undefined && { receipt_auto_print: input.receiptAutoPrint }),
+      ...(input.receiptAutoWhatsapp !== undefined && { receipt_auto_whatsapp: input.receiptAutoWhatsapp }),
     })
     .eq('id', id)
     .select('*')
