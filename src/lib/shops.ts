@@ -21,6 +21,10 @@ function mapShopRow(row: any): Shop {
     receiptShowCashierName: row.receipt_show_cashier_name,
     receiptAutoPrint: row.receipt_auto_print,
     receiptAutoWhatsapp: row.receipt_auto_whatsapp,
+    paymentCashEnabled: row.payment_cash_enabled,
+    paymentZaadEnabled: row.payment_zaad_enabled,
+    paymentEdahabEnabled: row.payment_edahab_enabled,
+    paymentSplitEnabled: row.payment_split_enabled,
     createdAt: row.created_at,
   };
 }
@@ -92,6 +96,7 @@ export async function createShop(input: {
 export async function updateShop(id: string, input: Partial<{
   name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; taxEnabled: boolean; taxRatePercent: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
+  paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -111,6 +116,10 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.receiptShowCashierName !== undefined && { receipt_show_cashier_name: input.receiptShowCashierName }),
       ...(input.receiptAutoPrint !== undefined && { receipt_auto_print: input.receiptAutoPrint }),
       ...(input.receiptAutoWhatsapp !== undefined && { receipt_auto_whatsapp: input.receiptAutoWhatsapp }),
+      ...(input.paymentCashEnabled !== undefined && { payment_cash_enabled: input.paymentCashEnabled }),
+      ...(input.paymentZaadEnabled !== undefined && { payment_zaad_enabled: input.paymentZaadEnabled }),
+      ...(input.paymentEdahabEnabled !== undefined && { payment_edahab_enabled: input.paymentEdahabEnabled }),
+      ...(input.paymentSplitEnabled !== undefined && { payment_split_enabled: input.paymentSplitEnabled }),
     })
     .eq('id', id)
     .select('*')

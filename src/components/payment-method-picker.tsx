@@ -11,11 +11,22 @@ export function PaymentMethodPicker({
   payments,
   currencies = [],
   onChange,
+  enabledMethods,
+  allowSplit = true,
 }: {
   totalCents: number;
   payments: PaymentLine[];
   currencies?: Currency[];
   onChange: (payments: PaymentLine[]) => void;
+  // Which methods this shop currently accepts (Settings → Payments).
+  // Omitted entirely means "no restriction" (every method available) —
+  // 'other' is always offered regardless, since it isn't a toggle a shop
+  // can turn off.
+  enabledMethods?: PaymentMethod[];
+  // When off, a sale can't mix methods — once a payment exists, only that
+  // same method can be added again (e.g. topping up a partial cash tender
+  // is still fine; switching to ZAAD partway through isn't).
+  allowSplit?: boolean;
 }) {
   const [draftMethod, setDraftMethod] = useState<PaymentMethod | null>(null);
   const [amountInput, setAmountInput] = useState('');
@@ -26,6 +37,13 @@ export function PaymentMethodPicker({
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const remainingCents = totalCents - paidCents;
   const isCash = draftMethod === 'cash';
+
+  const usedMethods = new Set(payments.map((p) => p.method));
+  const pickableMethods = methods.filter((m) => {
+    if (m.key !== 'other' && enabledMethods && !enabledMethods.includes(m.key)) return false;
+    if (!allowSplit && usedMethods.size > 0 && !usedMethods.has(m.key)) return false;
+    return true;
+  });
 
   const startDraft = (method: PaymentMethod) => {
     setDraftMethod(method);
@@ -114,7 +132,7 @@ export function PaymentMethodPicker({
           {payments.length > 0 && <Text style={styles.remaining}>Remaining: {formatCents(remainingCents)}</Text>}
           {draftMethod === null ? (
             <View style={styles.row}>
-              {methods.map((method) => (
+              {pickableMethods.map((method) => (
                 <Pressable key={method.key} onPress={() => startDraft(method.key)} style={styles.button}>
                   <Text style={styles.buttonText}>{method.icon} {method.label}</Text>
                 </Pressable>

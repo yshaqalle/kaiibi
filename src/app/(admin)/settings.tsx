@@ -5,10 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
 import { CatalogPanel } from '@/components/settings/panels/catalog-panel';
-import { InventoryAlertsPanel, LocationsPanel, NotificationsPanel, PaymentsPanel, SecurityPanel } from '@/components/settings/panels/phase2-panels';
+import { InventoryAlertsPanel, LocationsPanel, NotificationsPanel, SecurityPanel } from '@/components/settings/panels/phase2-panels';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
-import { CashiersPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
+import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
 import { StaffPanel } from '@/components/settings/panels/staff-panel';
 import { StorePanel } from '@/components/settings/panels/store-panel';
 import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
@@ -270,7 +270,7 @@ export default function SettingsScreen() {
       case 'inventory':
         return <InventoryAlertsPanel />;
       case 'payments':
-        return <PaymentsPanel />;
+        return <PaymentsPanel shop={shop} onSaved={refreshShop} />;
       case 'staff':
         return loading ? (
           <Text style={styles.hint}>Loading…</Text>

@@ -627,6 +627,74 @@ export function CashiersPanel({
   );
 }
 
+// ─── Payments ────────────────────────────────────────────────────────────
+
+// Only lists payment methods that actually exist in the POS today
+// (`lib/payment-methods.ts`: cash/zaad/edahab/other) — EVC Plus and Card
+// aren't real `PaymentMethod` values anywhere in the app, so they're left
+// out entirely rather than shown as a toggle for something that can't
+// actually be turned on. Wired to `payment-method-picker.tsx`'s
+// `enabledMethods`/`allowSplit` props via the shop columns from migration
+// 0027 — toggling these here actually changes what the POS offers.
+export function PaymentsPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+  const [cash, setCash] = useState(shop.paymentCashEnabled);
+  const [zaad, setZaad] = useState(shop.paymentZaadEnabled);
+  const [eDahab, setEDahab] = useState(shop.paymentEdahabEnabled);
+  const [splitPayment, setSplitPayment] = useState(shop.paymentSplitEnabled);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty =
+    cash !== shop.paymentCashEnabled ||
+    zaad !== shop.paymentZaadEnabled ||
+    eDahab !== shop.paymentEdahabEnabled ||
+    splitPayment !== shop.paymentSplitEnabled;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateShop(shop.id, {
+        paymentCashEnabled: cash,
+        paymentZaadEnabled: zaad,
+        paymentEdahabEnabled: eDahab,
+        paymentSplitEnabled: splitPayment,
+      });
+      await onSaved();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View>
+      <PageHeader title="Payments" actionLabel={saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'} onAction={save} actionDisabled={!dirty || saving} />
+      {error && <Text style={styles.error}>{error}</Text>}
+      <Section title="Accepted payment methods">
+        <Row label="Cash">
+          <Toggle value={cash} onValueChange={setCash} />
+        </Row>
+        <Row label="ZAAD" desc="Telesom mobile money">
+          <Toggle value={zaad} onValueChange={setZaad} />
+        </Row>
+        <Row label="e-Dahab" desc="Somtel mobile money">
+          <Toggle value={eDahab} onValueChange={setEDahab} />
+        </Row>
+      </Section>
+      <Section title="Split payment">
+        <Row label="Allow split payment" desc="Part cash, part mobile money in one transaction">
+          <Toggle value={splitPayment} onValueChange={setSplitPayment} />
+        </Row>
+      </Section>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   hint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   empty: { fontSize: 13, color: '#9CA3AF', marginBottom: 12 },

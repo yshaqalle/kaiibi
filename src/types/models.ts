@@ -35,6 +35,12 @@ export type Shop = {
   receiptShowCashierName: boolean;
   receiptAutoPrint: boolean;
   receiptAutoWhatsapp: boolean;
+  // Which payment methods the POS offers at checkout, and whether a sale
+  // can combine more than one — see src/components/payment-method-picker.tsx.
+  paymentCashEnabled: boolean;
+  paymentZaadEnabled: boolean;
+  paymentEdahabEnabled: boolean;
+  paymentSplitEnabled: boolean;
   createdAt: string;
 };
 

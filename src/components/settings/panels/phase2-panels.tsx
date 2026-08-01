@@ -132,37 +132,3 @@ export function InventoryAlertsPanel() {
   );
 }
 
-// Only lists payment methods that actually exist in the POS today
-// (`lib/payment-methods.ts`: cash/zaad/edahab/other) — EVC Plus and Card
-// aren't real `PaymentMethod` values anywhere in the app, so they're left
-// out entirely rather than shown as a toggle for something that can't
-// actually be turned on. See docs/backlog for what adding a new payment
-// method or gating these per-shop would take.
-export function PaymentsPanel() {
-  const [cash, setCash] = useState(true);
-  const [zaad, setZaad] = useState(true);
-  const [eDahab, setEDahab] = useState(true);
-  const [splitPayment, setSplitPayment] = useState(true);
-
-  return (
-    <View>
-      <PageHeader title="Payments" actionLabel="Save" onAction={() => {}} />
-      <Section title="Accepted payment methods">
-        <Row label="Cash">
-          <Toggle value={cash} onValueChange={setCash} />
-        </Row>
-        <Row label="ZAAD" desc="Telesom mobile money">
-          <Toggle value={zaad} onValueChange={setZaad} />
-        </Row>
-        <Row label="e-Dahab" desc="Somtel mobile money">
-          <Toggle value={eDahab} onValueChange={setEDahab} />
-        </Row>
-      </Section>
-      <Section title="Split payment">
-        <Row label="Allow split payment" desc="Part cash, part mobile money in one transaction">
-          <Toggle value={splitPayment} onValueChange={setSplitPayment} />
-        </Row>
-      </Section>
-    </View>
-  );
-}
