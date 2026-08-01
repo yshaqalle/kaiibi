@@ -32,29 +32,3 @@ export function LocationsPanel() {
   );
 }
 
-export function InventoryAlertsPanel() {
-  const [trackExpiry, setTrackExpiry] = useState(false);
-
-  return (
-    <View>
-      <PageHeader title="Inventory alerts" actionLabel="Save" onAction={() => {}} />
-      <Section title="Low stock thresholds">
-        <Row label="Default low stock level" desc="Alert when any product drops below this">
-          <Btn onPress={() => {}}>Set: 5 units</Btn>
-        </Row>
-        <Row label="Per-product overrides" desc="Set custom thresholds per SKU">
-          <Btn onPress={() => {}}>Manage</Btn>
-        </Row>
-      </Section>
-      <Section title="Expiry tracking" badge={<Badge variant="new">New</Badge>}>
-        <Row label="Track expiry dates" desc="Useful for perishable or dated inventory">
-          <Toggle value={trackExpiry} onValueChange={setTrackExpiry} />
-        </Row>
-        <Row label="Expiry warning lead time" desc="Alert this many days before expiry">
-          <Btn onPress={() => {}}>Set: 30 days</Btn>
-        </Row>
-      </Section>
-    </View>
-  );
-}
-

@@ -4,9 +4,9 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
-import { CatalogPanel } from '@/components/settings/panels/catalog-panel';
+import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels/catalog-panel';
 import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
-import { InventoryAlertsPanel, LocationsPanel } from '@/components/settings/panels/phase2-panels';
+import { LocationsPanel } from '@/components/settings/panels/phase2-panels';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
@@ -270,7 +270,7 @@ export default function SettingsScreen() {
       case 'locations':
         return <LocationsPanel />;
       case 'inventory':
-        return <InventoryAlertsPanel />;
+        return <InventoryAlertsPanel shop={shop} onSaved={refreshShop} />;
       case 'payments':
         return <PaymentsPanel shop={shop} onSaved={refreshShop} />;
       case 'staff':

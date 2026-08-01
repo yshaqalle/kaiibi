@@ -57,6 +57,14 @@ export type Shop = {
   notifyViaPush: boolean;
   notifyViaEmail: boolean;
   notifyViaWhatsapp: boolean;
+  // Inventory alert thresholds (Settings → Inventory alerts). Replaces the
+  // previous hardcoded fallback of 5 used when a product has no per-product
+  // `reorderLevel` — see getLowStockProducts/ProductTile/ProductTableRow.
+  defaultLowStockLevel: number;
+  // Expiry tracking only ever applies to products that already have their
+  // own `expiryDate` set — see getExpiringProducts (lib/products.ts).
+  expiryTrackingEnabled: boolean;
+  expiryWarningLeadDays: number;
   createdAt: string;
 };
 

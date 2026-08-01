@@ -32,6 +32,9 @@ function mapShopRow(row: any): Shop {
     notifyViaPush: row.notify_via_push,
     notifyViaEmail: row.notify_via_email,
     notifyViaWhatsapp: row.notify_via_whatsapp,
+    defaultLowStockLevel: row.default_low_stock_level,
+    expiryTrackingEnabled: row.expiry_tracking_enabled,
+    expiryWarningLeadDays: row.expiry_warning_lead_days,
     createdAt: row.created_at,
   };
 }
@@ -106,6 +109,7 @@ export async function updateShop(id: string, input: Partial<{
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
   notifyViaPush: boolean; notifyViaEmail: boolean; notifyViaWhatsapp: boolean;
+  defaultLowStockLevel: number; expiryTrackingEnabled: boolean; expiryWarningLeadDays: number;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -136,6 +140,9 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.notifyViaPush !== undefined && { notify_via_push: input.notifyViaPush }),
       ...(input.notifyViaEmail !== undefined && { notify_via_email: input.notifyViaEmail }),
       ...(input.notifyViaWhatsapp !== undefined && { notify_via_whatsapp: input.notifyViaWhatsapp }),
+      ...(input.defaultLowStockLevel !== undefined && { default_low_stock_level: input.defaultLowStockLevel }),
+      ...(input.expiryTrackingEnabled !== undefined && { expiry_tracking_enabled: input.expiryTrackingEnabled }),
+      ...(input.expiryWarningLeadDays !== undefined && { expiry_warning_lead_days: input.expiryWarningLeadDays }),
     })
     .eq('id', id)
     .select('*')

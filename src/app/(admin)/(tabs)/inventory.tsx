@@ -78,7 +78,9 @@ export default function InventoryScreen() {
     }
   };
 
-  const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? 5)).length;
+  const defaultLowStockLevel = shop?.defaultLowStockLevel ?? 5;
+  const expiryWarningLeadDays = shop?.expiryTrackingEnabled ? shop.expiryWarningLeadDays : undefined;
+  const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -108,6 +110,8 @@ export default function InventoryScreen() {
                   product={product}
                   onEdit={canEdit ? () => setEditingProduct(product) : undefined}
                   onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                  defaultLowStockLevel={defaultLowStockLevel}
+                  expiryWarningLeadDays={expiryWarningLeadDays}
                 />
               ))
             ) : (
@@ -119,6 +123,8 @@ export default function InventoryScreen() {
                     product={product}
                     onEdit={canEdit ? () => setEditingProduct(product) : undefined}
                     onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                    defaultLowStockLevel={defaultLowStockLevel}
+                    expiryWarningLeadDays={expiryWarningLeadDays}
                   />
                 ))}
               </>

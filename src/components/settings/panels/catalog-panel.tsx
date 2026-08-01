@@ -1,10 +1,13 @@
+import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { ManageModal } from '@/components/settings/manage-modal';
-import { Btn, PageHeader, Pill, Section } from '@/components/settings/settings-primitives';
+import { Btn, EditableTextRow, PageHeader, Pill, Row, Section, Toggle } from '@/components/settings/settings-primitives';
 import { TaxonomyManageModal, type TaxonomyInput, type TaxonomyRow } from '@/components/taxonomy-manage-modal';
 import { nextTaxonomyColor } from '@/lib/colors';
+import { updateShop } from '@/lib/shops';
+import type { Shop } from '@/types/models';
 
 const previewCount = 6;
 
@@ -196,9 +199,94 @@ export function CatalogPanel({
   );
 }
 
+// ─── Inventory alerts ────────────────────────────────────────────────────
+
+// "Default low stock level" and expiry tracking are real (shops columns,
+// migration 0030) and actually drive the ⚠ Low / ⏳ Expiring badges on
+// ProductTile/ProductTableRow and the low-stock count on Inventory/Dashboard
+// — see lib/products.ts's getLowStockProducts/getExpiringProducts.
+// "Per-product overrides" isn't a separate UI here: every product already
+// has its own Reorder Level field in the product edit form, so this just
+// links to Inventory where that's set today.
+export function InventoryAlertsPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+  const router = useRouter();
+  const [defaultLowStockLevel, setDefaultLowStockLevel] = useState(String(shop.defaultLowStockLevel));
+  const [expiryTrackingEnabled, setExpiryTrackingEnabled] = useState(shop.expiryTrackingEnabled);
+  const [expiryWarningLeadDays, setExpiryWarningLeadDays] = useState(String(shop.expiryWarningLeadDays));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty =
+    defaultLowStockLevel.trim() !== String(shop.defaultLowStockLevel) ||
+    expiryTrackingEnabled !== shop.expiryTrackingEnabled ||
+    expiryWarningLeadDays.trim() !== String(shop.expiryWarningLeadDays);
+
+  const save = async () => {
+    const level = Number(defaultLowStockLevel);
+    const leadDays = Number(expiryWarningLeadDays);
+    if (!Number.isFinite(level) || level < 0) {
+      setError('Default low stock level must be 0 or more.');
+      return;
+    }
+    if (!Number.isFinite(leadDays) || leadDays < 0) {
+      setError('Expiry warning lead time must be 0 or more.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await updateShop(shop.id, {
+        defaultLowStockLevel: Math.round(level),
+        expiryTrackingEnabled,
+        expiryWarningLeadDays: Math.round(leadDays),
+      });
+      await onSaved();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save changes.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View>
+      <PageHeader title="Inventory alerts" actionLabel={saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'} onAction={save} actionDisabled={!dirty || saving} />
+      {error && <Text style={styles.error}>{error}</Text>}
+      <Section title="Low stock thresholds">
+        <EditableTextRow
+          label="Default low stock level"
+          value={defaultLowStockLevel}
+          onChangeText={setDefaultLowStockLevel}
+          placeholder="5"
+          keyboardType="number-pad"
+        />
+        <Row label="Per-product overrides" desc="Set a custom threshold per product in Inventory">
+          <Btn onPress={() => router.push('/inventory')}>Manage</Btn>
+        </Row>
+      </Section>
+      <Section title="Expiry tracking">
+        <Row label="Track expiry dates" desc="Flags products that already have an expiry date set — never products without one">
+          <Toggle value={expiryTrackingEnabled} onValueChange={setExpiryTrackingEnabled} />
+        </Row>
+        <EditableTextRow
+          label="Expiry warning lead time (days)"
+          value={expiryWarningLeadDays}
+          onChangeText={setExpiryWarningLeadDays}
+          placeholder="30"
+          keyboardType="number-pad"
+        />
+      </Section>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   hint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   empty: { fontSize: 13, color: '#9CA3AF', marginBottom: 12 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
   actionsRow: { flexDirection: 'row', gap: 8 },
+  error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 16 },
 });

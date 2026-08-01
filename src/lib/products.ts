@@ -60,9 +60,23 @@ export async function listProducts(shopId: string): Promise<Product[]> {
   return (data ?? []).map(mapProductRow);
 }
 
-export async function getLowStockProducts(shopId: string): Promise<Product[]> {
+export async function getLowStockProducts(shopId: string, defaultLowStockLevel = 5): Promise<Product[]> {
   const products = await listProducts(shopId);
-  return products.filter((p) => p.stock <= (p.reorderLevel ?? 5));
+  return products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel));
+}
+
+// A product is only ever considered "expiring soon" if it has its own
+// `expiryDate` set — a shop turning on expiry tracking never flags products
+// that were never given a date in the first place.
+export function isExpiringSoon(expiryDate: string, leadDays: number): boolean {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() + leadDays);
+  return expiryDate <= cutoff.toISOString().slice(0, 10);
+}
+
+export async function getExpiringProducts(shopId: string, leadDays: number): Promise<Product[]> {
+  const products = await listProducts(shopId);
+  return products.filter((p) => p.expiryDate != null && isExpiringSoon(p.expiryDate, leadDays));
 }
 
 export async function getProduct(id: string): Promise<Product> {
