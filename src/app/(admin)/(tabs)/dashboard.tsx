@@ -16,7 +16,7 @@ import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
-import { getLowStockProducts } from '@/lib/products';
+import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import {
   getCashierPerformance,
   getCategoryBreakdown,
@@ -71,6 +71,7 @@ export default function DashboardScreen() {
   const [cashierPerformance, setCashierPerformance] = useState<{ name: string; revenueCents: number }[]>([]);
   const [paymentMix, setPaymentMix] = useState<PaymentMixItem[]>([]);
   const [lowStock, setLowStock] = useState<Product[]>([]);
+  const [expiringSoon, setExpiringSoon] = useState<Product[]>([]);
   const [categoryBreakdown, setCategoryBreakdown] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
   const [categoryByMonth, setCategoryByMonth] = useState<MonthlyCategoryBucket[]>([]);
   const [monthToDateCents, setMonthToDateCents] = useState(0);
@@ -78,13 +79,14 @@ export default function DashboardScreen() {
   const reload = useCallback(async () => {
     if (!shop || !dateRange) return;
     const { since, until } = dateRange;
-    const [sales, daily, top, cashiers, mix, low, categories, categoriesByMonth] = await Promise.all([
+    const [sales, daily, top, cashiers, mix, low, expiring, categories, categoriesByMonth] = await Promise.all([
       listSales(shop.id, 5),
       getDailyTotalsCents(shop.id, since, until),
       getTopSellingProducts(shop.id, since, until),
       getCashierPerformance(shop.id, since, until),
       getPaymentMethodMix(shop.id, since, until),
-      getLowStockProducts(shop.id),
+      getLowStockProducts(shop.id, shop.defaultLowStockLevel),
+      shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
       getCategoryBreakdown(shop.id, since, until),
       getCategoryRevenueByMonth(shop.id, since, until),
     ]);
@@ -94,6 +96,7 @@ export default function DashboardScreen() {
     setCashierPerformance(cashiers);
     setPaymentMix(mix);
     setLowStock(low);
+    setExpiringSoon(expiring);
     setCategoryBreakdown(categories);
     setCategoryByMonth(categoriesByMonth);
   }, [shop, dateRange]);
@@ -231,7 +234,7 @@ export default function DashboardScreen() {
         {section === 'breakdown' && (
           <BreakdownSection categorySlices={categorySlices} categoryByMonth={categoryByMonth} paymentMix={paymentMix} />
         )}
-        {section === 'activity' && <ActivitySection lowStock={lowStock} recentSales={recentSales} />}
+        {section === 'activity' && <ActivitySection lowStock={lowStock} expiringSoon={expiringSoon} recentSales={recentSales} />}
       </ScrollView>
     </SafeAreaView>
   );
@@ -309,10 +312,11 @@ function BreakdownSection({ categorySlices, categoryByMonth, paymentMix }: Break
 
 type ActivitySectionProps = {
   lowStock: Product[];
+  expiringSoon: Product[];
   recentSales: Sale[];
 };
 
-function ActivitySection({ lowStock, recentSales }: ActivitySectionProps) {
+function ActivitySection({ lowStock, expiringSoon, recentSales }: ActivitySectionProps) {
   return (
     <>
       <Text style={[styles.sectionTitle, { color: theme.text }]}>Inventory alerts</Text>
@@ -322,6 +326,15 @@ function ActivitySection({ lowStock, recentSales }: ActivitySectionProps) {
         <Card style={styles.list}>
           {lowStock.map((product) => <ProductTile key={product.id} product={product} />)}
         </Card>
+      )}
+
+      {expiringSoon.length > 0 && (
+        <>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Expiring soon</Text>
+          <Card style={styles.list}>
+            {expiringSoon.map((product) => <ProductTile key={product.id} product={product} />)}
+          </Card>
+        </>
       )}
 
       <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent transactions</Text>

@@ -5,6 +5,10 @@ export type Profile = {
   role: 'admin' | 'customer' | 'staff';
   fullName: string | null;
   phone: string | null;
+  // Set by Settings → Security's Change Password flow (see lib/profile.ts's
+  // markPasswordChanged) — only reflects changes made there, not a reset
+  // via a forgot-password email link.
+  passwordChangedAt: string | null;
   createdAt: string;
 };
 
@@ -29,6 +33,38 @@ export type Shop = {
   // subtotal — see complete_sale/edit_sale in migration 0015.
   taxEnabled: boolean;
   taxRatePercent: number;
+  // Receipt customization — see src/lib/receipt.ts (show-logo/show-cashier
+  // name) and src/components/receipt-modal.tsx (auto-print/auto-whatsapp).
+  receiptShowLogo: boolean;
+  receiptShowCashierName: boolean;
+  receiptAutoPrint: boolean;
+  receiptAutoWhatsapp: boolean;
+  // Which payment methods the POS offers at checkout, and whether a sale
+  // can combine more than one — see src/components/payment-method-picker.tsx.
+  paymentCashEnabled: boolean;
+  paymentZaadEnabled: boolean;
+  paymentEdahabEnabled: boolean;
+  paymentSplitEnabled: boolean;
+  // Notification preferences (Settings → Notifications). These are
+  // currently preferences only — nothing in the app sends a daily summary,
+  // low-stock alert, or push/email/WhatsApp notification yet, so toggling
+  // these has no effect beyond being saved. See docs/backlog for what
+  // building real delivery would take.
+  notifyDailySummary: boolean;
+  notifyLargeSale: boolean;
+  notifyLowStock: boolean;
+  notifyOutOfStock: boolean;
+  notifyViaPush: boolean;
+  notifyViaEmail: boolean;
+  notifyViaWhatsapp: boolean;
+  // Inventory alert thresholds (Settings → Inventory alerts). Replaces the
+  // previous hardcoded fallback of 5 used when a product has no per-product
+  // `reorderLevel` — see getLowStockProducts/ProductTile/ProductTableRow.
+  defaultLowStockLevel: number;
+  // Expiry tracking only ever applies to products that already have their
+  // own `expiryDate` set — see getExpiringProducts (lib/products.ts).
+  expiryTrackingEnabled: boolean;
+  expiryWarningLeadDays: number;
   createdAt: string;
 };
 

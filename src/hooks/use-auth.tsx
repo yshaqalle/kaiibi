@@ -124,6 +124,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               role: profileRow.role,
               fullName: profileRow.full_name,
               phone: profileRow.phone,
+              passwordChangedAt: profileRow.password_changed_at,
               createdAt: profileRow.created_at,
             }
           : null

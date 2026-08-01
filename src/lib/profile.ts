@@ -2,7 +2,14 @@ import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/types/models';
 
 function mapProfileRow(row: any): Profile {
-  return { id: row.id, role: row.role, fullName: row.full_name, phone: row.phone, createdAt: row.created_at };
+  return {
+    id: row.id,
+    role: row.role,
+    fullName: row.full_name,
+    phone: row.phone,
+    passwordChangedAt: row.password_changed_at,
+    createdAt: row.created_at,
+  };
 }
 
 export async function updateProfile(id: string, input: Partial<{ fullName: string; phone: string }>): Promise<Profile> {
@@ -12,6 +19,19 @@ export async function updateProfile(id: string, input: Partial<{ fullName: strin
       ...(input.fullName !== undefined && { full_name: input.fullName }),
       ...(input.phone !== undefined && { phone: input.phone }),
     })
+    .eq('id', id)
+    .select('*')
+    .single();
+  if (error) throw error;
+  return mapProfileRow(data);
+}
+
+// Called right after src/lib/auth.ts's updatePassword succeeds, so Settings
+// → Security can show a real "last changed" date.
+export async function markPasswordChanged(id: string): Promise<Profile> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({ password_changed_at: new Date().toISOString() })
     .eq('id', id)
     .select('*')
     .single();

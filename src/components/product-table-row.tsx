@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents } from '@/lib/currency';
+import { isExpiringSoon } from '@/lib/products';
 import type { Product } from '@/types/models';
 
 export type SortField = 'name' | 'brand' | 'category' | 'price' | 'stock';
@@ -58,15 +59,22 @@ export function ProductTableRow({
   product,
   onEdit,
   onStockChange,
+  defaultLowStockLevel = 5,
+  expiryWarningLeadDays,
 }: {
   product: Product;
   // Both omitted for a read-only viewer (a role with `inventory.view` but not
   // `inventory.edit`) — same contract as ProductTile.
   onEdit?: () => void;
   onStockChange?: (nextStock: number) => void;
+  // See ProductTile for what these mean — same Settings → Inventory alerts
+  // values, same "omitted = off" contract.
+  defaultLowStockLevel?: number;
+  expiryWarningLeadDays?: number;
 }) {
-  const lowStock = product.stock <= (product.reorderLevel ?? 5);
+  const lowStock = product.stock <= (product.reorderLevel ?? defaultLowStockLevel);
   const outOfStock = product.stock <= 0;
+  const expiringSoon = expiryWarningLeadDays != null && product.expiryDate != null && isExpiringSoon(product.expiryDate, expiryWarningLeadDays);
   const visibleTags = product.tags.slice(0, 2);
   const hiddenTagCount = product.tags.length - visibleTags.length;
 
@@ -114,6 +122,7 @@ export function ProductTableRow({
             <View style={styles.stockWithBadge}>
               <Text style={styles.stockCount}>{product.stock}</Text>
               {lowStock && <Text style={styles.stockPill}>⚠ Low stock</Text>}
+              {expiringSoon && <Text style={styles.stockPill}>⏳ Expiring</Text>}
             </View>
           )}
           {onStockChange && (

@@ -22,7 +22,7 @@ import { listPromotions } from '@/lib/promotions';
 import type { ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
-import type { CartLine, Currency, Discount, PaymentLine, Product, Promotion } from '@/types/models';
+import type { CartLine, Currency, Discount, PaymentLine, PaymentMethod, Product, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -40,6 +40,13 @@ export default function PosScreen() {
   const { shop } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
+  // 'other' is deliberately excluded here — PaymentMethodPicker always
+  // offers it regardless, since it isn't a toggle a shop can turn off.
+  const enabledPaymentMethods: PaymentMethod[] = [
+    ...(shop?.paymentCashEnabled ?? true ? (['cash'] as const) : []),
+    ...(shop?.paymentZaadEnabled ?? true ? (['zaad'] as const) : []),
+    ...(shop?.paymentEdahabEnabled ?? true ? (['edahab'] as const) : []),
+  ];
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
@@ -145,11 +152,11 @@ export default function PosScreen() {
       );
       setReceipt({
         shopName: shop.name,
-        shopLogoUrl: shop.logoUrl,
+        shopLogoUrl: shop.receiptShowLogo ? shop.logoUrl : null,
         shopCity: shop.city,
         shopNeighborhood: shop.neighborhood,
         shopContactPhone: shop.contactPhone,
-        cashierName,
+        cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,
         items: cart.map((line) => ({
           name: line.product.name,
@@ -366,14 +373,27 @@ export default function PosScreen() {
             />
           )}
 
-          <PaymentMethodPicker totalCents={total} payments={payments} currencies={currencies} onChange={setPayments} />
+          <PaymentMethodPicker
+            totalCents={total}
+            payments={payments}
+            currencies={currencies}
+            onChange={setPayments}
+            enabledMethods={enabledPaymentMethods}
+            allowSplit={shop?.paymentSplitEnabled ?? true}
+          />
           {error && <Text style={styles.error}>{error}</Text>}
           <Pressable onPress={checkout} disabled={cart.length === 0 || !fullyPaid || submitting} style={[styles.checkout, (cart.length === 0 || !fullyPaid || submitting) && styles.checkoutDisabled]}>
             <Text style={styles.checkoutText}>{submitting ? 'Completing…' : 'Complete sale'}</Text>
           </Pressable>
         </View>
       </Split>
-      <ReceiptModal receipt={receipt} onClose={() => setReceipt(null)} title="Sale complete ✓" />
+      <ReceiptModal
+        receipt={receipt}
+        onClose={() => setReceipt(null)}
+        title="Sale complete ✓"
+        autoPrint={shop?.receiptAutoPrint ?? false}
+        autoSendWhatsApp={shop?.receiptAutoWhatsapp ?? false}
+      />
     </SafeAreaView>
   );
 }

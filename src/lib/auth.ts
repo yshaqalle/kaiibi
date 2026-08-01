@@ -20,3 +20,19 @@ export async function signOut() {
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
+
+export async function updatePassword(newPassword: string) {
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+// Invalidates every refresh token for this account (all devices/tabs,
+// including this one) rather than just the current session — Supabase's
+// `scope: 'global'` sign-out. There's no client-accessible API to list or
+// selectively revoke individual sessions (that needs the service-role admin
+// API, server-side only), so this is an all-or-nothing "sign out
+// everywhere," not a per-device list.
+export async function signOutEverywhere() {
+  const { error } = await supabase.auth.signOut({ scope: 'global' });
+  if (error) throw error;
+}

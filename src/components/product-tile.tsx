@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
+import { isExpiringSoon } from '@/lib/products';
 import type { Product } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -12,13 +13,23 @@ export function ProductTile({
   product,
   onEdit,
   onStockChange,
+  defaultLowStockLevel = 5,
+  expiryWarningLeadDays,
 }: {
   product: Product;
   onEdit?: () => void;
   onStockChange?: (nextStock: number) => void;
+  // Settings → Inventory alerts' "Default low stock level" — falls back to
+  // 5 (the old hardcoded value) if the caller doesn't pass the shop's.
+  defaultLowStockLevel?: number;
+  // Settings → Inventory alerts' "Expiry warning lead time". Omitted (or the
+  // shop has expiry tracking off) means no expiry badge is shown at all,
+  // regardless of whether this product has an expiry date.
+  expiryWarningLeadDays?: number;
 }) {
-  const lowStock = product.stock <= (product.reorderLevel ?? 5);
+  const lowStock = product.stock <= (product.reorderLevel ?? defaultLowStockLevel);
   const outOfStock = product.stock <= 0;
+  const expiringSoon = expiryWarningLeadDays != null && product.expiryDate != null && isExpiringSoon(product.expiryDate, expiryWarningLeadDays);
 
   return (
     <View style={[styles.row, { borderBottomColor: theme.border }]}>
@@ -49,6 +60,7 @@ export function ProductTile({
                 <View style={styles.stockWithBadge}>
                   <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock}</Text>
                   {lowStock && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⚠ Low</Text>}
+                  {expiringSoon && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⏳ Expiring</Text>}
                 </View>
               )}
               <Pressable onPress={() => onStockChange(product.stock + 1)} style={[styles.stepperButton, { backgroundColor: theme.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: theme.text }]}>+</Text></Pressable>
@@ -59,6 +71,7 @@ export function ProductTile({
             <View style={styles.stockWithBadge}>
               <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock} units</Text>
               {lowStock && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⚠ Low</Text>}
+              {expiringSoon && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⏳ Expiring</Text>}
             </View>
           )}
 
