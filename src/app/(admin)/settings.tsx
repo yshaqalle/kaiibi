@@ -6,7 +6,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ScreenHeader } from '@/components/screen-header';
 import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels/catalog-panel';
 import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
-import { LocationsPanel } from '@/components/settings/panels/phase2-panels';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
@@ -267,8 +266,6 @@ export default function SettingsScreen() {
         return profile ? <SecurityPanel profile={profile} onProfileSaved={setProfile} /> : null;
       case 'notifications':
         return <NotificationsPanel shop={shop} onSaved={refreshShop} />;
-      case 'locations':
-        return <LocationsPanel />;
       case 'inventory':
         return <InventoryAlertsPanel shop={shop} onSaved={refreshShop} />;
       case 'payments':

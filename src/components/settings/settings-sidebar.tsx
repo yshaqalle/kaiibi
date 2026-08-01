@@ -11,7 +11,6 @@ export type SettingsNavId =
   | 'store'
   | 'staff'
   | 'receipt'
-  | 'locations'
   | 'catalog'
   | 'inventory'
   | 'promotions'
@@ -22,9 +21,10 @@ export type SettingsNavId =
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
 type NavGroup = { group: string; items: NavItem[] };
 
-// Phase 1 covers profile/store/staff/catalog/promotions/tax/cashiers with
-// real data; security/notifications/receipt(partial)/locations/inventory/
-// payments render as Phase 2 placeholder panels — see settings.tsx.
+// Every section here is real (persisted + functionally wired) except
+// Notifications (preferences only — no send infrastructure exists yet).
+// "Locations" was removed — see docs/backlog for the multi-location work
+// it would take.
 export const SETTINGS_NAV: NavGroup[] = [
   {
     group: 'Account',
@@ -40,7 +40,6 @@ export const SETTINGS_NAV: NavGroup[] = [
       { id: 'store', label: 'Store', icon: 'storefront-outline' },
       { id: 'staff', label: 'Staff and roles', icon: 'people-outline', permission: 'staff.manage' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },
-      { id: 'locations', label: 'Locations', icon: 'location-outline' },
     ],
   },
   {
