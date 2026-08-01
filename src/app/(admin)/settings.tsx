@@ -5,10 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
 import { CatalogPanel } from '@/components/settings/panels/catalog-panel';
-import { InventoryAlertsPanel, LocationsPanel, NotificationsPanel, SecurityPanel } from '@/components/settings/panels/phase2-panels';
+import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
+import { InventoryAlertsPanel, LocationsPanel } from '@/components/settings/panels/phase2-panels';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
+import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { StaffPanel } from '@/components/settings/panels/staff-panel';
 import { StorePanel } from '@/components/settings/panels/store-panel';
 import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
@@ -262,9 +264,9 @@ export default function SettingsScreen() {
           />
         );
       case 'security':
-        return <SecurityPanel />;
+        return profile ? <SecurityPanel profile={profile} onProfileSaved={setProfile} /> : null;
       case 'notifications':
-        return <NotificationsPanel />;
+        return <NotificationsPanel shop={shop} onSaved={refreshShop} />;
       case 'locations':
         return <LocationsPanel />;
       case 'inventory':

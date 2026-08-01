@@ -5,6 +5,10 @@ export type Profile = {
   role: 'admin' | 'customer' | 'staff';
   fullName: string | null;
   phone: string | null;
+  // Set by Settings → Security's Change Password flow (see lib/profile.ts's
+  // markPasswordChanged) — only reflects changes made there, not a reset
+  // via a forgot-password email link.
+  passwordChangedAt: string | null;
   createdAt: string;
 };
 
@@ -41,6 +45,18 @@ export type Shop = {
   paymentZaadEnabled: boolean;
   paymentEdahabEnabled: boolean;
   paymentSplitEnabled: boolean;
+  // Notification preferences (Settings → Notifications). These are
+  // currently preferences only — nothing in the app sends a daily summary,
+  // low-stock alert, or push/email/WhatsApp notification yet, so toggling
+  // these has no effect beyond being saved. See docs/backlog for what
+  // building real delivery would take.
+  notifyDailySummary: boolean;
+  notifyLargeSale: boolean;
+  notifyLowStock: boolean;
+  notifyOutOfStock: boolean;
+  notifyViaPush: boolean;
+  notifyViaEmail: boolean;
+  notifyViaWhatsapp: boolean;
   createdAt: string;
 };
 

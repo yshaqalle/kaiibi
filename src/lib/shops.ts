@@ -25,6 +25,13 @@ function mapShopRow(row: any): Shop {
     paymentZaadEnabled: row.payment_zaad_enabled,
     paymentEdahabEnabled: row.payment_edahab_enabled,
     paymentSplitEnabled: row.payment_split_enabled,
+    notifyDailySummary: row.notify_daily_summary,
+    notifyLargeSale: row.notify_large_sale,
+    notifyLowStock: row.notify_low_stock,
+    notifyOutOfStock: row.notify_out_of_stock,
+    notifyViaPush: row.notify_via_push,
+    notifyViaEmail: row.notify_via_email,
+    notifyViaWhatsapp: row.notify_via_whatsapp,
     createdAt: row.created_at,
   };
 }
@@ -97,6 +104,8 @@ export async function updateShop(id: string, input: Partial<{
   name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; taxEnabled: boolean; taxRatePercent: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
+  notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
+  notifyViaPush: boolean; notifyViaEmail: boolean; notifyViaWhatsapp: boolean;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -120,6 +129,13 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.paymentZaadEnabled !== undefined && { payment_zaad_enabled: input.paymentZaadEnabled }),
       ...(input.paymentEdahabEnabled !== undefined && { payment_edahab_enabled: input.paymentEdahabEnabled }),
       ...(input.paymentSplitEnabled !== undefined && { payment_split_enabled: input.paymentSplitEnabled }),
+      ...(input.notifyDailySummary !== undefined && { notify_daily_summary: input.notifyDailySummary }),
+      ...(input.notifyLargeSale !== undefined && { notify_large_sale: input.notifyLargeSale }),
+      ...(input.notifyLowStock !== undefined && { notify_low_stock: input.notifyLowStock }),
+      ...(input.notifyOutOfStock !== undefined && { notify_out_of_stock: input.notifyOutOfStock }),
+      ...(input.notifyViaPush !== undefined && { notify_via_push: input.notifyViaPush }),
+      ...(input.notifyViaEmail !== undefined && { notify_via_email: input.notifyViaEmail }),
+      ...(input.notifyViaWhatsapp !== undefined && { notify_via_whatsapp: input.notifyViaWhatsapp }),
     })
     .eq('id', id)
     .select('*')
