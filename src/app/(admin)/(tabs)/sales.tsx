@@ -2,21 +2,38 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { DateInput, parseDateInput } from '@/components/date-input';
+import { ExportMenu } from '@/components/export-menu';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
+import type { CsvColumn } from '@/lib/csv';
 import { formatCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
+import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 
 const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
+
+const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
+  { header: 'Date', value: (s) => new Date(s.createdAt).toLocaleString() },
+  { header: 'Items', value: (s) => (s.items ?? []).map((i) => `${i.quantity}x ${i.productName}`).join('; ') },
+  { header: 'Customer Name', value: (s) => s.customerName ?? '' },
+  { header: 'Customer Phone', value: (s) => s.customerPhone ?? '' },
+  { header: 'Customer Email', value: (s) => s.customerEmail ?? '' },
+  { header: 'Payment Method', value: (s) => paymentLabels[s.paymentMethod] },
+  { header: 'Cashier', value: (s) => s.cashierName ?? '' },
+  { header: 'Discount', value: (s) => (s.discountCents / 100).toFixed(2) },
+  { header: 'Tax', value: (s) => (s.taxCents / 100).toFixed(2) },
+  { header: 'Total', value: (s) => (s.totalCents / 100).toFixed(2) },
+];
 const rangePresets = [7, 14, 30, 90] as const;
 type SaleSortField = 'date' | 'customer' | 'payment' | 'total';
 
@@ -60,6 +77,7 @@ export default function SalesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const sinceDate = useMemo(() => {
     if (rangeMode === 'custom' && appliedCustomRange) {
@@ -159,10 +177,30 @@ export default function SalesScreen() {
     }
   };
 
+  const importConfig: ImportEntityConfig<AcceptedSale> | null = shop
+    ? {
+        title: 'sales',
+        filenamePrefix: 'sales',
+        templateColumns: SALES_TEMPLATE_COLUMNS,
+        exampleRows: SALES_EXAMPLE_ROWS,
+        run: (parsed) => runSalesImport(shop, parsed),
+      }
+    : null;
+
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Sales</Text>
+        <View style={styles.header}>
+          <Text style={styles.title}>Sales</Text>
+          <View style={styles.headerActions}>
+            <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
+            {canEdit && (
+              <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
+                <Text style={styles.importButtonText}>Import</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
         <View style={styles.metricRow}>
           <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
           <StatTile value={String(filtered.length)} label="Orders" />
@@ -234,6 +272,9 @@ export default function SalesScreen() {
           </View>
         )}
       </ScrollView>
+      {importConfig && (
+        <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
+      )}
     </SafeAreaView>
   );
 }
@@ -566,7 +607,11 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 24, paddingBottom: 60 },
-  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 20 },
+  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 20 },
+  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
   rangeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
