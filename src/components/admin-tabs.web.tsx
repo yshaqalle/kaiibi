@@ -10,18 +10,28 @@ import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import type { StaffMember } from '@/types/models';
 
 // Bottom nav for narrow/mobile-web only — the wide layout uses the shared
 // `AdminSidebar` (see admin-sidebar.tsx), which has its own icon set.
 // `permission` mirrors the route guard in (admin)/_layout.tsx, so a role that
 // can't open a screen never sees a tab for it.
+type NavVisibility = { can: (p: Permission) => boolean; canAny: (p: Permission[]) => boolean; isAdmin: boolean; myMembership: StaffMember | null };
+
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', permission: 'dashboard.view', icon: '🏠' },
-  { href: '/pos', label: 'POS', permission: 'pos.access', icon: '🛒' },
-  { href: '/inventory', label: 'Inventory', permission: 'inventory.view', icon: '▦' },
-  { href: '/customers', label: 'Customers', permission: 'customers.view', icon: '👥' },
-  { href: '/sales', label: 'Sales', permission: 'sales.view', icon: '📈' },
-] as const satisfies readonly { href: string; label: string; permission: Permission; icon: string }[];
+  { href: '/dashboard', label: 'Dashboard', icon: '🏠', isVisible: (ctx: NavVisibility) => ctx.can('dashboard.view') },
+  { href: '/pos', label: 'POS', icon: '🛒', isVisible: (ctx: NavVisibility) => ctx.can('pos.access') },
+  { href: '/inventory', label: 'Inventory', icon: '▦', isVisible: (ctx: NavVisibility) => ctx.can('inventory.view') },
+  {
+    href: '/people',
+    label: 'People',
+    icon: '👥',
+    isVisible: (ctx: NavVisibility) =>
+      ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
+  },
+  { href: '/sales', label: 'Sales', icon: '📈', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+  { href: '/me', label: 'Me', icon: '🙋', isVisible: (ctx: NavVisibility) => ctx.isAdmin || Boolean(ctx.myMembership?.active) },
+] as const satisfies readonly { href: string; label: string; icon: string; isVisible: (ctx: NavVisibility) => boolean }[];
 
 // Below `compactBreakpoint` the persistent sidebar would eat more than half
 // a phone screen (and leave two-pane screens like POS with almost nothing
@@ -30,14 +40,14 @@ const navItems = [
 export default function AdminTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { shop, refreshShop, can } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership, profile } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const canEditShop = can('settings.access');
-  const visibleNavItems = navItems.filter((item) => can(item.permission));
+  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, isAdmin: profile?.role === 'admin', myMembership }));
 
   // Lets the shop logo be changed straight from the mobile header avatar,
   // not just from Settings — a quick "click your logo to change it"
