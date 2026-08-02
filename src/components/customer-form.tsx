@@ -32,6 +32,7 @@ export const CustomerForm = forwardRef<CustomerFormHandle, {
   const [tags, setTags] = useState(initial?.tags?.join(', ') ?? '');
   const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
   const [tagColors, setTagColors] = useState<Map<string, string | null>>(new Map());
+  const [notes, setNotes] = useState(initial?.notes ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -65,7 +66,7 @@ export const CustomerForm = forwardRef<CustomerFormHandle, {
         city: city.trim() || null,
         neighborhood: neighborhood.trim() || null,
         tags: tagList,
-        notes: initial?.notes ?? null,
+        notes: notes.trim() || null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this customer.');
@@ -110,6 +111,16 @@ export const CustomerForm = forwardRef<CustomerFormHandle, {
           suggestions={tagSuggestions}
           colors={tagColors}
           onNewTag={(tag) => setTagSuggestions((prev) => [...prev, tag].sort((a, b) => a.localeCompare(b)))}
+        />
+      </Field>
+      <Field label="NOTES">
+        <TextInput
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Optional"
+          placeholderTextColor="#999999"
+          multiline
+          style={[styles.input, styles.notesInput]}
         />
       </Field>
       {error && <Text style={styles.error}>{error}</Text>}
@@ -191,6 +202,7 @@ const styles = StyleSheet.create({
   half: { flex: 1 },
   fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#999999', marginBottom: 7, marginTop: 3 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#111111', marginBottom: 8 },
+  notesInput: { minHeight: 64, textAlignVertical: 'top', paddingTop: 11 },
   chips: { gap: 7, paddingBottom: 12 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 10 },
   save: { backgroundColor: '#111111', height: 45, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
