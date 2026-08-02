@@ -13,6 +13,7 @@ function mapCustomerRow(row: any): Customer {
     city: row.city,
     neighborhood: row.neighborhood,
     tags: row.tags ?? [],
+    notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -28,6 +29,7 @@ function toRow(input: Partial<NewCustomerInput>) {
     ...(input.city !== undefined && { city: input.city }),
     ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
     ...(input.tags !== undefined && { tags: input.tags }),
+    ...(input.notes !== undefined && { notes: input.notes }),
   };
 }
 

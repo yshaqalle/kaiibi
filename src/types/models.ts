@@ -120,6 +120,7 @@ export type Customer = {
   city: string | null;
   neighborhood: string | null;
   tags: string[];
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
 };
