@@ -184,6 +184,7 @@ export default function SalesScreen() {
         templateColumns: SALES_TEMPLATE_COLUMNS,
         exampleRows: SALES_EXAMPLE_ROWS,
         run: (parsed) => runSalesImport(shop, parsed),
+        unitLabel: 'sale',
       }
     : null;
 

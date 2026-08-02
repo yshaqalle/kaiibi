@@ -24,6 +24,12 @@ export type ImportEntityConfig<T> = {
   templateColumns: { header: string; required: boolean }[];
   exampleRows: Record<string, string>[];
   run: (parsed: ParsedCsv) => Promise<ImportReport<T>>;
+  // What one accepted `T` represents -- 'row' for products/customers, where
+  // each accepted item is exactly one CSV row, but 'sale' for sales import,
+  // where several rows (one per line item) collapse into a single accepted
+  // sale. Rejections are always reported per-row regardless, since that's
+  // what the "download rejected rows" file needs to match the original.
+  unitLabel?: string;
 };
 
 // expo-file-system's `File` is a web no-op (see src/lib/storage.ts), so
@@ -186,8 +192,8 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
             {step === 'done' && report && (
               <>
                 <Text style={styles.resultSummary}>
-                  Imported {report.accepted.length} row{report.accepted.length === 1 ? '' : 's'}
-                  {report.rejected.length > 0 ? `, ${report.rejected.length} rejected.` : '.'}
+                  Imported {report.accepted.length} {config.unitLabel ?? 'row'}{report.accepted.length === 1 ? '' : 's'}
+                  {report.rejected.length > 0 ? `, ${report.rejected.length} row${report.rejected.length === 1 ? '' : 's'} rejected.` : '.'}
                 </Text>
                 {report.rejected.length > 0 && (
                   <>
