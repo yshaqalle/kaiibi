@@ -105,13 +105,21 @@ function CustomersTab({ compact }: { compact: boolean }) {
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
-    const [list, stats] = await Promise.all([listCustomers(shop.id), getCustomersStatsBatch(shop.id)]);
-    setCustomers(list);
-    setRowStats(stats);
-    setLoading(false);
+    setError(null);
+    try {
+      const [list, stats] = await Promise.all([listCustomers(shop.id), getCustomersStatsBatch(shop.id)]);
+      setCustomers(list);
+      setRowStats(stats);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      setLoading(false);
+    }
   }, [shop]);
 
   useEffect(() => {
@@ -152,6 +160,7 @@ function CustomersTab({ compact }: { compact: boolean }) {
 
   const list = (
     <>
+      {error && <Text style={tabStyles.errorText}>{error}</Text>}
       <View style={tabStyles.search}>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, phone, or tag" placeholderTextColor="#999999" style={tabStyles.searchInput} />
       </View>
@@ -267,6 +276,7 @@ function CustomerDetailPane({
 }) {
   const [stats, setStats] = useState<{ totalSpentCents: number; visitCount: number; lastPurchaseAt: string | null } | null>(null);
   const [purchases, setPurchases] = useState<CustomerPurchase[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getCustomerStats(customer.id).then(setStats).catch(() => setStats(null));
@@ -277,9 +287,14 @@ function CustomerDetailPane({
   const isVip = segment === 'vip';
 
   const toggleVip = async () => {
-    const nextTags = isVip ? customer.tags.filter((t) => t.toLowerCase() !== 'vip') : [...customer.tags, 'vip'];
-    await updateCustomer(customer.id, { tags: nextTags });
-    await onChanged();
+    setError(null);
+    try {
+      const nextTags = isVip ? customer.tags.filter((t) => t.toLowerCase() !== 'vip') : [...customer.tags, 'vip'];
+      await updateCustomer(customer.id, { tags: nextTags });
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
   };
 
   return (
@@ -313,6 +328,7 @@ function CustomerDetailPane({
           </Pressable>
         )}
       </View>
+      {error && <Text style={tabStyles.errorText}>{error}</Text>}
       <View style={tabStyles.section}>
         <Text style={tabStyles.sectionTitle}>NOTES</Text>
         <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
@@ -358,19 +374,26 @@ function TeamTab({ compact }: { compact: boolean }) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showApprovalList, setShowApprovalList] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
-    const [staffList, roleList, timeOffList] = await Promise.all([
-      listStaff(shop.id),
-      listRoles(shop.id),
-      canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
-    ]);
-    setStaff(staffList);
-    setRoles(roleList);
-    setTimeOff(timeOffList);
-    setLoading(false);
+    setError(null);
+    try {
+      const [staffList, roleList, timeOffList] = await Promise.all([
+        listStaff(shop.id),
+        listRoles(shop.id),
+        canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
+      ]);
+      setStaff(staffList);
+      setRoles(roleList);
+      setTimeOff(timeOffList);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    } finally {
+      setLoading(false);
+    }
   }, [shop, canApproveTimeOff]);
 
   useEffect(() => {
@@ -413,6 +436,7 @@ function TeamTab({ compact }: { compact: boolean }) {
 
   const list = (
     <>
+      {error && <Text style={tabStyles.errorText}>{error}</Text>}
       <View style={tabStyles.search}>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name or role" placeholderTextColor="#999999" style={tabStyles.searchInput} />
       </View>
@@ -527,6 +551,7 @@ function TeamDetailPane({
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [changingRole, setChangingRole] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const role = roles.find((r) => r.id === member.roleId);
   const permissions = role?.permissions ?? [];
@@ -559,7 +584,7 @@ function TeamDetailPane({
 
       <View style={tabStyles.tiles}>
         <StatTile value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
-        <StatTile value={member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—'} label="Pay type" />
+        <StatTile value={canManagePayroll ? (member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—') : '—'} label="Pay type" />
         <StatTile value={canViewHours ? `${hoursThisPeriod.toFixed(1)}h` : '—'} label="Hours this period" />
       </View>
 
@@ -570,8 +595,13 @@ function TeamDetailPane({
           </Pressable>
           <Pressable
             onPress={async () => {
-              await setStaffActive(member.id, !member.active);
-              await onChanged();
+              setError(null);
+              try {
+                await setStaffActive(member.id, !member.active);
+                await onChanged();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Something went wrong.');
+              }
             }}
             style={tabStyles.actionButtonGhost}
           >
@@ -587,14 +617,20 @@ function TeamDetailPane({
               label={r.name}
               active={r.id === member.roleId}
               onPress={async () => {
-                await updateStaffRole(member.id, r.id);
-                await onChanged();
-                setChangingRole(false);
+                setError(null);
+                try {
+                  await updateStaffRole(member.id, r.id);
+                  await onChanged();
+                  setChangingRole(false);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'Something went wrong.');
+                }
               }}
             />
           ))}
         </ScrollView>
       )}
+      {error && <Text style={tabStyles.errorText}>{error}</Text>}
 
       <View style={tabStyles.section}>
         <View style={tabStyles.sectionHeadRow}>
@@ -606,9 +642,11 @@ function TeamDetailPane({
           )}
         </View>
         <Text style={tabStyles.payrollValue}>
-          {member.payType && member.payRateCents != null
-            ? `${formatCents(member.payRateCents)}${member.payType === 'hourly' ? ' / hour' : member.payType === 'salary' ? ' / year' : ''}`
-            : 'Not set'}
+          {!canManagePayroll
+            ? 'Hidden'
+            : member.payType && member.payRateCents != null
+              ? `${formatCents(member.payRateCents)}${member.payType === 'hourly' ? ' / hour' : member.payType === 'salary' ? ' / year' : ''}`
+              : 'Not set'}
         </Text>
       </View>
 

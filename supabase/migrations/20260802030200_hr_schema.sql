@@ -20,7 +20,9 @@ create table public.time_entries (
 create index time_entries_shop_id_idx on public.time_entries(shop_id);
 create index time_entries_shop_member_id_idx on public.time_entries(shop_member_id);
 -- Powers "does this member have an open shift" lookups (getOpenTimeEntry).
-create index time_entries_open_idx on public.time_entries(shop_member_id) where clock_out is null;
+-- unique: also enforces at most one open shift per member, so
+-- getOpenTimeEntry's .maybeSingle() can never see more than one row.
+create unique index time_entries_open_idx on public.time_entries(shop_member_id) where clock_out is null;
 
 create table public.time_off_requests (
   id uuid primary key default gen_random_uuid(),
@@ -49,11 +51,11 @@ alter table public.time_off_requests enable row level security;
 create policy "member manages own time entries" on public.time_entries for all
   using (exists (
     select 1 from public.shop_members m
-    where m.id = shop_member_id and m.user_id = auth.uid() and m.active
+    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id
   ))
   with check (exists (
     select 1 from public.shop_members m
-    where m.id = shop_member_id and m.user_id = auth.uid() and m.active
+    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id
   ));
 
 -- Manager-side: read team-wide entries (people.timesheet.view covers both
@@ -74,7 +76,7 @@ grant select, insert, update, delete on public.time_entries to authenticated;
 create policy "member requests own time off" on public.time_off_requests for insert
   with check (
     status = 'pending'
-    and exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid() and m.active)
+    and exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id)
   );
 create policy "member reads own time off requests" on public.time_off_requests for select
   using (exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid()));
@@ -102,7 +104,7 @@ grant select, insert, update, delete on public.time_off_requests to authenticate
 -- shop_members row via "write shop_members roster" below.
 drop policy "manage shop_members" on public.shop_members;
 create policy "read shop_members" on public.shop_members for select
-  using (has_any_shop_permission(shop_id, array['staff.manage','people.payroll.manage','people.timesheet.view']));
+  using (has_any_shop_permission(shop_id, array['staff.manage','people.payroll.manage','people.timesheet.view','people.timeoff.approve']));
 create policy "insert shop_members" on public.shop_members for insert
   with check (has_shop_permission(shop_id, 'staff.manage'));
 create policy "write shop_members roster" on public.shop_members for update
@@ -119,7 +121,7 @@ create policy "delete shop_members" on public.shop_members for delete
 -- screen without needing staff.manage or any People-side permission.
 drop policy "manage roles" on public.roles;
 create policy "read roles" on public.roles for select
-  using (has_any_shop_permission(shop_id, array['staff.manage','people.payroll.manage','people.timesheet.view']));
+  using (has_any_shop_permission(shop_id, array['staff.manage','people.payroll.manage','people.timesheet.view','people.timeoff.approve']));
 create policy "write roles" on public.roles for all
   using (has_shop_permission(shop_id, 'staff.manage'))
   with check (has_shop_permission(shop_id, 'staff.manage'));

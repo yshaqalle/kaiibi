@@ -50,14 +50,23 @@ function StaffSelfService({ shopId, member }: { shopId: string; member: StaffMem
     const since = new Date();
     since.setDate(1);
     since.setHours(0, 0, 0, 0);
-    const [open, myEntries, myRequests] = await Promise.all([
-      getOpenTimeEntry(member.id),
-      listMyTimeEntries(member.id, since.toISOString()),
-      listMyTimeOffRequests(member.id),
-    ]);
-    setOpenEntry(open);
-    setEntries(myEntries);
-    setRequests(myRequests);
+    try {
+      const [open, myEntries, myRequests] = await Promise.all([
+        getOpenTimeEntry(member.id),
+        listMyTimeEntries(member.id, since.toISOString()),
+        listMyTimeOffRequests(member.id),
+      ]);
+      setOpenEntry(open);
+      setEntries(myEntries);
+      setRequests(myRequests);
+    } catch (err) {
+      // Reuses the same clockError display the clock in/out action already
+      // uses -- this component has no separate loading flag to reset here
+      // (unlike people.tsx's reload()s), just the open-shift/entries/
+      // requests state, so a failed reload now at least surfaces something
+      // instead of leaving stale state with a silent console rejection.
+      setClockError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
   }, [member.id]);
 
   useEffect(() => {

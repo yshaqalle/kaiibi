@@ -19,8 +19,16 @@ export function TwoPaneListDetail({ compact, list, detail }: { compact: boolean;
   }
   return (
     <View style={styles.split}>
-      <View style={styles.listPane}>{list}</View>
-      <View style={styles.detailPane}>{detail}</View>
+      <View style={styles.listPane}>
+        <ScrollView style={styles.paneScroll} contentContainerStyle={styles.paneContent} showsVerticalScrollIndicator={false}>
+          {list}
+        </ScrollView>
+      </View>
+      <View style={styles.detailPane}>
+        <ScrollView style={styles.paneScroll} contentContainerStyle={styles.paneContent} showsVerticalScrollIndicator={false}>
+          {detail}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -29,6 +37,8 @@ const styles = StyleSheet.create({
   split: { flexDirection: 'row', gap: 18, flex: 1, minHeight: 0 },
   listPane: { width: 300, flexShrink: 0 },
   detailPane: { flex: 1, minWidth: 0 },
+  paneScroll: { flex: 1 },
+  paneContent: { flexGrow: 1 },
   compactContent: { paddingBottom: 24 },
   compactDetail: { marginTop: 14 },
 });

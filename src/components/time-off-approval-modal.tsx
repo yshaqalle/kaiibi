@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
@@ -17,13 +18,20 @@ export function TimeOffApprovalModal({
   onClose: () => void;
   onChange: () => Promise<void>;
 }) {
+  const [error, setError] = useState<string | null>(null);
+
   if (!visible) return null;
 
   const nameFor = (shopMemberId: string) => staff.find((m) => m.id === shopMemberId)?.fullName ?? 'Staff member';
 
   const decide = async (id: string, decision: 'approved' | 'denied') => {
-    await decideTimeOffRequest(id, decision);
-    await onChange();
+    setError(null);
+    try {
+      await decideTimeOffRequest(id, decision);
+      await onChange();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
   };
 
   return (
@@ -36,6 +44,7 @@ export function TimeOffApprovalModal({
               <Text style={styles.closeText}>Close</Text>
             </Pressable>
           </View>
+          {error && <Text style={styles.error}>{error}</Text>}
           <ScrollView style={styles.list}>
             {requests.length === 0 ? (
               <Text style={styles.empty}>No time off requests yet.</Text>
@@ -78,6 +87,7 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
   closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   list: { flex: 1 },
+  error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 10 },
   empty: { color: '#999999', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
   row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   range: { fontSize: 13, fontWeight: '600', color: '#111111' },

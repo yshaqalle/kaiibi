@@ -48,21 +48,25 @@ async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permission
   const [{ data: userData }, shop] = await Promise.all([supabase.auth.getUser(), getMyShop()]);
   const userId = userData.user?.id;
   if (!shop || !userId) return { shop, permissions: noPermissions, myMembership: null };
-  try {
-    const [permissions, myMembership] = await Promise.all([getMyPermissions(shop, userId), getMyMembership(shop.id, userId)]);
-    return { shop, permissions, myMembership };
-  } catch {
-    // Fail closed: an unresolved permission set must never read as "allow
-    // everything". Swallowed rather than rethrown so a failure here can't
-    // reject loadForSession() and strand the app on its loading spinner —
-    // the session still resolves, the user just lands on the "no access"
-    // screen (or signed out of /me) and can retry. Only staff can reach the
-    // permissions half of this: an admin's permissions come from owning the
-    // shop, with no round trip to fail. getMyMembership resolves to null
-    // for an admin regardless (no shop_members row), so it never throws for
-    // that case either.
-    return { shop, permissions: noPermissions, myMembership: null };
-  }
+  // Fetched independently -- each with its own fail-closed fallback -- so a
+  // failure on one can't cost the other. Permissions failing closed to
+  // noPermissions is a security requirement (an unresolved permission set
+  // must never read as "allow everything"); myMembership failing to null is
+  // just "self-service /me falls back to unavailable", not a security
+  // boundary. Coupling them through one shared try/catch (as this used to)
+  // meant a merely-flaky membership read -- a plain RLS-gated table read,
+  // more failure-prone than the permissions RPC -- could drop an otherwise
+  // fully-permissioned staff member all the way to the "no access" screen.
+  // Neither promise is allowed to reject past this function, so
+  // loadForSession() above is never at risk of being stranded on its
+  // loading spinner by either one.
+  const [permissionsResult, membershipResult] = await Promise.allSettled([
+    getMyPermissions(shop, userId),
+    getMyMembership(shop.id, userId),
+  ]);
+  const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : noPermissions;
+  const myMembership = membershipResult.status === 'fulfilled' ? membershipResult.value : null;
+  return { shop, permissions, myMembership };
 }
 
 const AuthContext = createContext<AuthState | null>(null);

@@ -51,7 +51,7 @@ export default function AdminLayout() {
   if (!allowed) {
     return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
-  if (!isMeRoute && !landing) {
+  if (!isMeRoute && !landing && !required) {
     return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
 
