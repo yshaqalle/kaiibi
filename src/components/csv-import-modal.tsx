@@ -2,10 +2,17 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useState } from 'react';
 import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { read as readWorkbook, utils as xlsxUtils } from 'xlsx';
 
 import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
 import { shareCsv } from '@/lib/export-file';
 import { downloadRejectedRowsCsv, type ImportReport } from '@/lib/import-shared';
+
+const EXCEL_MIME_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+  'application/vnd.ms-excel', // legacy .xls (also sometimes used for CSV -- extension wins if both match)
+];
+const PICKER_MIME_TYPES = ['text/csv', 'text/comma-separated-values', ...EXCEL_MIME_TYPES];
 
 // Each entity (products/customers/sales) supplies its own column legend,
 // example rows for the downloadable template, and a `run` function that's
@@ -20,11 +27,33 @@ export type ImportEntityConfig<T> = {
 };
 
 // expo-file-system's `File` is a web no-op (see src/lib/storage.ts), so
-// reading the picked file's text goes through fetch() on web instead, same
-// split used there.
+// reading the picked file's text/bytes goes through fetch() on web instead,
+// same split used there.
 async function readPickedFileText(uri: string): Promise<string> {
   if (Platform.OS === 'web') return (await fetch(uri)).text();
   return new File(uri).text();
+}
+
+async function readPickedFileBytes(uri: string): Promise<Uint8Array> {
+  if (Platform.OS === 'web') return new Uint8Array(await (await fetch(uri)).arrayBuffer());
+  return new File(uri).bytes();
+}
+
+function isExcelFile(name: string, mimeType: string | undefined): boolean {
+  return /\.xlsx?$/i.test(name) || (mimeType != null && EXCEL_MIME_TYPES.includes(mimeType));
+}
+
+// A user who edits the downloaded template in Excel often ends up re-saving
+// it as .xlsx instead of .csv -- rather than reject that, read the workbook
+// and convert its first sheet to CSV text, then feed it through the exact
+// same parseCsvText/validation path a real .csv file would take.
+async function readPickedFileAsCsvText(uri: string, name: string, mimeType: string | undefined): Promise<string> {
+  if (!isExcelFile(name, mimeType)) return readPickedFileText(uri);
+  const bytes = await readPickedFileBytes(uri);
+  const workbook = readWorkbook(bytes, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  if (!firstSheetName) throw new Error('That workbook has no sheets.');
+  return xlsxUtils.sheet_to_csv(workbook.Sheets[firstSheetName]);
 }
 
 type Step = 'idle' | 'parsed' | 'importing' | 'done';
@@ -58,11 +87,11 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   const pickFile = async () => {
     setError(null);
     setReport(null);
-    const result = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', 'application/vnd.ms-excel'] });
+    const result = await DocumentPicker.getDocumentAsync({ type: PICKER_MIME_TYPES });
     if (result.canceled || !result.assets[0]) return;
     const asset = result.assets[0];
     try {
-      const text = await readPickedFileText(asset.uri);
+      const text = await readPickedFileAsCsvText(asset.uri, asset.name, asset.mimeType);
       const csv = parseCsvText(text);
       const missing = config.templateColumns.filter((c) => c.required && !csv.headers.includes(c.header));
       if (missing.length > 0) {
@@ -76,8 +105,8 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
       setFileName(asset.name);
       setParsed(csv);
       setStep('parsed');
-    } catch {
-      setError('Could not read that file — make sure it is a .csv file.');
+    } catch (err) {
+      setError(err instanceof Error && isExcelFile(asset.name, asset.mimeType) ? err.message : 'Could not read that file — make sure it is a .csv, .xlsx, or .xls file.');
     }
   };
 
@@ -131,7 +160,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
 
             {step === 'idle' && (
               <Pressable onPress={pickFile} style={styles.primaryButton}>
-                <Text style={styles.primaryButtonText}>Choose CSV file</Text>
+                <Text style={styles.primaryButtonText}>Choose CSV or Excel file</Text>
               </Pressable>
             )}
 
