@@ -24,6 +24,7 @@ import { createCustomer, getCustomerStats, getCustomersStatsBatch, listCustomerP
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, setStaffActive, updateStaffPay, updateStaffRole } from '@/lib/staff';
+import { STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS, runStaffImport } from '@/lib/staff-import';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
@@ -43,6 +44,20 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'Neighborhood', value: (c) => c.neighborhood ?? '' },
   { header: 'Tags', value: (c) => c.tags.join('; ') },
   { header: 'Notes', value: (c) => c.notes ?? '' },
+];
+
+const TEAM_EXPORT_COLUMNS_BASIC: CsvColumn<StaffMember>[] = [
+  { header: 'Name', value: (m) => m.fullName ?? '' },
+  { header: 'Email', value: (m) => m.email ?? '' },
+  { header: 'Role', value: (m) => m.roleName },
+  { header: 'Status', value: (m) => (m.active ? 'Active' : 'Disabled') },
+  { header: 'Hire Date', value: (m) => m.hireDate ?? '' },
+];
+
+const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
+  ...TEAM_EXPORT_COLUMNS_BASIC,
+  { header: 'Pay Type', value: (m) => m.payType ?? '' },
+  { header: 'Pay Rate', value: (m) => (m.payRateCents != null ? formatCents(m.payRateCents) : '') },
 ];
 
 export default function PeopleScreen() {
@@ -342,6 +357,7 @@ function TeamTab({ compact }: { compact: boolean }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showApprovalList, setShowApprovalList] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -378,6 +394,22 @@ function TeamTab({ compact }: { compact: boolean }) {
 
   const selected = staff.find((m) => m.id === selectedId) ?? null;
   const pendingCount = timeOff.filter((r) => r.status === 'pending').length;
+
+  const importConfig: ImportEntityConfig<StaffMember> | null =
+    shop && roles.length > 0
+      ? {
+          title: 'team',
+          filenamePrefix: 'team',
+          templateColumns: STAFF_TEMPLATE_COLUMNS,
+          exampleRows: [STAFF_EXAMPLE_ROW],
+          run: (parsed) => runStaffImport(shop.id, roles, parsed),
+          unitLabel: 'staff member',
+        }
+      : null;
+  // Exported pay data is sensitive -- someone who can only manage the
+  // roster (staff.manage) but not payroll (people.payroll.manage) gets an
+  // export without pay columns.
+  const exportColumns = canManagePayroll ? TEAM_EXPORT_COLUMNS_WITH_PAY : TEAM_EXPORT_COLUMNS_BASIC;
 
   const list = (
     <>
@@ -445,6 +477,12 @@ function TeamTab({ compact }: { compact: boolean }) {
       <View style={tabStyles.tabHeader}>
         <Text style={tabStyles.subtitle}>{staff.length} on the team</Text>
         <View style={tabStyles.headerActions}>
+          {canManageRoster && <ExportMenu rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
+          {canManageRoster && (
+            <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
+              <Text style={tabStyles.actionButtonText}>Import</Text>
+            </Pressable>
+          )}
           {canManageRoster && (
             <Pressable
               onPress={() => setShowAddModal(true)}
@@ -463,6 +501,7 @@ function TeamTab({ compact }: { compact: boolean }) {
       {canApproveTimeOff && (
         <TimeOffApprovalModal visible={showApprovalList} requests={timeOff} staff={staff} onClose={() => setShowApprovalList(false)} onChange={reload} />
       )}
+      {importConfig && <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />}
     </View>
   );
 }

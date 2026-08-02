@@ -137,6 +137,7 @@ export type ProvisionStaffResult = {
   userId: string;
   email: string;
   temporaryPassword: string | null;
+  member: { id: string; shopId: string; userId: string; roleId: string; active: boolean };
 };
 
 export type ProvisionStaffError = { error: 'forbidden' | 'invalid_role' | 'duplicate_email' | 'unknown'; message: string };
