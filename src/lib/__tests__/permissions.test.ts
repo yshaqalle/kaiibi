@@ -28,6 +28,7 @@ describe('expandPermissions', () => {
   it('folds in implied permissions so a writer can also read', () => {
     expect(expandPermissions(['inventory.edit'])).toEqual(['inventory.view', 'inventory.edit']);
     expect(expandPermissions(['sales.edit'])).toEqual(['sales.view', 'sales.edit']);
+    expect(expandPermissions(['sales.refund'])).toEqual(['sales.view', 'sales.refund']);
     expect(expandPermissions(['customers.edit'])).toEqual(['customers.view', 'customers.edit']);
   });
 
@@ -99,7 +100,7 @@ describe('firstAllowedRoute', () => {
 
 describe('the cashier scope this gate exists to enforce', () => {
   const cashier = expandPermissions(CASHIER);
-  const blocked: Permission[] = ['sales.view', 'sales.edit', 'dashboard.view', 'customers.view', 'settings.access', 'staff.manage', 'inventory.edit'];
+  const blocked: Permission[] = ['sales.view', 'sales.edit', 'sales.refund', 'dashboard.view', 'customers.view', 'settings.access', 'staff.manage', 'inventory.edit'];
 
   it.each(blocked)('does not grant %s', (permission) => {
     expect(cashier).not.toContain(permission);

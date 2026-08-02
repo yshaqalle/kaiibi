@@ -14,6 +14,7 @@ export type Permission =
   | 'inventory.edit'
   | 'sales.view'
   | 'sales.edit'
+  | 'sales.refund'
   | 'customers.view'
   | 'customers.edit'
   | 'dashboard.view'
@@ -26,6 +27,7 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'inventory.edit', label: 'Edit inventory', description: 'Add, edit, or delete products and adjust stock.' },
   { key: 'sales.view', label: 'View sales history', description: 'See past sales and receipts.' },
   { key: 'sales.edit', label: 'Edit/delete sales', description: 'Edit or delete a past sale.' },
+  { key: 'sales.refund', label: 'Refund sales', description: 'Issue refunds against past sales and restore stock. Independent of sales editing.' },
   { key: 'customers.view', label: 'View customers', description: 'Browse the customer directory and its contact details.' },
   { key: 'customers.edit', label: 'Edit customers', description: 'Add, edit, or delete customer records.' },
   { key: 'dashboard.view', label: 'View dashboard', description: 'See revenue, trends, and other shop analytics.' },
@@ -42,6 +44,7 @@ export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map((p) => p.key);
 export const IMPLIED_PERMISSIONS: Partial<Record<Permission, Permission[]>> = {
   'inventory.edit': ['inventory.view'],
   'sales.edit': ['sales.view'],
+  'sales.refund': ['sales.view'],
   'customers.edit': ['customers.view'],
 };
 

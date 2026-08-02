@@ -21,17 +21,18 @@ export type SettingsNavId =
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
 type NavGroup = { group: string; items: NavItem[] };
 
-// Every section here is real (persisted + functionally wired) except
-// Notifications (preferences only — no send infrastructure exists yet).
 // "Locations" was removed — see docs/backlog for the multi-location work
-// it would take.
+// it would take. "Notifications" is hidden for the same reason — no
+// push/email/WhatsApp send infrastructure exists yet, see
+// docs/backlog/2026-08-01-notification-delivery.md. Re-add the nav item
+// below (and the 'notifications' case in settings.tsx) once that's built.
 export const SETTINGS_NAV: NavGroup[] = [
   {
     group: 'Account',
     items: [
       { id: 'profile', label: 'Profile', icon: 'person-outline' },
       { id: 'security', label: 'Security', icon: 'lock-closed-outline' },
-      { id: 'notifications', label: 'Notifications', icon: 'notifications-outline' },
+      // { id: 'notifications', label: 'Notifications', icon: 'notifications-outline' },
     ],
   },
   {

@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CustomerForm, type CustomerFormHandle } from '@/components/customer-form';
 import { StatTile } from '@/components/stat-tile';
+import { confirmDestructive } from '@/lib/confirm';
 import { formatCents } from '@/lib/currency';
 import { deleteCustomer, getCustomerStats } from '@/lib/customers';
 import type { Customer, NewCustomerInput } from '@/types/models';
@@ -80,7 +81,13 @@ export function CustomerModal({
           </View>
           {initial && onDeleted && (
             <Pressable
-              onPress={async () => { await deleteCustomer(initial.id); onDeleted(); onClose(); }}
+              onPress={() =>
+                confirmDestructive('Delete customer?', 'This removes their record and detaches them from past sales.', 'Delete customer', async () => {
+                  await deleteCustomer(initial.id);
+                  onDeleted();
+                  onClose();
+                })
+              }
               style={styles.deleteButton}
             >
               <Text style={styles.deleteText}>Delete customer</Text>

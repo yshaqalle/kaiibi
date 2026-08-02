@@ -10,5 +10,10 @@
     "supabase@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true
+  },
+  "permissions": {
+    "allow": [
+      "Bash(supabase db *)"
+    ]
   }
 }

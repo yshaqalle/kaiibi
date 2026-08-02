@@ -6,6 +6,7 @@ import { CategoryChip } from '@/components/category-chip';
 import { ScreenHeader } from '@/components/screen-header';
 import { SegmentedControl } from '@/components/segmented-control';
 import { useAuth } from '@/hooks/use-auth';
+import { confirmDestructive } from '@/lib/confirm';
 import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, PERMISSIONS, type Permission } from '@/lib/permissions';
 import {
   countStaffByRole,
@@ -201,21 +202,23 @@ function RoleEditorModal({
     }
   };
 
-  const remove = async () => {
+  const remove = () => {
     if (!onDelete) return;
     if (usageCount > 0) {
       setError(`${usageCount} staff member${usageCount === 1 ? '' : 's'} still use this role — reassign them first.`);
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
-      await onDelete();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not delete this role.');
-    } finally {
-      setSaving(false);
-    }
+    confirmDestructive('Delete role?', `This removes "${role?.name ?? 'this role'}" permanently.`, 'Delete role', async () => {
+      setSaving(true);
+      setError(null);
+      try {
+        await onDelete();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not delete this role.');
+      } finally {
+        setSaving(false);
+      }
+    });
   };
 
   return (

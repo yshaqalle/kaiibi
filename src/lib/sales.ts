@@ -1,6 +1,6 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentLine, PaymentMethod, Promotion, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
+import type { CartLine, PaymentLine, PaymentMethod, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
 export type SaleCustomer = { id?: string | null; name?: string | null; phone?: string | null; email?: string | null };
 
@@ -62,6 +62,21 @@ export async function editSale(
 export async function deleteSale(saleId: string): Promise<void> {
   const { error } = await supabase.rpc('delete_sale', { p_sale_id: saleId });
   if (error) throw error;
+}
+
+// Refunds the given quantity of one or more of a sale's items, restoring
+// their stock — see refund_sale_items in the refunds migration. Amounts are
+// computed server-side (cumulative, to avoid rounding drift across partial
+// refunds of the same line); the client only sends quantities. Returns the
+// new refund's id.
+export async function refundSaleItems(saleId: string, items: { saleItemId: string; quantity: number }[]): Promise<string> {
+  if (items.length === 0) throw new Error('Select at least one item to refund');
+  const { data, error } = await supabase.rpc('refund_sale_items', {
+    p_sale_id: saleId,
+    p_items: items.map((i) => ({ sale_item_id: i.saleItemId, quantity: i.quantity })),
+  });
+  if (error) throw error;
+  return data as string;
 }
 
 function buildPaymentPayload(payments: PaymentLine[]) {
@@ -162,6 +177,23 @@ function mapSaleRow(row: any): Sale {
         },
       }))
       .sort((a: SaleEdit, b: SaleEdit) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    refunds: (row.refunds ?? [])
+      .map((refund: any): Refund => ({
+        id: refund.id,
+        saleId: refund.sale_id,
+        refundedBy: refund.refunded_by,
+        totalCents: refund.total_cents,
+        createdAt: refund.created_at,
+        items: (refund.refund_items ?? []).map((ri: any): RefundItem => ({
+          id: ri.id,
+          refundId: ri.refund_id,
+          saleItemId: ri.sale_item_id,
+          productId: ri.product_id,
+          quantity: ri.quantity,
+          amountCents: ri.amount_cents,
+        })),
+      }))
+      .sort((a: Refund, b: Refund) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
   };
 }
 
@@ -184,7 +216,7 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
 function salesInRangeQuery(shopId: string, sinceDate: Date, untilDate?: Date) {
   let query = supabase
     .from('sales')
-    .select('*, sale_items(*), sale_payments(*), sale_edits(*)')
+    .select('*, sale_items(*), sale_payments(*), sale_edits(*), refunds(*, refund_items(*))')
     .eq('shop_id', shopId)
     .gte('created_at', sinceDate.toISOString())
     .order('created_at', { ascending: false });
