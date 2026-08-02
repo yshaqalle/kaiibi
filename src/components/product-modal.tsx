@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ProductForm, type ProductFormHandle } from '@/components/product-form';
+import { confirmDestructive } from '@/lib/confirm';
 import { deleteProduct } from '@/lib/products';
 import type { NewProductInput, Product } from '@/types/models';
 
@@ -59,7 +60,13 @@ export function ProductModal({
           </View>
           {initial && onDeleted && (
             <Pressable
-              onPress={async () => { await deleteProduct(initial.id); onDeleted(); onClose(); }}
+              onPress={() =>
+                confirmDestructive('Delete product?', 'This removes it from inventory. Past sales are not affected.', 'Delete product', async () => {
+                  await deleteProduct(initial.id);
+                  onDeleted();
+                  onClose();
+                })
+              }
               style={styles.deleteButton}
             >
               <Text style={styles.deleteText}>Delete product</Text>

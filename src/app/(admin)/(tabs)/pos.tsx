@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryChip } from '@/components/category-chip';
@@ -14,6 +14,7 @@ import { usePosSessionField } from '@/hooks/use-pos-session';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
+import { confirmDestructive } from '@/lib/confirm';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
@@ -192,7 +193,7 @@ export default function PosScreen() {
 
   const clearSale = () => {
     if (cart.length === 0) return;
-    const doClear = () => {
+    confirmDestructive('Clear cart?', 'This removes every item from the current sale.', 'Clear cart', () => {
       setCart([]);
       setPayments([]);
       setSelectedCustomer(null);
@@ -200,19 +201,7 @@ export default function PosScreen() {
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       setError(null);
-    };
-    // RN Web's Alert.alert is a no-op stub (react-native-web has no OS
-    // dialog to back it with) — it never shows anything and never fires a
-    // button's onPress, so the confirm has to go through window.confirm
-    // there instead.
-    if (Platform.OS === 'web') {
-      if (window.confirm('Clear cart? This removes every item from the current sale.')) doClear();
-      return;
-    }
-    Alert.alert('Clear cart?', 'This removes every item from the current sale.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Clear cart', style: 'destructive', onPress: doClear },
-    ]);
+    });
   };
 
   // On desktop, browse + cart are independently-scrolling side-by-side

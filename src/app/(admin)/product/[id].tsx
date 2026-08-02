@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProductForm } from '@/components/product-form';
 import { ScreenHeader } from '@/components/screen-header';
+import { confirmDestructive } from '@/lib/confirm';
 import { deleteProduct, getProduct, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
 
@@ -30,7 +31,12 @@ export default function EditProductScreen() {
         }}
       />
       <Pressable
-        onPress={async () => { await deleteProduct(product.id); router.back(); }}
+        onPress={() =>
+          confirmDestructive('Delete product?', 'This removes it from inventory. Past sales are not affected.', 'Delete product', async () => {
+            await deleteProduct(product.id);
+            router.back();
+          })
+        }
         style={styles.deleteButton}>
         <Text style={styles.deleteText}>Delete product</Text>
       </Pressable>
