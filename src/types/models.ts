@@ -357,4 +357,7 @@ export type StaffMember = {
   fullName: string | null;
   email: string | null;
   createdAt: string;
+  hireDate: string | null;
+  payType: 'hourly' | 'salary' | 'fixed' | null;
+  payRateCents: number | null;
 };

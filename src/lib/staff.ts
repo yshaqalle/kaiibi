@@ -69,6 +69,9 @@ function mapStaffRow(row: any): StaffMember {
     fullName: row.full_name,
     email: row.email,
     createdAt: row.created_at,
+    hireDate: row.hire_date,
+    payType: row.pay_type,
+    payRateCents: row.pay_rate_cents,
   };
 }
 
@@ -84,6 +87,40 @@ export async function listStaff(shopId: string): Promise<StaffMember[]> {
     .order('created_at', { ascending: true });
   if (error) throw error;
   return (data ?? []).map(mapStaffRow);
+}
+
+// A staff member's own roster row -- the "am I on the team, and what's my
+// role/pay/hire-date" lookup useAuth() has no equivalent of today (see
+// migration 0017's "staff reads own membership" policy, previously unused
+// client-side). Returns null for an admin (no shop_members row -- see
+// getMyPermissions) and for anyone with no membership in this shop.
+export async function getMyMembership(shopId: string, userId: string): Promise<StaffMember | null> {
+  const { data, error } = await supabase
+    .from('shop_members')
+    .select('*, role:roles(name)')
+    .eq('shop_id', shopId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? mapStaffRow(data) : null;
+}
+
+// Sets hire date / pay type / pay rate on a roster row -- gated at the DB
+// by "write shop_members roster" (staff.manage OR people.payroll.manage,
+// migration 20260802030200_hr_schema.sql).
+export async function updateStaffPay(
+  memberId: string,
+  patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null }
+): Promise<void> {
+  const { error } = await supabase
+    .from('shop_members')
+    .update({
+      ...(patch.hireDate !== undefined && { hire_date: patch.hireDate }),
+      ...(patch.payType !== undefined && { pay_type: patch.payType }),
+      ...(patch.payRateCents !== undefined && { pay_rate_cents: patch.payRateCents }),
+    })
+    .eq('id', memberId);
+  if (error) throw error;
 }
 
 export async function updateStaffRole(memberId: string, roleId: string): Promise<void> {
