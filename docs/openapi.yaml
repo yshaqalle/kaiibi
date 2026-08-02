@@ -1,0 +1,1774 @@
+openapi: 3.1.0
+info:
+  title: Ka Iibi Supabase API
+  version: 2026-08-02
+  description: The API surface consumed by the Ka Iibi Expo application. It is Supabase's Auth, PostgREST, Storage, RPC, and Edge Function API—not a separate application REST server. Database access is protected by Supabase Row Level Security (RLS) and permission policies. All money amounts are integer USD cents unless a field name says otherwise.
+servers:
+  - url: https://{projectRef}.supabase.co
+    variables:
+      projectRef:
+        default: YOUR_PROJECT_REF
+        description: Supabase project reference
+tags:
+  - name: Auth
+  - name: PostgREST
+  - name: RPC
+  - name: Storage
+  - name: Functions
+paths:
+  /auth/v1/signup:
+    post:
+      tags:
+        - Auth
+      summary: Create an administrator account
+      security:
+        - anonKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignUpRequest"
+      responses:
+        "200":
+          description: User and session (session can be null when email confirmation is enabled)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /auth/v1/token:
+    post:
+      tags:
+        - Auth
+      summary: Sign in with email and password
+      security:
+        - anonKey: []
+      parameters:
+        - name: grant_type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum:
+              - password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PasswordGrant"
+      responses:
+        "200":
+          description: Authenticated session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+  /auth/v1/user:
+    get:
+      tags:
+        - Auth
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Error"
+    put:
+      tags:
+        - Auth
+      summary: Update current user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - password
+              properties:
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+      responses:
+        "200":
+          description: Updated user
+        "401":
+          $ref: "#/components/responses/Error"
+  /auth/v1/logout:
+    post:
+      tags:
+        - Auth
+      summary: Invalidate the current or all refresh tokens
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum:
+              - local
+              - global
+            default: local
+      responses:
+        "204":
+          description: Signed out
+        "401":
+          $ref: "#/components/responses/Error"
+  /rest/v1/shops:
+    $ref: "#/components/pathItems/Shops"
+  /rest/v1/products:
+    $ref: "#/components/pathItems/Products"
+  /rest/v1/customers:
+    $ref: "#/components/pathItems/Customers"
+  /rest/v1/categories:
+    $ref: "#/components/pathItems/Categories"
+  /rest/v1/tags:
+    $ref: "#/components/pathItems/Tags"
+  /rest/v1/brands:
+    $ref: "#/components/pathItems/Brands"
+  /rest/v1/cashiers:
+    $ref: "#/components/pathItems/Cashiers"
+  /rest/v1/shop_currencies:
+    $ref: "#/components/pathItems/Currencies"
+  /rest/v1/promotions:
+    $ref: "#/components/pathItems/Promotions"
+  /rest/v1/sales:
+    $ref: "#/components/pathItems/Sales"
+  /rest/v1/sale_items:
+    $ref: "#/components/pathItems/SaleItems"
+  /rest/v1/profiles:
+    $ref: "#/components/pathItems/Profiles"
+  /rest/v1/roles:
+    $ref: "#/components/pathItems/Roles"
+  /rest/v1/shop_members:
+    $ref: "#/components/pathItems/ShopMembers"
+  /rest/v1/rpc/complete_sale:
+    post:
+      tags:
+        - RPC
+      summary: Atomically complete a sale and reduce stock
+      description: Creates the sale, items, and payment records. The server calculates line discounts, tax, totals, and validates stock and payment total.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompleteSaleRequest"
+      responses:
+        "200":
+          description: Created sale UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Uuid"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /rest/v1/rpc/edit_sale:
+    post:
+      tags:
+        - RPC
+      summary: Atomically edit a sale and adjust stock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSaleRequest"
+      responses:
+        "204":
+          description: Sale updated; prior state stored in sale_edits
+        "400":
+          $ref: "#/components/responses/Error"
+  /rest/v1/rpc/delete_sale:
+    $ref: "#/components/pathItems/DeleteSale"
+  /rest/v1/rpc/refund_sale_items:
+    post:
+      tags:
+        - RPC
+      summary: Refund sale item quantities and restore stock
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefundSaleItemsRequest"
+      responses:
+        "200":
+          description: Created refund UUID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Uuid"
+        "400":
+          $ref: "#/components/responses/Error"
+  /rest/v1/rpc/pos_search_customers:
+    $ref: "#/components/pathItems/SearchCustomers"
+  /rest/v1/rpc/pos_create_customer:
+    $ref: "#/components/pathItems/CreatePosCustomer"
+  /rest/v1/rpc/my_shop_permissions:
+    $ref: "#/components/pathItems/MyPermissions"
+  /rest/v1/rpc/{taxonomyAction}:
+    post:
+      tags:
+        - RPC
+      summary: Rename or delete a category, tag, or brand
+      description: "Valid action values: rename_category, delete_category, rename_tag, delete_tag, rename_brand, delete_brand. Rename operations require p_shop_id, p_old_name, p_new_name; delete operations require p_shop_id, p_name."
+      parameters:
+        - name: taxonomyAction
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - rename_category
+              - delete_category
+              - rename_tag
+              - delete_tag
+              - rename_brand
+              - delete_brand
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyActionRequest"
+      responses:
+        "204":
+          description: Completed; product text fields are updated atomically where applicable
+        "400":
+          $ref: "#/components/responses/Error"
+  /storage/v1/object/product-images/{objectPath}:
+    post:
+      tags:
+        - Storage
+      summary: Upload a product, shop, category, or brand image
+      parameters:
+        - $ref: "#/components/parameters/ObjectPath"
+        - name: x-upsert
+          in: header
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+            default: "false"
+      requestBody:
+        required: true
+        content:
+          image/jpeg:
+            schema:
+              type: string
+              format: binary
+          image/png:
+            schema:
+              type: string
+              format: binary
+          image/webp:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: Upload metadata
+        "400":
+          $ref: "#/components/responses/Error"
+  /functions/v1/provision-staff:
+    post:
+      tags:
+        - Functions
+      summary: Provision a staff account
+      description: Creates/invites a staff user and membership. Requires the caller to hold the staff-manage permission for the shop.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProvisionStaffRequest"
+      responses:
+        "200":
+          description: Provisioned staff credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvisionStaffResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    anonKey:
+      type: apiKey
+      in: header
+      name: apikey
+      description: Public Supabase anon key. Required by Supabase alongside a JWT for authenticated requests.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ObjectPath:
+      name: objectPath
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Object key; client writes all assets under {shopId}/...
+    Select:
+      name: select
+      in: query
+      schema:
+        type: string
+        default: "*"
+      description: PostgREST projection, e.g. *,sale_items(*),sale_payments(*)
+    Order:
+      name: order
+      in: query
+      schema:
+        type: string
+      description: PostgREST ordering, e.g. created_at.desc
+    Range:
+      name: Range
+      in: header
+      schema:
+        type: string
+        example: 0-49
+      description: Pagination range
+  responses:
+    Error:
+      description: Supabase/PostgREST error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  pathItems:
+    Shops:
+      get:
+        $ref: "#/components/x-operations/listShops"
+      post:
+        $ref: "#/components/x-operations/createShop"
+      patch:
+        $ref: "#/components/x-operations/updateShop"
+    Products:
+      get:
+        $ref: "#/components/x-operations/listProducts"
+      post:
+        $ref: "#/components/x-operations/createProduct"
+      patch:
+        $ref: "#/components/x-operations/updateProduct"
+      delete:
+        $ref: "#/components/x-operations/deleteProduct"
+    Customers:
+      get:
+        $ref: "#/components/x-operations/listCustomers"
+      post:
+        $ref: "#/components/x-operations/createCustomer"
+      patch:
+        $ref: "#/components/x-operations/updateCustomer"
+      delete:
+        $ref: "#/components/x-operations/deleteCustomer"
+    Categories:
+      get:
+        $ref: "#/components/x-operations/listCategories"
+      post:
+        $ref: "#/components/x-operations/upsertCategory"
+      patch:
+        $ref: "#/components/x-operations/updateCategory"
+    Tags:
+      get:
+        $ref: "#/components/x-operations/listTags"
+      post:
+        $ref: "#/components/x-operations/upsertTag"
+      patch:
+        $ref: "#/components/x-operations/updateTag"
+    Brands:
+      get:
+        $ref: "#/components/x-operations/listBrands"
+      post:
+        $ref: "#/components/x-operations/upsertBrand"
+      patch:
+        $ref: "#/components/x-operations/updateBrand"
+    Cashiers:
+      get:
+        $ref: "#/components/x-operations/listCashiers"
+      post:
+        $ref: "#/components/x-operations/upsertCashier"
+      patch:
+        $ref: "#/components/x-operations/updateCashier"
+      delete:
+        $ref: "#/components/x-operations/deleteCashier"
+    Currencies:
+      get:
+        $ref: "#/components/x-operations/listCurrencies"
+      post:
+        $ref: "#/components/x-operations/createCurrency"
+      patch:
+        $ref: "#/components/x-operations/updateCurrency"
+      delete:
+        $ref: "#/components/x-operations/deleteCurrency"
+    Promotions:
+      get:
+        $ref: "#/components/x-operations/listPromotions"
+      post:
+        $ref: "#/components/x-operations/createPromotion"
+      patch:
+        $ref: "#/components/x-operations/updatePromotion"
+      delete:
+        $ref: "#/components/x-operations/deletePromotion"
+    Sales:
+      get:
+        $ref: "#/components/x-operations/listSales"
+    SaleItems:
+      get:
+        $ref: "#/components/x-operations/listSaleItems"
+    Profiles:
+      patch:
+        $ref: "#/components/x-operations/updateProfile"
+    Roles:
+      get:
+        $ref: "#/components/x-operations/listRoles"
+      post:
+        $ref: "#/components/x-operations/createRole"
+      patch:
+        $ref: "#/components/x-operations/updateRole"
+      delete:
+        $ref: "#/components/x-operations/deleteRole"
+    ShopMembers:
+      get:
+        $ref: "#/components/x-operations/listShopMembers"
+      patch:
+        $ref: "#/components/x-operations/updateShopMember"
+    DeleteSale:
+      post:
+        tags:
+          - RPC
+        summary: Delete a sale and restore stock
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - p_sale_id
+                properties:
+                  p_sale_id:
+                    $ref: "#/components/schemas/Uuid"
+        responses:
+          "204":
+            description: Sale deleted
+          "400":
+            $ref: "#/components/responses/Error"
+    SearchCustomers:
+      post:
+        tags:
+          - RPC
+        summary: Search customers for POS
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - p_shop_id
+                  - p_query
+                properties:
+                  p_shop_id:
+                    $ref: "#/components/schemas/Uuid"
+                  p_query:
+                    type: string
+        responses:
+          "200":
+            description: Matching customers
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Customer"
+    CreatePosCustomer:
+      post:
+        tags:
+          - RPC
+        summary: Create a minimal customer during POS checkout
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - p_shop_id
+                  - p_first_name
+                properties:
+                  p_shop_id:
+                    $ref: "#/components/schemas/Uuid"
+                  p_first_name:
+                    type: string
+                  p_phone:
+                    type:
+                      - string
+                      - "null"
+                  p_email:
+                    type:
+                      - string
+                      - "null"
+                    format: email
+        responses:
+          "200":
+            description: Created customer
+            content:
+              application/json:
+                schema:
+                  $ref: "#/components/schemas/Customer"
+    MyPermissions:
+      post:
+        tags:
+          - RPC
+        summary: Get caller permissions for a shop
+        requestBody:
+          required: true
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - p_shop_id
+                properties:
+                  p_shop_id:
+                    $ref: "#/components/schemas/Uuid"
+        responses:
+          "200":
+            description: Permission names
+            content:
+              application/json:
+                schema:
+                  type: array
+                  items:
+                    type: string
+  x-operations:
+    listShops:
+      tags:
+        - PostgREST
+      summary: List accessible shops
+      parameters:
+        - $ref: "#/components/parameters/Select"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: Shop rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Shop"
+    createShop:
+      $ref: "#/components/x-operations/createShopBase"
+    updateShop:
+      $ref: "#/components/x-operations/updateShopBase"
+    listProducts:
+      $ref: "#/components/x-operations/listProductsBase"
+    createProduct:
+      $ref: "#/components/x-operations/createProductBase"
+    updateProduct:
+      $ref: "#/components/x-operations/updateProductBase"
+    deleteProduct:
+      $ref: "#/components/x-operations/deleteById"
+    listCustomers:
+      $ref: "#/components/x-operations/listCustomersBase"
+    createCustomer:
+      $ref: "#/components/x-operations/createCustomerBase"
+    updateCustomer:
+      $ref: "#/components/x-operations/updateCustomerBase"
+    deleteCustomer:
+      $ref: "#/components/x-operations/deleteById"
+    listCategories:
+      $ref: "#/components/x-operations/listCategoriesBase"
+    upsertCategory:
+      $ref: "#/components/x-operations/upsertCategoryBase"
+    updateCategory:
+      $ref: "#/components/x-operations/updateCategoryBase"
+    listTags:
+      $ref: "#/components/x-operations/listTagsBase"
+    upsertTag:
+      $ref: "#/components/x-operations/upsertTagBase"
+    updateTag:
+      $ref: "#/components/x-operations/updateTagBase"
+    listBrands:
+      $ref: "#/components/x-operations/listBrandsBase"
+    upsertBrand:
+      $ref: "#/components/x-operations/upsertBrandBase"
+    updateBrand:
+      $ref: "#/components/x-operations/updateBrandBase"
+    listCashiers:
+      $ref: "#/components/x-operations/listCashiersBase"
+    upsertCashier:
+      $ref: "#/components/x-operations/upsertCashierBase"
+    updateCashier:
+      $ref: "#/components/x-operations/updateCashierBase"
+    deleteCashier:
+      $ref: "#/components/x-operations/deleteByName"
+    listCurrencies:
+      $ref: "#/components/x-operations/listCurrenciesBase"
+    createCurrency:
+      $ref: "#/components/x-operations/createCurrencyBase"
+    updateCurrency:
+      $ref: "#/components/x-operations/updateCurrencyBase"
+    deleteCurrency:
+      $ref: "#/components/x-operations/deleteById"
+    listPromotions:
+      $ref: "#/components/x-operations/listPromotionsBase"
+    createPromotion:
+      $ref: "#/components/x-operations/createPromotionBase"
+    updatePromotion:
+      $ref: "#/components/x-operations/updatePromotionBase"
+    deletePromotion:
+      $ref: "#/components/x-operations/deleteById"
+    listSales:
+      $ref: "#/components/x-operations/listSalesBase"
+    listSaleItems:
+      $ref: "#/components/x-operations/listSaleItemsBase"
+    updateProfile:
+      $ref: "#/components/x-operations/updateProfileBase"
+    listRoles:
+      $ref: "#/components/x-operations/listRolesBase"
+    createRole:
+      $ref: "#/components/x-operations/createRoleBase"
+    updateRole:
+      $ref: "#/components/x-operations/updateRoleBase"
+    deleteRole:
+      $ref: "#/components/x-operations/deleteById"
+    listShopMembers:
+      $ref: "#/components/x-operations/listShopMembersBase"
+    updateShopMember:
+      $ref: "#/components/x-operations/updateShopMemberBase"
+    createShopBase:
+      tags:
+        - PostgREST
+      summary: Create a shop
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShopWrite"
+      responses:
+        "201":
+          description: Created shop
+        "400":
+          $ref: "#/components/responses/Error"
+    updateShopBase:
+      tags:
+        - PostgREST
+      summary: Update a shop
+      description: Use PostgREST equality filters such as id=eq.{uuid}.
+      parameters:
+        - $ref: "#/components/parameters/Select"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShopWrite"
+      responses:
+        "200":
+          description: Updated shop
+    listProductsBase:
+      tags:
+        - PostgREST
+      summary: List products
+      description: The app filters by shop_id=eq.{uuid}.
+      parameters:
+        - $ref: "#/components/parameters/Select"
+        - $ref: "#/components/parameters/Order"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Product rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    createProductBase:
+      tags:
+        - PostgREST
+      summary: Create one or many products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/ProductWrite"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/ProductWrite"
+      responses:
+        "201":
+          description: Created product rows
+    updateProductBase:
+      tags:
+        - PostgREST
+      summary: Update a product
+      description: The app filters by id=eq.{uuid}.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductWrite"
+      responses:
+        "200":
+          description: Updated product
+    listCustomersBase:
+      tags:
+        - PostgREST
+      summary: List customers
+      parameters:
+        - $ref: "#/components/parameters/Select"
+        - $ref: "#/components/parameters/Order"
+      responses:
+        "200":
+          description: Customer rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Customer"
+    createCustomerBase:
+      tags:
+        - PostgREST
+      summary: Create one or many customers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: "#/components/schemas/CustomerWrite"
+                - type: array
+                  items:
+                    $ref: "#/components/schemas/CustomerWrite"
+      responses:
+        "201":
+          description: Created customer rows
+    updateCustomerBase:
+      tags:
+        - PostgREST
+      summary: Update a customer by id filter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerWrite"
+      responses:
+        "204":
+          description: Updated
+    listCategoriesBase:
+      tags:
+        - PostgREST
+      summary: List categories
+      responses:
+        "200":
+          description: Category rows
+    upsertCategoryBase:
+      tags:
+        - PostgREST
+      summary: Upsert category
+      parameters:
+        - name: on_conflict
+          in: query
+          schema:
+            type: string
+            default: shop_id,name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyWrite"
+      responses:
+        "201":
+          description: Created or existing category
+    updateCategoryBase:
+      tags:
+        - PostgREST
+      summary: Update category metadata
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaxonomyWrite"
+      responses:
+        "204":
+          description: Updated
+    listTagsBase:
+      tags:
+        - PostgREST
+      summary: List tags
+      responses:
+        "200":
+          description: Tag rows
+    upsertTagBase:
+      $ref: "#/components/x-operations/upsertCategoryBase"
+    updateTagBase:
+      $ref: "#/components/x-operations/updateCategoryBase"
+    listBrandsBase:
+      tags:
+        - PostgREST
+      summary: List brands
+      responses:
+        "200":
+          description: Brand rows
+    upsertBrandBase:
+      $ref: "#/components/x-operations/upsertCategoryBase"
+    updateBrandBase:
+      $ref: "#/components/x-operations/updateCategoryBase"
+    listCashiersBase:
+      tags:
+        - PostgREST
+      summary: List cashiers
+      responses:
+        "200":
+          description: Cashier rows
+    upsertCashierBase:
+      tags:
+        - PostgREST
+      summary: Upsert cashier
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CashierWrite"
+      responses:
+        "201":
+          description: Created or existing cashier
+    updateCashierBase:
+      tags:
+        - PostgREST
+      summary: Rename cashier by shop_id and name filters
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+      responses:
+        "204":
+          description: Updated
+    listCurrenciesBase:
+      tags:
+        - PostgREST
+      summary: List shop currencies
+      responses:
+        "200":
+          description: Currency rows
+    createCurrencyBase:
+      tags:
+        - PostgREST
+      summary: Create currency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrencyWrite"
+      responses:
+        "201":
+          description: Created currency
+    updateCurrencyBase:
+      tags:
+        - PostgREST
+      summary: Update currency
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CurrencyWrite"
+      responses:
+        "204":
+          description: Updated
+    listPromotionsBase:
+      tags:
+        - PostgREST
+      summary: List promotions
+      responses:
+        "200":
+          description: Promotion rows
+    createPromotionBase:
+      tags:
+        - PostgREST
+      summary: Create promotion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromotionWrite"
+      responses:
+        "201":
+          description: Created promotion
+    updatePromotionBase:
+      tags:
+        - PostgREST
+      summary: Update promotion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromotionWrite"
+      responses:
+        "200":
+          description: Updated promotion
+    listSalesBase:
+      tags:
+        - PostgREST
+      summary: List sales, optionally embedding items, payments, edits and refunds
+      parameters:
+        - $ref: "#/components/parameters/Select"
+        - $ref: "#/components/parameters/Order"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Sale rows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+    listSaleItemsBase:
+      tags:
+        - PostgREST
+      summary: List sale items for analytics or customer purchase history
+      parameters:
+        - $ref: "#/components/parameters/Select"
+      responses:
+        "200":
+          description: Sale item rows
+    updateProfileBase:
+      tags:
+        - PostgREST
+      summary: Update profile name, phone, or password-change timestamp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileWrite"
+      responses:
+        "200":
+          description: Updated profile
+    listRolesBase:
+      tags:
+        - PostgREST
+      summary: List roles
+      responses:
+        "200":
+          description: Role rows
+    createRoleBase:
+      tags:
+        - PostgREST
+      summary: Create role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleWrite"
+      responses:
+        "201":
+          description: Created role
+    updateRoleBase:
+      tags:
+        - PostgREST
+      summary: Update role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleWrite"
+      responses:
+        "200":
+          description: Updated role
+    listShopMembersBase:
+      tags:
+        - PostgREST
+      summary: List shop staff and joined role name
+      parameters:
+        - $ref: "#/components/parameters/Select"
+      responses:
+        "200":
+          description: Shop member rows
+    updateShopMemberBase:
+      tags:
+        - PostgREST
+      summary: Update staff role or active status
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShopMemberWrite"
+      responses:
+        "204":
+          description: Updated staff member
+    deleteById:
+      tags:
+        - PostgREST
+      summary: Delete row by id filter
+      description: The app sends a query filter such as id=eq.{uuid}.
+      responses:
+        "204":
+          description: Deleted
+    deleteByName:
+      tags:
+        - PostgREST
+      summary: Delete cashier by shop_id and name filters
+      responses:
+        "204":
+          description: Deleted
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+        details:
+          type: string
+        hint:
+          type: string
+    SignUpRequest:
+      type: object
+      required:
+        - email
+        - password
+        - data
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        data:
+          type: object
+          required:
+            - role
+            - full_name
+            - phone
+          properties:
+            role:
+              const: admin
+            full_name:
+              type: string
+            phone:
+              type: string
+    PasswordGrant:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+    User:
+      type: object
+      required:
+        - id
+        - email
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        email:
+          type: string
+          format: email
+        user_metadata:
+          type: object
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+        expires_in:
+          type: integer
+        token_type:
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+    Shop:
+      allOf:
+        - $ref: "#/components/schemas/ShopWrite"
+        - type: object
+          required:
+            - id
+            - owner_id
+            - created_at
+          properties:
+            id:
+              $ref: "#/components/schemas/Uuid"
+            owner_id:
+              $ref: "#/components/schemas/Uuid"
+            created_at:
+              $ref: "#/components/schemas/Timestamp"
+    ShopWrite:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        neighborhood:
+          type:
+            - string
+            - "null"
+        contact_phone:
+          type:
+            - string
+            - "null"
+        return_policy:
+          type:
+            - string
+            - "null"
+        logo_url:
+          type:
+            - string
+            - "null"
+          format: uri
+        categories:
+          type: array
+          items:
+            type: string
+        monthly_revenue_goal_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        tax_enabled:
+          type: boolean
+        tax_rate_percent:
+          type: number
+          minimum: 0
+        receipt_show_logo:
+          type: boolean
+        receipt_show_cashier_name:
+          type: boolean
+        receipt_auto_print:
+          type: boolean
+        receipt_auto_whatsapp:
+          type: boolean
+        payment_cash_enabled:
+          type: boolean
+        payment_zaad_enabled:
+          type: boolean
+        payment_edahab_enabled:
+          type: boolean
+        payment_split_enabled:
+          type: boolean
+        notify_daily_summary:
+          type: boolean
+        notify_large_sale:
+          type: boolean
+        notify_low_stock:
+          type: boolean
+        notify_out_of_stock:
+          type: boolean
+        notify_via_push:
+          type: boolean
+        notify_via_email:
+          type: boolean
+        notify_via_whatsapp:
+          type: boolean
+        default_low_stock_level:
+          type: integer
+          minimum: 0
+        expiry_tracking_enabled:
+          type: boolean
+        expiry_warning_lead_days:
+          type: integer
+          minimum: 0
+    Product:
+      allOf:
+        - $ref: "#/components/schemas/ProductWrite"
+        - type: object
+          required:
+            - id
+            - created_at
+            - updated_at
+          properties:
+            id:
+              $ref: "#/components/schemas/Uuid"
+            created_at:
+              $ref: "#/components/schemas/Timestamp"
+            updated_at:
+              $ref: "#/components/schemas/Timestamp"
+    ProductWrite:
+      type: object
+      required:
+        - shop_id
+        - name
+        - price_cents
+        - stock
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        description:
+          type:
+            - string
+            - "null"
+        sku:
+          type:
+            - string
+            - "null"
+        barcode:
+          type:
+            - string
+            - "null"
+        brand:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        tags:
+          type: array
+          items:
+            type: string
+        supplier_name:
+          type:
+            - string
+            - "null"
+        cost_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        price_cents:
+          type: integer
+          minimum: 0
+        stock:
+          type: integer
+          minimum: 0
+        reorder_level:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        shelf_number:
+          type:
+            - string
+            - "null"
+        expiry_date:
+          type:
+            - string
+            - "null"
+          format: date
+        batch_number:
+          type:
+            - string
+            - "null"
+        image_url:
+          type:
+            - string
+            - "null"
+          format: uri
+        is_listed_online:
+          type: boolean
+    Customer:
+      allOf:
+        - $ref: "#/components/schemas/CustomerWrite"
+        - type: object
+          required:
+            - id
+            - created_at
+            - updated_at
+          properties:
+            id:
+              $ref: "#/components/schemas/Uuid"
+            created_at:
+              $ref: "#/components/schemas/Timestamp"
+            updated_at:
+              $ref: "#/components/schemas/Timestamp"
+    CustomerWrite:
+      type: object
+      required:
+        - shop_id
+        - first_name
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        first_name:
+          type: string
+        last_name:
+          type:
+            - string
+            - "null"
+        email:
+          type:
+            - string
+            - "null"
+          format: email
+        phone:
+          type:
+            - string
+            - "null"
+        street:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        neighborhood:
+          type:
+            - string
+            - "null"
+        tags:
+          type: array
+          items:
+            type: string
+        notes:
+          type:
+            - string
+            - "null"
+    TaxonomyWrite:
+      type: object
+      required:
+        - shop_id
+        - name
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        color:
+          type:
+            - string
+            - "null"
+        description:
+          type:
+            - string
+            - "null"
+        image_url:
+          type:
+            - string
+            - "null"
+          format: uri
+    CashierWrite:
+      type: object
+      required:
+        - shop_id
+        - name
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+    CurrencyWrite:
+      type: object
+      required:
+        - shop_id
+        - code
+        - name
+        - symbol
+        - rate_to_usd
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          type: string
+          minLength: 2
+          maxLength: 10
+        name:
+          type: string
+        symbol:
+          type: string
+        rate_to_usd:
+          type: number
+          exclusiveMinimum: 0
+        active:
+          type: boolean
+    PromotionWrite:
+      type: object
+      required:
+        - shop_id
+        - name
+        - discount_type
+        - discount_value
+        - scope
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        discount_type:
+          type: string
+          enum:
+            - percentage
+            - fixed
+        discount_value:
+          type: number
+          minimum: 0
+        scope:
+          type: string
+          enum:
+            - store
+            - brand
+            - category
+        scope_value:
+          type:
+            - string
+            - "null"
+        active:
+          type: boolean
+    RoleWrite:
+      type: object
+      properties:
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        permissions:
+          type: array
+          items:
+            type: string
+    ShopMemberWrite:
+      type: object
+      properties:
+        role_id:
+          $ref: "#/components/schemas/Uuid"
+        active:
+          type: boolean
+    ProfileWrite:
+      type: object
+      properties:
+        full_name:
+          type: string
+        phone:
+          type: string
+        password_changed_at:
+          $ref: "#/components/schemas/Timestamp"
+    SaleItemInput:
+      type: object
+      required:
+        - product_id
+        - quantity
+      properties:
+        product_id:
+          $ref: "#/components/schemas/Uuid"
+        quantity:
+          type: integer
+          minimum: 1
+        discount_cents:
+          type: integer
+          minimum: 0
+        discount_type:
+          type: string
+          enum:
+            - percentage
+            - fixed
+        discount_value:
+          type: number
+          minimum: 0
+    PaymentLine:
+      type: object
+      required:
+        - method
+        - amount_cents
+      properties:
+        method:
+          type: string
+          enum:
+            - cash
+            - zaad
+            - edahab
+            - other
+        amount_cents:
+          type: integer
+          minimum: 1
+        tendered_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        customer_name:
+          type:
+            - string
+            - "null"
+        customer_phone:
+          type:
+            - string
+            - "null"
+        currency_code:
+          type:
+            - string
+            - "null"
+        exchange_rate:
+          type:
+            - number
+            - "null"
+          exclusiveMinimum: 0
+        foreign_amount_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+        foreign_change_cents:
+          type:
+            - integer
+            - "null"
+          minimum: 0
+    CompleteSaleRequest:
+      type: object
+      required:
+        - p_shop_id
+        - p_items
+        - p_payments
+      properties:
+        p_shop_id:
+          $ref: "#/components/schemas/Uuid"
+        p_items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SaleItemInput"
+        p_payments:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/PaymentLine"
+        p_customer_name:
+          type:
+            - string
+            - "null"
+        p_customer_phone:
+          type:
+            - string
+            - "null"
+        p_customer_email:
+          type:
+            - string
+            - "null"
+          format: email
+        p_cashier_name:
+          type:
+            - string
+            - "null"
+        p_discount_cents:
+          type: integer
+          minimum: 0
+          default: 0
+        p_customer_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    EditSaleRequest:
+      type: object
+      required:
+        - p_sale_id
+        - p_items
+        - p_payments
+      properties:
+        p_sale_id:
+          $ref: "#/components/schemas/Uuid"
+        p_items:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/SaleItemInput"
+        p_payments:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/PaymentLine"
+        p_customer_name:
+          type:
+            - string
+            - "null"
+        p_customer_phone:
+          type:
+            - string
+            - "null"
+        p_customer_email:
+          type:
+            - string
+            - "null"
+          format: email
+        p_discount_cents:
+          type: integer
+          minimum: 0
+        p_customer_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+    RefundSaleItemsRequest:
+      type: object
+      required:
+        - p_sale_id
+        - p_items
+      properties:
+        p_sale_id:
+          $ref: "#/components/schemas/Uuid"
+        p_items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required:
+              - sale_item_id
+              - quantity
+            properties:
+              sale_item_id:
+                $ref: "#/components/schemas/Uuid"
+              quantity:
+                type: integer
+                minimum: 1
+    TaxonomyActionRequest:
+      type: object
+      required:
+        - p_shop_id
+      properties:
+        p_shop_id:
+          $ref: "#/components/schemas/Uuid"
+        p_old_name:
+          type: string
+        p_new_name:
+          type: string
+        p_name:
+          type: string
+    ProvisionStaffRequest:
+      type: object
+      required:
+        - shopId
+        - fullName
+        - email
+        - roleId
+      properties:
+        shopId:
+          $ref: "#/components/schemas/Uuid"
+        fullName:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+        roleId:
+          $ref: "#/components/schemas/Uuid"
+    ProvisionStaffResponse:
+      type: object
+      required:
+        - userId
+        - email
+      properties:
+        userId:
+          $ref: "#/components/schemas/Uuid"
+        email:
+          type: string
+          format: email
+        temporaryPassword:
+          type:
+            - string
+            - "null"
+    Sale:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        shop_id:
+          $ref: "#/components/schemas/Uuid"
+        payment_method:
+          type: string
+        customer_id:
+          type:
+            - string
+            - "null"
+          format: uuid
+        customer_name:
+          type:
+            - string
+            - "null"
+        customer_phone:
+          type:
+            - string
+            - "null"
+        customer_email:
+          type:
+            - string
+            - "null"
+        cashier_name:
+          type:
+            - string
+            - "null"
+        discount_cents:
+          type: integer
+        tax_cents:
+          type: integer
+        tax_rate_percent:
+          type:
+            - number
+            - "null"
+        total_cents:
+          type: integer
+        item_count:
+          type: integer
+        created_at:
+          $ref: "#/components/schemas/Timestamp"
+security:
+  - anonKey: []
+    bearerAuth: []
