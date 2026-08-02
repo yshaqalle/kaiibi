@@ -6,7 +6,7 @@ import { signOut } from '@/lib/auth';
 import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile, permissions, can } = useAuth();
+  const { loading, session, profile, permissions, can, myMembership } = useAuth();
   const pathname = usePathname();
 
   if (loading) {
@@ -36,11 +36,24 @@ export default function AdminLayout() {
   // is what actually protects the data, since nothing stops a staff member
   // querying the API directly.
   const landing = firstAllowedRoute(permissions);
+  // /me (self-service HR) is reachable by any active staff member or the
+  // admin regardless of operational permissions -- it's deliberately absent
+  // from ROUTE_PERMISSIONS (permissionForPath returns null for it), gated
+  // here on active shop_members membership instead. An active member with
+  // no operational permissions at all now falls back here too, instead of
+  // the dead-end NoAccessScreen below.
+  const canReachMe = profile.role === 'admin' || Boolean(myMembership?.active);
+  const fallback = landing ?? (canReachMe ? '/me' : null);
+
+  const isMeRoute = pathname === '/me' || pathname.startsWith('/me/');
   const required = permissionForPath(pathname);
-  if (required && !can(required)) {
-    return landing ? <Redirect href={landing} /> : <NoAccessScreen />;
+  const allowed = isMeRoute ? canReachMe : !required || required.some(can);
+  if (!allowed) {
+    return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
-  if (!landing) return <NoAccessScreen />;
+  if (!isMeRoute && !landing) {
+    return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
+  }
 
   // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
   // via AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
@@ -60,7 +73,6 @@ export default function AdminLayout() {
       <Stack.Screen name="product/new" />
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="settings" />
-      <Stack.Screen name="account" />
     </Stack>
   );
 }
