@@ -44,6 +44,7 @@ function StaffSelfService({ shopId, member }: { shopId: string; member: StaffMem
   const [now, setNow] = useState(() => Date.now());
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [clocking, setClocking] = useState(false);
+  const [clockError, setClockError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     const since = new Date();
@@ -74,10 +75,13 @@ function StaffSelfService({ shopId, member }: { shopId: string; member: StaffMem
 
   const toggleClock = async () => {
     setClocking(true);
+    setClockError(null);
     try {
       if (openEntry) await clockOut(openEntry.id);
       else await clockIn(shopId, member.id);
       await reload();
+    } catch (err) {
+      setClockError(err instanceof Error ? err.message : 'Could not update your clock status.');
     } finally {
       setClocking(false);
     }
@@ -103,6 +107,7 @@ function StaffSelfService({ shopId, member }: { shopId: string; member: StaffMem
         <Pressable onPress={toggleClock} disabled={clocking} style={[styles.clockButton, clocking && styles.clockButtonDisabled]}>
           <Text style={styles.clockButtonText}>{clocking ? 'Working…' : openEntry ? 'Clock out' : 'Clock in'}</Text>
         </Pressable>
+        {clockError && <Text style={styles.clockError}>{clockError}</Text>}
       </Card>
 
       <View style={styles.tiles}>
@@ -253,6 +258,7 @@ const styles = StyleSheet.create({
   clockButton: { backgroundColor: '#111111', borderRadius: 999, paddingHorizontal: 26, paddingVertical: 11 },
   clockButtonDisabled: { opacity: 0.6 },
   clockButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  clockError: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
   tiles: { flexDirection: 'row', gap: 9, marginBottom: 20 },
   section: { marginBottom: 20 },
   sectionHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
