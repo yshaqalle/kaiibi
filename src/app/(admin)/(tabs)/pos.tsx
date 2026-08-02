@@ -1,16 +1,16 @@
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CategoryChip } from '@/components/category-chip';
 import { CheckoutPanel } from '@/components/checkout-panel';
-import type { SelectedCustomer } from '@/components/customer-picker';
 import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
+import { usePosSessionField } from '@/hooks/use-pos-session';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
@@ -22,7 +22,7 @@ import { listPromotions } from '@/lib/promotions';
 import type { ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
-import type { CartLine, Currency, Discount, PaymentLine, PaymentMethod, Product, Promotion } from '@/types/models';
+import type { Currency, Discount, PaymentMethod, Product, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -50,22 +50,25 @@ export default function PosScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [payments, setPayments] = useState<PaymentLine[]>([]);
+  // These five track the in-progress sale, so they're backed by
+  // usePosSessionField rather than plain useState — see use-pos-session.ts
+  // for why (the admin tab shell remounts this screen on every tab switch).
+  const [cart, setCart] = usePosSessionField('cart');
+  const [payments, setPayments] = usePosSessionField('payments');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
-  const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = usePosSessionField('selectedCustomer');
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [cashiers, setCashiers] = useState<string[]>([]);
   // Unlike customer info (cleared after every sale), the cashier stays
   // selected across sales — whoever is running the register doesn't change
   // sale-to-sale, so re-picking it each time would just be busywork.
-  const [cashierName, setCashierName] = useState<string | null>(null);
+  const [cashierName, setCashierName] = usePosSessionField('cashierName');
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [editingLineDiscount, setEditingLineDiscount] = useState<string | null>(null);
-  const [transactionDiscount, setTransactionDiscount] = useState<Discount | null>(null);
+  const [transactionDiscount, setTransactionDiscount] = usePosSessionField('transactionDiscount');
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   // Height of a single compact grid tile, measured from the first rendered
@@ -129,7 +132,7 @@ export default function PosScreen() {
   // Any cart change invalidates whatever's already been entered in the
   // payment picker (the amounts no longer sum to the new total), so clear
   // it rather than let a stale split silently under/over-cover the sale.
-  useEffect(() => { setPayments([]); }, [total]);
+  useEffect(() => { setPayments([]); }, [total, setPayments]);
 
   const checkout = async () => {
     if (!shop || cart.length === 0 || !fullyPaid) return;
@@ -185,6 +188,31 @@ export default function PosScreen() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const clearSale = () => {
+    if (cart.length === 0) return;
+    const doClear = () => {
+      setCart([]);
+      setPayments([]);
+      setSelectedCustomer(null);
+      setTransactionDiscount(null);
+      setEditingTransactionDiscount(false);
+      setEditingLineDiscount(null);
+      setError(null);
+    };
+    // RN Web's Alert.alert is a no-op stub (react-native-web has no OS
+    // dialog to back it with) — it never shows anything and never fires a
+    // button's onPress, so the confirm has to go through window.confirm
+    // there instead.
+    if (Platform.OS === 'web') {
+      if (window.confirm('Clear cart? This removes every item from the current sale.')) doClear();
+      return;
+    }
+    Alert.alert('Clear cart?', 'This removes every item from the current sale.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Clear cart', style: 'destructive', onPress: doClear },
+    ]);
   };
 
   // On desktop, browse + cart are independently-scrolling side-by-side
@@ -273,7 +301,14 @@ export default function PosScreen() {
 
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
-      <Text style={styles.cartTitle}>Current sale</Text>
+      <View style={styles.cartTitleRow}>
+        <Text style={styles.cartTitle}>Current sale</Text>
+        {cart.length > 0 && (
+          <Pressable onPress={clearSale} style={styles.clearAll}>
+            <Text style={styles.clearAllText}>⌫ Clear all</Text>
+          </Pressable>
+        )}
+      </View>
       <ScrollView {...cartListProps}>
         {cart.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -462,7 +497,10 @@ const styles = StyleSheet.create({
   stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8 },
   cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderBottomWidth: 1, borderBottomColor: '#ECECEC', padding: 20, paddingBottom: 16 },
-  cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800', marginBottom: 20 },
+  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800' },
+  clearAll: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
+  clearAllText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
   cartListCompact: { maxHeight: 240, marginBottom: 4 },
   emptyWrap: { alignItems: 'center', marginTop: 56 },

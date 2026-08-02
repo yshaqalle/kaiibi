@@ -2,7 +2,8 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Link, usePathname, useRouter } from 'expo-router';
 import { ReactNode, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
@@ -50,10 +51,12 @@ function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) 
 export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const insets = useSafeAreaInsets();
   const { shop, refreshShop, can } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const visibleNavItems = navItems.filter((item) => can(item.permission));
 
   // Lets the shop logo be changed straight from the sidebar avatar, not
@@ -96,20 +99,46 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
         </View>
         <View style={styles.footer}>
           <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
-          <View style={styles.footerRow}>
-            {canEditShop && (
-              <Pressable onPress={() => router.push('/settings')} style={styles.settingsLinkRow}>
-                <Text style={styles.settingsLinkIcon}>⚙</Text>
-                <Text style={styles.settingsLink}>Settings</Text>
-              </Pressable>
-            )}
-            <Pressable onPress={() => signOut().then(() => router.replace('/login'))}>
-              <Text style={styles.signOut}>Sign out</Text>
-            </Pressable>
-          </View>
         </View>
       </View>
-      <View style={styles.slot}>{children}</View>
+      <View style={styles.slot}>
+        <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+          <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
+            <Text style={styles.menuIcon}>☰</Text>
+          </Pressable>
+        </View>
+        {children}
+      </View>
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <View style={[styles.menuSheet, { top: insets.top + 50 }]}>
+            {canEditShop && (
+              <>
+                <Pressable
+                  onPress={() => {
+                    setMenuOpen(false);
+                    router.push('/settings');
+                  }}
+                  style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                >
+                  <Text style={styles.menuItemIcon}>⚙</Text>
+                  <Text style={styles.menuItemText}>Settings</Text>
+                </Pressable>
+                <View style={styles.menuDivider} />
+              </>
+            )}
+            <Pressable
+              onPress={() => {
+                setMenuOpen(false);
+                signOut().then(() => router.replace('/login'));
+              }}
+              style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+            >
+              <Text style={styles.menuItemText}>Sign out</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -148,10 +177,14 @@ const styles = StyleSheet.create({
   navTextFocused: { color: '#111111', fontWeight: '800' },
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
-  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  settingsLinkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  settingsLinkIcon: { fontSize: 17, color: '#666666' },
-  settingsLink: { color: '#999999', fontSize: 11, fontWeight: '700' },
-  signOut: { color: '#999999', fontSize: 11, fontWeight: '700' },
   slot: { flex: 1 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
+  menuIcon: { fontSize: 16, color: '#111111' },
+  menuBackdrop: { flex: 1 },
+  menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, borderColor: '#ECECEC', paddingVertical: 6, overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
+  menuItemIcon: { fontSize: 15, color: '#111111' },
+  menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
 });
