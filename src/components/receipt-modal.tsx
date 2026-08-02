@@ -2,12 +2,14 @@ import { Image } from 'expo-image';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents, formatForeignCents } from '@/lib/currency';
+import { openExternalUrl } from '@/lib/external-url';
 import { methodLabel } from '@/lib/payment-methods';
 import { buildReceiptHtml, buildReceiptText, type ReceiptData } from '@/lib/receipt';
 import { generateReceiptPdf } from '@/lib/receipt-pdf';
+import { openWhatsApp } from '@/lib/whatsapp';
 
 const tornEdgeNotches = Array.from({ length: 18 });
 
@@ -52,30 +54,6 @@ function printHtml(html: string) {
   setTimeout(() => iframe.remove(), 1000);
 }
 
-// On web, `Linking.openURL` just calls `window.open(url, '_blank')` under
-// the hood — and browsers (mobile ones especially, or with popups blocked)
-// sometimes silently reuse the *current* tab for a blocked/failed
-// `window.open` instead of a new one, navigating the whole app away to the
-// mailto:/wa.me URL. A real `<a target="_blank" rel="noopener">` click is
-// far more reliably respected as "open elsewhere, don't touch this tab" by
-// browsers/popup blockers. Native has no such tab concept — `Linking.openURL`
-// there goes through the OS bridge correctly.
-function openExternalUrl(url: string) {
-  if (Platform.OS !== 'web') {
-    Linking.openURL(url).catch(() => {});
-    return;
-  }
-  // @ts-ignore — web-only DOM APIs.
-  const a = document.createElement('a');
-  a.href = url;
-  a.target = '_blank';
-  a.rel = 'noopener noreferrer';
-  // @ts-ignore
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
-
 export function ReceiptModal({
   receipt,
   onClose,
@@ -103,8 +81,7 @@ export function ReceiptModal({
     autoTriggeredFor.current = receipt;
     if (autoPrint && Platform.OS === 'web') printHtml(buildReceiptHtml(receipt));
     if (autoSendWhatsApp && receipt.customer.phone) {
-      const digits = receipt.customer.phone.replace(/\D/g, '');
-      openExternalUrl(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+      openWhatsApp(receipt.customer.phone, buildReceiptText(receipt));
     }
   }, [receipt, autoPrint, autoSendWhatsApp]);
 
@@ -142,8 +119,7 @@ export function ReceiptModal({
   };
 
   const shareWhatsApp = () => {
-    const digits = receipt.customer.phone?.replace(/\D/g, '') ?? '';
-    openExternalUrl(`https://wa.me/${digits}?text=${encodeURIComponent(buildReceiptText(receipt))}`);
+    openWhatsApp(receipt.customer.phone ?? '', buildReceiptText(receipt));
   };
 
   const shareGeneric = async () => {
