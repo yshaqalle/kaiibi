@@ -361,3 +361,25 @@ export type StaffMember = {
   payType: 'hourly' | 'salary' | 'fixed' | null;
   payRateCents: number | null;
 };
+
+export type TimeEntry = {
+  id: string;
+  shopId: string;
+  shopMemberId: string;
+  clockIn: string;
+  clockOut: string | null;
+  createdAt: string;
+};
+
+export type TimeOffRequest = {
+  id: string;
+  shopId: string;
+  shopMemberId: string;
+  startDate: string;
+  endDate: string;
+  reason: string | null;
+  status: 'pending' | 'approved' | 'denied';
+  requestedAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+};
