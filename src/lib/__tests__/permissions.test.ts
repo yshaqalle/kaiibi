@@ -32,6 +32,10 @@ describe('expandPermissions', () => {
     expect(expandPermissions(['customers.edit'])).toEqual(['customers.view', 'customers.edit']);
   });
 
+  it('folds people.payroll.manage into also granting people.timesheet.view', () => {
+    expect(expandPermissions(['people.payroll.manage'])).toEqual(['people.payroll.manage', 'people.timesheet.view']);
+  });
+
   it('drops entries that are not in the catalog', () => {
     expect(expandPermissions(['pos.access', 'reports.export', ''])).toEqual(['pos.access']);
   });
@@ -51,25 +55,34 @@ describe('expandPermissions', () => {
 
 describe('permissionForPath', () => {
   it.each([
-    ['/dashboard', 'dashboard.view'],
-    ['/pos', 'pos.access'],
-    ['/inventory', 'inventory.view'],
-    ['/customers', 'customers.view'],
-    ['/sales', 'sales.view'],
-    ['/settings', 'settings.access'],
-    ['/account', 'staff.manage'],
-  ])('gates %s on %s', (path, permission) => {
-    expect(permissionForPath(path)).toBe(permission);
+    ['/dashboard', ['dashboard.view']],
+    ['/pos', ['pos.access']],
+    ['/inventory', ['inventory.view']],
+    ['/sales', ['sales.view']],
+    ['/settings', ['settings.access']],
+  ] as const)('gates %s on %s', (path, permissions) => {
+    expect(permissionForPath(path)).toEqual(permissions);
+  });
+
+  it('gates /people on any permission that unlocks Customers or Team', () => {
+    expect(permissionForPath('/people')).toEqual([
+      'customers.view',
+      'staff.manage',
+      'people.timeoff.approve',
+      'people.payroll.manage',
+      'people.timesheet.view',
+    ]);
   });
 
   it('gates the product detail screens on inventory.edit, not inventory.view', () => {
-    expect(permissionForPath('/product/new')).toBe('inventory.edit');
-    expect(permissionForPath('/product/abc-123')).toBe('inventory.edit');
+    expect(permissionForPath('/product/new')).toEqual(['inventory.edit']);
+    expect(permissionForPath('/product/abc-123')).toEqual(['inventory.edit']);
   });
 
-  it('leaves routes outside the catalog ungated', () => {
+  it('leaves routes outside the catalog ungated, including /me (self-service HR)', () => {
     expect(permissionForPath('/marketplace-coming-soon')).toBeNull();
     expect(permissionForPath('/login')).toBeNull();
+    expect(permissionForPath('/me')).toBeNull();
   });
 
   it('does not treat a longer unrelated segment as a prefix match', () => {
@@ -100,22 +113,34 @@ describe('firstAllowedRoute', () => {
 
 describe('the cashier scope this gate exists to enforce', () => {
   const cashier = expandPermissions(CASHIER);
-  const blocked: Permission[] = ['sales.view', 'sales.edit', 'sales.refund', 'dashboard.view', 'customers.view', 'settings.access', 'staff.manage', 'inventory.edit'];
+  const blocked: Permission[] = [
+    'sales.view',
+    'sales.edit',
+    'sales.refund',
+    'dashboard.view',
+    'customers.view',
+    'settings.access',
+    'staff.manage',
+    'inventory.edit',
+    'people.timeoff.approve',
+    'people.payroll.manage',
+    'people.timesheet.view',
+  ];
 
   it.each(blocked)('does not grant %s', (permission) => {
     expect(cashier).not.toContain(permission);
   });
 
   it('blocks every route a cashier should not reach', () => {
-    for (const path of ['/dashboard', '/sales', '/customers', '/settings', '/account', '/product/new']) {
+    for (const path of ['/dashboard', '/sales', '/people', '/settings', '/product/new']) {
       const required = permissionForPath(path);
       expect(required).not.toBeNull();
-      expect(cashier).not.toContain(required as Permission);
+      expect((required as Permission[]).some((p) => cashier.includes(p))).toBe(false);
     }
   });
 
   it('still grants the two routes a cashier works from', () => {
-    expect(cashier).toContain(permissionForPath('/pos'));
-    expect(cashier).toContain(permissionForPath('/inventory'));
+    expect(permissionForPath('/pos')!.some((p) => cashier.includes(p))).toBe(true);
+    expect(permissionForPath('/inventory')!.some((p) => cashier.includes(p))).toBe(true);
   });
 });
