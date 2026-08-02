@@ -65,7 +65,7 @@ export const CustomerForm = forwardRef<CustomerFormHandle, {
         city: city.trim() || null,
         neighborhood: neighborhood.trim() || null,
         tags: tagList,
-        notes: null,
+        notes: initial?.notes ?? null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this customer.');
