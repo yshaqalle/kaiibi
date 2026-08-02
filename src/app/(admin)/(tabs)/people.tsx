@@ -7,10 +7,13 @@ import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerModal } from '@/components/customer-modal';
+import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { NotesField } from '@/components/notes-field';
 import { SegmentedControl } from '@/components/segmented-control';
 import { StatTile } from '@/components/stat-tile';
+import { TeamAddModal } from '@/components/team-add-modal';
+import { TimeOffApprovalModal } from '@/components/time-off-approval-modal';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
@@ -19,8 +22,12 @@ import { formatCents } from '@/lib/currency';
 import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } from '@/lib/customer-segments';
 import { createCustomer, getCustomerStats, getCustomersStatsBatch, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
+import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
+import { listRoles, listStaff, setStaffActive, updateStaffPay, updateStaffRole } from '@/lib/staff';
+import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
+import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
-import type { Customer, CustomerPurchase } from '@/types/models';
+import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 type PeopleTab = 'customers' | 'team';
 
@@ -321,7 +328,299 @@ function CustomerDetailPane({
 }
 
 function TeamTab({ compact }: { compact: boolean }) {
-  return <Text style={styles.placeholder}>Team — coming in Task 12.</Text>;
+  const { shop, can, canAny } = useAuth();
+  const canManageRoster = can('staff.manage');
+  const canManagePayroll = can('people.payroll.manage');
+  const canViewHours = canAny(['people.timesheet.view', 'people.payroll.manage']);
+  const canApproveTimeOff = can('people.timeoff.approve');
+
+  const [staff, setStaff] = useState<StaffMember[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [timeOff, setTimeOff] = useState<TimeOffRequest[]>([]);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showApprovalList, setShowApprovalList] = useState(false);
+
+  const reload = useCallback(async () => {
+    if (!shop) return;
+    setLoading(true);
+    const [staffList, roleList, timeOffList] = await Promise.all([
+      listStaff(shop.id),
+      listRoles(shop.id),
+      canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
+    ]);
+    setStaff(staffList);
+    setRoles(roleList);
+    setTimeOff(timeOffList);
+    setLoading(false);
+  }, [shop, canApproveTimeOff]);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  const onLeaveMemberIds = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const onLeave = new Set<string>();
+    for (const r of timeOff) {
+      if (r.status === 'approved' && r.startDate <= today && r.endDate >= today) onLeave.add(r.shopMemberId);
+    }
+    return onLeave;
+  }, [timeOff]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return staff;
+    return staff.filter((m) => (m.fullName ?? '').toLowerCase().includes(q) || m.roleName.toLowerCase().includes(q));
+  }, [staff, search]);
+
+  const selected = staff.find((m) => m.id === selectedId) ?? null;
+  const pendingCount = timeOff.filter((r) => r.status === 'pending').length;
+
+  const list = (
+    <>
+      <View style={tabStyles.search}>
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name or role" placeholderTextColor="#999999" style={tabStyles.searchInput} />
+      </View>
+      {canApproveTimeOff && (
+        <Pressable onPress={() => setShowApprovalList(true)} style={tabStyles.pendingButton}>
+          <Text style={tabStyles.pendingButtonText}>Time off requests</Text>
+          {pendingCount > 0 && (
+            <View style={tabStyles.pendingCount}>
+              <Text style={tabStyles.pendingCountText}>{pendingCount} pending</Text>
+            </View>
+          )}
+        </Pressable>
+      )}
+      {loading ? (
+        <Text style={tabStyles.empty}>Loading…</Text>
+      ) : filtered.length === 0 ? (
+        <Text style={tabStyles.empty}>No team members match.</Text>
+      ) : (
+        <Card style={tabStyles.list}>
+          {filtered.map((member) => {
+            const onLeave = onLeaveMemberIds.has(member.id);
+            return (
+              <Pressable
+                key={member.id}
+                onPress={() => setSelectedId(member.id)}
+                style={[tabStyles.row, member.id === selectedId && tabStyles.rowSelected]}
+              >
+                <View style={tabStyles.rowMain}>
+                  <Text style={tabStyles.rowName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
+                  <Text style={tabStyles.rowSub}>{member.roleName}</Text>
+                </View>
+                <Badge
+                  label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
+                  tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'}
+                />
+              </Pressable>
+            );
+          })}
+        </Card>
+      )}
+    </>
+  );
+
+  const detail = selected ? (
+    <TeamDetailPane
+      member={selected}
+      roles={roles}
+      onLeave={onLeaveMemberIds.has(selected.id)}
+      canManageRoster={canManageRoster}
+      canManagePayroll={canManagePayroll}
+      canViewHours={canViewHours}
+      onChanged={reload}
+    />
+  ) : (
+    <Card style={tabStyles.emptyDetail}>
+      <Text style={tabStyles.empty}>Select a team member to see their details.</Text>
+    </Card>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={tabStyles.tabHeader}>
+        <Text style={tabStyles.subtitle}>{staff.length} on the team</Text>
+        <View style={tabStyles.headerActions}>
+          {canManageRoster && (
+            <Pressable
+              onPress={() => setShowAddModal(true)}
+              disabled={roles.length === 0}
+              style={[tabStyles.actionButton, roles.length === 0 && tabStyles.actionButtonDisabled]}
+            >
+              <Text style={tabStyles.actionButtonText}>+ Add staff</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+      <TwoPaneListDetail compact={compact} list={list} detail={detail} />
+      {shop && canManageRoster && (
+        <TeamAddModal visible={showAddModal} shopId={shop.id} roles={roles} onClose={() => setShowAddModal(false)} onChange={reload} />
+      )}
+      {canApproveTimeOff && (
+        <TimeOffApprovalModal visible={showApprovalList} requests={timeOff} staff={staff} onClose={() => setShowApprovalList(false)} onChange={reload} />
+      )}
+    </View>
+  );
+}
+
+function TeamDetailPane({
+  member,
+  roles,
+  onLeave,
+  canManageRoster,
+  canManagePayroll,
+  canViewHours,
+  onChanged,
+}: {
+  member: StaffMember;
+  roles: Role[];
+  onLeave: boolean;
+  canManageRoster: boolean;
+  canManagePayroll: boolean;
+  canViewHours: boolean;
+  onChanged: () => Promise<void>;
+}) {
+  const { shop } = useAuth();
+  const [entries, setEntries] = useState<TimeEntry[]>([]);
+  const [changingRole, setChangingRole] = useState(false);
+  const [editingPay, setEditingPay] = useState(false);
+
+  const role = roles.find((r) => r.id === member.roleId);
+  const permissions = role?.permissions ?? [];
+
+  useEffect(() => {
+    if (!shop || !canViewHours) {
+      setEntries([]);
+      return;
+    }
+    const since = new Date();
+    since.setDate(1);
+    since.setHours(0, 0, 0, 0);
+    listShopTimeEntries(shop.id, { shopMemberId: member.id, sinceIso: since.toISOString() })
+      .then(setEntries)
+      .catch(() => setEntries([]));
+  }, [shop, member.id, canViewHours]);
+
+  const hoursThisPeriod = sumDurationHours(entries);
+
+  return (
+    <Card style={tabStyles.detailCard}>
+      <View style={tabStyles.detHead}>
+        <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
+        <Badge label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
+      </View>
+      <Text style={tabStyles.detPhone}>
+        {member.roleName}
+        {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
+      </Text>
+
+      <View style={tabStyles.tiles}>
+        <StatTile value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
+        <StatTile value={member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—'} label="Pay type" />
+        <StatTile value={canViewHours ? `${hoursThisPeriod.toFixed(1)}h` : '—'} label="Hours this period" />
+      </View>
+
+      {canManageRoster && (
+        <View style={tabStyles.actions}>
+          <Pressable onPress={() => setChangingRole((v) => !v)} style={tabStyles.actionButtonGhost}>
+            <Text style={tabStyles.actionButtonGhostText}>Change role</Text>
+          </Pressable>
+          <Pressable
+            onPress={async () => {
+              await setStaffActive(member.id, !member.active);
+              await onChanged();
+            }}
+            style={tabStyles.actionButtonGhost}
+          >
+            <Text style={tabStyles.actionButtonGhostText}>{member.active ? 'Disable' : 'Enable'}</Text>
+          </Pressable>
+        </View>
+      )}
+      {changingRole && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
+          {roles.map((r) => (
+            <CategoryChip
+              key={r.id}
+              label={r.name}
+              active={r.id === member.roleId}
+              onPress={async () => {
+                await updateStaffRole(member.id, r.id);
+                await onChanged();
+                setChangingRole(false);
+              }}
+            />
+          ))}
+        </ScrollView>
+      )}
+
+      <View style={tabStyles.section}>
+        <View style={tabStyles.sectionHeadRow}>
+          <Text style={tabStyles.sectionTitle}>PAYROLL</Text>
+          {canManagePayroll && (
+            <Pressable onPress={() => setEditingPay(true)}>
+              <Text style={tabStyles.sectionLink}>Edit</Text>
+            </Pressable>
+          )}
+        </View>
+        <Text style={tabStyles.payrollValue}>
+          {member.payType && member.payRateCents != null
+            ? `${formatCents(member.payRateCents)}${member.payType === 'hourly' ? ' / hour' : member.payType === 'salary' ? ' / year' : ''}`
+            : 'Not set'}
+        </Text>
+      </View>
+
+      {canViewHours && (
+        <View style={tabStyles.section}>
+          <Text style={tabStyles.sectionTitle}>RECENT SHIFTS</Text>
+          {entries.length === 0 ? (
+            <Text style={tabStyles.empty}>No shifts logged this period.</Text>
+          ) : (
+            entries.slice(0, 8).map((e) => (
+              <View key={e.id} style={tabStyles.shiftRow}>
+                <Text style={tabStyles.shiftDate}>
+                  {new Date(e.clockIn).toLocaleDateString()} · {new Date(e.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                  {e.clockOut ? `–${new Date(e.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}
+                </Text>
+                <Text style={tabStyles.shiftDuration}>{e.clockOut ? `${sumDurationHours([e]).toFixed(1)}h` : '—'}</Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
+
+      <View style={tabStyles.section}>
+        <Text style={tabStyles.sectionTitle}>ACCESS &amp; PERMISSIONS</Text>
+        <View style={tabStyles.permGrid}>
+          {PERMISSION_GROUPS.map((group) => {
+            const granted = groupHasAny(permissions, group);
+            return (
+              <View key={group.label} style={tabStyles.permTile}>
+                <View style={[tabStyles.permIcon, granted ? tabStyles.permIconOn : tabStyles.permIconOff]}>
+                  <Text style={tabStyles.permIconText}>{granted ? '✓' : '🔒'}</Text>
+                </View>
+                <Text style={tabStyles.permLabel}>{group.label}</Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      <EditPayModal
+        visible={editingPay}
+        member={member}
+        onClose={() => setEditingPay(false)}
+        onSave={async (patch) => {
+          await updateStaffPay(member.id, patch);
+          await onChanged();
+          setEditingPay(false);
+        }}
+      />
+    </Card>
+  );
 }
 
 const tabStyles = StyleSheet.create({
@@ -357,6 +656,31 @@ const tabStyles = StyleSheet.create({
   histTitle: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
   histMeta: { fontSize: 11, color: '#999999', marginTop: 1 },
   histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
+  actionButtonDisabled: { opacity: 0.5 },
+  pendingButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },
+  pendingButtonText: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
+  pendingCount: { backgroundColor: '#F8EEDA', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
+  pendingCountText: { fontSize: 11, fontWeight: '700', color: '#9A6B0C' },
+  sectionHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  sectionLink: { fontSize: 11.5, fontWeight: '700', color: '#B23B4E' },
+  payrollValue: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  shiftRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
+  shiftDate: { fontSize: 12, color: '#666666' },
+  shiftDuration: { fontSize: 12, fontWeight: '700', color: '#111111' },
+  permGrid: { flexDirection: 'row', gap: 8 },
+  permTile: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: '#F7F7F5', borderRadius: 11, paddingVertical: 11 },
+  permIcon: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
+  permIconOn: { backgroundColor: '#E1F0E4' },
+  permIconOff: { backgroundColor: '#EAEAEA' },
+  permIconText: { fontSize: 12 },
+  permLabel: { fontSize: 10.5, fontWeight: '600', color: '#666666' },
+  errorText: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 6 },
+  reqRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
+  reqRange: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
+  reqReason: { fontSize: 11, color: '#999999', marginTop: 1 },
+  reqActions: { flexDirection: 'row', gap: 10 },
+  reqApprove: { fontSize: 12, fontWeight: '700', color: '#2E7D46' },
+  reqDeny: { fontSize: 12, fontWeight: '700', color: '#B23B4E' },
 });
 
 const styles = StyleSheet.create({
