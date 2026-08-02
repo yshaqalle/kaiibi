@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Customer, NewCustomerInput } from '@/types/models';
+import type { Customer, CustomerPurchase, NewCustomerInput } from '@/types/models';
 
 function mapCustomerRow(row: any): Customer {
   return {
@@ -136,4 +136,49 @@ export async function getCustomerStats(customerId: string): Promise<{
     visitCount: rows.length,
     lastPurchaseAt: rows.reduce<string | null>((latest, row) => (!latest || row.created_at > latest ? row.created_at : latest), null),
   };
+}
+
+function mapCustomerPurchaseRow(row: any): CustomerPurchase {
+  return {
+    saleId: row.sale_id,
+    saleItemId: row.id,
+    productName: row.product_name,
+    quantity: row.quantity,
+    unitPriceCents: row.unit_price_cents,
+    lineTotalCents: row.line_total_cents,
+    paymentMethod: row.sale.payment_method,
+    createdAt: row.sale.created_at,
+  };
+}
+
+// Itemized purchase history for the Customer detail pane. Embeds sales via
+// PostgREST's `sale:sales!inner(...)` so the filter on customer_id can reach
+// through sale_items -- sorted client-side (newest first) rather than via
+// PostgREST's embedded-column order syntax, matching this file's existing
+// client-side-reduce style (see getCustomerStats).
+export async function listCustomerPurchases(customerId: string): Promise<CustomerPurchase[]> {
+  const { data, error } = await supabase
+    .from('sale_items')
+    .select('id, sale_id, product_name, quantity, unit_price_cents, line_total_cents, sale:sales!inner(customer_id, payment_method, created_at)')
+    .eq('sale.customer_id', customerId);
+  if (error) throw error;
+  return (data ?? [])
+    .map(mapCustomerPurchaseRow)
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+}
+
+// Batched row-level stats for the Customers list (avoids one getCustomerStats
+// query per row -- see Task 11). One query over every sale in the shop,
+// reduced client-side into a per-customer map, same reduction shape as
+// getCustomerStats itself.
+export async function getCustomersStatsBatch(shopId: string): Promise<Map<string, { totalSpentCents: number; visitCount: number }>> {
+  const { data, error } = await supabase.from('sales').select('customer_id, total_cents').eq('shop_id', shopId).not('customer_id', 'is', null);
+  if (error) throw error;
+  const stats = new Map<string, { totalSpentCents: number; visitCount: number }>();
+  for (const row of data ?? []) {
+    const id = row.customer_id as string;
+    const current = stats.get(id) ?? { totalSpentCents: 0, visitCount: 0 };
+    stats.set(id, { totalSpentCents: current.totalSpentCents + row.total_cents, visitCount: current.visitCount + 1 });
+  }
+  return stats;
 }

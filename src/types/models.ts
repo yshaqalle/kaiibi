@@ -127,6 +127,21 @@ export type Customer = {
 
 export type NewCustomerInput = Omit<Customer, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
 
+// One line item from a past sale attached to this customer -- powers the
+// Customer detail pane's itemized purchase history (src/lib/customers.ts's
+// listCustomerPurchases). Distinct from getCustomerStats, which is only
+// the 3 aggregate numbers (total/visits/last purchase).
+export type CustomerPurchase = {
+  saleId: string;
+  saleItemId: string;
+  productName: string;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  paymentMethod: string;
+  createdAt: string;
+};
+
 // `value` is a percentage (0-100) for 'percentage', or a cents amount for
 // 'fixed'. Used both for a manual per-line discount the cashier types into
 // the POS cart, and for a `Promotion`'s configured discount.
