@@ -19,23 +19,33 @@ export function EditPayModal({
   const [payType, setPayType] = useState<StaffMember['payType']>(member.payType);
   const [rate, setRate] = useState(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
       setHireDate(member.hireDate ?? '');
       setPayType(member.payType);
       setRate(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
+      setError(null);
     }
   }, [visible, member]);
 
   const save = async () => {
+    setError(null);
+    const trimmedRate = rate.trim();
+    if (trimmedRate && Number.isNaN(parseFloat(trimmedRate))) {
+      setError('Enter a valid pay rate, or leave it blank.');
+      return;
+    }
     setSaving(true);
     try {
       await onSave({
         hireDate: hireDate.trim() || null,
         payType: payType ?? null,
-        payRateCents: rate.trim() ? Math.round(parseFloat(rate) * 100) : null,
+        payRateCents: trimmedRate ? Math.round(parseFloat(trimmedRate) * 100) : null,
       });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save these changes.');
     } finally {
       setSaving(false);
     }
@@ -68,6 +78,7 @@ export function EditPayModal({
           </View>
           <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PAY RATE (DOLLARS)</Text>
           <TextInput value={rate} onChangeText={setRate} placeholder="e.g. 8.50" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} />
+          {error && <Text style={styles.error}>{error}</Text>}
         </View>
       </View>
     </Modal>
@@ -88,4 +99,5 @@ const styles = StyleSheet.create({
   addButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
   addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
   buttonDisabled: { backgroundColor: '#CCCCCC' },
+  error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 6 },
 });
