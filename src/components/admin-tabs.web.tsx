@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Link, Slot, usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -35,6 +35,7 @@ export default function AdminTabs() {
   const compact = width < TABLET_BREAKPOINT;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const canEditShop = can('settings.access');
   const visibleNavItems = navItems.filter((item) => can(item.permission));
 
@@ -69,16 +70,41 @@ export default function AdminTabs() {
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
           </View>
           <View style={styles.mobileHeaderRight}>
-            {canEditShop && (
-              <Pressable onPress={() => router.push('/settings')} style={styles.settingsButtonCompact} hitSlop={8}>
-                <Text style={styles.settingsIcon}>⚙</Text>
-              </Pressable>
-            )}
-            <Pressable onPress={() => signOut().then(() => router.replace('/signup'))}>
-              <Text style={styles.signOutCompact}>Sign out</Text>
+            <Pressable onPress={() => setMenuOpen(true)} style={styles.menuButtonCompact} hitSlop={8}>
+              <Text style={styles.menuIconCompact}>☰</Text>
             </Pressable>
           </View>
         </View>
+        <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+          <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+            <View style={styles.menuSheet}>
+              {canEditShop && (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      setMenuOpen(false);
+                      router.push('/settings');
+                    }}
+                    style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+                  >
+                    <Text style={styles.menuItemIcon}>⚙</Text>
+                    <Text style={styles.menuItemText}>Settings</Text>
+                  </Pressable>
+                  <View style={styles.menuDivider} />
+                </>
+              )}
+              <Pressable
+                onPress={() => {
+                  setMenuOpen(false);
+                  signOut().then(() => router.replace('/signup'));
+                }}
+                style={({ pressed }) => [styles.menuItem, { opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Text style={styles.menuItemText}>Sign out</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Modal>
         <View style={styles.mobileSlot}><Slot /></View>
         <View style={styles.bottomNav}>
           {visibleNavItems.map((item) => {
@@ -119,9 +145,14 @@ const styles = StyleSheet.create({
   avatarWithLogo: { backgroundColor: '#F5F5F2' },
   shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
   mobileHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  settingsButtonCompact: { padding: 2 },
-  settingsIcon: { fontSize: 24, color: '#555555' },
-  signOutCompact: { color: '#999999', fontSize: 12, fontWeight: '700' },
+  menuButtonCompact: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
+  menuIconCompact: { fontSize: 16, color: '#111111' },
+  menuBackdrop: { flex: 1 },
+  menuSheet: { position: 'absolute', top: 56, right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, borderColor: '#ECECEC', paddingVertical: 6, overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14 },
+  menuItemIcon: { fontSize: 15, color: '#111111' },
+  menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
   mobileSlot: { flex: 1 },
   bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ECECEC', backgroundColor: '#FFFFFF', paddingBottom: 12, paddingTop: 10 },
   bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },

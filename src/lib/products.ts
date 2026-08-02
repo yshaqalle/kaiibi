@@ -95,6 +95,18 @@ export async function createProduct(shopId: string, input: NewProductInput): Pro
   return mapProductRow(data);
 }
 
+// Bulk counterpart to createProduct -- used by CSV import (src/lib/products-import.ts)
+// to insert every already-validated row in one round trip instead of one
+// request per row.
+export async function createProducts(shopId: string, inputs: NewProductInput[]): Promise<Product[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .insert(inputs.map((input) => ({ shop_id: shopId, ...toRow(input) })))
+    .select('*');
+  if (error) throw error;
+  return (data ?? []).map(mapProductRow);
+}
+
 export async function updateProduct(id: string, input: Partial<NewProductInput>): Promise<Product> {
   const { data, error } = await supabase.from('products').update(toRow(input)).eq('id', id).select('*').single();
   if (error) throw error;

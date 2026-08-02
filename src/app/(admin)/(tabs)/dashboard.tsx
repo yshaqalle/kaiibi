@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Card } from '@/components/card';
@@ -16,7 +16,10 @@ import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
+import { sharePdf } from '@/lib/export-file';
+import { methodLabel } from '@/lib/payment-methods';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
+import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
 import {
   getCashierPerformance,
   getCategoryBreakdown,
@@ -188,10 +191,92 @@ export default function DashboardScreen() {
     [categoryBreakdown]
   );
 
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const exportReport = async () => {
+    if (!shop || !dateRange) return;
+    setExportingPdf(true);
+    try {
+      const rangeLabel = `${dateRange.since.toLocaleDateString()} – ${dateRange.until ? dateRange.until.toLocaleDateString() : 'today'}`;
+      const stats: ReportStat[] = [
+        { label: latestSalesLabel, value: formatCents(todayTotalCents) },
+        { label: 'Orders', value: String(todayOrders) },
+        { label: 'Low stock', value: String(lowStock.length) },
+        { label: 'Month to date', value: formatCents(monthToDateCents) },
+      ];
+      const sections: ReportSection[] = [
+        {
+          title: 'Top products by revenue',
+          columns: [
+            { header: 'Product', value: (p: { name: string }) => p.name },
+            { header: 'Units sold', value: (p: { quantitySold: number }) => String(p.quantitySold) },
+            { header: 'Revenue', value: (p: { revenueCents: number }) => formatCents(p.revenueCents) },
+          ],
+          rows: topProducts.byRevenue,
+        },
+        {
+          title: 'Cashier performance',
+          columns: [
+            { header: 'Cashier', value: (c: { name: string }) => c.name },
+            { header: 'Revenue', value: (c: { revenueCents: number }) => formatCents(c.revenueCents) },
+          ],
+          rows: cashierPerformance,
+        },
+        {
+          title: 'Payment mix',
+          columns: [
+            { header: 'Method', value: (p: PaymentMixItem) => methodLabel(p.method) },
+            { header: 'Share', value: (p: PaymentMixItem) => `${Math.round(p.pct)}%` },
+            { header: 'Amount', value: (p: PaymentMixItem) => formatCents(p.amountCents) },
+          ],
+          rows: paymentMix,
+        },
+        {
+          title: 'Category breakdown',
+          columns: [
+            { header: 'Category', value: (c: { category: string }) => c.category },
+            { header: 'Units sold', value: (c: { unitsSold: number }) => String(c.unitsSold) },
+            { header: 'Revenue', value: (c: { revenueCents: number }) => formatCents(c.revenueCents) },
+          ],
+          rows: categoryBreakdown,
+        },
+        {
+          title: 'Low stock',
+          columns: [
+            { header: 'Product', value: (p: Product) => p.name },
+            { header: 'Stock', value: (p: Product) => String(p.stock) },
+            { header: 'Reorder level', value: (p: Product) => String(p.reorderLevel ?? shop.defaultLowStockLevel) },
+          ],
+          rows: lowStock,
+        },
+        ...(shop.expiryTrackingEnabled
+          ? [{
+              title: 'Expiring soon',
+              columns: [
+                { header: 'Product', value: (p: Product) => p.name },
+                { header: 'Expiry date', value: (p: Product) => p.expiryDate ?? '' },
+              ],
+              rows: expiringSoon,
+            }]
+          : []),
+      ];
+      await sharePdf(
+        buildDashboardReportHtml({ title: `${shop.name} — Dashboard report`, subtitle: rangeLabel, stats, sections }),
+        `${shop.name} dashboard report`
+      );
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
       <View style={styles.headerFixed}>
-        <Text style={[styles.greeting, { color: theme.text }]}>Dashboard</Text>
+        <View style={styles.greetingRow}>
+          <Text style={[styles.greeting, { color: theme.text }]}>Dashboard</Text>
+          <Pressable onPress={exportReport} disabled={exportingPdf || !dateRange} style={styles.exportButton}>
+            {exportingPdf ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
+          </Pressable>
+        </View>
         <View style={[styles.headerDivider, { backgroundColor: theme.border }]} />
 
         <View style={styles.metricRow}>
@@ -359,7 +444,10 @@ const styles = StyleSheet.create({
   headerFixed: { paddingHorizontal: 24, paddingTop: 24 },
   sectionNav: { paddingHorizontal: 24, paddingTop: 16 },
   content: { padding: 24, paddingBottom: 42 },
-  greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 14 },
+  greetingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  greeting: { fontSize: 26, fontWeight: '800', letterSpacing: -1 },
+  exportButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9, alignItems: 'center' },
+  exportButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   headerDivider: { height: 1, marginBottom: 20 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 28 },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },

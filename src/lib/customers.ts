@@ -96,6 +96,18 @@ export async function createCustomer(shopId: string, input: NewCustomerInput): P
   return mapCustomerRow(data);
 }
 
+// Bulk counterpart to createCustomer -- used by CSV import (src/lib/customers-import.ts)
+// to insert every already-validated row in one round trip instead of one
+// request per row.
+export async function createCustomers(shopId: string, inputs: NewCustomerInput[]): Promise<Customer[]> {
+  const { data, error } = await supabase
+    .from('customers')
+    .insert(inputs.map((input) => ({ shop_id: shopId, ...toRow(input) })))
+    .select('*');
+  if (error) throw error;
+  return (data ?? []).map(mapCustomerRow);
+}
+
 export async function updateCustomer(id: string, patch: Partial<NewCustomerInput>): Promise<void> {
   const { error } = await supabase.from('customers').update(toRow(patch)).eq('id', id);
   if (error) throw error;
