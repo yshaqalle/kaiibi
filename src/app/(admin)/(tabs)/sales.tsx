@@ -9,6 +9,7 @@ import { ExportMenu } from '@/components/export-menu';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
+import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
@@ -60,8 +61,12 @@ export default function SalesScreen() {
   const compact = width < 860;
   // `sales.view` is read-only history (receipts included); rewriting or
   // deleting a past sale needs `sales.edit`, which edit_sale/delete_sale
-  // check server-side too.
+  // check server-side too. Refunding is its own permission, independent of
+  // edit -- a role with sales.view (or even sales.edit) shouldn't be able to
+  // issue refunds unless separately granted, which refund_sale_items also
+  // enforces server-side.
   const canEdit = can('sales.edit');
+  const canRefund = can('sales.refund');
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [daysBack, setDaysBack] = useState<number>(14);
@@ -258,6 +263,7 @@ export default function SalesScreen() {
                 products={products}
                 compact={compact}
                 canEdit={canEdit}
+                canRefund={canRefund}
                 expanded={expandedId === sale.id}
                 editing={editingId === sale.id}
                 confirmingDelete={confirmDeleteId === sale.id}
@@ -265,6 +271,7 @@ export default function SalesScreen() {
                 onStartEdit={() => { setEditingId(sale.id); setExpandedId(sale.id); }}
                 onCancelEdit={() => setEditingId(null)}
                 onSaved={async () => { setEditingId(null); await reload(); }}
+                onRefunded={reload}
                 onConfirmDelete={() => setConfirmDeleteId(sale.id)}
                 onCancelDelete={() => setConfirmDeleteId(null)}
                 onDelete={() => handleDelete(sale.id)}
@@ -316,6 +323,7 @@ function SaleRow({
   products,
   compact,
   canEdit,
+  canRefund,
   expanded,
   editing,
   confirmingDelete,
@@ -323,6 +331,7 @@ function SaleRow({
   onStartEdit,
   onCancelEdit,
   onSaved,
+  onRefunded,
   onConfirmDelete,
   onCancelDelete,
   onDelete,
@@ -331,6 +340,7 @@ function SaleRow({
   products: Product[];
   compact: boolean;
   canEdit: boolean;
+  canRefund: boolean;
   expanded: boolean;
   editing: boolean;
   confirmingDelete: boolean;
@@ -338,6 +348,7 @@ function SaleRow({
   onStartEdit: () => void;
   onCancelEdit: () => void;
   onSaved: () => void;
+  onRefunded: () => Promise<void>;
   onConfirmDelete: () => void;
   onCancelDelete: () => void;
   onDelete: () => void;
@@ -345,7 +356,10 @@ function SaleRow({
   const { shop } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [showRefund, setShowRefund] = useState(false);
   const editCount = sale.edits?.length ?? 0;
+  const refundCount = sale.refunds?.length ?? 0;
+  const refundableCount = (sale.items ?? []).reduce((sum, item) => sum + Math.max(0, item.quantity - refundedQtyFor(sale, item.id)), 0);
   const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
 
   return (
@@ -358,6 +372,7 @@ function SaleRow({
               {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
               {sale.customerName ? ` · ${sale.customerName}` : ''}
               {editCount > 0 ? ` · Edited ${editCount}×` : ''}
+              {refundCount > 0 ? ` · Refunded ${refundCount}×` : ''}
             </Text>
           </View>
           <Text style={styles.saleTotal}>{formatCents(sale.totalCents)}</Text>
@@ -368,7 +383,7 @@ function SaleRow({
             <Text style={[styles.cellText, colDate]} numberOfLines={1}>{new Date(sale.createdAt).toLocaleString()}</Text>
             <Text style={[styles.cellText, colItems]} numberOfLines={1}>{itemsSummary}</Text>
             <Text style={[styles.cellText, styles.muted, colCustomer]} numberOfLines={1}>{sale.customerName || '—'}</Text>
-            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}{editCount > 0 ? ` · ${editCount}✎` : ''}</Text>
+            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}{editCount > 0 ? ` · ${editCount}✎` : ''}{refundCount > 0 ? ` · ${refundCount}↩` : ''}</Text>
             <Text style={[styles.cellText, styles.muted, colCashier]} numberOfLines={1}>{sale.cashierName || '—'}</Text>
             <Text style={[styles.cellText, styles.price, colTotal]} numberOfLines={1}>{formatCents(sale.totalCents)}</Text>
           </View>
@@ -391,13 +406,16 @@ function SaleRow({
 
           <Text style={[styles.detailLabel, (sale.customerName || sale.customerPhone || sale.customerEmail) && { marginTop: 14 }]}>ITEMS</Text>
           <View style={styles.itemsList}>
-            {sale.items?.map((item, index) => (
-              <View key={item.id} style={[styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast]}>
-                <Text style={styles.itemQty}>{item.quantity}×</Text>
-                <Text style={styles.itemName}>{item.productName}</Text>
-                <Text style={styles.itemPrice}>{formatCents(item.lineTotalCents)}</Text>
-              </View>
-            ))}
+            {sale.items?.map((item, index) => {
+              const refundedQty = refundedQtyFor(sale, item.id);
+              return (
+                <View key={item.id} style={[styles.itemRow, index === (sale.items?.length ?? 0) - 1 && styles.itemRowLast]}>
+                  <Text style={styles.itemQty}>{item.quantity}×</Text>
+                  <Text style={styles.itemName}>{item.productName}{refundedQty > 0 ? ` (${refundedQty} refunded)` : ''}</Text>
+                  <Text style={styles.itemPrice}>{formatCents(item.lineTotalCents)}</Text>
+                </View>
+              );
+            })}
           </View>
 
           <Text style={[styles.detailLabel, { marginTop: 14 }]}>PAYMENT</Text>
@@ -455,6 +473,9 @@ function SaleRow({
                   <Pressable onPress={onConfirmDelete} style={styles.actionButton}><Text style={styles.actionButtonTextDanger}>Delete</Text></Pressable>
                 </>
               )}
+              {canRefund && refundableCount > 0 && (
+                <Pressable onPress={() => setShowRefund(true)} style={styles.actionButton}><Text style={styles.actionButtonText}>Refund</Text></Pressable>
+              )}
             </View>
           )}
         </View>
@@ -465,6 +486,12 @@ function SaleRow({
       )}
 
       {shop && <ReceiptModal receipt={showReceipt ? buildReceiptFromSale(sale, shop) : null} onClose={() => setShowReceipt(false)} title="Receipt" />}
+      <RefundModal
+        visible={showRefund}
+        sale={sale}
+        onClose={() => setShowRefund(false)}
+        onRefunded={async () => { setShowRefund(false); await onRefunded(); }}
+      />
     </View>
   );
 }

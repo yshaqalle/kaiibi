@@ -228,6 +228,27 @@ export type SaleEdit = {
   };
 };
 
+export type RefundItem = {
+  id: string;
+  refundId: string;
+  saleItemId: string;
+  productId: string | null;
+  quantity: number;
+  amountCents: number;
+};
+
+// A single refund event against a sale, possibly covering several of its
+// items at once (see refund_sale_items) -- a sale can have many of these
+// over time as it's partially refunded across separate visits.
+export type Refund = {
+  id: string;
+  saleId: string;
+  refundedBy: string | null;
+  totalCents: number;
+  createdAt: string;
+  items: RefundItem[];
+};
+
 export type Sale = {
   id: string;
   shopId: string;
@@ -264,6 +285,7 @@ export type Sale = {
   items?: SaleItem[];
   payments?: SalePayment[];
   edits?: SaleEdit[];
+  refunds?: Refund[];
 };
 
 export type Category = {
