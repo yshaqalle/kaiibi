@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Btn, EditableTextRow, PageHeader, ReadOnlyRow, Row, Section, Toggle } from '@/components/settings/settings-primitives';
+import { Btn, EditableTextRow, PageHeader, ReadOnlyRow, Row, Section } from '@/components/settings/settings-primitives';
 import { updateProfile } from '@/lib/profile';
 import type { Profile } from '@/types/models';
 
@@ -11,9 +11,6 @@ export function ProfilePanel({ profile, email, onSaved }: { profile: Profile; em
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Phase 2 placeholder — the app has no runtime theme switching yet
-  // (Colors.dark exists but nothing reads it), so this toggle is local-only.
-  const [darkMode, setDarkMode] = useState(false);
 
   const dirty = fullName.trim() !== (profile.fullName ?? '') || phone.trim() !== (profile.phone ?? '');
 
@@ -43,11 +40,6 @@ export function ProfilePanel({ profile, email, onSaved }: { profile: Profile; em
         {/* Phase 2 placeholder — no language setting exists yet. */}
         <Row label="Language" desc="English">
           <Btn onPress={() => {}}>Change</Btn>
-        </Row>
-      </Section>
-      <Section title="Appearance">
-        <Row label="Dark mode" desc="Switch the app to a dark theme">
-          <Toggle value={darkMode} onValueChange={setDarkMode} />
         </Row>
       </Section>
     </View>
