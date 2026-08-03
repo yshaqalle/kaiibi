@@ -4,7 +4,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
 import { ExpensesTab } from '@/components/accounting/expenses-tab';
+import { InvoicesTab } from '@/components/accounting/invoices-tab';
 import { OverviewTab } from '@/components/accounting/overview-tab';
+import { PayrollTab } from '@/components/accounting/payroll-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
 import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { RangeSelector, type DateRange, type RangePreset } from '@/components/range-selector';
@@ -17,12 +19,14 @@ import { RangeSelector, type DateRange, type RangePreset } from '@/components/ra
 // Tabs land incrementally (see the phased plan); only the ones that exist are
 // listed, so the bar never offers a destination that renders nothing.
 
-type AccountingTab = 'overview' | 'transactions' | 'expenses' | 'reports';
+type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'payroll' | 'reports';
 
 const TAB_OPTIONS: { key: AccountingTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'transactions', label: 'Transactions' },
+  { key: 'invoices', label: 'Bills' },
   { key: 'expenses', label: 'Expenses' },
+  { key: 'payroll', label: 'Payroll' },
   { key: 'reports', label: 'Reports' },
 ];
 
@@ -64,7 +68,9 @@ export default function AccountingScreen() {
           <>
             {tab === 'overview' && <OverviewTab dateRange={dateRange} />}
             {tab === 'transactions' && <TransactionsTab dateRange={dateRange} />}
+            {tab === 'invoices' && <InvoicesTab dateRange={dateRange} />}
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} />}
+            {tab === 'payroll' && <PayrollTab dateRange={dateRange} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} />}
           </>
         ) : null}

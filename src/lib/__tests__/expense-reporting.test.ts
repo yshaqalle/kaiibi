@@ -18,6 +18,7 @@ function makeExpense(overrides: Partial<Expense> = {}): Expense {
     vendorName: null,
     paymentMethod: 'cash',
     note: null,
+    invoiceId: null,
     createdBy: null,
     createdAt: '2026-08-02T10:00:00.000Z',
     updatedAt: '2026-08-02T10:00:00.000Z',

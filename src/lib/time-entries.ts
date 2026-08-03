@@ -61,13 +61,7 @@ export async function listShopTimeEntries(shopId: string, opts?: { shopMemberId?
   return (data ?? []).map(mapTimeEntryRow);
 }
 
-// Pure reduction, no schema/query involved -- open shifts (clockOut null)
-// are excluded from the total (an in-progress shift isn't "hours worked"
-// yet); callers show those separately as "on shift now" if needed.
-export function sumDurationHours(entries: TimeEntry[]): number {
-  const totalMs = entries.reduce((sum, entry) => {
-    if (!entry.clockOut) return sum;
-    return sum + (new Date(entry.clockOut).getTime() - new Date(entry.clockIn).getTime());
-  }, 0);
-  return totalMs / (1000 * 60 * 60);
-}
+// Re-exported from shift-hours.ts, where the implementation moved so payroll
+// can import it without pulling in the Supabase client. Kept exported here so
+// existing callers (the Team tab) don't need to change.
+export { sumDurationHours } from '@/lib/shift-hours';

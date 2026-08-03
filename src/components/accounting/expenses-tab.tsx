@@ -148,7 +148,7 @@ export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
           {filtered.map((expense) => (
             <Pressable
               key={expense.id}
-              onPress={() => canManage && setEditing(expense)}
+              onPress={() => canManage && !expense.invoiceId && setEditing(expense)}
               style={styles.card}
             >
               <View style={styles.cardTop}>
@@ -158,6 +158,7 @@ export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
                     {[expense.vendorName, expense.occurredOn, methodLabel(expense.paymentMethod)].filter(Boolean).join(' · ')}
                   </Text>
                   {expense.note ? <Text style={styles.cardNote} numberOfLines={1}>{expense.note}</Text> : null}
+                  {expense.invoiceId ? <Text style={styles.tagText}>from a bill — edit it in Bills</Text> : null}
                 </View>
                 <Text style={styles.cardAmount}>{formatAccountingCents(expense.amountCents)}</Text>
               </View>
@@ -176,13 +177,19 @@ export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
           {filtered.map((expense) => (
             <Pressable
               key={expense.id}
-              onPress={() => canManage && setEditing(expense)}
+              // Bill-generated rows are read-only in the database (the bill is
+              // the record of truth), so don't offer an edit that would fail.
+              onPress={() => canManage && !expense.invoiceId && setEditing(expense)}
               style={styles.tableRow}
             >
               <Text style={[styles.cellText, styles.muted, colDate]} numberOfLines={1}>{expense.occurredOn}</Text>
               <View style={colCategory}>
                 <Text style={styles.cellText} numberOfLines={1}>{expenseCategoryLabel(expense.category)}</Text>
-                {!isOperatingExpense(expense.category) && <Text style={styles.tagText}>not an operating cost</Text>}
+                {expense.invoiceId ? (
+                  <Text style={styles.tagText}>from a bill — edit it in Bills</Text>
+                ) : (
+                  !isOperatingExpense(expense.category) && <Text style={styles.tagText}>not an operating cost</Text>
+                )}
               </View>
               <Text style={[styles.cellText, styles.muted, colVendor]} numberOfLines={1}>{expense.vendorName ?? '—'}</Text>
               <Text style={[styles.cellText, colMethod]} numberOfLines={1}>{methodLabel(expense.paymentMethod)}</Text>
