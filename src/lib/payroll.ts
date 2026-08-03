@@ -29,6 +29,7 @@ function mapRunRow(row: any): PayrollRun {
     periodStart: row.period_start,
     periodEnd: row.period_end,
     status: row.status,
+    cadence: row.cadence,
     totalCents: row.total_cents ?? 0,
     expenseId: row.expense_id,
     postedAt: row.posted_at,
@@ -59,12 +60,19 @@ export async function createPayrollRun(
   shopId: string,
   periodStart: string,
   periodEnd: string,
-  lines: PayrollDraftLine[]
+  lines: PayrollDraftLine[],
+  cadence: PayrollRun['cadence']
 ): Promise<PayrollRun> {
   const { data: userData } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from('payroll_runs')
-    .insert({ shop_id: shopId, period_start: periodStart, period_end: periodEnd, created_by: userData.user?.id ?? null })
+    .insert({
+      shop_id: shopId,
+      period_start: periodStart,
+      period_end: periodEnd,
+      cadence,
+      created_by: userData.user?.id ?? null,
+    })
     .select('*')
     .single();
   if (error) throw error;

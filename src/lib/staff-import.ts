@@ -68,6 +68,9 @@ export async function runStaffImport(shopId: string, roles: Role[], parsed: Pars
         hireDate: null,
         payType: null,
         payRateCents: null,
+        // A freshly provisioned member has no roster row to read a cadence
+        // from yet; 'monthly' matches the shop_members column default.
+        payCadence: 'monthly',
       });
     } catch (err) {
       reject(err instanceof Error ? err.message : 'Could not add this staff member.');

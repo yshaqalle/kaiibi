@@ -21,6 +21,7 @@ function makeMember(overrides: Partial<StaffMember> = {}): StaffMember {
     hireDate: '2026-01-01',
     payType: 'hourly',
     payRateCents: 500,
+    payCadence: 'monthly',
     ...overrides,
   };
 }
@@ -47,6 +48,7 @@ function makeRun(overrides: Partial<PayrollRun> = {}): PayrollRun {
     periodStart: '2026-08-01',
     periodEnd: '2026-08-07',
     status: 'posted',
+    cadence: null,
     totalCents: 0,
     expenseId: null,
     postedAt: null,

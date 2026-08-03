@@ -102,7 +102,10 @@ export function PayrollTab({
         listShopTimeEntries(shop.id, { sinceIso: start.toISOString() }),
       ]);
       const lines = computePayrollDraft(members, entries, periodStart, periodEnd);
-      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines);
+      // TODO(Task 6): pass the picked cadence instead of null once the period
+      // picker exists -- this null is temporary scaffolding, not a considered
+      // choice.
+      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines, null);
       setCreating(false);
       setOpen(created);
       await reload();

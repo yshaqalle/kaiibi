@@ -15,6 +15,7 @@ function mapShopRow(row: any): Shop {
     logoUrl: row.logo_url,
     categories: row.categories ?? [],
     monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
+    payPeriodAnchor: row.pay_period_anchor,
     taxEnabled: row.tax_enabled,
     taxRatePercent: Number(row.tax_rate_percent),
     receiptShowLogo: row.receipt_show_logo,
@@ -104,7 +105,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; taxEnabled: boolean; taxRatePercent: number;
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
@@ -123,6 +124,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
       ...(input.categories !== undefined && { categories: input.categories }),
       ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
+      ...(input.payPeriodAnchor !== undefined && { pay_period_anchor: input.payPeriodAnchor }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
       ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),
       ...(input.receiptShowLogo !== undefined && { receipt_show_logo: input.receiptShowLogo }),

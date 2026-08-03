@@ -75,6 +75,9 @@ function mapStaffRow(row: any): StaffMember {
     hireDate: row.hire_date,
     payType: row.pay_type,
     payRateCents: row.pay_rate_cents,
+    // The RPC blanks pay columns for callers without people.payroll.manage, so
+    // this can arrive null; 'monthly' is the schema default and the safe read.
+    payCadence: (row.pay_cadence ?? 'monthly') as StaffMember['payCadence'],
   };
 }
 
@@ -116,7 +119,12 @@ export async function getMyMembership(shopId: string, userId: string): Promise<S
 // migration 20260802030200_hr_schema.sql).
 export async function updateStaffPay(
   memberId: string,
-  patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null }
+  patch: {
+    hireDate?: string | null;
+    payType?: StaffMember['payType'];
+    payRateCents?: number | null;
+    payCadence?: StaffMember['payCadence'];
+  }
 ): Promise<void> {
   const { error } = await supabase
     .from('shop_members')
@@ -124,6 +132,7 @@ export async function updateStaffPay(
       ...(patch.hireDate !== undefined && { hire_date: patch.hireDate }),
       ...(patch.payType !== undefined && { pay_type: patch.payType }),
       ...(patch.payRateCents !== undefined && { pay_rate_cents: patch.payRateCents }),
+      ...(patch.payCadence !== undefined && { pay_cadence: patch.payCadence }),
     })
     .eq('id', memberId);
   if (error) throw error;
@@ -141,7 +150,7 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
 
 export async function updateStaffMember(input: {
   shopId: string; memberId: string; fullName: string; email: string; roleId: string; active: boolean;
-  hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null;
+  hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null; payCadence?: StaffMember['payCadence'];
 }): Promise<void> {
   const { data, error } = await supabase.functions.invoke<{ error?: string; message?: string }>('update-staff', { body: input });
   if (error) throw error;
