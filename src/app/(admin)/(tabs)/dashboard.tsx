@@ -11,7 +11,7 @@ import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
-import { dormantCustomers, getCustomersStatsBatch, listCustomers, type CustomerStats } from '@/lib/customers';
+import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
@@ -30,6 +30,15 @@ import type { Customer, Product, StaffMember, TimeEntry, TimeOffRequest } from '
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
+
+// Supabase/PostgREST errors are plain {code, message} objects, never
+// `instanceof Error`, so an instanceof check alone always falls through.
+function extractErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return 'Could not load some dashboard data.';
+}
 
 const DASHBOARD_PRESETS: RangePreset[] = [
   { label: 'Today', days: 1 },
@@ -61,48 +70,72 @@ export default function DashboardScreen() {
   const [monthToDateCents, setMonthToDateCents] = useState(0);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop || !dateRange) return;
     const { since, until } = dateRange;
+    const failures: string[] = [];
 
-    const [dailyRows, low, expiring] = await Promise.all([
-      getDailyTotalsCents(shop.id, since, until),
-      getLowStockProducts(shop.id, shop.defaultLowStockLevel),
-      shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
-    ]);
-    setDaily(dailyRows);
-    setLowStock(low);
-    setExpiringSoon(expiring);
+    // Guarded per section rather than as one block. The permission checks
+    // above are only the client's view of what a role may read; if they ever
+    // drift from the RLS policies, a refused query should cost its own
+    // section, not blank the entire dashboard.
+    const attempt = async (label: string, run: () => Promise<void>) => {
+      try {
+        await run();
+      } catch (err) {
+        failures.push(`${label} (${extractErrorMessage(err)})`);
+      }
+    };
+
+    await attempt('sales', async () => {
+      const [dailyRows, low, expiring] = await Promise.all([
+        getDailyTotalsCents(shop.id, since, until),
+        getLowStockProducts(shop.id, shop.defaultLowStockLevel),
+        shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
+      ]);
+      setDaily(dailyRows);
+      setLowStock(low);
+      setExpiringSoon(expiring);
+    });
 
     if (canSeeExpenses) {
-      setExpenseCents(totalExpenseCents(await listExpensesInRange(shop.id, since, until)));
+      await attempt('expenses', async () => {
+        setExpenseCents(totalExpenseCents(await listExpensesInRange(shop.id, since, until)));
+      });
     }
 
     if (canSeeCustomers) {
-      const [customers, stats] = await Promise.all([listCustomers(shop.id), getCustomersStatsBatch(shop.id)]);
-      setDormant(dormantCustomers(customers, stats as Map<string, CustomerStats>));
+      await attempt('customers', async () => {
+        const [customers, stats] = await Promise.all([listCustomers(shop.id), getCustomersStatsBatch(shop.id)]);
+        setDormant(dormantCustomers(customers, stats));
+      });
     }
 
     if (canSeeTeam) {
-      const todayStart = new Date();
-      todayStart.setHours(0, 0, 0, 0);
-      // Reach back a few days so a shift left open on a previous day is still
-      // visible -- that's the whole point of flagging them.
-      const lookback = new Date(todayStart.getTime() - 7 * 86_400_000);
-      const [members, entries, timeOff] = await Promise.all([
-        listStaff(shop.id),
-        listShopTimeEntries(shop.id, { sinceIso: lookback.toISOString() }),
-        canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
-      ]);
-      const leaveIds = onLeaveMemberIds(timeOff);
-      setHr({
-        activeToday: membersActiveToday(entries),
-        onLeave: members.filter((m) => leaveIds.has(m.id)),
-        staleShifts: staleOpenShifts(entries),
-        pendingTimeOff: timeOff.filter((r) => r.status === 'pending'),
+      await attempt('team', async () => {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        // Reach back a week so a shift left open on an earlier day is still
+        // visible -- that's the whole point of flagging them.
+        const lookback = new Date(todayStart.getTime() - 7 * 86_400_000);
+        const [members, entries, timeOff] = await Promise.all([
+          listStaff(shop.id),
+          listShopTimeEntries(shop.id, { sinceIso: lookback.toISOString() }),
+          canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
+        ]);
+        const leaveIds = onLeaveMemberIds(timeOff);
+        setHr({
+          activeToday: membersActiveToday(entries),
+          onLeave: members.filter((m) => leaveIds.has(m.id)),
+          staleShifts: staleOpenShifts(entries),
+          pendingTimeOff: timeOff.filter((r) => r.status === 'pending'),
+        });
       });
     }
+
+    setError(failures.length ? `Couldn't load ${failures.join(', ')}.` : null);
   }, [shop, dateRange, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -132,6 +165,8 @@ export default function DashboardScreen() {
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[styles.title, { color: theme.text }]}>Dashboard</Text>
+
+        {error && <Text style={styles.error}>{error}</Text>}
 
         <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
 
@@ -289,4 +324,5 @@ const styles = StyleSheet.create({
   attentionTitle: { fontSize: 13, fontWeight: '700' },
   attentionDetail: { fontSize: 11.5, marginTop: 3, lineHeight: 16 },
   empty: { fontSize: 13, marginBottom: 8 },
+  error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

@@ -18,6 +18,7 @@ function mapExpenseRow(row: any): Expense {
     paymentMethod: row.payment_method,
     note: row.note,
     invoiceId: row.invoice_id ?? null,
+    payrollRunId: row.payroll_run_id ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

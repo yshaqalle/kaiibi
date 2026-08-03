@@ -1,8 +1,10 @@
 import {
   bucketDailyTotals,
+  cashierPerformance,
   costOfGoodsSold,
   grossSalesCents,
   netRevenueCents,
+  paymentMethodMix,
   refundedCents,
   taxCollectedCents,
   type PeriodRefund,
@@ -143,6 +145,52 @@ describe('costOfGoodsSold', () => {
 
   it('reports nothing for a period with no sales', () => {
     expect(costOfGoodsSold([])).toEqual({ cogsCents: 0, uncostedItemCount: 0, uncostedRevenueCents: 0 });
+  });
+});
+
+describe('cashierPerformance', () => {
+  it('totals takings per cashier, biggest first', () => {
+    const sales = [
+      makeSale({ id: 'a', cashierName: 'Hodan', totalCents: 5000 }),
+      makeSale({ id: 'b', cashierName: 'Amran', totalCents: 9000 }),
+      makeSale({ id: 'c', cashierName: 'Hodan', totalCents: 1000 }),
+    ];
+    expect(cashierPerformance(sales)).toEqual([
+      { name: 'Amran', revenueCents: 9000 },
+      { name: 'Hodan', revenueCents: 6000 },
+    ]);
+  });
+
+  it('skips sales with no cashier recorded', () => {
+    expect(cashierPerformance([makeSale({ cashierName: null })])).toEqual([]);
+  });
+});
+
+describe('paymentMethodMix', () => {
+  it('splits takings across the payment lines', () => {
+    const sale = makeSale({
+      totalCents: 10000,
+      payments: [
+        { id: 'p1', saleId: 's1', method: 'cash', amountCents: 6000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, createdAt: '' },
+        { id: 'p2', saleId: 's1', method: 'zaad', amountCents: 4000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, createdAt: '' },
+      ],
+    });
+    const mix = paymentMethodMix([sale]);
+    expect(mix).toEqual([
+      { method: 'cash', amountCents: 6000, pct: 60 },
+      { method: 'zaad', amountCents: 4000, pct: 40 },
+    ]);
+  });
+
+  // Sales predating split payments carry the method on the sale itself;
+  // dropping them would silently under-report the mix.
+  it('falls back to the sale’s own method when it has no payment lines', () => {
+    const mix = paymentMethodMix([makeSale({ paymentMethod: 'edahab', totalCents: 2500, payments: [] })]);
+    expect(mix).toEqual([{ method: 'edahab', amountCents: 2500, pct: 100 }]);
+  });
+
+  it('does not divide by zero for a period with no takings', () => {
+    expect(paymentMethodMix([])).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { dayKeyFor, startOfDay } from '@/lib/period';
-import type { Sale } from '@/types/models';
+import type { PaymentMethod, Sale } from '@/types/models';
 
 // Pure arithmetic behind every revenue and profit figure. Separate from
 // sales.ts for the same reason expense-reporting.ts is separate from
@@ -86,6 +86,45 @@ export function costOfGoodsSold(sales: Sale[], refunds: PeriodRefund[] = []): Co
   }
 
   return { cogsCents, uncostedItemCount, uncostedRevenueCents };
+}
+
+// Takings per cashier. Gross rather than net: this ranks who rang up the most,
+// which is a staff question, not a profit one — netting tax out of it would
+// make the number harder to reconcile against a till without answering
+// anything the P&L doesn't already.
+export function cashierPerformance(sales: Sale[], limit = 5): { name: string; revenueCents: number }[] {
+  const totals = new Map<string, number>();
+  for (const sale of sales) {
+    if (!sale.cashierName) continue;
+    totals.set(sale.cashierName, (totals.get(sale.cashierName) ?? 0) + sale.totalCents);
+  }
+  return Array.from(totals.entries())
+    .map(([name, revenueCents]) => ({ name, revenueCents }))
+    .sort((a, b) => b.revenueCents - a.revenueCents)
+    .slice(0, limit);
+}
+
+export type PaymentMixEntry = { method: PaymentMethod; amountCents: number; pct: number };
+
+// How takings split across payment methods. Falls back to the sale's own
+// `paymentMethod` when it carries no payment lines — sales predating split
+// payments have the method on the sale itself, and dropping them would
+// silently under-report the mix.
+export function paymentMethodMix(sales: Sale[]): PaymentMixEntry[] {
+  const totals = new Map<PaymentMethod, number>();
+  for (const sale of sales) {
+    if (sale.payments && sale.payments.length > 0) {
+      for (const payment of sale.payments) {
+        totals.set(payment.method, (totals.get(payment.method) ?? 0) + payment.amountCents);
+      }
+    } else {
+      totals.set(sale.paymentMethod, (totals.get(sale.paymentMethod) ?? 0) + sale.totalCents);
+    }
+  }
+  const grandTotal = Array.from(totals.values()).reduce((sum, cents) => sum + cents, 0);
+  return Array.from(totals.entries())
+    .map(([method, amountCents]) => ({ method, amountCents, pct: grandTotal > 0 ? (amountCents / grandTotal) * 100 : 0 }))
+    .sort((a, b) => b.amountCents - a.amountCents);
 }
 
 export type DailyBucket = {

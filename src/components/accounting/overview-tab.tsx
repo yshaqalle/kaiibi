@@ -13,8 +13,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
-import { getDailyTotalsCents, getPaymentMethodMix, getTopSellingProducts } from '@/lib/sales';
-import type { DailyBucket } from '@/lib/sales-reporting';
+import { getSalesAndRefundsInRange, getTopSellingProducts } from '@/lib/sales';
+import { bucketDailyTotals, paymentMethodMix, type DailyBucket } from '@/lib/sales-reporting';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -41,15 +41,17 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
     if (!shop) return;
     setLoading(true);
     try {
-      const [dailyRows, expenses, mix, top] = await Promise.all([
-        getDailyTotalsCents(shop.id, since, until),
+      // The daily buckets and the payment mix are both derived from the same
+      // sales set, so it is fetched once -- that query pulls five nested
+      // relations and was previously run twice per screen load.
+      const [{ sales, refunds }, expenses, top] = await Promise.all([
+        getSalesAndRefundsInRange(shop.id, since, until),
         listExpensesInRange(shop.id, since, until),
-        getPaymentMethodMix(shop.id, since, until),
         getTopSellingProducts(shop.id, since, until),
       ]);
-      setDaily(dailyRows);
+      setDaily(bucketDailyTotals(sales, refunds, since, until));
       setExpenseCents(totalExpenseCents(expenses));
-      setPaymentMix(mix);
+      setPaymentMix(paymentMethodMix(sales));
       setTopProducts(top.byRevenue);
       setError(null);
     } catch (err) {

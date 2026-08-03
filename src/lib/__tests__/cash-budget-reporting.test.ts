@@ -55,6 +55,7 @@ function makeExpense(overrides: Partial<Expense> = {}): Expense {
     paymentMethod: 'cash',
     note: null,
     invoiceId: null,
+    payrollRunId: null,
     createdBy: null,
     createdAt: '2026-08-10T10:00:00.000Z',
     updatedAt: '2026-08-10T10:00:00.000Z',

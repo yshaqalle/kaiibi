@@ -2,16 +2,18 @@ import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { endOfDay, startOfDay } from '@/lib/period';
 import {
   bucketDailyTotals,
+  cashierPerformance,
   costOfGoodsSold,
   grossSalesCents,
   netRevenueCents,
+  paymentMethodMix,
   refundedCents,
   taxCollectedCents,
   type DailyBucket,
   type PeriodRefund,
 } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentLine, PaymentMethod, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
+import type { CartLine, PaymentLine, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
 export type SaleCustomer = { id?: string | null; name?: string | null; phone?: string | null; email?: string | null };
 
@@ -300,37 +302,14 @@ export async function getTopSellingProducts(shopId: string, sinceDate: Date, unt
 // view. Sales rung up without a cashier assigned are excluded from the
 // ranking rather than lumped into an "Unassigned" bar.
 export async function getCashierPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const sales = await listAllSalesInRange(shopId, sinceDate, untilDate);
-  const totals = new Map<string, number>();
-  for (const sale of sales) {
-    if (!sale.cashierName) continue;
-    totals.set(sale.cashierName, (totals.get(sale.cashierName) ?? 0) + sale.totalCents);
-  }
-  return Array.from(totals.entries())
-    .map(([name, revenueCents]) => ({ name, revenueCents }))
-    .sort((a, b) => b.revenueCents - a.revenueCents)
-    .slice(0, 5);
+  return cashierPerformance(await listAllSalesInRange(shopId, sinceDate, untilDate));
 }
 
 // Amount and share of revenue per payment method over the range, for the
 // payment-mix chart. Multi-line (split) payments are summed by their own
 // method rather than attributed whole to the sale's top-level method.
 export async function getPaymentMethodMix(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const sales = await listAllSalesInRange(shopId, sinceDate, untilDate);
-  const totals = new Map<PaymentMethod, number>();
-  for (const sale of sales) {
-    if (sale.payments && sale.payments.length > 0) {
-      for (const payment of sale.payments) {
-        totals.set(payment.method, (totals.get(payment.method) ?? 0) + payment.amountCents);
-      }
-    } else {
-      totals.set(sale.paymentMethod, (totals.get(sale.paymentMethod) ?? 0) + sale.totalCents);
-    }
-  }
-  const grandTotal = Array.from(totals.values()).reduce((sum, cents) => sum + cents, 0);
-  return Array.from(totals.entries())
-    .map(([method, amountCents]) => ({ method, amountCents, pct: grandTotal > 0 ? (amountCents / grandTotal) * 100 : 0 }))
-    .sort((a, b) => b.amountCents - a.amountCents);
+  return paymentMethodMix(await listAllSalesInRange(shopId, sinceDate, untilDate));
 }
 
 // Daily revenue/order/discount buckets between sinceDate and untilDate
@@ -364,6 +343,25 @@ export async function listRefundsInRange(shopId: string, sinceDate: Date, untilD
       unitCostCents: item.sale_items?.unit_cost_cents ?? null,
     })),
   }));
+}
+
+// Sales and refunds for a range, fetched once.
+//
+// The sales query pulls five nested relations (items, payments, edits,
+// refunds and their items), so it is by far the heaviest read in the app.
+// Screens that need several aggregates should take this and derive them with
+// the pure helpers in sales-reporting.ts rather than calling three functions
+// that each refetch the same rows.
+export async function getSalesAndRefundsInRange(
+  shopId: string,
+  sinceDate: Date,
+  untilDate?: Date
+): Promise<{ sales: Sale[]; refunds: PeriodRefund[] }> {
+  const [sales, refunds] = await Promise.all([
+    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
+    listRefundsInRange(shopId, sinceDate, untilDate),
+  ]);
+  return { sales, refunds };
 }
 
 // Per-day revenue for the trend chart and the period stat tiles.

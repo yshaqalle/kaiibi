@@ -17,7 +17,15 @@ import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
 import { sumDurationHours } from '@/lib/shift-hours';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
-import { getCashierPerformance, getCategoryBreakdown, getSalesPerformance } from '@/lib/sales';
+import { getCategoryBreakdown, getSalesAndRefundsInRange } from '@/lib/sales';
+import {
+  cashierPerformance,
+  costOfGoodsSold,
+  grossSalesCents,
+  netRevenueCents,
+  refundedCents,
+  taxCollectedCents,
+} from '@/lib/sales-reporting';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Expense } from '@/types/models';
@@ -35,7 +43,15 @@ type LaborPicture = {
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
-type SalesPerformance = Awaited<ReturnType<typeof getSalesPerformance>>;
+type SalesPerformance = {
+  grossSalesCents: number;
+  taxCollectedCents: number;
+  refundedCents: number;
+  netRevenueCents: number;
+  cogsCents: number;
+  uncostedItemCount: number;
+  uncostedRevenueCents: number;
+};
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -71,16 +87,24 @@ export function ReportsTab({
     if (!shop) return;
     setLoading(true);
     try {
-      const [perf, expenseRows, categoryRows, cashierRows] = await Promise.all([
-        getSalesPerformance(shop.id, since, until),
+      // One sales fetch, several aggregates. Previously the P&L figures and
+      // the cashier ranking each pulled the whole nested sales set for the
+      // range -- the same heavy query, twice per screen load.
+      const [{ sales, refunds }, expenseRows, categoryRows] = await Promise.all([
+        getSalesAndRefundsInRange(shop.id, since, until),
         listExpensesInRange(shop.id, since, until),
         getCategoryBreakdown(shop.id, since, until),
-        getCashierPerformance(shop.id, since, until),
       ]);
-      setPerformance(perf);
+      setPerformance({
+        grossSalesCents: grossSalesCents(sales),
+        taxCollectedCents: taxCollectedCents(sales),
+        refundedCents: refundedCents(refunds),
+        netRevenueCents: netRevenueCents(sales, refunds),
+        ...costOfGoodsSold(sales, refunds),
+      });
       setExpenses(expenseRows);
       setCategories(categoryRows);
-      setCashiers(cashierRows);
+      setCashiers(cashierPerformance(sales));
 
       if (canSeeLabor) {
         // Labour worked on days no posted pay run covers. Once a run is

@@ -46,6 +46,19 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+
+// Rows written by a vendor bill or a posted pay run are read-only in the
+// database -- the bill or run is the record of truth. Without this the UI
+// would open an editor whose save RLS silently refuses, which reads as the
+// app being broken.
+function isGenerated(expense: Expense): boolean {
+  return expense.invoiceId !== null || expense.payrollRunId !== null;
+}
+
+function generatedNote(expense: Expense): string {
+  return expense.invoiceId !== null ? 'from a bill — edit it in Bills' : 'from a pay run — edit it in Payroll';
+}
+
 export function ExpensesTab({
   dateRange,
   setHeaderActions,
@@ -157,7 +170,7 @@ export function ExpensesTab({
           {filtered.map((expense) => (
             <Pressable
               key={expense.id}
-              onPress={() => canManage && !expense.invoiceId && setEditing(expense)}
+              onPress={() => canManage && !isGenerated(expense) && setEditing(expense)}
               style={styles.card}
             >
               <View style={styles.cardTop}>
@@ -167,7 +180,7 @@ export function ExpensesTab({
                     {[expense.vendorName, expense.occurredOn, methodLabel(expense.paymentMethod)].filter(Boolean).join(' · ')}
                   </Text>
                   {expense.note ? <Text style={styles.cardNote} numberOfLines={1}>{expense.note}</Text> : null}
-                  {expense.invoiceId ? <Text style={styles.tagText}>from a bill — edit it in Bills</Text> : null}
+                  {isGenerated(expense) ? <Text style={styles.tagText}>{generatedNote(expense)}</Text> : null}
                 </View>
                 <Text style={styles.cardAmount}>{formatAccountingCents(expense.amountCents)}</Text>
               </View>
@@ -188,14 +201,14 @@ export function ExpensesTab({
               key={expense.id}
               // Bill-generated rows are read-only in the database (the bill is
               // the record of truth), so don't offer an edit that would fail.
-              onPress={() => canManage && !expense.invoiceId && setEditing(expense)}
+              onPress={() => canManage && !isGenerated(expense) && setEditing(expense)}
               style={styles.tableRow}
             >
               <Text style={[styles.cellText, styles.muted, colDate]} numberOfLines={1}>{expense.occurredOn}</Text>
               <View style={colCategory}>
                 <Text style={styles.cellText} numberOfLines={1}>{expenseCategoryLabel(expense.category)}</Text>
-                {expense.invoiceId ? (
-                  <Text style={styles.tagText}>from a bill — edit it in Bills</Text>
+                {isGenerated(expense) ? (
+                  <Text style={styles.tagText}>{generatedNote(expense)}</Text>
                 ) : (
                   !isOperatingExpense(expense.category) && <Text style={styles.tagText}>not an operating cost</Text>
                 )}

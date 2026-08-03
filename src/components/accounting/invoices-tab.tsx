@@ -199,7 +199,7 @@ export function InvoicesTab({
             await reloadAnd();
           }}
           onDeletePayment={async (paymentId) => {
-            await deleteInvoicePayment(paymentId, paying.id);
+            await deleteInvoicePayment(paymentId);
             await reloadAnd();
           }}
         />

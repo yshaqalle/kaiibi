@@ -113,22 +113,11 @@ export async function recordInvoicePayment(
   return data as string;
 }
 
-// Undoes a mis-keyed payment. paid_cents is recomputed from what's left rather
-// than decremented, so a double-undo can't drive it negative.
-export async function deleteInvoicePayment(paymentId: string, invoiceId: string): Promise<void> {
-  const { error: deleteError } = await supabase.from('invoice_payments').delete().eq('id', paymentId);
-  if (deleteError) throw deleteError;
-
-  const { data: remaining, error: readError } = await supabase
-    .from('invoice_payments')
-    .select('amount_cents')
-    .eq('invoice_id', invoiceId);
-  if (readError) throw readError;
-
-  const paidCents = (remaining ?? []).reduce((sum, row: any) => sum + row.amount_cents, 0);
-  const { error: updateError } = await supabase
-    .from('invoices')
-    .update({ paid_cents: paidCents, updated_at: new Date().toISOString() })
-    .eq('id', invoiceId);
-  if (updateError) throw updateError;
+// Undoes a mis-keyed payment. Goes through an RPC for the same reason
+// recording one does: the delete and the recount of `paid_cents` have to
+// happen together under a lock, or two concurrent undos can leave the total
+// disagreeing with the payments actually on the bill.
+export async function deleteInvoicePayment(paymentId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_invoice_payment', { p_payment_id: paymentId });
+  if (error) throw error;
 }
