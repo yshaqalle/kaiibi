@@ -1,6 +1,7 @@
 import {
   billDueState,
   budgetRows,
+  expectedChangeSinceCents,
   monthlyBillCommitmentCents,
   totalCashCents,
 } from '@/lib/cash-budget-reporting';
@@ -123,6 +124,32 @@ describe('monthlyBillCommitmentCents', () => {
 
   it('ignores inactive bills', () => {
     expect(monthlyBillCommitmentCents([makeBill({ active: false })])).toBe(0);
+  });
+});
+
+describe('expectedChangeSinceCents', () => {
+  const confirmedAt = '2026-08-10T00:00:00.000Z';
+
+  // Negative: spending takes money *out*, so the hint reads as a reduction.
+  it('reports cash spending since the balance was confirmed as negative', () => {
+    const expenses = [makeExpense({ createdAt: '2026-08-11T10:00:00.000Z', amountCents: 4000, paymentMethod: 'cash' })];
+    expect(expectedChangeSinceCents(expenses, confirmedAt)).toBe(-4000);
+  });
+
+  it('ignores spending from before the balance was confirmed', () => {
+    const expenses = [makeExpense({ createdAt: '2026-08-01T10:00:00.000Z', amountCents: 4000, paymentMethod: 'cash' })];
+    expect(expectedChangeSinceCents(expenses, confirmedAt)).toBe(0);
+  });
+
+  // A Zaad or card payment never touched the drawer, so it can't explain a
+  // discrepancy in it.
+  it('ignores spending that did not come out of cash', () => {
+    const expenses = [makeExpense({ createdAt: '2026-08-11T10:00:00.000Z', amountCents: 4000, paymentMethod: 'zaad' })];
+    expect(expectedChangeSinceCents(expenses, confirmedAt)).toBe(0);
+  });
+
+  it('is zero when nothing has been spent', () => {
+    expect(expectedChangeSinceCents([], confirmedAt)).toBe(0);
   });
 });
 

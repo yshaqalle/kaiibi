@@ -15,6 +15,7 @@ import { listExpensesInRange } from '@/lib/expenses';
 import { sharePdf } from '@/lib/export-file';
 import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { sumDurationHours } from '@/lib/shift-hours';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
 import { getCashierPerformance, getCategoryBreakdown, getSalesPerformance } from '@/lib/sales';
 import { listStaff } from '@/lib/staff';
@@ -25,6 +26,10 @@ type LaborPicture = {
   accruedCents: number;
   hours: number;
   salariedExcludedCount: number;
+  // Every hour clocked in the range, whether or not a pay run has settled it.
+  // The accrual only counts unposted days, so it's the wrong denominator for
+  // "what did an hour of work earn".
+  totalHoursInRange: number;
 };
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -88,7 +93,14 @@ export function ReportsTab({
           listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }),
           listPayrollRuns(shop.id),
         ]);
-        setLabor(accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)));
+        const inRange = entries.filter((e) => {
+          const at = new Date(e.clockIn).getTime();
+          return at >= since.getTime() && at <= rangeEnd.getTime();
+        });
+        setLabor({
+          ...accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)),
+          totalHoursInRange: Number(sumDurationHours(inRange).toFixed(2)),
+        });
       } else {
         setLabor(null);
       }
@@ -115,9 +127,21 @@ export function ReportsTab({
   const operatingCents = postedOperatingCents + accruedLabor;
   const netProfitCents = grossProfitCents - operatingCents;
 
-  const nonOperatingCents = totalExpenseCents(expenses) - operatingCents;
+  // Against the *posted* operating figure, not the accrual-inclusive one:
+  // `expenses` holds only real rows, so subtracting accrued labour (which has
+  // no row yet) would understate this and could drive it negative.
+  const nonOperatingCents = totalExpenseCents(expenses) - postedOperatingCents;
   const categoryTotals = expenseTotalsByCategory(expenses);
   const rangeLabel = formatRangeLabel(dateRange);
+
+  // Total labour: wages a pay run has already posted, plus hours worked that
+  // no run has settled. Counting only one would swing the figure wildly
+  // depending on whether payroll happened to have been run this period.
+  const postedWagesCents = categoryTotals.find((c) => c.category === 'salaries_wages')?.totalCents ?? 0;
+  const totalLaborCents = postedWagesCents + accruedLabor;
+  const laborPctOfRevenue = revenueCents > 0 ? Math.round((totalLaborCents / revenueCents) * 100) : null;
+  const revenuePerLaborHourCents =
+    labor && labor.totalHoursInRange > 0 ? Math.round(revenueCents / labor.totalHoursInRange) : null;
 
   const categorySlices: CategorySlice[] = categories.map((c) => ({ category: c.category, value: c.unitsSold }));
 
@@ -264,6 +288,39 @@ export function ReportsTab({
         )}
       </Card>
 
+      {canSeeLabor && totalLaborCents > 0 && (
+        <>
+          <Text style={styles.sectionTitle}>Labour</Text>
+          <Card style={styles.card}>
+            <PnlRow label="Wages posted by a pay run" amountCents={postedWagesCents} />
+            {accruedLabor > 0 && <PnlRow label="Earned, not yet paid" amountCents={accruedLabor} />}
+            <PnlRow label="Total labour cost" amountCents={totalLaborCents} emphasis />
+            <View style={styles.kpiRow}>
+              {laborPctOfRevenue !== null && (
+                <View style={styles.kpi}>
+                  <Text style={styles.kpiValue}>{laborPctOfRevenue}%</Text>
+                  <Text style={styles.kpiLabel}>of revenue goes on wages</Text>
+                </View>
+              )}
+              {revenuePerLaborHourCents !== null && (
+                <View style={styles.kpi}>
+                  <Text style={styles.kpiValue}>{formatAccountingCents(revenuePerLaborHourCents)}</Text>
+                  <Text style={styles.kpiLabel}>earned per hour worked</Text>
+                </View>
+              )}
+            </View>
+            {labor && labor.totalHoursInRange > 0 && (
+              <Text style={styles.caveat}>
+                Based on {labor.totalHoursInRange}h clocked in this period.
+                {labor.salariedExcludedCount > 0
+                  ? ` ${labor.salariedExcludedCount} salaried ${labor.salariedExcludedCount === 1 ? 'person does' : 'people do'} not clock hours, so the hourly figure covers hourly staff only.`
+                  : ''}
+              </Text>
+            )}
+          </Card>
+        </>
+      )}
+
       <Text style={styles.sectionTitle}>Sales tax collected</Text>
       <Card style={styles.card}>
         <PnlRow label="Gross takings" amountCents={performance.grossSalesCents} />
@@ -368,6 +425,10 @@ const styles = StyleSheet.create({
   pnlAmountEmphasis: { fontSize: 15, fontWeight: '800' },
   pnlAmountNegative: { color: '#C0392B' },
 
+  kpiRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC' },
+  kpi: { minWidth: 120 },
+  kpiValue: { fontSize: 20, fontWeight: '800', color: '#111111', letterSpacing: -0.5 },
+  kpiLabel: { fontSize: 11, color: '#999999', marginTop: 2 },
   caveat: { fontSize: 11, color: '#B5793A', lineHeight: 16, marginTop: 12 },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },

@@ -1,10 +1,4 @@
-import {
-  expenseTotalsByCategory,
-  filterExpensesToRange,
-  isOperatingExpense,
-  operatingExpenseCents,
-  totalExpenseCents,
-} from '@/lib/expense-reporting';
+import { expenseTotalsByCategory, isOperatingExpense, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
 import type { Expense, ExpenseCategory } from '@/types/models';
 
 function makeExpense(overrides: Partial<Expense> = {}): Expense {
@@ -91,21 +85,3 @@ describe('expenseTotalsByCategory', () => {
   });
 });
 
-describe('filterExpensesToRange', () => {
-  const expenses = [
-    makeExpense({ id: 'jul', occurredOn: '2026-07-31' }),
-    makeExpense({ id: 'aug1', occurredOn: '2026-08-01' }),
-    makeExpense({ id: 'aug31', occurredOn: '2026-08-31' }),
-    makeExpense({ id: 'sep', occurredOn: '2026-09-01' }),
-  ];
-
-  it('includes both boundary days whatever time the range carries', () => {
-    const kept = filterExpensesToRange(expenses, new Date(2026, 7, 1, 14, 0, 0), new Date(2026, 7, 31, 9, 0, 0));
-    expect(kept.map((e) => e.id)).toEqual(['aug1', 'aug31']);
-  });
-
-  it('treats an omitted end as open-ended', () => {
-    const kept = filterExpensesToRange(expenses, new Date(2026, 7, 1));
-    expect(kept.map((e) => e.id)).toEqual(['aug1', 'aug31', 'sep']);
-  });
-});

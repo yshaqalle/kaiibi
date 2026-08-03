@@ -99,8 +99,12 @@ export function budgetRows(expenses: Expense[], budgets: Budget[]): BudgetRow[] 
 // the owner actually trusts.
 export function expectedChangeSinceCents(expenses: Expense[], since: string): number {
   const from = new Date(since).getTime();
-  return -expenses
+  const spent = expenses
     .filter((e) => new Date(e.createdAt).getTime() >= from)
     .filter((e) => e.paymentMethod === 'cash')
     .reduce((sum, e) => sum + e.amountCents, 0);
+  // `0 - spent` rather than `-spent`: negating zero yields -0, which is equal
+  // to 0 under `===` but not under Object.is, and reads oddly anywhere the
+  // value is inspected directly.
+  return 0 - spent;
 }

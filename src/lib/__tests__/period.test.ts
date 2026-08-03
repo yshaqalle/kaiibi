@@ -1,13 +1,4 @@
-import {
-  currentMonthRange,
-  dayKeyFor,
-  endOfDay,
-  fromDateColumn,
-  isDateColumnInRange,
-  normalizeRange,
-  startOfDay,
-  toDateColumn,
-} from '@/lib/period';
+import { dayKeyFor, endOfDay, fromDateColumn, isDateColumnInRange, startOfDay, toDateColumn } from '@/lib/period';
 
 describe('startOfDay / endOfDay', () => {
   it('snaps to the local day boundaries', () => {
@@ -84,32 +75,4 @@ describe('isDateColumnInRange', () => {
   });
 });
 
-describe('normalizeRange', () => {
-  it('widens to whole days', () => {
-    const { since, until } = normalizeRange(new Date(2026, 7, 2, 15, 0, 0), new Date(2026, 7, 5, 9, 0, 0));
-    expect(since.getHours()).toBe(0);
-    expect(until?.getHours()).toBe(23);
-    expect(until?.getMilliseconds()).toBe(999);
-  });
 
-  it('leaves an open-ended range open', () => {
-    expect(normalizeRange(new Date(2026, 7, 2)).until).toBeUndefined();
-  });
-});
-
-describe('currentMonthRange', () => {
-  it('starts at the first of the month and ends at the end of today', () => {
-    const { since, until } = currentMonthRange(new Date(2026, 7, 17, 11, 0, 0));
-    expect(since.getDate()).toBe(1);
-    expect(since.getMonth()).toBe(7);
-    expect(since.getHours()).toBe(0);
-    expect(until.getDate()).toBe(17);
-    expect(until.getHours()).toBe(23);
-  });
-
-  it('handles the first of the month', () => {
-    const { since, until } = currentMonthRange(new Date(2026, 7, 1, 0, 30, 0));
-    expect(since.getDate()).toBe(1);
-    expect(until.getDate()).toBe(1);
-  });
-});

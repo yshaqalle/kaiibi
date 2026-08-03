@@ -1,4 +1,3 @@
-import { isDateColumnInRange } from '@/lib/period';
 import type { Expense, ExpenseCategory } from '@/types/models';
 
 // The expense category catalog and the pure roll-ups built on it.
@@ -58,10 +57,4 @@ export function expenseTotalsByCategory(expenses: Expense[]): { category: Expens
   // Catalog order rather than insertion or magnitude order, so a category
   // doesn't jump around between periods.
   return EXPENSE_CATEGORIES.filter((c) => totals.has(c.key)).map((c) => ({ category: c.key, totalCents: totals.get(c.key)! }));
-}
-
-// For callers holding a wider set of rows than the window they're reporting on
-// (the budgets view compares a month against a screen-level range).
-export function filterExpensesToRange(expenses: Expense[], since: Date, until?: Date): Expense[] {
-  return expenses.filter((e) => isDateColumnInRange(e.occurredOn, since, until));
 }

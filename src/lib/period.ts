@@ -36,13 +36,6 @@ export function endOfDay(value: Date | string): Date {
   return date;
 }
 
-// Normalises any range to whole local days: start-of-first-day through
-// end-of-last-day. `until` is optional throughout the reporting libs (an
-// open-ended range means "up to now"), and stays undefined here so callers can
-// keep omitting the upper bound from their queries.
-export function normalizeRange(since: Date, until?: Date): { since: Date; until?: Date } {
-  return { since: startOfDay(since), until: until ? endOfDay(until) : undefined };
-}
 
 // `YYYY-MM-DD` in local time, for comparing against and writing to Postgres
 // `date` columns (expenses.occurred_on, invoices.issued_on, ...).
@@ -65,16 +58,6 @@ export function fromDateColumn(value: string): Date {
   return new Date(year, month - 1, day);
 }
 
-// The current calendar month, for figures that are always month-scoped
-// regardless of a screen's selected range (the dashboard's revenue goal,
-// budget-vs-actual). Mirrors the inline arithmetic in
-// `getMonthToDateRevenueCents`.
-export function currentMonthRange(now: Date = new Date()): { since: Date; until: Date } {
-  return {
-    since: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0),
-    until: endOfDay(now),
-  };
-}
 
 // Whether a `date`-column value falls inside a range, compared as whole local
 // days so a same-day expense is never excluded by a time component.

@@ -13,6 +13,7 @@ import {
   billDueState,
   budgetRows,
   CASH_ACCOUNT_TYPE_LABELS,
+  expectedChangeSinceCents,
   monthlyBillCommitmentCents,
   totalCashCents,
   type BudgetRow,
@@ -33,6 +34,10 @@ import {
 import { formatAccountingCents, toCents } from '@/lib/currency';
 import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { listPayrollRuns } from '@/lib/payroll';
+import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { listStaff } from '@/lib/staff';
+import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
@@ -59,10 +64,18 @@ export function CashBudgetsTab({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [editingBill, setEditingBill] = useState<RecurringBill | 'new' | null>(null);
   const [addingAccount, setAddingAccount] = useState(false);
+  // Expenses reaching back to the oldest confirmed balance, so each account's
+  // "expected change since" covers the whole window rather than only whatever
+  // range the screen happens to be showing.
+  const [expensesSinceBalances, setExpensesSinceBalances] = useState<Expense[]>([]);
+  const [accruedWagesCents, setAccruedWagesCents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const { since, until } = dateRange;
+  // Wages owed are money about to leave; showing cash without them reads
+  // more comfortable than it is.
+  const canSeeWagesOwed = can('people.payroll.manage') && can('expenses.manage');
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
@@ -81,13 +94,35 @@ export function CashBudgetsTab({
       setBills(billRows);
       setBudgets(budgetRowsData);
       setExpenses(expenseRows);
+
+      if (accountRows.length > 0) {
+        const oldest = accountRows.reduce(
+          (earliest, a) => (new Date(a.balanceAsOf) < earliest ? new Date(a.balanceAsOf) : earliest),
+          new Date(accountRows[0].balanceAsOf)
+        );
+        setExpensesSinceBalances(await listExpensesInRange(shop.id, oldest));
+      } else {
+        setExpensesSinceBalances([]);
+      }
+
+      if (canSeeWagesOwed) {
+        const rangeEnd = until ?? new Date();
+        const [members, entries, runs] = await Promise.all([
+          listStaff(shop.id),
+          listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }),
+          listPayrollRuns(shop.id),
+        ]);
+        setAccruedWagesCents(accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)).accruedCents);
+      } else {
+        setAccruedWagesCents(0);
+      }
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [shop, allowed, since, until]);
+  }, [shop, allowed, since, until, canSeeWagesOwed]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -115,6 +150,9 @@ export function CashBudgetsTab({
       <View style={styles.metricRow}>
         <StatTile value={formatAccountingCents(cashTotal)} label="Cash on hand" />
         <StatTile value={formatAccountingCents(monthlyCommitment)} label="Committed each month" />
+        {canSeeWagesOwed && accruedWagesCents > 0 && (
+          <StatTile value={formatAccountingCents(accruedWagesCents)} label="Wages owed" tone="warning" />
+        )}
       </View>
 
       {/* Worth saying out loud: this is the number that catches shops out.
@@ -123,6 +161,9 @@ export function CashBudgetsTab({
       <Text style={styles.caption}>
         Cash on hand is what you last counted, not a calculated figure — update it when you check. Profit and cash aren&apos;t
         the same thing: buying stock takes money out now but only becomes a cost when it sells.
+        {canSeeWagesOwed && accruedWagesCents > 0
+          ? ' Wages owed covers hours already worked that no pay run has settled — that money is still to go out.'
+          : ''}
       </Text>
 
       {loading ? (
@@ -144,6 +185,13 @@ export function CashBudgetsTab({
                 <CashAccountRow
                   key={account.id}
                   account={account}
+                  // Cash-method spending recorded since this balance was last
+                  // confirmed. Advisory: it never rewrites the counted figure.
+                  expectedChangeCents={
+                    account.accountType === 'cash'
+                      ? expectedChangeSinceCents(expensesSinceBalances, account.balanceAsOf)
+                      : 0
+                  }
                   onSaveBalance={async (balanceCents) => {
                     await updateCashAccount(account.id, { balanceCents });
                     await reload();
@@ -298,10 +346,12 @@ function CashBudgetsHeaderActions({
 // typing what's there is a two-tap job rather than a modal.
 function CashAccountRow({
   account,
+  expectedChangeCents,
   onSaveBalance,
   onDelete,
 }: {
   account: CashAccount;
+  expectedChangeCents: number;
   onSaveBalance: (balanceCents: number) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
@@ -320,6 +370,12 @@ function CashAccountRow({
         <Text style={styles.rowMeta}>
           {CASH_ACCOUNT_TYPE_LABELS[account.accountType]} · confirmed {new Date(account.balanceAsOf).toLocaleDateString()}
         </Text>
+        {expectedChangeCents !== 0 && (
+          <Text style={styles.rowHint}>
+            {formatAccountingCents(expectedChangeCents)} of cash spending recorded since — expect about{' '}
+            {formatAccountingCents(account.balanceCents + expectedChangeCents)}
+          </Text>
+        )}
       </View>
       <View style={styles.rowRight}>
         <TextInput value={draft} onChangeText={setDraft} onBlur={commit} keyboardType="decimal-pad" style={styles.balanceInput} />
@@ -420,6 +476,7 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, minWidth: 140 },
   rowTitle: { fontSize: 13, fontWeight: '700', color: '#111111' },
   rowMeta: { fontSize: 11, color: '#999999', marginTop: 2 },
+  rowHint: { fontSize: 11, color: '#B5793A', marginTop: 3, lineHeight: 15 },
   rowRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   rowAmount: { fontSize: 13, fontWeight: '800', color: '#111111' },
 

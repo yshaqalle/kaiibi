@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { Badge } from '@/components/badge';
 import { formatAccountingCents, toCents } from '@/lib/currency';
+import { draftTotalCents } from '@/lib/payroll-reporting';
 import type { PayrollRun, PayrollRunLine } from '@/types/models';
 
 // Review-and-commit screen for one pay run. Every line's amount stays editable
@@ -29,7 +30,7 @@ export function PayrollRunEditor({
 
   const posted = run.status === 'posted';
   const lines = run.lines ?? [];
-  const total = lines.reduce((sum, line) => sum + line.amountCents, 0);
+  const total = draftTotalCents(lines);
 
   const run_ = async (action: () => Promise<void>, fallback: string) => {
     setBusy(true);
