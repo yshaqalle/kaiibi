@@ -1,8 +1,10 @@
+import { PERMISSION_GROUPS } from '@/lib/permission-groups';
 import {
   ALL_PERMISSIONS,
   expandPermissions,
   firstAllowedRoute,
   permissionForPath,
+  PERMISSIONS,
   type Permission,
 } from '@/lib/permissions';
 
@@ -36,6 +38,11 @@ describe('expandPermissions', () => {
     expect(expandPermissions(['people.payroll.manage'])).toEqual(['people.payroll.manage', 'people.timesheet.view']);
   });
 
+  it('folds the accounting manage permissions into their read counterparts', () => {
+    expect(expandPermissions(['expenses.manage'])).toEqual(['expenses.view', 'expenses.manage']);
+    expect(expandPermissions(['invoices.manage'])).toEqual(['invoices.view', 'invoices.manage']);
+  });
+
   it('drops entries that are not in the catalog', () => {
     expect(expandPermissions(['pos.access', 'reports.export', ''])).toEqual(['pos.access']);
   });
@@ -53,12 +60,28 @@ describe('expandPermissions', () => {
   });
 });
 
+// The catalog is duplicated in three places that must agree: the `Permission`
+// union (compile-time), the PERMISSIONS descriptions (the role editor's
+// checkboxes), and PERMISSION_GROUPS (the Team tab's access grid). Only the
+// first is enforced by the compiler -- a new permission silently missing from
+// either list just disappears from a screen, with nothing failing.
+describe('catalog completeness', () => {
+  it('describes every permission in the catalog', () => {
+    expect(PERMISSIONS.map((p) => p.key).sort()).toEqual([...ALL_PERMISSIONS].sort());
+  });
+
+  it('assigns every permission to exactly one access-grid group', () => {
+    const grouped = PERMISSION_GROUPS.flatMap((group) => group.permissions);
+    expect([...grouped].sort()).toEqual([...ALL_PERMISSIONS].sort());
+  });
+});
+
 describe('permissionForPath', () => {
   it.each([
     ['/dashboard', ['dashboard.view']],
     ['/pos', ['pos.access']],
     ['/inventory', ['inventory.view']],
-    ['/sales', ['sales.view']],
+    ['/accounting', ['sales.view']],
     ['/settings', ['settings.access']],
   ] as const)('gates %s on %s', (path, permissions) => {
     expect(permissionForPath(path)).toEqual(permissions);
@@ -125,6 +148,11 @@ describe('the cashier scope this gate exists to enforce', () => {
     'people.timeoff.approve',
     'people.payroll.manage',
     'people.timesheet.view',
+    'expenses.view',
+    'expenses.manage',
+    'invoices.view',
+    'invoices.manage',
+    'budgets.manage',
   ];
 
   it.each(blocked)('does not grant %s', (permission) => {
@@ -132,7 +160,7 @@ describe('the cashier scope this gate exists to enforce', () => {
   });
 
   it('blocks every route a cashier should not reach', () => {
-    for (const path of ['/dashboard', '/sales', '/people', '/settings', '/product/new']) {
+    for (const path of ['/dashboard', '/accounting', '/people', '/settings', '/product/new']) {
       const required = permissionForPath(path);
       expect(required).not.toBeNull();
       expect((required as Permission[]).some((p) => cashier.includes(p))).toBe(false);

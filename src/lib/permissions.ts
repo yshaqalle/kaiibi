@@ -22,7 +22,12 @@ export type Permission =
   | 'staff.manage'
   | 'people.timeoff.approve'
   | 'people.payroll.manage'
-  | 'people.timesheet.view';
+  | 'people.timesheet.view'
+  | 'expenses.view'
+  | 'expenses.manage'
+  | 'invoices.view'
+  | 'invoices.manage'
+  | 'budgets.manage';
 
 export const PERMISSIONS: { key: Permission; label: string; description: string }[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },
@@ -39,6 +44,11 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'people.timeoff.approve', label: 'Approve time off', description: 'Approve or deny staff time-off requests.' },
   { key: 'people.payroll.manage', label: 'Manage payroll', description: 'Set hire date, pay type, and pay rate for staff.' },
   { key: 'people.timesheet.view', label: 'View team hours', description: "See the whole team's clock-in history and shift hours, not just your own." },
+  { key: 'expenses.view', label: 'View expenses', description: 'See logged expenses and what the shop is spending.' },
+  { key: 'expenses.manage', label: 'Manage expenses', description: 'Log, edit, or delete expenses and record recurring bills.' },
+  { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },
+  { key: 'invoices.manage', label: 'Manage bills', description: 'Record vendor bills and mark payments against them.' },
+  { key: 'budgets.manage', label: 'Manage budgets and cash', description: 'Set category budgets, recurring bills, and cash-on-hand balances.' },
 ];
 
 export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map((p) => p.key);
@@ -53,6 +63,8 @@ export const IMPLIED_PERMISSIONS: Partial<Record<Permission, Permission[]>> = {
   'sales.refund': ['sales.view'],
   'customers.edit': ['customers.view'],
   'people.payroll.manage': ['people.timesheet.view'],
+  'expenses.manage': ['expenses.view'],
+  'invoices.manage': ['invoices.view'],
 };
 
 // Turns a stored `roles.permissions` array into the effective set the client
@@ -84,7 +96,14 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[]
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/product', permission: 'inventory.edit' },
   { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] },
-  { prefix: '/sales', permission: 'sales.view' },
+  // Accounting is gated on sales.view: its Transactions tab *is* the sales
+  // history, and "can see what the shop takes" is the right bar for the
+  // screen as a whole. The expenses/invoices read policies separately accept
+  // sales.view too, so opening Accounting always shows coherent totals. A
+  // bookkeeper role that should see spend but not sales would need this to
+  // become the array form (which this list supports) rather than a wider
+  // single permission.
+  { prefix: '/accounting', permission: 'sales.view' },
   { prefix: '/settings', permission: 'settings.access' },
 ];
 
@@ -104,7 +123,7 @@ const LANDING_ROUTES = [
   { href: '/pos', permission: 'pos.access' },
   { href: '/inventory', permission: 'inventory.view' },
   { href: '/people', permission: 'customers.view' },
-  { href: '/sales', permission: 'sales.view' },
+  { href: '/accounting', permission: 'sales.view' },
 ] as const satisfies readonly { href: string; permission: Permission }[];
 
 export type LandingRoute = (typeof LANDING_ROUTES)[number]['href'];

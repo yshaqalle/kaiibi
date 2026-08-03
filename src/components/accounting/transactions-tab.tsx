@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
-import { DateInput, parseDateInput } from '@/components/date-input';
 import { ExportMenu } from '@/components/export-menu';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { QuantityStepper } from '@/components/quantity-stepper';
+import type { DateRange } from '@/components/range-selector';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
@@ -20,6 +20,11 @@ import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
+
+// The former Sales screen, now Accounting's Transactions tab. Behaviour is
+// unchanged except that the date range comes from the Accounting shell (shared
+// with Overview/Expenses/Reports) rather than this screen owning its own
+// preset chips -- so switching tabs keeps the same window.
 
 const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
 
@@ -35,7 +40,6 @@ const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Tax', value: (s) => (s.taxCents / 100).toFixed(2) },
   { header: 'Total', value: (s) => (s.totalCents / 100).toFixed(2) },
 ];
-const rangePresets = [7, 14, 30, 90] as const;
 type SaleSortField = 'date' | 'customer' | 'payment' | 'total';
 
 // Column widths as plain inline objects, not StyleSheet.create entries —
@@ -55,7 +59,17 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export default function SalesScreen() {
+export function formatRangeLabel(range: DateRange): string {
+  return `${range.since.toLocaleDateString()} – ${range.until ? range.until.toLocaleDateString() : 'today'}`;
+}
+
+export function TransactionsTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -69,13 +83,8 @@ export default function SalesScreen() {
   const canRefund = can('sales.refund');
   const [sales, setSales] = useState<Sale[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [daysBack, setDaysBack] = useState<number>(14);
   const [sortField, setSortField] = useState<SaleSortField>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [rangeMode, setRangeMode] = useState<'preset' | 'custom'>('preset');
-  const [customStartInput, setCustomStartInput] = useState('');
-  const [customEndInput, setCustomEndInput] = useState('');
-  const [appliedCustomRange, setAppliedCustomRange] = useState<{ start: string; end: string } | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -84,39 +93,7 @@ export default function SalesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
 
-  const sinceDate = useMemo(() => {
-    if (rangeMode === 'custom' && appliedCustomRange) {
-      return parseDateInput(appliedCustomRange.start) ?? new Date(0);
-    }
-    const d = new Date();
-    d.setDate(d.getDate() - daysBack);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, [rangeMode, daysBack, appliedCustomRange]);
-
-  const untilDate = useMemo(() => {
-    if (rangeMode !== 'custom' || !appliedCustomRange) return undefined;
-    const end = parseDateInput(appliedCustomRange.end);
-    if (!end) return undefined;
-    end.setHours(23, 59, 59, 999);
-    return end;
-  }, [rangeMode, appliedCustomRange]);
-
-  const customRangeValid = useMemo(() => {
-    const start = parseDateInput(customStartInput);
-    const end = parseDateInput(customEndInput);
-    return Boolean(start && end && start <= end);
-  }, [customStartInput, customEndInput]);
-
-  const applyCustomRange = () => {
-    if (!customRangeValid) return;
-    setAppliedCustomRange({ start: customStartInput, end: customEndInput });
-  };
-
-  const selectPreset = (days: number) => {
-    setRangeMode('preset');
-    setDaysBack(days);
-  };
+  const { since: sinceDate, until: untilDate } = dateRange;
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -168,7 +145,7 @@ export default function SalesScreen() {
   };
 
   const rangeTotalCents = filtered.reduce((sum, s) => sum + s.totalCents, 0);
-  const rangeLabel = rangeMode === 'custom' && appliedCustomRange ? `${appliedCustomRange.start} – ${appliedCustomRange.end}` : `Last ${daysBack} days`;
+  const rangeLabel = formatRangeLabel(dateRange);
 
   const handleDelete = async (saleId: string) => {
     setError(null);
@@ -193,97 +170,96 @@ export default function SalesScreen() {
       }
     : null;
 
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
+      {canEdit && (
+        <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
+          <Text style={styles.importButtonText}>Import</Text>
+        </Pressable>
+      )}
+    </>,
+    [filtered, rangeLabel, canEdit]
+  );
+
   return (
-    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.header}>
-          <Text style={styles.title}>Sales</Text>
-          <View style={styles.headerActions}>
-            <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
-            {canEdit && (
-              <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
-                <Text style={styles.importButtonText}>Import</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-        <View style={styles.metricRow}>
-          <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
-          <StatTile value={String(filtered.length)} label="Orders" />
-        </View>
+    <View>
+      <View style={styles.metricRow}>
+        <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
+        <StatTile value={String(filtered.length)} label="Orders" />
+      </View>
 
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by product, customer, or payment method"
-          placeholderTextColor="#999999"
-          style={styles.search}
-        />
+      <TextInput
+        value={search}
+        onChangeText={setSearch}
+        placeholder="Search by product, customer, or payment method"
+        placeholderTextColor="#999999"
+        style={styles.search}
+      />
 
-        <View style={styles.rangeRow}>
-          {rangePresets.map((days) => (
-            <Pressable key={days} onPress={() => selectPreset(days)} style={[styles.rangeChip, rangeMode === 'preset' && daysBack === days && styles.rangeChipActive]}>
-              <Text style={[styles.rangeChipText, rangeMode === 'preset' && daysBack === days && styles.rangeChipTextActive]}>{days}d</Text>
-            </Pressable>
+      {error && <Text style={styles.error}>{error}</Text>}
+
+      {loading ? (
+        <Text style={styles.empty}>Loading…</Text>
+      ) : filtered.length === 0 ? (
+        <Text style={styles.empty}>{search ? 'No sales match your search.' : 'No sales in this range.'}</Text>
+      ) : (
+        <View style={[styles.list, !compact && styles.listTable]}>
+          {!compact && <SalesTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />}
+          {filtered.map((sale) => (
+            <SaleRow
+              key={sale.id}
+              sale={sale}
+              products={products}
+              compact={compact}
+              canEdit={canEdit}
+              canRefund={canRefund}
+              expanded={expandedId === sale.id}
+              editing={editingId === sale.id}
+              confirmingDelete={confirmDeleteId === sale.id}
+              onToggle={() => setExpandedId((current) => (current === sale.id ? null : sale.id))}
+              onStartEdit={() => { setEditingId(sale.id); setExpandedId(sale.id); }}
+              onCancelEdit={() => setEditingId(null)}
+              onSaved={async () => { setEditingId(null); await reload(); }}
+              onRefunded={reload}
+              onConfirmDelete={() => setConfirmDeleteId(sale.id)}
+              onCancelDelete={() => setConfirmDeleteId(null)}
+              onDelete={() => handleDelete(sale.id)}
+            />
           ))}
-          <Pressable onPress={() => setRangeMode('custom')} style={[styles.rangeChip, rangeMode === 'custom' && styles.rangeChipActive]}>
-            <Text style={[styles.rangeChipText, rangeMode === 'custom' && styles.rangeChipTextActive]}>Custom range</Text>
-          </Pressable>
         </View>
-
-        {rangeMode === 'custom' && (
-          <View style={styles.customRangeRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>FROM</Text>
-              <DateInput value={customStartInput} onChangeText={setCustomStartInput} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>TO</Text>
-              <DateInput value={customEndInput} onChangeText={setCustomEndInput} />
-            </View>
-            <Pressable onPress={applyCustomRange} disabled={!customRangeValid} style={[styles.applyButton, !customRangeValid && styles.applyButtonDisabled]}>
-              <Text style={styles.applyButtonText}>Apply</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {error && <Text style={styles.error}>{error}</Text>}
-
-        {loading ? (
-          <Text style={styles.empty}>Loading…</Text>
-        ) : filtered.length === 0 ? (
-          <Text style={styles.empty}>{search ? 'No sales match your search.' : rangeMode === 'custom' ? 'No sales in this range.' : `No sales in the last ${daysBack} days.`}</Text>
-        ) : (
-          <View style={[styles.list, !compact && styles.listTable]}>
-            {!compact && <SalesTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />}
-            {filtered.map((sale) => (
-              <SaleRow
-                key={sale.id}
-                sale={sale}
-                products={products}
-                compact={compact}
-                canEdit={canEdit}
-                canRefund={canRefund}
-                expanded={expandedId === sale.id}
-                editing={editingId === sale.id}
-                confirmingDelete={confirmDeleteId === sale.id}
-                onToggle={() => setExpandedId((current) => (current === sale.id ? null : sale.id))}
-                onStartEdit={() => { setEditingId(sale.id); setExpandedId(sale.id); }}
-                onCancelEdit={() => setEditingId(null)}
-                onSaved={async () => { setEditingId(null); await reload(); }}
-                onRefunded={reload}
-                onConfirmDelete={() => setConfirmDeleteId(sale.id)}
-                onCancelDelete={() => setConfirmDeleteId(null)}
-                onDelete={() => handleDelete(sale.id)}
-              />
-            ))}
-          </View>
-        )}
-      </ScrollView>
+      )}
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
       )}
-    </SafeAreaView>
+    </View>
+  );
+}
+
+// Declared at module scope rather than inside SalesTableHeader: a component
+// defined during render is a fresh type on every pass, so React remounts it
+// (discarding any state) each time the parent re-renders.
+function HeaderCell({
+  field,
+  label,
+  style,
+  sortField,
+  sortDirection,
+  onSort,
+}: {
+  field: SaleSortField;
+  label: string;
+  style: object;
+  sortField: SaleSortField;
+  sortDirection: 'asc' | 'desc';
+  onSort: (field: SaleSortField) => void;
+}) {
+  return (
+    <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
+      <Text style={styles.headerLabel}>{label}</Text>
+      {sortField === field && <Text style={styles.sortArrow}>{sortDirection === 'asc' ? '▲' : '▼'}</Text>}
+    </Pressable>
   );
 }
 
@@ -296,22 +272,16 @@ function SalesTableHeader({
   sortDirection: 'asc' | 'desc';
   onSort: (field: SaleSortField) => void;
 }) {
-  const HeaderCell = ({ field, label, style }: { field: SaleSortField; label: string; style: object }) => (
-    <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
-      <Text style={styles.headerLabel}>{label}</Text>
-      {sortField === field && <Text style={styles.sortArrow}>{sortDirection === 'asc' ? '▲' : '▼'}</Text>}
-    </Pressable>
-  );
-
+  const sortProps = { sortField, sortDirection, onSort };
   return (
     <View style={styles.tableHeaderRow}>
       <View style={styles.dataCols}>
-        <HeaderCell field="date" label="DATE" style={colDate} />
+        <HeaderCell field="date" label="DATE" style={colDate} {...sortProps} />
         <Text style={[styles.headerLabel, colItems]}>ITEMS</Text>
-        <HeaderCell field="customer" label="CUSTOMER" style={colCustomer} />
-        <HeaderCell field="payment" label="PAYMENT" style={colPayment} />
+        <HeaderCell field="customer" label="CUSTOMER" style={colCustomer} {...sortProps} />
+        <HeaderCell field="payment" label="PAYMENT" style={colPayment} {...sortProps} />
         <Text style={[styles.headerLabel, colCashier]}>CASHIER</Text>
-        <HeaderCell field="total" label="TOTAL" style={colTotal} />
+        <HeaderCell field="total" label="TOTAL" style={colTotal} {...sortProps} />
       </View>
       <View style={styles.colExpand} />
     </View>
@@ -633,25 +603,10 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { padding: 24, paddingBottom: 60 },
-  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 20 },
-  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
-  rangeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
-  rangeChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 16, backgroundColor: '#F2F2F2' },
-  rangeChipActive: { backgroundColor: '#111111' },
-  rangeChipText: { fontSize: 12, fontWeight: '700', color: '#555555' },
-  rangeChipTextActive: { color: '#FFFFFF' },
-  customRangeRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-end', marginBottom: 18 },
-  fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
-  applyButton: { backgroundColor: '#111111', height: 42, paddingHorizontal: 18, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
-  applyButtonDisabled: { backgroundColor: '#CCCCCC' },
-  applyButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
   list: { gap: 10 },
   listTable: { gap: 0 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', overflow: 'hidden' },
@@ -709,8 +664,6 @@ const styles = StyleSheet.create({
   confirmDanger: { fontSize: 12, fontWeight: '800', color: '#C0392B' },
   confirmCancel: { fontSize: 12, fontWeight: '700', color: '#999999' },
 
-  editCustomerRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  editCustomerInput: { flex: 1, backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111' },
   editItemRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FAFAFA', borderRadius: 10, padding: 10, marginBottom: 6 },
   addSearchInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 12, color: '#111111', marginTop: 8 },
   matchList: { marginTop: 6, gap: 4 },

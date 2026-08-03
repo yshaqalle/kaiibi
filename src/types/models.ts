@@ -183,6 +183,12 @@ export type SaleItem = {
   // How much was knocked off this line (already reflected in
   // `lineTotalCents`) — kept separately so receipts/history can show it.
   discountCents: number;
+  // What the product cost the shop, frozen at sale time (same treatment as
+  // `unitPriceCents` and `Sale.taxCents`) so COGS and past profit figures
+  // don't move when a product's cost is later edited. Null for sales
+  // predating the snapshot column, or products with no cost recorded —
+  // reported as "uncosted" rather than counted as zero.
+  unitCostCents: number | null;
 };
 
 // One line of a (possibly split) checkout payment. `tenderedCents` is only
@@ -321,6 +327,188 @@ export type Brand = {
   color: string | null;
   description: string | null;
   imageUrl: string | null;
+  createdAt: string;
+};
+
+// Who the shop buys from and pays — suppliers, the landlord, an ad agency.
+// Managed in Settings → Store, and quick-addable inline while recording an
+// expense. Distinct from `Product.supplierName`, which is a free-text note on
+// a single product rather than a payee the shop has a relationship with.
+export type Vendor = {
+  id: string;
+  shopId: string;
+  name: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewVendorInput = Omit<Vendor, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
+export type ExpenseCategory =
+  | 'inventory_purchase'
+  | 'rent'
+  | 'utilities'
+  | 'salaries_wages'
+  | 'marketing'
+  | 'supplies'
+  | 'transport_delivery'
+  | 'maintenance_repairs'
+  | 'fees_charges'
+  | 'owner_draw'
+  | 'other';
+
+export type Expense = {
+  id: string;
+  shopId: string;
+  // When the money was actually spent, which is what decides the reporting
+  // period — distinct from `createdAt`, when the receipt got typed in.
+  occurredOn: string;
+  amountCents: number;
+  category: ExpenseCategory;
+  vendorId: string | null;
+  // Joined from `vendors` for display, not stored on the row.
+  vendorName: string | null;
+  paymentMethod: PaymentMethod;
+  note: string | null;
+  // Set when this row was generated rather than entered by hand — by a vendor
+  // bill, or by posting a pay run. Both are read-only at the database level
+  // (the bill or the run is the record of truth), so the UI must not offer an
+  // edit that RLS will refuse.
+  invoiceId: string | null;
+  payrollRunId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewExpenseInput = Omit<
+  Expense,
+  'id' | 'shopId' | 'vendorName' | 'createdBy' | 'createdAt' | 'updatedAt' | 'invoiceId' | 'payrollRunId'
+>;
+
+// A bill the shop owes a vendor — accounts payable, not customer invoicing.
+// Recording one posts a linked `Expense` (see the invoices migration), so the
+// cost hits the P&L when incurred; payments against it only settle the debt.
+export type Invoice = {
+  id: string;
+  shopId: string;
+  vendorId: string | null;
+  // Frozen at creation, like Sale's customer fields — the record of who a bill
+  // was owed to has to survive the vendor being renamed or removed.
+  vendorName: string | null;
+  vendorPhone: string | null;
+  // The supplier's own reference, as printed on their paperwork.
+  invoiceNumber: string;
+  category: ExpenseCategory;
+  description: string | null;
+  issuedOn: string;
+  dueOn: string;
+  amountCents: number;
+  paidCents: number;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  payments?: InvoicePayment[];
+};
+
+export type InvoicePayment = {
+  id: string;
+  invoiceId: string;
+  amountCents: number;
+  paidOn: string;
+  method: PaymentMethod;
+  note: string | null;
+  createdAt: string;
+};
+
+export type NewInvoiceInput = Omit<
+  Invoice,
+  'id' | 'shopId' | 'paidCents' | 'createdBy' | 'createdAt' | 'updatedAt' | 'payments' | 'vendorName' | 'vendorPhone'
+> & { vendorName: string | null; vendorPhone: string | null };
+
+// Where the shop's money physically sits. A manually-confirmed snapshot, not
+// a computed ledger — see the cash-and-budgets migration for why.
+export type CashAccount = {
+  id: string;
+  shopId: string;
+  name: string;
+  accountType: 'cash' | 'bank' | 'mobile_money' | 'other';
+  // May be negative: a bank account can be overdrawn.
+  balanceCents: number;
+  notes: string | null;
+  balanceAsOf: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewCashAccountInput = Omit<CashAccount, 'id' | 'shopId' | 'balanceAsOf' | 'createdAt' | 'updatedAt'>;
+
+// A cost that repeats on a schedule. A template only — nothing reaches the
+// P&L until it's logged, which posts a real Expense and advances the due date.
+export type RecurringBill = {
+  id: string;
+  shopId: string;
+  name: string;
+  category: ExpenseCategory;
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
+  amountCents: number;
+  paymentMethod: PaymentMethod;
+  nextDueDate: string;
+  vendorId: string | null;
+  active: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewRecurringBillInput = Omit<RecurringBill, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
+export type Budget = {
+  id: string;
+  shopId: string;
+  category: ExpenseCategory;
+  limitCents: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// A pay period being prepared or already paid. Posting a run writes one
+// `salaries_wages` expense, which is how wages reach the P&L.
+export type PayrollRun = {
+  id: string;
+  shopId: string;
+  periodStart: string;
+  periodEnd: string;
+  status: 'draft' | 'posted';
+  totalCents: number;
+  // The expense this run generated; null while still a draft.
+  expenseId: string | null;
+  postedAt: string | null;
+  postedBy: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lines?: PayrollRunLine[];
+};
+
+export type PayrollRunLine = {
+  id: string;
+  payrollRunId: string;
+  shopMemberId: string;
+  // Name, type and rate are frozen when the draft is built, so a later pay
+  // rise doesn't restate what a past run paid.
+  memberName: string | null;
+  payType: StaffMember['payType'];
+  payRateCents: number | null;
+  hoursWorked: number | null;
+  // Computed to begin with, then editable until the run is posted.
+  amountCents: number;
+  note: string | null;
   createdAt: string;
 };
 

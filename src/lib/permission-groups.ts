@@ -10,7 +10,21 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
     label: 'People',
     permissions: ['customers.view', 'customers.edit', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'],
   },
-  { label: 'Accounting', permissions: ['sales.view', 'sales.edit', 'sales.refund', 'dashboard.view', 'settings.access'] },
+  {
+    label: 'Accounting',
+    permissions: [
+      'sales.view',
+      'sales.edit',
+      'sales.refund',
+      'expenses.view',
+      'expenses.manage',
+      'invoices.view',
+      'invoices.manage',
+      'budgets.manage',
+      'dashboard.view',
+      'settings.access',
+    ],
+  },
 ];
 
 export function groupHasAny(permissions: readonly string[], group: { permissions: Permission[] }): boolean {

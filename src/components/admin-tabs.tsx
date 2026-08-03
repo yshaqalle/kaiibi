@@ -157,8 +157,8 @@ export default function AdminTabs() {
             <NativeTabs.Trigger.Label>People</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/customers.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="sales" hidden={!can('sales.view')}>
-            <NativeTabs.Trigger.Label>Sales</NativeTabs.Trigger.Label>
+          <NativeTabs.Trigger name="accounting" hidden={!can('sales.view')}>
+            <NativeTabs.Trigger.Label>Accounting</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />
           </NativeTabs.Trigger>
         </NativeTabs>
