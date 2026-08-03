@@ -171,14 +171,50 @@ export async function listCustomerPurchases(customerId: string): Promise<Custome
 // query per row -- see Task 11). One query over every sale in the shop,
 // reduced client-side into a per-customer map, same reduction shape as
 // getCustomerStats itself.
-export async function getCustomersStatsBatch(shopId: string): Promise<Map<string, { totalSpentCents: number; visitCount: number }>> {
-  const { data, error } = await supabase.from('sales').select('customer_id, total_cents').eq('shop_id', shopId).not('customer_id', 'is', null);
+export type CustomerStats = { totalSpentCents: number; visitCount: number; lastOrderAt: string | null };
+
+export async function getCustomersStatsBatch(shopId: string): Promise<Map<string, CustomerStats>> {
+  // created_at comes along for `lastOrderAt` -- the rows were already being
+  // read, so tracking the most recent one costs nothing extra and is what
+  // "haven't seen them in a while" needs.
+  const { data, error } = await supabase
+    .from('sales')
+    .select('customer_id, total_cents, created_at')
+    .eq('shop_id', shopId)
+    .not('customer_id', 'is', null);
   if (error) throw error;
-  const stats = new Map<string, { totalSpentCents: number; visitCount: number }>();
+  const stats = new Map<string, CustomerStats>();
   for (const row of data ?? []) {
     const id = row.customer_id as string;
-    const current = stats.get(id) ?? { totalSpentCents: 0, visitCount: 0 };
-    stats.set(id, { totalSpentCents: current.totalSpentCents + row.total_cents, visitCount: current.visitCount + 1 });
+    const current = stats.get(id) ?? { totalSpentCents: 0, visitCount: 0, lastOrderAt: null };
+    stats.set(id, {
+      totalSpentCents: current.totalSpentCents + row.total_cents,
+      visitCount: current.visitCount + 1,
+      lastOrderAt:
+        current.lastOrderAt === null || row.created_at > current.lastOrderAt ? (row.created_at as string) : current.lastOrderAt,
+    });
   }
   return stats;
+}
+
+// Repeat customers who've gone quiet -- the ones worth a message. Requires at
+// least two prior orders on purpose: a single first-time buyer who hasn't
+// returned is normal, not a lapsed regular.
+export function dormantCustomers(
+  customers: Customer[],
+  stats: Map<string, CustomerStats>,
+  opts?: { minOrders?: number; quietForDays?: number; now?: Date }
+): { customer: Customer; lastOrderAt: string }[] {
+  const minOrders = opts?.minOrders ?? 2;
+  const quietForDays = opts?.quietForDays ?? 30;
+  const cutoff = (opts?.now ?? new Date()).getTime() - quietForDays * 86_400_000;
+
+  return customers
+    .flatMap((customer) => {
+      const stat = stats.get(customer.id);
+      if (!stat || stat.visitCount < minOrders || !stat.lastOrderAt) return [];
+      if (new Date(stat.lastOrderAt).getTime() >= cutoff) return [];
+      return [{ customer, lastOrderAt: stat.lastOrderAt }];
+    })
+    .sort((a, b) => a.lastOrderAt.localeCompare(b.lastOrderAt));
 }

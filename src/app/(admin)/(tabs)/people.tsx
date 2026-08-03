@@ -28,6 +28,7 @@ import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport }
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
+import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
@@ -446,14 +447,10 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
     reload();
   }, [reload]);
 
-  const onLeaveMemberIds = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    const onLeave = new Set<string>();
-    for (const r of timeOff) {
-      if (r.status === 'approved' && r.startDate <= today && r.endDate >= today) onLeave.add(r.shopMemberId);
-    }
-    return onLeave;
-  }, [timeOff]);
+  // Shared with the Dashboard so the two surfaces can't disagree about who's
+  // off; also honours non-contiguous date ranges, which the previous inline
+  // version flattened to their outer bounds.
+  const onLeaveMemberIds = useMemo(() => onLeaveMembers(timeOff), [timeOff]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

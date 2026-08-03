@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
+import { CashBudgetsTab } from '@/components/accounting/cash-budgets-tab';
 import { ExpensesTab } from '@/components/accounting/expenses-tab';
 import { InvoicesTab } from '@/components/accounting/invoices-tab';
 import { OverviewTab } from '@/components/accounting/overview-tab';
@@ -19,7 +20,7 @@ import { RangeSelector, type DateRange, type RangePreset } from '@/components/ra
 // Tabs land incrementally (see the phased plan); only the ones that exist are
 // listed, so the bar never offers a destination that renders nothing.
 
-type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'payroll' | 'reports';
+type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
 
 const TAB_OPTIONS: { key: AccountingTab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
@@ -27,12 +28,15 @@ const TAB_OPTIONS: { key: AccountingTab; label: string }[] = [
   { key: 'invoices', label: 'Bills' },
   { key: 'expenses', label: 'Expenses' },
   { key: 'payroll', label: 'Payroll' },
+  { key: 'cash', label: 'Cash & Budgets' },
   { key: 'reports', label: 'Reports' },
 ];
 
-// Shared by Overview/Transactions/Expenses/Reports. Invoices and
-// Cash & Budgets get their own longer-window selectors when they land, since a
-// one-day window isn't a useful lens on an unpaid bill or a budget.
+// One range control for every tab. An earlier sketch gave Bills and
+// Cash & Budgets their own longer-window pickers, but stacking a second
+// selector under this one reads as a bug, so instead those tabs simply don't
+// let the range drive the parts of them it shouldn't: outstanding-bill totals
+// and cash balances are "right now" facts, and say so on screen.
 const SHARED_PRESETS: RangePreset[] = [
   { label: 'Today', days: 1 },
   { label: '7 days', days: 7 },
@@ -81,6 +85,7 @@ export default function AccountingScreen() {
             {tab === 'invoices' && <InvoicesTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
+            {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
           </>
         ) : null}

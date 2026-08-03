@@ -426,6 +426,52 @@ export type NewInvoiceInput = Omit<
   'id' | 'shopId' | 'paidCents' | 'createdBy' | 'createdAt' | 'updatedAt' | 'payments' | 'vendorName' | 'vendorPhone'
 > & { vendorName: string | null; vendorPhone: string | null };
 
+// Where the shop's money physically sits. A manually-confirmed snapshot, not
+// a computed ledger — see the cash-and-budgets migration for why.
+export type CashAccount = {
+  id: string;
+  shopId: string;
+  name: string;
+  accountType: 'cash' | 'bank' | 'mobile_money' | 'other';
+  // May be negative: a bank account can be overdrawn.
+  balanceCents: number;
+  notes: string | null;
+  balanceAsOf: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewCashAccountInput = Omit<CashAccount, 'id' | 'shopId' | 'balanceAsOf' | 'createdAt' | 'updatedAt'>;
+
+// A cost that repeats on a schedule. A template only — nothing reaches the
+// P&L until it's logged, which posts a real Expense and advances the due date.
+export type RecurringBill = {
+  id: string;
+  shopId: string;
+  name: string;
+  category: ExpenseCategory;
+  frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
+  amountCents: number;
+  paymentMethod: PaymentMethod;
+  nextDueDate: string;
+  vendorId: string | null;
+  active: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewRecurringBillInput = Omit<RecurringBill, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
+export type Budget = {
+  id: string;
+  shopId: string;
+  category: ExpenseCategory;
+  limitCents: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 // A pay period being prepared or already paid. Posting a run writes one
 // `salaries_wages` expense, which is how wages reach the P&L.
 export type PayrollRun = {
