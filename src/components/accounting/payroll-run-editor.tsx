@@ -33,6 +33,12 @@ export function PayrollRunEditor({
   const lines = run.lines ?? [];
   const total = draftTotalCents(lines);
 
+  // Mirrors post_payroll_run's guard exactly: a blocking warning only stops a
+  // post while the amount is still zero, so typing one in clears it here too.
+  const blockedNames = lines
+    .filter((line) => line.warningBlocking && line.amountCents === 0)
+    .map((line) => line.memberName ?? 'A staff member');
+
   const run_ = async (action: () => Promise<void>, fallback: string) => {
     setBusy(true);
     setError(null);
@@ -96,14 +102,20 @@ export function PayrollRunEditor({
               </>
             ) : (
               <>
-                <Text style={styles.note}>
-                  Posting adds {formatAccountingCents(total)} to expenses dated {run.periodEnd}. A period can only be posted
-                  once.
-                </Text>
+                {blockedNames.length > 0 ? (
+                  <Text style={styles.blockedNote}>
+                    Enter an amount for {blockedNames.join(', ')} before posting, or set a pay rate in People.
+                  </Text>
+                ) : (
+                  <Text style={styles.note}>
+                    Posting adds {formatAccountingCents(total)} to expenses dated {run.periodEnd}. A period can only be posted
+                    once.
+                  </Text>
+                )}
                 <Pressable
                   onPress={() => run_(onPost, 'Could not post this run.')}
-                  disabled={busy || total <= 0}
-                  style={[styles.primaryButton, (busy || total <= 0) && styles.buttonDisabled]}
+                  disabled={busy || total <= 0 || blockedNames.length > 0}
+                  style={[styles.primaryButton, (busy || total <= 0 || blockedNames.length > 0) && styles.buttonDisabled]}
                 >
                   <Text style={styles.primaryButtonText}>{busy ? 'Posting…' : 'Post pay run'}</Text>
                 </Pressable>
@@ -163,6 +175,9 @@ function PayrollLineRow({
       <View style={styles.lineMain}>
         <Text style={styles.lineName}>{line.memberName ?? 'Staff member'}</Text>
         <Text style={styles.lineBasis}>{basis}</Text>
+        {line.warning && (
+          <Text style={line.warningBlocking ? styles.lineWarningBlocking : styles.lineWarning}>{line.warning}</Text>
+        )}
       </View>
       {editable ? (
         <TextInput
@@ -200,6 +215,8 @@ const styles = StyleSheet.create({
   lineMain: { flex: 1, minWidth: 0 },
   lineName: { fontSize: 13, fontWeight: '700', color: '#111111' },
   lineBasis: { fontSize: 11, color: '#999999', marginTop: 2 },
+  lineWarning: { fontSize: 11, fontWeight: '600', color: '#B7791F', marginTop: 3 },
+  lineWarningBlocking: { fontSize: 11, fontWeight: '700', color: '#C0392B', marginTop: 3 },
   lineInput: { backgroundColor: '#F2F2F2', borderRadius: 8, height: 38, width: 100, paddingHorizontal: 10, color: '#111111', textAlign: 'right', fontWeight: '700' },
   lineAmount: { fontSize: 13, fontWeight: '800', color: '#111111' },
 
@@ -208,6 +225,7 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 20, fontWeight: '800', color: '#111111' },
 
   note: { fontSize: 11, color: '#999999', lineHeight: 16, marginTop: 16 },
+  blockedNote: { fontSize: 11, fontWeight: '700', color: '#C0392B', lineHeight: 16, marginTop: 16 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 12 },
   empty: { color: '#999999', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
 
