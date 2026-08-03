@@ -27,7 +27,10 @@ const navItems = [
     icon: '👥',
     isVisible: (ctx: NavVisibility) => ctx.hasActiveMembership || ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
   },
-  { href: '/accounting', label: 'Accounting', icon: '📈', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+  // 🧮 rather than 📈: a rising chart reads as analytics, which is what this
+  // tab meant when it was Sales. It now covers bills, expenses, payroll and
+  // the P&L — bookkeeping, matching the calculator used by the other two navs.
+  { href: '/accounting', label: 'Accounting', icon: '🧮', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
 ] as const satisfies readonly { href: string; label: string; icon: string; isVisible: (ctx: NavVisibility) => boolean }[];
 
 // Below `compactBreakpoint` the persistent sidebar would eat more than half

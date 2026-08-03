@@ -33,7 +33,7 @@ const navItems = [
     icon: require('@/assets/images/tabIcons/customers.png'),
     isVisible: (ctx: NavVisibility) => ctx.hasActiveMembership || ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
   },
-  { href: '/accounting', label: 'Accounting', icon: require('@/assets/images/tabIcons/chart.png'), isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+  { href: '/accounting', label: 'Accounting', icon: require('@/assets/images/tabIcons/accounting.png'), isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
 ] as const satisfies readonly { href: string; label: string; icon: unknown; isVisible: (ctx: NavVisibility) => boolean }[];
 
 type NavItem = (typeof navItems)[number];
