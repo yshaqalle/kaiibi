@@ -114,28 +114,87 @@ describe('computePayrollDraft', () => {
     expect(lines[0].warning).toMatch(/No pay rate/);
   });
 
-  it('leaves salaried staff unflagged over a whole month', () => {
+  // Was 310000: the old code divided by a nominal 30 days, so a 31-day month
+  // paid 31/30 of the monthly salary -- a 3.3% overpayment every long month.
+  it('pays a salaried member exactly their monthly rate for a whole month', () => {
     const lines = computePayrollDraft(
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
       '2026-08-31'
     );
-    expect(lines[0].amountCents).toBe(310000);
+    expect(lines[0].amountCents).toBe(300000);
+    expect(lines[0].warning).toBeNull();
+  });
+
+  it('pays the same monthly rate in a short month', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000 })],
+      [],
+      '2026-02-01',
+      '2026-02-28'
+    );
+    expect(lines[0].amountCents).toBe(300000);
+    expect(lines[0].warning).toBeNull();
+  });
+
+  it('pays the same monthly rate in a 30-day month', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000 })],
+      [],
+      '2026-04-01',
+      '2026-04-30'
+    );
+    expect(lines[0].amountCents).toBe(300000);
     expect(lines[0].warning).toBeNull();
   });
 
   // Proration over an arbitrary stretch is an approximation, so it asks for a
   // human check instead of presenting a guess as fact.
-  it('prorates a part-period salary and asks for it to be checked', () => {
+  it('prorates a part-period salary against the real year and asks for a check', () => {
     const lines = computePayrollDraft(
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
       '2026-08-07'
     );
-    expect(lines[0].amountCents).toBe(70000);
+    // 300000 x 12 / 365 x 7, rounded once at the end.
+    expect(lines[0].amountCents).toBe(69041);
     expect(lines[0].warning).toMatch(/Prorated for 7 days/);
+  });
+
+  // 'fixed' now means what its name says: the same amount every pay run,
+  // whatever the period length. Previously it prorated like salary, which
+  // made it salary under another name.
+  it('pays a fixed member the same amount regardless of period length', () => {
+    const short = computePayrollDraft(
+      [makeMember({ payType: 'fixed', payRateCents: 50000 })],
+      [],
+      '2026-08-01',
+      '2026-08-07'
+    );
+    const long = computePayrollDraft(
+      [makeMember({ payType: 'fixed', payRateCents: 50000 })],
+      [],
+      '2026-08-01',
+      '2026-08-31'
+    );
+    expect(short[0].amountCents).toBe(50000);
+    expect(long[0].amountCents).toBe(50000);
+    expect(short[0].warning).toBeNull();
+    expect(long[0].warning).toBeNull();
+  });
+
+  // The guard rail on this whole change: hourly pay must be untouched.
+  it('leaves hourly pay exactly as it was', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'hourly', payRateCents: 500 })],
+      [makeEntry('2026-08-03', 8)],
+      '2026-08-01',
+      '2026-08-07'
+    );
+    expect(lines[0].amountCents).toBe(4000);
+    expect(lines[0].hoursWorked).toBe(8);
   });
 
   it('leaves out inactive staff', () => {

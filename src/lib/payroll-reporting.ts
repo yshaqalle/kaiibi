@@ -1,3 +1,4 @@
+import { dailySalaryCents, isWholeCalendarMonth } from '@/lib/pay-rate';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import { sumDurationHours } from '@/lib/shift-hours';
 import type { PayrollRun, StaffMember, TimeEntry } from '@/types/models';
@@ -25,11 +26,6 @@ export function periodDayCount(periodStart: string, periodEnd: string): number {
   const end = fromDateColumn(periodEnd).getTime();
   return Math.max(1, Math.round((end - start) / MS_PER_DAY) + 1);
 }
-
-// Hourly pay is exact. Salary and fixed pay are prorated by day count against
-// a nominal month, which is an approximation -- flagged on the line so whoever
-// posts the run adjusts it rather than trusting it silently.
-const NOMINAL_MONTH_DAYS = 30;
 
 export function computePayrollDraft(
   members: StaffMember[],
@@ -72,13 +68,28 @@ export function computePayrollDraft(
         return { ...base, amountCents, warning };
       }
 
-      // salary | fixed
-      const amountCents = Math.round((member.payRateCents * days) / NOMINAL_MONTH_DAYS);
-      const wholeMonth = days >= 28 && days <= 31;
+      // Flat per pay run, whatever the period length -- that is what makes
+      // 'fixed' a different thing from 'salary' rather than a second name
+      // for it. A stipend or allowance is the case this serves.
+      if (member.payType === 'fixed') {
+        return { ...base, amountCents: member.payRateCents, warning: null };
+      }
+
+      // A monthly salary over exactly one calendar month is exact: no
+      // proration, no approximation, nothing for a human to check.
+      if (isWholeCalendarMonth(periodStart, periodEnd)) {
+        return { ...base, amountCents: member.payRateCents, warning: null };
+      }
+
+      // Anything else is a genuine part period. Spread across the real year
+      // rather than a nominal 30-day month, so month length can't distort it,
+      // and round once at the end.
+      const year = fromDateColumn(periodStart).getFullYear();
+      const amountCents = Math.round(dailySalaryCents(member.payRateCents, year) * days);
       return {
         ...base,
         amountCents,
-        warning: wholeMonth ? null : `Prorated for ${days} day${days === 1 ? '' : 's'} — check this figure.`,
+        warning: `Prorated for ${days} day${days === 1 ? '' : 's'} — check this figure.`,
       };
     });
 }
