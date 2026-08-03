@@ -196,6 +196,43 @@ begin
     raise notice 'OK: overlapping period rejected';
   end;
 
+  raise notice '--- a blocking warning with no amount is rejected ---';
+  declare v_block_id uuid;
+  begin
+    insert into public.payroll_runs (shop_id, period_start, period_end)
+      values (v_shop_id, '2026-09-01', '2026-09-07') returning id into v_block_id;
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents, warning, warning_blocking)
+      values (v_block_id, v_member_id, 'Verify Staff', 0, 'No pay rate set', true);
+    -- A second, healthy line so the run's total is positive. Without it the
+    -- run would also trip the "nothing to pay" guard, and the test couldn't
+    -- tell which guard actually fired.
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+      values (v_block_id, v_member_id, 'Verify Staff Two', 5000);
+
+    v_raised := false;
+    begin
+      perform public.post_payroll_run(v_block_id);
+    exception when others then
+      v_raised := true;
+    end;
+    if not v_raised then raise exception 'FAIL: a blocking zero-amount line was posted'; end if;
+    raise notice 'OK: blocking zero-amount line rejected';
+
+    raise notice '--- entering an amount clears the block, warning survives ---';
+    update public.payroll_run_lines set amount_cents = 3000
+      where payroll_run_id = v_block_id and warning_blocking;
+    perform public.post_payroll_run(v_block_id);
+
+    select status into v_status from public.payroll_runs where id = v_block_id;
+    if v_status <> 'posted' then raise exception 'FAIL: run status % after an amount was entered', v_status; end if;
+    -- The guard tests the amount, not the warning, so the warning must still be
+    -- on the row afterwards as audit history.
+    select count(*) into v_count from public.payroll_run_lines
+      where payroll_run_id = v_block_id and warning_blocking and warning is not null;
+    if v_count <> 1 then raise exception 'FAIL: the warning did not survive posting'; end if;
+    raise notice 'OK: amount unblocked the post and the warning survived';
+  end;
+
   raise notice '--- unposting removes the generated expense ---';
   perform public.unpost_payroll_run(v_run_id);
   select count(*) into v_count from public.expenses where payroll_run_id = v_run_id;
