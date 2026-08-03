@@ -15,13 +15,13 @@ import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/c
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
-import { getDailyTotalsCents, getMonthToDateRevenueCents } from '@/lib/sales';
+import { getDailyTotalsCents, getMonthToDateRevenueCents, listSales } from '@/lib/sales';
 import type { DailyBucket } from '@/lib/sales-reporting';
 import { membersActiveToday, onLeaveMemberIds, staleOpenShifts } from '@/lib/shift-hours';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, Product, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Product, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // The Dashboard answers one question: what needs attention right now. The
 // deeper analysis it used to carry -- rankings, category mix, payment split --
@@ -69,6 +69,7 @@ export default function DashboardScreen() {
   const [expiringSoon, setExpiringSoon] = useState<Product[]>([]);
   const [monthToDateCents, setMonthToDateCents] = useState(0);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
+  const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,14 +91,16 @@ export default function DashboardScreen() {
     };
 
     await attempt('sales', async () => {
-      const [dailyRows, low, expiring] = await Promise.all([
+      const [dailyRows, low, expiring, recent] = await Promise.all([
         getDailyTotalsCents(shop.id, since, until),
         getLowStockProducts(shop.id, shop.defaultLowStockLevel),
         shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
+        listSales(shop.id, 5),
       ]);
       setDaily(dailyRows);
       setLowStock(low);
       setExpiringSoon(expiring);
+      setRecentSales(recent);
     });
 
     if (canSeeExpenses) {
@@ -226,6 +229,24 @@ export default function DashboardScreen() {
           </>
         )}
 
+        {recentSales.length > 0 && (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent transactions</Text>
+            <Card style={styles.list}>
+              {recentSales.map((sale) => (
+                <View key={sale.id} style={[styles.recentRow, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.recentName, { color: theme.text }]} numberOfLines={1}>
+                    {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
+                  </Text>
+                  <Text style={[styles.recentMeta, { color: theme.textSecondary }]}>
+                    {formatAccountingCents(sale.totalCents)}
+                  </Text>
+                </View>
+              ))}
+            </Card>
+          </>
+        )}
+
         {expiringSoon.length > 0 && (
           <>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Expiring soon</Text>
@@ -323,6 +344,9 @@ const styles = StyleSheet.create({
   attentionMain: { flex: 1, minWidth: 0 },
   attentionTitle: { fontSize: 13, fontWeight: '700' },
   attentionDetail: { fontSize: 11.5, marginTop: 3, lineHeight: 16 },
+  recentRow: { padding: 13, borderBottomWidth: 1 },
+  recentName: { fontSize: 13, fontWeight: '700' },
+  recentMeta: { fontSize: 11, marginTop: 3 },
   empty: { fontSize: 13, marginBottom: 8 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

@@ -1,17 +1,6 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { endOfDay, startOfDay } from '@/lib/period';
-import {
-  bucketDailyTotals,
-  cashierPerformance,
-  costOfGoodsSold,
-  grossSalesCents,
-  netRevenueCents,
-  paymentMethodMix,
-  refundedCents,
-  taxCollectedCents,
-  type DailyBucket,
-  type PeriodRefund,
-} from '@/lib/sales-reporting';
+import { bucketDailyTotals, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
 import type { CartLine, PaymentLine, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
@@ -298,19 +287,7 @@ export async function getTopSellingProducts(shopId: string, sinceDate: Date, unt
   };
 }
 
-// Revenue per cashier over the range, for the ranking chart's "Cashiers"
-// view. Sales rung up without a cashier assigned are excluded from the
-// ranking rather than lumped into an "Unassigned" bar.
-export async function getCashierPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
-  return cashierPerformance(await listAllSalesInRange(shopId, sinceDate, untilDate));
-}
 
-// Amount and share of revenue per payment method over the range, for the
-// payment-mix chart. Multi-line (split) payments are summed by their own
-// method rather than attributed whole to the sale's top-level method.
-export async function getPaymentMethodMix(shopId: string, sinceDate: Date, untilDate?: Date) {
-  return paymentMethodMix(await listAllSalesInRange(shopId, sinceDate, untilDate));
-}
 
 // Daily revenue/order/discount buckets between sinceDate and untilDate
 // (defaults to now) — powers the dashboard's trend chart, which lets the
@@ -318,7 +295,7 @@ export async function getPaymentMethodMix(shopId: string, sinceDate: Date, until
 // Refunds that *happened* in the range, whatever period the original sale
 // belongs to -- so reversing them never restates a closed month. Carries each
 // line's frozen unit cost so COGS can be reversed alongside the revenue.
-export async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<PeriodRefund[]> {
+async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<PeriodRefund[]> {
   type RefundRow = {
     id: string;
     created_at: string;
@@ -377,22 +354,6 @@ export async function getDailyTotalsCents(shopId: string, sinceDate: Date, until
   return bucketDailyTotals(sales, refunds, sinceDate, untilDate);
 }
 
-// Everything the P&L needs from the sales side, in one pass over one fetch --
-// revenue, the tax liability, and COGS with its uncosted caveat.
-export async function getSalesPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const [sales, refunds] = await Promise.all([
-    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
-    listRefundsInRange(shopId, sinceDate, untilDate),
-  ]);
-  return {
-    grossSalesCents: grossSalesCents(sales),
-    taxCollectedCents: taxCollectedCents(sales),
-    refundedCents: refundedCents(refunds),
-    netRevenueCents: netRevenueCents(sales, refunds),
-    ...costOfGoodsSold(sales, refunds),
-    orderCount: sales.length,
-  };
-}
 
 type SaleItemProductRow = {
   quantity: number;

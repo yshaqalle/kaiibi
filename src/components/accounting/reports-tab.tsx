@@ -5,6 +5,7 @@ import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Card } from '@/components/card';
 import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
+import { CategoryOverTimeChart, type MonthlyCategoryBucket } from '@/components/category-over-time-chart';
 import type { DateRange } from '@/components/range-selector';
 import { RankingChart } from '@/components/ranking-chart';
 import { Colors } from '@/constants/theme';
@@ -17,7 +18,7 @@ import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
 import { sumDurationHours } from '@/lib/shift-hours';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
-import { getCategoryBreakdown, getSalesAndRefundsInRange } from '@/lib/sales';
+import { getCategoryBreakdown, getCategoryRevenueByMonth, getSalesAndRefundsInRange } from '@/lib/sales';
 import {
   cashierPerformance,
   costOfGoodsSold,
@@ -78,6 +79,7 @@ export function ReportsTab({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
   const [cashiers, setCashiers] = useState<{ name: string; revenueCents: number }[]>([]);
+  const [categoryByMonth, setCategoryByMonth] = useState<MonthlyCategoryBucket[]>([]);
   const [labor, setLabor] = useState<LaborPicture | null>(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -90,10 +92,11 @@ export function ReportsTab({
       // One sales fetch, several aggregates. Previously the P&L figures and
       // the cashier ranking each pulled the whole nested sales set for the
       // range -- the same heavy query, twice per screen load.
-      const [{ sales, refunds }, expenseRows, categoryRows] = await Promise.all([
+      const [{ sales, refunds }, expenseRows, categoryRows, categoryMonths] = await Promise.all([
         getSalesAndRefundsInRange(shop.id, since, until),
         listExpensesInRange(shop.id, since, until),
         getCategoryBreakdown(shop.id, since, until),
+        getCategoryRevenueByMonth(shop.id, since, until),
       ]);
       setPerformance({
         grossSalesCents: grossSalesCents(sales),
@@ -105,6 +108,7 @@ export function ReportsTab({
       setExpenses(expenseRows);
       setCategories(categoryRows);
       setCashiers(cashierPerformance(sales));
+      setCategoryByMonth(categoryMonths);
 
       if (canSeeLabor) {
         // Labour worked on days no posted pay run covers. Once a run is
@@ -370,6 +374,11 @@ export function ReportsTab({
       <Text style={styles.sectionTitle}>Sales by product category</Text>
       <Card style={styles.chartCard}>
         <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
+      </Card>
+
+      <Text style={styles.sectionTitle}>Revenue by category over time</Text>
+      <Card style={styles.chartCard}>
+        <CategoryOverTimeChart months={categoryByMonth} />
       </Card>
 
       <Text style={styles.sectionTitle}>Cashier performance</Text>
