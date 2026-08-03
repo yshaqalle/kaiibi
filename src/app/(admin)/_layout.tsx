@@ -6,7 +6,7 @@ import { signOut } from '@/lib/auth';
 import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile, permissions, can } = useAuth();
+  const { loading, session, profile, permissions, can, myMembership } = useAuth();
   const pathname = usePathname();
 
   if (loading) {
@@ -36,11 +36,21 @@ export default function AdminLayout() {
   // is what actually protects the data, since nothing stops a staff member
   // querying the API directly.
   const landing = firstAllowedRoute(permissions);
+  // People → Team includes self-service for any active staff member, even if
+  // their role grants no operational or management permissions.
+  const canReachMe = profile.role === 'admin' || Boolean(myMembership?.active);
+  const fallback = landing ?? (canReachMe ? '/people' : null);
+
+  const isMeRoute = pathname === '/me' || pathname.startsWith('/me/');
+  const isPeopleRoute = pathname === '/people' || pathname.startsWith('/people/');
   const required = permissionForPath(pathname);
-  if (required && !can(required)) {
-    return landing ? <Redirect href={landing} /> : <NoAccessScreen />;
+  const allowed = isMeRoute ? canReachMe : (isPeopleRoute && canReachMe) || !required || required.some(can);
+  if (!allowed) {
+    return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
-  if (!landing) return <NoAccessScreen />;
+  if (!isMeRoute && !landing && !required) {
+    return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
+  }
 
   // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
   // via AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
@@ -60,7 +70,6 @@ export default function AdminLayout() {
       <Stack.Screen name="product/new" />
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="settings" />
-      <Stack.Screen name="account" />
     </Stack>
   );
 }

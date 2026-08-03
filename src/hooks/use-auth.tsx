@@ -3,9 +3,9 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 
 import type { Permission } from '@/lib/permissions';
 import { getMyShop } from '@/lib/shops';
-import { getMyPermissions } from '@/lib/staff';
+import { getMyMembership, getMyPermissions } from '@/lib/staff';
 import { supabase } from '@/lib/supabase';
-import type { Profile, Shop } from '@/types/models';
+import type { Profile, Shop, StaffMember } from '@/types/models';
 
 type AuthState = {
   session: Session | null;
@@ -17,6 +17,15 @@ type AuthState = {
   // reading this directly.
   permissions: Permission[];
   can: (permission: Permission) => boolean;
+  // For routes/nav items valid under more than one permission (e.g. /people,
+  // which needs customers.view OR any People-manager permission).
+  canAny: (permissions: Permission[]) => boolean;
+  // This user's own shop_members row -- null for an admin (owns the shop
+  // instead of belonging to it) and while unresolved. Powers the
+  // self-service /me tab, which is reachable by active membership alone,
+  // not any Permission (see src/lib/permissions.ts's ROUTE_PERMISSIONS
+  // comment).
+  myMembership: StaffMember | null;
   loading: boolean;
   refreshShop: () => Promise<void>;
   // Settings' profile editor already gets the freshly-updated row back from
@@ -35,21 +44,29 @@ const noPermissions: Permission[] = [];
 // stays callable the moment a shop is created during signup, before React has
 // committed the session that triggered it (the same reason `getMyShop()` asks
 // Supabase for the user itself).
-async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permissions: Permission[] }> {
+async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permissions: Permission[]; myMembership: StaffMember | null }> {
   const [{ data: userData }, shop] = await Promise.all([supabase.auth.getUser(), getMyShop()]);
   const userId = userData.user?.id;
-  if (!shop || !userId) return { shop, permissions: noPermissions };
-  try {
-    return { shop, permissions: await getMyPermissions(shop, userId) };
-  } catch {
-    // Fail closed: an unresolved permission set must never read as "allow
-    // everything". Swallowed rather than rethrown so a failure here can't
-    // reject loadForSession() and strand the app on its loading spinner —
-    // the session still resolves, the user just lands on the "no access"
-    // screen and can retry. Only staff can reach this: an admin's
-    // permissions come from owning the shop, with no round trip to fail.
-    return { shop, permissions: noPermissions };
-  }
+  if (!shop || !userId) return { shop, permissions: noPermissions, myMembership: null };
+  // Fetched independently -- each with its own fail-closed fallback -- so a
+  // failure on one can't cost the other. Permissions failing closed to
+  // noPermissions is a security requirement (an unresolved permission set
+  // must never read as "allow everything"); myMembership failing to null is
+  // just "self-service /me falls back to unavailable", not a security
+  // boundary. Coupling them through one shared try/catch (as this used to)
+  // meant a merely-flaky membership read -- a plain RLS-gated table read,
+  // more failure-prone than the permissions RPC -- could drop an otherwise
+  // fully-permissioned staff member all the way to the "no access" screen.
+  // Neither promise is allowed to reject past this function, so
+  // loadForSession() above is never at risk of being stranded on its
+  // loading spinner by either one.
+  const [permissionsResult, membershipResult] = await Promise.allSettled([
+    getMyPermissions(shop, userId),
+    getMyMembership(shop.id, userId),
+  ]);
+  const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : noPermissions;
+  const myMembership = membershipResult.status === 'fulfilled' ? membershipResult.value : null;
+  return { shop, permissions, myMembership };
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -59,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [shop, setShop] = useState<Shop | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>(noPermissions);
+  const [myMembership, setMyMembership] = useState<StaffMember | null>(null);
   const [loading, setLoading] = useState(true);
   // Two independent counters guard against out-of-order async writes, one per
   // logically distinct concern:
@@ -108,6 +126,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         setShop(null);
         setPermissions(noPermissions);
+        setMyMembership(null);
         setLoading(false);
         return;
       }
@@ -135,6 +154,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (shopSeq.current === myShopId) {
         setShop(resolved.shop);
         setPermissions(resolved.permissions);
+        setMyMembership(resolved.myMembership);
       }
       setLoading(false);
     };
@@ -156,12 +176,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (shopSeq.current !== myShopId) return;
     setShop(resolved.shop);
     setPermissions(resolved.permissions);
+    setMyMembership(resolved.myMembership);
   };
 
   const can = (permission: Permission) => permissions.includes(permission);
+  const canAny = (perms: Permission[]) => perms.some((p) => permissions.includes(p));
 
   return (
-    <AuthContext.Provider value={{ session, profile, shop, permissions, can, loading, refreshShop, setProfile }}>
+    <AuthContext.Provider value={{ session, profile, shop, permissions, can, canAny, myMembership, loading, refreshShop, setProfile }}>
       {children}
     </AuthContext.Provider>
   );

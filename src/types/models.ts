@@ -120,11 +120,27 @@ export type Customer = {
   city: string | null;
   neighborhood: string | null;
   tags: string[];
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
 export type NewCustomerInput = Omit<Customer, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
+// One line item from a past sale attached to this customer -- powers the
+// Customer detail pane's itemized purchase history (src/lib/customers.ts's
+// listCustomerPurchases). Distinct from getCustomerStats, which is only
+// the 3 aggregate numbers (total/visits/last purchase).
+export type CustomerPurchase = {
+  saleId: string;
+  saleItemId: string;
+  productName: string;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  paymentMethod: string;
+  createdAt: string;
+};
 
 // `value` is a percentage (0-100) for 'percentage', or a cents amount for
 // 'fixed'. Used both for a manual per-line discount the cashier types into
@@ -341,4 +357,30 @@ export type StaffMember = {
   fullName: string | null;
   email: string | null;
   createdAt: string;
+  hireDate: string | null;
+  payType: 'hourly' | 'salary' | 'fixed' | null;
+  payRateCents: number | null;
+};
+
+export type TimeEntry = {
+  id: string;
+  shopId: string;
+  shopMemberId: string;
+  clockIn: string;
+  clockOut: string | null;
+  createdAt: string;
+};
+
+export type TimeOffRequest = {
+  id: string;
+  shopId: string;
+  shopMemberId: string;
+  startDate: string; // Earliest date in dateRanges (for compatibility)
+  endDate: string; // Latest date in dateRanges (for compatibility)
+  dateRanges: {startDate: string; endDate: string}[]; // Multiple non-contiguous ranges
+  reason: string | null;
+  status: 'pending' | 'approved' | 'denied';
+  requestedAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
 };

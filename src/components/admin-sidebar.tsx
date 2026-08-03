@@ -19,13 +19,22 @@ import { updateShop, uploadShopLogo } from '@/lib/shops';
 // `permission` is what the route's own guard in (admin)/_layout.tsx checks —
 // filtering here keeps the nav from offering a destination that would just
 // bounce back.
+// People is also the entry point to self-service Team for every active staff
+// member, even when their role has no management permissions.
+type NavVisibility = { can: (p: Permission) => boolean; canAny: (p: Permission[]) => boolean; hasActiveMembership: boolean };
+
 const navItems = [
-  { href: '/dashboard', label: 'Dashboard', permission: 'dashboard.view', icon: require('@/assets/images/tabIcons/home.png') },
-  { href: '/pos', label: 'POS', permission: 'pos.access', icon: require('@/assets/images/tabIcons/cart.png') },
-  { href: '/inventory', label: 'Inventory', permission: 'inventory.view', icon: require('@/assets/images/tabIcons/grid.png') },
-  { href: '/customers', label: 'Customers', permission: 'customers.view', icon: require('@/assets/images/tabIcons/customers.png') },
-  { href: '/sales', label: 'Sales', permission: 'sales.view', icon: require('@/assets/images/tabIcons/chart.png') },
-] as const satisfies readonly { href: string; label: string; permission: Permission; icon: unknown }[];
+  { href: '/dashboard', label: 'Dashboard', icon: require('@/assets/images/tabIcons/home.png'), isVisible: (ctx: NavVisibility) => ctx.can('dashboard.view') },
+  { href: '/pos', label: 'POS', icon: require('@/assets/images/tabIcons/cart.png'), isVisible: (ctx: NavVisibility) => ctx.can('pos.access') },
+  { href: '/inventory', label: 'Inventory', icon: require('@/assets/images/tabIcons/grid.png'), isVisible: (ctx: NavVisibility) => ctx.can('inventory.view') },
+  {
+    href: '/people',
+    label: 'People',
+    icon: require('@/assets/images/tabIcons/customers.png'),
+    isVisible: (ctx: NavVisibility) => ctx.hasActiveMembership || ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
+  },
+  { href: '/sales', label: 'Sales', icon: require('@/assets/images/tabIcons/chart.png'), isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+] as const satisfies readonly { href: string; label: string; icon: unknown; isVisible: (ctx: NavVisibility) => boolean }[];
 
 type NavItem = (typeof navItems)[number];
 
@@ -52,12 +61,12 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const visibleNavItems = navItems.filter((item) => can(item.permission));
+  const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
 
   // Lets the shop logo be changed straight from the sidebar avatar, not
   // just from Settings — a quick "click your logo to change it" affordance.

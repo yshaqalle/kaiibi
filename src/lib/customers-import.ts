@@ -78,6 +78,7 @@ export async function runCustomersImport(shopId: string, parsed: ParsedCsv): Pro
       city: raw['City']?.trim() || null,
       neighborhood: raw['Neighborhood']?.trim() || null,
       tags: (raw['Tags'] ?? '').split(/[;,]/).map((t) => t.trim()).filter(Boolean),
+      notes: null,
     });
   });
 

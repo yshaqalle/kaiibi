@@ -12,7 +12,7 @@ import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
 import { SecurityPanel } from '@/components/settings/panels/security-panel';
-import { StaffPanel } from '@/components/settings/panels/staff-panel';
+import { RolesPanel } from '@/components/settings/panels/roles-panel';
 import { StorePanel } from '@/components/settings/panels/store-panel';
 import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -24,9 +24,9 @@ import { nextTaxonomyColor } from '@/lib/colors';
 import { listCurrencies } from '@/lib/currencies';
 import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
-import { countStaffByRole, listRoles, listStaff } from '@/lib/staff';
+import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
-import type { Brand, Category, Currency, Product, Promotion, Role, StaffMember } from '@/types/models';
+import type { Brand, Category, Currency, Product, Promotion, Role } from '@/types/models';
 
 export default function SettingsScreen() {
   const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
@@ -45,7 +45,6 @@ export default function SettingsScreen() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [roleUsage, setRoleUsage] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,11 +92,10 @@ export default function SettingsScreen() {
     // the "Staff and roles" panel — RLS would reject these for a cashier
     // account, and that shouldn't surface as a generic Settings load error.
     if (can('staff.manage')) {
-      const [rolesResult, staffResult, roleUsageResult] = await Promise.allSettled([listRoles(shop.id), listStaff(shop.id), countStaffByRole(shop.id)]);
+      const [rolesResult, roleUsageResult] = await Promise.allSettled([listRoles(shop.id), countStaffByRole(shop.id)]);
       if (rolesResult.status === 'fulfilled') setRoles(rolesResult.value);
-      if (staffResult.status === 'fulfilled') setStaff(staffResult.value);
       if (roleUsageResult.status === 'fulfilled') setRoleUsage(roleUsageResult.value);
-      results.push(rolesResult, staffResult, roleUsageResult);
+      results.push(rolesResult, roleUsageResult);
     }
 
     const firstRejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
@@ -272,11 +270,11 @@ export default function SettingsScreen() {
         return <InventoryAlertsPanel shop={shop} onSaved={refreshShop} />;
       case 'payments':
         return <PaymentsPanel shop={shop} onSaved={refreshShop} />;
-      case 'staff':
+      case 'roles':
         return loading ? (
           <Text style={styles.hint}>Loading…</Text>
         ) : (
-          <StaffPanel shopId={shop.id} roles={roles} staff={staff} roleUsage={roleUsage} onChange={reload} />
+          <RolesPanel shopId={shop.id} roles={roles} usage={roleUsage} onChange={reload} />
         );
     }
   })();

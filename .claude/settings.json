@@ -1,4 +1,11 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(supabase db *)",
+      "Bash(cat \"/Users/yusefs/.claude/plugins/cache/superpowers-marketplace/superpowers/6.1.1/skills/subagent-driven-development/implementer-prompt.md\")",
+      "Read(//Users/yusefs/.claude/plugins/cache/superpowers-marketplace/superpowers/6.1.1/skills/subagent-driven-development/**)"
+    ]
+  },
   "enabledPlugins": {
     "expo@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
@@ -10,10 +17,5 @@
     "supabase@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true
-  },
-  "permissions": {
-    "allow": [
-      "Bash(supabase db *)"
-    ]
   }
 }

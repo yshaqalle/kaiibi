@@ -64,26 +64,69 @@ function mapStaffRow(row: any): StaffMember {
     shopId: row.shop_id,
     userId: row.user_id,
     roleId: row.role_id,
-    roleName: row.role?.name ?? '',
+    // Two row shapes reach here: the `list_shop_staff` RPC returns a flat
+    // `role_name` column, while the direct table selects (getMyMembership)
+    // embed it as `role: { name }` via PostgREST.
+    roleName: row.role?.name ?? row.role_name ?? '',
     active: row.active,
     fullName: row.full_name,
     email: row.email,
     createdAt: row.created_at,
+    hireDate: row.hire_date,
+    payType: row.pay_type,
+    payRateCents: row.pay_rate_cents,
   };
 }
 
 export async function listStaff(shopId: string): Promise<StaffMember[]> {
-  // `profiles` isn't embeddable here -- shop_members and profiles both
-  // reference auth.users but have no direct FK to each other, so
-  // PostgREST can't join them. full_name/email are denormalized onto
-  // shop_members at provision time instead (see migrations 0019, 0021).
+  // An RPC rather than a table select because RLS is row-level, not
+  // column-level: reading `shop_members` directly hands pay_type/pay_rate_cents
+  // to every role that can see the roster at all. `list_shop_staff` blanks
+  // those two columns unless the caller holds people.payroll.manage, so the
+  // pay gate is enforced in the database instead of only in the UI that
+  // renders it. See migration 20260803010000.
+  //
+  // (`profiles` still isn't embeddable -- shop_members and profiles both
+  // reference auth.users with no direct FK between them -- so full_name/email
+  // remain denormalized onto shop_members at provision time, migrations
+  // 0019/0021.)
+  const { data, error } = await supabase.rpc('list_shop_staff', { p_shop_id: shopId });
+  if (error) throw error;
+  return ((data as any[] | null) ?? []).map(mapStaffRow);
+}
+
+// A staff member's own roster row -- the "am I on the team, and what's my
+// role/pay/hire-date" lookup useAuth() has no equivalent of today (see
+// migration 0017's "staff reads own membership" policy, previously unused
+// client-side). Returns null for an admin (no shop_members row -- see
+// getMyPermissions) and for anyone with no membership in this shop.
+export async function getMyMembership(shopId: string, userId: string): Promise<StaffMember | null> {
   const { data, error } = await supabase
     .from('shop_members')
     .select('*, role:roles(name)')
     .eq('shop_id', shopId)
-    .order('created_at', { ascending: true });
+    .eq('user_id', userId)
+    .maybeSingle();
   if (error) throw error;
-  return (data ?? []).map(mapStaffRow);
+  return data ? mapStaffRow(data) : null;
+}
+
+// Sets hire date / pay type / pay rate on a roster row -- gated at the DB
+// by "write shop_members roster" (staff.manage OR people.payroll.manage,
+// migration 20260802030200_hr_schema.sql).
+export async function updateStaffPay(
+  memberId: string,
+  patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null }
+): Promise<void> {
+  const { error } = await supabase
+    .from('shop_members')
+    .update({
+      ...(patch.hireDate !== undefined && { hire_date: patch.hireDate }),
+      ...(patch.payType !== undefined && { pay_type: patch.payType }),
+      ...(patch.payRateCents !== undefined && { pay_rate_cents: patch.payRateCents }),
+    })
+    .eq('id', memberId);
+  if (error) throw error;
 }
 
 export async function updateStaffRole(memberId: string, roleId: string): Promise<void> {
@@ -96,10 +139,20 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
   if (error) throw error;
 }
 
+export async function updateStaffMember(input: {
+  shopId: string; memberId: string; fullName: string; email: string; roleId: string; active: boolean;
+  hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null;
+}): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<{ error?: string; message?: string }>('update-staff', { body: input });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.message ?? 'Could not update this staff member.');
+}
+
 export type ProvisionStaffResult = {
   userId: string;
   email: string;
   temporaryPassword: string | null;
+  member: { id: string; shopId: string; userId: string; roleId: string; active: boolean };
 };
 
 export type ProvisionStaffError = { error: 'forbidden' | 'invalid_role' | 'duplicate_email' | 'unknown'; message: string };

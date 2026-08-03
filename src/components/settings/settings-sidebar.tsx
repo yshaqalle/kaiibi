@@ -9,7 +9,7 @@ export type SettingsNavId =
   | 'security'
   | 'notifications'
   | 'store'
-  | 'staff'
+  | 'roles'
   | 'receipt'
   | 'catalog'
   | 'inventory'
@@ -39,7 +39,7 @@ export const SETTINGS_NAV: NavGroup[] = [
     group: 'Store',
     items: [
       { id: 'store', label: 'Store', icon: 'storefront-outline' },
-      { id: 'staff', label: 'Staff and roles', icon: 'people-outline', permission: 'staff.manage' },
+      { id: 'roles', label: 'Roles', icon: 'shield-checkmark-outline', permission: 'staff.manage' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },
     ],
   },

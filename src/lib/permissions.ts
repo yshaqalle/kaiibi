@@ -19,7 +19,10 @@ export type Permission =
   | 'customers.edit'
   | 'dashboard.view'
   | 'settings.access'
-  | 'staff.manage';
+  | 'staff.manage'
+  | 'people.timeoff.approve'
+  | 'people.payroll.manage'
+  | 'people.timesheet.view';
 
 export const PERMISSIONS: { key: Permission; label: string; description: string }[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },
@@ -32,7 +35,10 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'customers.edit', label: 'Edit customers', description: 'Add, edit, or delete customer records.' },
   { key: 'dashboard.view', label: 'View dashboard', description: 'See revenue, trends, and other shop analytics.' },
   { key: 'settings.access', label: 'Access settings', description: 'View and change shop settings, tax, and catalog.' },
-  { key: 'staff.manage', label: 'Manage staff', description: 'Create roles and add or remove staff accounts.' },
+  { key: 'staff.manage', label: 'Manage team roster', description: 'Create roles and add or remove staff accounts.' },
+  { key: 'people.timeoff.approve', label: 'Approve time off', description: 'Approve or deny staff time-off requests.' },
+  { key: 'people.payroll.manage', label: 'Manage payroll', description: 'Set hire date, pay type, and pay rate for staff.' },
+  { key: 'people.timesheet.view', label: 'View team hours', description: "See the whole team's clock-in history and shift hours, not just your own." },
 ];
 
 export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map((p) => p.key);
@@ -46,6 +52,7 @@ export const IMPLIED_PERMISSIONS: Partial<Record<Permission, Permission[]>> = {
   'sales.edit': ['sales.view'],
   'sales.refund': ['sales.view'],
   'customers.edit': ['customers.view'],
+  'people.payroll.manage': ['people.timesheet.view'],
 };
 
 // Turns a stored `roles.permissions` array into the effective set the client
@@ -63,26 +70,30 @@ export function expandPermissions(stored: readonly string[]): Permission[] {
   return ALL_PERMISSIONS.filter((p) => known.has(p));
 }
 
-// Every route inside the `(admin)` group and the permission it needs. Keys
-// are matched longest-first as path prefixes, so `/product/new` resolves via
-// `/product`. Anything not listed here is unrestricted for a signed-in
-// member (e.g. `/marketplace-coming-soon`).
-const ROUTE_PERMISSIONS: { prefix: string; permission: Permission }[] = [
+// Every route inside the `(admin)` group and the permission(s) it needs.
+// Keys are matched longest-first as path prefixes, so `/product/new`
+// resolves via `/product`. An array means "any of these" -- /people is
+// valid with customers.view (Customers sub-tab) OR any of the People-
+// manager permissions (Team sub-tab). Anything not listed here is
+// unrestricted for a signed-in member (e.g. `/marketplace-coming-soon`,
+// and deliberately `/me` -- self-service HR is gated on active membership,
+// not a Permission; see (admin)/_layout.tsx).
+const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[] }[] = [
   { prefix: '/dashboard', permission: 'dashboard.view' },
   { prefix: '/pos', permission: 'pos.access' },
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/product', permission: 'inventory.edit' },
-  { prefix: '/customers', permission: 'customers.view' },
+  { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] },
   { prefix: '/sales', permission: 'sales.view' },
   { prefix: '/settings', permission: 'settings.access' },
-  { prefix: '/account', permission: 'staff.manage' },
 ];
 
-export function permissionForPath(pathname: string): Permission | null {
+export function permissionForPath(pathname: string): Permission[] | null {
   const match = [...ROUTE_PERMISSIONS]
     .sort((a, b) => b.prefix.length - a.prefix.length)
     .find((entry) => pathname === entry.prefix || pathname.startsWith(`${entry.prefix}/`));
-  return match?.permission ?? null;
+  if (!match) return null;
+  return Array.isArray(match.permission) ? match.permission : [match.permission];
 }
 
 // Where to send someone who has no business on the route they asked for --
@@ -92,7 +103,7 @@ const LANDING_ROUTES = [
   { href: '/dashboard', permission: 'dashboard.view' },
   { href: '/pos', permission: 'pos.access' },
   { href: '/inventory', permission: 'inventory.view' },
-  { href: '/customers', permission: 'customers.view' },
+  { href: '/people', permission: 'customers.view' },
   { href: '/sales', permission: 'sales.view' },
 ] as const satisfies readonly { href: string; permission: Permission }[];
 
