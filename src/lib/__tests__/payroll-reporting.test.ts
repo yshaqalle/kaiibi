@@ -206,6 +206,48 @@ describe('computePayrollDraft', () => {
     const lines = computePayrollDraft([makeMember({ fullName: 'Amran Mohamed', payRateCents: 750 })], [], '2026-08-01', '2026-08-07');
     expect(lines[0]).toMatchObject({ memberName: 'Amran Mohamed', payType: 'hourly', payRateCents: 750 });
   });
+
+  // A missing pay rate produces a zero amount -- a real person paid nothing.
+  // That is a different kind of problem from an approximate figure, and is the
+  // only warning allowed to block a post.
+  it('marks a missing pay rate as blocking', () => {
+    const lines = computePayrollDraft([makeMember({ payRateCents: null, payType: null })], [], '2026-08-01', '2026-08-07');
+    expect(lines[0].warning).toMatch(/No pay rate/);
+    expect(lines[0].warningBlocking).toBe(true);
+  });
+
+  it('leaves an open-shift warning advisory', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'hourly', payRateCents: 500 })],
+      [{ ...makeEntry('2026-08-03', 0), clockOut: null }],
+      '2026-08-01',
+      '2026-08-07'
+    );
+    expect(lines[0].warning).toMatch(/still clocked in/);
+    expect(lines[0].warningBlocking).toBe(false);
+  });
+
+  it('leaves a proration warning advisory', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000 })],
+      [],
+      '2026-08-01',
+      '2026-08-07'
+    );
+    expect(lines[0].warning).toMatch(/Prorated/);
+    expect(lines[0].warningBlocking).toBe(false);
+  });
+
+  it('is not blocking when there is nothing to warn about', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000 })],
+      [],
+      '2026-08-01',
+      '2026-08-31'
+    );
+    expect(lines[0].warning).toBeNull();
+    expect(lines[0].warningBlocking).toBe(false);
+  });
 });
 
 describe('draftTotalCents', () => {

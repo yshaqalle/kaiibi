@@ -16,6 +16,10 @@ export type PayrollDraftLine = {
   // Set when the figure needs a human decision rather than being wrong --
   // surfaced in the editor so it's corrected before posting, not after.
   warning: string | null;
+  // Only a warning that means the money is *wrong* -- currently just a missing
+  // pay rate, which pays zero -- blocks a post. An approximate figure is
+  // displayed and left to the owner's judgement.
+  warningBlocking: boolean;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -45,7 +49,7 @@ export function computePayrollDraft(
       const hoursWorked = Number(sumDurationHours(memberEntries).toFixed(2));
       const openShiftCount = memberEntries.filter((e) => !e.clockOut).length;
 
-      const base: Omit<PayrollDraftLine, 'amountCents' | 'warning'> = {
+      const base: Omit<PayrollDraftLine, 'amountCents' | 'warning' | 'warningBlocking'> = {
         shopMemberId: member.id,
         memberName: member.fullName,
         payType: member.payType,
@@ -54,7 +58,12 @@ export function computePayrollDraft(
       };
 
       if (member.payRateCents === null || member.payType === null) {
-        return { ...base, amountCents: 0, warning: 'No pay rate set — add one in People, or enter the amount here.' };
+        return {
+          ...base,
+          amountCents: 0,
+          warning: 'No pay rate set — add one in People, or enter the amount here.',
+          warningBlocking: true,
+        };
       }
 
       if (member.payType === 'hourly') {
@@ -65,20 +74,20 @@ export function computePayrollDraft(
         } else if (hoursWorked === 0) {
           warning = 'No hours clocked in this period.';
         }
-        return { ...base, amountCents, warning };
+        return { ...base, amountCents, warning, warningBlocking: false };
       }
 
       // Flat per pay run, whatever the period length -- that is what makes
       // 'fixed' a different thing from 'salary' rather than a second name
       // for it. A stipend or allowance is the case this serves.
       if (member.payType === 'fixed') {
-        return { ...base, amountCents: member.payRateCents, warning: null };
+        return { ...base, amountCents: member.payRateCents, warning: null, warningBlocking: false };
       }
 
       // A monthly salary over exactly one calendar month is exact: no
       // proration, no approximation, nothing for a human to check.
       if (isWholeCalendarMonth(periodStart, periodEnd)) {
-        return { ...base, amountCents: member.payRateCents, warning: null };
+        return { ...base, amountCents: member.payRateCents, warning: null, warningBlocking: false };
       }
 
       // Anything else is a genuine part period. Spread across the real year
@@ -90,6 +99,7 @@ export function computePayrollDraft(
         ...base,
         amountCents,
         warning: `Prorated for ${days} day${days === 1 ? '' : 's'} — check this figure.`,
+        warningBlocking: false,
       };
     });
 }
