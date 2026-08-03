@@ -74,7 +74,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payRateCents: 500 })],
       [makeEntry('2026-08-03', 8), makeEntry('2026-08-04', 4)],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].hoursWorked).toBe(12);
     expect(lines[0].amountCents).toBe(6000);
@@ -86,7 +88,9 @@ describe('computePayrollDraft', () => {
       [makeMember()],
       [makeEntry('2026-07-25', 8), makeEntry('2026-08-03', 3)],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].hoursWorked).toBe(3);
   });
@@ -98,20 +102,29 @@ describe('computePayrollDraft', () => {
       [makeMember()],
       [makeEntry('2026-08-03', 8), { ...makeEntry('2026-08-05', 0), clockOut: null }],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].hoursWorked).toBe(8);
     expect(lines[0].warning).toMatch(/still clocked in/);
   });
 
   it('flags an hourly member who clocked nothing', () => {
-    const lines = computePayrollDraft([makeMember()], [], '2026-08-01', '2026-08-07');
+    const lines = computePayrollDraft([makeMember()], [], '2026-08-01', '2026-08-07', null, null);
     expect(lines[0].amountCents).toBe(0);
     expect(lines[0].warning).toMatch(/No hours clocked/);
   });
 
   it('flags a member with no pay rate rather than paying them zero silently', () => {
-    const lines = computePayrollDraft([makeMember({ payRateCents: null, payType: null })], [], '2026-08-01', '2026-08-07');
+    const lines = computePayrollDraft(
+      [makeMember({ payRateCents: null, payType: null })],
+      [],
+      '2026-08-01',
+      '2026-08-07',
+      null,
+      null
+    );
     expect(lines[0].amountCents).toBe(0);
     expect(lines[0].warning).toMatch(/No pay rate/);
   });
@@ -123,7 +136,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
-      '2026-08-31'
+      '2026-08-31',
+      null,
+      null
     );
     expect(lines[0].amountCents).toBe(300000);
     expect(lines[0].warning).toBeNull();
@@ -134,7 +149,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-02-01',
-      '2026-02-28'
+      '2026-02-28',
+      null,
+      null
     );
     expect(lines[0].amountCents).toBe(300000);
     expect(lines[0].warning).toBeNull();
@@ -145,7 +162,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-04-01',
-      '2026-04-30'
+      '2026-04-30',
+      null,
+      null
     );
     expect(lines[0].amountCents).toBe(300000);
     expect(lines[0].warning).toBeNull();
@@ -158,7 +177,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     // 300000 x 12 / 365 x 7, rounded once at the end.
     expect(lines[0].amountCents).toBe(69041);
@@ -173,13 +194,17 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'fixed', payRateCents: 50000 })],
       [],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     const long = computePayrollDraft(
       [makeMember({ payType: 'fixed', payRateCents: 50000 })],
       [],
       '2026-08-01',
-      '2026-08-31'
+      '2026-08-31',
+      null,
+      null
     );
     expect(short[0].amountCents).toBe(50000);
     expect(long[0].amountCents).toBe(50000);
@@ -193,19 +218,28 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'hourly', payRateCents: 500 })],
       [makeEntry('2026-08-03', 8)],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].amountCents).toBe(4000);
     expect(lines[0].hoursWorked).toBe(8);
   });
 
   it('leaves out inactive staff', () => {
-    const lines = computePayrollDraft([makeMember({ active: false })], [], '2026-08-01', '2026-08-07');
+    const lines = computePayrollDraft([makeMember({ active: false })], [], '2026-08-01', '2026-08-07', null, null);
     expect(lines).toHaveLength(0);
   });
 
   it('freezes name, type and rate onto the line', () => {
-    const lines = computePayrollDraft([makeMember({ fullName: 'Amran Mohamed', payRateCents: 750 })], [], '2026-08-01', '2026-08-07');
+    const lines = computePayrollDraft(
+      [makeMember({ fullName: 'Amran Mohamed', payRateCents: 750 })],
+      [],
+      '2026-08-01',
+      '2026-08-07',
+      null,
+      null
+    );
     expect(lines[0]).toMatchObject({ memberName: 'Amran Mohamed', payType: 'hourly', payRateCents: 750 });
   });
 
@@ -213,7 +247,14 @@ describe('computePayrollDraft', () => {
   // That is a different kind of problem from an approximate figure, and is the
   // only warning allowed to block a post.
   it('marks a missing pay rate as blocking', () => {
-    const lines = computePayrollDraft([makeMember({ payRateCents: null, payType: null })], [], '2026-08-01', '2026-08-07');
+    const lines = computePayrollDraft(
+      [makeMember({ payRateCents: null, payType: null })],
+      [],
+      '2026-08-01',
+      '2026-08-07',
+      null,
+      null
+    );
     expect(lines[0].warning).toMatch(/No pay rate/);
     expect(lines[0].warningBlocking).toBe(true);
   });
@@ -223,7 +264,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'hourly', payRateCents: 500 })],
       [{ ...makeEntry('2026-08-03', 0), clockOut: null }],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].warning).toMatch(/still clocked in/);
     expect(lines[0].warningBlocking).toBe(false);
@@ -234,7 +277,9 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
-      '2026-08-07'
+      '2026-08-07',
+      null,
+      null
     );
     expect(lines[0].warning).toMatch(/Prorated/);
     expect(lines[0].warningBlocking).toBe(false);
@@ -245,10 +290,99 @@ describe('computePayrollDraft', () => {
       [makeMember({ payType: 'salary', payRateCents: 300000 })],
       [],
       '2026-08-01',
-      '2026-08-31'
+      '2026-08-31',
+      null,
+      null
     );
     expect(lines[0].warning).toBeNull();
     expect(lines[0].warningBlocking).toBe(false);
+  });
+
+  // The headline guarantee of this change: adding cadence must not move the
+  // figure a monthly member already gets for a calendar month.
+  it('pays a monthly-cadence member the same as before for a calendar month', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000, payCadence: 'monthly' })],
+      [],
+      '2026-08-01',
+      '2026-08-31',
+      'monthly',
+      null
+    );
+    expect(lines[0].amountCents).toBe(300000);
+    expect(lines[0].warning).toBeNull();
+  });
+
+  it('pays half a month for a whole semi-monthly period', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000, payCadence: 'semimonthly' })],
+      [],
+      '2026-08-01',
+      '2026-08-15',
+      'semimonthly',
+      null
+    );
+    expect(lines[0].amountCents).toBe(150000);
+    expect(lines[0].warning).toBeNull();
+  });
+
+  it('pays a whole biweekly period from the anchor', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000, payCadence: 'biweekly' })],
+      [],
+      '2026-08-03',
+      '2026-08-16',
+      'biweekly',
+      '2026-08-03'
+    );
+    expect(lines[0].amountCents).toBe(138462);
+    expect(lines[0].warning).toBeNull();
+  });
+
+  // A run that doesn't line up with the cadence is still an approximation and
+  // still asks for a human check.
+  it('prorates and warns when the run is not a whole period', () => {
+    const lines = computePayrollDraft(
+      [makeMember({ payType: 'salary', payRateCents: 300000, payCadence: 'monthly' })],
+      [],
+      '2026-08-01',
+      '2026-08-07',
+      'monthly',
+      null
+    );
+    expect(lines[0].amountCents).toBe(69041);
+    expect(lines[0].warning).toMatch(/Prorated for 7 days/);
+  });
+
+  it('includes only members on the run cadence', () => {
+    const lines = computePayrollDraft(
+      [
+        makeMember({ id: 'weekly-1', payCadence: 'weekly' }),
+        makeMember({ id: 'monthly-1', payCadence: 'monthly' }),
+      ],
+      [],
+      '2026-08-01',
+      '2026-08-31',
+      'monthly',
+      null
+    );
+    expect(lines).toHaveLength(1);
+    expect(lines[0].shopMemberId).toBe('monthly-1');
+  });
+
+  it('includes every active member when the run has no cadence', () => {
+    const lines = computePayrollDraft(
+      [
+        makeMember({ id: 'weekly-1', payCadence: 'weekly' }),
+        makeMember({ id: 'monthly-1', payCadence: 'monthly' }),
+      ],
+      [],
+      '2026-08-01',
+      '2026-08-31',
+      null,
+      null
+    );
+    expect(lines).toHaveLength(2);
   });
 });
 

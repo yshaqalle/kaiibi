@@ -1,4 +1,5 @@
-import { dailySalaryCents, isWholeCalendarMonth } from '@/lib/pay-rate';
+import { dailySalaryCents } from '@/lib/pay-rate';
+import { isWholePayPeriod, perPaymentCents, type PayCadence } from '@/lib/pay-periods';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import { sumDurationHours } from '@/lib/shift-hours';
 import type { PayrollRun, StaffMember, TimeEntry } from '@/types/models';
@@ -35,13 +36,18 @@ export function computePayrollDraft(
   members: StaffMember[],
   entries: TimeEntry[],
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  cadence: PayCadence | null,
+  anchor: string | null
 ): PayrollDraftLine[] {
   const days = periodDayCount(periodStart, periodEnd);
   const entriesByMember = groupEntriesByMember(entries, periodStart, periodEnd);
 
   return members
-    .filter((member) => member.active)
+    // A cadence-less run is off-cycle over hand-typed dates and covers
+    // everyone; a cadence run must not sweep in a member paid on a different
+    // rhythm, or their whole month lands inside someone else's week.
+    .filter((member) => member.active && (cadence === null || member.payCadence === cadence))
     .map((member) => {
       const memberEntries = entriesByMember.get(member.id) ?? [];
       // Open shifts are excluded by sumDurationHours -- an in-progress shift
@@ -84,10 +90,16 @@ export function computePayrollDraft(
         return { ...base, amountCents: member.payRateCents, warning: null, warningBlocking: false };
       }
 
-      // A monthly salary over exactly one calendar month is exact: no
-      // proration, no approximation, nothing for a human to check.
-      if (isWholeCalendarMonth(periodStart, periodEnd)) {
-        return { ...base, amountCents: member.payRateCents, warning: null, warningBlocking: false };
+      // A run matching the member's own cadence period pays the exact
+      // per-payment figure -- no proration, nothing for a human to check.
+      const memberCadence = cadence ?? member.payCadence;
+      if (isWholePayPeriod(memberCadence, anchor, periodStart, periodEnd)) {
+        return {
+          ...base,
+          amountCents: perPaymentCents(member.payRateCents, memberCadence),
+          warning: null,
+          warningBlocking: false,
+        };
       }
 
       // Anything else is a genuine part period. Spread across the real year

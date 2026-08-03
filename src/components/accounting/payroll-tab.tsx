@@ -101,7 +101,10 @@ export function PayrollTab({
         listStaff(shop.id),
         listShopTimeEntries(shop.id, { sinceIso: start.toISOString() }),
       ]);
-      const lines = computePayrollDraft(members, entries, periodStart, periodEnd);
+      // The trailing `, null, null` is scaffolding so this file typechecks
+      // against the new signature -- Task 6 replaces it with the picked
+      // cadence and the shop's pay-period anchor. Not a considered choice.
+      const lines = computePayrollDraft(members, entries, periodStart, periodEnd, null, null);
       // TODO(Task 6): pass the picked cadence instead of null once the period
       // picker exists -- this null is temporary scaffolding, not a considered
       // choice.
