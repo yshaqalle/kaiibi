@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Card } from '@/components/card';
 import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
 import type { DateRange } from '@/components/range-selector';
@@ -38,7 +39,13 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function ReportsTab({ dateRange }: { dateRange: DateRange }) {
+export function ReportsTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   const { since, until } = dateRange;
   // Pay data is RLS-protected. Without both permissions the labour figures
@@ -206,13 +213,9 @@ export function ReportsTab({ dateRange }: { dateRange: DateRange }) {
 
   return (
     <View>
-      {error && <Text style={styles.error}>{error}</Text>}
+      <ReportsHeaderActions onExport={exportPdf} exporting={exporting} setHeaderActions={setHeaderActions} />
 
-      <View style={styles.headerRow}>
-        <Pressable onPress={exportPdf} disabled={exporting} style={styles.exportButton}>
-          {exporting ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
-        </Pressable>
-      </View>
+      {error && <Text style={styles.error}>{error}</Text>}
 
       <Text style={styles.sectionTitle}>Profit &amp; loss · {rangeLabel}</Text>
       <Card style={styles.card}>
@@ -300,6 +303,28 @@ export function ReportsTab({ dateRange }: { dateRange: DateRange }) {
   );
 }
 
+// A child rather than a hook call in ReportsTab: that component returns early
+// while loading, and `exportPdf` is only defined past that point, so the hook
+// can't sit above it.
+function ReportsHeaderActions({
+  onExport,
+  exporting,
+  setHeaderActions,
+}: {
+  onExport: () => void;
+  exporting: boolean;
+  setHeaderActions: HeaderActionsSetter;
+}) {
+  useHeaderActions(
+    setHeaderActions,
+    <Pressable onPress={onExport} disabled={exporting} style={styles.exportButton}>
+      {exporting ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.exportButtonText}>Export PDF</Text>}
+    </Pressable>,
+    [onExport, exporting]
+  );
+  return null;
+}
+
 function PnlRow({
   label,
   hint,
@@ -327,7 +352,6 @@ function PnlRow({
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 8 },
   exportButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, minWidth: 96, alignItems: 'center' },
   exportButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 10, marginBottom: 12 },

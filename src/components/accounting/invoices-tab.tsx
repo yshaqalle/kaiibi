@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { InvoiceEditorModal } from '@/components/accounting/invoice-editor-modal';
 import { RecordPaymentModal } from '@/components/accounting/record-payment-modal';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -27,7 +28,13 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function InvoicesTab({ dateRange }: { dateRange: DateRange }) {
+export function InvoicesTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -80,6 +87,16 @@ export function InvoicesTab({ dateRange }: { dateRange: DateRange }) {
     refreshPaying(rows);
   };
 
+  useHeaderActions(
+    setHeaderActions,
+    canManage ? (
+      <Pressable onPress={() => setEditing('new')} style={styles.newButton}>
+        <Text style={styles.newButtonText}>+ New bill</Text>
+      </Pressable>
+    ) : null,
+    [canManage]
+  );
+
   return (
     <View>
       <View style={styles.metricRow}>
@@ -98,11 +115,6 @@ export function InvoicesTab({ dateRange }: { dateRange: DateRange }) {
 
       <View style={styles.header}>
         <Text style={styles.subtitle}>Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.</Text>
-        {canManage && (
-          <Pressable onPress={() => setEditing('new')} style={styles.newButton}>
-            <Text style={styles.newButtonText}>+ New bill</Text>
-          </Pressable>
-        )}
       </View>
 
       {error && <Text style={styles.error}>{error}</Text>}

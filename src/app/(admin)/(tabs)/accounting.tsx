@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -42,12 +42,20 @@ const SHARED_PRESETS: RangePreset[] = [
 export default function AccountingScreen() {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [tab, setTab] = useState<AccountingTab>('overview');
+  // Published by whichever tab is showing, so its buttons share the title row
+  // rather than sitting in a band of their own below the filters.
+  const [headerActions, setHeaderActions] = useState<ReactNode>(null);
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.eyebrow}>ACCOUNTING</Text>
-        <Text style={styles.title}>{TAB_OPTIONS.find((t) => t.key === tab)?.label}</Text>
+        <View style={styles.headerRow}>
+          <View style={styles.headerTitles}>
+            <Text style={styles.eyebrow}>ACCOUNTING</Text>
+            <Text style={styles.title}>{TAB_OPTIONS.find((t) => t.key === tab)?.label}</Text>
+          </View>
+          {headerActions ? <View style={styles.headerActions}>{headerActions}</View> : null}
+        </View>
 
         {TAB_OPTIONS.length > 1 && (
           <View style={styles.tabBar}>
@@ -55,6 +63,8 @@ export default function AccountingScreen() {
           </View>
         )}
 
+        {/* Rendered by the shell, not inside the tabs: moving it into a tab
+            would remount it on every tab switch and silently reset the range. */}
         <RangeSelector onChange={setDateRange} presets={SHARED_PRESETS} initialDays={7} />
 
         {/* RangeSelector reports its initial range in an effect, so the first
@@ -67,11 +77,11 @@ export default function AccountingScreen() {
         {dateRange ? (
           <>
             {tab === 'overview' && <OverviewTab dateRange={dateRange} />}
-            {tab === 'transactions' && <TransactionsTab dateRange={dateRange} />}
-            {tab === 'invoices' && <InvoicesTab dateRange={dateRange} />}
-            {tab === 'expenses' && <ExpensesTab dateRange={dateRange} />}
-            {tab === 'payroll' && <PayrollTab dateRange={dateRange} />}
-            {tab === 'reports' && <ReportsTab dateRange={dateRange} />}
+            {tab === 'transactions' && <TransactionsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
+            {tab === 'invoices' && <InvoicesTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
+            {tab === 'expenses' && <ExpensesTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
+            {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
+            {tab === 'reports' && <ReportsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
           </>
         ) : null}
       </ScrollView>
@@ -82,7 +92,10 @@ export default function AccountingScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 24, paddingBottom: 60 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
+  headerTitles: { flexShrink: 1 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#999999', marginBottom: 3 },
-  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
+  title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1 },
   tabBar: { marginBottom: 16 },
 });

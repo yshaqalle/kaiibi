@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { ExpenseEditorModal } from '@/components/accounting/expense-editor-modal';
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -45,7 +46,13 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
+export function ExpensesTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -96,19 +103,21 @@ export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
 
   const close = () => setEditing(null);
 
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      <ExportMenu rows={filtered} columns={EXPENSE_EXPORT_COLUMNS} title="Expenses" subtitle={rangeLabel} filenamePrefix="expenses" />
+      {canManage && (
+        <Pressable onPress={() => setEditing('new')} style={styles.newButton}>
+          <Text style={styles.newButtonText}>+ New expense</Text>
+        </Pressable>
+      )}
+    </>,
+    [filtered, rangeLabel, canManage]
+  );
+
   return (
     <View>
-      <View style={styles.header}>
-        <View style={styles.headerActions}>
-          <ExportMenu rows={filtered} columns={EXPENSE_EXPORT_COLUMNS} title="Expenses" subtitle={rangeLabel} filenamePrefix="expenses" />
-          {canManage && (
-            <Pressable onPress={() => setEditing('new')} style={styles.newButton}>
-              <Text style={styles.newButtonText}>+ New expense</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
       <View style={styles.metricRow}>
         <StatTile value={formatAccountingCents(totalCents)} label={`Spent · ${rangeLabel}`} />
         <StatTile value={formatAccountingCents(operatingCents)} label="Operating expenses" />
@@ -229,8 +238,6 @@ export function ExpensesTab({ dateRange }: { dateRange: DateRange }) {
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 16 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },

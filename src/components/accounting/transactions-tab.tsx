@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { ExportMenu } from '@/components/export-menu';
@@ -62,7 +63,13 @@ export function formatRangeLabel(range: DateRange): string {
   return `${range.since.toLocaleDateString()} – ${range.until ? range.until.toLocaleDateString() : 'today'}`;
 }
 
-export function TransactionsTab({ dateRange }: { dateRange: DateRange }) {
+export function TransactionsTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
@@ -163,18 +170,21 @@ export function TransactionsTab({ dateRange }: { dateRange: DateRange }) {
       }
     : null;
 
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
+      {canEdit && (
+        <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
+          <Text style={styles.importButtonText}>Import</Text>
+        </Pressable>
+      )}
+    </>,
+    [filtered, rangeLabel, canEdit]
+  );
+
   return (
     <View>
-      <View style={styles.header}>
-        <View style={styles.headerActions}>
-          <ExportMenu rows={filtered} columns={SALE_EXPORT_COLUMNS} title="Sales" subtitle={rangeLabel} filenamePrefix="sales" />
-          {canEdit && (
-            <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
-              <Text style={styles.importButtonText}>Import</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
       <View style={styles.metricRow}>
         <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
         <StatTile value={String(filtered.length)} label="Orders" />
@@ -593,8 +603,6 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 16 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },

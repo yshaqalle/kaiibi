@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { DateInput, parseDateInput } from '@/components/date-input';
 import type { DateRange } from '@/components/range-selector';
@@ -29,7 +30,13 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function PayrollTab({ dateRange }: { dateRange: DateRange }) {
+export function PayrollTab({
+  dateRange,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop, can } = useAuth();
   // Both are required: pay rates are sensitive, and posting writes a real
   // expense. The database enforces the same pair.
@@ -108,15 +115,11 @@ export function PayrollTab({ dateRange }: { dateRange: DateRange }) {
 
   return (
     <View>
+      <PayrollHeaderActions allowed={allowed} creating={creating} onNew={() => setCreating(true)} setHeaderActions={setHeaderActions} />
       <View style={styles.header}>
         <Text style={styles.subtitle}>
           Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
         </Text>
-        {!creating && (
-          <Pressable onPress={() => setCreating(true)} style={styles.newButton}>
-            <Text style={styles.newButtonText}>+ New pay run</Text>
-          </Pressable>
-        )}
       </View>
 
       {creating && (
@@ -198,6 +201,32 @@ export function PayrollTab({ dateRange }: { dateRange: DateRange }) {
       )}
     </View>
   );
+}
+
+// A child rather than a hook call in PayrollTab: that component returns early
+// when the role lacks permission, and hooks can't sit after a conditional
+// return.
+function PayrollHeaderActions({
+  allowed,
+  creating,
+  onNew,
+  setHeaderActions,
+}: {
+  allowed: boolean;
+  creating: boolean;
+  onNew: () => void;
+  setHeaderActions: HeaderActionsSetter;
+}) {
+  useHeaderActions(
+    setHeaderActions,
+    allowed && !creating ? (
+      <Pressable onPress={onNew} style={styles.newButton}>
+        <Text style={styles.newButtonText}>+ New pay run</Text>
+      </Pressable>
+    ) : null,
+    [allowed, creating, onNew]
+  );
+  return null;
 }
 
 const styles = StyleSheet.create({
