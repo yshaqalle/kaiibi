@@ -35,7 +35,7 @@ import { formatAccountingCents, formatCompactCents, toCents } from '@/lib/curren
 import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
-import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
@@ -112,7 +112,7 @@ export function CashBudgetsTab({
           listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }),
           listPayrollRuns(shop.id),
         ]);
-        setAccruedWagesCents(accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)).accruedCents);
+        setAccruedWagesCents(accruedLaborCents(members, entries, since, rangeEnd, runs).accruedCents);
       } else {
         setAccruedWagesCents(0);
       }

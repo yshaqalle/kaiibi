@@ -15,7 +15,7 @@ import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, t
 import { listExpensesInRange } from '@/lib/expenses';
 import { sharePdf } from '@/lib/export-file';
 import { listPayrollRuns } from '@/lib/payroll';
-import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { sumDurationHours } from '@/lib/shift-hours';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
 import { getCategoryBreakdown, getCategoryRevenueByMonth, getSalesAndRefundsInRange } from '@/lib/sales';
@@ -34,7 +34,7 @@ import type { Expense } from '@/types/models';
 type LaborPicture = {
   accruedCents: number;
   hours: number;
-  salariedExcludedCount: number;
+  fixedExcludedCount: number;
   // Every hour clocked in the range, whether or not a pay run has settled it.
   // The accrual only counts unposted days, so it's the wrong denominator for
   // "what did an hour of work earn".
@@ -126,7 +126,7 @@ export function ReportsTab({
           return at >= since.getTime() && at <= rangeEnd.getTime();
         });
         setLabor({
-          ...accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)),
+          ...accruedLaborCents(members, entries, since, rangeEnd, runs),
           totalHoursInRange: Number(sumDurationHours(inRange).toFixed(2)),
         });
       } else {
@@ -304,8 +304,8 @@ export function ReportsTab({
           <Text style={styles.caveat}>
             Wages above cover hours worked with no pay run yet. Post a run in Payroll and this line moves into operating
             expenses — the total won&apos;t change.
-            {labor && labor.salariedExcludedCount > 0
-              ? ` ${labor.salariedExcludedCount} salaried ${labor.salariedExcludedCount === 1 ? 'person is' : 'people are'} not included — their pay is settled by a pay run.`
+            {labor && labor.fixedExcludedCount > 0
+              ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
               : ''}
           </Text>
         )}
@@ -340,8 +340,8 @@ export function ReportsTab({
             {labor && labor.totalHoursInRange > 0 && (
               <Text style={styles.caveat}>
                 Based on {labor.totalHoursInRange}h clocked in this period.
-                {labor.salariedExcludedCount > 0
-                  ? ` ${labor.salariedExcludedCount} salaried ${labor.salariedExcludedCount === 1 ? 'person does' : 'people do'} not clock hours, so the hourly figure covers hourly staff only.`
+                {labor.fixedExcludedCount > 0
+                  ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person does' : 'people do'} not clock hours, so the hourly figure covers hourly staff only.`
                   : ''}
               </Text>
             )}

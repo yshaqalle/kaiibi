@@ -3,7 +3,6 @@ import {
   computePayrollDraft,
   draftTotalCents,
   periodDayCount,
-  uncoveredDays,
 } from '@/lib/payroll-reporting';
 import type { PayrollRun, StaffMember, TimeEntry } from '@/types/models';
 
@@ -37,25 +36,6 @@ function makeEntry(day: string, hours: number, overrides: Partial<TimeEntry> = {
     clockIn: start.toISOString(),
     clockOut: new Date(start.getTime() + hours * 3_600_000).toISOString(),
     createdAt: start.toISOString(),
-    ...overrides,
-  };
-}
-
-function makeRun(overrides: Partial<PayrollRun> = {}): PayrollRun {
-  return {
-    id: 'run1',
-    shopId: 'shop1',
-    periodStart: '2026-08-01',
-    periodEnd: '2026-08-07',
-    status: 'posted',
-    cadence: null,
-    totalCents: 0,
-    expenseId: null,
-    postedAt: null,
-    postedBy: null,
-    createdBy: null,
-    createdAt: '2026-08-07T00:00:00.000Z',
-    updatedAt: '2026-08-07T00:00:00.000Z',
     ...overrides,
   };
 }
@@ -396,83 +376,134 @@ describe('draftTotalCents', () => {
   });
 });
 
-// This is the logic that keeps accrued labour and posted payroll from ever
-// counting the same day twice.
-describe('uncoveredDays', () => {
-  it('returns every day when nothing has been posted', () => {
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 3), [])).toEqual(['2026-08-01', '2026-08-02', '2026-08-03']);
-  });
-
-  it('excludes days a posted run already covers', () => {
-    const runs = [makeRun({ periodStart: '2026-08-01', periodEnd: '2026-08-02' })];
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 3), runs)).toEqual(['2026-08-03']);
-  });
-
-  // A draft hasn't paid anybody, so its days are still accruing.
-  it('ignores draft runs', () => {
-    const runs = [makeRun({ status: 'draft', periodStart: '2026-08-01', periodEnd: '2026-08-03' })];
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 3), runs)).toHaveLength(3);
-  });
-
-  it('handles two posted runs meeting end to end', () => {
-    const runs = [
-      makeRun({ id: 'a', periodStart: '2026-08-01', periodEnd: '2026-08-02' }),
-      makeRun({ id: 'b', periodStart: '2026-08-03', periodEnd: '2026-08-04' }),
-    ];
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 5), runs)).toEqual(['2026-08-05']);
-  });
-
-  it('handles a posted run that overhangs the range on both sides', () => {
-    const runs = [makeRun({ periodStart: '2026-07-20', periodEnd: '2026-08-20' })];
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 5), runs)).toEqual([]);
-  });
-
-  it('handles a posted run covering the middle of the range', () => {
-    const runs = [makeRun({ periodStart: '2026-08-02', periodEnd: '2026-08-03' })];
-    expect(uncoveredDays(new Date(2026, 7, 1), new Date(2026, 7, 4), runs)).toEqual(['2026-08-01', '2026-08-04']);
-  });
-});
+function makeRun(
+  periodStart: string,
+  periodEnd: string,
+  memberIds: string[],
+  status: PayrollRun['status'] = 'posted'
+): PayrollRun {
+  return {
+    id: `${periodStart}-${periodEnd}`,
+    shopId: 'shop1',
+    periodStart,
+    periodEnd,
+    status,
+    cadence: null,
+    totalCents: 0,
+    expenseId: null,
+    postedAt: null,
+    postedBy: null,
+    createdBy: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+    lines: memberIds.map((memberId, index) => ({
+      id: `${periodStart}-${memberId}-${index}`,
+      payrollRunId: `${periodStart}-${periodEnd}`,
+      shopMemberId: memberId,
+      memberName: memberId,
+      payType: 'hourly' as const,
+      payRateCents: 500,
+      hoursWorked: null,
+      amountCents: 1000,
+      note: null,
+      warning: null,
+      warningBlocking: false,
+      createdAt: '2026-08-01T00:00:00.000Z',
+    })),
+  };
+}
 
 describe('accruedLaborCents', () => {
-  const member = makeMember({ payRateCents: 500 });
+  const hourly = makeMember({ id: 'm1', payType: 'hourly', payRateCents: 500 });
+  const since = new Date(2026, 7, 1);
+  const until = new Date(2026, 7, 3);
 
-  it('values hours on uncovered days', () => {
+  it('values hours on days no posted run covers', () => {
     const result = accruedLaborCents(
-      [member],
+      [hourly],
       [makeEntry('2026-08-01', 8), makeEntry('2026-08-02', 4)],
-      ['2026-08-01', '2026-08-02']
+      since,
+      until,
+      []
     );
     expect(result.hours).toBe(12);
     expect(result.accruedCents).toBe(6000);
   });
 
-  // The invariant the whole accrual design rests on: once a run is posted,
-  // its days stop accruing, so the expense row and the accrual can't overlap.
-  it('drops to zero once every day is covered by a posted run', () => {
-    const result = accruedLaborCents([member], [makeEntry('2026-08-01', 8)], []);
-    expect(result.accruedCents).toBe(0);
+  // The invariant the whole accrual design rests on: once a run is posted, its
+  // days stop accruing, so the expense row and the accrual can't overlap.
+  it('drops the days a posted run covers for that member', () => {
+    const runs = [makeRun('2026-08-01', '2026-08-01', ['m1'])];
+    const result = accruedLaborCents(
+      [hourly],
+      [makeEntry('2026-08-01', 8), makeEntry('2026-08-02', 4)],
+      since,
+      until,
+      runs
+    );
+    expect(result.accruedCents).toBe(2000);
   });
 
-  it('counts only the uncovered portion', () => {
+  // The reason coverage had to become per-member: a run that paid Bob says
+  // nothing about whether Alice has been paid.
+  it('does not let one member’s run cover another member', () => {
+    const alice = makeMember({ id: 'alice', payType: 'hourly', payRateCents: 500 });
+    const runs = [makeRun('2026-08-01', '2026-08-01', ['bob'])];
     const result = accruedLaborCents(
-      [member],
-      [makeEntry('2026-08-01', 8), makeEntry('2026-08-02', 8)],
-      ['2026-08-02']
+      [alice],
+      [makeEntry('2026-08-01', 8, { shopMemberId: 'alice' })],
+      since,
+      until,
+      runs
     );
     expect(result.accruedCents).toBe(4000);
   });
 
+  it('ignores a draft run', () => {
+    const runs = [makeRun('2026-08-01', '2026-08-01', ['m1'], 'draft')];
+    const result = accruedLaborCents([hourly], [makeEntry('2026-08-01', 8)], since, until, runs);
+    expect(result.accruedCents).toBe(4000);
+  });
+
   it('skips open shifts', () => {
-    const result = accruedLaborCents([member], [{ ...makeEntry('2026-08-01', 0), clockOut: null }], ['2026-08-01']);
+    const result = accruedLaborCents(
+      [hourly],
+      [{ ...makeEntry('2026-08-01', 0), clockOut: null }],
+      since,
+      until,
+      []
+    );
     expect(result.accruedCents).toBe(0);
   });
 
-  // Prorating a salary across an arbitrary uncovered stretch would be a guess
-  // dressed as a figure, so they're counted and left to the pay run.
-  it('excludes salaried staff but reports how many', () => {
-    const salaried = makeMember({ id: 'm2', payType: 'salary', payRateCents: 300000 });
-    const result = accruedLaborCents([member, salaried], [makeEntry('2026-08-01', 8)], ['2026-08-01']);
+  // Salaried staff accrue now that dailySalaryCents gives an exact per-day
+  // figure. 300000/mo x 12 / 365 = 9863.0137/day, x 3 uncovered days.
+  it('accrues salaried staff by day', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000 });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.accruedCents).toBe(29589);
+    expect(result.hours).toBe(0);
+  });
+
+  it('stops accruing a salaried member once a run covers the days', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000 });
+    const runs = [makeRun('2026-08-01', '2026-08-03', ['s1'])];
+    const result = accruedLaborCents([salaried], [], since, until, runs);
+    expect(result.accruedCents).toBe(0);
+  });
+
+  // 'fixed' is a flat amount per run, so there is no daily rate to derive.
+  // Inventing one would be a guess presented as a number.
+  it('excludes fixed-pay staff but reports how many', () => {
+    const fixed = makeMember({ id: 'f1', payType: 'fixed', payRateCents: 50000 });
+    const result = accruedLaborCents([hourly, fixed], [makeEntry('2026-08-01', 8)], since, until, []);
     expect(result.accruedCents).toBe(4000);
-    expect(result.salariedExcludedCount).toBe(1);
+    expect(result.fixedExcludedCount).toBe(1);
+  });
+
+  it('ignores inactive staff when counting exclusions', () => {
+    const fixed = makeMember({ id: 'f1', payType: 'fixed', payRateCents: 50000, active: false });
+    const result = accruedLaborCents([fixed], [], since, until, []);
+    expect(result.fixedExcludedCount).toBe(0);
   });
 });

@@ -120,65 +120,91 @@ export function draftTotalCents(lines: { amountCents: number }[]): number {
   return lines.reduce((sum, line) => sum + line.amountCents, 0);
 }
 
-// Days in the range not already covered by a posted run. This is what makes
-// accrued-but-unpaid labour safe to add to the P&L: the moment a run is
-// posted, its days drop out here and its expense row takes over, so the two
-// can never both count the same day.
-export function uncoveredDays(since: Date, until: Date, postedRuns: PayrollRun[]): string[] {
-  const covered = new Set<string>();
+// Days each member has already been paid for. Derived from each run's LINES,
+// not its period: once runs are per-member, a run that paid Bob says nothing
+// about whether Alice has been paid, and reading coverage off the period alone
+// would silently under-report her accrual.
+function coveredDaysByMember(postedRuns: PayrollRun[]): Map<string, Set<string>> {
+  const covered = new Map<string, Set<string>>();
   for (const run of postedRuns) {
     if (run.status !== 'posted') continue;
+    const days: string[] = [];
     let cursor = fromDateColumn(run.periodStart).getTime();
     const end = fromDateColumn(run.periodEnd).getTime();
     while (cursor <= end) {
-      covered.add(toDateColumn(new Date(cursor)));
+      days.push(toDateColumn(new Date(cursor)));
       cursor += MS_PER_DAY;
     }
+    for (const line of run.lines ?? []) {
+      let memberDays = covered.get(line.shopMemberId);
+      if (!memberDays) {
+        memberDays = new Set<string>();
+        covered.set(line.shopMemberId, memberDays);
+      }
+      for (const day of days) memberDays.add(day);
+    }
   }
-
-  const days: string[] = [];
-  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime();
-  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate()).getTime();
-  while (cursor <= last) {
-    const key = toDateColumn(new Date(cursor));
-    if (!covered.has(key)) days.push(key);
-    cursor += MS_PER_DAY;
-  }
-  return days;
+  return covered;
 }
 
-// Labour worked on days no posted run covers -- the accrual figure. Hourly
-// only: prorating a salary across an arbitrary uncovered stretch would be a
-// guess presented as a number, so salaried staff are reported as a count
-// instead and left for the pay run to settle.
+// Labour worked or earned on days no posted run covers -- the accrual figure.
+// This is what makes accrued-but-unpaid labour safe to add to the P&L: the
+// moment a run is posted, its days drop out for the members it paid and its
+// expense row takes over, so the two can never both count the same day.
+//
+// Salaried staff accrue by day, using the same exact per-day figure the draft
+// prorates with. 'fixed' staff don't: a flat amount per pay run has no daily
+// rate to derive, and inventing one would be a guess presented as a number.
 export function accruedLaborCents(
   members: StaffMember[],
   entries: TimeEntry[],
-  uncovered: string[]
-): { accruedCents: number; hours: number; salariedExcludedCount: number } {
-  if (uncovered.length === 0) {
-    return { accruedCents: 0, hours: 0, salariedExcludedCount: 0 };
+  since: Date,
+  until: Date,
+  postedRuns: PayrollRun[]
+): { accruedCents: number; hours: number; fixedExcludedCount: number } {
+  const covered = coveredDaysByMember(postedRuns);
+  const memberById = new Map(members.map((member) => [member.id, member]));
+
+  const rangeDays: string[] = [];
+  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime();
+  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate()).getTime();
+  while (cursor <= last) {
+    rangeDays.push(toDateColumn(new Date(cursor)));
+    cursor += MS_PER_DAY;
   }
-  const uncoveredSet = new Set(uncovered);
-  const rateByMember = new Map(members.map((m) => [m.id, m]));
+  // A Set for the per-entry membership test below: a year-long range against a
+  // busy shop's time entries makes a linear scan per entry needlessly quadratic.
+  const rangeDaySet = new Set(rangeDays);
 
   let accruedCents = 0;
   let hours = 0;
+
   for (const entry of entries) {
     if (!entry.clockOut) continue;
-    if (!uncoveredSet.has(toDateColumn(new Date(entry.clockIn)))) continue;
-    const member = rateByMember.get(entry.shopMemberId);
+    const member = memberById.get(entry.shopMemberId);
     if (!member || member.payType !== 'hourly' || member.payRateCents === null) continue;
+    const day = toDateColumn(new Date(entry.clockIn));
+    if (!rangeDaySet.has(day)) continue;
+    if (covered.get(member.id)?.has(day)) continue;
     const entryHours = sumDurationHours([entry]);
     hours += entryHours;
     accruedCents += Math.round(member.payRateCents * entryHours);
   }
 
-  const salariedExcludedCount = members.filter(
-    (m) => m.active && m.payRateCents !== null && (m.payType === 'salary' || m.payType === 'fixed')
+  for (const member of members) {
+    if (!member.active || member.payType !== 'salary' || member.payRateCents === null) continue;
+    const memberCovered = covered.get(member.id);
+    const uncovered = rangeDays.filter((day) => !memberCovered?.has(day));
+    if (uncovered.length === 0) continue;
+    const year = fromDateColumn(uncovered[0]).getFullYear();
+    accruedCents += Math.round(dailySalaryCents(member.payRateCents, year) * uncovered.length);
+  }
+
+  const fixedExcludedCount = members.filter(
+    (member) => member.active && member.payRateCents !== null && member.payType === 'fixed'
   ).length;
 
-  return { accruedCents, hours: Number(hours.toFixed(2)), salariedExcludedCount };
+  return { accruedCents, hours: Number(hours.toFixed(2)), fixedExcludedCount };
 }
 
 function groupEntriesByMember(entries: TimeEntry[], periodStart: string, periodEnd: string): Map<string, TimeEntry[]> {
