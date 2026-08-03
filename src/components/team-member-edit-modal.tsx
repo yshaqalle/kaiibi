@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput } from '@/components/date-input';
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
+import { isValidRateInput } from '@/lib/pay-rate';
 import type { Role, StaffMember } from '@/types/models';
 
 type MemberEdits = {
@@ -42,13 +43,14 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
     }
     // payFieldsToCents delegates to toCents, which never fails to parse --
     // unparseable text like "abc" quietly collapses to 0 rather than null.
-    // Gating on <= 0 (not just === null) is what stops that from silently
-    // overwriting the member's real stored rate with a $0 one.
-    const rateCents = payFieldsToCents(pay);
-    if (pay.rate.trim() && (rateCents === null || rateCents <= 0)) {
+    // Validating the raw text with isValidRateInput (rather than gating on
+    // the converted cents) is what catches that, without also rejecting a
+    // legitimately-typed "0".
+    if (!isValidRateInput(pay.rate)) {
       setError('Enter a valid pay rate.');
       return;
     }
+    const rateCents = payFieldsToCents(pay);
 
     setSaving(true);
     setError(null);

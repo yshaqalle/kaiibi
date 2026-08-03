@@ -4,6 +4,7 @@ import {
   daysInYear,
   formatPayRate,
   formatPayRateLong,
+  isValidRateInput,
   isWholeCalendarMonth,
   payRateUnitLabel,
   rateInputToCents,
@@ -105,6 +106,47 @@ describe('rateInputToCents', () => {
   // Fixed is per pay run by definition -- also not converted.
   it('ignores the entry unit for fixed pay', () => {
     expect(rateInputToCents('500', 'fixed', 'yearly')).toBe(50000);
+  });
+});
+
+describe('isValidRateInput', () => {
+  it('accepts blank input, which clears the rate to null', () => {
+    expect(isValidRateInput('')).toBe(true);
+  });
+
+  it('accepts whitespace-only input as blank', () => {
+    expect(isValidRateInput('   ')).toBe(true);
+  });
+
+  // This is the regression the fix exists to prevent: a stored 0 rate must
+  // not be indistinguishable from unparseable garbage, or opening the modal
+  // to edit an unrelated field and saving throws "Enter a valid pay rate."
+  it('accepts a literal 0 as a legitimately-typed rate, not garbage', () => {
+    expect(isValidRateInput('0')).toBe(true);
+  });
+
+  it('accepts a whole-dollar figure', () => {
+    expect(isValidRateInput('3000')).toBe(true);
+  });
+
+  it('accepts a figure with cents', () => {
+    expect(isValidRateInput('8.50')).toBe(true);
+  });
+
+  it('rejects unparseable letters', () => {
+    expect(isValidRateInput('abc')).toBe(false);
+  });
+
+  it('rejects a negative sign', () => {
+    expect(isValidRateInput('-5')).toBe(false);
+  });
+
+  it('rejects multiple decimal points', () => {
+    expect(isValidRateInput('1.2.3')).toBe(false);
+  });
+
+  it('rejects a bare decimal point', () => {
+    expect(isValidRateInput('.')).toBe(false);
   });
 });
 

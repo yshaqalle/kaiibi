@@ -67,6 +67,24 @@ export function isWholeCalendarMonth(periodStart: string, periodEnd: string): bo
   return end.getDate() === lastDay;
 }
 
+// Validates the raw text a user typed, before it ever reaches `toCents`.
+// `toCents` never fails to parse -- unparseable input like "abc" quietly
+// collapses to 0 -- so gating a save on the *converted cents* can't tell "the
+// user typed garbage" apart from "the user typed 0". Both modals used to gate
+// on `rateCents <= 0`, which rejected a legitimately-typed "0" right along
+// with garbage: any member with a stored 0 rate (nullable column, no DB
+// default) would open a modal, touch an unrelated field like their name, hit
+// Save, and get "Enter a valid pay rate" pointed at a field they never
+// touched. Validating the text itself lets 0 through while still catching
+// anything unparseable.
+//
+// Blank is legal -- it clears the rate to null, same as before.
+export function isValidRateInput(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed === '') return true;
+  return /^\d+(\.\d+)?$/.test(trimmed);
+}
+
 // Pay-form text to the cents actually stored. The entry unit applies only to
 // salary; hourly is per hour and fixed is per pay run, both by definition.
 export function rateInputToCents(

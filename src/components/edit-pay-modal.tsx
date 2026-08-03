@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
+import { isValidRateInput } from '@/lib/pay-rate';
 import type { StaffMember } from '@/types/models';
 
 export function EditPayModal({
@@ -32,13 +33,14 @@ export function EditPayModal({
     setError(null);
     // payFieldsToCents delegates to toCents, which never fails to parse --
     // unparseable text like "abc" quietly collapses to 0 rather than null.
-    // Gating on <= 0 (not just === null) is what stops that from silently
-    // overwriting the member's real stored rate with a $0 one.
-    const rateCents = payFieldsToCents(pay);
-    if (pay.rate.trim() && (rateCents === null || rateCents <= 0)) {
+    // Validating the raw text with isValidRateInput (rather than gating on
+    // the converted cents) is what catches that, without also rejecting a
+    // legitimately-typed "0".
+    if (!isValidRateInput(pay.rate)) {
       setError('Enter a valid pay rate, or leave it blank.');
       return;
     }
+    const rateCents = payFieldsToCents(pay);
     setSaving(true);
     try {
       await onSave({
@@ -90,7 +92,6 @@ const styles = StyleSheet.create({
   closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
-  chipRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   addButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
   addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
   buttonDisabled: { backgroundColor: '#CCCCCC' },
