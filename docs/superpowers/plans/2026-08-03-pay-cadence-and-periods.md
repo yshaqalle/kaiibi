@@ -1280,18 +1280,20 @@ Create `supabase/migrations/20260804030100_payroll_per_member_overlap.sql`:
 -- that forbids: Bob paid monthly for Aug 1-31 and Alice paid weekly for
 -- Aug 1-7 are overlapping runs that must both succeed.
 --
--- NOTE: the header below was corrected after review. See the committed migration
--- for the authoritative text. It is a deliberate NARROWING, not a strengthening:
--- the new predicate is the old one plus a member conjunct, so a conjunction can
--- only reject fewer runs. Required because different cadences legitimately
--- overlap; the cost is that two shop_members rows for the same human can both be
--- paid over overlapping periods, which the shop-wide check blocked.
+-- !! DO NOT COPY THIS BLOCK VERBATIM. It is the pre-review draft, kept only as a
+-- !! record of what was originally planned. Three defects were found in it and
+-- !! fixed in the committed migration, which is the authoritative version:
+-- !!   1. It claimed the change was "strictly stronger, not a loosening". FALSE --
+-- !!      the new predicate is the old one plus a member conjunct, and a
+-- !!      conjunction can only reject fewer runs. It is a deliberate NARROWING,
+-- !!      required because different cadences legitimately overlap. The cost is
+-- !!      that two shop_members rows for the same human can both be paid over
+-- !!      overlapping periods, which the shop-wide check blocked.
+-- !!   2. `limit 6` inside the subquery with a `> 5` threshold saturates the
+-- !!      count, so at exactly 6 conflicts it names all six AND says "and others".
+-- !!   3. The message read as active voice ("Bob already paid for...").
 --
--- (superseded wording) It is now a member-intersection check, which is STRICTLY STRONGER than the
--- period-only version rather than a loosening: it still catches every
--- same-member double-pay, and additionally catches someone whose cadence
--- changed mid-stream into a differently-shaped run -- a case the period check
--- sails past whenever the two periods happen not to overlap.
+-- It is now a member-intersection check.
 --
 -- The error names the people rather than the period, because overlap is now
 -- expected and only the member collision is the problem. The name list is
