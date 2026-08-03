@@ -28,6 +28,7 @@ import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport }
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
+import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
@@ -62,6 +63,9 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
   ...TEAM_EXPORT_COLUMNS_BASIC,
   { header: 'Pay Type', value: (m) => m.payType ?? '' },
   { header: 'Pay Rate', value: (m) => (m.payRateCents != null ? formatCents(m.payRateCents) : '') },
+  // The file leaves the app and loses every bit of context that would
+  // otherwise say what the number means, so the unit travels with it.
+  { header: 'Pay Rate Unit', value: (m) => payRateUnitLabel(m.payType) },
 ];
 
 export default function PeopleScreen() {
@@ -712,9 +716,9 @@ function TeamDetailPane({
         <Text style={tabStyles.payrollValue}>
           {!canManagePayroll
             ? 'Hidden'
-            : member.payType && member.payRateCents != null
-              ? `${formatCents(member.payRateCents)}${member.payType === 'hourly' ? ' / hour' : member.payType === 'salary' ? ' / year' : ''}`
-              : 'Not set'}
+            : member.payType == null || member.payRateCents == null
+              ? 'Not set'
+              : formatPayRateLong(member.payType, member.payRateCents)}
         </Text>
       </View>
 

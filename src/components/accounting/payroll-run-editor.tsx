@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { Badge } from '@/components/badge';
 import { formatAccountingCents, toCents } from '@/lib/currency';
+import { formatPayRate } from '@/lib/pay-rate';
 import { draftTotalCents } from '@/lib/payroll-reporting';
 import type { PayrollRun, PayrollRunLine } from '@/types/models';
 
@@ -154,7 +155,7 @@ function PayrollLineRow({
     line.payType === 'hourly'
       ? `${line.hoursWorked ?? 0}h at ${line.payRateCents !== null ? formatAccountingCents(line.payRateCents) : '—'}/h`
       : line.payType
-        ? `${line.payType === 'salary' ? 'Salary' : 'Fixed'} · ${line.payRateCents !== null ? formatAccountingCents(line.payRateCents) : '—'}`
+        ? `${line.payType === 'salary' ? 'Salary' : 'Fixed'} · ${formatPayRate(line.payType, line.payRateCents)}`
         : 'No pay rate set';
 
   return (
