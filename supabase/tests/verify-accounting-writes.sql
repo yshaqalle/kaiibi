@@ -24,6 +24,7 @@ declare
   v_status text;
   v_note text;
   v_raised boolean;
+  v_err text;
 begin
   -- A user and shop to act as. auth.uid() reads request.jwt.claims->>'sub',
   -- so setting that GUC is what makes has_shop_permission() behave as it
@@ -244,6 +245,60 @@ begin
     if v_amount <> 8000 then raise exception 'FAIL: blocked-run expense %, expected 8000 (3000 + 5000)', v_amount; end if;
     if v_date <> date '2026-09-07' then raise exception 'FAIL: blocked-run expense dated %, expected the period end', v_date; end if;
     raise notice 'OK: blocked run posted one expense of % dated %', v_amount, v_date;
+  end;
+
+  raise notice '--- a DIFFERENT member may be paid over an overlapping period ---';
+  declare
+    v_other_member uuid;
+    v_other_user uuid;
+    v_parallel_id uuid;
+  begin
+    -- Brief defect found and authorized fix: a bare gen_random_uuid() here has
+    -- no matching auth.users row, so the shop_members insert trips its
+    -- user_id FK before the guard under test is ever reached. Mirror lines
+    -- 32-34, which create v_user_id's auth.users row the same way. A fresh
+    -- user (not v_user_id) because shop_members is unique on (shop_id,
+    -- user_id) and reusing v_user_id would trip that constraint instead.
+    v_other_user := gen_random_uuid();
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_other_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-' || v_other_user || '@example.test', '', now(), now(), now());
+    insert into public.shop_members (shop_id, user_id, role_id, active, full_name, pay_type, pay_rate_cents, pay_cadence)
+      values (v_shop_id, v_other_user, v_role_id, true, 'Parallel Staff', 'hourly', 500, 'weekly')
+      returning id into v_other_member;
+    insert into public.payroll_runs (shop_id, period_start, period_end, cadence)
+      values (v_shop_id, '2026-08-03', '2026-08-09', 'weekly') returning id into v_parallel_id;
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+      values (v_parallel_id, v_other_member, 'Parallel Staff', 2500);
+
+    -- This overlaps the already-posted Aug 1-7 run. Under the old shop-wide
+    -- guard it was rejected; that is exactly what made per-member cadence
+    -- impossible, so accepting it is the behaviour worth proving.
+    perform public.post_payroll_run(v_parallel_id);
+    select status into v_status from public.payroll_runs where id = v_parallel_id;
+    if v_status <> 'posted' then raise exception 'FAIL: a different member was blocked by an overlapping period'; end if;
+    raise notice 'OK: overlapping period accepted for a different member';
+
+    raise notice '--- the SAME member is still refused over an overlapping period ---';
+    declare v_dupe_id uuid;
+    begin
+      insert into public.payroll_runs (shop_id, period_start, period_end)
+        values (v_shop_id, '2026-08-05', '2026-08-11') returning id into v_dupe_id;
+      insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+        values (v_dupe_id, v_other_member, 'Parallel Staff', 2500);
+      v_raised := false;
+      begin
+        perform public.post_payroll_run(v_dupe_id);
+      exception when others then
+        v_raised := true;
+        v_err := sqlerrm;
+      end;
+      if not v_raised then raise exception 'FAIL: the same member was paid twice for overlapping periods'; end if;
+      if v_err not like '%Parallel Staff%' then
+        raise exception 'FAIL: the error should name the member, got: %', v_err;
+      end if;
+      raise notice 'OK: same-member overlap refused, naming the member';
+    end;
   end;
 
   raise notice '--- unposting removes the generated expense ---';
