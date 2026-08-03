@@ -64,7 +64,10 @@ function mapStaffRow(row: any): StaffMember {
     shopId: row.shop_id,
     userId: row.user_id,
     roleId: row.role_id,
-    roleName: row.role?.name ?? '',
+    // Two row shapes reach here: the `list_shop_staff` RPC returns a flat
+    // `role_name` column, while the direct table selects (getMyMembership)
+    // embed it as `role: { name }` via PostgREST.
+    roleName: row.role?.name ?? row.role_name ?? '',
     active: row.active,
     fullName: row.full_name,
     email: row.email,
@@ -76,17 +79,20 @@ function mapStaffRow(row: any): StaffMember {
 }
 
 export async function listStaff(shopId: string): Promise<StaffMember[]> {
-  // `profiles` isn't embeddable here -- shop_members and profiles both
-  // reference auth.users but have no direct FK to each other, so
-  // PostgREST can't join them. full_name/email are denormalized onto
-  // shop_members at provision time instead (see migrations 0019, 0021).
-  const { data, error } = await supabase
-    .from('shop_members')
-    .select('*, role:roles(name)')
-    .eq('shop_id', shopId)
-    .order('created_at', { ascending: true });
+  // An RPC rather than a table select because RLS is row-level, not
+  // column-level: reading `shop_members` directly hands pay_type/pay_rate_cents
+  // to every role that can see the roster at all. `list_shop_staff` blanks
+  // those two columns unless the caller holds people.payroll.manage, so the
+  // pay gate is enforced in the database instead of only in the UI that
+  // renders it. See migration 20260803010000.
+  //
+  // (`profiles` still isn't embeddable -- shop_members and profiles both
+  // reference auth.users with no direct FK between them -- so full_name/email
+  // remain denormalized onto shop_members at provision time, migrations
+  // 0019/0021.)
+  const { data, error } = await supabase.rpc('list_shop_staff', { p_shop_id: shopId });
   if (error) throw error;
-  return (data ?? []).map(mapStaffRow);
+  return ((data as any[] | null) ?? []).map(mapStaffRow);
 }
 
 // A staff member's own roster row -- the "am I on the team, and what's my
