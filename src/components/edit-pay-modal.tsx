@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
+import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
 import type { StaffMember } from '@/types/models';
 
 export function EditPayModal({
@@ -16,24 +16,26 @@ export function EditPayModal({
   onSave: (patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null }) => Promise<void>;
 }) {
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
-  const [payType, setPayType] = useState<StaffMember['payType']>(member.payType);
-  const [rate, setRate] = useState(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
+  const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (visible) {
       setHireDate(member.hireDate ?? '');
-      setPayType(member.payType);
-      setRate(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
+      setPay(payFieldsInitial(member));
       setError(null);
     }
   }, [visible, member]);
 
   const save = async () => {
     setError(null);
-    const trimmedRate = rate.trim();
-    if (trimmedRate && Number.isNaN(parseFloat(trimmedRate))) {
+    // payFieldsToCents delegates to toCents, which never fails to parse --
+    // unparseable text like "abc" quietly collapses to 0 rather than null.
+    // Gating on <= 0 (not just === null) is what stops that from silently
+    // overwriting the member's real stored rate with a $0 one.
+    const rateCents = payFieldsToCents(pay);
+    if (pay.rate.trim() && (rateCents === null || rateCents <= 0)) {
       setError('Enter a valid pay rate, or leave it blank.');
       return;
     }
@@ -41,8 +43,8 @@ export function EditPayModal({
     try {
       await onSave({
         hireDate: hireDate.trim() || null,
-        payType: payType ?? null,
-        payRateCents: trimmedRate ? Math.round(parseFloat(trimmedRate) * 100) : null,
+        payType: pay.payType ?? null,
+        payRateCents: rateCents,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save these changes.');
@@ -70,14 +72,7 @@ export function EditPayModal({
           </View>
           <Text style={styles.fieldLabel}>HIRE DATE (YYYY-MM-DD)</Text>
           <TextInput value={hireDate} onChangeText={setHireDate} placeholder="2026-01-15" placeholderTextColor="#999999" style={styles.input} />
-          <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PAY TYPE</Text>
-          <View style={styles.chipRow}>
-            {(['hourly', 'salary', 'fixed'] as const).map((t) => (
-              <CategoryChip key={t} label={t[0].toUpperCase() + t.slice(1)} active={payType === t} onPress={() => setPayType(t)} />
-            ))}
-          </View>
-          <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PAY RATE (DOLLARS)</Text>
-          <TextInput value={rate} onChangeText={setRate} placeholder="e.g. 8.50" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} />
+          <PayFields value={pay} onChange={setPay} />
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
       </View>

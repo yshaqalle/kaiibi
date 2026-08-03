@@ -3,6 +3,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput } from '@/components/date-input';
+import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
 import type { Role, StaffMember } from '@/types/models';
 
 type MemberEdits = {
@@ -30,8 +31,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
   const [roleId, setRoleId] = useState(member.roleId);
   const [active, setActive] = useState(member.active);
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
-  const [payType, setPayType] = useState<StaffMember['payType']>(member.payType);
-  const [rate, setRate] = useState(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
+  const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +40,12 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
       setError('Name, email, and role are required.');
       return;
     }
-    if (rate.trim() && Number.isNaN(Number(rate))) {
+    // payFieldsToCents delegates to toCents, which never fails to parse --
+    // unparseable text like "abc" quietly collapses to 0 rather than null.
+    // Gating on <= 0 (not just === null) is what stops that from silently
+    // overwriting the member's real stored rate with a $0 one.
+    const rateCents = payFieldsToCents(pay);
+    if (pay.rate.trim() && (rateCents === null || rateCents <= 0)) {
       setError('Enter a valid pay rate.');
       return;
     }
@@ -56,8 +61,8 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
         ...(canManagePayroll
           ? {
               hireDate: hireDate || null,
-              payType: payType ?? null,
-              payRateCents: rate.trim() ? Math.round(Number(rate) * 100) : null,
+              payType: pay.payType ?? null,
+              payRateCents: rateCents,
             }
           : {}),
       });
@@ -101,14 +106,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
               <>
                 <Text style={styles.label}>HIRE DATE</Text>
                 <DateInput value={hireDate} onChangeText={setHireDate} />
-                <Text style={styles.label}>PAY TYPE</Text>
-                <View style={styles.chips}>
-                  {(['hourly', 'salary', 'fixed'] as const).map((type) => (
-                    <CategoryChip key={type} label={type[0].toUpperCase() + type.slice(1)} active={payType === type} onPress={() => setPayType(type)} />
-                  ))}
-                </View>
-                <Text style={styles.label}>PAY RATE (DOLLARS)</Text>
-                <TextInput value={rate} onChangeText={setRate} keyboardType="decimal-pad" style={styles.input} />
+                <PayFields value={pay} onChange={setPay} />
               </>
             )}
             {error && <Text style={styles.error}>{error}</Text>}
