@@ -1,3 +1,4 @@
+import { toDateColumn } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import type { Invoice, InvoicePayment, NewInvoiceInput } from '@/types/models';
 
@@ -53,17 +54,53 @@ function toRow(input: Partial<NewInvoiceInput>) {
 
 const SELECT_WITH_PAYMENTS = '*, invoice_payments(*)';
 
-// Not date-range scoped: the outstanding-balance tiles need every unpaid bill
-// regardless of when it was raised, and a shop's bill list is small enough
-// that filtering the visible rows client-side beats a second round trip.
-export async function listInvoices(shopId: string): Promise<Invoice[]> {
+// Payment history is only read when the record-payment modal is open, so it's
+// left off the list queries below -- it's per-bill nested data that would
+// otherwise grow the payload with every payment ever made. Status and balance
+// come from `paid_cents` on the bill itself and need none of it.
+const SELECT_LIST = '*';
+
+// Every bill still owed, whenever it was raised. Deliberately not date-scoped:
+// a bill from four months ago that was never paid is exactly the one the
+// outstanding and overdue totals must not hide, and truncating this query
+// would silently understate the debt.
+//
+// Bounded by how much the shop actually owes rather than by how long it has
+// been trading, so it stays small as history accumulates.
+export async function listOpenInvoices(shopId: string): Promise<Invoice[]> {
   const { data, error } = await supabase
     .from('invoices')
-    .select(SELECT_WITH_PAYMENTS)
+    .select(SELECT_LIST)
     .eq('shop_id', shopId)
+    .eq('settled', false)
     .order('due_on', { ascending: true });
   if (error) throw error;
   return (data ?? []).map(mapInvoiceRow);
+}
+
+// Bills issued inside the selected window, for the visible list. Bounded by
+// the range; `limit` is a backstop for someone picking a very wide custom
+// range, not the primary bound.
+export async function listInvoicesInRange(shopId: string, since: Date, until?: Date, limit = 200): Promise<Invoice[]> {
+  let query = supabase
+    .from('invoices')
+    .select(SELECT_LIST)
+    .eq('shop_id', shopId)
+    .gte('issued_on', toDateColumn(since))
+    .order('issued_on', { ascending: false })
+    .limit(limit);
+  if (until) query = query.lte('issued_on', toDateColumn(until));
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(mapInvoiceRow);
+}
+
+// One bill with its payment history — for the record-payment modal, which is
+// the only place that needs it.
+export async function getInvoiceWithPayments(id: string): Promise<Invoice> {
+  const { data, error } = await supabase.from('invoices').select(SELECT_WITH_PAYMENTS).eq('id', id).single();
+  if (error) throw error;
+  return mapInvoiceRow(data);
 }
 
 // The linked expense row is created by a database trigger, not here -- see the
@@ -73,7 +110,7 @@ export async function createInvoice(shopId: string, input: NewInvoiceInput): Pro
   const { data, error } = await supabase
     .from('invoices')
     .insert({ shop_id: shopId, ...toRow(input), created_by: userData.user?.id ?? null })
-    .select(SELECT_WITH_PAYMENTS)
+    .select(SELECT_LIST)
     .single();
   if (error) throw error;
   return mapInvoiceRow(data);

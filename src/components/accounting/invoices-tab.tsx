@@ -17,8 +17,16 @@ import {
   invoiceTotals,
   sortInvoicesForDisplay,
 } from '@/lib/invoice-reporting';
-import { createInvoice, deleteInvoice, deleteInvoicePayment, listInvoices, recordInvoicePayment, updateInvoice } from '@/lib/invoices';
-import { isDateColumnInRange } from '@/lib/period';
+import {
+  createInvoice,
+  deleteInvoice,
+  deleteInvoicePayment,
+  getInvoiceWithPayments,
+  listInvoicesInRange,
+  listOpenInvoices,
+  recordInvoicePayment,
+  updateInvoice,
+} from '@/lib/invoices';
 import type { Invoice } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
@@ -40,7 +48,11 @@ export function InvoicesTab({
   const compact = width < 860;
   const canManage = can('invoices.manage');
 
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // Two sets, because the tiles and the list want different things: the
+  // tiles need every unpaid bill however old, the list needs what was issued
+  // in the selected window. Neither wants "every bill ever".
+  const [openInvoices, setOpenInvoices] = useState<Invoice[]>([]);
+  const [rangeInvoices, setRangeInvoices] = useState<Invoice[]>([]);
   const [editing, setEditing] = useState<Invoice | 'new' | null>(null);
   const [paying, setPaying] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,41 +62,51 @@ export function InvoicesTab({
     if (!shop) return;
     setLoading(true);
     try {
-      setInvoices(await listInvoices(shop.id));
+      const [open, inRange] = await Promise.all([
+        listOpenInvoices(shop.id),
+        listInvoicesInRange(shop.id, dateRange.since, dateRange.until),
+      ]);
+      setOpenInvoices(open);
+      setRangeInvoices(inRange);
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [shop]);
+  }, [shop, dateRange]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Totals cover every bill, not just the visible window -- what you owe is a
-  // fact about now, and a bill raised before the selected range is exactly the
-  // one you'd not want hidden.
-  const totals = useMemo(() => invoiceTotals(invoices), [invoices]);
+  const totals = useMemo(() => invoiceTotals(openInvoices), [openInvoices]);
 
-  // The list, by contrast, respects the range so it stays browsable.
+  // Unpaid bills always show, even when issued outside the window -- the list
+  // would otherwise disagree with the totals right above it. Merged by id so a
+  // bill in both sets appears once.
   const visible = useMemo(() => {
-    const inRange = invoices.filter((invoice) => isDateColumnInRange(invoice.issuedOn, dateRange.since, dateRange.until));
-    return sortInvoicesForDisplay(inRange);
-  }, [invoices, dateRange]);
+    const byId = new Map(rangeInvoices.map((invoice) => [invoice.id, invoice]));
+    for (const invoice of openInvoices) byId.set(invoice.id, invoice);
+    return sortInvoicesForDisplay(Array.from(byId.values()));
+  }, [rangeInvoices, openInvoices]);
 
   const close = () => setEditing(null);
 
-  // The modal holds a snapshot, so after recording a payment it has to be
-  // re-read from the refreshed list or it shows a stale balance.
-  const refreshPaying = (rows: Invoice[]) => {
-    setPaying((current) => (current ? rows.find((i) => i.id === current.id) ?? null : null));
+  const openPaymentModal = async (id: string) => {
+    setError(null);
+    try {
+      setPaying(await getInvoiceWithPayments(id));
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    }
   };
 
+  // The modal holds a snapshot, so after a payment it has to be re-read or it
+  // shows a stale balance. Fetched individually because it's the only place
+  // that needs the payment history.
   const reloadAnd = async () => {
-    if (!shop) return;
-    const rows = await listInvoices(shop.id);
-    setInvoices(rows);
-    refreshPaying(rows);
+    const current = paying;
+    await reload();
+    if (current) setPaying(await getInvoiceWithPayments(current.id));
   };
 
   useHeaderActions(
@@ -123,7 +145,7 @@ export function InvoicesTab({
         <Text style={styles.empty}>Loading…</Text>
       ) : visible.length === 0 ? (
         <Text style={styles.empty}>
-          {invoices.length === 0 ? 'No bills recorded yet.' : 'No bills issued in this date range.'}
+          {openInvoices.length === 0 ? 'No bills recorded yet.' : 'No bills issued in this date range.'}
         </Text>
       ) : (
         <View style={styles.list}>
@@ -150,7 +172,7 @@ export function InvoicesTab({
                 {canManage && (
                   <View style={styles.actionRow}>
                     {outstanding > 0 && (
-                      <Pressable onPress={() => setPaying(invoice)} style={styles.payButton}>
+                      <Pressable onPress={() => openPaymentModal(invoice.id)} style={styles.payButton}>
                         <Text style={styles.payButtonText}>Record payment</Text>
                       </Pressable>
                     )}
