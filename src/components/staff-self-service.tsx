@@ -6,7 +6,8 @@ import { Card } from '@/components/card';
 import { DateInput } from '@/components/date-input';
 import { StatTile } from '@/components/stat-tile';
 import { TIME_OFF_REASONS } from '@/constants/time-off';
-import { formatPayRate } from '@/lib/pay-rate';
+import { formatAccountingCents } from '@/lib/currency';
+import { payRateUnitLabel } from '@/lib/pay-rate';
 import { clockIn, clockOut, getOpenTimeEntry, listMyTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { cancelTimeOffRequest, listMyTimeOffRequests, requestTimeOff, updateTimeOffRequest } from '@/lib/time-off';
 import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
@@ -86,7 +87,10 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
       <View style={styles.tiles}>
         <StatTile value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
         <StatTile value={member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—'} label="Pay type" />
-        <StatTile value={formatPayRate(member.payType, member.payRateCents)} label="Pay rate" />
+        <StatTile
+          value={member.payType && member.payRateCents !== null ? formatAccountingCents(member.payRateCents) : '—'}
+          label={member.payType ? `Pay rate (${payRateUnitLabel(member.payType)})` : 'Pay rate'}
+        />
       </View>
 
       <View style={styles.section}>
