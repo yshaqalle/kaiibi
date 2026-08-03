@@ -168,11 +168,35 @@ Unit tests in `src/lib/__tests__/payroll-reporting.test.ts`:
 - The prorated warning produces `warningBlocking: false`.
 - A clean line produces `warning: null, warningBlocking: false`.
 
-**Honest limit:** the `post_payroll_run` guard **cannot be unit-tested in this
-repo.** There is no local Supabase instance and the suite is Jest-only, so no
-test can execute the RPC. It is verified by code review plus applying the
-migration to the remote. This is a real gap, not an oversight — stating it here
-so the plan does not pretend otherwise.
+### The `post_payroll_run` guard is tested too
+
+An earlier draft of this spec claimed the RPC could not be tested here. That
+was wrong. `supabase/tests/verify-accounting-writes.sql` is an established
+harness for exactly this — checks that "can only be made against a real
+Postgres: triggers, RLS policies, and `security definer` RPCs" — and it
+**already covers `post_payroll_run`**, asserting that posting writes one
+`salaries_wages` expense dated period end, that a double post is rejected, and
+that an overlapping period is rejected (`verify-accounting-writes.sql:152-203`).
+
+The new guard is tested in the same file, following its existing shape: build a
+run with a blocking-and-zero line, assert `post_payroll_run` raises; set an
+amount on that line, assert it then posts. Everything runs inside the one `DO`
+block whose `EXCEPTION` clause rolls the lot back, so it leaves no rows behind.
+
+Run with:
+
+```bash
+supabase start
+supabase db reset
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-accounting-writes.sql
+```
+
+`supabase db reset` is itself part of the value: it proves the whole migration
+chain still applies to an empty database, which pushing incrementally never
+checks. That is exactly the class of defect that slipped through in spec 1a,
+where a migration was timestamped before the table it referenced and would have
+broken a fresh reset — caught only by a reviewer reading version numbers.
 
 ## Sequence
 
