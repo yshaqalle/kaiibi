@@ -10,7 +10,7 @@ import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { formatAccountingCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { getSalesAndRefundsInRange, getTopSellingProducts } from '@/lib/sales';
@@ -94,14 +94,14 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatAccountingCents(revenueCents)} label="Revenue" />
-        <StatTile value={formatAccountingCents(expenseCents)} label="Expenses" />
+        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" />
+        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />
         <StatTile
-          value={formatAccountingCents(netProfitCents)}
+          value={formatCompactCents(netProfitCents)}
           label="Net profit"
           tone={netProfitCents < 0 ? 'warning' : 'default'}
         />
-        <StatTile value={formatAccountingCents(taxCents)} label="Sales tax collected" />
+        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" />
       </View>
 
       {/* Revenue excludes tax the shop is only holding, so the two figures

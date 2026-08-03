@@ -8,7 +8,7 @@ import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
-import { formatAccountingCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import {
   balanceCents,
   INVOICE_STATUS_LABELS,
@@ -123,12 +123,12 @@ export function InvoicesTab({
     <View>
       <View style={styles.metricRow}>
         <StatTile
-          value={formatAccountingCents(totals.outstandingCents)}
+          value={formatCompactCents(totals.outstandingCents)}
           label="Still owed"
           tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
         />
         <StatTile
-          value={formatAccountingCents(totals.overdueCents)}
+          value={formatCompactCents(totals.overdueCents)}
           label="Overdue"
           tone={totals.overdueCents > 0 ? 'warning' : 'default'}
         />

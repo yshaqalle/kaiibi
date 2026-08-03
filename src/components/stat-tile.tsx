@@ -23,13 +23,26 @@ export function StatTile({
   return (
     <Card style={styles.tile}>
       <View style={styles.valueRow}>
-        <Text style={[styles.value, { color: tone === 'warning' ? theme.warning : theme.text }]}>{value}</Text>
+        {/* Shrinks rather than overflows, and never wraps: a figure broken
+            across two lines is harder to read than one scaled down. */}
+        <Text
+          style={[styles.value, { color: tone === 'warning' ? theme.warning : theme.text }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.7}
+        >
+          {value}
+        </Text>
         {delta ? (
           <Text style={[styles.delta, { color: delta.direction === 'up' ? theme.success : theme.danger }]}>{delta.text}</Text>
         ) : null}
       </View>
       {sparkline && sparkline.length > 1 ? <Sparkline values={sparkline} /> : null}
-      <Text style={[styles.label, { color: theme.textSecondary }]}>{label}</Text>
+      {/* Two lines, so "Customers to check on" wraps between words instead of
+          being broken mid-word by a column too narrow for the longest one. */}
+      <Text style={[styles.label, { color: theme.textSecondary }]} numberOfLines={2}>
+        {label}
+      </Text>
     </Card>
   );
 }
@@ -58,9 +71,18 @@ function Sparkline({ values }: { values: number[] }) {
 }
 
 const styles = StyleSheet.create({
-  tile: { flex: 1, minHeight: 90, padding: 14, justifyContent: 'flex-end' },
-  valueRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', gap: 4 },
-  value: { fontSize: 22, letterSpacing: -1, fontWeight: '800' },
+  // `minWidth` is what makes the surrounding `flexWrap` row actually wrap.
+  // With `flex: 1` alone the tiles shrink without limit, so five of them
+  // squeeze onto one phone-width line, clipping the value and breaking the
+  // label mid-word. Now they drop to the next line instead — roughly two per
+  // row on a phone, all five across on a tablet.
+  tile: { flex: 1, minWidth: 132, minHeight: 90, padding: 14, justifyContent: 'flex-end' },
+  // No wrapping here: the value and its delta stay on one line together, and
+  // the value scales down if it has to.
+  valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 4 },
+  // flexShrink lets adjustsFontSizeToFit actually engage — without it the Text
+  // keeps its intrinsic width and overflows the tile instead of scaling.
+  value: { flexShrink: 1, fontSize: 22, letterSpacing: -1, fontWeight: '800' },
   delta: { fontSize: 10.5, fontWeight: '700' },
   spark: { marginTop: 6 },
   label: { marginTop: 4, fontSize: 11, lineHeight: 14 },

@@ -31,7 +31,7 @@ import {
   createRecurringBill,
   updateRecurringBill,
 } from '@/lib/cash-budgets';
-import { formatAccountingCents, toCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents, toCents } from '@/lib/currency';
 import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
@@ -148,10 +148,10 @@ export function CashBudgetsTab({
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatAccountingCents(cashTotal)} label="Cash on hand" />
-        <StatTile value={formatAccountingCents(monthlyCommitment)} label="Committed each month" />
+        <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />
+        <StatTile value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
         {canSeeWagesOwed && accruedWagesCents > 0 && (
-          <StatTile value={formatAccountingCents(accruedWagesCents)} label="Wages owed" tone="warning" />
+          <StatTile value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
         )}
       </View>
 

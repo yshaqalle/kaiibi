@@ -10,7 +10,7 @@ import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { formatAccountingCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
@@ -177,8 +177,8 @@ export default function DashboardScreen() {
           {/* Net of sales tax and refunds — tax collected is the government's
               money, so it was never revenue. Reads lower than the old figure
               for tax-enabled shops; that's the correction, not a regression. */}
-          <StatTile value={formatAccountingCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
-          {canSeeExpenses && <StatTile value={formatAccountingCents(expenseCents)} label="Expenses" />}
+          <StatTile value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
+          {canSeeExpenses && <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />}
           <StatTile value={String(orderCount)} label="Orders" />
           {canSeeCustomers && (
             <StatTile
