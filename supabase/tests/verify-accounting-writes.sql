@@ -301,6 +301,64 @@ begin
     end;
   end;
 
+  raise notice '--- KNOWN LIMITATION (not a goal, do not "fix" without reading the migration header): two shop_members rows for the same human both get paid over an overlapping period ---';
+  declare
+    v_bob_one_user uuid;
+    v_bob_one_member uuid;
+    v_bob_one_run_id uuid;
+    v_bob_two_user uuid;
+    v_bob_two_member uuid;
+    v_bob_two_run_id uuid;
+  begin
+    -- The per-member overlap guard keys on shop_member_id, and shop_members
+    -- is unique on (shop_id, user_id) -- not on "is this the same human".
+    -- Two shop_members rows for one person (duplicate hire record, second
+    -- auth account) collide with nothing in the guard, so both can be paid
+    -- over overlapping periods. The old shop-wide guard caught this
+    -- incidentally, as a side effect of blocking every overlap; the
+    -- per-member guard does not, by design (see the migration header in
+    -- 20260804030100_payroll_per_member_overlap.sql). This test PINS that
+    -- known behaviour so it doesn't silently change; it is not asserting
+    -- this is desired. If a future change closes this gap, this test should
+    -- be rewritten to assert the block, not deleted.
+    --
+    -- Each row needs its own auth.users row (mirrors lines 32-34) and its
+    -- own user_id, since shop_members is unique on (shop_id, user_id).
+    v_bob_one_user := gen_random_uuid();
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_bob_one_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-' || v_bob_one_user || '@example.test', '', now(), now(), now());
+    insert into public.shop_members (shop_id, user_id, role_id, active, full_name, pay_type, pay_rate_cents)
+      values (v_shop_id, v_bob_one_user, v_role_id, true, 'Bob', 'hourly', 500)
+      returning id into v_bob_one_member;
+
+    v_bob_two_user := gen_random_uuid();
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_bob_two_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-' || v_bob_two_user || '@example.test', '', now(), now(), now());
+    insert into public.shop_members (shop_id, user_id, role_id, active, full_name, pay_type, pay_rate_cents)
+      values (v_shop_id, v_bob_two_user, v_role_id, true, 'Bob', 'hourly', 500)
+      returning id into v_bob_two_member;
+
+    insert into public.payroll_runs (shop_id, period_start, period_end)
+      values (v_shop_id, '2026-10-01', '2026-10-07') returning id into v_bob_one_run_id;
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+      values (v_bob_one_run_id, v_bob_one_member, 'Bob', 2000);
+    perform public.post_payroll_run(v_bob_one_run_id);
+
+    insert into public.payroll_runs (shop_id, period_start, period_end)
+      values (v_shop_id, '2026-10-03', '2026-10-09') returning id into v_bob_two_run_id;
+    insert into public.payroll_run_lines (payroll_run_id, shop_member_id, member_name, amount_cents)
+      values (v_bob_two_run_id, v_bob_two_member, 'Bob', 2000);
+    perform public.post_payroll_run(v_bob_two_run_id);
+
+    select status into v_status from public.payroll_runs where id = v_bob_two_run_id;
+    if v_status <> 'posted' then
+      raise exception 'FAIL: known-limitation test drifted -- the second "Bob" run was blocked. The guard behaviour changed; update this test (and the migration header) rather than treating this failure as a regression to revert.';
+    end if;
+    raise notice 'OK (known limitation, not desired behaviour): two distinct shop_members rows both named Bob were both paid over overlapping periods 2026-10-01..07 and 2026-10-03..09';
+  end;
+
   raise notice '--- unposting removes the generated expense ---';
   perform public.unpost_payroll_run(v_run_id);
   select count(*) into v_count from public.expenses where payroll_run_id = v_run_id;

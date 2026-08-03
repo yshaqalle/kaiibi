@@ -3,11 +3,29 @@
 -- that forbids: Bob paid monthly for Aug 1-31 and Alice paid weekly for
 -- Aug 1-7 are overlapping runs that must both succeed.
 --
--- It is now a member-intersection check, which is STRICTLY STRONGER than the
--- period-only version rather than a loosening: it still catches every
--- same-member double-pay, and additionally catches someone whose cadence
--- changed mid-stream into a differently-shaped run -- a case the period check
--- sails past whenever the two periods happen not to overlap.
+-- It is now a member-intersection check: the old period predicate plus an
+-- `and l.shop_member_id in (...)` conjunct. A conjunction can only narrow the
+-- set of rows a WHERE clause matches, so this is a deliberate, scoped
+-- NARROWING of the guard, not a strengthening -- every run the new check
+-- rejects, the old one also rejected, and not the reverse. It is required
+-- because different cadences legitimately overlap (see Bob/Alice above); the
+-- old guard made that impossible.
+--
+-- What this gives up: shop-wide catch-all protection. The old guard blocked
+-- ANY two overlapping posted runs in the shop, regardless of who was on
+-- them. This one only blocks it when the SAME shop_member_id shows up in
+-- both, so any double-pay that doesn't route through a shared
+-- shop_member_id now sails through unchecked.
+--
+-- Known residual risk that narrowing opens: the guard keys on
+-- shop_member_id, and shop_members is unique on (shop_id, user_id) --
+-- nothing stops two different rows (two staff records, two auth accounts)
+-- from being the same human. Two shop_members rows for one person can each
+-- be paid over overlapping periods with nothing here to catch it; the old
+-- shop-wide guard blocked that case too, incidentally, as a side effect of
+-- blocking everything. See the "two shop_members rows, one human" check in
+-- verify-accounting-writes.sql, which pins this as known behaviour rather
+-- than asserting it's desired.
 --
 -- The error names the people rather than the period, because overlap is now
 -- expected and only the member collision is the problem. The name list is
@@ -37,11 +55,7 @@ begin
     raise exception 'this pay run has already been posted';
   end if;
 
-  select
-    string_agg(name, ', ' order by name),
-    count(*)
-  into v_conflict_names, v_conflict_count
-  from (
+  with conflicts as (
     select distinct coalesce(l.member_name, 'A staff member') as name
     from public.payroll_runs r
       join public.payroll_run_lines l on l.payroll_run_id = r.id
@@ -53,29 +67,31 @@ begin
       and l.shop_member_id in (
         select shop_member_id from public.payroll_run_lines where payroll_run_id = p_run_id
       )
-    limit 6
-  ) conflicts;
+  )
+  select
+    (select string_agg(name, ', ' order by name) from (select name from conflicts order by name limit 6) top6),
+    (select count(*) from conflicts)
+  into v_conflict_names, v_conflict_count;
   if v_conflict_names is not null then
-    raise exception '% already paid for part of % to %',
-      case when v_conflict_count > 5 then v_conflict_names || ' and others' else v_conflict_names end,
+    raise exception '% was already paid for part of % to %',
+      case when v_conflict_count > 6 then v_conflict_names || ' and others' else v_conflict_names end,
       v_run.period_start, v_run.period_end;
   end if;
 
-  select
-    string_agg(name, ', ' order by name),
-    count(*)
-  into v_blocked_names, v_blocked_count
-  from (
+  with blocked as (
     select distinct coalesce(member_name, 'A staff member') as name
     from public.payroll_run_lines
     where payroll_run_id = p_run_id
       and warning_blocking
       and amount_cents = 0
-    limit 6
-  ) blocked;
+  )
+  select
+    (select string_agg(name, ', ' order by name) from (select name from blocked order by name limit 6) top6),
+    (select count(*) from blocked)
+  into v_blocked_names, v_blocked_count;
   if v_blocked_names is not null then
     raise exception 'no amount set for % — enter an amount, or set a pay rate in People',
-      case when v_blocked_count > 5 then v_blocked_names || ' and others' else v_blocked_names end;
+      case when v_blocked_count > 6 then v_blocked_names || ' and others' else v_blocked_names end;
   end if;
 
   select coalesce(sum(amount_cents), 0) into v_total
@@ -114,6 +130,6 @@ $$;
 -- oldest: the function is recreated often enough that its rationale gets
 -- stranded otherwise.
 comment on function public.post_payroll_run(uuid) is
-  'Commits a draft pay run: writes one salaries_wages expense dated period_end and flips the status. The row is locked first so two concurrent posts cannot both see draft. Rejects: an already-posted run; an overlapping posted run that shares a member (per member, not per period, because different cadences legitimately overlap); a line warning of a missing pay rate that still has no amount; and a run totalling zero. The expense is dated period_end so August payroll posted in September lands in August.';
+  'Commits a draft pay run: writes one salaries_wages expense dated period_end and flips the status. The row is locked first, which guarantees only that two concurrent posts of the SAME run cannot both see draft; two concurrent posts of DIFFERENT overlapping runs that share a member each lock only their own row and can both succeed -- a pre-existing race, not introduced by the per-member overlap check. Rejects: a run id that does not exist; a caller missing people.payroll.manage or expenses.manage; an already-posted run; an overlapping posted run that shares a member (per member, not per period, because different cadences legitimately overlap); a line warning of a missing pay rate that still has no amount; and a run totalling zero. The expense is dated period_end so August payroll posted in September lands in August.';
 
 grant execute on function public.post_payroll_run(uuid) to authenticated;
