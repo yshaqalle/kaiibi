@@ -211,11 +211,24 @@ if v_conflict_names is not null then
 end if;
 ```
 
-This is **strictly stronger than the period-only check**, not a loosening of
-protection: it still catches every same-member double-pay, and additionally
-catches someone whose cadence changed mid-stream into a differently-shaped run —
-which the period-only check would sail past whenever the periods happen not to
-overlap.
+**This is a loosening, and calling it anything else would be wrong.** An earlier
+draft of this spec claimed it was "strictly stronger than the period-only
+check". That is false. The new predicate is the old predicate plus an additional
+`and l.shop_member_id in (...)` conjunct, and a conjunction can only narrow: the
+set of runs rejected is a strict subset of what the period-only check rejected.
+There is no input the new guard rejects that the old one accepted.
+
+It is a deliberate, scoped narrowing, and it is required — different cadences
+legitimately overlap, so a period-only check makes per-member cadence impossible.
+But the cost is real and must be recorded rather than argued away.
+
+**What it gives up.** The guard keys on `shop_member_id`. `shop_members` is
+unique on `(shop_id, user_id)`, so one auth account cannot hold two rows — but
+the same *human* under two accounts, or two staff records, can. Two such rows can
+now both be paid over overlapping periods; the shop-wide check blocked that. This
+is documented in the migration header and pinned by a test in
+`verify-accounting-writes.sql`, so it is a known property rather than a
+discovery waiting to happen.
 
 The error names the people rather than the period, because overlap is now
 *expected* and only the member collision is the problem.

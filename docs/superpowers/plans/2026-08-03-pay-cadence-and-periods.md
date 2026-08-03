@@ -1280,7 +1280,14 @@ Create `supabase/migrations/20260804030100_payroll_per_member_overlap.sql`:
 -- that forbids: Bob paid monthly for Aug 1-31 and Alice paid weekly for
 -- Aug 1-7 are overlapping runs that must both succeed.
 --
--- It is now a member-intersection check, which is STRICTLY STRONGER than the
+-- NOTE: the header below was corrected after review. See the committed migration
+-- for the authoritative text. It is a deliberate NARROWING, not a strengthening:
+-- the new predicate is the old one plus a member conjunct, so a conjunction can
+-- only reject fewer runs. Required because different cadences legitimately
+-- overlap; the cost is that two shop_members rows for the same human can both be
+-- paid over overlapping periods, which the shop-wide check blocked.
+--
+-- (superseded wording) It is now a member-intersection check, which is STRICTLY STRONGER than the
 -- period-only version rather than a loosening: it still catches every
 -- same-member double-pay, and additionally catches someone whose cadence
 -- changed mid-stream into a differently-shaped run -- a case the period check
@@ -1432,10 +1439,12 @@ The guard rejected any overlapping posted run shop-wide, which is exactly
 what per-member cadence requires: Bob monthly for Aug 1-31 and Alice
 weekly for Aug 1-7 must both post.
 
-Strictly stronger than the period-only check, not a loosening -- it still
-catches every same-member double-pay and additionally catches a
-mid-stream cadence change the period check would miss whenever the
-periods happen not to overlap.
+This is a deliberate narrowing, not a strengthening. The new predicate is
+the old one plus a member conjunct, so the runs it rejects are a strict
+subset of what the period check rejected. It gives up shop-wide catch-all
+protection: two shop_members rows for the same human can now both be paid
+over overlapping periods. Documented in the migration header and pinned
+by a test.
 
 Also caps the name lists and moves the function's rationale into a
 comment on the function, so recreating it doesn't strand the reasoning."
