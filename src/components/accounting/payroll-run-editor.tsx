@@ -104,7 +104,7 @@ export function PayrollRunEditor({
               <>
                 {blockedNames.length > 0 ? (
                   <Text style={styles.blockedNote}>
-                    Enter an amount for {blockedNames.join(', ')} before posting, or set a pay rate in People.
+                    Enter an amount for {blockedNames.join(', ')} before posting, or set a pay rate in People and build the draft again.
                   </Text>
                 ) : (
                   <Text style={styles.note}>

@@ -197,7 +197,9 @@ begin
   end;
 
   raise notice '--- a blocking warning with no amount is rejected ---';
-  declare v_block_id uuid;
+  declare
+    v_block_id uuid;
+    v_err text;
   begin
     insert into public.payroll_runs (shop_id, period_start, period_end)
       values (v_shop_id, '2026-09-01', '2026-09-07') returning id into v_block_id;
@@ -214,8 +216,12 @@ begin
       perform public.post_payroll_run(v_block_id);
     exception when others then
       v_raised := true;
+      v_err := sqlerrm;
     end;
     if not v_raised then raise exception 'FAIL: a blocking zero-amount line was posted'; end if;
+    if v_err not like 'no amount set for Verify Staff%' then
+      raise exception 'FAIL: blocking error did not name the member, got: %', v_err;
+    end if;
     raise notice 'OK: blocking zero-amount line rejected';
 
     raise notice '--- entering an amount clears the block, warning survives ---';
@@ -231,6 +237,13 @@ begin
       where payroll_run_id = v_block_id and warning_blocking and warning is not null;
     if v_count <> 1 then raise exception 'FAIL: the warning did not survive posting'; end if;
     raise notice 'OK: amount unblocked the post and the warning survived';
+
+    select count(*), max(amount_cents), max(occurred_on) into v_count, v_amount, v_date
+      from public.expenses where payroll_run_id = v_block_id;
+    if v_count <> 1 then raise exception 'FAIL: expected 1 expense for the blocked run, got %', v_count; end if;
+    if v_amount <> 8000 then raise exception 'FAIL: blocked-run expense %, expected 8000 (3000 + 5000)', v_amount; end if;
+    if v_date <> date '2026-09-07' then raise exception 'FAIL: blocked-run expense dated %, expected the period end', v_date; end if;
+    raise notice 'OK: blocked run posted one expense of % dated %', v_amount, v_date;
   end;
 
   raise notice '--- unposting removes the generated expense ---';
