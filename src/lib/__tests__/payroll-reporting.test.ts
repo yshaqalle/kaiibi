@@ -506,4 +506,52 @@ describe('accruedLaborCents', () => {
     const result = accruedLaborCents([fixed], [], since, until, []);
     expect(result.fixedExcludedCount).toBe(0);
   });
+
+  // Discriminates rounding order: a broken implementation that rounds the
+  // daily rate first and then multiplies (9864) must fail against the
+  // correct round-once-at-the-end figure (9863). 300000/mo over the same 3
+  // days can't tell the two apart -- both give 29589 -- which is exactly why
+  // a mutation of the rounding survived the suite until this test was added.
+  // 100000/mo x 12 / 365 = 3287.671.../day, x 3 uncovered days = 9863.013...,
+  // rounded once = 9863. Rounding the daily rate first gives round(3287.671)
+  // = 3288, x 3 = 9864.
+  it('rounds the salaried accrual once at the end, not per day', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 100000 });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.accruedCents).toBe(9863);
+  });
+
+  // hireDate bounds the accrual the same way a posted run does: a day before
+  // someone started isn't labour they performed, so it can't accrue. Hired
+  // partway through the 3-day range (Aug 1-3), so only Aug 2 and Aug 3
+  // accrue: 9863.013.../day x 2, rounded once = 19726.
+  it('does not accrue a salaried member for days before their hire date', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000, hireDate: '2026-08-02' });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.accruedCents).toBe(19726);
+  });
+
+  // An inactive salaried member is excluded from accrual entirely, not just
+  // undercounted -- the existing inactive-staff test only ever used a
+  // `fixed` member and asserted the exclusion count, never the money, so
+  // this path was untested.
+  it('accrues nothing for an inactive salaried member', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000, active: false });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.accruedCents).toBe(0);
+  });
+
+  // `PayrollRun.lines` is optional and the code falls back to `run.lines ??
+  // []`; a posted run with no lines recorded covers nobody, not everybody.
+  it('treats a posted run with an empty lines array as covering nobody', () => {
+    const runs = [makeRun('2026-08-01', '2026-08-01', [])];
+    const result = accruedLaborCents(
+      [hourly],
+      [makeEntry('2026-08-01', 8), makeEntry('2026-08-02', 4)],
+      since,
+      until,
+      runs
+    );
+    expect(result.accruedCents).toBe(6000);
+  });
 });

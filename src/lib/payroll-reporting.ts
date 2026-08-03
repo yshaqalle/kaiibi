@@ -161,7 +161,7 @@ export function accruedLaborCents(
   since: Date,
   until: Date,
   postedRuns: PayrollRun[]
-): { accruedCents: number; hours: number; fixedExcludedCount: number } {
+): { accruedCents: number; hours: number; fixedExcludedCount: number; nonHourlyCount: number } {
   const covered = coveredDaysByMember(postedRuns);
   const memberById = new Map(members.map((member) => [member.id, member]));
 
@@ -194,7 +194,16 @@ export function accruedLaborCents(
   for (const member of members) {
     if (!member.active || member.payType !== 'salary' || member.payRateCents === null) continue;
     const memberCovered = covered.get(member.id);
-    const uncovered = rangeDays.filter((day) => !memberCovered?.has(day));
+    // A day before the member was hired isn't labour they performed, so it
+    // can't accrue -- unlike hourly, which is naturally bounded by actual
+    // time entries, nothing else stops a salaried member from accruing every
+    // day in an arbitrarily long range. `hireDate` is a YYYY-MM-DD date-column
+    // string, so it compares lexicographically against `day` without needing
+    // to round-trip through `Date`. A null hire date leaves the lower bound
+    // off rather than dropping the member's labour from the P&L.
+    const uncovered = rangeDays.filter(
+      (day) => !memberCovered?.has(day) && (member.hireDate === null || day >= member.hireDate)
+    );
     if (uncovered.length === 0) continue;
     const year = fromDateColumn(uncovered[0]).getFullYear();
     accruedCents += Math.round(dailySalaryCents(member.payRateCents, year) * uncovered.length);
@@ -204,7 +213,12 @@ export function accruedLaborCents(
     (member) => member.active && member.payRateCents !== null && member.payType === 'fixed'
   ).length;
 
-  return { accruedCents, hours: Number(hours.toFixed(2)), fixedExcludedCount };
+  const nonHourlyCount = members.filter(
+    (member) =>
+      member.active && member.payRateCents !== null && (member.payType === 'salary' || member.payType === 'fixed')
+  ).length;
+
+  return { accruedCents, hours: Number(hours.toFixed(2)), fixedExcludedCount, nonHourlyCount };
 }
 
 function groupEntriesByMember(entries: TimeEntry[], periodStart: string, periodEnd: string): Map<string, TimeEntry[]> {

@@ -35,6 +35,7 @@ type LaborPicture = {
   accruedCents: number;
   hours: number;
   fixedExcludedCount: number;
+  nonHourlyCount: number;
   // Every hour clocked in the range, whether or not a pay run has settled it.
   // The accrual only counts unposted days, so it's the wrong denominator for
   // "what did an hour of work earn".
@@ -111,10 +112,12 @@ export function ReportsTab({
       setCategoryByMonth(categoryMonths);
 
       if (canSeeLabor) {
-        // Labour worked on days no posted pay run covers. Once a run is
-        // posted its days drop out of `uncovered`, and its expense row takes
-        // over — so the accrual and the posted wages can never both count the
-        // same day.
+        // Labour worked on days no posted pay run covers. Coverage is now
+        // per member, derived from each posted run's lines rather than its
+        // period, so a run drops days only for the members it actually
+        // paid — never for someone else's still-unpaid days — and the
+        // accrual and the posted wages can never both count the same day
+        // for the same person.
         const rangeEnd = until ?? new Date();
         const [members, entries, runs] = await Promise.all([
           listStaff(shop.id),
@@ -340,8 +343,8 @@ export function ReportsTab({
             {labor && labor.totalHoursInRange > 0 && (
               <Text style={styles.caveat}>
                 Based on {labor.totalHoursInRange}h clocked in this period.
-                {labor.fixedExcludedCount > 0
-                  ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person does' : 'people do'} not clock hours, so the hourly figure covers hourly staff only.`
+                {labor.nonHourlyCount > 0
+                  ? ` ${labor.nonHourlyCount} salaried or fixed-pay ${labor.nonHourlyCount === 1 ? 'person does' : 'people do'} not clock hours, so the per-hour figure reflects hourly staff only.`
                   : ''}
               </Text>
             )}
