@@ -585,4 +585,30 @@ describe('accruedLaborCents', () => {
     expect(result.nonHourlyCount).toBe(0);
     expect(result.fixedExcludedCount).toBe(0);
   });
+
+  // Regression for DST-unsafe millisecond day-stepping. Clocks in
+  // America/New_York (the suite's pinned zone -- see jest.config.js) fall
+  // back on Nov 1, 2026. Stepping the posted run's Nov 1-30 day list by raw
+  // `+= MS_PER_DAY` crosses that boundary and lands an hour short each day
+  // after it, so the loop emits a duplicate mid-range day instead of ever
+  // reaching Nov 30 -- the run's own period_end then never enters the
+  // covered set, and Nov 30 (already inside the posted expense) accrues a
+  // second time alongside the real uncovered days.
+  //
+  // Correct: Nov 1-30 posted covers 30 days, so within the Nov 15-Dec 15
+  // accrual range only Dec 1-15 (15 days) is uncovered.
+  // dailySalaryCents(300000, 2026) = 300000 x 12 / 365 = 9863.013698.../day,
+  // x 15 days = 147945.205..., rounded once = 147945.
+  it('steps day-by-day across a DST fall-back without double-counting the covered range', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000 });
+    const runs = [makeRun('2026-11-01', '2026-11-30', ['s1'])];
+    const result = accruedLaborCents(
+      [salaried],
+      [],
+      new Date(2026, 10, 15),
+      new Date(2026, 11, 15),
+      runs
+    );
+    expect(result.accruedCents).toBe(147945);
+  });
 });

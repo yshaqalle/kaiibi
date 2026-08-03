@@ -32,6 +32,16 @@ export function periodDayCount(periodStart: string, periodEnd: string): number {
   return Math.max(1, Math.round((end - start) / MS_PER_DAY) + 1);
 }
 
+// Stepping by whole local days. Deliberately NOT `date.getTime() +
+// MS_PER_DAY`: across a daylight-saving boundary that lands at 23:00 the
+// previous day, so `toDateColumn` would report the wrong date and a day-list
+// loop would emit a duplicate or drop the tail day. Same hazard, same fix, as
+// `addDays` in pay-periods.ts -- duplicated locally rather than imported to
+// avoid a cycle between the two modules.
+function nextLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+}
+
 export function computePayrollDraft(
   members: StaffMember[],
   entries: TimeEntry[],
@@ -129,11 +139,11 @@ function coveredDaysByMember(postedRuns: PayrollRun[]): Map<string, Set<string>>
   for (const run of postedRuns) {
     if (run.status !== 'posted') continue;
     const days: string[] = [];
-    let cursor = fromDateColumn(run.periodStart).getTime();
-    const end = fromDateColumn(run.periodEnd).getTime();
-    while (cursor <= end) {
-      days.push(toDateColumn(new Date(cursor)));
-      cursor += MS_PER_DAY;
+    let cursor = fromDateColumn(run.periodStart);
+    const end = fromDateColumn(run.periodEnd);
+    while (cursor.getTime() <= end.getTime()) {
+      days.push(toDateColumn(cursor));
+      cursor = nextLocalDay(cursor);
     }
     for (const line of run.lines ?? []) {
       let memberDays = covered.get(line.shopMemberId);
@@ -166,11 +176,11 @@ export function accruedLaborCents(
   const memberById = new Map(members.map((member) => [member.id, member]));
 
   const rangeDays: string[] = [];
-  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime();
-  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate()).getTime();
-  while (cursor <= last) {
-    rangeDays.push(toDateColumn(new Date(cursor)));
-    cursor += MS_PER_DAY;
+  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate());
+  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate());
+  while (cursor.getTime() <= last.getTime()) {
+    rangeDays.push(toDateColumn(cursor));
+    cursor = nextLocalDay(cursor);
   }
   // A Set for the per-entry membership test below: a year-long range against a
   // busy shop's time entries makes a linear scan per entry needlessly quadratic.

@@ -285,7 +285,7 @@ export function ReportsTab({
         {accruedLabor > 0 && (
           <PnlRow
             label="Wages earned, not yet paid"
-            hint={`${labor?.hours ?? 0}h worked with no pay run yet`}
+            hint={labor && labor.hours > 0 ? `incl. ${labor.hours}h worked, no pay run yet` : 'no pay run yet'}
             amountCents={-accruedLabor}
           />
         )}
@@ -305,8 +305,8 @@ export function ReportsTab({
         )}
         {accruedLabor > 0 && (
           <Text style={styles.caveat}>
-            Wages above cover hours worked with no pay run yet. Post a run in Payroll and this line moves into operating
-            expenses — the total won&apos;t change.
+            Wages above are pay already earned — hourly or salaried — with no pay run posted yet. Post a run in Payroll
+            and this line moves into operating expenses — the total won&apos;t change.
             {labor && labor.fixedExcludedCount > 0
               ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
               : ''}

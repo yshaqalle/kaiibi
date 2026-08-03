@@ -294,8 +294,8 @@ begin
         v_err := sqlerrm;
       end;
       if not v_raised then raise exception 'FAIL: the same member was paid twice for overlapping periods'; end if;
-      if v_err not like '%Parallel Staff%' then
-        raise exception 'FAIL: the error should name the member, got: %', v_err;
+      if v_err not like '%was already paid for part of%' then
+        raise exception 'FAIL: the error should be the double-pay guard, got: %', v_err;
       end if;
       raise notice 'OK: same-member overlap refused, naming the member';
     end;

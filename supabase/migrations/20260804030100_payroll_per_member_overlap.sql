@@ -23,9 +23,9 @@
 -- from being the same human. Two shop_members rows for one person can each
 -- be paid over overlapping periods with nothing here to catch it; the old
 -- shop-wide guard blocked that case too, incidentally, as a side effect of
--- blocking everything. See the "two shop_members rows, one human" check in
--- verify-accounting-writes.sql, which pins this as known behaviour rather
--- than asserting it's desired.
+-- blocking everything. See the "two shop_members rows for the same human"
+-- check in verify-accounting-writes.sql, which pins this as known behaviour
+-- rather than asserting it's desired.
 --
 -- The error names the people rather than the period, because overlap is now
 -- expected and only the member collision is the problem. The name list is
