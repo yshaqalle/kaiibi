@@ -554,4 +554,35 @@ describe('accruedLaborCents', () => {
     );
     expect(result.accruedCents).toBe(6000);
   });
+
+  // Discriminates the mutation where nonHourlyCount was replaced with
+  // fixedExcludedCount -- in an all-salaried shop, that mutation would
+  // wrongly suppress the hours caveat because nonHourlyCount would be 0
+  // instead of 1.
+  it('counts salaried members in nonHourlyCount even when no fixed staff exist', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000 });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.nonHourlyCount).toBe(1);
+    expect(result.fixedExcludedCount).toBe(0);
+  });
+
+  // Confirms that both counts track correctly in a mixed-pay shop: salaried
+  // and fixed both contribute to nonHourlyCount, but only fixed contributes to
+  // fixedExcludedCount.
+  it('counts salaried and fixed separately in a mixed shop', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000 });
+    const fixed = makeMember({ id: 'f1', payType: 'fixed', payRateCents: 50000 });
+    const result = accruedLaborCents([salaried, fixed], [], since, until, []);
+    expect(result.nonHourlyCount).toBe(2);
+    expect(result.fixedExcludedCount).toBe(1);
+  });
+
+  // Inactive salaried staff are excluded from both counts, so they do not
+  // appear in either caveat.
+  it('excludes inactive salaried members from both counts', () => {
+    const salaried = makeMember({ id: 's1', payType: 'salary', payRateCents: 300000, active: false });
+    const result = accruedLaborCents([salaried], [], since, until, []);
+    expect(result.nonHourlyCount).toBe(0);
+    expect(result.fixedExcludedCount).toBe(0);
+  });
 });
