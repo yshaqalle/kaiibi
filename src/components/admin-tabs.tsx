@@ -36,7 +36,7 @@ export default function AdminTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can, canAny, myMembership, profile } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -153,17 +153,13 @@ export default function AdminTabs() {
             <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/grid.png')} />
           </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="people" hidden={!canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'])}>
+          <NativeTabs.Trigger name="people" hidden={!(Boolean(myMembership?.active) || canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']))}>
             <NativeTabs.Trigger.Label>People</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/customers.png')} />
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="sales" hidden={!can('sales.view')}>
             <NativeTabs.Trigger.Label>Sales</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />
-          </NativeTabs.Trigger>
-          <NativeTabs.Trigger name="me" hidden={!(profile?.role === 'admin' || Boolean(myMembership?.active))}>
-            <NativeTabs.Trigger.Label>Me</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/me.png')} />
           </NativeTabs.Trigger>
         </NativeTabs>
       </View>

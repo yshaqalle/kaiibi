@@ -133,6 +133,15 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
   if (error) throw error;
 }
 
+export async function updateStaffMember(input: {
+  shopId: string; memberId: string; fullName: string; email: string; roleId: string; active: boolean;
+  hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null;
+}): Promise<void> {
+  const { data, error } = await supabase.functions.invoke<{ error?: string; message?: string }>('update-staff', { body: input });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.message ?? 'Could not update this staff member.');
+}
+
 export type ProvisionStaffResult = {
   userId: string;
   email: string;

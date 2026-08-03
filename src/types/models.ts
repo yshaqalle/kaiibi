@@ -375,8 +375,9 @@ export type TimeOffRequest = {
   id: string;
   shopId: string;
   shopMemberId: string;
-  startDate: string;
-  endDate: string;
+  startDate: string; // Earliest date in dateRanges (for compatibility)
+  endDate: string; // Latest date in dateRanges (for compatibility)
+  dateRanges: {startDate: string; endDate: string}[]; // Multiple non-contiguous ranges
   reason: string | null;
   status: 'pending' | 'approved' | 'denied';
   requestedAt: string;

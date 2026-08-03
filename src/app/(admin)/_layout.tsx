@@ -36,18 +36,15 @@ export default function AdminLayout() {
   // is what actually protects the data, since nothing stops a staff member
   // querying the API directly.
   const landing = firstAllowedRoute(permissions);
-  // /me (self-service HR) is reachable by any active staff member or the
-  // admin regardless of operational permissions -- it's deliberately absent
-  // from ROUTE_PERMISSIONS (permissionForPath returns null for it), gated
-  // here on active shop_members membership instead. An active member with
-  // no operational permissions at all now falls back here too, instead of
-  // the dead-end NoAccessScreen below.
+  // People → Team includes self-service for any active staff member, even if
+  // their role grants no operational or management permissions.
   const canReachMe = profile.role === 'admin' || Boolean(myMembership?.active);
-  const fallback = landing ?? (canReachMe ? '/me' : null);
+  const fallback = landing ?? (canReachMe ? '/people' : null);
 
   const isMeRoute = pathname === '/me' || pathname.startsWith('/me/');
+  const isPeopleRoute = pathname === '/people' || pathname.startsWith('/people/');
   const required = permissionForPath(pathname);
-  const allowed = isMeRoute ? canReachMe : !required || required.some(can);
+  const allowed = isMeRoute ? canReachMe : (isPeopleRoute && canReachMe) || !required || required.some(can);
   if (!allowed) {
     return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FontAwesome } from '@expo/vector-icons';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,8 +12,10 @@ import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { NotesField } from '@/components/notes-field';
 import { SegmentedControl } from '@/components/segmented-control';
+import { StaffSelfService } from '@/components/staff-self-service';
 import { StatTile } from '@/components/stat-tile';
 import { TeamAddModal } from '@/components/team-add-modal';
+import { TeamMemberEditModal } from '@/components/team-member-edit-modal';
 import { TimeOffApprovalModal } from '@/components/time-off-approval-modal';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -23,14 +26,14 @@ import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } fro
 import { createCustomer, getCustomerStats, getCustomersStatsBatch, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
-import { listRoles, listStaff, setStaffActive, updateStaffPay, updateStaffRole } from '@/lib/staff';
+import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS, runStaffImport } from '@/lib/staff-import';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
-type PeopleTab = 'customers' | 'team';
+type PeopleTab = 'customers' | 'team' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
 
@@ -61,27 +64,35 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
 ];
 
 export default function PeopleScreen() {
-  const { can, canAny } = useAuth();
+  const { can, canAny, myMembership } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
   const canSeeTeam = canAny([...TEAM_PERMISSIONS]);
-  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : 'team');
+  const canUseSelfService = Boolean(myMembership?.active);
+  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : 'me');
 
   const options = [
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: 'Customers' }] : []),
     ...(canSeeTeam ? [{ key: 'team' as const, label: 'Team' }] : []),
+    ...(canUseSelfService ? [{ key: 'me' as const, label: 'Me (self-service)' }] : []),
   ];
+
+  // The tab switcher renders *below* each tab's own title/actions row rather
+  // than above it, so the screen title and its primary actions share the top
+  // line (matching the design mockup). Each tab owns its own actions, so the
+  // switcher is handed down to be placed after them instead of being rendered
+  // here above the tab body.
+  const tabSwitcher = options.length > 1 ? <SegmentedControl options={options} value={tab} onChange={setTab} /> : null;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <View style={styles.header}>
-        <Text style={styles.title}>People</Text>
-        {options.length > 1 && <SegmentedControl options={options} value={tab} onChange={setTab} />}
-      </View>
       <View style={styles.body}>
-        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} /> : null}
-        {tab === 'team' && canSeeTeam ? <TeamTab compact={compact} /> : null}
+        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
+        {tab === 'team' && canSeeTeam ? <TeamTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
+        {tab === 'me' && canUseSelfService && myMembership ? (
+          <MeTab shopId={myMembership.shopId} member={myMembership} tabSwitcher={tabSwitcher} />
+        ) : null}
       </View>
     </SafeAreaView>
   );
@@ -92,7 +103,7 @@ export default function PeopleScreen() {
 // list+detail, payroll, shifts, access grid, time-off approvals). Kept as
 // separate named components here so those tasks swap a function body
 // rather than restructuring this shell.
-function CustomersTab({ compact }: { compact: boolean }) {
+function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
   const { shop, can } = useAuth();
   const canEdit = can('customers.edit');
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -160,16 +171,6 @@ function CustomersTab({ compact }: { compact: boolean }) {
 
   const list = (
     <>
-      {error && <Text style={tabStyles.errorText}>{error}</Text>}
-      <View style={tabStyles.search}>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, phone, or tag" placeholderTextColor="#999999" style={tabStyles.searchInput} />
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
-        <CategoryChip label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
-        {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
-          <CategoryChip key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
-        ))}
-      </ScrollView>
       {loading ? (
         <Text style={tabStyles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
@@ -193,12 +194,19 @@ function CustomersTab({ compact }: { compact: boolean }) {
                     {stats ? `${stats.visitCount} order${stats.visitCount === 1 ? '' : 's'} · ${formatCents(stats.totalSpentCents)}` : 'No orders yet'}
                   </Text>
                 </View>
-                <Badge label={CUSTOMER_SEGMENT_LABELS[segmentKey]} tone={segmentKey === 'vip' ? 'danger' : segmentKey === 'at-risk' || segmentKey === 'new' ? 'warning' : 'default'} />
-                {customer.phone && (
-                  <Pressable onPress={() => openWhatsApp(customer.phone!)} style={tabStyles.waButton} hitSlop={6}>
-                    <Text style={tabStyles.waIcon}>💬</Text>
-                  </Pressable>
-                )}
+                <View style={tabStyles.rowTrailing}>
+                  <Badge label={CUSTOMER_SEGMENT_LABELS[segmentKey]} tone={segmentKey === 'vip' ? 'danger' : segmentKey === 'at-risk' || segmentKey === 'new' ? 'warning' : 'default'} />
+                  {customer.phone && (
+                    <Pressable
+                      accessibilityLabel={`Message ${customer.firstName} on WhatsApp`}
+                      onPress={() => openWhatsApp(customer.phone!)}
+                      style={tabStyles.waButton}
+                      hitSlop={6}
+                    >
+                      <FontAwesome name="whatsapp" size={18} color="#25D366" />
+                    </Pressable>
+                  )}
+                </View>
               </Pressable>
             );
           })}
@@ -217,8 +225,12 @@ function CustomersTab({ compact }: { compact: boolean }) {
 
   return (
     <View style={{ flex: 1 }}>
+      {error && <Text style={tabStyles.errorText}>{error}</Text>}
       <View style={tabStyles.tabHeader}>
-        <Text style={tabStyles.subtitle}>{customers.length} customers</Text>
+        <View style={tabStyles.headerTitleGroup}>
+          <Text style={tabStyles.screenTitle}>People</Text>
+          <Text style={tabStyles.subtitle}>{customers.length} customers</Text>
+        </View>
         <View style={tabStyles.headerActions}>
           <ExportMenu rows={filtered} columns={CUSTOMER_EXPORT_COLUMNS} title="Customers" subtitle={`${filtered.length} customers`} filenamePrefix="customers" />
           {canEdit && (
@@ -233,6 +245,16 @@ function CustomersTab({ compact }: { compact: boolean }) {
           )}
         </View>
       </View>
+      {tabSwitcher}
+      <View style={tabStyles.search}>
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, phone, or tag" placeholderTextColor="#999999" style={tabStyles.searchInput} />
+      </View>
+      <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
+        <CategoryChip variant="filter" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
+        {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
+          <CategoryChip variant="filter" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
+        ))}
+      </ScrollView>
       <TwoPaneListDetail compact={compact} list={list} detail={detail} />
       {shop && canEdit && (
         <CustomerModal
@@ -313,7 +335,8 @@ function CustomerDetailPane({
       </View>
       <View style={tabStyles.actions}>
         {customer.phone && (
-          <Pressable onPress={() => openWhatsApp(customer.phone!)} style={tabStyles.actionButton}>
+          <Pressable onPress={() => openWhatsApp(customer.phone!)} style={[tabStyles.actionButton, tabStyles.whatsAppAction]}>
+            <FontAwesome name="whatsapp" size={16} color="#FFFFFF" />
             <Text style={tabStyles.actionButtonText}>WhatsApp</Text>
           </Pressable>
         )}
@@ -358,7 +381,30 @@ function CustomerDetailPane({
   );
 }
 
-function TeamTab({ compact }: { compact: boolean }) {
+function TeamTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
+  return <TeamManagementTab compact={compact} tabSwitcher={tabSwitcher} />;
+}
+
+function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffMember; tabSwitcher: ReactNode }) {
+  return (
+    <ScrollView contentContainerStyle={styles.selfServiceContent}>
+      <Text style={tabStyles.screenTitle}>People</Text>
+      {tabSwitcher}
+      <View style={styles.selfServiceHeader}>
+        <Text style={styles.selfServiceName}>{member.fullName ?? member.email ?? 'Me'}</Text>
+        <Text style={styles.selfServiceMeta}>
+          {member.roleName}
+          {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
+        </Text>
+      </View>
+      <View style={styles.selfServicePanel}>
+        <StaffSelfService shopId={shopId} member={member} />
+      </View>
+    </ScrollView>
+  );
+}
+
+function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
   const { shop, can, canAny } = useAuth();
   const canManageRoster = can('staff.manage');
   const canManagePayroll = can('people.payroll.manage');
@@ -485,6 +531,7 @@ function TeamTab({ compact }: { compact: boolean }) {
       member={selected}
       roles={roles}
       onLeave={onLeaveMemberIds.has(selected.id)}
+      timeOff={timeOff}
       canManageRoster={canManageRoster}
       canManagePayroll={canManagePayroll}
       canViewHours={canViewHours}
@@ -499,7 +546,10 @@ function TeamTab({ compact }: { compact: boolean }) {
   return (
     <View style={{ flex: 1 }}>
       <View style={tabStyles.tabHeader}>
-        <Text style={tabStyles.subtitle}>{staff.length} on the team</Text>
+        <View style={tabStyles.headerTitleGroup}>
+          <Text style={tabStyles.screenTitle}>People</Text>
+          <Text style={tabStyles.subtitle}>{staff.length} on the team</Text>
+        </View>
         <View style={tabStyles.headerActions}>
           {canManageRoster && <ExportMenu rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
           {canManageRoster && (
@@ -518,6 +568,7 @@ function TeamTab({ compact }: { compact: boolean }) {
           )}
         </View>
       </View>
+      {tabSwitcher}
       <TwoPaneListDetail compact={compact} list={list} detail={detail} />
       {shop && canManageRoster && (
         <TeamAddModal visible={showAddModal} shopId={shop.id} roles={roles} onClose={() => setShowAddModal(false)} onChange={reload} />
@@ -534,6 +585,7 @@ function TeamDetailPane({
   member,
   roles,
   onLeave,
+  timeOff,
   canManageRoster,
   canManagePayroll,
   canViewHours,
@@ -542,6 +594,7 @@ function TeamDetailPane({
   member: StaffMember;
   roles: Role[];
   onLeave: boolean;
+  timeOff: TimeOffRequest[];
   canManageRoster: boolean;
   canManagePayroll: boolean;
   canViewHours: boolean;
@@ -549,9 +602,8 @@ function TeamDetailPane({
 }) {
   const { shop } = useAuth();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
-  const [changingRole, setChangingRole] = useState(false);
+  const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const role = roles.find((r) => r.id === member.roleId);
   const permissions = role?.permissions ?? [];
@@ -571,6 +623,15 @@ function TeamDetailPane({
 
   const hoursThisPeriod = sumDurationHours(entries);
 
+  const activeLeaveRequest = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return timeOff.find(r => 
+      r.shopMemberId === member.id && 
+      r.status === 'approved' && 
+      (r.dateRanges?.some(range => range.startDate <= today && range.endDate >= today) ?? (r.startDate <= today && r.endDate >= today))
+    );
+  }, [timeOff, member.id]);
+
   return (
     <Card style={tabStyles.detailCard}>
       <View style={tabStyles.detHead}>
@@ -588,54 +649,50 @@ function TeamDetailPane({
         <StatTile value={canViewHours ? `${hoursThisPeriod.toFixed(1)}h` : '—'} label="Hours this period" />
       </View>
 
+      {activeLeaveRequest && (
+        <View style={[tabStyles.section, { backgroundColor: '#FEF3C7', borderRadius: 10, padding: 16 }]}>
+          <Text style={[tabStyles.sectionTitle, { color: '#92400E' }]}>ON LEAVE</Text>
+          <Text style={{ color: '#92400E', fontSize: 15, fontWeight: '600', marginTop: 8 }}>
+            Returning on {new Date(activeLeaveRequest.endDate).toLocaleDateString()}
+          </Text>
+          {activeLeaveRequest.reason && (
+            <Text style={{ color: '#92400E', fontSize: 13, marginTop: 8, lineHeight: 18 }}>
+              {activeLeaveRequest.reason}
+            </Text>
+          )}
+          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' }}>
+            {activeLeaveRequest.dateRanges && activeLeaveRequest.dateRanges.length > 0 ? (
+              <>
+                <Text style={{ color: '#92400E', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Date ranges:</Text>
+                {activeLeaveRequest.dateRanges.map((range, idx) => (
+                  <Text key={idx} style={{ color: '#92400E', fontSize: 12, marginBottom: 4 }}>
+                    {new Date(range.startDate).toLocaleDateString()} – {new Date(range.endDate).toLocaleDateString()}
+                  </Text>
+                ))}
+              </>
+            ) : (
+              <Text style={{ color: '#92400E', fontSize: 12 }}>
+                {new Date(activeLeaveRequest.startDate).toLocaleDateString()} – {new Date(activeLeaveRequest.endDate).toLocaleDateString()}
+              </Text>
+            )}
+            <Text style={{ color: '#92400E', fontSize: 11, marginTop: 8, opacity: 0.7 }}>
+              Requested {new Date(activeLeaveRequest.requestedAt).toLocaleDateString()}
+            </Text>
+          </View>
+        </View>
+      )}
+
       {canManageRoster && (
         <View style={tabStyles.actions}>
-          <Pressable onPress={() => setChangingRole((v) => !v)} style={tabStyles.actionButtonGhost}>
-            <Text style={tabStyles.actionButtonGhostText}>Change role</Text>
-          </Pressable>
-          <Pressable
-            onPress={async () => {
-              setError(null);
-              try {
-                await setStaffActive(member.id, !member.active);
-                await onChanged();
-              } catch (err) {
-                setError(err instanceof Error ? err.message : 'Something went wrong.');
-              }
-            }}
-            style={tabStyles.actionButtonGhost}
-          >
-            <Text style={tabStyles.actionButtonGhostText}>{member.active ? 'Disable' : 'Enable'}</Text>
+          <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButtonGhost}>
+            <Text style={tabStyles.actionButtonGhostText}>Edit member</Text>
           </Pressable>
         </View>
       )}
-      {changingRole && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
-          {roles.map((r) => (
-            <CategoryChip
-              key={r.id}
-              label={r.name}
-              active={r.id === member.roleId}
-              onPress={async () => {
-                setError(null);
-                try {
-                  await updateStaffRole(member.id, r.id);
-                  await onChanged();
-                  setChangingRole(false);
-                } catch (err) {
-                  setError(err instanceof Error ? err.message : 'Something went wrong.');
-                }
-              }}
-            />
-          ))}
-        </ScrollView>
-      )}
-      {error && <Text style={tabStyles.errorText}>{error}</Text>}
-
       <View style={tabStyles.section}>
         <View style={tabStyles.sectionHeadRow}>
           <Text style={tabStyles.sectionTitle}>PAYROLL</Text>
-          {canManagePayroll && (
+          {canManagePayroll && !canManageRoster && (
             <Pressable onPress={() => setEditingPay(true)}>
               <Text style={tabStyles.sectionLink}>Edit</Text>
             </Pressable>
@@ -696,29 +753,47 @@ function TeamDetailPane({
           setEditingPay(false);
         }}
       />
+      {shop && (
+        <TeamMemberEditModal
+          key={`${member.id}-${editingMember}`}
+          visible={editingMember}
+          member={member}
+          roles={roles}
+          canManagePayroll={canManagePayroll}
+          onClose={() => setEditingMember(false)}
+          onSave={async (input) => {
+            await updateStaffMember({ shopId: shop.id, memberId: member.id, ...input });
+            await onChanged();
+          }}
+        />
+      )}
     </Card>
   );
 }
 
 const tabStyles = StyleSheet.create({
-  tabHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  tabHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14 },
+  headerTitleGroup: { gap: 3 },
+  screenTitle: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
   subtitle: { color: '#999999', fontSize: 12 },
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
   actionButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
+  whatsAppAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   actionButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   actionButtonGhost: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   actionButtonGhostText: { color: '#111111', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginBottom: 10 },
   searchInput: { flex: 1, height: '100%', color: '#111111' },
-  chips: { gap: 6, paddingBottom: 12 },
+  filterScroll: { flexGrow: 0, flexShrink: 0, height: 48, marginBottom: 12 },
+  chips: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
   list: { overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 13, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
   rowSelected: { backgroundColor: '#F7E1E2' },
   rowMain: { flex: 1, minWidth: 0 },
+  rowTrailing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9, minWidth: 100 },
   rowName: { fontSize: 13.5, fontWeight: '700', color: '#111111' },
   rowSub: { fontSize: 11.5, color: '#999999', marginTop: 2 },
-  waButton: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#E1F0E4', alignItems: 'center', justifyContent: 'center' },
-  waIcon: { fontSize: 13 },
+  waButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#E1F0E4', alignItems: 'center', justifyContent: 'center' },
   empty: { color: '#999999', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
   emptyDetail: { padding: 24, alignItems: 'center' },
   detailCard: { padding: 18 },
@@ -762,8 +837,11 @@ const tabStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: { paddingHorizontal: 24, paddingTop: 24 },
-  title: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.5, marginBottom: 14 },
-  body: { flex: 1, paddingHorizontal: 24, paddingBottom: 24 },
+  body: { flex: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24 },
+  selfServiceContent: { flexGrow: 1, paddingBottom: 24 },
+  selfServiceHeader: { marginBottom: 20 },
+  selfServiceName: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
+  selfServiceMeta: { color: '#777777', fontSize: 13, marginTop: 4 },
+  selfServicePanel: { width: '100%', maxWidth: 640, alignSelf: 'center' },
   placeholder: { color: '#999999', fontSize: 13 },
 });

@@ -22,6 +22,6 @@ export function Badge({ label, tone = 'default' }: { label: string; tone?: Badge
 }
 
 const styles = StyleSheet.create({
-  badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, alignSelf: 'flex-start' },
+  badge: { paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, alignSelf: 'center' },
   text: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.2 },
 });

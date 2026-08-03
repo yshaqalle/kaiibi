@@ -35,7 +35,7 @@ export function TwoPaneListDetail({ compact, list, detail }: { compact: boolean;
 
 const styles = StyleSheet.create({
   split: { flexDirection: 'row', gap: 18, flex: 1, minHeight: 0 },
-  listPane: { width: 300, flexShrink: 0 },
+  listPane: { width: '34%', minWidth: 280, maxWidth: 520, flexShrink: 0 },
   detailPane: { flex: 1, minWidth: 0 },
   paneScroll: { flex: 1 },
   paneContent: { flexGrow: 1 },

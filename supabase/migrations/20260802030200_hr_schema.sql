@@ -51,11 +51,11 @@ alter table public.time_off_requests enable row level security;
 create policy "member manages own time entries" on public.time_entries for all
   using (exists (
     select 1 from public.shop_members m
-    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id
+    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = time_entries.shop_id
   ))
   with check (exists (
     select 1 from public.shop_members m
-    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id
+    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = time_entries.shop_id
   ));
 
 -- Manager-side: read team-wide entries (people.timesheet.view covers both
@@ -76,7 +76,7 @@ grant select, insert, update, delete on public.time_entries to authenticated;
 create policy "member requests own time off" on public.time_off_requests for insert
   with check (
     status = 'pending'
-    and exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shop_id)
+    and exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = time_off_requests.shop_id)
   );
 create policy "member reads own time off requests" on public.time_off_requests for select
   using (exists (select 1 from public.shop_members m where m.id = shop_member_id and m.user_id = auth.uid()));
