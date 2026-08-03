@@ -256,7 +256,14 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
           <CategoryChip variant="filter" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
         ))}
       </ScrollView>
-      <TwoPaneListDetail compact={compact} list={list} detail={detail} />
+      <TwoPaneListDetail
+        compact={compact}
+        list={list}
+        detail={detail}
+        detailOpen={selected !== null}
+        onCloseDetail={() => setSelectedId(null)}
+        detailTitle="Customer"
+      />
       {shop && canEdit && (
         <CustomerModal
           visible={showAddModal}
@@ -566,7 +573,14 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
         </View>
       </View>
       {tabSwitcher}
-      <TwoPaneListDetail compact={compact} list={list} detail={detail} />
+      <TwoPaneListDetail
+        compact={compact}
+        list={list}
+        detail={detail}
+        detailOpen={selected !== null}
+        onCloseDetail={() => setSelectedId(null)}
+        detailTitle="Team member"
+      />
       {shop && canManageRoster && (
         <TeamAddModal visible={showAddModal} shopId={shop.id} roles={roles} onClose={() => setShowAddModal(false)} onChange={reload} />
       )}

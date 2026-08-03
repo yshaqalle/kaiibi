@@ -8,11 +8,10 @@ const theme = Colors.light;
 
 // Same {options, value, onChange} contract as SegmentedControl, but scrollable
 // rather than equal-flex. SegmentedControl gives each option `flex: 1`, which
-// is right for the 2-3 options it's used for elsewhere (People's sub-tabs,
-// the dashboard's sections) but collapses Accounting's seven to ~14% each --
-// enough to clip "Transactions" and "Cash & Budgets". Here each pill is its
-// own width and the row scrolls, which is also what makes seven workable on a
-// phone.
+// is right for the 2-3 options it's used for elsewhere (People's sub-tabs)
+// but collapses Accounting's seven to ~14% each -- enough to clip
+// "Transactions" and "Cash & Budgets". Here each pill is its own width and the
+// row scrolls, which is also what makes seven workable on a phone.
 export function AccountingTabBar<T extends string>({
   options,
   value,

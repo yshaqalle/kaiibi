@@ -1,20 +1,52 @@
 import type { ReactNode } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Shared list+detail shell for the People screen's two sub-tabs (Task 11
-// Customers, Task 12 Team). Wide: list and detail render side by side, both
-// always visible. Compact: stacked in a single scroll, detail below the
-// list once something is selected -- the same responsive shape pos.tsx
-// already uses (useWindowDimensions() + TABLET_BREAKPOINT). `compact` is
-// computed by the caller and passed in rather than measured here, so this
-// component owns no breakpoint logic of its own.
-export function TwoPaneListDetail({ compact, list, detail }: { compact: boolean; list: ReactNode; detail: ReactNode }) {
+// Shared list+detail shell for the People screen's two sub-tabs (Customers,
+// Team). Wide: list and detail render side by side, both always visible.
+// Compact: the list owns the screen and the detail opens in a bottom-sheet
+// modal over it -- same overlay/sheet treatment as CheckoutPanel. Stacking
+// the detail under the list (the earlier compact shape) meant every selection
+// pushed the answer off-screen and had to be scrolled to.
+//
+// `compact` is computed by the caller and passed in rather than measured
+// here, so this component owns no breakpoint logic of its own. `detailOpen`
+// likewise: the caller knows whether anything is selected, and passes the
+// placeholder `detail` for the wide pane when nothing is.
+export function TwoPaneListDetail({
+  compact,
+  list,
+  detail,
+  detailOpen,
+  onCloseDetail,
+  detailTitle,
+}: {
+  compact: boolean;
+  list: ReactNode;
+  detail: ReactNode;
+  detailOpen: boolean;
+  onCloseDetail: () => void;
+  detailTitle?: string;
+}) {
   if (compact) {
     return (
-      <ScrollView contentContainerStyle={styles.compactContent}>
-        <View>{list}</View>
-        <View style={styles.compactDetail}>{detail}</View>
-      </ScrollView>
+      <View style={styles.compact}>
+        <ScrollView contentContainerStyle={styles.compactContent}>{list}</ScrollView>
+        <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
+          <View style={styles.overlay}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>{detailTitle ?? ''}</Text>
+                <Pressable onPress={onCloseDetail} style={({ pressed }) => [styles.close, pressed && styles.closePressed]}>
+                  <Text style={styles.closeText}>Close</Text>
+                </Pressable>
+              </View>
+              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.sheetContent}>
+                {detail}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      </View>
     );
   }
   return (
@@ -39,6 +71,14 @@ const styles = StyleSheet.create({
   detailPane: { flex: 1, minWidth: 0 },
   paneScroll: { flex: 1 },
   paneContent: { flexGrow: 1 },
+  compact: { flex: 1, minHeight: 0 },
   compactContent: { paddingBottom: 24 },
-  compactDetail: { marginTop: 14 },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#111111' },
+  sheetContent: { paddingBottom: 8 },
+  close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  closePressed: { opacity: 0.6 },
+  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
 });
