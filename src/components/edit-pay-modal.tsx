@@ -14,7 +14,7 @@ export function EditPayModal({
   visible: boolean;
   member: StaffMember;
   onClose: () => void;
-  onSave: (patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null }) => Promise<void>;
+  onSave: (patch: { hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null; payCadence?: StaffMember['payCadence'] }) => Promise<void>;
 }) {
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
   const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
@@ -47,6 +47,7 @@ export function EditPayModal({
         hireDate: hireDate.trim() || null,
         payType: pay.payType ?? null,
         payRateCents: rateCents,
+        payCadence: pay.payCadence,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save these changes.');

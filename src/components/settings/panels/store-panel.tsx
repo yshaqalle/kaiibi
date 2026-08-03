@@ -36,6 +36,7 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
   const [goalInput, setGoalInput] = useState(shopGoalInput);
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
+  const [payPeriodAnchor, setPayPeriodAnchor] = useState(shop.payPeriodAnchor ?? '');
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -49,7 +50,8 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
     goalInput.trim() !== shopGoalInput ||
-    logoUri !== shop.logoUrl;
+    logoUri !== shop.logoUrl ||
+    payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '');
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -79,6 +81,7 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
         returnPolicy: returnPolicy.trim(),
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
+        payPeriodAnchor: payPeriodAnchor.trim() || null,
       });
       await onSaved();
       setSaved(true);
@@ -115,6 +118,14 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
           multiline
         />
         <EditableTextRow label="Monthly revenue goal" value={goalInput} onChangeText={setGoalInput} placeholder="e.g. 5000" keyboardType="decimal-pad" />
+      </Section>
+      <Section title="Payroll">
+        <EditableTextRow
+          label="Pay period start"
+          value={payPeriodAnchor}
+          onChangeText={setPayPeriodAnchor}
+          placeholder="YYYY-MM-DD"
+        />
       </Section>
       <Section title="Social links">
         {/* Phase 2 placeholders — no social link fields on the shop model yet. */}

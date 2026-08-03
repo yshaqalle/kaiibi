@@ -2,6 +2,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { formatPayRateLong, rateInputToCents, type RateEntryUnit } from '@/lib/pay-rate';
+import type { PayCadence } from '@/lib/pay-periods';
 import type { StaffMember } from '@/types/models';
 
 // The pay form, shared by the two modals that can edit pay. It was duplicated
@@ -16,6 +17,7 @@ export type PayFieldsValue = {
   payType: StaffMember['payType'];
   rate: string;
   entryUnit: RateEntryUnit;
+  payCadence: PayCadence;
 };
 
 const PAY_TYPES = ['hourly', 'salary', 'fixed'] as const;
@@ -23,6 +25,12 @@ const ENTRY_UNITS: { unit: RateEntryUnit; label: string }[] = [
   { unit: 'weekly', label: 'Week' },
   { unit: 'monthly', label: 'Month' },
   { unit: 'yearly', label: 'Year' },
+];
+const CADENCES: { cadence: PayCadence; label: string }[] = [
+  { cadence: 'weekly', label: 'Weekly' },
+  { cadence: 'biweekly', label: 'Every 2 weeks' },
+  { cadence: 'semimonthly', label: 'Twice a month' },
+  { cadence: 'monthly', label: 'Monthly' },
 ];
 
 // Stored rates are already monthly, so an existing member always opens on
@@ -32,6 +40,7 @@ export function payFieldsInitial(member: StaffMember): PayFieldsValue {
     payType: member.payType,
     rate: member.payRateCents != null ? (member.payRateCents / 100).toString() : '',
     entryUnit: 'monthly',
+    payCadence: member.payCadence,
   };
 }
 
@@ -94,6 +103,20 @@ export function PayFields({
           </View>
         </>
       )}
+
+      {/* Applies to every pay type -- cadence is when someone is paid, not
+          what they're paid. */}
+      <Text style={styles.label}>PAID</Text>
+      <View style={styles.chips}>
+        {CADENCES.map(({ cadence, label }) => (
+          <CategoryChip
+            key={cadence}
+            label={label}
+            active={value.payCadence === cadence}
+            onPress={() => onChange({ ...value, payCadence: cadence })}
+          />
+        ))}
+      </View>
 
       {hasPreviewableRate && (
         <Text style={styles.preview}>{formatPayRateLong(value.payType, monthlyPreview)}</Text>

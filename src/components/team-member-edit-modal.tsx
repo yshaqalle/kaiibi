@@ -15,6 +15,7 @@ type MemberEdits = {
   hireDate?: string | null;
   payType?: StaffMember['payType'];
   payRateCents?: number | null;
+  payCadence?: StaffMember['payCadence'];
 };
 
 type TeamMemberEditModalProps = {
@@ -65,6 +66,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
               hireDate: hireDate || null,
               payType: pay.payType ?? null,
               payRateCents: rateCents,
+              payCadence: pay.payCadence,
             }
           : {}),
       });

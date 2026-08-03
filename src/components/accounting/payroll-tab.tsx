@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
+import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
 import type { DateRange } from '@/components/range-selector';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,6 +19,7 @@ import {
   unpostPayrollRun,
   updatePayrollRunLine,
 } from '@/lib/payroll';
+import { payPeriodsFor, type PayCadence } from '@/lib/pay-periods';
 import { toDateColumn } from '@/lib/period';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
@@ -45,11 +47,26 @@ export function PayrollTab({
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [open, setOpen] = useState<PayrollRun | null>(null);
   const [creating, setCreating] = useState(false);
-  const [periodStart, setPeriodStart] = useState(toDateColumn(dateRange.since));
-  const [periodEnd, setPeriodEnd] = useState(toDateColumn(dateRange.until ?? new Date()));
+  // Defaults to the current calendar month rather than the Accounting
+  // rolling-days range: seeding from that range meant the dates almost never
+  // lined up with a whole pay period, so "Build draft" always took the
+  // prorated branch even for a salaried member. `periods[0]` is guaranteed
+  // here -- payPeriodsFor('monthly', ...) over a single day always returns
+  // exactly the one month containing it -- but the fallback keeps this call
+  // from ever throwing if that guarantee changes.
+  const thisMonth = payPeriodsFor('monthly', null, toDateColumn(new Date()), toDateColumn(new Date())).periods[0]
+    ?? { start: toDateColumn(new Date()), end: toDateColumn(new Date()) };
+  const [cadence, setCadence] = useState<PayCadence | null>('monthly');
+  const [periodStart, setPeriodStart] = useState(thisMonth.start);
+  const [periodEnd, setPeriodEnd] = useState(thisMonth.end);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const anchor = shop?.payPeriodAnchor ?? null;
+  const periodOptions = cadence
+    ? payPeriodsFor(cadence, anchor, toDateColumn(dateRange.since), toDateColumn(dateRange.until ?? new Date()))
+    : { periods: [], reason: 'ok' as const };
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
@@ -101,14 +118,8 @@ export function PayrollTab({
         listStaff(shop.id),
         listShopTimeEntries(shop.id, { sinceIso: start.toISOString() }),
       ]);
-      // The trailing `, null, null` is scaffolding so this file typechecks
-      // against the new signature -- Task 6 replaces it with the picked
-      // cadence and the shop's pay-period anchor. Not a considered choice.
-      const lines = computePayrollDraft(members, entries, periodStart, periodEnd, null, null);
-      // TODO(Task 6): pass the picked cadence instead of null once the period
-      // picker exists -- this null is temporary scaffolding, not a considered
-      // choice.
-      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines, null);
+      const lines = computePayrollDraft(members, entries, periodStart, periodEnd, cadence, anchor);
+      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines, cadence);
       setCreating(false);
       setOpen(created);
       await reload();
@@ -131,6 +142,36 @@ export function PayrollTab({
       {creating && (
         <View style={styles.createCard}>
           <Text style={styles.createTitle}>Pay period</Text>
+          <View style={styles.chips}>
+            {(['weekly', 'biweekly', 'semimonthly', 'monthly'] as const).map((option) => (
+              <CategoryChip
+                key={option}
+                label={option === 'biweekly' ? 'Every 2 weeks' : option === 'semimonthly' ? 'Twice a month' : option[0].toUpperCase() + option.slice(1)}
+                active={cadence === option}
+                onPress={() => setCadence(option)}
+              />
+            ))}
+            <CategoryChip label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
+          </View>
+          {periodOptions.reason === 'anchor_required' ? (
+            <Text style={styles.subtitle}>
+              Set a pay period start date in Settings → Store before using weekly or fortnightly periods.
+            </Text>
+          ) : (
+            <View style={styles.chips}>
+              {periodOptions.periods.map((period) => (
+                <CategoryChip
+                  key={`${period.start}-${period.end}`}
+                  label={`${period.start} → ${period.end}`}
+                  active={periodStart === period.start && periodEnd === period.end}
+                  onPress={() => {
+                    setPeriodStart(period.start);
+                    setPeriodEnd(period.end);
+                  }}
+                />
+              ))}
+            </View>
+          )}
           <View style={styles.createRow}>
             <View style={styles.createField}>
               <Text style={styles.fieldLabel}>FROM</Text>
@@ -243,6 +284,7 @@ const styles = StyleSheet.create({
 
   createCard: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 16, marginBottom: 16 },
   createTitle: { fontSize: 13, fontWeight: '800', color: '#111111', marginBottom: 12 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   createRow: { flexDirection: 'row', gap: 10 },
   createField: { flex: 1 },
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
