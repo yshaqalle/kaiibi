@@ -27,7 +27,7 @@ const navItems = [
     icon: '👥',
     isVisible: (ctx: NavVisibility) => ctx.hasActiveMembership || ctx.canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']),
   },
-  { href: '/sales', label: 'Sales', icon: '📈', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
+  { href: '/accounting', label: 'Accounting', icon: '📈', isVisible: (ctx: NavVisibility) => ctx.can('sales.view') },
 ] as const satisfies readonly { href: string; label: string; icon: string; isVisible: (ctx: NavVisibility) => boolean }[];
 
 // Below `compactBreakpoint` the persistent sidebar would eat more than half

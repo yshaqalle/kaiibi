@@ -183,6 +183,12 @@ export type SaleItem = {
   // How much was knocked off this line (already reflected in
   // `lineTotalCents`) — kept separately so receipts/history can show it.
   discountCents: number;
+  // What the product cost the shop, frozen at sale time (same treatment as
+  // `unitPriceCents` and `Sale.taxCents`) so COGS and past profit figures
+  // don't move when a product's cost is later edited. Null for sales
+  // predating the snapshot column, or products with no cost recorded —
+  // reported as "uncosted" rather than counted as zero.
+  unitCostCents: number | null;
 };
 
 // One line of a (possibly split) checkout payment. `tenderedCents` is only
@@ -323,6 +329,58 @@ export type Brand = {
   imageUrl: string | null;
   createdAt: string;
 };
+
+// Who the shop buys from and pays — suppliers, the landlord, an ad agency.
+// Managed in Settings → Store, and quick-addable inline while recording an
+// expense. Distinct from `Product.supplierName`, which is a free-text note on
+// a single product rather than a payee the shop has a relationship with.
+export type Vendor = {
+  id: string;
+  shopId: string;
+  name: string;
+  contactPerson: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewVendorInput = Omit<Vendor, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+
+export type ExpenseCategory =
+  | 'inventory_purchase'
+  | 'rent'
+  | 'utilities'
+  | 'salaries_wages'
+  | 'marketing'
+  | 'supplies'
+  | 'transport_delivery'
+  | 'maintenance_repairs'
+  | 'fees_charges'
+  | 'owner_draw'
+  | 'other';
+
+export type Expense = {
+  id: string;
+  shopId: string;
+  // When the money was actually spent, which is what decides the reporting
+  // period — distinct from `createdAt`, when the receipt got typed in.
+  occurredOn: string;
+  amountCents: number;
+  category: ExpenseCategory;
+  vendorId: string | null;
+  // Joined from `vendors` for display, not stored on the row.
+  vendorName: string | null;
+  paymentMethod: PaymentMethod;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewExpenseInput = Omit<Expense, 'id' | 'shopId' | 'vendorName' | 'createdBy' | 'createdAt' | 'updatedAt'>;
 
 export type Tag = {
   id: string;

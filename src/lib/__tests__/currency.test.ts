@@ -1,4 +1,27 @@
-import { foreignCentsToUsdCents, formatCents, formatForeignCents, toCents, usdCentsToForeignCents } from '@/lib/currency';
+import { foreignCentsToUsdCents, formatAccountingCents, formatCents, formatForeignCents, toCents, usdCentsToForeignCents } from '@/lib/currency';
+
+describe('formatAccountingCents', () => {
+  it('groups thousands', () => {
+    expect(formatAccountingCents(208500)).toBe('$2,085.00');
+    expect(formatAccountingCents(123456789)).toBe('$1,234,567.89');
+  });
+
+  it('keeps two decimals for small amounts', () => {
+    expect(formatAccountingCents(0)).toBe('$0.00');
+    expect(formatAccountingCents(5)).toBe('$0.05');
+  });
+
+  // The bug this formatter exists to fix: formatCents renders a loss as
+  // "$-1925.10", stranding the sign inside the amount.
+  it('puts the minus sign before the currency symbol', () => {
+    expect(formatAccountingCents(-192510)).toBe('-$1,925.10');
+  });
+
+  it('uses accounting parentheses when asked', () => {
+    expect(formatAccountingCents(-192510, { negativeStyle: 'parens' })).toBe('($1,925.10)');
+    expect(formatAccountingCents(192510, { negativeStyle: 'parens' })).toBe('$1,925.10');
+  });
+});
 
 describe('toCents', () => {
   it('converts a decimal string to integer cents', () => {

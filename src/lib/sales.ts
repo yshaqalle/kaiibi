@@ -1,4 +1,15 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
+import { endOfDay, startOfDay } from '@/lib/period';
+import {
+  bucketDailyTotals,
+  costOfGoodsSold,
+  grossSalesCents,
+  netRevenueCents,
+  refundedCents,
+  taxCollectedCents,
+  type DailyBucket,
+  type PeriodRefund,
+} from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
 import type { CartLine, PaymentLine, PaymentMethod, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
@@ -123,6 +134,7 @@ function mapSaleRow(row: any): Sale {
         quantity: item.quantity,
         lineTotalCents: item.line_total_cents,
         discountCents: item.discount_cents ?? 0,
+        unitCostCents: item.unit_cost_cents ?? null,
       })
     ),
     payments: (row.sale_payments ?? []).map(
@@ -324,40 +336,86 @@ export async function getPaymentMethodMix(shopId: string, sinceDate: Date, until
 // Daily revenue/order/discount buckets between sinceDate and untilDate
 // (defaults to now) — powers the dashboard's trend chart, which lets the
 // viewer switch which of the three series is plotted without a refetch.
-export async function getDailyTotalsCents(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const since = new Date(sinceDate);
-  since.setHours(0, 0, 0, 0);
-  const until = untilDate ? new Date(untilDate) : new Date();
-  const dayCount = Math.max(1, Math.floor((until.getTime() - since.getTime()) / 86_400_000) + 1);
-  const sales = await listAllSalesInRange(shopId, since, untilDate);
-  const buckets = new Map<string, { totalCents: number; orderCount: number; discountCents: number }>();
-  for (let i = 0; i < dayCount; i++) {
-    const day = new Date(since); day.setDate(since.getDate() + i);
-    buckets.set(day.toDateString(), { totalCents: 0, orderCount: 0, discountCents: 0 });
-  }
-  for (const sale of sales) {
-    const key = new Date(sale.createdAt).toDateString();
-    const bucket = buckets.get(key);
-    if (bucket) {
-      bucket.totalCents += sale.totalCents;
-      bucket.orderCount += 1;
-      bucket.discountCents += sale.discountCents + (sale.items ?? []).reduce((sum, item) => sum + item.discountCents, 0);
-    }
-  }
-  return Array.from(buckets.entries()).map(([day, bucket]) => ({ day, ...bucket }));
+// Refunds that *happened* in the range, whatever period the original sale
+// belongs to -- so reversing them never restates a closed month. Carries each
+// line's frozen unit cost so COGS can be reversed alongside the revenue.
+export async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<PeriodRefund[]> {
+  type RefundRow = {
+    id: string;
+    created_at: string;
+    total_cents: number;
+    refund_items: { quantity: number; sale_items: { unit_cost_cents: number | null } | null }[] | null;
+  };
+  const rows = await fetchAllRows<RefundRow>((from, to) => {
+    let query = supabase
+      .from('refunds')
+      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id)')
+      .eq('sales.shop_id', shopId)
+      .gte('created_at', startOfDay(sinceDate).toISOString());
+    if (untilDate) query = query.lte('created_at', endOfDay(untilDate).toISOString());
+    return query.range(from, to) as unknown as PromiseLike<{ data: RefundRow[] | null; error: unknown }>;
+  });
+  return rows.map((row) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    totalCents: row.total_cents,
+    items: (row.refund_items ?? []).map((item) => ({
+      quantity: item.quantity,
+      unitCostCents: item.sale_items?.unit_cost_cents ?? null,
+    })),
+  }));
 }
 
-type SaleItemCategoryRow = { quantity: number; line_total_cents: number; products: { category: string | null } | null; sales: { created_at: string } };
+// Per-day revenue for the trend chart and the period stat tiles.
+//
+// `netRevenueCents` is the figure to report as "revenue": gross minus the sales
+// tax held on the government's behalf, minus refunds. `grossCents` is kept on
+// each bucket for anything that genuinely wants takings rather than earnings.
+export async function getDailyTotalsCents(shopId: string, sinceDate: Date, untilDate?: Date): Promise<DailyBucket[]> {
+  const [sales, refunds] = await Promise.all([
+    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
+    listRefundsInRange(shopId, sinceDate, untilDate),
+  ]);
+  return bucketDailyTotals(sales, refunds, sinceDate, untilDate);
+}
 
-async function fetchSaleItemsWithCategory(shopId: string, sinceDate: Date, untilDate?: Date): Promise<SaleItemCategoryRow[]> {
-  return fetchAllRows<SaleItemCategoryRow>((from, to) => {
+// Everything the P&L needs from the sales side, in one pass over one fetch --
+// revenue, the tax liability, and COGS with its uncosted caveat.
+export async function getSalesPerformance(shopId: string, sinceDate: Date, untilDate?: Date) {
+  const [sales, refunds] = await Promise.all([
+    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
+    listRefundsInRange(shopId, sinceDate, untilDate),
+  ]);
+  return {
+    grossSalesCents: grossSalesCents(sales),
+    taxCollectedCents: taxCollectedCents(sales),
+    refundedCents: refundedCents(refunds),
+    netRevenueCents: netRevenueCents(sales, refunds),
+    ...costOfGoodsSold(sales, refunds),
+    orderCount: sales.length,
+  };
+}
+
+type SaleItemProductRow = {
+  quantity: number;
+  line_total_cents: number;
+  // The cost frozen at sale time, not products.cost_cents -- see the
+  // sale-item cost snapshot migration for why the live value must not be used
+  // for anything historical.
+  unit_cost_cents: number | null;
+  products: { category: string | null } | null;
+  sales: { created_at: string };
+};
+
+async function fetchSaleItemsWithProductInfo(shopId: string, sinceDate: Date, untilDate?: Date): Promise<SaleItemProductRow[]> {
+  return fetchAllRows<SaleItemProductRow>((from, to) => {
     let query = supabase
       .from('sale_items')
-      .select('quantity, line_total_cents, products(category), sales!inner(shop_id, created_at)')
+      .select('quantity, line_total_cents, unit_cost_cents, products(category), sales!inner(shop_id, created_at)')
       .eq('sales.shop_id', shopId)
       .gte('sales.created_at', sinceDate.toISOString());
     if (untilDate) query = query.lte('sales.created_at', untilDate.toISOString());
-    return query.range(from, to) as unknown as PromiseLike<{ data: SaleItemCategoryRow[] | null; error: unknown }>;
+    return query.range(from, to) as unknown as PromiseLike<{ data: SaleItemProductRow[] | null; error: unknown }>;
   });
 }
 
@@ -366,7 +424,7 @@ async function fetchSaleItemsWithCategory(shopId: string, sinceDate: Date, until
 // null on delete) or was never categorized fall into "Uncategorized" rather
 // than being dropped.
 export async function getCategoryBreakdown(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const rows = await fetchSaleItemsWithCategory(shopId, sinceDate, untilDate);
+  const rows = await fetchSaleItemsWithProductInfo(shopId, sinceDate, untilDate);
   const totals = new Map<string, { unitsSold: number; revenueCents: number }>();
   for (const row of rows) {
     const category = row.products?.category ?? 'Uncategorized';
@@ -386,7 +444,7 @@ export async function getCategoryBreakdown(shopId: string, sinceDate: Date, unti
 // their own segment; the rest fold into "Other" so the chart never grows a
 // 5th+ series (see dataviz series-count ladder).
 export async function getCategoryRevenueByMonth(shopId: string, sinceDate: Date, untilDate?: Date) {
-  const rows = await fetchSaleItemsWithCategory(shopId, sinceDate, untilDate);
+  const rows = await fetchSaleItemsWithProductInfo(shopId, sinceDate, untilDate);
   const until = untilDate ?? new Date();
 
   const categoryTotals = new Map<string, number>();

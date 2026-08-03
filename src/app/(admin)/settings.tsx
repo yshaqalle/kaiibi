@@ -14,6 +14,7 @@ import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } 
 import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { RolesPanel } from '@/components/settings/panels/roles-panel';
 import { StorePanel } from '@/components/settings/panels/store-panel';
+import { VendorsPanel } from '@/components/settings/panels/vendors-panel';
 import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
@@ -26,7 +27,8 @@ import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
-import type { Brand, Category, Currency, Product, Promotion, Role } from '@/types/models';
+import { listVendors } from '@/lib/vendors';
+import type { Brand, Category, Currency, Product, Promotion, Role, Vendor } from '@/types/models';
 
 export default function SettingsScreen() {
   const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
@@ -44,6 +46,7 @@ export default function SettingsScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [roleUsage, setRoleUsage] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -57,7 +60,7 @@ export default function SettingsScreen() {
     // Not reset to true on subsequent calls -- reload() also runs after every
     // add/rename/delete/color-change, and flipping loading back to true would
     // unmount panels (and close any open modal) each time.
-    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult] =
+    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult] =
       await Promise.allSettled([
         listBrands(shop.id),
         listCategories(shop.id),
@@ -66,6 +69,7 @@ export default function SettingsScreen() {
         listProducts(shop.id),
         listPromotions(shop.id),
         listCurrencies(shop.id),
+        listVendors(shop.id),
       ]);
     if (brandsResult.status === 'fulfilled') setBrandRows(brandsResult.value);
     if (categoriesResult.status === 'fulfilled') setCategoryRows(categoriesResult.value);
@@ -77,6 +81,7 @@ export default function SettingsScreen() {
     if (productsResult.status === 'fulfilled') setProducts(productsResult.value);
     if (promotionsResult.status === 'fulfilled') setPromotions(promotionsResult.value);
     if (currenciesResult.status === 'fulfilled') setCurrencies(currenciesResult.value);
+    if (vendorsResult.status === 'fulfilled') setVendors(vendorsResult.value);
 
     const results: PromiseSettledResult<unknown>[] = [
       brandsResult,
@@ -86,6 +91,7 @@ export default function SettingsScreen() {
       productsResult,
       promotionsResult,
       currenciesResult,
+      vendorsResult,
     ];
 
     // Roles/staff are only fetched for owners/managers who can actually see
@@ -275,6 +281,12 @@ export default function SettingsScreen() {
           <Text style={styles.hint}>Loading…</Text>
         ) : (
           <RolesPanel shopId={shop.id} roles={roles} usage={roleUsage} onChange={reload} />
+        );
+      case 'vendors':
+        return loading ? (
+          <Text style={styles.hint}>Loading…</Text>
+        ) : (
+          <VendorsPanel shopId={shop.id} vendors={vendors} onChange={reload} />
         );
     }
   })();

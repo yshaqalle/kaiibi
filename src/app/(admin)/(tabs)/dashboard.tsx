@@ -20,6 +20,7 @@ import { sharePdf } from '@/lib/export-file';
 import { methodLabel } from '@/lib/payment-methods';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
+import type { DailyBucket } from '@/lib/sales-reporting';
 import {
   getCashierPerformance,
   getCategoryBreakdown,
@@ -66,7 +67,7 @@ export default function DashboardScreen() {
   const [section, setSection] = useState<DashboardSection>('trends');
 
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
-  const [dailyMetrics, setDailyMetrics] = useState<{ day: string; totalCents: number; orderCount: number; discountCents: number }[]>([]);
+  const [dailyMetrics, setDailyMetrics] = useState<DailyBucket[]>([]);
   const [topProducts, setTopProducts] = useState<{
     byRevenue: { name: string; quantitySold: number; revenueCents: number }[];
     byUnits: { name: string; quantitySold: number; revenueCents: number }[];
@@ -116,7 +117,10 @@ export default function DashboardScreen() {
 
   const today = dailyMetrics.at(-1);
   const yesterday = dailyMetrics.at(-2);
-  const todayTotalCents = today?.totalCents ?? 0;
+  // Net of sales tax and refunds -- tax collected belongs to the government,
+  // not the shop, so it was never revenue. This reads lower than the old
+  // figure for tax-enabled shops; that's the correction, not a regression.
+  const todayTotalCents = today?.netRevenueCents ?? 0;
   const todayOrders = today?.orderCount ?? 0;
   // `today` is really just the range's last bucket -- for the default preset
   // ranges that's always today, but a custom range (RangeSelector.applyCustom)
@@ -127,8 +131,8 @@ export default function DashboardScreen() {
     : "Today's sales";
 
   const salesDelta = useMemo(() => {
-    if (!yesterday || yesterday.totalCents <= 0) return undefined;
-    const pct = Math.round(((todayTotalCents - yesterday.totalCents) / yesterday.totalCents) * 100);
+    if (!yesterday || yesterday.netRevenueCents <= 0) return undefined;
+    const pct = Math.round(((todayTotalCents - yesterday.netRevenueCents) / yesterday.netRevenueCents) * 100);
     const direction: 'up' | 'down' = pct >= 0 ? 'up' : 'down';
     return { text: `${pct >= 0 ? '▲' : '▼'}${Math.abs(pct)}%`, direction };
   }, [todayTotalCents, yesterday]);
@@ -144,7 +148,7 @@ export default function DashboardScreen() {
     () =>
       dailyMetrics.map((d) => ({
         label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' })[0],
-        value: trendMetric === 'revenue' ? d.totalCents : trendMetric === 'orders' ? d.orderCount : d.discountCents,
+        value: trendMetric === 'revenue' ? d.netRevenueCents : trendMetric === 'orders' ? d.orderCount : d.discountCents,
       })),
     [dailyMetrics, trendMetric]
   );
@@ -280,7 +284,7 @@ export default function DashboardScreen() {
         <View style={[styles.headerDivider, { backgroundColor: theme.border }]} />
 
         <View style={styles.metricRow}>
-          <StatTile value={formatCents(todayTotalCents)} label={latestSalesLabel} delta={salesDelta} sparkline={dailyMetrics.map((d) => d.totalCents)} />
+          <StatTile value={formatCents(todayTotalCents)} label={latestSalesLabel} delta={salesDelta} sparkline={dailyMetrics.map((d) => d.netRevenueCents)} />
           <StatTile value={String(todayOrders)} label="Orders" delta={ordersDelta} />
           <StatTile value={String(lowStock.length)} label="Low stock" tone={lowStock.length > 0 ? 'warning' : 'default'} />
         </View>
