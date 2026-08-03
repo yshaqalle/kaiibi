@@ -509,6 +509,10 @@ export type PayrollRunLine = {
   // Computed to begin with, then editable until the run is posted.
   amountCents: number;
   note: string | null;
+  // Frozen at draft time alongside pay_type/pay_rate_cents. Never recomputed:
+  // a later pay-rate change must not restate what a past run warned about.
+  warning: string | null;
+  warningBlocking: boolean;
   createdAt: string;
 };
 
