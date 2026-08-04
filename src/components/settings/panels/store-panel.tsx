@@ -55,7 +55,13 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
     goalInput.trim() !== shopGoalInput ||
     logoUri !== shop.logoUrl ||
     payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '') ||
-    JSON.stringify(openingHours) !== JSON.stringify(shop.openingHours);
+    // Compared by walking WEEK_ORDER rather than JSON.stringify on the raw
+    // objects: Postgres returns jsonb keys sorted bytewise by length then
+    // value, not in the editor's mon…sun insertion order, so a naive
+    // stringify comparison never matches after a round trip through the
+    // database and Save stays enabled forever.
+    JSON.stringify(WEEK_ORDER.map((day) => rangesFor(openingHours, day))) !==
+      JSON.stringify(WEEK_ORDER.map((day) => rangesFor(shop.openingHours, day)));
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();

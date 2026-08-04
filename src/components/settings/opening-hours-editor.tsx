@@ -4,7 +4,6 @@ import {
   DAY_LABELS,
   WEEK_ORDER,
   isValidTime,
-  rangesFor,
   type OpeningHours,
   type WeekdayKey,
 } from '@/lib/store-hours';
@@ -32,21 +31,19 @@ function DayRow({
   hours: OpeningHours;
   onChange: (next: OpeningHours) => void;
 }) {
-  const ranges = rangesFor(hours, day);
-  const range = ranges[0];
-  const closed = range === undefined;
+  // hours[day] is read directly, not via rangesFor, because rangesFor
+  // collapses "key absent" and "key present but []" to the same [] -- exactly
+  // the distinction this row needs to show "Not set" instead of "Closed" for
+  // a shop that has never touched Settings (see OpeningHours' comment in
+  // types/models.ts).
+  const dayValue = hours[day];
+  const range = dayValue?.[0];
+  const notSet = dayValue === undefined;
 
   return (
     <View style={styles.row}>
       <Text style={styles.day}>{DAY_LABELS[day]}</Text>
-      {closed ? (
-        <>
-          <Text style={styles.closed}>Closed</Text>
-          <Pressable onPress={() => onChange(setDay(hours, day, [DEFAULT_RANGE]))}>
-            <Text style={styles.action}>Set hours</Text>
-          </Pressable>
-        </>
-      ) : (
+      {range ? (
         <>
           <TextInput
             value={range.open}
@@ -65,6 +62,13 @@ function DayRow({
           />
           <Pressable onPress={() => onChange(setDay(hours, day, []))}>
             <Text style={styles.action}>Close</Text>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <Text style={styles.closed}>{notSet ? 'Not set' : 'Closed'}</Text>
+          <Pressable onPress={() => onChange(setDay(hours, day, [DEFAULT_RANGE]))}>
+            <Text style={styles.action}>Set hours</Text>
           </Pressable>
         </>
       )}

@@ -1,6 +1,8 @@
 import {
   formatDayHours,
+  isConfigured,
   isOpenAt,
+  isRangeWithinHours,
   isValidRange,
   isValidTime,
   rangesFor,
@@ -112,6 +114,60 @@ describe('isOpenAt', () => {
   // A malformed range must not accidentally open the shop.
   it('ignores an invalid range rather than treating it as open', () => {
     expect(isOpenAt({ mon: [{ open: '18:00', close: '09:00' }] }, at(MONDAY, '12:00'))).toBe(false);
+  });
+});
+
+describe('isRangeWithinHours', () => {
+  const split: OpeningHours = { mon: [{ open: '09:00', close: '13:00' }, { open: '15:00', close: '18:00' }] };
+
+  // A shift spanning the closure between two stored ranges must not validate
+  // just because its endpoints each land inside SOME range.
+  it('rejects a shift spanning the gap between two ranges', () => {
+    expect(isRangeWithinHours(split, 'mon', { open: '10:00', close: '16:00' })).toBe(false);
+  });
+
+  it('accepts a shift equal to the whole range', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '09:00', close: '18:00' })).toBe(true);
+  });
+
+  it('accepts a shift strictly inside the range', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '10:00', close: '17:00' })).toBe(true);
+  });
+
+  // Inclusive at `close`, unlike isOpenAt -- this is the whole point of the
+  // predicate existing.
+  it('accepts a shift ending exactly at closing time', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '09:00', close: '18:00' })).toBe(true);
+  });
+
+  it('rejects a shift starting before the range opens', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '08:00', close: '17:00' })).toBe(false);
+  });
+
+  it('rejects a shift ending after the range closes', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '10:00', close: '19:00' })).toBe(false);
+  });
+
+  it('rejects on a day with no ranges', () => {
+    expect(isRangeWithinHours({}, 'mon', { open: '10:00', close: '11:00' })).toBe(false);
+  });
+
+  it('rejects an invalid shift', () => {
+    expect(isRangeWithinHours(NINE_TO_SIX, 'mon', { open: '18:00', close: '09:00' })).toBe(false);
+  });
+});
+
+describe('isConfigured', () => {
+  it('is false for an empty object', () => {
+    expect(isConfigured({})).toBe(false);
+  });
+
+  it('is true when a day is explicitly set to an empty closure', () => {
+    expect(isConfigured({ mon: [] })).toBe(true);
+  });
+
+  it('is true for a populated week', () => {
+    expect(isConfigured(NINE_TO_SIX)).toBe(true);
   });
 });
 
