@@ -24,6 +24,12 @@ export default function PlatformLayout() {
   // verdict unreadable by construction rather than by timing.
   const userId = session?.user.id ?? null;
   const [access, setAccess] = useState<{ userId: string; isAdmin: boolean; pendingMfa: boolean } | null>(null);
+  // Bumped after a successful MFA verify to force the check to run again.
+  // Completing a challenge does not change WHO you are, only the assurance
+  // level of your token -- so nothing else on this screen changes, and without
+  // this the effect below never re-runs and you sit on the challenge screen
+  // having already passed it.
+  const [recheck, setRecheck] = useState(0);
   const resolved = access && access.userId === userId ? access : null;
 
   useEffect(() => {
@@ -40,7 +46,9 @@ export default function PlatformLayout() {
     return () => {
       active = false;
     };
-  }, [userId]);
+    // `access_token` is in the deps as a backstop: verifying issues a new
+    // token, so even if the explicit re-check is missed this catches it.
+  }, [userId, recheck, session?.access_token]);
 
   // Web only. Not a security control -- the database is -- but the portal is a
   // desk tool with dense tables, and shipping it into the phone app would put
@@ -61,7 +69,7 @@ export default function PlatformLayout() {
   // target.
   if (!session) return <Redirect href={'/login?next=/platform' as never} />;
 
-  if (resolved?.pendingMfa) return <MfaChallenge />;
+  if (resolved?.pendingMfa) return <MfaChallenge onVerified={() => setRecheck((n) => n + 1)} />;
 
   // Says nothing about whether the account exists or is an operator. Somebody
   // who lands here by guessing the URL learns only that they can't come in.
@@ -84,7 +92,7 @@ export default function PlatformLayout() {
 // enrolment here rather than being turned away: they are staff, and a support
 // person locked out by their own security control is a support person who will
 // ask for it to be turned off.
-function MfaChallenge() {
+function MfaChallenge({ onVerified }: { onVerified: () => void }) {
   const [code, setCode] = useState('');
   const [factorId, setFactorId] = useState<string | null>(null);
   const [enrolUri, setEnrolUri] = useState<string | null>(null);
@@ -136,8 +144,11 @@ function MfaChallenge() {
         code: code.trim(),
       });
       if (verifyError) throw verifyError;
-      // Verifying swaps the session for an aal2 one; onAuthStateChange in
-      // use-auth picks it up, which re-runs the access check in the layout.
+      // Ask the database again now that the token carries aal2. Waiting on
+      // onAuthStateChange alone is not enough: the user is unchanged, so
+      // nothing the layout keys on would differ and it would keep rendering
+      // this screen.
+      onVerified();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That code was not accepted.');
     } finally {
