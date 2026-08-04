@@ -130,20 +130,7 @@ export default function PlatformHome() {
             operator account is a second identity most people also hold a shop
             login for, and acting on the wrong one is the mistake this
             prevents. */}
-        {!compact && (
-          <View style={styles.whoRow}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{(session?.user.email ?? '?').slice(0, 2).toUpperCase()}</Text>
-            </View>
-            <View style={styles.whoText}>
-              <Text style={styles.whoEmail} numberOfLines={1}>{session?.user.email}</Text>
-              <Text style={styles.whoRole}>{myRole ? `${myRole} · operator` : 'operator'}</Text>
-            </View>
-            <Pressable onPress={() => signOut()} style={styles.signOut} hitSlop={6}>
-              <Text style={styles.signOutText}>Sign out</Text>
-            </Pressable>
-          </View>
-        )}
+        {!compact && <WhoAmI email={session?.user.email ?? null} role={myRole} />}
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} />
         ) : tab === 'overview' ? (
@@ -304,6 +291,44 @@ export default function PlatformHome() {
             </View>
           </View>
         </Modal>
+      )}
+    </View>
+  );
+}
+
+// Just the avatar until you want more. Who you are is worth being able to
+// check at a glance, but it is not worth a permanent strip across the top of
+// every screen -- so the detail and the way out live behind a hover, with a tap
+// fallback so this still works on a touch screen.
+function WhoAmI({ email, role }: { email: string | null; role: string | null }) {
+  const [open, setOpen] = useState(false);
+  const initials = (email ?? '?').slice(0, 2).toUpperCase();
+
+  return (
+    <View style={styles.whoWrap}>
+      <Pressable
+        onHoverIn={() => setOpen(true)}
+        onHoverOut={() => setOpen(false)}
+        onPress={() => setOpen((v) => !v)}
+        style={styles.avatar}
+      >
+        <Text style={styles.avatarText}>{initials}</Text>
+      </Pressable>
+
+      {open && (
+        <View
+          style={styles.whoCard}
+          // Keeps the card open while the pointer travels from the avatar into
+          // it -- otherwise Sign out is unreachable by mouse.
+          onPointerEnter={() => setOpen(true)}
+          onPointerLeave={() => setOpen(false)}
+        >
+          <Text style={styles.whoEmail} numberOfLines={1}>{email}</Text>
+          <Text style={styles.whoRole}>{role ? `${role} · operator` : 'operator'}</Text>
+          <Pressable onPress={() => signOut()} style={styles.signOut} hitSlop={6}>
+            <Text style={styles.signOutText}>Sign out</Text>
+          </Pressable>
+        </View>
       )}
     </View>
   );
@@ -1110,13 +1135,18 @@ const styles = StyleSheet.create({
   cardUsage: { fontSize: 12, color: '#777777' },
   cardDates: { fontSize: 11.5, color: '#999999' },
   sidebar: { width: 200, borderRightWidth: 1, borderRightColor: '#EEEEEE', padding: 20 },
-  whoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'flex-end', marginBottom: 18 },
+  whoWrap: { alignSelf: 'flex-end', marginBottom: 14, zIndex: 10 },
+  whoCard: {
+    position: 'absolute', top: 38, right: 0, minWidth: 210, gap: 4,
+    backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EAEAEF', borderRadius: 12,
+    paddingVertical: 12, paddingHorizontal: 14,
+    shadowColor: '#000000', shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 6 },
+  },
   avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
-  whoText: { alignItems: 'flex-end' },
-  whoEmail: { fontSize: 12.5, fontWeight: '700', color: '#111111', maxWidth: 220 },
+  whoEmail: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
   whoRole: { fontSize: 10.5, color: '#AAAAAA', textTransform: 'capitalize' },
-  signOut: { paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: '#F0C2C2', borderRadius: 8 },
+  signOut: { marginTop: 8, alignSelf: 'flex-start', paddingVertical: 5, paddingHorizontal: 11, borderWidth: 1, borderColor: '#F0C2C2', borderRadius: 8 },
   signOutText: { fontSize: 11.5, fontWeight: '800', color: '#B03535' },
   topBarHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { fontSize: 15, fontWeight: '800', color: '#111111', letterSpacing: 1 },
