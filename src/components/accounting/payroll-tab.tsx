@@ -23,7 +23,7 @@ import { payPeriodsFor, type PayCadence } from '@/lib/pay-periods';
 import { toDateColumn } from '@/lib/period';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
-import type { PayrollRun } from '@/types/models';
+import type { PayrollRun, StaffMember } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -31,6 +31,15 @@ function extractErrorMessage(err: unknown): string {
   }
   return 'Something went wrong.';
 }
+
+// Shared by the chips and the coverage line so the prose can never say
+// "biweekly" while the chip says "Every 2 weeks".
+const CADENCE_LABELS: Record<PayCadence, string> = {
+  weekly: 'Weekly',
+  biweekly: 'Every 2 weeks',
+  semimonthly: 'Twice a month',
+  monthly: 'Monthly',
+};
 
 export function PayrollTab({
   dateRange,
@@ -47,6 +56,9 @@ export function PayrollTab({
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [open, setOpen] = useState<PayrollRun | null>(null);
   const [creating, setCreating] = useState(false);
+  // Loaded when the create card opens so the covered count can be shown before
+  // a run exists. Null means "not loaded yet" -- distinct from an empty roster.
+  const [activeStaff, setActiveStaff] = useState<StaffMember[] | null>(null);
   // Defaults to the current calendar month rather than the Accounting
   // rolling-days range: seeding from that range meant the dates almost never
   // lined up with a whole pay period, so "Build draft" always took the
@@ -67,6 +79,12 @@ export function PayrollTab({
   const periodOptions = cadence
     ? payPeriodsFor(cadence, anchor, toDateColumn(dateRange.since), toDateColumn(dateRange.until ?? new Date()))
     : { periods: [], reason: 'ok' as const };
+
+  // How many of the active roster this run will actually include. The draft
+  // silently drops members on a different cadence, so without this a shop that
+  // moves to weekly and misses one member excludes them from every run.
+  const coveredCount =
+    activeStaff === null ? null : cadence === null ? activeStaff.length : activeStaff.filter((member) => member.payCadence === cadence).length;
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
@@ -101,6 +119,23 @@ export function PayrollTab({
     await reload();
   };
 
+  // Deliberately not a useEffect keyed on `creating`: this file already carries
+  // a react-hooks/set-state-in-effect finding, and adding another effect that
+  // sets state would add a second.
+  const openCreate = async () => {
+    setCreating(true);
+    setActiveStaff(null);
+    if (!shop) return;
+    try {
+      const members = await listStaff(shop.id);
+      setActiveStaff(members.filter((member) => member.active));
+    } catch {
+      // A failed load leaves the count hidden rather than blocking the card --
+      // startRun re-fetches and will surface a real error there.
+      setActiveStaff(null);
+    }
+  };
+
   const startRun = async () => {
     if (!shop) return;
     const start = parseDateInput(periodStart);
@@ -132,7 +167,7 @@ export function PayrollTab({
 
   return (
     <View>
-      <PayrollHeaderActions allowed={allowed} creating={creating} onNew={() => setCreating(true)} setHeaderActions={setHeaderActions} />
+      <PayrollHeaderActions allowed={allowed} creating={creating} onNew={openCreate} setHeaderActions={setHeaderActions} />
       <View style={styles.header}>
         <Text style={styles.subtitle}>
           Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
@@ -146,13 +181,22 @@ export function PayrollTab({
             {(['weekly', 'biweekly', 'semimonthly', 'monthly'] as const).map((option) => (
               <CategoryChip
                 key={option}
-                label={option === 'biweekly' ? 'Every 2 weeks' : option === 'semimonthly' ? 'Twice a month' : option[0].toUpperCase() + option.slice(1)}
+                label={CADENCE_LABELS[option]}
                 active={cadence === option}
                 onPress={() => setCadence(option)}
               />
             ))}
             <CategoryChip label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
           </View>
+          {activeStaff !== null && coveredCount !== null && (
+            <Text style={coveredCount === 0 ? styles.coverageEmpty : styles.coverage}>
+              {cadence === null
+                ? `This run covers all ${activeStaff.length} active staff.`
+                : coveredCount === 0
+                  ? `No active staff are on the ${CADENCE_LABELS[cadence].toLowerCase()} cadence. Set one in People, or pick a different period.`
+                  : `This ${CADENCE_LABELS[cadence].toLowerCase()} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
+            </Text>
+          )}
           {periodOptions.reason === 'anchor_required' ? (
             <Text style={styles.subtitle}>
               Set a pay period start date in Settings → Store before using weekly or fortnightly periods.
@@ -183,7 +227,11 @@ export function PayrollTab({
             </View>
           </View>
           <View style={styles.createActions}>
-            <Pressable onPress={startRun} disabled={busy} style={[styles.primaryButton, busy && styles.buttonDisabled]}>
+            <Pressable
+              onPress={startRun}
+              disabled={busy || coveredCount === 0}
+              style={[styles.primaryButton, (busy || coveredCount === 0) && styles.buttonDisabled]}
+            >
               <Text style={styles.primaryButtonText}>{busy ? 'Working…' : 'Build draft'}</Text>
             </Pressable>
             <Pressable onPress={() => { setCreating(false); setError(null); }} disabled={busy} style={styles.actionButton}>
@@ -284,6 +332,8 @@ const styles = StyleSheet.create({
 
   createCard: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 16, marginBottom: 16 },
   createTitle: { fontSize: 13, fontWeight: '800', color: '#111111', marginBottom: 12 },
+  coverage: { fontSize: 11.5, color: '#999999', lineHeight: 16, marginBottom: 10 },
+  coverageEmpty: { fontSize: 11.5, fontWeight: '700', color: '#C0392B', lineHeight: 16, marginBottom: 10 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   createRow: { flexDirection: 'row', gap: 10 },
   createField: { flex: 1 },
