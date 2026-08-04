@@ -521,6 +521,24 @@ function RecordPayment({
   const [paidAt, setPaidAt] = useState(today);
   const [coversFrom, setCoversFrom] = useState(from);
   const [coversTo, setCoversTo] = useState(addMonths(from, 1));
+  // Off by default: the fair thing is to honour the free days a shop was
+  // promised. On, it converts them today and they give up the remainder.
+  const [startNow, setStartNow] = useState(false);
+
+  const trialing = shop.status === 'trialing';
+  // Counted between two fixed date strings rather than against the clock:
+  // reading the clock during render is impure, and `today` is already fixed for
+  // this render anyway, so both figures agree by construction.
+  const freeDaysLeft = shop.trialEndsAt ? daysBetween(today, shop.trialEndsAt.slice(0, 10)) : 0;
+
+  // Flipping the toggle rewrites the period in place, so the dates on screen
+  // always match what will actually be recorded.
+  const applyStartNow = (next: boolean) => {
+    setStartNow(next);
+    const start = next ? today : from;
+    setCoversFrom(start);
+    setCoversTo(addMonths(start, 1));
+  };
 
   const submit = () =>
     onRun('record_payment', {
@@ -532,11 +550,27 @@ function RecordPayment({
         paidAt: new Date(paidAt).toISOString(),
         coversFrom: new Date(coversFrom).toISOString(),
         coversTo: new Date(coversTo).toISOString(),
+        endTrialNow: startNow,
       },
     });
 
   return (
     <View>
+      {trialing && (
+        <>
+          <Pressable onPress={() => applyStartNow(!startNow)} style={styles.convertRow}>
+            <View style={[styles.checkbox, startNow && styles.checkboxOn]}>
+              {startNow && <Text style={styles.checkboxTick}>✓</Text>}
+            </View>
+            <Text style={styles.convertLabel}>Start paying today — ends their trial now</Text>
+          </Pressable>
+          <Text style={styles.planMeta}>
+            {startNow
+              ? `They become a paying customer today and give up ${freeDaysLeft} free day${freeDaysLeft === 1 ? '' : 's'}. Only do this if they asked for it.`
+              : `Their ${freeDaysLeft} remaining free day${freeDaysLeft === 1 ? '' : 's'} are kept — the paid period starts when the trial ends, and they count toward MRR from then.`}
+          </Text>
+        </>
+      )}
       <View style={styles.actionRow}>
         {['ZAAD', 'eDahab', 'Cash', 'Bank'].map((m) => (
           <Pressable key={m} onPress={() => setMethod(m)} style={[styles.chip, method === m && styles.chipActive]}>
@@ -582,6 +616,12 @@ function RecordPayment({
       </Text>
     </View>
   );
+}
+
+// Whole days from one yyyy-mm-dd to another, floored at zero.
+function daysBetween(fromIso: string, toIso: string): number {
+  const ms = Date.parse(`${toIso}T00:00:00Z`) - Date.parse(`${fromIso}T00:00:00Z`);
+  return Number.isNaN(ms) ? 0 : Math.max(0, Math.round(ms / 86_400_000));
 }
 
 // Calendar-month arithmetic on a yyyy-mm-dd string. Clamps the day so paying on
@@ -1017,6 +1057,11 @@ const styles = StyleSheet.create({
   planCardEditing: { borderColor: '#111111' },
   planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
   limitField: { gap: 4 },
+  convertRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
+  checkbox: { width: 17, height: 17, borderRadius: 4, borderWidth: 1.5, borderColor: '#BBBBBB', alignItems: 'center', justifyContent: 'center' },
+  checkboxOn: { backgroundColor: '#111111', borderColor: '#111111' },
+  checkboxTick: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  convertLabel: { fontSize: 12.5, color: '#111111', fontWeight: '700' },
   detailSectionDanger: { fontSize: 10, fontWeight: '800', color: '#B03535', letterSpacing: 0.5, marginTop: 24, marginBottom: 8 },
   dangerToggle: { alignSelf: 'flex-start', marginTop: 22, paddingVertical: 6 },
   dangerToggleText: { color: '#B03535', fontSize: 12, fontWeight: '800' },

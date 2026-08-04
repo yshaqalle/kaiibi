@@ -33,7 +33,21 @@ type RequestBody = {
   shopId?: string;
   planKey?: string;
   days?: number;
-  payment?: { amountCents: number; currency?: string; method?: string; providerRef?: string; paidAt?: string; coversFrom?: string; coversTo?: string; note?: string };
+  payment?: {
+    amountCents: number;
+    currency?: string;
+    method?: string;
+    providerRef?: string;
+    paidAt?: string;
+    coversFrom?: string;
+    coversTo?: string;
+    note?: string;
+    // Converts a trialing shop into a paying one straight away by ending the
+    // trial early. Without it, a shop that pays mid-trial keeps reading as
+    // `trialing` at zero MRR until their free window runs out, because
+    // shop_effective_status checks the trial before the paid period.
+    endTrialNow?: boolean;
+  };
   override?: { kind: 'module' | 'limit'; key: string; value?: unknown; expiresAt?: string | null };
   plan?: Record<string, unknown>;
   settings?: Record<string, unknown>;
@@ -215,6 +229,11 @@ Deno.serve(async (req) => {
             .update({
               current_period_end: coversTo.toISOString(),
               grace_until: new Date(coversTo.getTime() + graceDays * 86_400_000).toISOString(),
+              // Closing the trial is what actually flips the status to
+              // `active`, so an early converter is recognised as paying from
+              // the day they paid rather than the day their trial happened to
+              // run out.
+              ...(p.endTrialNow ? { trial_ends_at: new Date().toISOString() } : {}),
               updated_at: new Date().toISOString(),
             })
             .eq('shop_id', body.shopId)
