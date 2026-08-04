@@ -22,8 +22,8 @@ Tue  09:00 – 18:00
 Sun  Closed
 ```
 
-Editable in Settings → Store, printed on receipts, and readable by a pure
-function scheduling will call.
+Editable in Settings → Store, printed on receipts, and readable by the pure
+predicates scheduling will call.
 
 ## Decisions
 
@@ -110,21 +110,48 @@ type OpeningHours = Partial<Record<WeekdayKey, TimeRange[]>>;
 
 weekdayKeyFor(date: Date): WeekdayKey
 isOpenAt(hours: OpeningHours, at: Date): boolean
+isRangeWithinHours(hours: OpeningHours, day: WeekdayKey, shift: TimeRange): boolean
+isConfigured(hours: OpeningHours): boolean
 rangesFor(hours: OpeningHours, day: WeekdayKey): TimeRange[]
 isValidTime(text: string): boolean            // 'HH:MM', 00:00-23:59
 isValidRange(range: TimeRange): boolean       // valid times AND close > open
 formatDayHours(ranges: TimeRange[]): string   // '09:00 – 18:00' | 'Closed'
-formatWeek(hours: OpeningHours): { day: string; hours: string }[]
 ```
 
-`isOpenAt` is the function team scheduling will call to validate that a shift
-falls inside opening hours. Building it now, with tests, is most of why this
-spec exists — the display is the smaller half.
+An earlier draft also listed `formatWeek`, for a whole-week table. It was never
+built: nothing consumes it — the editor renders its own rows and the receipt
+shows only today — and a tested function nobody calls is still dead code.
 
-**Boundary rule, stated so it is not ambiguous:** a range is inclusive of `open`
-and exclusive of `close`. A shop open 09:00–18:00 is open at exactly 09:00 and
-closed at exactly 18:00. This matters for a shift ending at closing time, which
-scheduling must treat as valid.
+**Correction — an earlier draft of this spec said `isOpenAt` is the function
+team scheduling would call to validate a shift. That was wrong.** `isOpenAt`
+answers about an *instant*; a shift is an *interval*, and checking both
+endpoints fails in both directions:
+
+```
+shift 09:00–18:00 vs hours 09:00–18:00
+  isOpenAt(start)=true, isOpenAt(end)=false   → rejects a full opening-hours shift
+shift 10:00–16:00 vs hours [09:00–13:00, 15:00–18:00]
+  isOpenAt(start)=true, isOpenAt(end)=true    → accepts a shift spanning the closure
+```
+
+The stored shape was fine; the API was incomplete. Scheduling calls
+`isRangeWithinHours(hours, day, shift)`, which is true only when a **single**
+stored range fully contains the shift — so a shift spanning a lunch closure is
+rejected. `isOpenAt` remains, for "is the shop open right now" questions like
+the receipt line.
+
+**Two boundary conventions, deliberately different.** `isOpenAt` is inclusive of
+`open` and exclusive of `close`: a shop open 09:00–18:00 is open at exactly
+09:00 and closed at exactly 18:00, because 18:00 is when the doors shut.
+`isRangeWithinHours` is inclusive at **both** ends, because a shift that runs
+until closing time is valid. The two functions sit beside each other with that
+difference commented, since neighbouring predicates with different conventions
+are exactly what a later reader gets wrong.
+
+**`isConfigured(hours)` distinguishes "not set" from "closed".** `{}` and a week
+of empty lists both make `isOpenAt` false, and the column defaults to `{}` with
+no backfill — so without this, a scheduler would reject every shift for every
+shop that has never opened Settings.
 
 `weekdayKeyFor` uses the device's local day, consistent with `period.ts`.
 
