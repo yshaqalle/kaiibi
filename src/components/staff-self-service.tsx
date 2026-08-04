@@ -7,9 +7,12 @@ import { DateInput } from '@/components/date-input';
 import { StatTile } from '@/components/stat-tile';
 import { TIME_OFF_REASONS } from '@/constants/time-off';
 import { formatAccountingCents } from '@/lib/currency';
+import { toDateColumn } from '@/lib/period';
 import { payRateUnitLabel } from '@/lib/pay-rate';
 import { clockIn, clockOut, getOpenTimeEntry, listMyTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { cancelTimeOffRequest, listMyTimeOffRequests, requestTimeOff, updateTimeOffRequest } from '@/lib/time-off';
+import { listMyShifts } from '@/lib/shifts';
+import type { Shift } from '@/lib/scheduling';
 import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // The self-service view is intentionally a component rather than a route so
@@ -18,6 +21,7 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
   const [openEntry, setOpenEntry] = useState<TimeEntry | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [requests, setRequests] = useState<TimeOffRequest[]>([]);
+  const [shifts, setShifts] = useState<Shift[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [editingRequest, setEditingRequest] = useState<TimeOffRequest | null>(null);
@@ -30,14 +34,16 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
     since.setDate(1);
     since.setHours(0, 0, 0, 0);
     try {
-      const [open, myEntries, myRequests] = await Promise.all([
+      const [open, myEntries, myRequests, myShifts] = await Promise.all([
         getOpenTimeEntry(member.id),
         listMyTimeEntries(member.id, since.toISOString()),
         listMyTimeOffRequests(member.id),
+        listMyShifts(member.id, toDateColumn(new Date())),
       ]);
       setOpenEntry(open);
       setEntries(myEntries);
       setRequests(myRequests);
+      setShifts(myShifts);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     }
@@ -102,6 +108,23 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
           </View>
         ))}
         <Text style={styles.periodTotal}>{sumDurationHours(entries).toFixed(1)}h logged this period</Text>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>MY UPCOMING SHIFTS</Text>
+        {shifts.length === 0 ? (
+          <Text style={styles.empty}>Nothing scheduled yet.</Text>
+        ) : (
+          shifts.slice(0, 10).map((shift) => (
+            <View key={shift.id} style={styles.row}>
+              <Text style={styles.rowText}>
+                {shift.date}
+                {shift.note ? ` · ${shift.note}` : ''}
+              </Text>
+              <Text style={styles.duration}>{shift.start}–{shift.end}</Text>
+            </View>
+          ))
+        )}
       </View>
 
       <View style={styles.section}>
