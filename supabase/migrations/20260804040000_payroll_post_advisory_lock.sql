@@ -11,6 +11,15 @@
 -- so every guard below reads committed state instead of racing a concurrent
 -- post of a different run. See the inline comment below for why the shop id
 -- is read separately and why the lock is transaction-scoped.
+--
+-- This closes the race under READ COMMITTED, which is the cluster default
+-- and what PostgREST gives every client -- there is no way to request a
+-- different isolation level through it. Under a snapshot isolation level
+-- (REPEATABLE READ or SERIALIZABLE), the lock still serialises correctly,
+-- but a transaction whose snapshot predates the other's commit would not
+-- see it as posted and could still pay the member twice. Recorded here
+-- because nothing in this repo or cluster can reach that path today, not
+-- because it's a live risk.
 
 create or replace function public.post_payroll_run(p_run_id uuid) returns uuid
 language plpgsql security definer set search_path = public as $$
@@ -130,6 +139,6 @@ $$;
 -- oldest: the function is recreated often enough that its rationale gets
 -- stranded otherwise.
 comment on function public.post_payroll_run(uuid) is
-  'Commits a draft pay run: writes one salaries_wages expense dated period_end and flips the status. A shop-scoped transaction advisory lock (keyed on shop_id) is taken before the row lock, serialising all posts within a shop; this closes a pre-existing race where two concurrent posts of DIFFERENT overlapping runs sharing a member each locked only their own row, neither saw the other''s uncommitted ''posted'' status, and both could succeed, paying that member twice. Posts in different shops never block each other. Rejects: a run id that does not exist; a caller missing people.payroll.manage or expenses.manage; an already-posted run; an overlapping posted run that shares a member (per member, not per period, because different cadences legitimately overlap); a line warning of a missing pay rate that still has no amount; and a run totalling zero. The expense is dated period_end so August payroll posted in September lands in August.';
+  'Commits a draft pay run: writes one salaries_wages expense dated period_end and flips the status. A shop-scoped transaction advisory lock (keyed on shop_id) is taken before the row lock, serialising all posts within a shop; this closes a pre-existing race where two concurrent posts of DIFFERENT overlapping runs sharing a member each locked only their own row, neither saw the other''s uncommitted ''posted'' status, and both could succeed, paying that member twice. That guarantee holds under READ COMMITTED, which is the cluster default and what PostgREST clients always get; under a snapshot isolation level (REPEATABLE READ or SERIALIZABLE), a transaction whose snapshot predates the other post''s commit would not see it even with the lock held, so the double-pay could still occur there. That path is not reachable today -- nothing in this deployment changes isolation level and PostgREST offers no way to request one -- so it is noted rather than guarded against. Posts in different shops never block each other. Rejects: a run id that does not exist; a caller missing people.payroll.manage or expenses.manage; an already-posted run; an overlapping posted run that shares a member (per member, not per period, because different cadences legitimately overlap); a line warning of a missing pay rate that still has no amount; and a run totalling zero. The expense is dated period_end so August payroll posted in September lands in August.';
 
 grant execute on function public.post_payroll_run(uuid) to authenticated;
