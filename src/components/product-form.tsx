@@ -4,6 +4,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { StoreDropdown } from '@/components/store-dropdown';
 import { useAuth } from '@/hooks/use-auth';
 import { primaryLocationOf } from '@/lib/location-selection';
 import { createBrand, listBrands } from '@/lib/brands';
@@ -204,21 +205,18 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         {/* Which store that stock is at. Defaults to the main store, or to the
             one being viewed if the list is filtered — but it is always shown
             once there are several, so nobody adds stock to a store they didn't
-            mean to just because the register happened to be set there. */}
-        {stores.length > 1 && (
-          <Field label="STORE">
-            <ScrollView horizontal contentContainerStyle={styles.chipRow} showsHorizontalScrollIndicator={false}>
-              {stores.map((store) => (
-                <CategoryChip
-                  key={store.id}
-                  label={store.name}
-                  active={locationId === store.id}
-                  onPress={() => setLocationId(store.id)}
-                />
-              ))}
-            </ScrollView>
-          </Field>
-        )}
+            mean to just because the register happened to be set there.
+            No "All stores" option: a count has to land somewhere in particular.
+            The dropdown renders nothing for a single-store business. */}
+        <Field label="STORE" style={styles.half}>
+          <StoreDropdown
+            value={locationId}
+            onChange={setLocationId}
+            allowAll={false}
+            variant="field"
+            title="Store for this stock"
+          />
+        </Field>
         <Field label="REORDER LEVEL" style={styles.half}><TextInput value={reorderLevel} onChangeText={setReorderLevel} placeholder="5" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
       </Row>
       <Field label="SHELF / LOCATION"><TextInput value={shelfNumber} onChangeText={setShelfNumber} placeholder="e.g. A3" placeholderTextColor="#999999" style={styles.input} /></Field>
@@ -337,7 +335,6 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 60 },
   row: { flexDirection: 'row', gap: 8 },
   half: { flex: 1 },
-  chipRow: { flexDirection: 'row', gap: 6, paddingRight: 8 },
   fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#999999', marginBottom: 7, marginTop: 3 },
   photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', borderRadius: 11, marginBottom: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoPreview: { width: '100%', height: '100%' },

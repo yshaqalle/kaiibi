@@ -15,9 +15,22 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 export function StoreDropdown({
   value,
   onChange,
+  // `false` drops the "All stores" option, for places where the answer must be
+  // one store — opening stock has to land somewhere in particular, and "all"
+  // would be a value the write path can't honour.
+  allowAll = true,
+  title = 'Show stock for',
+  placeholder = 'Choose a store',
+  // 'field' fills the width and matches the form inputs beside it; 'compact'
+  // sits in a header row next to the export buttons.
+  variant = 'compact',
 }: {
   value: string | null;
   onChange: (locationId: string | null) => void;
+  allowAll?: boolean;
+  title?: string;
+  placeholder?: string;
+  variant?: 'compact' | 'field';
 }) {
   const { locations } = useAuth();
   const [open, setOpen] = useState(false);
@@ -25,29 +38,44 @@ export function StoreDropdown({
   if (!hasMultipleLocations(locations)) return null;
 
   const selectable = locations.filter((location) => location.active);
-  const label = value === null ? 'All stores' : (selectable.find((l) => l.id === value)?.name ?? 'All stores');
+  const selected = value === null ? undefined : selectable.find((l) => l.id === value);
+  const label = selected?.name ?? (allowAll ? 'All stores' : placeholder);
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={styles.trigger}>
-        <Text style={styles.triggerText} numberOfLines={1}>{label}</Text>
-        <Text style={styles.chevron}>▾</Text>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={[styles.trigger, variant === 'field' ? styles.triggerField : styles.triggerCompact]}
+      >
+        <Text
+          style={[
+            styles.triggerText,
+            variant === 'field' ? styles.triggerTextField : styles.triggerTextCompact,
+            variant === 'field' && !selected && !allowAll && styles.triggerPlaceholder,
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+        <Text style={[styles.chevron, variant !== 'field' && styles.chevronCompact]}>▾</Text>
       </Pressable>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <View style={styles.sheet}>
-            <Text style={styles.sheetTitle}>Show stock for</Text>
+            <Text style={styles.sheetTitle}>{title}</Text>
             <ScrollView style={styles.list}>
-              <Option
-                label="All stores"
-                hint="Every store combined"
-                selected={value === null}
-                onPress={() => {
-                  onChange(null);
-                  setOpen(false);
-                }}
-              />
+              {allowAll && (
+                <Option
+                  label="All stores"
+                  hint="Every store combined"
+                  selected={value === null}
+                  onPress={() => {
+                    onChange(null);
+                    setOpen(false);
+                  }}
+                />
+              )}
               {selectable.map((location) => (
                 <Option
                   key={location.id}
@@ -91,18 +119,18 @@ function Option({
 }
 
 const styles = StyleSheet.create({
-  trigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#F2F2F2',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    maxWidth: 170,
-  },
-  triggerText: { fontSize: 11, fontWeight: '800', color: '#111111', flexShrink: 1 },
+  trigger: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 10 },
+  // Matches the export/import/add buttons it sits beside — same black, radius,
+  // padding and 11/800 label, so the header reads as one row of actions.
+  triggerCompact: { backgroundColor: '#111111', paddingHorizontal: 12, paddingVertical: 9, maxWidth: 170 },
+  // In a form it is an input, not an action, so it matches the fields around it.
+  triggerField: { backgroundColor: '#F2F2F2', alignSelf: 'stretch', justifyContent: 'space-between', height: 42, paddingHorizontal: 12 },
+  triggerText: { flexShrink: 1 },
+  triggerTextCompact: { fontSize: 11, fontWeight: '800', color: '#FFFFFF' },
+  triggerTextField: { fontSize: 13, fontWeight: '600', color: '#111111' },
+  triggerPlaceholder: { color: '#999999' },
   chevron: { fontSize: 10, color: '#111111' },
+  chevronCompact: { color: '#FFFFFF' },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   sheet: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 420, maxHeight: '70%' },
   sheetTitle: { fontSize: 16, fontWeight: '800', color: '#111111', marginBottom: 12 },
