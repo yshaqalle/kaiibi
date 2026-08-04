@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
+import { StorePicker } from '@/components/store-picker';
 import { VendorPicker, type SelectedVendor } from '@/components/vendor-picker';
 import { toCents } from '@/lib/currency';
 import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
@@ -34,6 +35,7 @@ export function InvoiceEditorModal({
   const [amount, setAmount] = useState(invoice ? (invoice.amountCents / 100).toFixed(2) : '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locationId, setLocationId] = useState<string | null>(invoice?.locationId ?? null);
   const [saving, setSaving] = useState(false);
 
   const amountCents = toCents(amount);
@@ -55,6 +57,7 @@ export function InvoiceEditorModal({
     setError(null);
     try {
       await onSave({
+        locationId,
         vendorId: vendor?.id ?? null,
         vendorName: vendor?.name ?? null,
         vendorPhone: null,
@@ -148,6 +151,8 @@ export function InvoiceEditorModal({
                 Can&apos;t be less than the {(invoice.paidCents / 100).toFixed(2)} already paid against it.
               </Text>
             )}
+
+            <StorePicker value={locationId} onChange={setLocationId} />
 
             <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>WHAT IT&apos;S FOR</Text>
             <View style={styles.chipRow}>

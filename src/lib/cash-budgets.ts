@@ -18,6 +18,7 @@ function mapCashAccountRow(row: any): CashAccount {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id,
     name: row.name,
     accountType: row.account_type,
     balanceCents: row.balance_cents,
@@ -84,6 +85,7 @@ function mapRecurringBillRow(row: any): RecurringBill {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     name: row.name,
     category: row.category,
     frequency: row.frequency,
@@ -171,6 +173,7 @@ function mapBudgetRow(row: any): Budget {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     category: row.category,
     limitCents: row.limit_cents,
     createdAt: row.created_at,

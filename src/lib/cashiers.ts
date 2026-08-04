@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 import type { Cashier } from '@/types/models';
 
 function mapCashierRow(row: any): Cashier {
-  return { id: row.id, shopId: row.shop_id, name: row.name, createdAt: row.created_at };
+  return { id: row.id, shopId: row.shop_id, locationId: row.location_id, name: row.name, createdAt: row.created_at };
 }
 
 export async function listCashiers(shopId: string): Promise<Cashier[]> {

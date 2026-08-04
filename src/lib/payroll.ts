@@ -26,6 +26,7 @@ function mapRunRow(row: any): PayrollRun {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     periodStart: row.period_start,
     periodEnd: row.period_end,
     status: row.status,

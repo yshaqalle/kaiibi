@@ -225,6 +225,11 @@ export type CartLine = {
 export type Promotion = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   name: string;
   discountType: 'percentage' | 'fixed';
   discountValue: number;
@@ -432,6 +437,11 @@ export type ExpenseCategory =
 export type Expense = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   // When the money was actually spent, which is what decides the reporting
   // period — distinct from `createdAt`, when the receipt got typed in.
   occurredOn: string;
@@ -464,6 +474,11 @@ export type NewExpenseInput = Omit<
 export type Invoice = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   vendorId: string | null;
   // Frozen at creation, like Sale's customer fields — the record of who a bill
   // was owed to has to survive the vendor being renamed or removed.
@@ -503,6 +518,10 @@ export type NewInvoiceInput = Omit<
 export type CashAccount = {
   id: string;
   shopId: string;
+  // Which store this drawer or account belongs to. Always set: a till sits on a
+  // counter, and two stores each counting their own is the point (migration
+  // 20260815000000).
+  locationId: string;
   name: string;
   accountType: 'cash' | 'bank' | 'mobile_money' | 'other';
   // May be negative: a bank account can be overdrawn.
@@ -520,6 +539,11 @@ export type NewCashAccountInput = Omit<CashAccount, 'id' | 'shopId' | 'balanceAs
 export type RecurringBill = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   name: string;
   category: ExpenseCategory;
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
@@ -538,6 +562,11 @@ export type NewRecurringBillInput = Omit<RecurringBill, 'id' | 'shopId' | 'creat
 export type Budget = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   category: ExpenseCategory;
   limitCents: number;
   createdAt: string;
@@ -549,6 +578,11 @@ export type Budget = {
 export type PayrollRun = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   periodStart: string;
   periodEnd: string;
   status: 'draft' | 'posted';
@@ -597,6 +631,10 @@ export type Tag = {
 export type Cashier = {
   id: string;
   shopId: string;
+  // Which store this happened at. Always set (migration 20260815000000) — a
+  // shift, a clock-in or a till without a store is a gap in the data, never a
+  // legitimate state.
+  locationId: string;
   name: string;
   createdAt: string;
 };
@@ -615,13 +653,15 @@ export type StaffMember = {
   userId: string;
   roleId: string;
   roleName: string;
-  // Which store this person works at, and null when they work at every one —
-  // an owner, an area manager, a floater. Access is (store, role): the role
-  // says what they may do, this says where. Enforced by can_access_location()
-  // in the database, not only in the UI (migration 20260812000000).
-  locationId: string | null;
-  // Resolved by the list_shop_staff RPC for display; null when unassigned.
-  locationName: string | null;
+  // Which stores this person works at. An EMPTY array means every store — a
+  // person can cover two of three, so this is a set, not a single choice
+  // (migration 20260814000000). Access is (stores, role): the role says what
+  // they may do, this says where. Enforced by can_access_location() in the
+  // database, not only in the UI.
+  //
+  // Ids only, no names: the client already holds the store list and joins by
+  // id, which is what keeps a rename from leaving stale names behind.
+  locationIds: string[];
   active: boolean;
   fullName: string | null;
   email: string | null;
@@ -637,6 +677,10 @@ export type StaffMember = {
 export type TimeEntry = {
   id: string;
   shopId: string;
+  // Which store this happened at. Always set (migration 20260815000000) — a
+  // shift, a clock-in or a till without a store is a gap in the data, never a
+  // legitimate state.
+  locationId: string;
   shopMemberId: string;
   clockIn: string;
   clockOut: string | null;

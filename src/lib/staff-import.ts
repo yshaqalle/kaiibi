@@ -93,10 +93,9 @@ export async function runStaffImport(
         roleId: role.id,
         roleName: role.name,
         // Imported staff start unassigned, i.e. able to work at every store.
-        // Restricting someone is an explicit act (migration 20260812000000);
+        // Restricting someone is an explicit act (migration 20260814000000);
         // a CSV with no store column must not silently confine anyone.
-        locationId: null,
-        locationName: null,
+        locationIds: [],
         active: true,
         fullName,
         email: created.email,

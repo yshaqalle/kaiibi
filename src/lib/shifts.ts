@@ -9,6 +9,7 @@ function mapShiftRow(row: any): Shift {
     id: row.id,
     shopId: row.shop_id,
     shopMemberId: row.shop_member_id,
+    locationId: row.location_id,
     date: row.shift_date,
     start: row.start_time,
     end: row.end_time,
@@ -51,6 +52,7 @@ export async function createShift(shopId: string, draft: ShiftDraft, note: strin
     .insert({
       shop_id: shopId,
       shop_member_id: draft.shopMemberId,
+      location_id: draft.locationId,
       shift_date: draft.date,
       start_time: draft.start,
       end_time: draft.end,
@@ -103,6 +105,7 @@ export async function createShifts(shopId: string, drafts: ShiftDraft[]): Promis
       drafts.map((draft) => ({
         shop_id: shopId,
         shop_member_id: draft.shopMemberId,
+        location_id: draft.locationId,
         shift_date: draft.date,
         start_time: draft.start,
         end_time: draft.end,

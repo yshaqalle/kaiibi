@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { VendorPicker, type SelectedVendor } from '@/components/vendor-picker';
 import { BILL_FREQUENCY_LABELS } from '@/lib/cash-budget-reporting';
+import { StorePicker } from '@/components/store-picker';
 import { toCents } from '@/lib/currency';
 import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
 import { paymentMethods } from '@/lib/payment-methods';
@@ -23,6 +24,7 @@ export function RecurringBillModal({
   onSave: (input: NewRecurringBillInput) => Promise<void>;
   onDelete?: () => Promise<void>;
 }) {
+  const [locationId, setLocationId] = useState<string | null>(bill?.locationId ?? null);
   const [name, setName] = useState(bill?.name ?? '');
   const [amount, setAmount] = useState(bill ? (bill.amountCents / 100).toFixed(2) : '');
   const [category, setCategory] = useState<ExpenseCategory>(bill?.category ?? 'rent');
@@ -44,6 +46,7 @@ export function RecurringBillModal({
     setError(null);
     try {
       await onSave({
+        locationId,
         name: name.trim(),
         category,
         frequency,
@@ -111,6 +114,8 @@ export function RecurringBillModal({
                 </Pressable>
               ))}
             </View>
+
+            <StorePicker value={locationId} onChange={setLocationId} />
 
             <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>CATEGORY</Text>
             <View style={styles.chipRow}>

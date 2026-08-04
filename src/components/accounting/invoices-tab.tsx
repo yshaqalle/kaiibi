@@ -7,7 +7,9 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { useAuth } from '@/hooks/use-auth';
+import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import {
   balanceCents,
@@ -51,6 +53,9 @@ export function InvoicesTab({
   // Two sets, because the tiles and the list want different things: the
   // tiles need every unpaid bill however old, the list needs what was issued
   // in the selected window. Neither wants "every bill ever".
+  // null = the combined business view. A bill can belong to no single store
+  // (a group insurance policy), and picking a store excludes those.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [openInvoices, setOpenInvoices] = useState<Invoice[]>([]);
   const [rangeInvoices, setRangeInvoices] = useState<Invoice[]>([]);
   const [editing, setEditing] = useState<Invoice | 'new' | null>(null);
@@ -78,16 +83,21 @@ export function InvoicesTab({
 
   useEffect(() => { reload(); }, [reload]);
 
-  const totals = useMemo(() => invoiceTotals(openInvoices), [openInvoices]);
+  // Scoped before totalling: "what does this store still owe" has to exclude
+  // the business's own bills, or every store looks like it owes them.
+  const openInScope = useMemo(() => scopeToLocation(openInvoices, locationFilter), [openInvoices, locationFilter]);
+  const rangeInScope = useMemo(() => scopeToLocation(rangeInvoices, locationFilter), [rangeInvoices, locationFilter]);
+
+  const totals = useMemo(() => invoiceTotals(openInScope), [openInScope]);
 
   // Unpaid bills always show, even when issued outside the window -- the list
   // would otherwise disagree with the totals right above it. Merged by id so a
   // bill in both sets appears once.
   const visible = useMemo(() => {
-    const byId = new Map(rangeInvoices.map((invoice) => [invoice.id, invoice]));
-    for (const invoice of openInvoices) byId.set(invoice.id, invoice);
+    const byId = new Map(rangeInScope.map((invoice) => [invoice.id, invoice]));
+    for (const invoice of openInScope) byId.set(invoice.id, invoice);
     return sortInvoicesForDisplay(Array.from(byId.values()));
-  }, [rangeInvoices, openInvoices]);
+  }, [rangeInScope, openInScope]);
 
   const close = () => setEditing(null);
 
@@ -121,6 +131,8 @@ export function InvoicesTab({
 
   return (
     <View>
+      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
+
       <View style={styles.metricRow}>
         <StatTile
           value={formatCompactCents(totals.outstandingCents)}

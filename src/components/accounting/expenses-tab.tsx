@@ -7,7 +7,9 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { useAuth } from '@/hooks/use-auth';
+import { scopeToLocation } from '@/lib/location-reporting';
 import type { CsvColumn } from '@/lib/csv';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import {
@@ -75,6 +77,9 @@ export function ExpensesTab({
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | 'all'>('all');
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
   const [loading, setLoading] = useState(true);
+  // null = the combined business view, which includes costs belonging to no
+  // single store. Picking a store excludes those — see lib/location-reporting.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { since, until } = dateRange;
@@ -94,25 +99,30 @@ export function ExpensesTab({
 
   useEffect(() => { reload(); }, [reload]);
 
+  // The store filter applies BEFORE the category one and, unlike category, it
+  // does move the headline totals: "what did this store spend" is a different
+  // question from "what did we spend", not a way of finding rows within one.
+  const inScope = useMemo(() => scopeToLocation(expenses, locationFilter), [expenses, locationFilter]);
+
   const filtered = useMemo(
-    () => (categoryFilter === 'all' ? expenses : expenses.filter((e) => e.category === categoryFilter)),
-    [expenses, categoryFilter]
+    () => (categoryFilter === 'all' ? inScope : inScope.filter((e) => e.category === categoryFilter)),
+    [inScope, categoryFilter]
   );
 
   // Totals stay on the whole range, not the category filter -- the filter is a
   // way to find rows, and having the headline number move with it would make
   // "what did we spend" quietly ambiguous.
-  const totalCents = totalExpenseCents(expenses);
-  const operatingCents = operatingExpenseCents(expenses);
+  const totalCents = totalExpenseCents(inScope);
+  const operatingCents = operatingExpenseCents(inScope);
   const nonOperatingCents = totalCents - operatingCents;
   const rangeLabel = formatRangeLabel(dateRange);
 
   // Only categories actually present, so the filter row doesn't list eleven
   // options for a shop with three kinds of expense.
   const presentCategories = useMemo(() => {
-    const present = new Set(expenses.map((e) => e.category));
+    const present = new Set(inScope.map((e) => e.category));
     return EXPENSE_CATEGORIES.filter((c) => present.has(c.key));
-  }, [expenses]);
+  }, [inScope]);
 
   const close = () => setEditing(null);
 
@@ -138,6 +148,8 @@ export function ExpensesTab({
           <StatTile value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" />
         )}
       </View>
+
+      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       {presentCategories.length > 1 && (
         <View style={styles.filterRow}>

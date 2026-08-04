@@ -8,9 +8,13 @@ import { isConfigured, isRangeWithinHours, weekdayKeyFor, type OpeningHours } fr
 // is deliberate: there is no React Native testing library in this repo, so
 // logic in a component is logic no test can reach.
 
-export type ShiftDraft = { shopMemberId: string; date: string; start: string; end: string };
+export type ShiftDraft = { shopMemberId: string; date: string; start: string; end: string; locationId: string };
 
-export type Shift = ShiftDraft & { id: string; shopId: string; note: string | null };
+// `locationId` is which store the shift is worked at (migration
+// 20260815000000). Always set: it is what `validateShift` resolves opening
+// hours from, so a shift at the Berbera store is judged against Berbera's
+// hours rather than whichever store the device happens to be showing.
+export type Shift = ShiftDraft & { id: string; shopId: string; locationId: string; note: string | null };
 
 export type ShiftProblem = {
   kind: 'overlap' | 'outside_hours' | 'on_leave';
@@ -125,6 +129,7 @@ export function shiftsToCopy(previous: Shift[], existing: Shift[]): { copy: Shif
   for (const shift of previous) {
     const draft: ShiftDraft = {
       shopMemberId: shift.shopMemberId,
+      locationId: shift.locationId,
       date: addDaysToDate(shift.date, 7),
       start: shift.start,
       end: shift.end,

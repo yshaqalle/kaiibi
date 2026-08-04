@@ -54,7 +54,7 @@ export function CashBudgetsTab({
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
 }) {
-  const { shop, can } = useAuth();
+  const { shop, can, activeLocation } = useAuth();
   const allowed = can('budgets.manage');
   const canLogBills = can('expenses.manage');
 
@@ -207,7 +207,10 @@ export function CashBudgetsTab({
               <NewCashAccountRow
                 onCancel={() => setAddingAccount(false)}
                 onCreate={async (name, balanceCents, accountType) => {
-                  await createCashAccount(shop.id, { name, balanceCents, accountType, notes: null });
+                  // A drawer sits at a store, so a new account belongs to the
+                  // one this device is set to rather than to the business.
+                  if (!activeLocation) throw new Error('Pick a store before adding a cash account.');
+                  await createCashAccount(shop.id, { name, balanceCents, accountType, notes: null, locationId: activeLocation.id });
                   setAddingAccount(false);
                   await reload();
                 }}

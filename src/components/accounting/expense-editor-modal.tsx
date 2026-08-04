@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
+import { StorePicker } from '@/components/store-picker';
 import { VendorPicker, type SelectedVendor } from '@/components/vendor-picker';
 import { toCents } from '@/lib/currency';
 import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
@@ -35,6 +36,7 @@ export function ExpenseEditorModal({
   const [note, setNote] = useState(expense?.note ?? '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [locationId, setLocationId] = useState<string | null>(expense?.locationId ?? null);
   const [saving, setSaving] = useState(false);
 
   const amountCents = toCents(amount);
@@ -49,6 +51,7 @@ export function ExpenseEditorModal({
     setError(null);
     try {
       await onSave({
+        locationId,
         occurredOn,
         amountCents,
         category,
@@ -108,6 +111,8 @@ export function ExpenseEditorModal({
                 />
               </View>
             </View>
+
+            <StorePicker value={locationId} onChange={setLocationId} />
 
             <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>CATEGORY</Text>
             <View style={styles.chipRow}>

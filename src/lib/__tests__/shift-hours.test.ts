@@ -8,6 +8,7 @@ function makeEntry(overrides: Partial<TimeEntry> = {}): TimeEntry {
   return {
     id: 'e1',
     shopId: 'shop1',
+    locationId: 'loc1',
     shopMemberId: 'm1',
     clockIn: start.toISOString(),
     clockOut: new Date(start.getTime() + 4 * 3_600_000).toISOString(),

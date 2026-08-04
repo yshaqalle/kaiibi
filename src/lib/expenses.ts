@@ -10,6 +10,7 @@ function mapExpenseRow(row: any): Expense {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     occurredOn: row.occurred_on,
     amountCents: row.amount_cents,
     category: row.category,

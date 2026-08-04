@@ -11,7 +11,7 @@ type MemberEdits = {
   fullName: string;
   email: string;
   roleId: string;
-  locationId: string | null;
+  locationIds: string[];
   active: boolean;
   hireDate?: string | null;
   payType?: StaffMember['payType'];
@@ -33,7 +33,7 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
   const [fullName, setFullName] = useState(member.fullName ?? '');
   const [email, setEmail] = useState(member.email ?? '');
   const [roleId, setRoleId] = useState(member.roleId);
-  const [locationId, setLocationId] = useState<string | null>(member.locationId);
+  const [locationIds, setLocationIds] = useState<string[]>(member.locationIds);
   const [active, setActive] = useState(member.active);
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
   const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
@@ -63,7 +63,7 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
         fullName: fullName.trim(),
         email: email.trim(),
         roleId,
-        locationId,
+        locationIds,
         active,
         ...(canManagePayroll
           ? {
@@ -105,27 +105,37 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
                 <CategoryChip key={role.id} label={role.name} active={role.id === roleId} onPress={() => setRoleId(role.id)} />
               ))}
             </ScrollView>
-            {/* Access is (store, role): the role above says what they may do,
-                this says where. Hidden for a single-store business, where
-                "which store" has one answer and the choice would be noise. */}
+            {/* Access is (stores, role): the role above says what they may do,
+                these say where. A multi-select, not one choice — someone can
+                cover two of three stores. Hidden for a single-store business,
+                where "which store" has one answer and this would be noise. */}
             {locations.length > 1 && (
               <>
-                <Text style={styles.label}>STORE</Text>
+                <Text style={styles.label}>STORES</Text>
                 <ScrollView horizontal contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-                  <CategoryChip label="All stores" active={locationId === null} onPress={() => setLocationId(null)} />
+                  {/* Clearing the set IS "all stores" — the empty array is the
+                      value, not a missing one, so this is a real choice rather
+                      than a shortcut for selecting everything. */}
+                  <CategoryChip label="All stores" active={locationIds.length === 0} onPress={() => setLocationIds([])} />
                   {locations.filter((location) => location.active).map((location) => (
                     <CategoryChip
                       key={location.id}
                       label={location.name}
-                      active={location.id === locationId}
-                      onPress={() => setLocationId(location.id)}
+                      active={locationIds.includes(location.id)}
+                      onPress={() =>
+                        setLocationIds((current) =>
+                          current.includes(location.id)
+                            ? current.filter((id) => id !== location.id)
+                            : [...current, location.id]
+                        )
+                      }
                     />
                   ))}
                 </ScrollView>
                 <Text style={styles.hint}>
-                  {locationId === null
+                  {locationIds.length === 0
                     ? 'Can work at every store.'
-                    : 'Can only sell, count stock and clock in at this store.'}
+                    : `Can sell, count stock and clock in at ${locationIds.length === 1 ? 'this store' : `these ${locationIds.length} stores`} only.`}
                 </Text>
               </>
             )}

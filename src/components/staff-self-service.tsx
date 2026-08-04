@@ -9,6 +9,7 @@ import { TIME_OFF_REASONS } from '@/constants/time-off';
 import { formatAccountingCents } from '@/lib/currency';
 import { toDateColumn } from '@/lib/period';
 import { payRateUnitLabel } from '@/lib/pay-rate';
+import { useAuth } from '@/hooks/use-auth';
 import { clockIn, clockOut, getOpenTimeEntry, listMyTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { cancelTimeOffRequest, listMyTimeOffRequests, requestTimeOff, updateTimeOffRequest } from '@/lib/time-off';
 import { listMyShifts } from '@/lib/shifts';
@@ -18,6 +19,7 @@ import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 // The self-service view is intentionally a component rather than a route so
 // it can live under People → Team for every active staff member.
 export function StaffSelfService({ shopId, member }: { shopId: string; member: StaffMember }) {
+  const { activeLocation } = useAuth();
   const [openEntry, setOpenEntry] = useState<TimeEntry | null>(null);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [requests, setRequests] = useState<TimeOffRequest[]>([]);
@@ -64,7 +66,13 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
     setError(null);
     try {
       if (openEntry) await clockOut(openEntry.id);
-      else await clockIn(shopId, member.id);
+      else {
+        // Clocking in records WHERE, so a device with no store resolved must
+        // refuse rather than guess -- a shift filed against the wrong store
+        // quietly misstates that store's labour cost.
+        if (!activeLocation) throw new Error('No store selected on this device. Pick one before clocking in.');
+        await clockIn(shopId, member.id, activeLocation.id);
+      }
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update your clock status.');
