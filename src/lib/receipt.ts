@@ -47,14 +47,26 @@ function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhoo
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-// Null rather than 'Closed' when the shop is shut today: a receipt is proof of
-// a sale that just happened, so printing "Closed" on it would be absurd.
+// Null rather than 'Closed' when the shop is shut: a receipt is proof of a sale
+// that just happened, so printing "Closed" on it would be absurd.
+//
+// `on` is the date the receipt is FOR, not the moment it is rendered. Reprinting
+// last Tuesday's sale would otherwise print *today's* hours directly under a
+// date line showing the sale's own date — and once emailed or saved as a PDF
+// that string freezes and goes stale, so the same sale's receipt would not even
+// be reproducible from one day to the next. "Open today" is only true on the
+// day itself, so a receipt for any other day carries no hours line at all.
+//
 // Exported so callers that build a ReceiptData without going through
 // `buildReceiptFromSale` (the POS checkout flow, which has a fresh cart
 // rather than a `Sale`) can compute the same field the same way.
-export function formatTodayHours(hours: OpeningHours | undefined): string | null {
+export function formatTodayHours(hours: OpeningHours | undefined, on: Date): string | null {
   if (!hours) return null;
-  const today = rangesFor(hours, weekdayKeyFor(new Date()));
+  const now = new Date();
+  const isToday =
+    on.getFullYear() === now.getFullYear() && on.getMonth() === now.getMonth() && on.getDate() === now.getDate();
+  if (!isToday) return null;
+  const today = rangesFor(hours, weekdayKeyFor(on));
   if (today.length === 0) return null;
   const formatted = formatDayHours(today);
   return formatted === 'Closed' ? null : `Open today ${formatted}`;
@@ -84,7 +96,7 @@ export function buildReceiptFromSale(
     shopCity: shop.city,
     shopNeighborhood: shop.neighborhood,
     shopContactPhone: shop.contactPhone,
-    shopHours: formatTodayHours(shop.openingHours),
+    shopHours: formatTodayHours(shop.openingHours, new Date(sale.createdAt)),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),

@@ -160,7 +160,7 @@ export default function PosScreen() {
         shopCity: shop.city,
         shopNeighborhood: shop.neighborhood,
         shopContactPhone: shop.contactPhone,
-        shopHours: formatTodayHours(shop.openingHours),
+        shopHours: formatTodayHours(shop.openingHours, new Date()),
         cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,
         items: cart.map((line) => ({
