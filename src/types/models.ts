@@ -207,6 +207,9 @@ export type CustomerPurchase = {
   unitPriceCents: number;
   lineTotalCents: number;
   paymentMethod: string;
+  // Which store the sale was rung up at. Always set — `sales.location_id` is
+  // NOT NULL (migration 20260809000000).
+  locationId: string;
   createdAt: string;
 };
 

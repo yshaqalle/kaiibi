@@ -30,6 +30,8 @@ import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, setStaffLocations, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
 import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
+import { usualStore } from '@/lib/customer-segments';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
@@ -316,6 +318,13 @@ function CustomerDetailPane({
   const [stats, setStats] = useState<{ totalSpentCents: number; visitCount: number; lastPurchaseAt: string | null } | null>(null);
   const [purchases, setPurchases] = useState<CustomerPurchase[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { locations } = useAuth();
+  const multiStore = hasMultipleLocations(locations);
+  // Resolved by id from the store list rather than denormalised onto the
+  // purchase, so a renamed store reads correctly in old history.
+  const storeNameOf = (locationId: string) =>
+    multiStore ? (locations.find((l) => l.id === locationId)?.name ?? null) : null;
+  const usual = multiStore ? usualStore(purchases) : null;
 
   useEffect(() => {
     getCustomerStats(customer.id).then(setStats).catch(() => setStats(null));
@@ -373,6 +382,19 @@ function CustomerDetailPane({
         <Text style={tabStyles.sectionTitle}>NOTES</Text>
         <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
       </View>
+      {/* Where they actually shop, by visit count. Hidden for a single-store
+          business (nothing to distinguish) and when the history is tied or
+          empty — naming a store on a 2-2 split would present a coin flip as a
+          fact. See usualStore in lib/customer-segments.ts. */}
+      {usual && (
+        <View style={tabStyles.section}>
+          <Text style={tabStyles.sectionTitle}>USUALLY SHOPS AT</Text>
+          <Text style={tabStyles.usualStore}>
+            {storeNameOf(usual.locationId) ?? 'Unknown store'}
+            <Text style={tabStyles.usualStoreMeta}>{`  ${usual.visits} of ${usual.totalVisits} visits`}</Text>
+          </Text>
+        </View>
+      )}
       <View style={tabStyles.section}>
         <Text style={tabStyles.sectionTitle}>PURCHASE HISTORY</Text>
         {purchases.length === 0 ? (
@@ -387,6 +409,7 @@ function CustomerDetailPane({
                 </Text>
                 <Text style={tabStyles.histMeta}>
                   {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
+                  {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
                 </Text>
               </View>
               <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
@@ -833,6 +856,8 @@ const tabStyles = StyleSheet.create({
   histRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
   histTitle: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
   histMeta: { fontSize: 11, color: '#999999', marginTop: 1 },
+  usualStore: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  usualStoreMeta: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
   histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
   actionButtonDisabled: { opacity: 0.5 },
   pendingButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },

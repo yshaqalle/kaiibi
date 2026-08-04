@@ -23,3 +23,30 @@ export const CUSTOMER_SEGMENT_LABELS: Record<CustomerSegment, string> = {
   new: 'New',
   'at-risk': 'At risk',
 };
+
+// Which store a customer actually shops at, from their purchase history.
+//
+// Counted by SALE, not by line item: someone buying six things in one visit
+// shopped once, and counting lines would let a single large basket outvote
+// several separate visits to another store.
+//
+// Returns null when there is no clear answer — no purchases, or a tie. A tie is
+// deliberately not broken: with three visits to each of two stores, naming
+// either as "where they shop" is a claim the data doesn't support, and the UI
+// showing nothing is more honest than showing a coin flip.
+export function usualStore(
+  purchases: readonly { saleId: string; locationId: string }[]
+): { locationId: string; visits: number; totalVisits: number } | null {
+  const storeBySale = new Map<string, string>();
+  for (const purchase of purchases) storeBySale.set(purchase.saleId, purchase.locationId);
+  if (storeBySale.size === 0) return null;
+
+  const counts = new Map<string, number>();
+  for (const locationId of storeBySale.values()) {
+    counts.set(locationId, (counts.get(locationId) ?? 0) + 1);
+  }
+
+  const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  if (ranked.length > 1 && ranked[0][1] === ranked[1][1]) return null;
+  return { locationId: ranked[0][0], visits: ranked[0][1], totalVisits: storeBySale.size };
+}
