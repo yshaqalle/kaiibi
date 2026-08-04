@@ -103,7 +103,12 @@ export function DonutChart({ slices, centerValue, centerLabel }: { slices: Slice
     <View style={styles.donutRow}>
       <View>
         <Svg width={size} height={size}>
-          <G rotation={-90} origin={`${size / 2}, ${size / 2}`}>
+          {/* An SVG `transform` string rather than react-native-svg's
+              rotation/origin props: those compile to a `transform-origin` DOM
+              attribute on web, which React rejects outright ("Invalid DOM
+              property"). The rotate() form is understood by both renderers.
+              -90° puts the first arc at 12 o'clock instead of 3. */}
+          <G transform={`rotate(-90 ${size / 2} ${size / 2})`}>
             <Circle cx={size / 2} cy={size / 2} r={radius} stroke="#F1F1F5" strokeWidth={stroke} fill="none" />
             {arcs.map((arc) => (
               <Circle
