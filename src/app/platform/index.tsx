@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
+import { PlatformOverview } from '@/components/platform-overview';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, MODULES, type SubscriptionStatus } from '@/lib/entitlements';
@@ -10,22 +11,29 @@ import {
   listOperators,
   listPendingPlanRequests,
   listPlatformShops,
+  listSubscriptionPayments,
   type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
   type PlatformShopRow,
+  type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listAllPlans, type Plan } from '@/lib/subscriptions';
 
-type Tab = 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
+type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
 
 export default function PlatformHome() {
-  const [tab, setTab] = useState<Tab>('shops');
+  const [tab, setTab] = useState<Tab>('overview');
   const [shops, setShops] = useState<PlatformShopRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [audit, setAudit] = useState<PlatformAuditRow[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
+  const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
+  // When the data on screen was fetched. Passed to the dashboard so every
+  // figure is measured against one instant, and so nothing reads the clock
+  // during render.
+  const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -37,18 +45,21 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    const [shopRows, planRows, auditRows, operatorRows, requestRows] = await Promise.all([
+    const [shopRows, planRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
       listPlatformShops(),
       listAllPlans(),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
+      listSubscriptionPayments(),
     ]);
     setShops(shopRows);
     setPlans(planRows);
     setAudit(auditRows);
     setOperators(operatorRows);
     setRequests(requestRows);
+    setPayments(paymentRows);
+    setLoadedAt(Date.now());
     setLoading(false);
   }, []);
 
@@ -75,7 +86,7 @@ export default function PlatformHome() {
 
   const selectedShop = shops.find((s) => s.shopId === selected) ?? null;
 
-  const nav = (['shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
+  const nav = (['overview', 'shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
     <Pressable key={t} onPress={() => setTab(t)} style={[styles.navItem, tab === t && styles.navItemActive]}>
       <Text style={[styles.navText, tab === t && styles.navTextActive]}>
         {TAB_LABELS[t]}
@@ -107,6 +118,19 @@ export default function PlatformHome() {
       <ScrollView style={styles.main} contentContainerStyle={compact ? styles.mainContentCompact : styles.mainContent}>
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} />
+        ) : tab === 'overview' ? (
+          <PlatformOverview
+            shops={shops}
+            plans={plans}
+            payments={payments}
+            audit={audit}
+            compact={compact}
+            now={loadedAt}
+            onOpenShop={(id) => {
+              setSelected(id);
+              setTab('shops');
+            }}
+          />
         ) : tab === 'shops' ? (
           <>
             <View style={styles.tiles}>
@@ -130,6 +154,8 @@ export default function PlatformHome() {
                 <Text style={[styles.th, styles.colShop]}>SHOP</Text>
                 <Text style={[styles.th, styles.colPlan]}>PLAN</Text>
                 <Text style={[styles.th, styles.colStatus]}>STATUS</Text>
+                <Text style={[styles.th, styles.colDate]}>JOINED</Text>
+                <Text style={[styles.th, styles.colDate]}>ENDS</Text>
                 <Text style={[styles.th, styles.colStores]}>STORES</Text>
                 <Text style={[styles.th, styles.colUsage]}>PRODUCTS</Text>
               </View>
@@ -139,6 +165,12 @@ export default function PlatformHome() {
               const stores = shop.usage.locations ?? 0;
               const products = shop.usage.products ?? 0;
               const productLimit = shop.limits.products ?? null;
+              // What their cover runs to, and what kind of date that is. A
+              // trialing shop's clock is trial_ends_at; a paying one's is the
+              // period they bought. Saying which avoids reading "2 Nov" as a
+              // renewal when it is actually the day they lose access.
+              const ends = shop.status === 'trialing' ? shop.trialEndsAt : shop.currentPeriodEnd ?? shop.trialEndsAt;
+              const endsLabel = shop.status === 'trialing' ? 'trial ends' : 'renews';
               // Narrow: one card per shop, name on top and the numbers
               // beneath. Squeezing five columns onto a phone makes every one of
               // them unreadable, which is worse than stacking.
@@ -154,6 +186,10 @@ export default function PlatformHome() {
                       <Text style={[styles.status, STATUS_COLOR[shop.status]]}>{STATUS_DOT[shop.status]} {shop.status}</Text>
                       <Text style={styles.cardPlan}>{shop.planName}</Text>
                     </View>
+                    <Text style={styles.cardDates}>
+                      joined {fmtDate(shop.createdAt)}
+                      {ends ? ` · ${endsLabel} ${fmtDate(ends)}` : ''}
+                    </Text>
                     <Text style={styles.cardUsage}>
                       <Text style={storeLimit != null && stores >= storeLimit ? styles.tdAtLimit : undefined}>
                         {stores}{storeLimit != null ? `/${storeLimit}` : ''} stores
@@ -177,6 +213,8 @@ export default function PlatformHome() {
                   <View style={styles.colStatus}>
                     <Text style={[styles.status, STATUS_COLOR[shop.status]]}>{STATUS_DOT[shop.status]} {shop.status}</Text>
                   </View>
+                  <Text style={[styles.td, styles.colDate, styles.tdMuted]}>{fmtDate(shop.createdAt)}</Text>
+                  <Text style={[styles.td, styles.colDate, endsSoon(ends) && styles.tdAtLimit]}>{fmtDate(ends)}</Text>
                   <Text style={[styles.td, styles.colStores, storeLimit != null && stores >= storeLimit && styles.tdAtLimit]}>
                     {stores}{storeLimit != null ? ` / ${storeLimit}` : ''}
                   </Text>
@@ -187,11 +225,9 @@ export default function PlatformHome() {
               );
             })}
 
-            {/* Wide screens keep the detail inline beneath the table, where it
-                reads as part of the row you clicked. Narrow ones get a sheet
-                from the bottom: an inline panel below a long table means
-                tapping a shop scrolls the answer off-screen. */}
-            {selectedShop && !compact && <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />}
+            {/* The detail is always a modal now. Inline, it appended itself
+                below a long table, so tapping a shop put the answer off-screen
+                and left you scrolling to find what you had just clicked. */}
           </>
         ) : tab === 'requests' ? (
           <RequestsView requests={requests} shops={shops} onDone={reload} />
@@ -204,19 +240,25 @@ export default function PlatformHome() {
         )}
       </ScrollView>
 
-      {selectedShop && compact && (
-        <Modal visible transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-          <View style={styles.sheetBackdrop}>
-            {/* Tapping the dimmed area closes, the standard way out of a sheet
-                when the button is below the fold. */}
-            <Pressable style={styles.sheetDismiss} onPress={() => setSelected(null)} />
-            <View style={styles.sheet}>
-              <View style={styles.sheetGrabber} />
+      {/* One modal, two presentations: a sheet rising from the bottom where
+          the screen is narrow, a centred dialog where there is room for one.
+          Same content either way. */}
+      {selectedShop && (
+        <Modal visible transparent animationType={compact ? 'slide' : 'fade'} onRequestClose={() => setSelected(null)}>
+          <View style={[styles.sheetBackdrop, !compact && styles.dialogBackdrop]}>
+            {/* Tapping the dimmed area closes — the expected way out when the
+                button is below the fold. */}
+            <Pressable style={compact ? styles.sheetDismiss : StyleSheet.absoluteFill} onPress={() => setSelected(null)} />
+            <View style={compact ? styles.sheet : styles.dialog}>
+              {compact && <View style={styles.sheetGrabber} />}
+              <View style={styles.dialogHeader}>
+                <Text style={styles.dialogTitle} numberOfLines={1}>{selectedShop.shopName}</Text>
+                <Pressable onPress={() => setSelected(null)} hitSlop={10}>
+                  <Text style={styles.dialogClose}>✕</Text>
+                </Pressable>
+              </View>
               <ScrollView contentContainerStyle={styles.sheetContent}>
                 <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />
-                <Pressable onPress={() => setSelected(null)} style={styles.sheetClose}>
-                  <Text style={styles.sheetCloseText}>Close</Text>
-                </Pressable>
               </ScrollView>
             </View>
           </View>
@@ -264,7 +306,6 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
 
   return (
     <View style={styles.detail}>
-      <Text style={styles.detailTitle}>{shop.shopName}</Text>
       <Text style={styles.detailMeta}>
         created {shop.createdAt.slice(0, 10)} · {shop.planName} · {shop.status}
       </Text>
@@ -382,13 +423,19 @@ function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Pro
 
   if (!open) {
     return (
-      <Pressable onPress={() => setOpen(true)} style={styles.dangerToggle}>
-        <Text style={styles.dangerToggleText}>Danger zone</Text>
-      </Pressable>
+      <>
+        <Text style={styles.detailSectionDanger}>DANGER ZONE</Text>
+        <View style={styles.actionRow}>
+          <Btn label="Delete store / business" danger onPress={() => setOpen(true)} />
+        </View>
+        <Text style={styles.planMeta}>Permanent. Use Suspend above if you only need to cut off access.</Text>
+      </>
     );
   }
 
   return (
+    <>
+    <Text style={styles.detailSectionDanger}>DANGER ZONE</Text>
     <View style={styles.dangerBox}>
       <Text style={styles.dangerTitle}>Delete {shop.shopName}</Text>
       <Text style={styles.dangerBody}>
@@ -424,6 +471,7 @@ function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Pro
         </Pressable>
       </View>
     </View>
+    </>
   );
 }
 
@@ -853,7 +901,25 @@ function Btn({ label, onPress, disabled, danger }: { label: string; onPress: () 
   );
 }
 
-const TAB_LABELS: Record<Tab, string> = { shops: 'Shops', requests: 'Requests', plans: 'Plans', audit: 'Audit log', operators: 'Operators' };
+// "2 Aug 2026" rather than 2026-08-04: an operator scanning a column reads a
+// month name faster than a numeric one, and it removes the day/month ambiguity
+// entirely.
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Flags a date inside a week so a trial about to lapse stands out in the column
+// rather than having to be worked out.
+function endsSoon(iso: string | null): boolean {
+  if (!iso) return false;
+  const ms = new Date(iso).getTime() - Date.now();
+  return ms > 0 && ms <= 7 * 86_400_000;
+}
+
+const TAB_LABELS: Record<Tab, string> = { overview: 'Overview', shops: 'Shops', requests: 'Requests', plans: 'Plans', audit: 'Audit log', operators: 'Operators' };
 const STATUS_DOT: Record<SubscriptionStatus, string> = { trialing: '●', active: '●', grace: '◐', expired: '○', suspended: '✕' };
 const STATUS_COLOR: Record<SubscriptionStatus, object> = {
   trialing: { color: '#1B4FA8' },
@@ -874,6 +940,7 @@ const styles = StyleSheet.create({
   cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   cardPlan: { fontSize: 12, color: '#777777', fontWeight: '700' },
   cardUsage: { fontSize: 12, color: '#777777' },
+  cardDates: { fontSize: 11.5, color: '#999999' },
   sidebar: { width: 200, borderRightWidth: 1, borderRightColor: '#EEEEEE', padding: 20 },
   brand: { fontSize: 15, fontWeight: '800', color: '#111111', letterSpacing: 1 },
   brandSub: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 2, marginBottom: 20 },
@@ -898,9 +965,11 @@ const styles = StyleSheet.create({
   trSelected: { backgroundColor: '#FAFAFA' },
   td: { fontSize: 13, color: '#111111' },
   tdAtLimit: { color: '#B03535', fontWeight: '800' },
-  colShop: { flex: 3 },
+  colShop: { flex: 2.4 },
   colPlan: { flex: 1.5 },
   colStatus: { flex: 1.5 },
+  colDate: { flex: 1.6 },
+  tdMuted: { color: '#888888' },
   colStores: { flex: 1 },
   colUsage: { flex: 1.5 },
   status: { fontSize: 12, fontWeight: '700' },
@@ -935,6 +1004,7 @@ const styles = StyleSheet.create({
   planCardEditing: { borderColor: '#111111' },
   planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
   limitField: { gap: 4 },
+  detailSectionDanger: { fontSize: 10, fontWeight: '800', color: '#B03535', letterSpacing: 0.5, marginTop: 24, marginBottom: 8 },
   dangerToggle: { alignSelf: 'flex-start', marginTop: 22, paddingVertical: 6 },
   dangerToggleText: { color: '#B03535', fontSize: 12, fontWeight: '800' },
   dangerBox: { marginTop: 22, borderWidth: 1, borderColor: '#F0C2C2', backgroundColor: '#FDF7F7', borderRadius: 10, padding: 16, gap: 10 },
@@ -944,6 +1014,11 @@ const styles = StyleSheet.create({
   dangerInput: { borderWidth: 1, borderColor: '#E8BEBE', backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, color: '#111111' },
   dangerCancel: { color: '#7A4A4A', fontSize: 12, fontWeight: '700', paddingHorizontal: 8 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  dialogBackdrop: { justifyContent: 'center', alignItems: 'center', padding: 24 },
+  dialog: { backgroundColor: '#FFFFFF', borderRadius: 16, width: '100%', maxWidth: 760, maxHeight: '88%', overflow: 'hidden' },
+  dialogHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 4, gap: 12 },
+  dialogTitle: { fontSize: 17, fontWeight: '800', color: '#111111', flex: 1 },
+  dialogClose: { fontSize: 16, color: '#999999', fontWeight: '700' },
   sheetDismiss: { flex: 1 },
   sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '88%', paddingTop: 8 },
   sheetGrabber: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#DDDDDD', marginBottom: 4 },

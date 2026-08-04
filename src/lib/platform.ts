@@ -19,7 +19,54 @@ export type PlatformShopRow = {
   manualStatus: 'active' | 'suspended';
   usage: Partial<Record<LimitResource, number>>;
   limits: Partial<Record<LimitResource, number | null>>;
+  // From the shop's primary store. It is the number they print on their own
+  // receipts, not a private contact detail, and it is what makes reaching a
+  // customer on WhatsApp a click rather than a hunt.
+  contactPhone: string | null;
+  city: string | null;
 };
+
+export type SubscriptionPaymentRow = {
+  id: string;
+  shopId: string;
+  amountCents: number;
+  currency: string;
+  method: string | null;
+  paidAt: string;
+  coversTo: string | null;
+};
+
+// What we have actually been paid. This is Kaiibi's revenue, not any shop's
+// takings -- the portal cannot read those and deliberately never will.
+export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow[]> {
+  const { data, error } = await supabase
+    .from('subscription_payments')
+    .select('id, shop_id, amount_cents, currency, method, paid_at, covers_to')
+    .order('paid_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    shopId: row.shop_id,
+    amountCents: row.amount_cents,
+    currency: row.currency,
+    method: row.method,
+    paidAt: row.paid_at,
+    coversTo: row.covers_to,
+  }));
+}
+
+// wa.me only accepts digits. Somaliland numbers are written locally as
+// 063 xxx xxxx, so a leading 0 is dropped and the 252 country code assumed
+// when none is given -- otherwise every link would silently open an empty chat.
+export function whatsappLink(phone: string | null, message?: string): string | null {
+  if (!phone) return null;
+  let digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `252${digits.slice(1)}`;
+  else if (!digits.startsWith('252') && digits.length <= 9) digits = `252${digits}`;
+  if (digits.length < 9) return null;
+  return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
+}
 
 export type PlatformAuditRow = {
   id: string;
@@ -86,14 +133,17 @@ export async function getPlatformAccess(): Promise<{ isAdmin: boolean; pendingMf
 // A view would be tidier, but it would need its own policy and would be a
 // second place for the operator/shop-member read split to drift.
 export async function listPlatformShops(): Promise<PlatformShopRow[]> {
-  const [shopsRes, subsRes, usageRes] = await Promise.all([
+  const [shopsRes, subsRes, usageRes, locationsRes] = await Promise.all([
     supabase.from('shops').select('id, name, owner_id, created_at').order('created_at', { ascending: false }),
     supabase.from('shop_subscriptions').select('shop_id, plan_id, trial_ends_at, current_period_end, grace_until, manual_status, plans(key, name, limits)'),
     supabase.from('shop_usage_counters').select('shop_id, resource, count'),
+    supabase.from('shop_locations').select('shop_id, contact_phone, city, is_primary').eq('is_primary', true),
   ]);
   if (shopsRes.error) throw shopsRes.error;
   if (subsRes.error) throw subsRes.error;
   if (usageRes.error) throw usageRes.error;
+  if (locationsRes.error) throw locationsRes.error;
+  const primary = new Map((locationsRes.data ?? []).map((l: any) => [l.shop_id, l]));
 
   const subs = new Map((subsRes.data ?? []).map((s: any) => [s.shop_id, s]));
   const usage = new Map<string, Partial<Record<LimitResource, number>>>();
@@ -121,6 +171,8 @@ export async function listPlatformShops(): Promise<PlatformShopRow[]> {
       manualStatus: sub?.manual_status ?? 'active',
       usage: usage.get(shop.id) ?? {},
       limits: sub?.plans?.limits ?? {},
+      contactPhone: primary.get(shop.id)?.contact_phone ?? null,
+      city: primary.get(shop.id)?.city ?? null,
     };
   });
 }
