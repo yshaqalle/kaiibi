@@ -20,6 +20,10 @@ export type Plan = {
   billingInterval: 'month' | 'year' | null;
   modules: string[];
   limits: Partial<Record<LimitResource, number | null>>;
+  // False for `trial` (assigned by trigger, never chosen) and for negotiated
+  // one-offs. The shop-facing screen only ever lists public plans; the portal
+  // needs them all, or it cannot resolve what a trialing shop actually has.
+  isPublic: boolean;
   sortOrder: number;
 };
 
@@ -34,8 +38,22 @@ function mapPlanRow(row: any): Plan {
     billingInterval: row.billing_interval,
     modules: row.modules ?? [],
     limits: row.limits ?? {},
+    isPublic: row.is_public,
     sortOrder: row.sort_order,
   };
+}
+
+// Every active plan, public or not. The portal's lookup: without the `trial`
+// row it cannot tell what a trialing shop is entitled to and renders "none"
+// for a shop that in fact has everything.
+export async function listAllPlans(): Promise<Plan[]> {
+  const { data, error } = await supabase
+    .from('plans')
+    .select('*')
+    .eq('active', true)
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapPlanRow);
 }
 
 // my_shop_entitlements() returns one jsonb blob rather than a row set, so this

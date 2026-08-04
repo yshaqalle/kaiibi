@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, MODULES, type SubscriptionStatus } from '@/lib/entitlements';
 import {
@@ -14,7 +15,7 @@ import {
   type PlatformOperator,
   type PlatformShopRow,
 } from '@/lib/platform';
-import { listPlans, type Plan } from '@/lib/subscriptions';
+import { listAllPlans, type Plan } from '@/lib/subscriptions';
 
 type Tab = 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
 
@@ -28,6 +29,8 @@ export default function PlatformHome() {
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const { width } = useWindowDimensions();
+  const compact = width < TABLET_BREAKPOINT;
 
   // Does not re-arm `loading`: the initial value covers the first load, and a
   // refresh after an action should update the table in place rather than
@@ -36,7 +39,7 @@ export default function PlatformHome() {
   const reload = useCallback(async () => {
     const [shopRows, planRows, auditRows, operatorRows, requestRows] = await Promise.all([
       listPlatformShops(),
-      listPlans(),
+      listAllPlans(),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
@@ -72,24 +75,36 @@ export default function PlatformHome() {
 
   const selectedShop = shops.find((s) => s.shopId === selected) ?? null;
 
-  return (
-    <View style={styles.root}>
-      <View style={styles.sidebar}>
-        <Text style={styles.brand}>KAIIBI</Text>
-        <Text style={styles.brandSub}>PLATFORM</Text>
-        <View style={styles.nav}>
-          {(['shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
-            <Pressable key={t} onPress={() => setTab(t)} style={[styles.navItem, tab === t && styles.navItemActive]}>
-              <Text style={[styles.navText, tab === t && styles.navTextActive]}>
-                {TAB_LABELS[t]}
-                {t === 'requests' && requests.length > 0 ? `  ${requests.length}` : ''}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      </View>
+  const nav = (['shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
+    <Pressable key={t} onPress={() => setTab(t)} style={[styles.navItem, tab === t && styles.navItemActive]}>
+      <Text style={[styles.navText, tab === t && styles.navTextActive]}>
+        {TAB_LABELS[t]}
+        {t === 'requests' && requests.length > 0 ? `  ${requests.length}` : ''}
+      </Text>
+    </Pressable>
+  ));
 
-      <ScrollView style={styles.main} contentContainerStyle={styles.mainContent}>
+  return (
+    <View style={[styles.root, compact && styles.rootCompact]}>
+      {/* The 200px sidebar is a quarter of a phone screen, so on narrow it
+          becomes a scrollable strip along the top — the same nav, laid out the
+          way the space allows. */}
+      {compact ? (
+        <View style={styles.topBar}>
+          <Text style={styles.brandCompact}>KAIIBI PLATFORM</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.topNav}>
+            {nav}
+          </ScrollView>
+        </View>
+      ) : (
+        <View style={styles.sidebar}>
+          <Text style={styles.brand}>KAIIBI</Text>
+          <Text style={styles.brandSub}>PLATFORM</Text>
+          <View style={styles.nav}>{nav}</View>
+        </View>
+      )}
+
+      <ScrollView style={styles.main} contentContainerStyle={compact ? styles.mainContentCompact : styles.mainContent}>
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} />
         ) : tab === 'shops' ? (
@@ -110,18 +125,47 @@ export default function PlatformHome() {
               style={styles.search}
             />
 
-            <View style={styles.tableHead}>
-              <Text style={[styles.th, styles.colShop]}>SHOP</Text>
-              <Text style={[styles.th, styles.colPlan]}>PLAN</Text>
-              <Text style={[styles.th, styles.colStatus]}>STATUS</Text>
-              <Text style={[styles.th, styles.colStores]}>STORES</Text>
-              <Text style={[styles.th, styles.colUsage]}>PRODUCTS</Text>
-            </View>
+            {!compact && (
+              <View style={styles.tableHead}>
+                <Text style={[styles.th, styles.colShop]}>SHOP</Text>
+                <Text style={[styles.th, styles.colPlan]}>PLAN</Text>
+                <Text style={[styles.th, styles.colStatus]}>STATUS</Text>
+                <Text style={[styles.th, styles.colStores]}>STORES</Text>
+                <Text style={[styles.th, styles.colUsage]}>PRODUCTS</Text>
+              </View>
+            )}
             {filtered.map((shop) => {
               const storeLimit = shop.limits.locations ?? null;
               const stores = shop.usage.locations ?? 0;
               const products = shop.usage.products ?? 0;
               const productLimit = shop.limits.products ?? null;
+              // Narrow: one card per shop, name on top and the numbers
+              // beneath. Squeezing five columns onto a phone makes every one of
+              // them unreadable, which is worse than stacking.
+              if (compact) {
+                return (
+                  <Pressable
+                    key={shop.shopId}
+                    onPress={() => setSelected(shop.shopId === selected ? null : shop.shopId)}
+                    style={styles.card}
+                  >
+                    <Text style={styles.cardName} numberOfLines={1}>{shop.shopName}</Text>
+                    <View style={styles.cardMeta}>
+                      <Text style={[styles.status, STATUS_COLOR[shop.status]]}>{STATUS_DOT[shop.status]} {shop.status}</Text>
+                      <Text style={styles.cardPlan}>{shop.planName}</Text>
+                    </View>
+                    <Text style={styles.cardUsage}>
+                      <Text style={storeLimit != null && stores >= storeLimit ? styles.tdAtLimit : undefined}>
+                        {stores}{storeLimit != null ? `/${storeLimit}` : ''} stores
+                      </Text>
+                      {'   ·   '}
+                      <Text style={productLimit != null && products >= productLimit ? styles.tdAtLimit : undefined}>
+                        {products.toLocaleString()}{productLimit != null ? `/${productLimit.toLocaleString()}` : ''} products
+                      </Text>
+                    </Text>
+                  </Pressable>
+                );
+              }
               return (
                 <Pressable
                   key={shop.shopId}
@@ -143,7 +187,11 @@ export default function PlatformHome() {
               );
             })}
 
-            {selectedShop && <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />}
+            {/* Wide screens keep the detail inline beneath the table, where it
+                reads as part of the row you clicked. Narrow ones get a sheet
+                from the bottom: an inline panel below a long table means
+                tapping a shop scrolls the answer off-screen. */}
+            {selectedShop && !compact && <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />}
           </>
         ) : tab === 'requests' ? (
           <RequestsView requests={requests} shops={shops} onDone={reload} />
@@ -155,6 +203,25 @@ export default function PlatformHome() {
           <OperatorsView operators={operators} />
         )}
       </ScrollView>
+
+      {selectedShop && compact && (
+        <Modal visible transparent animationType="slide" onRequestClose={() => setSelected(null)}>
+          <View style={styles.sheetBackdrop}>
+            {/* Tapping the dimmed area closes, the standard way out of a sheet
+                when the button is below the fold. */}
+            <Pressable style={styles.sheetDismiss} onPress={() => setSelected(null)} />
+            <View style={styles.sheet}>
+              <View style={styles.sheetGrabber} />
+              <ScrollView contentContainerStyle={styles.sheetContent}>
+                <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />
+                <Pressable onPress={() => setSelected(null)} style={styles.sheetClose}>
+                  <Text style={styles.sheetCloseText}>Close</Text>
+                </Pressable>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -229,11 +296,11 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
         onChangeText={setReason}
         placeholder="Reason (required — goes into the audit log)"
         placeholderTextColor="#AAAAAA"
-        style={styles.reasonInput}
+        style={[styles.reasonInput, !reason.trim() && styles.reasonInputNeeded]}
       />
 
       <View style={styles.actionRow}>
-        {plans.map((p) => (
+        {plans.filter((p) => p.isPublic).map((p) => (
           <Pressable key={p.key} onPress={() => setPlanKey(p.key)} style={[styles.chip, planKey === p.key && styles.chipActive]}>
             <Text style={[styles.chipText, planKey === p.key && styles.chipTextActive]}>{p.name}</Text>
           </Pressable>
@@ -248,16 +315,17 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
         </Text>
       )}
 
+      {!reason.trim() && <Text style={styles.hintNeeded}>Type a reason to enable these actions.</Text>}
       <View style={styles.actionRow}>
-        <Btn label="Change plan" disabled={busy || planKey === shop.planKey} onPress={() => run('set_plan', { planKey })} />
+        <Btn label="Change plan" disabled={busy || !reason.trim() || planKey === shop.planKey} onPress={() => run('set_plan', { planKey })} />
         <View style={styles.inlineDays}>
           <TextInput value={days} onChangeText={setDays} keyboardType="number-pad" style={styles.daysInput} />
-          <Btn label="Extend trial" disabled={busy} onPress={() => run('extend_trial', { days: Number(days) || 0 })} />
+          <Btn label="Extend trial" disabled={busy || !reason.trim()} onPress={() => run('extend_trial', { days: Number(days) || 0 })} />
         </View>
         {shop.manualStatus === 'suspended' ? (
-          <Btn label="Unsuspend" disabled={busy} onPress={() => run('unsuspend', {})} />
+          <Btn label="Unsuspend" disabled={busy || !reason.trim()} onPress={() => run('unsuspend', {})} />
         ) : (
-          <Btn label="Suspend" danger disabled={busy} onPress={() => run('suspend', {})} />
+          <Btn label="Suspend" danger disabled={busy || !reason.trim()} onPress={() => run('suspend', {})} />
         )}
       </View>
 
@@ -265,9 +333,96 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
       <RecordPayment shop={shop} plans={plans} reason={reason} busy={busy} onRun={run} />
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      <DangerZone shop={shop} onDone={onDone} />
+
       <Text style={styles.privacyNote}>
         This portal cannot open this shop&apos;s products, sales, books, or schedule.
       </Text>
+    </View>
+  );
+}
+
+// Deleting a shop. `shops` is the cascade root, so this destroys the
+// catalogue, every sale, refunds, customers, books, payroll, shifts, stock and
+// every branch. There is no undo anywhere in the system.
+//
+// Three deliberate pieces of friction, because the cost of a misclick here is
+// somebody's business records:
+//   1. collapsed by default, so it is never one tap away
+//   2. shows what will actually be destroyed, counted, before offering the button
+//   3. requires the shop's exact name retyped — a confirm dialog gets dismissed
+//      by reflex, typing a name cannot be
+//
+// The server enforces the name match and an owner-role operator independently,
+// so none of this is load-bearing on the client.
+function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState('');
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const matches = typed.trim() === shop.shopName;
+  const destroyed = LIMIT_RESOURCES.map((r) => ({ label: r.label.toLowerCase(), n: shop.usage[r.key] ?? 0 })).filter(
+    (x) => x.n > 0 && x.label !== 'sales this month'
+  );
+
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await callPlatformAdmin('delete_shop', { shopId: shop.shopId, confirmName: typed.trim() }, reason.trim());
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete this shop.');
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Pressable onPress={() => setOpen(true)} style={styles.dangerToggle}>
+        <Text style={styles.dangerToggleText}>Danger zone</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <View style={styles.dangerBox}>
+      <Text style={styles.dangerTitle}>Delete {shop.shopName}</Text>
+      <Text style={styles.dangerBody}>
+        This permanently destroys everything this business has recorded
+        {destroyed.length > 0 ? ` — including ${destroyed.map((d) => `${d.n.toLocaleString()} ${d.label}`).join(', ')}` : ''}
+        , along with its sales history, books and payroll. It cannot be undone, and we keep no copy.
+      </Text>
+      <Text style={styles.dangerBody}>
+        If you only need to cut off access, <Text style={styles.dangerStrong}>Suspend</Text> above does that and is
+        reversible.
+      </Text>
+
+      <TextInput
+        value={reason}
+        onChangeText={setReason}
+        placeholder="Reason (required — goes into the audit log)"
+        placeholderTextColor="#C89A9A"
+        style={styles.dangerInput}
+      />
+      <TextInput
+        value={typed}
+        onChangeText={setTyped}
+        placeholder={`Type "${shop.shopName}" to confirm`}
+        placeholderTextColor="#C89A9A"
+        style={styles.dangerInput}
+      />
+
+      {error && <Text style={styles.error}>{error}</Text>}
+      <View style={styles.actionRow}>
+        <Btn label={busy ? 'Deleting…' : 'Delete this shop forever'} danger disabled={busy || !matches || !reason.trim()} onPress={remove} />
+        <Pressable onPress={() => setOpen(false)}>
+          <Text style={styles.dangerCancel}>Cancel</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -397,6 +552,9 @@ function RequestsView({
   const [error, setError] = useState<string | null>(null);
 
   const decide = async (requestId: string, approve: boolean) => {
+    // Kept as a guard even though the buttons are disabled without a reason:
+    // the server requires one too, and a client-side disable is a courtesy,
+    // not a rule.
     if (!reason.trim()) {
       setError('A reason is required — it is what the shop sees if you decline.');
       return;
@@ -419,13 +577,19 @@ function RequestsView({
       <Text style={styles.h1}>Plan requests</Text>
       {requests.length === 0 && <Text style={styles.empty}>Nothing waiting.</Text>}
       {requests.length > 0 && (
-        <TextInput
-          value={reason}
-          onChangeText={setReason}
-          placeholder="Reason (required — a decline shows this to the shop)"
-          placeholderTextColor="#AAAAAA"
-          style={styles.reasonInput}
-        />
+        <>
+          <TextInput
+            value={reason}
+            onChangeText={setReason}
+            placeholder="Reason (required — a decline shows this to the shop)"
+            placeholderTextColor="#AAAAAA"
+            style={[styles.reasonInput, !reason.trim() && styles.reasonInputNeeded]}
+          />
+          {/* Says what's missing before the click rather than after it. The
+              buttons below are disabled until this is filled, so the
+              requirement is visible rather than discovered by failing. */}
+          {!reason.trim() && <Text style={styles.hintNeeded}>Type a reason to enable Approve and Decline.</Text>}
+        </>
       )}
       {requests.map((request) => {
         const shop = shops.find((s) => s.shopId === request.shopId);
@@ -442,8 +606,8 @@ function RequestsView({
               {request.note ? ` · “${request.note}”` : ''}
             </Text>
             <View style={styles.actionRow}>
-              <Btn label="Approve" disabled={busy !== null} onPress={() => decide(request.id, true)} />
-              <Btn label="Decline" danger disabled={busy !== null} onPress={() => decide(request.id, false)} />
+              <Btn label="Approve" disabled={busy !== null || !reason.trim()} onPress={() => decide(request.id, true)} />
+              <Btn label="Decline" danger disabled={busy !== null || !reason.trim()} onPress={() => decide(request.id, false)} />
             </View>
           </View>
         );
@@ -618,7 +782,7 @@ function PlanEditor({
         onChangeText={setReason}
         placeholder="Reason (required — goes into the audit log)"
         placeholderTextColor="#AAAAAA"
-        style={styles.reasonInput}
+        style={[styles.reasonInput, !reason.trim() && styles.reasonInputNeeded]}
       />
       {error && <Text style={styles.error}>{error}</Text>}
       <View style={styles.actionRow}>
@@ -701,6 +865,15 @@ const STATUS_COLOR: Record<SubscriptionStatus, object> = {
 
 const styles = StyleSheet.create({
   root: { flex: 1, flexDirection: 'row', backgroundColor: '#FFFFFF' },
+  rootCompact: { flexDirection: 'column' },
+  topBar: { borderBottomWidth: 1, borderBottomColor: '#EEEEEE', paddingTop: 12, paddingHorizontal: 14, gap: 8 },
+  brandCompact: { fontSize: 12, fontWeight: '800', color: '#111111', letterSpacing: 1.5 },
+  topNav: { flexDirection: 'row', gap: 4, paddingBottom: 8 },
+  card: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 14, marginBottom: 8, gap: 6 },
+  cardName: { fontSize: 15, fontWeight: '800', color: '#111111' },
+  cardMeta: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  cardPlan: { fontSize: 12, color: '#777777', fontWeight: '700' },
+  cardUsage: { fontSize: 12, color: '#777777' },
   sidebar: { width: 200, borderRightWidth: 1, borderRightColor: '#EEEEEE', padding: 20 },
   brand: { fontSize: 15, fontWeight: '800', color: '#111111', letterSpacing: 1 },
   brandSub: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 2, marginBottom: 20 },
@@ -711,9 +884,10 @@ const styles = StyleSheet.create({
   navTextActive: { color: '#111111' },
   main: { flex: 1 },
   mainContent: { padding: 24, paddingBottom: 60 },
+  mainContentCompact: { padding: 14, paddingBottom: 40 },
   h1: { fontSize: 20, fontWeight: '800', color: '#111111', marginBottom: 16 },
   tiles: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
-  tile: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 14, minWidth: 120 },
+  tile: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 12, minWidth: 96, flexGrow: 1 },
   tileLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.5 },
   tileValue: { fontSize: 20, fontWeight: '800', color: '#111111', marginTop: 4 },
   tileSub: { fontSize: 10, color: '#AAAAAA', marginTop: 2 },
@@ -738,6 +912,8 @@ const styles = StyleSheet.create({
   usageLabel: { fontSize: 13, color: '#555555' },
   usageValue: { fontSize: 13, color: '#111111', fontWeight: '700' },
   modules: { fontSize: 12, color: '#555555', lineHeight: 18 },
+  reasonInputNeeded: { borderColor: '#E4C58A', backgroundColor: '#FFFDF7' },
+  hintNeeded: { color: '#9A6412', fontSize: 11.5, marginBottom: 8 },
   reasonInput: { borderWidth: 1, borderColor: '#DDDDDD', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, marginBottom: 10, color: '#111111' },
   actionRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 },
   inlineDays: { flexDirection: 'row', gap: 6, alignItems: 'center' },
@@ -759,6 +935,21 @@ const styles = StyleSheet.create({
   planCardEditing: { borderColor: '#111111' },
   planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
   limitField: { gap: 4 },
+  dangerToggle: { alignSelf: 'flex-start', marginTop: 22, paddingVertical: 6 },
+  dangerToggleText: { color: '#B03535', fontSize: 12, fontWeight: '800' },
+  dangerBox: { marginTop: 22, borderWidth: 1, borderColor: '#F0C2C2', backgroundColor: '#FDF7F7', borderRadius: 10, padding: 16, gap: 10 },
+  dangerTitle: { color: '#B03535', fontSize: 14, fontWeight: '800' },
+  dangerBody: { color: '#7A4A4A', fontSize: 12.5, lineHeight: 19 },
+  dangerStrong: { fontWeight: '800' },
+  dangerInput: { borderWidth: 1, borderColor: '#E8BEBE', backgroundColor: '#FFFFFF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12, color: '#111111' },
+  dangerCancel: { color: '#7A4A4A', fontSize: 12, fontWeight: '700', paddingHorizontal: 8 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
+  sheetDismiss: { flex: 1 },
+  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '88%', paddingTop: 8 },
+  sheetGrabber: { alignSelf: 'center', width: 38, height: 4, borderRadius: 2, backgroundColor: '#DDDDDD', marginBottom: 4 },
+  sheetContent: { padding: 16, paddingBottom: 28 },
+  sheetClose: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 20, marginTop: 4 },
+  sheetCloseText: { color: '#777777', fontSize: 12, fontWeight: '800' },
   payInput: { borderWidth: 1, borderColor: '#DDDDDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 7, width: 108, fontSize: 12, color: '#111111' },
   requestCard: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 16, marginBottom: 10 },
   requestHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },

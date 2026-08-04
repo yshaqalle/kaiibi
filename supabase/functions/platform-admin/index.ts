@@ -24,7 +24,8 @@ type Action =
   | 'upsert_plan'
   | 'set_platform_settings'
   | 'approve_plan_change'
-  | 'decline_plan_change';
+  | 'decline_plan_change'
+  | 'delete_shop';
 
 type RequestBody = {
   action: Action;
@@ -37,6 +38,8 @@ type RequestBody = {
   plan?: Record<string, unknown>;
   settings?: Record<string, unknown>;
   requestId?: string;
+  // The shop's exact name, retyped by the operator. Only used by delete_shop.
+  confirmName?: string;
 };
 
 const corsHeaders = {
@@ -359,6 +362,63 @@ Deno.serve(async (req) => {
 
         await audit(action, request.shop_id, before, after);
         return ok({ subscription: after });
+      }
+
+      case 'delete_shop': {
+        if (!body.shopId) return errorResponse(400, 'unknown', 'shopId is required.');
+
+        // The most destructive action in the product: `shops` is the cascade
+        // root, so this takes the catalogue, every sale and its lines, refunds,
+        // customers, expenses, invoices, payroll, shifts, stock and every
+        // branch with it. Irreversible, and no undo exists anywhere.
+        //
+        // Restricted to 'owner'. The role column is otherwise decorative, and
+        // if any single action should distinguish a support agent from the
+        // person who owns the business, it is this one.
+        const { data: actor, error: actorError } = await adminClient
+          .from('platform_admins')
+          .select('role')
+          .eq('user_id', actorId)
+          .maybeSingle();
+        if (actorError) return errorResponse(500, 'unknown', actorError.message);
+        if (actor?.role !== 'owner') {
+          return errorResponse(403, 'forbidden', 'Only an owner-role operator can delete a shop.');
+        }
+
+        const { data: shop, error: shopError } = await adminClient
+          .from('shops')
+          .select('id, name, owner_id, created_at')
+          .eq('id', body.shopId)
+          .maybeSingle();
+        if (shopError) return errorResponse(500, 'unknown', shopError.message);
+        if (!shop) return errorResponse(400, 'unknown', 'No such shop.');
+
+        // Retyping the name is the whole safeguard. A confirm dialog is
+        // dismissed by reflex; typing "Jaalala Skincare" cannot be. Compared
+        // server-side so it holds even if someone calls this endpoint directly.
+        if ((body.confirmName ?? '').trim() !== shop.name) {
+          return errorResponse(400, 'name_mismatch', 'The typed name does not match this shop.');
+        }
+
+        // Everything about to be destroyed, captured as DATA rather than as a
+        // reference. platform_audit_log.target_shop_id is `on delete set null`,
+        // so after the cascade the row would otherwise point at nothing and the
+        // record of what was deleted would be gone with it.
+        const { data: usage } = await adminClient
+          .from('shop_usage_counters')
+          .select('resource, count')
+          .eq('shop_id', body.shopId);
+        const snapshot = { shop, usage: usage ?? [], subscription: await loadSubscription(body.shopId) };
+
+        // Logged BEFORE the delete, deliberately. If the cascade then fails the
+        // log shows an attempt that did not complete, which is recoverable; the
+        // other order risks data gone with no record of who took it.
+        await audit('delete_shop', body.shopId, snapshot, null);
+
+        const { error: deleteError } = await adminClient.from('shops').delete().eq('id', body.shopId);
+        if (deleteError) return errorResponse(500, 'unknown', deleteError.message);
+
+        return ok({ deleted: true, shop: shop.name });
       }
 
       default:
