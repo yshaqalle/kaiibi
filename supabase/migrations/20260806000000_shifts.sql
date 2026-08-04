@@ -39,12 +39,21 @@ create index shifts_member_date_idx on public.shifts(shop_member_id, shift_date)
 alter table public.shifts enable row level security;
 
 -- Reading your own shifts needs no permission -- that is what makes the /me
--- view work for an ordinary cashier, and it mirrors the existing
--- "staff reads own membership" policy on shop_members.
+-- view work for an ordinary cashier. The real precedent is time_entries
+-- (20260802030200_hr_schema.sql), the sibling HR child table with the same
+-- shop_id + shop_member_id shape, not shop_members' own-membership policy --
+-- that one deliberately stays permissive because it guards the row you must
+-- read to resolve your shop at login. Like time_entries, the own-row check
+-- here requires the membership to be active (a deactivated member should
+-- lose read access, not keep it) and requires the membership's shop_id to
+-- agree with the shift's shop_id (without that, a shift row for a member of
+-- a different shop would still be readable by that member, and would sit in
+-- a shop's shift list under a member id that doesn't belong to that shop's
+-- roster).
 create policy "read own shifts" on public.shifts for select
   using (exists (
     select 1 from public.shop_members m
-    where m.id = shop_member_id and m.user_id = auth.uid()
+    where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shifts.shop_id
   ));
 
 create policy "read shop shifts" on public.shifts for select
@@ -52,6 +61,12 @@ create policy "read shop shifts" on public.shifts for select
 
 create policy "write shop shifts" on public.shifts for all
   using (has_shop_permission(shop_id, 'people.schedule.manage'))
-  with check (has_shop_permission(shop_id, 'people.schedule.manage'));
+  with check (
+    has_shop_permission(shop_id, 'people.schedule.manage')
+    and exists (
+      select 1 from public.shop_members m
+      where m.id = shop_member_id and m.shop_id = shifts.shop_id
+    )
+  );
 
 grant select, insert, update, delete on public.shifts to authenticated;

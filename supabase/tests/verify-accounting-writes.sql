@@ -460,7 +460,43 @@ begin
     if not v_raised then raise exception 'FAIL: a member wrote a shift without people.schedule.manage'; end if;
 
     reset role;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
     raise notice 'OK: own shift readable, colleague''s hidden, writes refused';
+
+    -- Now the positive case: a member WHO HOLDS people.schedule.manage must
+    -- see the whole team's shifts, not just their own. Nothing above proves
+    -- "read shop shifts" does anything at all -- mutating it to `using
+    -- (false)` still leaves every assertion above green, since the own-rows
+    -- policy alone satisfies them.
+    declare
+      v_manager_role_id uuid;
+      v_manager_user uuid := gen_random_uuid();
+      v_manager_id uuid;
+    begin
+      insert into public.roles (shop_id, name, permissions)
+        values (v_shop_id, 'Verify Schedule Manager', array['people.schedule.manage'])
+        returning id into v_manager_role_id;
+
+      insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+        values (v_manager_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+                'verify-' || v_manager_user || '@example.test', '', now(), now(), now());
+      insert into public.shop_members (shop_id, user_id, role_id, active, full_name)
+        values (v_shop_id, v_manager_user, v_manager_role_id, true, 'Rota Manager')
+        returning id into v_manager_id;
+
+      set local role authenticated;
+      perform set_config('request.jwt.claims', json_build_object('sub', v_manager_user)::text, true);
+
+      select count(*) into v_seen from public.shifts where id = v_mine_id;
+      if v_seen <> 1 then raise exception 'FAIL: a manager with people.schedule.manage cannot see a member''s own shift'; end if;
+
+      select count(*) into v_seen from public.shifts where id = v_theirs_id;
+      if v_seen <> 1 then raise exception 'FAIL: a manager with people.schedule.manage cannot see a colleague''s shift'; end if;
+
+      reset role;
+      perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+      raise notice 'OK: a member with people.schedule.manage sees the whole team''s shifts';
+    end;
   end;
 
   raise notice '';
