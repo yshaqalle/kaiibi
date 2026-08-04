@@ -507,6 +507,13 @@ begin
         values (v_outsider_shop_id, v_outsider_user, v_outsider_role_id, true, 'Outsider')
         returning id into v_outsider_id;
 
+      -- An approved leave request for the colleague, built here (still
+      -- superuser, so not itself subject to RLS) for the list_shop_time_off
+      -- assertions below. reason is deliberately sensitive-looking, so the
+      -- "no reason column" assertion actually proves something.
+      insert into public.time_off_requests (shop_id, shop_member_id, start_date, end_date, status, reason)
+        values (v_shop_id, v_mate_id, '2026-08-10', '2026-08-12', 'approved', 'medical, not a scheduler''s business');
+
       set local role authenticated;
       perform set_config('request.jwt.claims', json_build_object('sub', v_manager_user)::text, true);
 
@@ -549,6 +556,46 @@ begin
         raise exception 'FAIL: a manager inserted a shift for a member of a different shop';
       end if;
       raise notice 'OK: a manager could not insert a shift for a member of a different shop';
+
+      -- Fix 4 regression: shop_members carries pay_rate_cents and RLS is
+      -- row-level, not column-level, so the pay gate for a scheduler lives
+      -- ONLY inside list_shop_staff (20260803010000), never in "read
+      -- shop_members" itself. Nothing above proves that -- re-adding
+      -- people.schedule.manage to that policy would leave every check so far
+      -- green. Assert the manager (who holds only people.schedule.manage)
+      -- reads zero rows querying the table directly.
+      select count(*) into v_seen from public.shop_members where id = v_mate_id;
+      if v_seen <> 0 then
+        raise exception 'FAIL: a schedule manager read a colleague''s shop_members row (pay columns are not gated at row level)';
+      end if;
+      raise notice 'OK: a schedule manager cannot read shop_members rows directly';
+
+      -- Fix 3: the on_leave warning (scheduling.ts, unit tested) needs
+      -- approved leave, but the only shop-wide read policy on
+      -- time_off_requests -- "approver manages shop time off requests" -- is
+      -- gated on people.timeoff.approve alone. A scheduler holding only
+      -- people.schedule.manage is neither approver nor requester, so RLS
+      -- would silently drop every row through the table. list_shop_time_off
+      -- (20260807000000) is the wider, security-definer read path; assert
+      -- the manager CAN see the colleague's approved leave through it, and
+      -- that the result never carries the free-text reason column.
+      select count(*) into v_seen
+        from public.list_shop_time_off(v_shop_id, '2026-08-01'::date, '2026-08-31'::date) t
+        where t.shop_member_id = v_mate_id and t.start_date = '2026-08-10' and t.end_date = '2026-08-12';
+      if v_seen <> 1 then
+        raise exception 'FAIL: a schedule manager could not see approved leave through list_shop_time_off';
+      end if;
+
+      v_raised := false;
+      begin
+        perform reason from public.list_shop_time_off(v_shop_id, '2026-08-01'::date, '2026-08-31'::date);
+      exception when undefined_column then
+        v_raised := true;
+      end;
+      if not v_raised then
+        raise exception 'FAIL: list_shop_time_off exposed a reason column';
+      end if;
+      raise notice 'OK: a schedule manager sees approved leave via list_shop_time_off, with no reason column returned';
 
       reset role;
       perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);

@@ -16,6 +16,7 @@ export function ShiftEditorModal({
   date,
   members,
   existing,
+  seedMemberId,
   context,
   onClose,
   onSave,
@@ -25,12 +26,17 @@ export function ShiftEditorModal({
   date: string;
   members: StaffMember[];
   existing: Shift | null;
+  // Which row/cell was tapped to open the editor -- honoured for a NEW shift
+  // only. An existing shift's own shopMemberId always wins, so editing a
+  // shift never reassigns it just because the modal remembers where it was
+  // opened from.
+  seedMemberId?: string | null;
   context: ValidationContext;
   onClose: () => void;
   onSave: (draft: { shopMemberId: string; date: string; start: string; end: string }, note: string | null) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
-  const [memberId, setMemberId] = useState(existing?.shopMemberId ?? members[0]?.id ?? '');
+  const [memberId, setMemberId] = useState(existing?.shopMemberId ?? seedMemberId ?? members[0]?.id ?? '');
   const [start, setStart] = useState(existing?.start ?? '09:00');
   const [end, setEnd] = useState(existing?.end ?? '17:00');
   const [note, setNote] = useState(existing?.note ?? '');

@@ -99,6 +99,44 @@ export async function listShopTimeOffRequests(shopId: string, opts?: { status?: 
   return (data ?? []).map(mapTimeOffRow);
 }
 
+// Approved leave for the Schedule tab's on-leave warning. Deliberately not
+// listShopTimeOffRequests: that goes through the table's own RLS policy,
+// which is gated on people.timeoff.approve alone, so a member holding only
+// people.schedule.manage would see zero rows and the warning would never
+// fire. This calls a security definer RPC instead (mirrors list_shop_staff)
+// that is gated on people.schedule.manage OR people.timeoff.approve and,
+// because it's wider, deliberately never returns the free-text `reason` --
+// see migration 20260807000000.
+//
+// onLeaveMemberIds (shift-hours.ts) is unit-tested and shared with other
+// callers, so it stays untouched and keeps taking TimeOffRequest[]. The RPC
+// only returns (shopMemberId, startDate, endDate) -- everything else here is
+// filled with values that make onLeaveMemberIds' read of
+// status/dateRanges/startDate/endDate/shopMemberId behave correctly; the rest
+// (id, reason, requestedAt, ...) is unused by that function and never shown,
+// since this result never reaches a request-detail view.
+export async function listShopApprovedTimeOff(shopId: string, range: { start: string; end: string }): Promise<TimeOffRequest[]> {
+  const { data, error } = await supabase.rpc('list_shop_time_off', {
+    p_shop_id: shopId,
+    p_start_date: range.start,
+    p_end_date: range.end,
+  });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: `${row.shop_member_id}-${row.start_date}-${row.end_date}`,
+    shopId,
+    shopMemberId: row.shop_member_id,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    dateRanges: [],
+    reason: null,
+    status: 'approved' as const,
+    requestedAt: '',
+    decidedBy: null,
+    decidedAt: null,
+  }));
+}
+
 // Approve/deny -- decided_by is the calling (approver) user, read from the
 // current session rather than passed in, so a caller can't misattribute a
 // decision to someone else.

@@ -7,7 +7,7 @@ import { ShiftEditorModal } from '@/components/schedule/shift-editor-modal';
 import { addDaysToDate, shiftMinutes, shiftsToCopy, startOfWeek, weekDaysFrom, type Shift, type ShiftDraft } from '@/lib/scheduling';
 import { createShift, createShifts, deleteShift, listShiftsForWeek, updateShift } from '@/lib/shifts';
 import { onLeaveMemberIds } from '@/lib/shift-hours';
-import { listShopTimeOffRequests } from '@/lib/time-off';
+import { listShopApprovedTimeOff } from '@/lib/time-off';
 import { listStaff } from '@/lib/staff';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
@@ -33,8 +33,8 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
   const [selectedDay, setSelectedDay] = useState(() => toDateColumn(new Date()));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ date: string; shift: Shift | null } | null>(null);
-  const [timeOff, setTimeOff] = useState<Awaited<ReturnType<typeof listShopTimeOffRequests>>>([]);
+  const [editing, setEditing] = useState<{ date: string; shift: Shift | null; memberId: string | null } | null>(null);
+  const [timeOff, setTimeOff] = useState<Awaited<ReturnType<typeof listShopApprovedTimeOff>>>([]);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -44,7 +44,7 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
       const [weekShifts, staff, requests] = await Promise.all([
         listShiftsForWeek(shop.id, monday),
         listStaff(shop.id),
-        listShopTimeOffRequests(shop.id, { status: 'approved' }),
+        listShopApprovedTimeOff(shop.id, { start: monday, end: addDaysToDate(monday, 6) }),
       ]);
       setShifts(weekShifts);
       setMembers(staff.filter((member) => member.active));
@@ -99,6 +99,13 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
   };
 
   const days = weekDaysFrom(monday);
+  // selectedDay is only ever moved by tapping a day chip -- paging the week
+  // with ‹ / › re-anchors `days` but leaves selectedDay wherever it was, so a
+  // stored value from a previous week would silently point outside the week
+  // now on screen. Deriving the effective day here (rather than reconciling
+  // the state itself, which would need an effect the lint budget doesn't
+  // allow) keeps every read of "the selected day" honest without one.
+  const effectiveSelectedDay = days.includes(selectedDay) ? selectedDay : days[0];
   const shiftsFor = (memberId: string, date: string) =>
     shifts.filter((shift) => shift.shopMemberId === memberId && shift.date === date);
 
@@ -135,15 +142,15 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
         <>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayStrip}>
             {days.map((date) => (
-              <Pressable key={date} onPress={() => setSelectedDay(date)} style={[styles.dayChip, selectedDay === date && styles.dayChipActive]}>
-                <Text style={[styles.dayChipText, selectedDay === date && styles.dayChipTextActive]}>{dayLabel(date)}</Text>
+              <Pressable key={date} onPress={() => setSelectedDay(date)} style={[styles.dayChip, effectiveSelectedDay === date && styles.dayChipActive]}>
+                <Text style={[styles.dayChipText, effectiveSelectedDay === date && styles.dayChipTextActive]}>{dayLabel(date)}</Text>
               </Pressable>
             ))}
           </ScrollView>
           {members.map((member) => {
-            const memberShifts = shiftsFor(member.id, selectedDay);
+            const memberShifts = shiftsFor(member.id, effectiveSelectedDay);
             return (
-              <Pressable key={member.id} onPress={() => setEditing({ date: selectedDay, shift: memberShifts[0] ?? null })} style={styles.listRow}>
+              <Pressable key={member.id} onPress={() => setEditing({ date: effectiveSelectedDay, shift: memberShifts[0] ?? null, memberId: member.id })} style={styles.listRow}>
                 <Text style={styles.memberName}>{member.fullName ?? 'Staff member'}</Text>
                 <Text style={memberShifts.length === 0 ? styles.off : styles.times}>
                   {memberShifts.length === 0 ? 'Off' : memberShifts.map((s) => `${s.start}–${s.end}`).join(', ')}
@@ -168,7 +175,7 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
                 {days.map((date) => {
                   const cell = shiftsFor(member.id, date);
                   return (
-                    <Pressable key={date} onPress={() => setEditing({ date, shift: cell[0] ?? null })}>
+                    <Pressable key={date} onPress={() => setEditing({ date, shift: cell[0] ?? null, memberId: member.id })}>
                       <Text style={[styles.gridCell, cell.length === 0 && styles.off]}>
                         {cell.length === 0 ? '—' : cell.map((s) => `${s.start}–${s.end}`).join('\n')}
                       </Text>
@@ -191,11 +198,12 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           // `existing` with useState, which only reads it on first mount. This
           // matches invoices-tab, cash-budgets-tab, expenses-tab and
           // taxonomy-manage-modal, which all key their editors for this reason.
-          key={editing.shift ? editing.shift.id : `new-${editing.date}`}
+          key={editing.shift ? editing.shift.id : `new-${editing.date}-${editing.memberId}`}
           visible
           date={editing.date}
           members={members}
           existing={editing.shift}
+          seedMemberId={editing.memberId}
           context={{
             hours: shop?.openingHours ?? {},
             onLeave: onLeaveMemberIds(timeOff, fromDateColumn(editing.date)),
