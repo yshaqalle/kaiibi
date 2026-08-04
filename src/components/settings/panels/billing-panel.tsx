@@ -42,13 +42,26 @@ export function BillingPanel() {
       <PageHeader title="Plan and billing" />
 
       <Section title="Your plan">
-        <View style={[styles.statusCard, STATUS_STYLE[subscriptionStatus].card]}>
-          <Text style={[styles.statusName, STATUS_STYLE[subscriptionStatus].text]}>
-            {entitlements.planName.toUpperCase()}
-            {subscriptionStatus === 'trialing' && trialDays != null ? ` · ${trialDays} days left` : ''}
-          </Text>
-          <Text style={styles.statusLine}>{statusLine(subscriptionStatus, trialDays, periodDays)}</Text>
-        </View>
+        {entitlements.resolved ? (
+          <View style={[styles.statusCard, STATUS_STYLE[subscriptionStatus].card]}>
+            <Text style={[styles.statusName, STATUS_STYLE[subscriptionStatus].text]}>
+              {entitlements.planName.toUpperCase()}
+              {subscriptionStatus === 'trialing' && trialDays != null ? ` · ${trialDays} days left` : ''}
+            </Text>
+            <Text style={styles.statusLine}>{statusLine(subscriptionStatus, trialDays, periodDays)}</Text>
+          </View>
+        ) : (
+          // We could not reach the plan lookup. Restrictions still apply, but
+          // saying "your plan has ended" here would be a false accusation
+          // against a customer who may be fully paid up.
+          <View style={[styles.statusCard, STATUS_STYLE.unresolved.card]}>
+            <Text style={[styles.statusName, STATUS_STYLE.unresolved.text]}>CHECKING YOUR PLAN</Text>
+            <Text style={styles.statusLine}>
+              We couldn&apos;t check your plan just now, so some things are limited until we can. This is a problem on
+              our side, not with your account — try again in a moment.
+            </Text>
+          </View>
+        )}
       </Section>
 
       <Section title="What you're using">
@@ -156,6 +169,7 @@ function statusLine(status: string, trialDays: number | null, periodDays: number
 }
 
 const STATUS_STYLE: Record<string, { card: object; text: object }> = {
+  unresolved: { card: { backgroundColor: '#FAFAFA', borderColor: '#E0E0E0' }, text: { color: '#666666' } },
   trialing: { card: { backgroundColor: '#F1F6FF', borderColor: '#B9D2FF' }, text: { color: '#1B4FA8' } },
   active: { card: { backgroundColor: '#F1FAF3', borderColor: '#B6E3C4' }, text: { color: '#1E7A3C' } },
   grace: { card: { backgroundColor: '#FFF8EC', borderColor: '#F2D8A8' }, text: { color: '#9A6412' } },

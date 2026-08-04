@@ -7,7 +7,7 @@ import { moduleForPath, MODULES, type Module } from '@/lib/entitlements';
 import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile, permissions, can, myMembership, hasModule } = useAuth();
+  const { loading, session, profile, permissions, can, myMembership, hasModule, entitlements } = useAuth();
   const pathname = usePathname();
 
   if (loading) {
@@ -64,7 +64,7 @@ export default function AdminLayout() {
   // them what it costs belongs.
   const requiredModule = moduleForPath(pathname);
   if (requiredModule && !hasModule(requiredModule)) {
-    return <UpgradeScreen module={requiredModule} />;
+    return <UpgradeScreen module={requiredModule} resolved={entitlements.resolved} />;
   }
 
   // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
@@ -115,9 +115,26 @@ function NoAccessScreen() {
 // Says plainly that nothing has been lost. A shop that opens Accounting after a
 // lapse and sees only a paywall will assume its books are gone -- the most
 // damaging thing this screen could imply, and the least true.
-function UpgradeScreen({ module }: { module: Module }) {
+function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean }) {
   const router = useRouter();
   const meta = MODULES.find((m) => m.key === module);
+
+  // The lookup failed, so we genuinely don't know what this shop is entitled
+  // to. Access stays closed -- the server would refuse the writes anyway -- but
+  // telling a possibly-paid-up customer that this "isn't on your plan" would be
+  // a false accusation dressed up as an upsell.
+  if (!resolved) {
+    return (
+      <View style={styles.noAccess}>
+        <Text style={styles.noAccessTitle}>Just a moment</Text>
+        <Text style={styles.noAccessBody}>
+          We couldn&apos;t check your plan just now, so this screen is on hold. This is a problem on our side, not
+          with your account.
+        </Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.noAccess}>
       <Text style={styles.upgradeLock}>🔒</Text>

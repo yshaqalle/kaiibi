@@ -78,6 +78,16 @@ export type SubscriptionStatus = 'trialing' | 'active' | 'grace' | 'expired' | '
 
 // What my_shop_entitlements() returns, mapped to camelCase.
 export type Entitlements = {
+  // False when the lookup did not succeed and this is the fail-closed default
+  // rather than the shop's real state.
+  //
+  // It exists because failing closed is right for ENFORCEMENT and wrong for
+  // WORDING. Without it a shop whose entitlement call merely failed -- an
+  // outage, a stale build, a migration not yet applied -- is told "your plan
+  // has ended", which is alarming and false. The restriction still applies
+  // (the server is the authority and it will refuse writes anyway); only what
+  // we say about it changes.
+  resolved: boolean;
   status: SubscriptionStatus;
   planKey: string;
   planName: string;
@@ -99,6 +109,7 @@ export type Entitlements = {
 // server will refuse -- and, worse, is the shape a monetization bypass takes.
 // Same fail-closed reasoning as `noPermissions` in hooks/use-auth.tsx.
 export const FREE_FALLBACK: Entitlements = {
+  resolved: false,
   status: 'expired',
   planKey: 'free',
   planName: 'Free',

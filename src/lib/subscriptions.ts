@@ -42,6 +42,7 @@ function mapPlanRow(row: any): Plan {
 // is a plain shape map rather than the usual column mapper.
 function mapEntitlements(payload: any): Entitlements {
   return {
+    resolved: true,
     status: payload.status as SubscriptionStatus,
     planKey: payload.plan?.key ?? FREE_FALLBACK.planKey,
     planName: payload.plan?.name ?? FREE_FALLBACK.planName,

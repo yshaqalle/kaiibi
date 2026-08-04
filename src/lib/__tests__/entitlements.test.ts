@@ -286,6 +286,13 @@ describe('FREE_FALLBACK', () => {
     });
   });
 
+  it('is marked unresolved, so the UI never claims a plan "ended" when the lookup merely failed', () => {
+    // The restriction is right; the accusation is not. A shop whose entitlement
+    // call failed — an outage, a stale build, a migration not yet applied —
+    // must not be told its plan has ended.
+    expect(FREE_FALLBACK.resolved).toBe(false);
+  });
+
   it('never reads as full access', () => {
     expect(FREE_FALLBACK.modules).not.toContain('accounting');
     expect(FREE_FALLBACK.modules).not.toContain('payroll');
