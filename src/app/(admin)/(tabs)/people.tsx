@@ -38,6 +38,27 @@ import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
+// Where a member works, for display. An EMPTY set means every store — that is
+// the value, not a missing one (migration 20260814000000) — so it reads as
+// "All stores" rather than as nothing. Resolved by id from the store list, so a
+// renamed store shows its new name everywhere.
+//
+// Returns null for a single-store business, where naming the only store on
+// every row says nothing.
+function describeMemberStores(
+  locationIds: string[],
+  locations: { id: string; name: string }[],
+  multiStore: boolean
+): string | null {
+  if (!multiStore) return null;
+  if (locationIds.length === 0) return 'All stores';
+  const names = locationIds.map((id) => locations.find((l) => l.id === id)?.name).filter(Boolean) as string[];
+  if (names.length === 0) return null;
+  // Two fit; beyond that the row would grow without bound, and the exact list
+  // is on the member's own detail pane.
+  return names.length <= 2 ? names.join(' · ') : `${names[0]} +${names.length - 1}`;
+}
+
 type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
@@ -426,6 +447,8 @@ function TeamTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: Reac
 }
 
 function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffMember; tabSwitcher: ReactNode }) {
+  const { locations } = useAuth();
+  const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
   return (
     <ScrollView contentContainerStyle={styles.selfServiceContent}>
       <Text style={tabStyles.screenTitle}>People</Text>
@@ -434,6 +457,7 @@ function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffM
         <Text style={styles.selfServiceName}>{member.fullName ?? member.email ?? 'Me'}</Text>
         <Text style={styles.selfServiceMeta}>
           {member.roleName}
+          {memberStores ? ` · ${memberStores}` : ''}
           {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
         </Text>
       </View>
@@ -445,7 +469,9 @@ function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffM
 }
 
 function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
-  const { shop, can, canAny } = useAuth();
+  const { shop, can, canAny, locations } = useAuth();
+  const rosterStores = (member: StaffMember) =>
+    describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
   const canManageRoster = can('staff.manage');
   const canManagePayroll = can('people.payroll.manage');
   const canViewHours = canAny(['people.timesheet.view', 'people.payroll.manage']);
@@ -514,7 +540,27 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   // Exported pay data is sensitive -- someone who can only manage the
   // roster (staff.manage) but not payroll (people.payroll.manage) gets an
   // export without pay columns.
-  const exportColumns = canManagePayroll ? TEAM_EXPORT_COLUMNS_WITH_PAY : TEAM_EXPORT_COLUMNS_BASIC;
+  // Stores are appended here rather than sitting in the module-level column
+  // lists because resolving an id to a name needs `locations`. Only added for a
+  // multi-store business, so a single-store export is unchanged — and it uses
+  // the same wording as the screen, so an export never disagrees with what the
+  // roster showed.
+  const baseColumns = canManagePayroll ? TEAM_EXPORT_COLUMNS_WITH_PAY : TEAM_EXPORT_COLUMNS_BASIC;
+  const exportColumns: CsvColumn<StaffMember>[] = hasMultipleLocations(locations)
+    ? [
+        ...baseColumns,
+        {
+          header: 'Stores',
+          value: (m: StaffMember) =>
+            m.locationIds.length === 0
+              ? 'All stores'
+              : m.locationIds
+                  .map((id) => locations.find((l) => l.id === id)?.name)
+                  .filter(Boolean)
+                  .join('; '),
+        },
+      ]
+    : baseColumns;
 
   const list = (
     <>
@@ -548,7 +594,10 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
               >
                 <View style={tabStyles.rowMain}>
                   <Text style={tabStyles.rowName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
-                  <Text style={tabStyles.rowSub}>{member.roleName}</Text>
+                  <Text style={tabStyles.rowSub}>
+                    {member.roleName}
+                    {rosterStores(member) ? ` · ${rosterStores(member)}` : ''}
+                  </Text>
                 </View>
                 <Badge
                   label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
@@ -675,6 +724,8 @@ function TeamDetailPane({
     );
   }, [timeOff, member.id]);
 
+  const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
+
   return (
     <Card style={tabStyles.detailCard}>
       <View style={tabStyles.detHead}>
@@ -683,6 +734,7 @@ function TeamDetailPane({
       </View>
       <Text style={tabStyles.detPhone}>
         {member.roleName}
+        {memberStores ? ` · ${memberStores}` : ''}
         {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
       </Text>
 
