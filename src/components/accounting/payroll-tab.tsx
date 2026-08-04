@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
@@ -41,6 +41,17 @@ const CADENCE_LABELS: Record<PayCadence, string> = {
   monthly: 'Monthly',
 };
 
+// A second vocabulary for the coverage prose: the chip labels above read well
+// as button text ("Every 2 weeks") but not as adjectives mid-sentence ("This
+// every 2 weeks run..."). These read correctly in both "This __ run" and
+// "the __ cadence" positions.
+const CADENCE_ADJECTIVES: Record<PayCadence, string> = {
+  weekly: 'weekly',
+  biweekly: 'fortnightly',
+  semimonthly: 'twice-monthly',
+  monthly: 'monthly',
+};
+
 export function PayrollTab({
   dateRange,
   setHeaderActions,
@@ -74,6 +85,10 @@ export function PayrollTab({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped each time openCreate runs so a slow, superseded listStaff response
+  // can be told apart from the latest one and discarded instead of clobbering
+  // fresher state -- see openCreate below.
+  const createRequestRef = useRef(0);
 
   const anchor = shop?.payPeriodAnchor ?? null;
   const periodOptions = cadence
@@ -125,13 +140,18 @@ export function PayrollTab({
   const openCreate = async () => {
     setCreating(true);
     setActiveStaff(null);
+    const requestId = ++createRequestRef.current;
     if (!shop) return;
     try {
       const members = await listStaff(shop.id);
+      // Discard a superseded response: Cancel stays clickable while this is
+      // in flight, so a quick cancel-and-reopen can leave two calls racing.
+      if (createRequestRef.current !== requestId) return;
       setActiveStaff(members.filter((member) => member.active));
     } catch {
       // A failed load leaves the count hidden rather than blocking the card --
       // startRun re-fetches and will surface a real error there.
+      if (createRequestRef.current !== requestId) return;
       setActiveStaff(null);
     }
   };
@@ -193,8 +213,8 @@ export function PayrollTab({
               {cadence === null
                 ? `This run covers all ${activeStaff.length} active staff.`
                 : coveredCount === 0
-                  ? `No active staff are on the ${CADENCE_LABELS[cadence].toLowerCase()} cadence. Set one in People, or pick a different period.`
-                  : `This ${CADENCE_LABELS[cadence].toLowerCase()} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
+                  ? `No active staff are on the ${CADENCE_ADJECTIVES[cadence]} cadence. Set one in People, or pick a different period.`
+                  : `This ${CADENCE_ADJECTIVES[cadence]} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
             </Text>
           )}
           {periodOptions.reason === 'anchor_required' ? (
