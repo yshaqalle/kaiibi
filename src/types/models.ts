@@ -1,4 +1,5 @@
 import type { PayCadence } from '@/lib/pay-periods';
+import type { OpeningHours } from '@/lib/store-hours';
 
 export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
 
@@ -34,6 +35,9 @@ export type Shop = {
   // period picker asks for it rather than guessing, because a defaulted anchor
   // would silently choose everyone's pay days.
   payPeriodAnchor: string | null;
+  // Weekly opening hours. `{}` means the owner hasn't set them, which renders
+  // as nothing rather than as "closed all week".
+  openingHours: OpeningHours;
   // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
   // 2.5, editable) is applied server-side to every sale's post-discount
   // subtotal — see complete_sale/edit_sale in migration 0015.
