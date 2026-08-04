@@ -301,15 +301,26 @@ export default function PlatformHome() {
 // every screen -- so the detail and the way out live behind a hover, with a tap
 // fallback so this still works on a touch screen.
 function WhoAmI({ email, role }: { email: string | null; role: string | null }) {
-  const [open, setOpen] = useState(false);
+  // Two independent reasons to be open, because they behave differently.
+  // Hovering is a peek and should close itself; clicking is an intent to DO
+  // something, and must survive the pointer leaving — otherwise the card
+  // vanishes on the way to Sign out, which is the one thing in it.
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const open = hovered || pinned;
   const initials = (email ?? '?').slice(0, 2).toUpperCase();
 
   return (
     <View style={styles.whoWrap}>
+      {/* Clicking anywhere else dismisses a pinned card, the usual way out of
+          a menu. Only mounted while pinned, so it never swallows clicks
+          during an ordinary hover. */}
+      {pinned && <Pressable style={styles.whoScrim} onPress={() => setPinned(false)} />}
+
       <Pressable
-        onHoverIn={() => setOpen(true)}
-        onHoverOut={() => setOpen(false)}
-        onPress={() => setOpen((v) => !v)}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        onPress={() => setPinned((v) => !v)}
         style={styles.avatar}
       >
         <Text style={styles.avatarText}>{initials}</Text>
@@ -318,10 +329,10 @@ function WhoAmI({ email, role }: { email: string | null; role: string | null }) 
       {open && (
         <View
           style={styles.whoCard}
-          // Keeps the card open while the pointer travels from the avatar into
-          // it -- otherwise Sign out is unreachable by mouse.
-          onPointerEnter={() => setOpen(true)}
-          onPointerLeave={() => setOpen(false)}
+          // Keeps a hovered card alive while the pointer travels from the
+          // avatar into it.
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
         >
           <Text style={styles.whoEmail} numberOfLines={1}>{email}</Text>
           <Text style={styles.whoRole}>{role ? `${role} · operator` : 'operator'}</Text>
@@ -1136,6 +1147,7 @@ const styles = StyleSheet.create({
   cardDates: { fontSize: 11.5, color: '#999999' },
   sidebar: { width: 200, borderRightWidth: 1, borderRightColor: '#EEEEEE', padding: 20 },
   whoWrap: { alignSelf: 'flex-end', marginBottom: 14, zIndex: 10 },
+  whoScrim: { position: 'absolute', top: -2000, left: -3000, right: -3000, bottom: -3000 },
   whoCard: {
     position: 'absolute', top: 38, right: 0, minWidth: 210, gap: 4,
     backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EAEAEF', borderRadius: 12,
