@@ -9,6 +9,7 @@ import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
@@ -41,7 +42,7 @@ const navItems = [
 export default function AdminTabs() {
   const router = useRouter();
   const pathname = usePathname();
-  const { shop, refreshShop, can, canAny, myMembership } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
@@ -121,13 +122,22 @@ export default function AdminTabs() {
         <View style={styles.bottomNav}>
           {visibleNavItems.map((item) => {
             const isFocused = pathname === item.href;
+            // Locked, not hidden — tapping lands on the upgrade wall, which is
+            // where the offer belongs. See admin-sidebar.tsx.
+            const required = moduleForPath(item.href);
+            const locked = Boolean(required) && !hasModule(required!);
             return (
               <Link key={item.href} href={item.href} asChild>
                 <Pressable style={styles.bottomNavItem}>
                   <View style={[styles.bottomNavIconWrap, isFocused && styles.bottomNavIconWrapFocused]}>
-                    <Text style={[styles.bottomNavIcon, isFocused && styles.bottomNavIconFocused]}>{item.icon}</Text>
+                    <Text style={[styles.bottomNavIcon, isFocused && styles.bottomNavIconFocused]}>{locked ? '🔒' : item.icon}</Text>
                   </View>
-                  <Text style={[styles.bottomNavText, isFocused && styles.bottomNavTextFocused]} numberOfLines={1}>{item.label}</Text>
+                  <Text
+                    style={[styles.bottomNavText, isFocused && styles.bottomNavTextFocused, locked && styles.bottomNavTextLocked]}
+                    numberOfLines={1}
+                  >
+                    {item.label}
+                  </Text>
                 </Pressable>
               </Link>
             );
@@ -173,5 +183,6 @@ const styles = StyleSheet.create({
   bottomNavIcon: { fontSize: 18, color: '#999999' },
   bottomNavIconFocused: { color: '#FFFFFF' },
   bottomNavText: { color: '#999999', fontSize: 11.5, fontWeight: '700' },
+  bottomNavTextLocked: { color: '#AAAAAA' },
   bottomNavTextFocused: { color: '#111111', fontWeight: '800' },
 });

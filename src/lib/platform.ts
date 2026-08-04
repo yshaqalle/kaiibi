@@ -1,0 +1,232 @@
+import type { LimitResource, SubscriptionStatus } from '@/lib/entitlements';
+import { supabase } from '@/lib/supabase';
+
+// The back-office data layer. Reads come straight from the tables under the
+// `operators read *` policies (migration 20260818000500); every WRITE goes
+// through the platform-admin edge function, because none of these tables has an
+// insert/update/delete policy for anyone.
+
+export type PlatformShopRow = {
+  shopId: string;
+  shopName: string;
+  ownerId: string;
+  createdAt: string;
+  planKey: string;
+  planName: string;
+  status: SubscriptionStatus;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  manualStatus: 'active' | 'suspended';
+  usage: Partial<Record<LimitResource, number>>;
+  limits: Partial<Record<LimitResource, number | null>>;
+  // From the shop's primary store. It is the number they print on their own
+  // receipts, not a private contact detail, and it is what makes reaching a
+  // customer on WhatsApp a click rather than a hunt.
+  contactPhone: string | null;
+  city: string | null;
+};
+
+export type SubscriptionPaymentRow = {
+  id: string;
+  shopId: string;
+  amountCents: number;
+  currency: string;
+  method: string | null;
+  paidAt: string;
+  coversTo: string | null;
+};
+
+// What we have actually been paid. This is Kaiibi's revenue, not any shop's
+// takings -- the portal cannot read those and deliberately never will.
+export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow[]> {
+  const { data, error } = await supabase
+    .from('subscription_payments')
+    .select('id, shop_id, amount_cents, currency, method, paid_at, covers_to')
+    .order('paid_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    shopId: row.shop_id,
+    amountCents: row.amount_cents,
+    currency: row.currency,
+    method: row.method,
+    paidAt: row.paid_at,
+    coversTo: row.covers_to,
+  }));
+}
+
+// wa.me only accepts digits. Somaliland numbers are written locally as
+// 063 xxx xxxx, so a leading 0 is dropped and the 252 country code assumed
+// when none is given -- otherwise every link would silently open an empty chat.
+export function whatsappLink(phone: string | null, message?: string): string | null {
+  if (!phone) return null;
+  let digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('0')) digits = `252${digits.slice(1)}`;
+  else if (!digits.startsWith('252') && digits.length <= 9) digits = `252${digits}`;
+  if (digits.length < 9) return null;
+  return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
+}
+
+export type PlatformAuditRow = {
+  id: string;
+  actorUserId: string | null;
+  action: string;
+  targetShopId: string | null;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+  createdAt: string;
+};
+
+export type PendingPlanRequest = {
+  id: string;
+  shopId: string;
+  requestedPlanId: string;
+  planKey: string;
+  planName: string;
+  note: string | null;
+  createdAt: string;
+};
+
+// The approval queue. Only pending ones -- a decided request belongs in the
+// audit log, which records who decided it and why, rather than lingering here
+// looking actionable.
+export async function listPendingPlanRequests(): Promise<PendingPlanRequest[]> {
+  const { data, error } = await supabase
+    .from('plan_change_requests')
+    .select('id, shop_id, requested_plan_id, note, created_at, plans(key, name)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    shopId: row.shop_id,
+    requestedPlanId: row.requested_plan_id,
+    planKey: row.plans?.key ?? '',
+    planName: row.plans?.name ?? '',
+    note: row.note,
+    createdAt: row.created_at,
+  }));
+}
+
+export type PlatformOperator = {
+  userId: string;
+  role: 'owner' | 'support' | 'billing';
+  active: boolean;
+  note: string | null;
+};
+
+// Whether the signed-in user is an operator, and whether they still owe a
+// second factor. Two separate answers because the portal's front door has to
+// tell "you don't work here" apart from "finish signing in" -- collapsing them
+// would leave an enrolled operator staring at a dead end.
+export async function getPlatformAccess(): Promise<{ isAdmin: boolean; pendingMfa: boolean }> {
+  const [full, pending] = await Promise.all([
+    supabase.rpc('is_platform_admin'),
+    supabase.rpc('is_platform_admin_pending_mfa'),
+  ]);
+  return { isAdmin: full.data === true, pendingMfa: pending.data === true && full.data !== true };
+}
+
+// One row per shop for the list, joined client-side from three narrow reads.
+// A view would be tidier, but it would need its own policy and would be a
+// second place for the operator/shop-member read split to drift.
+export async function listPlatformShops(): Promise<PlatformShopRow[]> {
+  const [shopsRes, subsRes, usageRes, locationsRes] = await Promise.all([
+    supabase.from('shops').select('id, name, owner_id, created_at').order('created_at', { ascending: false }),
+    supabase.from('shop_subscriptions').select('shop_id, plan_id, trial_ends_at, current_period_end, grace_until, manual_status, plans(key, name, limits)'),
+    supabase.from('shop_usage_counters').select('shop_id, resource, count'),
+    supabase.from('shop_locations').select('shop_id, contact_phone, city, is_primary').eq('is_primary', true),
+  ]);
+  if (shopsRes.error) throw shopsRes.error;
+  if (subsRes.error) throw subsRes.error;
+  if (usageRes.error) throw usageRes.error;
+  if (locationsRes.error) throw locationsRes.error;
+  const primary = new Map((locationsRes.data ?? []).map((l: any) => [l.shop_id, l]));
+
+  const subs = new Map((subsRes.data ?? []).map((s: any) => [s.shop_id, s]));
+  const usage = new Map<string, Partial<Record<LimitResource, number>>>();
+  for (const row of usageRes.data ?? []) {
+    const existing = usage.get(row.shop_id) ?? {};
+    existing[row.resource as LimitResource] = row.count;
+    usage.set(row.shop_id, existing);
+  }
+
+  return (shopsRes.data ?? []).map((shop: any) => {
+    const sub = subs.get(shop.id);
+    return {
+      shopId: shop.id,
+      shopName: shop.name,
+      ownerId: shop.owner_id,
+      createdAt: shop.created_at,
+      planKey: sub?.plans?.key ?? 'free',
+      planName: sub?.plans?.name ?? 'Free',
+      // Derived client-side with the same rules as shop_effective_status(). The
+      // server remains the authority for enforcement; this is just so the list
+      // can be sorted and filtered without one RPC per row.
+      status: deriveStatus(sub),
+      trialEndsAt: sub?.trial_ends_at ?? null,
+      currentPeriodEnd: sub?.current_period_end ?? null,
+      manualStatus: sub?.manual_status ?? 'active',
+      usage: usage.get(shop.id) ?? {},
+      limits: sub?.plans?.limits ?? {},
+      contactPhone: primary.get(shop.id)?.contact_phone ?? null,
+      city: primary.get(shop.id)?.city ?? null,
+    };
+  });
+}
+
+function deriveStatus(sub: any): SubscriptionStatus {
+  if (!sub) return 'expired';
+  if (sub.manual_status === 'suspended') return 'suspended';
+  const now = Date.now();
+  if (sub.trial_ends_at && new Date(sub.trial_ends_at).getTime() > now) return 'trialing';
+  if (sub.current_period_end && new Date(sub.current_period_end).getTime() > now) return 'active';
+  if (sub.grace_until && new Date(sub.grace_until).getTime() > now) return 'grace';
+  return 'expired';
+}
+
+export async function listAuditLog(limit = 100): Promise<PlatformAuditRow[]> {
+  const { data, error } = await supabase
+    .from('platform_audit_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    actorUserId: row.actor_user_id,
+    action: row.action,
+    targetShopId: row.target_shop_id,
+    before: row.before,
+    after: row.after,
+    reason: row.reason,
+    createdAt: row.created_at,
+  }));
+}
+
+export async function listOperators(): Promise<PlatformOperator[]> {
+  const { data, error } = await supabase.from('platform_admins').select('*').order('created_at');
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    userId: row.user_id,
+    role: row.role,
+    active: row.active,
+    note: row.note,
+  }));
+}
+
+export type PlatformActionError = { error: string; message: string };
+
+// Every mutation. `reason` is mandatory at the API too, not just here -- an
+// audit trail that records what happened but not why answers the easy question
+// and not the one asked during an investigation.
+export async function callPlatformAdmin(action: string, payload: Record<string, unknown>, reason: string): Promise<any> {
+  const { data, error } = await supabase.functions.invoke('platform-admin', {
+    body: { action, reason, ...payload },
+  });
+  if (error) throw error;
+  if (data && typeof data === 'object' && 'error' in data) throw new Error((data as PlatformActionError).message);
+  return data;
+}

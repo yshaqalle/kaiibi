@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, Vi
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
+import { BillingPanel } from '@/components/settings/panels/billing-panel';
 import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels/catalog-panel';
 // NotificationsPanel is unused for now — nav item hidden in settings-sidebar.tsx,
 // no send infrastructure exists yet (see docs/backlog/2026-08-01-notification-delivery.md).
@@ -163,6 +164,8 @@ export default function SettingsScreen() {
     switch (activeNav) {
       case 'profile':
         return profile ? <ProfilePanel profile={profile} email={session?.user.email ?? null} onSaved={setProfile} /> : null;
+      case 'billing':
+        return <BillingPanel />;
       case 'business':
         return <BusinessPanel shop={shop} onSaved={refreshShop} />;
       case 'locations':

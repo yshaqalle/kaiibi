@@ -299,9 +299,15 @@ auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 max_enrolled_factors = 10
 
 # Control MFA via App Authenticator (TOTP)
+# Required by the platform admin portal: is_platform_admin() (migration
+# 20260818000500) demands aal2, so an operator without an enrolled factor can
+# reach nothing. Turning these on does NOT force MFA on shop owners -- it only
+# makes enrolment possible. Shop-side 2FA is still the separate backlog item in
+# docs/backlog/2026-08-01-two-factor-authentication.md, and now has the
+# infrastructure it needs.
 [auth.mfa.totp]
-enroll_enabled = false
-verify_enabled = false
+enroll_enabled = true
+verify_enabled = true
 
 # Configure MFA via Phone Messaging
 [auth.mfa.phone]

@@ -37,7 +37,7 @@ export default function AdminTabs() {
   const colors = Colors.dark;
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can, canAny, myMembership } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -145,17 +145,26 @@ export default function AdminTabs() {
               native-tabs docs), while keeping every `(tabs)` route declared
               so expo-router can still resolve the group. The route guard in
               (admin)/_layout.tsx is the cross-platform backstop. */}
+          {/* Locked tabs stay visible and navigable, carrying a 🔒 badge —
+              tapping lands on the upgrade wall in (admin)/_layout.tsx. Hiding
+              them would mean nobody ever discovers what they'd be paying for,
+              which is the opposite of what a paywall is for. `hidden` above
+              remains reserved for PERMISSIONS, where the screen genuinely
+              isn't theirs to open. */}
           <NativeTabs.Trigger name="dashboard" hidden={!can('dashboard.view')}>
             <NativeTabs.Trigger.Label>Dashboard</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/home.png')} />
+            {!hasModule('dashboard') && <NativeTabs.Trigger.Badge>🔒</NativeTabs.Trigger.Badge>}
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="pos" hidden={!can('pos.access')}>
             <NativeTabs.Trigger.Label>POS</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/cart.png')} />
+            {!hasModule('pos') && <NativeTabs.Trigger.Badge>🔒</NativeTabs.Trigger.Badge>}
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="inventory" hidden={!can('inventory.view')}>
             <NativeTabs.Trigger.Label>Inventory</NativeTabs.Trigger.Label>
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/grid.png')} />
+            {!hasModule('inventory') && <NativeTabs.Trigger.Badge>🔒</NativeTabs.Trigger.Badge>}
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="people" hidden={!(Boolean(myMembership?.active) || canAny(['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view']))}>
             <NativeTabs.Trigger.Label>People</NativeTabs.Trigger.Label>
@@ -168,6 +177,7 @@ export default function AdminTabs() {
                 drawable to pair an SF Symbol with, so `sf` would leave Android
                 with no icon at all. */}
             <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/accounting.png')} />
+            {!hasModule('accounting') && <NativeTabs.Trigger.Badge>🔒</NativeTabs.Trigger.Badge>}
           </NativeTabs.Trigger>
         </NativeTabs>
       </View>

@@ -201,7 +201,14 @@ export type ProvisionStaffResult = {
   member: { id: string; shopId: string; userId: string; roleId: string; active: boolean };
 };
 
-export type ProvisionStaffError = { error: 'forbidden' | 'invalid_role' | 'duplicate_email' | 'unknown'; message: string };
+// 'limit_reached' is the shop's plan being out of seats, distinct from
+// 'forbidden' (this user may not add staff). The database trigger on
+// shop_members is the real gate; the edge function checks first only so the
+// caller gets this typed reason instead of a 500 from a raised exception.
+export type ProvisionStaffError = {
+  error: 'forbidden' | 'invalid_role' | 'duplicate_email' | 'limit_reached' | 'unknown';
+  message: string;
+};
 
 export async function provisionStaff(input: {
   shopId: string;
