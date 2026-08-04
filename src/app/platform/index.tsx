@@ -3,6 +3,8 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, Text
 
 import { planColor } from '@/components/platform-charts';
 import { PlatformOverview } from '@/components/platform-overview';
+import { useAuth } from '@/hooks/use-auth';
+import { signOut } from '@/lib/auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, MODULES, type SubscriptionStatus } from '@/lib/entitlements';
@@ -39,6 +41,7 @@ export default function PlatformHome() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const { width } = useWindowDimensions();
+  const { session } = useAuth();
   const compact = width < TABLET_BREAKPOINT;
 
   // Does not re-arm `loading`: the initial value covers the first load, and a
@@ -86,6 +89,7 @@ export default function PlatformHome() {
   }, [shops, plans]);
 
   const selectedShop = shops.find((s) => s.shopId === selected) ?? null;
+  const myRole = operators.find((o) => o.userId === session?.user.id)?.role ?? null;
 
   const nav = (['overview', 'shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
     <Pressable key={t} onPress={() => setTab(t)} style={[styles.navItem, tab === t && styles.navItemActive]}>
@@ -103,7 +107,12 @@ export default function PlatformHome() {
           way the space allows. */}
       {compact ? (
         <View style={styles.topBar}>
-          <Text style={styles.brandCompact}>KAIIBI PLATFORM</Text>
+          <View style={styles.topBarHead}>
+            <Text style={styles.brandCompact}>KAIIBI PLATFORM</Text>
+            <Pressable onPress={() => signOut()} hitSlop={8}>
+              <Text style={styles.signOutText}>Sign out</Text>
+            </Pressable>
+          </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.topNav}>
             {nav}
           </ScrollView>
@@ -117,6 +126,24 @@ export default function PlatformHome() {
       )}
 
       <ScrollView style={styles.main} contentContainerStyle={compact ? styles.mainContentCompact : styles.mainContent}>
+        {/* Who is signed in, top right. Worth stating rather than assuming: an
+            operator account is a second identity most people also hold a shop
+            login for, and acting on the wrong one is the mistake this
+            prevents. */}
+        {!compact && (
+          <View style={styles.whoRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{(session?.user.email ?? '?').slice(0, 2).toUpperCase()}</Text>
+            </View>
+            <View style={styles.whoText}>
+              <Text style={styles.whoEmail} numberOfLines={1}>{session?.user.email}</Text>
+              <Text style={styles.whoRole}>{myRole ? `${myRole} · operator` : 'operator'}</Text>
+            </View>
+            <Pressable onPress={() => signOut()} style={styles.signOut} hitSlop={6}>
+              <Text style={styles.signOutText}>Sign out</Text>
+            </Pressable>
+          </View>
+        )}
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} />
         ) : tab === 'overview' ? (
@@ -1083,6 +1110,15 @@ const styles = StyleSheet.create({
   cardUsage: { fontSize: 12, color: '#777777' },
   cardDates: { fontSize: 11.5, color: '#999999' },
   sidebar: { width: 200, borderRightWidth: 1, borderRightColor: '#EEEEEE', padding: 20 },
+  whoRow: { flexDirection: 'row', alignItems: 'center', gap: 10, alignSelf: 'flex-end', marginBottom: 18 },
+  avatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  whoText: { alignItems: 'flex-end' },
+  whoEmail: { fontSize: 12.5, fontWeight: '700', color: '#111111', maxWidth: 220 },
+  whoRole: { fontSize: 10.5, color: '#AAAAAA', textTransform: 'capitalize' },
+  signOut: { paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: '#F0C2C2', borderRadius: 8 },
+  signOutText: { fontSize: 11.5, fontWeight: '800', color: '#B03535' },
+  topBarHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   brand: { fontSize: 15, fontWeight: '800', color: '#111111', letterSpacing: 1 },
   brandSub: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 2, marginBottom: 20 },
   nav: { gap: 2 },
