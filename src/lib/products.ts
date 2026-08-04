@@ -59,26 +59,25 @@ function toRow(input: Partial<NewProductInput>) {
 // branch must still appear, showing 0, or it would silently vanish from the
 // branch's inventory list and could never be stocked there.
 export async function listProducts(shopId: string, locationId?: string | null): Promise<Product[]> {
-  if (!locationId) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('shop_id', shopId)
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data ?? []).map(mapProductRow);
-  }
-
+  // The per-store rows come back either way, so the inventory table can show
+  // WHERE a product's stock sits even in the combined view. `stock` still means
+  // what it always did — the shop-wide rollup when unscoped, this store's count
+  // when scoped — so nothing that reads it needs to know about the breakdown.
   const { data, error } = await supabase
     .from('products')
     .select('*, product_location_stock(location_id, stock, reorder_level, shelf_number)')
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
   if (error) throw error;
+
   return (data ?? []).map((row: any) => {
-    const here = (row.product_location_stock ?? []).find((entry: any) => entry.location_id === locationId);
+    const entries = (row.product_location_stock ?? []) as any[];
+    const locationStock = entries.map((entry) => ({ locationId: entry.location_id, stock: entry.stock }));
+    const base = { ...mapProductRow(row), locationStock };
+    if (!locationId) return base;
+    const here = entries.find((entry) => entry.location_id === locationId);
     return {
-      ...mapProductRow(row),
+      ...base,
       stock: here?.stock ?? 0,
       reorderLevel: here?.reorder_level ?? row.reorder_level,
       shelfNumber: here?.shelf_number ?? row.shelf_number,

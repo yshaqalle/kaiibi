@@ -27,10 +27,10 @@ export default function EditProductScreen() {
         initial={product}
         shopId={product.shopId}
         submitLabel="Save changes"
-        onSubmit={async (input) => {
+        onSubmit={async (input, locationId) => {
           // Stock edits land at this device's branch: products.stock is derived
           // now, so passing it without a location would silently drop the change.
-          await updateProduct(product.id, input, activeLocation?.id ?? null);
+          await updateProduct(product.id, input, locationId ?? activeLocation?.id ?? null);
           router.back();
         }}
       />

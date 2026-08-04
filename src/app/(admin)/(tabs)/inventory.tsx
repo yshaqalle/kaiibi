@@ -6,6 +6,7 @@ import { Card } from '@/components/card';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { ProductModal } from '@/components/product-modal';
+import { StoreDropdown } from '@/components/store-dropdown';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
@@ -133,6 +134,27 @@ export default function InventoryScreen() {
       }
     : null;
 
+  // What the LOCATION cell says for a row.
+  //
+  // Scoped to one store, every row is that store — the cell repeats it so a
+  // printed or exported table still says which store it describes. In the
+  // combined view a product can hold stock at several, so it names the ones
+  // that actually carry any: "—" when none do (the product exists in the
+  // catalog but is nowhere in stock), the store when only one does, and
+  // "Hargeisa +2" when more do. The alternative — one row per store — would
+  // triple the table for a business with three stores.
+  const locationLabelFor = useCallback(
+    (product: Product): string | undefined => {
+      if (!showLocationFilter) return undefined;
+      if (locationFilter) return locations.find((l) => l.id === locationFilter)?.name ?? '—';
+      const holding = (product.locationStock ?? []).filter((entry) => entry.stock > 0);
+      if (holding.length === 0) return '—';
+      const first = locations.find((l) => l.id === holding[0].locationId)?.name ?? '—';
+      return holding.length === 1 ? first : `${first} +${holding.length - 1}`;
+    },
+    [showLocationFilter, locationFilter, locations]
+  );
+
   const defaultLowStockLevel = shop?.defaultLowStockLevel ?? 5;
   const expiryWarningLeadDays = shop?.expiryTrackingEnabled ? shop.expiryWarningLeadDays : undefined;
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
@@ -146,6 +168,7 @@ export default function InventoryScreen() {
             <Text style={styles.subtitle}>{products.length} products · {needsAttention} need attention</Text>
           </View>
           <View style={styles.headerActions}>
+            <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
             <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
             {/* Only with somewhere to move stock TO — a one-store shop has no
                 transfer to make, and the button would be a dead end. */}
@@ -167,26 +190,10 @@ export default function InventoryScreen() {
           </View>
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
-        {showLocationFilter && (
-          <View style={styles.locationFilterRow}>
-            <Pressable onPress={() => setLocationFilter(null)} style={[styles.locationChip, locationFilter === null && styles.locationChipActive]}>
-              <Text style={[styles.locationChipText, locationFilter === null && styles.locationChipTextActive]}>All locations</Text>
-            </Pressable>
-            {locations.filter((location) => location.active).map((location) => (
-              <Pressable
-                key={location.id}
-                onPress={() => setLocationFilter(location.id)}
-                style={[styles.locationChip, locationFilter === location.id && styles.locationChipActive]}
-              >
-                <Text style={[styles.locationChipText, locationFilter === location.id && styles.locationChipTextActive]}>{location.name}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
         {/* Adjusting a combined figure has no single right answer, so the
-            combined view says which branch an edit would land on. */}
+            combined view says which store an edit would land on. */}
         {showLocationFilter && locationFilter === null && activeLocation && (
-          <Text style={styles.locationHint}>Showing every branch combined. Stock edits apply to {activeLocation.name}.</Text>
+          <Text style={styles.locationHint}>Showing every store combined. Stock edits apply to {activeLocation.name}.</Text>
         )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
@@ -208,7 +215,7 @@ export default function InventoryScreen() {
               ))
             ) : (
               <>
-                <ProductTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />
+                <ProductTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} showLocation={showLocationFilter} />
                 {filtered.map((product) => (
                   <ProductTableRow
                     key={product.id}
@@ -217,6 +224,7 @@ export default function InventoryScreen() {
                     onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
                     defaultLowStockLevel={defaultLowStockLevel}
                     expiryWarningLeadDays={expiryWarningLeadDays}
+                    locationLabel={locationLabelFor(product)}
                   />
                 ))}
               </>
@@ -230,7 +238,8 @@ export default function InventoryScreen() {
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
           shopId={shop.id}
-          onSubmit={async (input) => { await createProduct(shop.id, input, stockLocationId); await reload(); }}
+          defaultLocationId={stockLocationId}
+          onSubmit={async (input, locationId) => { await createProduct(shop.id, input, locationId ?? stockLocationId); await reload(); }}
         />
       )}
       {shop && canEdit && (
@@ -239,7 +248,7 @@ export default function InventoryScreen() {
           onClose={() => setEditingProduct(null)}
           shopId={shop.id}
           initial={editingProduct ?? undefined}
-          onSubmit={async (input) => { if (editingProduct) await updateProduct(editingProduct.id, input, stockLocationId); await reload(); }}
+          onSubmit={async (input, locationId) => { if (editingProduct) await updateProduct(editingProduct.id, input, locationId ?? stockLocationId); await reload(); }}
           onDeleted={reload}
         />
       )}
@@ -270,11 +279,6 @@ const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
-  locationFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  locationChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
-  locationChipActive: { backgroundColor: '#111111' },
-  locationChipText: { fontSize: 12, fontWeight: '700', color: '#111111' },
-  locationChipTextActive: { color: '#FFFFFF' },
   locationHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
   list: { overflow: 'hidden' },

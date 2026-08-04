@@ -166,6 +166,11 @@ export type Product = {
   batchNumber: string | null;
   imageUrl: string | null;
   isListedOnline: boolean;
+  // Where this product's stock actually sits, per store. Populated by
+  // `listProducts`; absent on the single-product reads that don't need it.
+  // `stock` above stays the headline number — the shop-wide rollup, or this
+  // store's count when the list was scoped — so existing readers are unaffected.
+  locationStock?: { locationId: string; stock: number }[];
   createdAt: string;
   updatedAt: string;
 };

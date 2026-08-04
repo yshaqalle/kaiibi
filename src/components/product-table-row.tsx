@@ -13,12 +13,13 @@ export type SortDirection = 'asc' | 'desc';
 // typing can't cleanly infer a shape valid for both (TextStyle/ViewStyle
 // disagree on `userSelect`) — inline objects sidestep that ambiguity since
 // they're contextually typed at each call site instead.
-const colProduct = { flexBasis: '24%', flexGrow: 0, flexShrink: 0 } as const;
-const colBrand = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
-const colCategory = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
-const colTags = { flexBasis: '18%', flexGrow: 0, flexShrink: 0 } as const;
-const colPrice = { flexBasis: '10%', flexGrow: 0, flexShrink: 0 } as const;
-const colStock = { flexBasis: '22%', flexGrow: 0, flexShrink: 0 } as const;
+const colLocation = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colProduct = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
+const colBrand = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colCategory = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colTags = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
+const colPrice = { flexBasis: '9%', flexGrow: 0, flexShrink: 0 } as const;
+const colStock = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
 
 // The desktop Inventory list — a real, sortable column table (PRODUCT /
 // BRAND / CATEGORY / TAGS / PRICE / STOCK). Narrow screens use
@@ -28,10 +29,14 @@ export function ProductTableHeader({
   sortField,
   sortDirection,
   onSort,
+  showLocation = false,
 }: {
   sortField: SortField | null;
   sortDirection: SortDirection;
   onSort: (field: SortField) => void;
+  // Only a business with more than one store gets the column — for everyone
+  // else it would repeat the same name down every row.
+  showLocation?: boolean;
 }) {
   const HeaderCell = ({ field, label, style }: { field: SortField; label: string; style: object }) => (
     <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
@@ -43,6 +48,7 @@ export function ProductTableHeader({
   return (
     <View style={styles.headerRow}>
       <View style={styles.dataCols}>
+        {showLocation && <Text style={[styles.headerLabel, colLocation]}>LOCATION</Text>}
         <HeaderCell field="name" label="PRODUCT" style={colProduct} />
         <HeaderCell field="brand" label="BRAND" style={colBrand} />
         <HeaderCell field="category" label="CATEGORY" style={colCategory} />
@@ -61,8 +67,12 @@ export function ProductTableRow({
   onStockChange,
   defaultLowStockLevel = 5,
   expiryWarningLeadDays,
+  locationLabel,
 }: {
   product: Product;
+  // The store cell's text, resolved by the caller (which holds the store list).
+  // Undefined hides the column entirely, for a single-store business.
+  locationLabel?: string;
   // Both omitted for a read-only viewer (a role with `inventory.view` but not
   // `inventory.edit`) — same contract as ProductTile.
   onEdit?: () => void;
@@ -81,6 +91,9 @@ export function ProductTableRow({
   return (
     <View style={styles.row}>
       <View style={styles.dataCols}>
+        {locationLabel !== undefined && (
+          <Text style={[styles.cellText, styles.muted, colLocation]} numberOfLines={1}>{locationLabel}</Text>
+        )}
         <View style={[styles.cell, colProduct]}>
           {product.imageUrl ? (
             <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
