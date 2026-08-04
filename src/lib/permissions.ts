@@ -97,6 +97,13 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[]
   { prefix: '/pos', permission: 'pos.access' },
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/product', permission: 'inventory.edit' },
+  // In practice this list is never what grants a schedule-only (or any
+  // other People-manager) role access to /people: (admin)/_layout.tsx
+  // short-circuits the check for `/people` via `isPeopleRoute && canReachMe`
+  // -- true for any active member, via the self-service path -- before
+  // `required.some(can)` is even reached. This entry stays anyway so the
+  // catalogue documents intent (which permissions *should* justify reaching
+  // /people) consistently with every other route here.
   { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'] },
   // Accounting is gated on sales.view: its Transactions tab *is* the sales
   // history, and "can see what the shop takes" is the right bar for the

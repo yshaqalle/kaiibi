@@ -38,7 +38,7 @@ import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffR
 
 type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
-const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'] as const;
+const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
 
 const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'First Name', value: (c) => c.firstName },

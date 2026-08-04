@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { addDaysToDate, shiftMinutes, startOfWeek, weekDaysFrom, type Shift } from '@/lib/scheduling';
 import { listShiftsForWeek } from '@/lib/shifts';
 import { listStaff } from '@/lib/staff';
 import { toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
-
-const TABLET_BREAKPOINT = 768;
 
 function dayLabel(date: string): string {
   const [, month, day] = date.split('-');
