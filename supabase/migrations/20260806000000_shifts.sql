@@ -38,6 +38,24 @@ create index shifts_member_date_idx on public.shifts(shop_member_id, shift_date)
 
 alter table public.shifts enable row level security;
 
+-- security definer, like user_has_shop_permission/has_shop_permission/
+-- is_shop_member above: an inline `exists (select 1 from shop_members ...)`
+-- inside a WITH CHECK runs under the CALLER's RLS, not bypassing it, because
+-- it is not itself a security definer function call -- only has_shop_permission
+-- is. A scheduler holding only people.schedule.manage does not satisfy
+-- "read shop_members" (staff.manage/people.payroll.manage/
+-- people.timesheet.view/people.timeoff.approve -- see hr_schema.sql), and is
+-- not reading their own row either, so an inline exists here would see zero
+-- rows and reject the insert for every teammate but the caller themself. This
+-- wraps the same lookup in security definer so it evaluates against the real
+-- table contents instead of what the caller's RLS lets them see.
+create or replace function public.shop_member_in_shop(p_member_id uuid, p_shop_id uuid)
+returns boolean
+language sql security definer stable set search_path = public as $$
+  select exists (select 1 from public.shop_members m where m.id = p_member_id and m.shop_id = p_shop_id);
+$$;
+grant execute on function public.shop_member_in_shop(uuid, uuid) to authenticated;
+
 -- Reading your own shifts needs no permission -- that is what makes the /me
 -- view work for an ordinary cashier. The real precedent is time_entries
 -- (20260802030200_hr_schema.sql), the sibling HR child table with the same
@@ -56,6 +74,11 @@ create policy "read own shifts" on public.shifts for select
     where m.id = shop_member_id and m.user_id = auth.uid() and m.active and m.shop_id = shifts.shop_id
   ));
 
+-- This predicate is identical to "write shop shifts" below, and since that
+-- policy is `for all`, Postgres ORs the two together so each independently
+-- grants SELECT -- the overlap is deliberate, matching payroll_runs, roles
+-- and time_off_requests. Narrowing this policy alone would not narrow
+-- anything: the write policy would keep granting the broader read.
 create policy "read shop shifts" on public.shifts for select
   using (has_shop_permission(shop_id, 'people.schedule.manage'));
 
@@ -63,10 +86,7 @@ create policy "write shop shifts" on public.shifts for all
   using (has_shop_permission(shop_id, 'people.schedule.manage'))
   with check (
     has_shop_permission(shop_id, 'people.schedule.manage')
-    and exists (
-      select 1 from public.shop_members m
-      where m.id = shop_member_id and m.shop_id = shifts.shop_id
-    )
+    and public.shop_member_in_shop(shop_member_id, shifts.shop_id)
   );
 
 grant select, insert, update, delete on public.shifts to authenticated;

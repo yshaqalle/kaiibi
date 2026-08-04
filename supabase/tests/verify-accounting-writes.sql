@@ -472,6 +472,12 @@ begin
       v_manager_role_id uuid;
       v_manager_user uuid := gen_random_uuid();
       v_manager_id uuid;
+      v_new_shift_id uuid;
+      v_outsider_shop_id uuid;
+      v_outsider_owner uuid := gen_random_uuid();
+      v_outsider_role_id uuid;
+      v_outsider_user uuid := gen_random_uuid();
+      v_outsider_id uuid;
     begin
       insert into public.roles (shop_id, name, permissions)
         values (v_shop_id, 'Verify Schedule Manager', array['people.schedule.manage'])
@@ -484,6 +490,23 @@ begin
         values (v_shop_id, v_manager_user, v_manager_role_id, true, 'Rota Manager')
         returning id into v_manager_id;
 
+      -- A second shop with its own member, for the cross-shop rejection
+      -- assertion below. Built while still superuser (before "set local role
+      -- authenticated") so these inserts aren't themselves subject to RLS.
+      insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+        values (v_outsider_owner, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+                'verify-' || v_outsider_owner || '@example.test', '', now(), now(), now());
+      insert into public.shops (owner_id, name) values (v_outsider_owner, 'Verify Shop Two') returning id into v_outsider_shop_id;
+      insert into public.roles (shop_id, name, permissions)
+        values (v_outsider_shop_id, 'Verify Outsider Role', array['expenses.manage'])
+        returning id into v_outsider_role_id;
+      insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+        values (v_outsider_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+                'verify-' || v_outsider_user || '@example.test', '', now(), now(), now());
+      insert into public.shop_members (shop_id, user_id, role_id, active, full_name)
+        values (v_outsider_shop_id, v_outsider_user, v_outsider_role_id, true, 'Outsider')
+        returning id into v_outsider_id;
+
       set local role authenticated;
       perform set_config('request.jwt.claims', json_build_object('sub', v_manager_user)::text, true);
 
@@ -492,6 +515,40 @@ begin
 
       select count(*) into v_seen from public.shifts where id = v_theirs_id;
       if v_seen <> 1 then raise exception 'FAIL: a manager with people.schedule.manage cannot see a colleague''s shift'; end if;
+
+      -- Now the write side. Nothing above proves "write shop shifts" can
+      -- ever succeed for anyone but the shop owner -- the owner branch of
+      -- user_has_shop_permission() also satisfies "read shop_members", so an
+      -- inline `exists` in the WITH CHECK would pass for the owner and fail
+      -- silently for every teammate, and a rejection-only assertion would
+      -- never catch that. Prove the positive: a member holding ONLY
+      -- people.schedule.manage inserts a shift for a teammate in their own
+      -- shop, and the row exists afterwards.
+      insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
+        values (v_shop_id, v_mate_id, '2026-08-05', '09:00', '17:00')
+        returning id into v_new_shift_id;
+      select count(*) into v_seen from public.shifts
+        where id = v_new_shift_id and shop_id = v_shop_id and shop_member_id = v_mate_id;
+      if v_seen <> 1 then
+        raise exception 'FAIL: a manager with people.schedule.manage could not insert a shift for a teammate';
+      end if;
+      raise notice 'OK: a member with people.schedule.manage inserted a shift for a teammate';
+
+      -- And the other direction, beside it: the same manager must not be
+      -- able to insert a shift naming a shop_member_id from a DIFFERENT
+      -- shop. This is what shop_member_in_shop(shop_member_id, shop_id)
+      -- guards in the WITH CHECK.
+      v_raised := false;
+      begin
+        insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
+          values (v_shop_id, v_outsider_id, '2026-08-05', '09:00', '17:00');
+      exception when others then
+        v_raised := true;
+      end;
+      if not v_raised then
+        raise exception 'FAIL: a manager inserted a shift for a member of a different shop';
+      end if;
+      raise notice 'OK: a manager could not insert a shift for a member of a different shop';
 
       reset role;
       perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
