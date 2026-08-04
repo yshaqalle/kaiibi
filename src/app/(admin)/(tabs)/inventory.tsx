@@ -200,7 +200,15 @@ export default function InventoryScreen() {
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
-          <Text style={styles.empty}>No products yet. Add your first one above.</Text>
+          <Text style={styles.empty}>
+            {locationFilter
+              ? // A store carries a product once it has a stock row there, so an
+                // empty list here is a real answer, not a missing filter. It
+                // also has to say how to change that, since the routes in are
+                // all somewhere else.
+                `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+              : 'No products yet. Add your first one above.'}
+          </Text>
         ) : (
           <Card style={styles.list}>
             {compact ? (

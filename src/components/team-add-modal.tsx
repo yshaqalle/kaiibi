@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
+import { OptionPicker } from '@/components/option-picker';
 import { provisionStaff } from '@/lib/staff';
 import type { Role } from '@/types/models';
 
@@ -110,11 +110,13 @@ export function TeamAddModal({
                 <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PASSWORD (leave blank to generate one)</Text>
                 <TextInput value={password} onChangeText={setPassword} placeholder="At least 6 characters" placeholderTextColor="#999999" style={styles.input} />
                 <Text style={[styles.fieldLabel, { marginTop: 10 }]}>ROLE</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                  {roles.map((role) => (
-                    <CategoryChip key={role.id} label={role.name} active={role.id === roleId} onPress={() => setRoleId(role.id)} />
-                  ))}
-                </ScrollView>
+                <OptionPicker
+                  value={roleId}
+                  onChange={(id) => id && setRoleId(id)}
+                  options={roles.map((role) => ({ id: role.id, label: role.name }))}
+                  title="Which role?"
+                  placeholder="Choose a role"
+                />
                 {error && <Text style={styles.error}>{error}</Text>}
                 <Pressable
                   onPress={submit}

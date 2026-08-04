@@ -55,9 +55,18 @@ function toRow(input: Partial<NewProductInput>) {
 // which is what `products.stock` has always been and remains -- so every
 // existing caller keeps its old meaning without being touched.
 //
-// The scoped read joins rather than filters: a product with no row at this
-// branch must still appear, showing 0, or it would silently vanish from the
-// branch's inventory list and could never be stocked there.
+// Scoped to a store, the list is the products that store CARRIES — the ones
+// with a stock row there, including rows sitting at zero, because "we stock
+// this and we're out" is exactly what an inventory screen needs to say.
+//
+// A product with no row at all is one that store does not carry, and it is
+// left out. The first version of this kept them, showing every catalog product
+// at zero, on the reasoning that they would otherwise be impossible to stock
+// there. That was the wrong trade: it turned an 86-product catalog into 86 rows
+// of "Out of stock" at a store carrying ten of them, and made "needs attention"
+// count the whole catalog. Introducing a product to a store is a deliberate act
+// with three routes that do not need this list to be wrong — the by-store
+// breakdown, a transfer, or creating the product with that store selected.
 export async function listProducts(shopId: string, locationId?: string | null): Promise<Product[]> {
   // The per-store rows come back either way, so the inventory table can show
   // WHERE a product's stock sits even in the combined view. `stock` still means
@@ -70,19 +79,23 @@ export async function listProducts(shopId: string, locationId?: string | null): 
     .order('created_at', { ascending: false });
   if (error) throw error;
 
-  return (data ?? []).map((row: any) => {
+  const mapped: (Product | null)[] = (data ?? []).map((row: any) => {
     const entries = (row.product_location_stock ?? []) as any[];
     const locationStock = entries.map((entry) => ({ locationId: entry.location_id, stock: entry.stock }));
     const base = { ...mapProductRow(row), locationStock };
     if (!locationId) return base;
     const here = entries.find((entry) => entry.location_id === locationId);
+    // `null` marks "not carried here" for the filter below — distinct from a
+    // row at zero, which IS carried and must stay.
+    if (!here) return null;
     return {
       ...base,
-      stock: here?.stock ?? 0,
-      reorderLevel: here?.reorder_level ?? row.reorder_level,
-      shelfNumber: here?.shelf_number ?? row.shelf_number,
+      stock: here.stock,
+      reorderLevel: here.reorder_level ?? row.reorder_level,
+      shelfNumber: here.shelf_number ?? row.shelf_number,
     };
   });
+  return mapped.filter((product): product is Product => product !== null);
 }
 
 // Per-branch counts for one product, for the inventory detail breakdown and

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
+import { OptionPicker } from '@/components/option-picker';
 import { hasBlockingProblem, validateShift, type Shift, type ShiftDraft, type ShiftProblem, type ValidationContext } from '@/lib/scheduling';
 import { isValidTime } from '@/lib/store-hours';
 import type { ShopLocation, StaffMember } from '@/types/models';
@@ -104,30 +104,25 @@ export function ShiftEditorModal({
           {locations.length > 1 && (
             <>
               <Text style={styles.label}>STORE</Text>
-              <ScrollView horizontal contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-                {locations.map((location) => (
-                  <CategoryChip
-                    key={location.id}
-                    label={location.name}
-                    active={locationId === location.id}
-                    onPress={() => setLocationId(location.id)}
-                  />
-                ))}
-              </ScrollView>
+              <OptionPicker
+                value={locationId}
+                onChange={(id) => id && setLocationId(id)}
+                options={locations.map((location) => ({ id: location.id, label: location.name }))}
+                title="Which store is this shift at?"
+              />
             </>
           )}
 
           <Text style={styles.label}>STAFF</Text>
-          <View style={styles.chips}>
-            {members.map((member) => (
-              <CategoryChip
-                key={member.id}
-                label={member.fullName ?? 'Staff member'}
-                active={memberId === member.id}
-                onPress={() => setMemberId(member.id)}
-              />
-            ))}
-          </View>
+          {/* The list this most needed a dropdown for: a shop with a dozen
+              staff turned this into four wrapped rows of chips. */}
+          <OptionPicker
+            value={memberId}
+            onChange={(id) => id && setMemberId(id)}
+            options={members.map((member) => ({ id: member.id, label: member.fullName ?? 'Staff member' }))}
+            title="Who is working this shift?"
+            placeholder="Choose someone"
+          />
 
           <View style={styles.timeRow}>
             <View style={styles.timeField}>

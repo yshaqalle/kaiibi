@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
 import { DateInput } from '@/components/date-input';
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
 import { isValidRateInput } from '@/lib/pay-rate';
@@ -100,11 +101,13 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
             <Text style={styles.label}>EMAIL</Text>
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={styles.input} />
             <Text style={styles.label}>ROLE</Text>
-            <ScrollView horizontal contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-              {roles.map((role) => (
-                <CategoryChip key={role.id} label={role.name} active={role.id === roleId} onPress={() => setRoleId(role.id)} />
-              ))}
-            </ScrollView>
+            <OptionPicker
+              value={roleId}
+              onChange={(id) => id && setRoleId(id)}
+              options={roles.map((role) => ({ id: role.id, label: role.name }))}
+              title="Which role?"
+              placeholder="Choose a role"
+            />
             {/* Access is (stores, role): the role above says what they may do,
                 these say where. A multi-select, not one choice — someone can
                 cover two of three stores. Hidden for a single-store business,
@@ -112,26 +115,18 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
             {locations.length > 1 && (
               <>
                 <Text style={styles.label}>STORES</Text>
-                <ScrollView horizontal contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-                  {/* Clearing the set IS "all stores" — the empty array is the
-                      value, not a missing one, so this is a real choice rather
-                      than a shortcut for selecting everything. */}
-                  <CategoryChip label="All stores" active={locationIds.length === 0} onPress={() => setLocationIds([])} />
-                  {locations.filter((location) => location.active).map((location) => (
-                    <CategoryChip
-                      key={location.id}
-                      label={location.name}
-                      active={locationIds.includes(location.id)}
-                      onPress={() =>
-                        setLocationIds((current) =>
-                          current.includes(location.id)
-                            ? current.filter((id) => id !== location.id)
-                            : [...current, location.id]
-                        )
-                      }
-                    />
-                  ))}
-                </ScrollView>
+                {/* Clearing the set IS "all stores" — the empty array is the
+                    value, not a missing one, so it is a real choice rather than
+                    a shortcut for selecting everything. */}
+                <MultiOptionPicker
+                  values={locationIds}
+                  onChange={setLocationIds}
+                  options={locations
+                    .filter((location) => location.active)
+                    .map((location) => ({ id: location.id, label: location.name }))}
+                  allOption={{ label: 'All stores', hint: 'Can work anywhere' }}
+                  title="Which stores can they work at?"
+                />
                 <Text style={styles.hint}>
                   {locationIds.length === 0
                     ? 'Can work at every store.'
