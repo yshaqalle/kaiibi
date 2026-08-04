@@ -13,6 +13,8 @@ function makeMember(overrides: Partial<StaffMember> = {}): StaffMember {
     userId: 'u1',
     roleId: 'r1',
     roleName: 'Cashier',
+    locationId: null,
+    locationName: null,
     active: true,
     fullName: 'Hodan Ali',
     email: null,

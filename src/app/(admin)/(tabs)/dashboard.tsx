@@ -14,6 +14,7 @@ import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, listSales } from '@/lib/sales';
 import type { DailyBucket } from '@/lib/sales-reporting';
@@ -54,7 +55,8 @@ type HrSnapshot = {
 };
 
 export default function DashboardScreen() {
-  const { shop, can, activeLocation } = useAuth();
+  const { shop, can, locations, activeLocation } = useAuth();
+  const showLocationName = hasMultipleLocations(locations);
   // Time and leave data is RLS-protected; without these the queries would just
   // fail, so the rows are left out rather than erroring the whole screen.
   const canSeeTeam = can('people.timesheet.view');
@@ -152,8 +154,10 @@ export default function DashboardScreen() {
   // whatever range is selected above.
   useEffect(() => {
     if (!shop) return;
-    getMonthToDateRevenueCents(shop.id).then(setMonthToDateCents);
-  }, [shop]);
+    // Scoped to the same store the goal belongs to, so the meter compares like
+    // with like.
+    getMonthToDateRevenueCents(shop.id, activeLocation?.id ?? null).then(setMonthToDateCents);
+  }, [shop, activeLocation]);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
   const orderCount = useMemo(() => daily.reduce((sum, d) => sum + d.orderCount, 0), [daily]);
@@ -195,11 +199,16 @@ export default function DashboardScreen() {
           {canSeeTeam && hr && <StatTile value={String(hr.activeToday)} label="Team active today" />}
         </View>
 
-        {shop?.monthlyRevenueGoalCents ? (
+        {activeLocation?.monthlyRevenueGoalCents ? (
           <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue goal this month</Text>
+            {/* Named when there is more than one store, because the goal and
+                the revenue below it are BOTH that store's — an unlabelled meter
+                would read as the whole business's. */}
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              {showLocationName ? `Revenue goal this month · ${activeLocation.name}` : 'Revenue goal this month'}
+            </Text>
             <Card style={styles.chartCard}>
-              <GoalMeter valueCents={monthToDateCents} goalCents={shop.monthlyRevenueGoalCents} />
+              <GoalMeter valueCents={monthToDateCents} goalCents={activeLocation.monthlyRevenueGoalCents} />
             </Card>
           </>
         ) : null}

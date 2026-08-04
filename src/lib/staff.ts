@@ -68,6 +68,10 @@ function mapStaffRow(row: any): StaffMember {
     // `role_name` column, while the direct table selects (getMyMembership)
     // embed it as `role: { name }` via PostgREST.
     roleName: row.role?.name ?? row.role_name ?? '',
+    locationId: row.location_id ?? null,
+    // Only the RPC resolves the name; a direct table select (getMyMembership)
+    // embeds it as `location: { name }`, and neither is guaranteed.
+    locationName: row.location?.name ?? row.location_name ?? null,
     active: row.active,
     fullName: row.full_name,
     email: row.email,
@@ -106,7 +110,7 @@ export async function listStaff(shopId: string): Promise<StaffMember[]> {
 export async function getMyMembership(shopId: string, userId: string): Promise<StaffMember | null> {
   const { data, error } = await supabase
     .from('shop_members')
-    .select('*, role:roles(name)')
+    .select('*, role:roles(name), location:shop_locations(name)')
     .eq('shop_id', shopId)
     .eq('user_id', userId)
     .maybeSingle();
@@ -154,6 +158,24 @@ export async function updateStaffRole(memberId: string, roleId: string): Promise
   // Same silent-failure shape as updateStaffPay: a policy-filtered update
   // returns 204 with no error, so without the count it looks like it worked.
   if (count === 0) throw new Error('Could not change this role — you may no longer have permission to edit this member.');
+}
+
+// Which store this person works at. `null` restores "every store" — the state
+// every member is in before an owner ever restricts anyone, and what an area
+// manager or floater should stay in.
+//
+// Written straight to the table rather than through the update-staff Edge
+// Function: the roster write policy (staff.manage) already gates it, and unlike
+// pay there is nothing here to blank for a lesser role.
+export async function updateStaffLocation(memberId: string, locationId: string | null): Promise<void> {
+  const { error, count } = await supabase
+    .from('shop_members')
+    .update({ location_id: locationId }, { count: 'exact' })
+    .eq('id', memberId);
+  if (error) throw error;
+  // Same silent-failure shape as updateStaffRole: a policy-filtered update
+  // returns 204 with no error, so without the count it looks like it worked.
+  if (count === 0) throw new Error('Could not change this store — you may no longer have permission to edit this member.');
 }
 
 export async function setStaffActive(memberId: string, active: boolean): Promise<void> {

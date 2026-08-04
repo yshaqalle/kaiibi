@@ -2,13 +2,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import { primaryLocationOf } from '@/lib/location-selection';
 import type { Permission } from '@/lib/permissions';
 
 export type SettingsNavId =
   | 'profile'
   | 'security'
   | 'notifications'
-  | 'store'
+  | 'business'
   | 'locations'
   | 'roles'
   | 'vendors'
@@ -28,8 +29,11 @@ type NavGroup = { group: string; items: NavItem[] };
 // nav item below (and the 'notifications' case in settings.tsx) once that's
 // built.
 //
-// "Locations" is back and real (migration 20260808000000): the shop's physical
-// stores, gated on settings.access like the rest of the Store group.
+// The Business/Store locations split: "Business" is what the company IS (name,
+// logo, return policy, tax, goals) and there is exactly one of it; "Store
+// locations" is each place it trades from, each with its own store name,
+// address, phone and hours. Everything that varies per place lives on the
+// location — which is why sales, stock and shifts point at one.
 export const SETTINGS_NAV: NavGroup[] = [
   {
     group: 'Account',
@@ -40,10 +44,10 @@ export const SETTINGS_NAV: NavGroup[] = [
     ],
   },
   {
-    group: 'Store',
+    group: 'Business',
     items: [
-      { id: 'store', label: 'Store', icon: 'storefront-outline' },
-      { id: 'locations', label: 'Locations', icon: 'location-outline' },
+      { id: 'business', label: 'Business', icon: 'business-outline' },
+      { id: 'locations', label: 'Store locations', icon: 'storefront-outline' },
       { id: 'roles', label: 'Roles', icon: 'shield-checkmark-outline', permission: 'staff.manage' },
       { id: 'vendors', label: 'Vendors', icon: 'briefcase-outline' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },
@@ -79,7 +83,10 @@ function useVisibleNav() {
 // = light fill + left border + bold text) so Settings feels like the same
 // surface as the rest of the admin shell.
 export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; onSelect: (id: SettingsNavId) => void }) {
-  const { shop } = useAuth();
+  const { shop, locations } = useAuth();
+  // The address shown under the shop name is the primary branch's -- the shop
+  // itself has none (migration 20260811000000).
+  const primaryLocation = primaryLocationOf(locations);
   const groups = useVisibleNav();
 
   return (
@@ -88,9 +95,9 @@ export function SettingsSidebar({ active, onSelect }: { active: SettingsNavId; o
         <Text style={styles.storeName} numberOfLines={1}>
           {shop?.name ?? 'Your store'}
         </Text>
-        {shop?.city ? (
+        {primaryLocation?.city ? (
           <Text style={styles.storeSubtitle} numberOfLines={1}>
-            {[shop.city, shop.neighborhood].filter(Boolean).join(' · ')}
+            {[primaryLocation.city, primaryLocation.neighborhood].filter(Boolean).join(' · ')}
           </Text>
         ) : null}
       </View>

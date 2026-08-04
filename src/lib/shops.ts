@@ -8,13 +8,9 @@ function mapShopRow(row: any): Shop {
     ownerId: row.owner_id,
     name: row.name,
     description: row.description,
-    city: row.city,
-    neighborhood: row.neighborhood,
-    contactPhone: row.contact_phone,
     returnPolicy: row.return_policy,
     logoUrl: row.logo_url,
     categories: row.categories ?? [],
-    monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
     payPeriodAnchor: row.pay_period_anchor,
     taxEnabled: row.tax_enabled,
     taxRatePercent: Number(row.tax_rate_percent),
@@ -85,9 +81,6 @@ export async function createShop(input: {
       owner_id: userData.user.id,
       name: input.name,
       description: input.description ?? null,
-      city: input.city ?? 'Hargeisa',
-      neighborhood: input.neighborhood ?? null,
-      contact_phone: input.contactPhone ?? null,
       categories: input.categories ?? [],
     })
     .select('*')
@@ -107,10 +100,12 @@ export async function createShop(input: {
   // creates a shop the backfill will never see.
   const { error: locationError } = await supabase.from('shop_locations').insert({
     shop_id: shop.id,
-    name: 'Main',
-    city: shop.city,
-    neighborhood: shop.neighborhood,
-    contact_phone: shop.contactPhone,
+    // The store starts named after the business; a shop with one store keeps
+    // them identical, and renames when a second one opens.
+    name: input.name,
+    city: input.city ?? 'Hargeisa',
+    neighborhood: input.neighborhood ?? null,
+    contact_phone: input.contactPhone ?? null,
     is_primary: true,
   });
   if (locationError) throw locationError;
@@ -118,7 +113,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
+  name: string; description: string; returnPolicy: string; logoUrl: string | null; categories: string[]; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
@@ -130,13 +125,9 @@ export async function updateShop(id: string, input: Partial<{
     .update({
       ...(input.name !== undefined && { name: input.name }),
       ...(input.description !== undefined && { description: input.description }),
-      ...(input.city !== undefined && { city: input.city }),
-      ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
-      ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
       ...(input.returnPolicy !== undefined && { return_policy: input.returnPolicy }),
       ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
       ...(input.categories !== undefined && { categories: input.categories }),
-      ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
       ...(input.payPeriodAnchor !== undefined && { pay_period_anchor: input.payPeriodAnchor }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
       ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),

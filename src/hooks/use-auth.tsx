@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { resolveActiveLocation } from '@/lib/location-selection';
-import { listLocations } from '@/lib/locations';
+import { listMyLocations } from '@/lib/locations';
 import type { Permission } from '@/lib/permissions';
 import { getMyShop } from '@/lib/shops';
 import { getMyMembership, getMyPermissions } from '@/lib/staff';
@@ -34,10 +34,16 @@ type AuthState = {
   // not any Permission (see src/lib/permissions.ts's ROUTE_PERMISSIONS
   // comment).
   myMembership: StaffMember | null;
-  // Every location this shop trades from, inactive ones included -- Settings
-  // lists a closed branch to reopen it. Anything offering a *choice* filters to
-  // `active` (see hasMultipleLocations in lib/location-selection.ts). Empty
-  // only while unresolved: the migration guarantees a shop has at least one.
+  // The stores THIS USER may operate at -- their assigned store, or all of the
+  // shop's when unassigned (see migration 20260812000000). Inactive ones are
+  // included, since Settings lists a closed store to reopen it; anything
+  // offering a *choice* filters to `active` (hasMultipleLocations in
+  // lib/location-selection.ts).
+  //
+  // Note this is narrower than "every store the shop has": a cashier assigned
+  // to one store sees one entry here and so gets no switcher at all, which is
+  // the correct experience for them. Settings -> Store locations reads the full
+  // list separately, gated on settings.access.
   locations: ShopLocation[];
   // Where this device is currently operating -- the branch a sale gets recorded
   // at, the stock a POS decrements, the address a receipt prints. Null only
@@ -96,7 +102,7 @@ async function loadShopAndPermissions(): Promise<{
   const [permissionsResult, membershipResult, locationsResult, rememberedResult] = await Promise.allSettled([
     getMyPermissions(shop, userId),
     getMyMembership(shop.id, userId),
-    listLocations(shop.id),
+    listMyLocations(shop.id),
     AsyncStorage.getItem(ACTIVE_LOCATION_KEY),
   ]);
   const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : noPermissions;

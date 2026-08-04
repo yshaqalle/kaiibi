@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, EditableTextRow, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
-import { toCents } from '@/lib/currency';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import type { Shop } from '@/types/models';
 
@@ -26,15 +25,16 @@ function LogoRow({ logoUri, onPick, onRemove }: { logoUri: string | null; onPick
   );
 }
 
-export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+// What the BUSINESS is, of which there is exactly one: its name, logo,
+// description, return policy, revenue goal and pay cycle. Deliberately carries
+// no address, phone or hours — those belong to a place, and a business trades
+// from one or more of them. They live on the store location (migration
+// 20260811000000), which is also what a receipt prints and what a sale, a stock
+// count and a shift point at.
+export function BusinessPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(shop.name ?? '');
-  const [contactPhone, setContactPhone] = useState(shop.contactPhone ?? '');
-  const [city, setCity] = useState(shop.city ?? '');
-  const [neighborhood, setNeighborhood] = useState(shop.neighborhood ?? '');
   const [description, setDescription] = useState(shop.description ?? '');
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
-  const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
-  const [goalInput, setGoalInput] = useState(shopGoalInput);
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [payPeriodAnchor, setPayPeriodAnchor] = useState(shop.payPeriodAnchor ?? '');
   const [saving, setSaving] = useState(false);
@@ -44,12 +44,8 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
 
   const dirty =
     name.trim() !== (shop.name ?? '') ||
-    contactPhone.trim() !== (shop.contactPhone ?? '') ||
-    city.trim() !== (shop.city ?? '') ||
-    neighborhood.trim() !== (shop.neighborhood ?? '') ||
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
-    goalInput.trim() !== shopGoalInput ||
     logoUri !== shop.logoUrl ||
     payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '');
 
@@ -74,12 +70,8 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
       }
       await updateShop(shop.id, {
         name: name.trim(),
-        contactPhone: contactPhone.trim(),
-        city: city.trim(),
-        neighborhood: neighborhood.trim(),
         description: description.trim(),
         returnPolicy: returnPolicy.trim(),
-        monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
         payPeriodAnchor: payPeriodAnchor.trim() || null,
       });
@@ -97,22 +89,20 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   return (
     <View>
       <PageHeader
-        title="Store"
+        title="Business"
         actionLabel={saving || uploadingLogo ? 'Saving…' : saved ? 'Saved ✓' : 'Save changes'}
         onAction={save}
         actionDisabled={!dirty || saving || uploadingLogo}
       />
       {error && <Text style={styles.error}>{error}</Text>}
-      <Section title="Store details">
+      <Section title="Business details">
+        <Text style={styles.addressHint}>
+          Your address, phone, opening hours and revenue goal belong to each store — set them under Settings → Store
+          locations.
+        </Text>
         <LogoRow logoUri={logoUri} onPick={pickLogo} onRemove={() => setLogoUri(null)} />
-        <EditableTextRow label="Store name" value={name} onChangeText={setName} placeholder="Store name" />
+        <EditableTextRow label="Business name" value={name} onChangeText={setName} placeholder="Business name" />
         <EditableTextRow label="Description" value={description} onChangeText={setDescription} placeholder="A short description of your store" multiline />
-        {/* The business's registered details. What a receipt prints is the
-            SELLING LOCATION's address, phone and hours — edit those under
-            Settings → Locations. */}
-        <EditableTextRow label="City" value={city} onChangeText={setCity} placeholder="City" />
-        <EditableTextRow label="Neighborhood" value={neighborhood} onChangeText={setNeighborhood} placeholder="Neighborhood or landmark" />
-        <EditableTextRow label="Contact phone" value={contactPhone} onChangeText={setContactPhone} placeholder="Phone number" keyboardType="phone-pad" />
         <EditableTextRow
           label="Return policy"
           value={returnPolicy}
@@ -120,7 +110,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
           placeholder="e.g. Returns accepted within 7 days with receipt."
           multiline
         />
-        <EditableTextRow label="Monthly revenue goal" value={goalInput} onChangeText={setGoalInput} placeholder="e.g. 5000" keyboardType="decimal-pad" />
       </Section>
       <Section title="Payroll">
         <EditableTextRow
@@ -148,5 +137,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
 
 const styles = StyleSheet.create({
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 16 },
+  addressHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   logoPreview: { width: 36, height: 36, borderRadius: 8 },
 });

@@ -3,13 +3,19 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
+import { toCents } from '@/lib/currency';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
 import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { NewShopLocationInput, ShopLocation } from '@/types/models';
 
-// The shop's physical stores. `Shop` is the business; each row here is a place
-// it trades from, and the one selected in the header is where a sale gets
-// recorded and which stock the POS decrements.
+// The shop's stores. `Shop` is the business — one name, one logo, one set of
+// books; each row here is a store it trades from, carrying its OWN name,
+// address, phone, hours and code. Two stores under one business can be named
+// differently ("Ka Iibi Hargeisa", "Ka Iibi Berbera"), which is why the name
+// lives here rather than being inherited from the shop.
+//
+// The store selected in the header is where a sale gets recorded, which stock
+// the POS decrements, and whose address a receipt prints.
 //
 // Follows VendorsPanel's shape: one modal handles both add and edit via an
 // `editing: ShopLocation | 'new' | null` state var.
@@ -34,17 +40,17 @@ export function LocationsPanel({
       await setPrimaryLocation(shopId, location.id);
       await onChange();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Could not change the main location.'));
+      setError(extractErrorMessage(err, 'Could not change the main store.'));
     }
   };
 
   return (
     <View>
-      <PageHeader title="Locations" />
-      <Section title={`Locations · ${locations.length}`}>
+      <PageHeader title="Store locations" />
+      <Section title={`Stores · ${locations.length}`}>
         <Text style={styles.hint}>
-          Each place your business trades from. The location picked in the header is where sales are recorded and which
-          address prints on the receipt.
+          Each store your business trades from, with its own name, address and opening hours. The store picked in the
+          header is where sales are recorded, which stock is counted, and whose address prints on the receipt.
         </Text>
         {locations.map((location) => (
           <Row
@@ -59,7 +65,7 @@ export function LocationsPanel({
         ))}
         {error && <Text style={styles.error}>{error}</Text>}
         <View style={styles.actionsRow}>
-          <Btn onPress={() => setEditing('new')}>New location</Btn>
+          <Btn onPress={() => setEditing('new')}>New store</Btn>
         </View>
       </Section>
 
@@ -97,7 +103,12 @@ export function LocationsPanel({
 
 function describeLocation(location: ShopLocation): string | undefined {
   const place = [location.address, location.neighborhood, location.city].filter(Boolean).join(' · ');
-  const parts = [place || undefined, location.contactPhone || undefined, location.active ? undefined : 'Closed'];
+  const parts = [
+    location.code ? `#${location.code}` : undefined,
+    place || undefined,
+    location.contactPhone || undefined,
+    location.active ? undefined : 'Closed',
+  ];
   return parts.filter(Boolean).join(' — ') || undefined;
 }
 
@@ -113,11 +124,15 @@ function LocationEditorModal({
   onDelete?: () => Promise<void>;
 }) {
   const [name, setName] = useState(location?.name ?? '');
+  const [code, setCode] = useState(location?.code ?? '');
   const [address, setAddress] = useState(location?.address ?? '');
   const [neighborhood, setNeighborhood] = useState(location?.neighborhood ?? '');
   const [city, setCity] = useState(location?.city ?? '');
   const [contactPhone, setContactPhone] = useState(location?.contactPhone ?? '');
   const [openingHours, setOpeningHours] = useState<OpeningHours>(location?.openingHours ?? {});
+  const [goalInput, setGoalInput] = useState(
+    location?.monthlyRevenueGoalCents != null ? String(location.monthlyRevenueGoalCents / 100) : ''
+  );
   const [active, setActive] = useState(location?.active ?? true);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,15 +159,17 @@ function LocationEditorModal({
     try {
       await onSave({
         name: name.trim(),
+        code: code.trim() || null,
         address: address.trim() || null,
         neighborhood: neighborhood.trim() || null,
         city: city.trim() || null,
         contactPhone: contactPhone.trim() || null,
         openingHours,
+        monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         active,
       });
     } catch (err) {
-      setError(extractErrorMessage(err, 'Could not save this location.'));
+      setError(extractErrorMessage(err, 'Could not save this store.'));
       setSaving(false);
     }
   };
@@ -164,7 +181,7 @@ function LocationEditorModal({
     try {
       await onDelete();
     } catch (err) {
-      setError(extractErrorMessage(err, 'Could not delete this location.'));
+      setError(extractErrorMessage(err, 'Could not delete this store.'));
       setSaving(false);
     }
   };
@@ -174,7 +191,7 @@ function LocationEditorModal({
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
-            <Text style={modalStyles.title}>{location ? 'Edit location' : 'New location'}</Text>
+            <Text style={modalStyles.title}>{location ? 'Edit store' : 'New store'}</Text>
             <View style={modalStyles.headerActions}>
               <Pressable onPress={save} disabled={!canSave} style={[modalStyles.addButton, !canSave && modalStyles.buttonDisabled]}>
                 <Text style={modalStyles.addButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
@@ -186,17 +203,34 @@ function LocationEditorModal({
           </View>
 
           <ScrollView style={modalStyles.list}>
-            <Text style={modalStyles.fieldLabel}>NAME</Text>
+            <Text style={modalStyles.fieldLabel}>STORE NAME</Text>
             <TextInput
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Airport Road"
+              placeholder="e.g. Ka Iibi Airport Road"
               placeholderTextColor="#999999"
               style={modalStyles.input}
             />
+            <Text style={modalStyles.fieldHint}>
+              What this store is called. It can differ from your business name.
+            </Text>
+
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>BRANCH CODE (OPTIONAL)</Text>
+            <TextInput
+              value={code}
+              onChangeText={setCode}
+              placeholder="e.g. 002 or AR"
+              placeholderTextColor="#999999"
+              autoCapitalize="characters"
+              style={modalStyles.input}
+            />
+            <Text style={modalStyles.fieldHint}>
+              A short name for this store in reports and imports. It stays the same if you rename the store. Leave it
+              blank if you don&apos;t use one.
+            </Text>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>STREET ADDRESS</Text>
-            <TextInput value={address} onChangeText={setAddress} placeholder="Shop number, street" placeholderTextColor="#999999" style={modalStyles.input} />
+            <TextInput value={address} onChangeText={setAddress} placeholder="Unit or building, street" placeholderTextColor="#999999" style={modalStyles.input} />
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>NEIGHBORHOOD OR LANDMARK</Text>
             <TextInput
@@ -214,11 +248,24 @@ function LocationEditorModal({
             <TextInput
               value={contactPhone}
               onChangeText={setContactPhone}
-              placeholder="Phone number for this branch"
+              placeholder="Phone number for this store"
               placeholderTextColor="#999999"
               keyboardType="phone-pad"
               style={modalStyles.input}
             />
+
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>MONTHLY REVENUE GOAL</Text>
+            <TextInput
+              value={goalInput}
+              onChangeText={setGoalInput}
+              placeholder="e.g. 5000"
+              placeholderTextColor="#999999"
+              keyboardType="decimal-pad"
+              style={modalStyles.input}
+            />
+            <Text style={modalStyles.fieldHint}>
+              This store&apos;s target for the month. Each store can set its own. Leave blank to hide the goal meter.
+            </Text>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>OPENING HOURS</Text>
             <OpeningHoursEditor value={openingHours} onChange={setOpeningHours} />
@@ -231,7 +278,7 @@ function LocationEditorModal({
             )}
             {canDeactivate && !active && (
               <Text style={modalStyles.statusHint}>
-                A closed location keeps its past sales and shifts, but stops appearing in the location picker.
+                A closed store keeps its past sales and shifts, but stops appearing in the store picker.
               </Text>
             )}
 
@@ -241,7 +288,7 @@ function LocationEditorModal({
               {onDelete ? (
                 confirmingDelete ? (
                   <View style={modalStyles.confirmRow}>
-                    <Text style={modalStyles.confirmText}>Delete this location?</Text>
+                    <Text style={modalStyles.confirmText}>Delete this store?</Text>
                     <Pressable onPress={remove} disabled={saving} style={modalStyles.rowAction}>
                       <Text style={modalStyles.rowActionTextDanger}>Confirm</Text>
                     </Pressable>
@@ -251,7 +298,7 @@ function LocationEditorModal({
                   </View>
                 ) : (
                   <Pressable onPress={() => setConfirmingDelete(true)} disabled={saving} style={modalStyles.rowAction}>
-                    <Text style={modalStyles.rowActionTextDanger}>Delete location</Text>
+                    <Text style={modalStyles.rowActionTextDanger}>Delete store</Text>
                   </Pressable>
                 )
               ) : (
@@ -274,10 +321,11 @@ function LocationEditorModal({
 function extractErrorMessage(err: unknown, fallback: string): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     const message = (err as { message: string }).message;
-    if (message.includes('shop_locations_shop_id_name_key')) return 'A location with that name already exists.';
+    if (message.includes('shop_locations_shop_id_name_key')) return 'A store with that name already exists.';
+    if (message.includes('shop_locations_shop_id_code_key')) return 'Another store already uses that branch code.';
     // Raised once sales/shifts reference a location: the FK refuses the delete.
     if (message.includes('violates foreign key constraint')) {
-      return 'This location has sales or shifts recorded against it. Mark it as closed instead of deleting it.';
+      return 'This store has sales or shifts recorded against it. Mark it as closed instead of deleting it.';
     }
     return message;
   }
@@ -301,6 +349,7 @@ const modalStyles = StyleSheet.create({
   list: { flexGrow: 0 },
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
   fieldLabelSpaced: { marginTop: 16 },
+  fieldHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginTop: 6 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 },
   statusLabel: { fontSize: 13, fontWeight: '700', color: '#111111' },

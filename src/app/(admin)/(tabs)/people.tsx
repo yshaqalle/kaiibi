@@ -27,7 +27,7 @@ import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } fro
 import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
-import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
+import { listRoles, listStaff, updateStaffLocation, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
 import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
@@ -620,7 +620,7 @@ function TeamDetailPane({
   canViewHours: boolean;
   onChanged: () => Promise<void>;
 }) {
-  const { shop } = useAuth();
+  const { shop, locations } = useAuth();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
@@ -779,10 +779,16 @@ function TeamDetailPane({
           visible={editingMember}
           member={member}
           roles={roles}
+          locations={locations}
           canManagePayroll={canManagePayroll}
           onClose={() => setEditingMember(false)}
-          onSave={async (input) => {
+          onSave={async ({ locationId, ...input }) => {
             await updateStaffMember({ shopId: shop.id, memberId: member.id, ...input });
+            // Written separately, not folded into the payload above: that goes
+            // through the `update-staff` Edge Function, which has no idea this
+            // column exists and would silently drop it. The direct write is
+            // gated by the same staff.manage roster policy the function is.
+            await updateStaffLocation(member.id, locationId);
             await onChanged();
           }}
         />

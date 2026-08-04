@@ -9,9 +9,6 @@ import type { Sale } from '@/types/models';
 const SHOP = {
   name: 'Ka Iibi Store',
   logoUrl: null,
-  city: 'Hargeisa',
-  neighborhood: 'Registered Office',
-  contactPhone: '+252 63 111 1111',
   returnPolicy: null,
 };
 
@@ -50,31 +47,33 @@ function makeSale(): Sale {
 }
 
 describe('buildReceiptFromSale location resolution', () => {
-  it("prints the selling branch's address and phone, not the business's", () => {
+  it("prints the selling branch's address and phone", () => {
     const receipt = buildReceiptFromSale(makeSale(), SHOP, AIRPORT_ROAD);
     expect(receipt.shopNeighborhood).toBe('Airport Road');
     expect(receipt.shopContactPhone).toBe('+252 63 222 2222');
   });
 
-  // The single-location shops that are the norm, and any caller that hasn't
-  // resolved a location yet: falling back to the business's own details is
-  // incomplete at worst, never wrong.
-  it('falls back to the shop when no location is supplied', () => {
+  // The location is the ONLY source of the address -- the shop has none. An
+  // unresolved location must print nothing rather than something stale: a
+  // receipt with no address is incomplete, one with the wrong address sends a
+  // customer to the wrong door.
+  it('prints no address at all when no location is supplied', () => {
     const receipt = buildReceiptFromSale(makeSale(), SHOP);
-    expect(receipt.shopNeighborhood).toBe('Registered Office');
-    expect(receipt.shopContactPhone).toBe('+252 63 111 1111');
+    expect(receipt.shopCity).toBeNull();
+    expect(receipt.shopNeighborhood).toBeNull();
+    expect(receipt.shopContactPhone).toBeNull();
   });
 
   it('treats an explicitly null location the same as an omitted one', () => {
-    expect(buildReceiptFromSale(makeSale(), SHOP, null).shopNeighborhood).toBe('Registered Office');
+    expect(buildReceiptFromSale(makeSale(), SHOP, null).shopNeighborhood).toBeNull();
   });
 
-  // A branch that hasn't filled in its own address shouldn't blank the receipt
-  // -- each field falls back independently.
-  it('falls back per field when the branch leaves one blank', () => {
+  // A branch that leaves one field blank blanks only that line -- the rest of
+  // its address still prints.
+  it('omits only the field the branch left blank', () => {
     const receipt = buildReceiptFromSale(makeSale(), SHOP, { ...AIRPORT_ROAD, contactPhone: null });
     expect(receipt.shopNeighborhood).toBe('Airport Road');
-    expect(receipt.shopContactPhone).toBe('+252 63 111 1111');
+    expect(receipt.shopContactPhone).toBeNull();
   });
 
   describe('branch name', () => {

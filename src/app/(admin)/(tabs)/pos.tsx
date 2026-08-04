@@ -174,9 +174,9 @@ export default function PosScreen() {
         // to find their way back. The name is only printed when there is more
         // than one branch to tell apart.
         locationName: showLocationName ? activeLocation.name : null,
-        shopCity: activeLocation.city ?? shop.city,
-        shopNeighborhood: activeLocation.neighborhood ?? shop.neighborhood,
-        shopContactPhone: activeLocation.contactPhone ?? shop.contactPhone,
+        shopCity: activeLocation.city,
+        shopNeighborhood: activeLocation.neighborhood,
+        shopContactPhone: activeLocation.contactPhone,
         shopHours: formatTodayHours(activeLocation.openingHours, new Date()),
         cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,

@@ -272,8 +272,8 @@ async function fetchAllRows<T>(runPage: (from: number, to: number) => PromiseLik
 
 // Used by the dashboard's aggregate functions below, which need to see
 // every sale in range rather than a capped/recent slice.
-async function listAllSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<Sale[]> {
-  const rows = await fetchAllRows<any>((from, to) => salesInRangeQuery(shopId, sinceDate, untilDate).range(from, to));
+async function listAllSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, locationId?: string | null): Promise<Sale[]> {
+  const rows = await fetchAllRows<any>((from, to) => salesInRangeQuery(shopId, sinceDate, untilDate, locationId).range(from, to));
   return rows.map(mapSaleRow);
 }
 
@@ -467,10 +467,13 @@ export async function getCategoryRevenueByMonth(shopId: string, sinceDate: Date,
 // This calendar month's revenue to date, for the dashboard's goal meter —
 // deliberately independent of the dashboard's own date-range selector, since
 // a monthly goal is always measured against the current calendar month.
-export async function getMonthToDateRevenueCents(shopId: string): Promise<number> {
+// `locationId` scopes this to one store, which the goal meter needs: the goal
+// belongs to a store (migration 20260813000000), so measuring it against every
+// store's combined takings would report a kiosk as hitting a flagship's target.
+export async function getMonthToDateRevenueCents(shopId: string, locationId?: string | null): Promise<number> {
   const since = new Date();
   since.setDate(1);
   since.setHours(0, 0, 0, 0);
-  const sales = await listAllSalesInRange(shopId, since, undefined);
+  const sales = await listAllSalesInRange(shopId, since, undefined, locationId);
   return sales.reduce((sum, sale) => sum + sale.totalCents, 0);
 }

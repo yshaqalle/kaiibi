@@ -20,17 +20,15 @@ export type Shop = {
   ownerId: string;
   name: string;
   description: string | null;
-  city: string | null;
-  neighborhood: string | null;
-  contactPhone: string | null;
+  // No address here on purpose: a business doesn't have a street, its branches
+  // do. City/neighborhood/phone live on `ShopLocation` — see migration
+  // 20260811000000. A one-branch shop edits them under Settings → Store, which
+  // writes them to its primary location.
   // Printed on receipts (Print/Save/Email/WhatsApp) — see src/lib/receipt.ts.
   returnPolicy: string | null;
   // Shown in the admin sidebar avatar and on receipts.
   logoUrl: string | null;
   categories: string[];
-  // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
-  // until the admin sets one — the meter is hidden until then.
-  monthlyRevenueGoalCents: number | null;
   // Start date the weekly/biweekly pay cycles count from. Null until set; the
   // period picker asks for it rather than guessing, because a defaulted anchor
   // would silently choose everyone's pay days.
@@ -84,6 +82,11 @@ export type ShopLocation = {
   id: string;
   shopId: string;
   name: string;
+  // Short, stable branch identifier ("002", "AR"). Optional — a small shop
+  // needs only the name. Used where a rename must not break the reference
+  // (imports, exports, per-branch accounting rows), never on a customer
+  // receipt. Distinct from the unit number inside `address`.
+  code: string | null;
   city: string | null;
   neighborhood: string | null;
   address: string | null;
@@ -93,6 +96,11 @@ export type ShopLocation = {
   // migration 20260809000000 moved it here — hours belong to a place, and two
   // branches rarely keep the same ones.
   openingHours: OpeningHours;
+  // This store's monthly revenue target. Null until set — the dashboard's goal
+  // meter is hidden rather than showing a zero target. Lives here, not on the
+  // business: a flagship and a kiosk don't share a target, and the
+  // business-wide figure is the sum across stores (migration 20260813000000).
+  monthlyRevenueGoalCents: number | null;
   // Exactly one per shop. The fallback whenever a location isn't otherwise
   // resolvable — what a fresh device selects before anyone chooses.
   isPrimary: boolean;
@@ -607,6 +615,13 @@ export type StaffMember = {
   userId: string;
   roleId: string;
   roleName: string;
+  // Which store this person works at, and null when they work at every one —
+  // an owner, an area manager, a floater. Access is (store, role): the role
+  // says what they may do, this says where. Enforced by can_access_location()
+  // in the database, not only in the UI (migration 20260812000000).
+  locationId: string | null;
+  // Resolved by the list_shop_staff RPC for display; null when unassigned.
+  locationName: string | null;
   active: boolean;
   fullName: string | null;
   email: string | null;

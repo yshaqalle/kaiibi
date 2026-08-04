@@ -6,11 +6,13 @@ function mapLocationRow(row: any): ShopLocation {
     id: row.id,
     shopId: row.shop_id,
     name: row.name,
+    code: row.code,
     city: row.city,
     neighborhood: row.neighborhood,
     address: row.address,
     contactPhone: row.contact_phone,
     openingHours: row.opening_hours ?? {},
+    monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
     isPrimary: row.is_primary,
     active: row.active,
     createdAt: row.created_at,
@@ -21,11 +23,13 @@ function mapLocationRow(row: any): ShopLocation {
 function toRow(input: Partial<NewShopLocationInput>) {
   return {
     ...(input.name !== undefined && { name: input.name }),
+    ...(input.code !== undefined && { code: input.code }),
     ...(input.city !== undefined && { city: input.city }),
     ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
     ...(input.address !== undefined && { address: input.address }),
     ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
     ...(input.openingHours !== undefined && { opening_hours: input.openingHours }),
+    ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
     ...(input.active !== undefined && { active: input.active }),
   };
 }
@@ -45,6 +49,24 @@ export async function listLocations(shopId: string): Promise<ShopLocation[]> {
     .order('name', { ascending: true });
   if (error) throw error;
   return (data ?? []).map(mapLocationRow);
+}
+
+// The stores this user may actually operate at -- their assigned one, or all of
+// them when unassigned. Every store remains *readable* (a receipt names one, a
+// report lists them), so this narrows what the switcher and the POS offer, not
+// what anyone can see.
+//
+// Offering a store the database will then refuse reads as a bug rather than as
+// a permission, which is the whole reason this is a separate query rather than
+// a client-side filter over `listLocations`.
+export async function listMyLocations(shopId: string): Promise<ShopLocation[]> {
+  const [{ data: allowedIds, error: idsError }, all] = await Promise.all([
+    supabase.rpc('my_location_ids', { p_shop_id: shopId }),
+    listLocations(shopId),
+  ]);
+  if (idsError) throw idsError;
+  const allowed = new Set((allowedIds as string[] | null) ?? []);
+  return all.filter((location) => allowed.has(location.id));
 }
 
 export async function createLocation(shopId: string, input: NewShopLocationInput): Promise<ShopLocation> {

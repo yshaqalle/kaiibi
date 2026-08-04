@@ -83,23 +83,23 @@ export function formatTodayHours(hours: OpeningHours | undefined, on: Date): str
 // later asking for their receipt again can be helped from the Sales screen,
 // not just right after checkout.
 // `location` is the branch the sale was rung up at, resolved by the caller from
-// `sale.locationId`. Optional so a caller that hasn't resolved it yet still
-// renders a valid receipt — it then falls back to the business's own address,
-// which is exactly right for the single-location shops that are the norm and
-// merely incomplete (never wrong) for anyone else.
+// `sale.locationId`, and it is the ONLY source of the address, phone and hours —
+// the shop itself no longer has any (migration 20260811000000). There is
+// deliberately nothing to fall back to: a second source is what let a receipt
+// print an address the owner had already changed.
 //
-// A `null` location is distinct from an omitted one only in intent; both take
-// the fallback. `showLocationName` is deliberately the caller's decision rather
-// than inferred here, because "is this shop multi-location" is a fact about the
-// shop, not about the one location passed in.
+// An unresolved location therefore prints no address rather than a stale one,
+// which is the right failure — a receipt with no address is incomplete, a
+// receipt with the wrong address sends someone to the wrong door.
+//
+// `showLocationName` is the caller's decision rather than inferred here,
+// because "is this shop multi-location" is a fact about the shop, not about the
+// one location passed in.
 export function buildReceiptFromSale(
   sale: Sale,
   shop: {
     name: string;
     logoUrl: string | null;
-    city: string | null;
-    neighborhood: string | null;
-    contactPhone: string | null;
     returnPolicy: string | null;
     receiptShowLogo?: boolean;
     receiptShowCashierName?: boolean;
@@ -118,9 +118,9 @@ export function buildReceiptFromSale(
     shopName: shop.name,
     shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
     locationName: showLocationName ? (location?.name ?? null) : null,
-    shopCity: location?.city ?? shop.city,
-    shopNeighborhood: location?.neighborhood ?? shop.neighborhood,
-    shopContactPhone: location?.contactPhone ?? shop.contactPhone,
+    shopCity: location?.city ?? null,
+    shopNeighborhood: location?.neighborhood ?? null,
+    shopContactPhone: location?.contactPhone ?? null,
     shopHours: formatTodayHours(location?.openingHours, new Date(sale.createdAt)),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,

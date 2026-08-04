@@ -16,14 +16,32 @@
 -- roles and books per branch, forced cross-tenant RLS everywhere, and made a
 -- rolled-up report a join across tenants.
 --
--- Every existing shop is backfilled with one primary "Main" location carrying
--- the address it already had, so nothing is location-less and no reader has to
+-- The split in settings mirrors this: "Business" holds what the company is
+-- (name, logo, return policy, tax, goals), "Store locations" holds each place
+-- it trades from -- its own store name, address, phone, hours and code. That is
+-- why a store carries a `name` of its own rather than inheriting the shop's.
+--
+-- Every existing shop is backfilled with one primary location carrying the name
+-- and address it already had, so nothing is location-less and no reader has to
 -- handle a null.
 
 create table public.shop_locations (
   id uuid primary key default gen_random_uuid(),
   shop_id uuid not null references public.shops(id) on delete cascade,
   name text not null,
+  -- A short, stable branch identifier -- "002", "AR", "HQ". Optional, because a
+  -- two-branch shop refers to its branches by name and needs nothing more, and
+  -- a mandatory code would be pure friction for the small shops this serves.
+  --
+  -- It earns its place once a name stops being a reliable key: a code survives
+  -- a rename, which is what a CSV import column, an export column and a
+  -- per-branch accounting row all need to key on. Distinct from the unit number
+  -- in `address` ("Shop 12, Bakaaro Market") -- that is part of where the branch
+  -- physically is, this is what the business calls it.
+  --
+  -- Deliberately not printed on a customer receipt: a customer needs "Airport
+  -- Road" to find their way back, not an internal code.
+  code text,
   city text,
   neighborhood text,
   -- Street address, kept separate from neighborhood: `shops` addresses by
@@ -43,7 +61,11 @@ create table public.shop_locations (
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (shop_id, name)
+  unique (shop_id, name),
+  -- Nullable and unique together: Postgres treats NULLs as distinct, so every
+  -- branch that declines a code coexists happily while any two that pick one
+  -- can't collide -- which is the whole point of a key you can key on.
+  unique (shop_id, code)
 );
 create index shop_locations_shop_id_idx on public.shop_locations(shop_id);
 create unique index shop_locations_one_primary_idx
@@ -102,16 +124,19 @@ $$;
 grant execute on function public.can_access_location(uuid) to authenticated;
 
 -- Backfill: one primary location per existing shop, carrying the address the
--- shop row already holds. Named "Main" rather than the shop's own name so the
--- switcher reads as a place ("Main", "Airport Road") rather than repeating the
--- business name on every row.
+-- shop row already holds.
+--
+-- Named after the shop rather than a placeholder like "Main", because a store
+-- carries its own name under this model -- "Ka Iibi Hargeisa" and "Ka Iibi
+-- Berbera" can sit under one business. For a shop that has only ever had one
+-- store the two names are simply the same, which is true and needs no edit;
+-- when a second store opens the owner renames them to tell them apart.
 insert into public.shop_locations (shop_id, name, city, neighborhood, contact_phone, is_primary)
-select s.id, 'Main', s.city, s.neighborhood, s.contact_phone, true
+select s.id, s.name, s.city, s.neighborhood, s.contact_phone, true
 from public.shops s
 where not exists (select 1 from public.shop_locations l where l.shop_id = s.id);
 
--- shops.city/neighborhood/contact_phone are deliberately NOT dropped here.
--- Receipts, the Store settings panel and signup all still read them, and this
--- migration is meant to be safe to apply ahead of that client work. They become
--- the business's registered details once the per-location editor ships; the
--- location row is the one a receipt prints.
+-- shops.city/neighborhood/contact_phone are deliberately NOT dropped here --
+-- receipts and the settings panel still read them at this point, and this
+-- migration is meant to be safe to apply on its own. 20260811000000 drops them
+-- once the store-location editor owns the address outright.

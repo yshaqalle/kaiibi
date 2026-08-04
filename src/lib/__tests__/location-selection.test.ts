@@ -5,11 +5,13 @@ function location(overrides: Partial<ShopLocation> & { id: string }): ShopLocati
   return {
     shopId: 'shop-1',
     name: overrides.id,
+    code: null,
     city: null,
     neighborhood: null,
     address: null,
     contactPhone: null,
     openingHours: {},
+    monthlyRevenueGoalCents: null,
     isPrimary: false,
     active: true,
     createdAt: '2026-08-04T00:00:00Z',
