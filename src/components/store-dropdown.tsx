@@ -111,7 +111,9 @@ function Option({
     <Pressable onPress={onPress} style={[styles.option, selected && styles.optionSelected]}>
       <View style={styles.optionText}>
         <Text style={styles.optionLabel}>{label}</Text>
-        {hint && <Text style={styles.optionHint}>{hint}</Text>}
+        {/* Ternary, not `hint && …`: hint is a string, and an empty one would
+            render as a bare text node inside a View — a hard error on RN Web. */}
+        {hint ? <Text style={styles.optionHint}>{hint}</Text> : null}
       </View>
       {selected && <Text style={styles.check}>✓</Text>}
     </Pressable>

@@ -37,6 +37,11 @@ export function LocationSwitcher({ tone = 'light' }: { tone?: 'light' | 'dark' }
             <Text style={styles.sheetHint}>Sales, stock and shifts on this device belong to the branch you pick here.</Text>
             {selectable.map((location) => {
               const selected = location.id === activeLocation?.id;
+              // Computed once and coerced to a real conditional. `describe()`
+              // returns a STRING, so `describe(...) && <Text/>` renders the
+              // empty string itself when there is nothing to show — and a bare
+              // text node inside a <View> is a hard error on React Native Web.
+              const meta = describe(location.address, location.neighborhood, location.city);
               return (
                 <Pressable
                   key={location.id}
@@ -48,11 +53,9 @@ export function LocationSwitcher({ tone = 'light' }: { tone?: 'light' | 'dark' }
                 >
                   <View style={styles.optionText}>
                     <Text style={styles.optionName}>{location.name}</Text>
-                    {describe(location.address, location.neighborhood, location.city) && (
-                      <Text style={styles.optionMeta} numberOfLines={1}>
-                        {describe(location.address, location.neighborhood, location.city)}
-                      </Text>
-                    )}
+                    {meta ? (
+                      <Text style={styles.optionMeta} numberOfLines={1}>{meta}</Text>
+                    ) : null}
                   </View>
                   {selected && <Text style={styles.check}>✓</Text>}
                 </Pressable>

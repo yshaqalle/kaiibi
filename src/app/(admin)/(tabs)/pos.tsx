@@ -79,10 +79,16 @@ export default function PosScreen() {
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
   const [compactTileHeight, setCompactTileHeight] = useState<number | null>(null);
 
+  // Scoped to the register's store, which is what checkout will actually
+  // decrement. Unscoped this listed the shop-wide rollup, so a cashier saw "99
+  // in stock" for something their store doesn't carry, added it, and had
+  // complete_sale refuse with "insufficient stock at this location" — the UI
+  // promising what the server rejects. It also now lists only what this store
+  // carries, so the grid stops offering the other stores' catalog.
   const reload = useCallback(async () => {
     if (!shop) return;
-    setProducts(await listProducts(shop.id));
-  }, [shop]);
+    setProducts(await listProducts(shop.id, activeLocation?.id ?? null));
+  }, [shop, activeLocation]);
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => {
