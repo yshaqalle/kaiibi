@@ -4,6 +4,9 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { StoreDropdown } from '@/components/store-dropdown';
+import { useAuth } from '@/hooks/use-auth';
+import { primaryLocationOf } from '@/lib/location-selection';
 import { createBrand, listBrands } from '@/lib/brands';
 import { createCategory, listCategories } from '@/lib/categories';
 import { formatCents, toCents } from '@/lib/currency';
@@ -17,17 +20,29 @@ export type ProductFormHandle = {
 
 export const ProductForm = forwardRef<ProductFormHandle, {
   initial?: Product;
-  onSubmit: (input: NewProductInput) => Promise<void>;
+  // The store the opening stock lands at. Only asked for when a business has
+  // more than one; the caller passes it straight to createProduct/updateProduct,
+  // which is the only thing that can actually move a count.
+  onSubmit: (input: NewProductInput, locationId: string | null) => Promise<void>;
   submitLabel: string;
   shopId: string;
+  // Where the store selector starts. The caller passes the store being viewed
+  // when the list is filtered; otherwise it is the main store.
+  defaultLocationId?: string | null;
   onStatusChange?: (status: { valid: boolean; submitting: boolean }) => void;
 }>(function ProductForm({
   initial,
   onSubmit,
   submitLabel,
   shopId,
+  defaultLocationId,
   onStatusChange,
 }, ref) {
+  const { locations } = useAuth();
+  const stores = locations.filter((location) => location.active);
+  const [locationId, setLocationId] = useState<string | null>(
+    defaultLocationId ?? primaryLocationOf(stores)?.id ?? null
+  );
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [sku, setSku] = useState(initial?.sku ?? '');
@@ -101,7 +116,8 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         ...tagList.filter((tag) => !tagSuggestions.includes(tag)).map((tag) => createTag(shopId, tag)),
       ]);
 
-      await onSubmit({
+      await onSubmit(
+        {
         name: name.trim(),
         description: description.trim() || null,
         sku: sku.trim() || null,
@@ -119,7 +135,9 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         batchNumber: batchNumber.trim() || null,
         imageUrl,
         isListedOnline,
-      });
+        },
+        locationId
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this product.');
     } finally {
@@ -184,6 +202,21 @@ export const ProductForm = forwardRef<ProductFormHandle, {
       </Row>
       <Row>
         <Field label="STOCK" style={styles.half}><TextInput value={stock} onChangeText={setStock} placeholder="0" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
+        {/* Which store that stock is at. Defaults to the main store, or to the
+            one being viewed if the list is filtered — but it is always shown
+            once there are several, so nobody adds stock to a store they didn't
+            mean to just because the register happened to be set there.
+            No "All stores" option: a count has to land somewhere in particular.
+            The dropdown renders nothing for a single-store business. */}
+        <Field label="STORE" style={styles.half}>
+          <StoreDropdown
+            value={locationId}
+            onChange={setLocationId}
+            allowAll={false}
+            variant="field"
+            title="Store for this stock"
+          />
+        </Field>
         <Field label="REORDER LEVEL" style={styles.half}><TextInput value={reorderLevel} onChangeText={setReorderLevel} placeholder="5" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
       </Row>
       <Field label="SHELF / LOCATION"><TextInput value={shelfNumber} onChangeText={setShelfNumber} placeholder="e.g. A3" placeholderTextColor="#999999" style={styles.input} /></Field>

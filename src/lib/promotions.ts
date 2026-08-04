@@ -5,6 +5,7 @@ function mapPromotionRow(row: any): Promotion {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     name: row.name,
     discountType: row.discount_type,
     discountValue: row.discount_value,

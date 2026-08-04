@@ -30,6 +30,7 @@ function makeSale(overrides: Partial<Sale> = {}): Sale {
   return {
     id: 's1',
     shopId: 'shop1',
+    locationId: 'loc1',
     createdBy: null,
     paymentMethod: 'cash',
     paymentNote: null,

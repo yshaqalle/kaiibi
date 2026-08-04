@@ -27,14 +27,37 @@ import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } fro
 import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
-import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
+import { listRoles, listStaff, setStaffLocations, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
 import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
+import { usualStore } from '@/lib/customer-segments';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+
+// Where a member works, for display. An EMPTY set means every store — that is
+// the value, not a missing one (migration 20260814000000) — so it reads as
+// "All stores" rather than as nothing. Resolved by id from the store list, so a
+// renamed store shows its new name everywhere.
+//
+// Returns null for a single-store business, where naming the only store on
+// every row says nothing.
+function describeMemberStores(
+  locationIds: string[],
+  locations: { id: string; name: string }[],
+  multiStore: boolean
+): string | null {
+  if (!multiStore) return null;
+  if (locationIds.length === 0) return 'All stores';
+  const names = locationIds.map((id) => locations.find((l) => l.id === id)?.name).filter(Boolean) as string[];
+  if (names.length === 0) return null;
+  // Two fit; beyond that the row would grow without bound, and the exact list
+  // is on the member's own detail pane.
+  return names.length <= 2 ? names.join(' · ') : `${names[0]} +${names.length - 1}`;
+}
 
 type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
@@ -316,6 +339,13 @@ function CustomerDetailPane({
   const [stats, setStats] = useState<{ totalSpentCents: number; visitCount: number; lastPurchaseAt: string | null } | null>(null);
   const [purchases, setPurchases] = useState<CustomerPurchase[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const { locations } = useAuth();
+  const multiStore = hasMultipleLocations(locations);
+  // Resolved by id from the store list rather than denormalised onto the
+  // purchase, so a renamed store reads correctly in old history.
+  const storeNameOf = (locationId: string) =>
+    multiStore ? (locations.find((l) => l.id === locationId)?.name ?? null) : null;
+  const usual = multiStore ? usualStore(purchases) : null;
 
   useEffect(() => {
     getCustomerStats(customer.id).then(setStats).catch(() => setStats(null));
@@ -373,6 +403,19 @@ function CustomerDetailPane({
         <Text style={tabStyles.sectionTitle}>NOTES</Text>
         <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
       </View>
+      {/* Where they actually shop, by visit count. Hidden for a single-store
+          business (nothing to distinguish) and when the history is tied or
+          empty — naming a store on a 2-2 split would present a coin flip as a
+          fact. See usualStore in lib/customer-segments.ts. */}
+      {usual && (
+        <View style={tabStyles.section}>
+          <Text style={tabStyles.sectionTitle}>USUALLY SHOPS AT</Text>
+          <Text style={tabStyles.usualStore}>
+            {storeNameOf(usual.locationId) ?? 'Unknown store'}
+            <Text style={tabStyles.usualStoreMeta}>{`  ${usual.visits} of ${usual.totalVisits} visits`}</Text>
+          </Text>
+        </View>
+      )}
       <View style={tabStyles.section}>
         <Text style={tabStyles.sectionTitle}>PURCHASE HISTORY</Text>
         {purchases.length === 0 ? (
@@ -387,6 +430,7 @@ function CustomerDetailPane({
                 </Text>
                 <Text style={tabStyles.histMeta}>
                   {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
+                  {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
                 </Text>
               </View>
               <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
@@ -403,6 +447,8 @@ function TeamTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: Reac
 }
 
 function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffMember; tabSwitcher: ReactNode }) {
+  const { locations } = useAuth();
+  const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
   return (
     <ScrollView contentContainerStyle={styles.selfServiceContent}>
       <Text style={tabStyles.screenTitle}>People</Text>
@@ -411,6 +457,7 @@ function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffM
         <Text style={styles.selfServiceName}>{member.fullName ?? member.email ?? 'Me'}</Text>
         <Text style={styles.selfServiceMeta}>
           {member.roleName}
+          {memberStores ? ` · ${memberStores}` : ''}
           {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
         </Text>
       </View>
@@ -422,7 +469,9 @@ function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffM
 }
 
 function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
-  const { shop, can, canAny } = useAuth();
+  const { shop, can, canAny, locations } = useAuth();
+  const rosterStores = (member: StaffMember) =>
+    describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
   const canManageRoster = can('staff.manage');
   const canManagePayroll = can('people.payroll.manage');
   const canViewHours = canAny(['people.timesheet.view', 'people.payroll.manage']);
@@ -491,7 +540,27 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   // Exported pay data is sensitive -- someone who can only manage the
   // roster (staff.manage) but not payroll (people.payroll.manage) gets an
   // export without pay columns.
-  const exportColumns = canManagePayroll ? TEAM_EXPORT_COLUMNS_WITH_PAY : TEAM_EXPORT_COLUMNS_BASIC;
+  // Stores are appended here rather than sitting in the module-level column
+  // lists because resolving an id to a name needs `locations`. Only added for a
+  // multi-store business, so a single-store export is unchanged — and it uses
+  // the same wording as the screen, so an export never disagrees with what the
+  // roster showed.
+  const baseColumns = canManagePayroll ? TEAM_EXPORT_COLUMNS_WITH_PAY : TEAM_EXPORT_COLUMNS_BASIC;
+  const exportColumns: CsvColumn<StaffMember>[] = hasMultipleLocations(locations)
+    ? [
+        ...baseColumns,
+        {
+          header: 'Stores',
+          value: (m: StaffMember) =>
+            m.locationIds.length === 0
+              ? 'All stores'
+              : m.locationIds
+                  .map((id) => locations.find((l) => l.id === id)?.name)
+                  .filter(Boolean)
+                  .join('; '),
+        },
+      ]
+    : baseColumns;
 
   const list = (
     <>
@@ -525,7 +594,10 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
               >
                 <View style={tabStyles.rowMain}>
                   <Text style={tabStyles.rowName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
-                  <Text style={tabStyles.rowSub}>{member.roleName}</Text>
+                  <Text style={tabStyles.rowSub}>
+                    {member.roleName}
+                    {rosterStores(member) ? ` · ${rosterStores(member)}` : ''}
+                  </Text>
                 </View>
                 <Badge
                   label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
@@ -620,7 +692,7 @@ function TeamDetailPane({
   canViewHours: boolean;
   onChanged: () => Promise<void>;
 }) {
-  const { shop } = useAuth();
+  const { shop, locations } = useAuth();
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
@@ -652,6 +724,8 @@ function TeamDetailPane({
     );
   }, [timeOff, member.id]);
 
+  const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
+
   return (
     <Card style={tabStyles.detailCard}>
       <View style={tabStyles.detHead}>
@@ -660,6 +734,7 @@ function TeamDetailPane({
       </View>
       <Text style={tabStyles.detPhone}>
         {member.roleName}
+        {memberStores ? ` · ${memberStores}` : ''}
         {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
       </Text>
 
@@ -779,10 +854,16 @@ function TeamDetailPane({
           visible={editingMember}
           member={member}
           roles={roles}
+          locations={locations}
           canManagePayroll={canManagePayroll}
           onClose={() => setEditingMember(false)}
-          onSave={async (input) => {
+          onSave={async ({ locationIds, ...input }) => {
             await updateStaffMember({ shopId: shop.id, memberId: member.id, ...input });
+            // Written separately, not folded into the payload above: that goes
+            // through the `update-staff` Edge Function, which has no idea this
+            // column exists and would silently drop it. The direct write is
+            // gated by the same staff.manage roster policy the function is.
+            await setStaffLocations(member.id, locationIds);
             await onChanged();
           }}
         />
@@ -827,6 +908,8 @@ const tabStyles = StyleSheet.create({
   histRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
   histTitle: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
   histMeta: { fontSize: 11, color: '#999999', marginTop: 1 },
+  usualStore: { fontSize: 14, fontWeight: '700', color: '#111111' },
+  usualStoreMeta: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
   histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
   actionButtonDisabled: { opacity: 0.5 },
   pendingButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },

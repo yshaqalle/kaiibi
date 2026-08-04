@@ -5,6 +5,7 @@ function mapTimeEntryRow(row: any): TimeEntry {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id,
     shopMemberId: row.shop_member_id,
     clockIn: row.clock_in,
     clockOut: row.clock_out,
@@ -25,10 +26,13 @@ export async function getOpenTimeEntry(shopMemberId: string): Promise<TimeEntry 
   return data ? mapTimeEntryRow(data) : null;
 }
 
-export async function clockIn(shopId: string, shopMemberId: string): Promise<TimeEntry> {
+// `locationId` is which store they clocked in at — required, because a shift
+// worked somewhere unknown is a gap in the timesheet, and per-store labour cost
+// depends on it (migration 20260815000000).
+export async function clockIn(shopId: string, shopMemberId: string, locationId: string): Promise<TimeEntry> {
   const { data, error } = await supabase
     .from('time_entries')
-    .insert({ shop_id: shopId, shop_member_id: shopMemberId })
+    .insert({ shop_id: shopId, shop_member_id: shopMemberId, location_id: locationId })
     .select('*')
     .single();
   if (error) throw error;

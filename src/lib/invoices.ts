@@ -21,6 +21,7 @@ function mapInvoiceRow(row: any): Invoice {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     vendorId: row.vendor_id,
     vendorName: row.vendor_name,
     vendorPhone: row.vendor_phone,

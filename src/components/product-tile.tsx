@@ -13,12 +13,16 @@ export function ProductTile({
   product,
   onEdit,
   onStockChange,
+  onOpenBreakdown,
   defaultLowStockLevel = 5,
   expiryWarningLeadDays,
 }: {
   product: Product;
   onEdit?: () => void;
   onStockChange?: (nextStock: number) => void;
+  // Combined multi-store view: the total opens a per-store breakdown instead of
+  // a stepper that would silently change one store. Same reasoning as the table.
+  onOpenBreakdown?: () => void;
   // Settings → Inventory alerts' "Default low stock level" — falls back to
   // 5 (the old hardcoded value) if the caller doesn't pass the shop's.
   defaultLowStockLevel?: number;
@@ -51,7 +55,12 @@ export function ProductTile({
         <View style={styles.controlsRow}>
           <Text style={[styles.price, { color: theme.text }]}>{formatCents(product.priceCents)}</Text>
 
-          {onStockChange ? (
+          {onOpenBreakdown ? (
+            <Pressable onPress={onOpenBreakdown} style={[styles.breakdownButton, { backgroundColor: theme.backgroundElement }]}>
+              <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock}</Text>
+              <Text style={styles.breakdownHint}>by store ▸</Text>
+            </Pressable>
+          ) : onStockChange ? (
             <View style={styles.stepper}>
               <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={[styles.stepperButton, { backgroundColor: theme.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: theme.text }]}>−</Text></Pressable>
               {outOfStock ? (
@@ -99,6 +108,8 @@ const styles = StyleSheet.create({
   stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   lowStockPill: { fontSize: 9, fontWeight: '700', borderWidth: 1, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   outOfStockPill: { fontSize: 9, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
+  breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
+  breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperButton: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { fontSize: 13, fontWeight: '800' },

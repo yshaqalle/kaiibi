@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ProductForm } from '@/components/product-form';
 import { ScreenHeader } from '@/components/screen-header';
+import { useAuth } from '@/hooks/use-auth';
 import { confirmDestructive } from '@/lib/confirm';
 import { deleteProduct, getProduct, updateProduct } from '@/lib/products';
 import type { Product } from '@/types/models';
@@ -12,6 +13,7 @@ import type { Product } from '@/types/models';
 export default function EditProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { activeLocation } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
 
   useEffect(() => { if (id) getProduct(id).then(setProduct); }, [id]);
@@ -25,8 +27,10 @@ export default function EditProductScreen() {
         initial={product}
         shopId={product.shopId}
         submitLabel="Save changes"
-        onSubmit={async (input) => {
-          await updateProduct(product.id, input);
+        onSubmit={async (input, locationId) => {
+          // Stock edits land at this device's branch: products.stock is derived
+          // now, so passing it without a location would silently drop the change.
+          await updateProduct(product.id, input, locationId ?? activeLocation?.id ?? null);
           router.back();
         }}
       />

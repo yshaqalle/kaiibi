@@ -13,6 +13,7 @@ export function ProductModal({
   visible,
   onClose,
   shopId,
+  defaultLocationId,
   initial,
   onSubmit,
   onDeleted,
@@ -20,8 +21,9 @@ export function ProductModal({
   visible: boolean;
   onClose: () => void;
   shopId: string;
+  defaultLocationId?: string | null;
   initial?: Product;
-  onSubmit: (input: NewProductInput) => Promise<void>;
+  onSubmit: (input: NewProductInput, locationId: string | null) => Promise<void>;
   onDeleted?: () => void;
 }) {
   const formRef = useRef<ProductFormHandle>(null);
@@ -53,8 +55,9 @@ export function ProductModal({
               ref={formRef}
               initial={initial}
               shopId={shopId}
+              defaultLocationId={defaultLocationId}
               submitLabel={initial ? 'Save changes' : 'Save product'}
-              onSubmit={async (input) => { await onSubmit(input); onClose(); }}
+              onSubmit={async (input, locationId) => { await onSubmit(input, locationId); onClose(); }}
               onStatusChange={setStatus}
             />
           </View>

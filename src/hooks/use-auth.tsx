@@ -1,11 +1,19 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { resolveActiveLocation } from '@/lib/location-selection';
+import { listMyLocations } from '@/lib/locations';
 import type { Permission } from '@/lib/permissions';
 import { getMyShop } from '@/lib/shops';
 import { getMyMembership, getMyPermissions } from '@/lib/staff';
 import { supabase } from '@/lib/supabase';
-import type { Profile, Shop, StaffMember } from '@/types/models';
+import type { Profile, Shop, ShopLocation, StaffMember } from '@/types/models';
+
+// Which location this device last operated at. Stored per device, not per user
+// and not on the server, because a register belongs to a branch: the till at
+// Airport Road stays Airport Road's till no matter which cashier signs in.
+const ACTIVE_LOCATION_KEY = 'kaiibi.activeLocationId';
 
 type AuthState = {
   session: Session | null;
@@ -26,6 +34,22 @@ type AuthState = {
   // not any Permission (see src/lib/permissions.ts's ROUTE_PERMISSIONS
   // comment).
   myMembership: StaffMember | null;
+  // The stores THIS USER may operate at -- their assigned store, or all of the
+  // shop's when unassigned (see migration 20260812000000). Inactive ones are
+  // included, since Settings lists a closed store to reopen it; anything
+  // offering a *choice* filters to `active` (hasMultipleLocations in
+  // lib/location-selection.ts).
+  //
+  // Note this is narrower than "every store the shop has": a cashier assigned
+  // to one store sees one entry here and so gets no switcher at all, which is
+  // the correct experience for them. Settings -> Store locations reads the full
+  // list separately, gated on settings.access.
+  locations: ShopLocation[];
+  // Where this device is currently operating -- the branch a sale gets recorded
+  // at, the stock a POS decrements, the address a receipt prints. Null only
+  // while unresolved or signed out.
+  activeLocation: ShopLocation | null;
+  setActiveLocation: (locationId: string) => void;
   loading: boolean;
   refreshShop: () => Promise<void>;
   // Settings' profile editor already gets the freshly-updated row back from
@@ -35,6 +59,7 @@ type AuthState = {
 };
 
 const noPermissions: Permission[] = [];
+const noLocations: ShopLocation[] = [];
 
 // Permissions are always fetched together with the shop they apply to and
 // written under the same sequence guard, so the two can never disagree —
@@ -44,10 +69,18 @@ const noPermissions: Permission[] = [];
 // stays callable the moment a shop is created during signup, before React has
 // committed the session that triggered it (the same reason `getMyShop()` asks
 // Supabase for the user itself).
-async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permissions: Permission[]; myMembership: StaffMember | null }> {
+async function loadShopAndPermissions(): Promise<{
+  shop: Shop | null;
+  permissions: Permission[];
+  myMembership: StaffMember | null;
+  locations: ShopLocation[];
+  activeLocation: ShopLocation | null;
+}> {
   const [{ data: userData }, shop] = await Promise.all([supabase.auth.getUser(), getMyShop()]);
   const userId = userData.user?.id;
-  if (!shop || !userId) return { shop, permissions: noPermissions, myMembership: null };
+  if (!shop || !userId) {
+    return { shop, permissions: noPermissions, myMembership: null, locations: noLocations, activeLocation: null };
+  }
   // Fetched independently -- each with its own fail-closed fallback -- so a
   // failure on one can't cost the other. Permissions failing closed to
   // noPermissions is a security requirement (an unresolved permission set
@@ -60,13 +93,23 @@ async function loadShopAndPermissions(): Promise<{ shop: Shop | null; permission
   // Neither promise is allowed to reject past this function, so
   // loadForSession() above is never at risk of being stranded on its
   // loading spinner by either one.
-  const [permissionsResult, membershipResult] = await Promise.allSettled([
+  //
+  // Locations joins the same allSettled for the same reason, and fails closed
+  // to an empty list: with no location resolved the POS declines to record a
+  // sale rather than guessing a branch, which is the safe direction -- a sale
+  // filed against the wrong store is far harder to unpick than one that was
+  // never rung up.
+  const [permissionsResult, membershipResult, locationsResult, rememberedResult] = await Promise.allSettled([
     getMyPermissions(shop, userId),
     getMyMembership(shop.id, userId),
+    listMyLocations(shop.id),
+    AsyncStorage.getItem(ACTIVE_LOCATION_KEY),
   ]);
   const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : noPermissions;
   const myMembership = membershipResult.status === 'fulfilled' ? membershipResult.value : null;
-  return { shop, permissions, myMembership };
+  const locations = locationsResult.status === 'fulfilled' ? locationsResult.value : noLocations;
+  const rememberedId = rememberedResult.status === 'fulfilled' ? rememberedResult.value : null;
+  return { shop, permissions, myMembership, locations, activeLocation: resolveActiveLocation(locations, rememberedId) };
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -77,14 +120,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [shop, setShop] = useState<Shop | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>(noPermissions);
   const [myMembership, setMyMembership] = useState<StaffMember | null>(null);
+  const [locations, setLocations] = useState<ShopLocation[]>(noLocations);
+  const [activeLocation, setActiveLocationState] = useState<ShopLocation | null>(null);
   const [loading, setLoading] = useState(true);
   // Two independent counters guard against out-of-order async writes, one per
   // logically distinct concern:
   // - `loadSeq` guards a whole loadForSession() run (its `profile` write and
   //   final `setLoading(false)`): if a newer session-load has started since this
   //   one began, this one's results are stale and must not be applied.
-  // - `shopSeq` guards `shop` and the `permissions` fetched alongside it (both
-  //   written in the same guarded block), because it can be written by two
+  // - `shopSeq` guards `shop` and the `permissions`/`locations` fetched
+  //   alongside it (all written in the same guarded block), because it can be
+  //   written by two
   //   independent callers running concurrently: loadForSession's own fetch (as
   //   part of a session reload) and an explicit refreshShop() call (e.g. right
   //   after creating a shop during admin signup). These must NOT share a counter
@@ -127,6 +173,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setShop(null);
         setPermissions(noPermissions);
         setMyMembership(null);
+        setLocations(noLocations);
+        // The persisted id in AsyncStorage is deliberately left alone: it
+        // belongs to the device, not the session, so the next cashier to sign in
+        // at this register lands on the same branch.
+        setActiveLocationState(null);
         setLoading(false);
         return;
       }
@@ -155,6 +206,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setShop(resolved.shop);
         setPermissions(resolved.permissions);
         setMyMembership(resolved.myMembership);
+        setLocations(resolved.locations);
+        setActiveLocationState(resolved.activeLocation);
       }
       setLoading(false);
     };
@@ -177,13 +230,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setShop(resolved.shop);
     setPermissions(resolved.permissions);
     setMyMembership(resolved.myMembership);
+    setLocations(resolved.locations);
+    setActiveLocationState(resolved.activeLocation);
+  };
+
+  // Adopts the chosen row into state immediately and persists in the
+  // background: the switcher must feel instant, and a failed write to
+  // AsyncStorage should cost the device its *memory* of the choice, not the
+  // choice itself. An unknown id is ignored rather than clearing the active
+  // location -- dropping to null would silently disable checkout.
+  const setActiveLocation = (locationId: string) => {
+    const next = locations.find((location) => location.id === locationId);
+    if (!next) return;
+    setActiveLocationState(next);
+    AsyncStorage.setItem(ACTIVE_LOCATION_KEY, locationId).catch(() => {});
   };
 
   const can = (permission: Permission) => permissions.includes(permission);
   const canAny = (perms: Permission[]) => perms.some((p) => permissions.includes(p));
 
   return (
-    <AuthContext.Provider value={{ session, profile, shop, permissions, can, canAny, myMembership, loading, refreshShop, setProfile }}>
+    <AuthContext.Provider value={{ session, profile, shop, permissions, can, canAny, myMembership, locations, activeLocation, setActiveLocation, loading, refreshShop, setProfile }}>
       {children}
     </AuthContext.Provider>
   );

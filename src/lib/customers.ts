@@ -147,6 +147,7 @@ function mapCustomerPurchaseRow(row: any): CustomerPurchase {
     unitPriceCents: row.unit_price_cents,
     lineTotalCents: row.line_total_cents,
     paymentMethod: row.sale.payment_method,
+    locationId: row.sale.location_id,
     createdAt: row.sale.created_at,
   };
 }
@@ -159,7 +160,7 @@ function mapCustomerPurchaseRow(row: any): CustomerPurchase {
 export async function listCustomerPurchases(customerId: string): Promise<CustomerPurchase[]> {
   const { data, error } = await supabase
     .from('sale_items')
-    .select('id, sale_id, product_name, quantity, unit_price_cents, line_total_cents, sale:sales!inner(customer_id, payment_method, created_at)')
+    .select('id, sale_id, product_name, quantity, unit_price_cents, line_total_cents, sale:sales!inner(customer_id, payment_method, created_at, location_id)')
     .eq('sale.customer_id', customerId);
   if (error) throw error;
   return (data ?? [])

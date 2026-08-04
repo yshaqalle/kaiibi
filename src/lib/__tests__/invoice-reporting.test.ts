@@ -7,6 +7,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
   return {
     id: 'inv1',
     shopId: 'shop1',
+    locationId: null,
     vendorId: 'v1',
     vendorName: 'Nairobi Beauty Distributors',
     vendorPhone: null,

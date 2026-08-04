@@ -19,8 +19,8 @@ export default function NewProductScreen() {
       <ProductForm
         shopId={shop.id}
         submitLabel="Save product"
-        onSubmit={async (input) => {
-          await createProduct(shop.id, input);
+        onSubmit={async (input, locationId) => {
+          await createProduct(shop.id, input, locationId);
           router.back();
         }}
       />

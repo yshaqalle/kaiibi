@@ -13,12 +13,13 @@ export type SortDirection = 'asc' | 'desc';
 // typing can't cleanly infer a shape valid for both (TextStyle/ViewStyle
 // disagree on `userSelect`) — inline objects sidestep that ambiguity since
 // they're contextually typed at each call site instead.
-const colProduct = { flexBasis: '24%', flexGrow: 0, flexShrink: 0 } as const;
-const colBrand = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
-const colCategory = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
-const colTags = { flexBasis: '18%', flexGrow: 0, flexShrink: 0 } as const;
-const colPrice = { flexBasis: '10%', flexGrow: 0, flexShrink: 0 } as const;
-const colStock = { flexBasis: '22%', flexGrow: 0, flexShrink: 0 } as const;
+const colProduct = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
+const colLocation = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colBrand = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colCategory = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
+const colTags = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
+const colPrice = { flexBasis: '9%', flexGrow: 0, flexShrink: 0 } as const;
+const colStock = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
 
 // The desktop Inventory list — a real, sortable column table (PRODUCT /
 // BRAND / CATEGORY / TAGS / PRICE / STOCK). Narrow screens use
@@ -28,10 +29,14 @@ export function ProductTableHeader({
   sortField,
   sortDirection,
   onSort,
+  showLocation = false,
 }: {
   sortField: SortField | null;
   sortDirection: SortDirection;
   onSort: (field: SortField) => void;
+  // Only a business with more than one store gets the column — for everyone
+  // else it would repeat the same name down every row.
+  showLocation?: boolean;
 }) {
   const HeaderCell = ({ field, label, style }: { field: SortField; label: string; style: object }) => (
     <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
@@ -44,6 +49,7 @@ export function ProductTableHeader({
     <View style={styles.headerRow}>
       <View style={styles.dataCols}>
         <HeaderCell field="name" label="PRODUCT" style={colProduct} />
+        {showLocation && <Text style={[styles.headerLabel, colLocation]}>LOCATION</Text>}
         <HeaderCell field="brand" label="BRAND" style={colBrand} />
         <HeaderCell field="category" label="CATEGORY" style={colCategory} />
         <Text style={[styles.headerLabel, colTags]}>TAGS</Text>
@@ -61,12 +67,26 @@ export function ProductTableRow({
   onStockChange,
   defaultLowStockLevel = 5,
   expiryWarningLeadDays,
+  locationLabel,
+  onOpenBreakdown,
 }: {
   product: Product;
+  // The store cell, resolved by the caller (which holds the store list).
+  // Undefined hides the column entirely, for a single-store business.
+  //
+  // When a product is carried at several stores the cell shows a COUNT rather
+  // than a name plus "+2" — naming one store and hiding the rest implies the
+  // named one matters more, and the count is honest about there being a set.
+  // Tapping it opens the same per-store breakdown the stock cell does.
+  locationLabel?: { text: string; multiple: boolean };
   // Both omitted for a read-only viewer (a role with `inventory.view` but not
   // `inventory.edit`) — same contract as ProductTile.
   onEdit?: () => void;
   onStockChange?: (nextStock: number) => void;
+  // Supplied instead of `onStockChange` in the combined multi-store view, where
+  // a single stepper has no correct answer for WHICH store it changes. The cell
+  // then shows the total as a button opening the per-store breakdown.
+  onOpenBreakdown?: () => void;
   // See ProductTile for what these mean — same Settings → Inventory alerts
   // values, same "omitted = off" contract.
   defaultLowStockLevel?: number;
@@ -90,6 +110,15 @@ export function ProductTableRow({
           <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
         </View>
 
+        {locationLabel !== undefined &&
+          (locationLabel.multiple && onOpenBreakdown ? (
+            <Pressable onPress={onOpenBreakdown} style={[styles.cell, colLocation]}>
+              <Text style={styles.locationLink} numberOfLines={1}>{locationLabel.text}</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.cellText, styles.muted, colLocation]} numberOfLines={1}>{locationLabel.text}</Text>
+          ))}
+
         <Text style={[styles.cellText, styles.muted, colBrand]} numberOfLines={1}>{product.brand || '—'}</Text>
         <Text style={[styles.cellText, colCategory]} numberOfLines={1}>{product.category || '—'}</Text>
 
@@ -111,6 +140,13 @@ export function ProductTableRow({
         <Text style={[styles.cellText, styles.price, colPrice]}>{formatCents(product.priceCents)}</Text>
 
         <View style={[styles.cell, colStock]}>
+          {onOpenBreakdown ? (
+            <Pressable onPress={onOpenBreakdown} style={styles.breakdownButton}>
+              <Text style={styles.breakdownCount}>{product.stock}</Text>
+              <Text style={styles.breakdownHint}>by store ▸</Text>
+            </Pressable>
+          ) : (
+            <>
           {onStockChange && (
             <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
               <Text style={styles.stepperButtonText}>−</Text>
@@ -129,6 +165,8 @@ export function ProductTableRow({
             <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
               <Text style={styles.stepperButtonText}>+</Text>
             </Pressable>
+          )}
+            </>
           )}
         </View>
       </View>
@@ -173,6 +211,10 @@ const styles = StyleSheet.create({
   tagChip: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, maxWidth: '100%' },
   tagChipText: { fontSize: 11, fontWeight: '600', color: '#555555' },
 
+  locationLink: { fontSize: 12, fontWeight: '700', color: '#111111', textDecorationLine: 'underline' },
+  breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  breakdownCount: { fontSize: 14, fontWeight: '800', color: '#111111' },
+  breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },
   stepperButton: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { color: '#111111', fontSize: 14, fontWeight: '800' },
   stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 10 },

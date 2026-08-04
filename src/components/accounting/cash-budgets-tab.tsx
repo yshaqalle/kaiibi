@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
@@ -7,7 +7,9 @@ import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { useAuth } from '@/hooks/use-auth';
+import { scopeToLocation } from '@/lib/location-reporting';
 import {
   BILL_FREQUENCY_LABELS,
   billDueState,
@@ -54,10 +56,14 @@ export function CashBudgetsTab({
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
 }) {
-  const { shop, can } = useAuth();
+  const { shop, can, activeLocation } = useAuth();
   const allowed = can('budgets.manage');
   const canLogBills = can('expenses.manage');
 
+  // null = the combined business view. Cash accounts always belong to a store
+  // (a drawer sits on a counter), so scoping them is a straight filter; bills
+  // and budgets can be business-wide, and scoping excludes those.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -126,6 +132,19 @@ export function CashBudgetsTab({
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Above the permission guard below on purpose: hooks must run in the same
+  // order every render, and an early return between them is what
+  // react-hooks/rules-of-hooks exists to catch.
+  const accountsInScope = useMemo(
+    () => (locationFilter === null ? accounts : accounts.filter((a) => a.locationId === locationFilter)),
+    [accounts, locationFilter]
+  );
+  const billsInScope = useMemo(() => scopeToLocation(bills, locationFilter), [bills, locationFilter]);
+  const budgetsInScope = useMemo(() => scopeToLocation(budgets, locationFilter), [budgets, locationFilter]);
+  // Budget-vs-actual has to compare like with like: a store's budget against
+  // that store's spend, not against every store's.
+  const expensesInScope = useMemo(() => scopeToLocation(expenses, locationFilter), [expenses, locationFilter]);
+
   if (!allowed) {
     return (
       <Text style={styles.empty}>
@@ -134,9 +153,9 @@ export function CashBudgetsTab({
     );
   }
 
-  const cashTotal = totalCashCents(accounts);
-  const monthlyCommitment = monthlyBillCommitmentCents(bills);
-  const rows = budgetRows(expenses, budgets);
+  const cashTotal = totalCashCents(accountsInScope);
+  const monthlyCommitment = monthlyBillCommitmentCents(billsInScope);
+  const rows = budgetRows(expensesInScope, budgetsInScope);
 
   return (
     <View>
@@ -146,6 +165,8 @@ export function CashBudgetsTab({
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       <View style={styles.metricRow}>
         <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />
@@ -181,7 +202,7 @@ export function CashBudgetsTab({
             {accounts.length === 0 && !addingAccount ? (
               <Text style={styles.sectionEmpty}>No accounts yet — add your cash drawer, bank, or a mobile wallet.</Text>
             ) : (
-              accounts.map((account) => (
+              accountsInScope.map((account) => (
                 <CashAccountRow
                   key={account.id}
                   account={account}
@@ -207,7 +228,10 @@ export function CashBudgetsTab({
               <NewCashAccountRow
                 onCancel={() => setAddingAccount(false)}
                 onCreate={async (name, balanceCents, accountType) => {
-                  await createCashAccount(shop.id, { name, balanceCents, accountType, notes: null });
+                  // A drawer sits at a store, so a new account belongs to the
+                  // one this device is set to rather than to the business.
+                  if (!activeLocation) throw new Error('Pick a store before adding a cash account.');
+                  await createCashAccount(shop.id, { name, balanceCents, accountType, notes: null, locationId: activeLocation.id });
                   setAddingAccount(false);
                   await reload();
                 }}
@@ -223,7 +247,7 @@ export function CashBudgetsTab({
             {bills.length === 0 ? (
               <Text style={styles.sectionEmpty}>No recurring bills set up yet.</Text>
             ) : (
-              bills.map((bill) => {
+              billsInScope.map((bill) => {
                 const state = billDueState(bill);
                 return (
                   <View key={bill.id} style={styles.row}>

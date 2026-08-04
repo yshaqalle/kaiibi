@@ -18,9 +18,10 @@ import { confirmDestructive } from '@/lib/confirm';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
-import { formatTodayHours, type ReceiptData } from '@/lib/receipt';
+import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { Currency, Discount, PaymentMethod, Product, Promotion } from '@/types/models';
@@ -38,7 +39,8 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop } = useAuth();
+  const { shop, locations, activeLocation } = useAuth();
+  const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   // 'other' is deliberately excluded here — PaymentMethodPicker always
@@ -77,10 +79,16 @@ export default function PosScreen() {
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
   const [compactTileHeight, setCompactTileHeight] = useState<number | null>(null);
 
+  // Scoped to the register's store, which is what checkout will actually
+  // decrement. Unscoped this listed the shop-wide rollup, so a cashier saw "99
+  // in stock" for something their store doesn't carry, added it, and had
+  // complete_sale refuse with "insufficient stock at this location" — the UI
+  // promising what the server rejects. It also now lists only what this store
+  // carries, so the grid stops offering the other stores' catalog.
   const reload = useCallback(async () => {
     if (!shop) return;
-    setProducts(await listProducts(shop.id));
-  }, [shop]);
+    setProducts(await listProducts(shop.id, activeLocation?.id ?? null));
+  }, [shop, activeLocation]);
 
   useEffect(() => { reload(); }, [reload]);
   useEffect(() => {
@@ -137,6 +145,16 @@ export default function PosScreen() {
 
   const checkout = async () => {
     if (!shop || cart.length === 0 || !fullyPaid) return;
+    // Refuse rather than let complete_sale fall back to the primary location.
+    // The fallback exists for callers that never had a location (CSV import, an
+    // older client); here the register genuinely has one and simply hasn't
+    // resolved yet, so guessing would file the sale against the wrong branch --
+    // and a sale in the wrong store's takings is far harder to unpick than one
+    // the cashier had to retry.
+    if (!activeLocation) {
+      setError('No location selected for this register. Pick one from the header before ringing up a sale.');
+      return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -152,15 +170,20 @@ export default function PosScreen() {
         },
         cashierName,
         promotions,
-        transactionDiscountCents
+        transactionDiscountCents,
+        activeLocation.id
       );
       setReceipt({
         shopName: shop.name,
         shopLogoUrl: shop.receiptShowLogo ? shop.logoUrl : null,
-        shopCity: shop.city,
-        shopNeighborhood: shop.neighborhood,
-        shopContactPhone: shop.contactPhone,
-        shopHours: formatTodayHours(shop.openingHours, new Date()),
+        // The branch's own address, phone and hours -- what the customer needs
+        // to find their way back. The name is only printed when there is more
+        // than one branch to tell apart.
+        locationName: storeNameFor(shop.name, activeLocation.name, showLocationName),
+        shopCity: activeLocation.city,
+        shopNeighborhood: activeLocation.neighborhood,
+        shopContactPhone: activeLocation.contactPhone,
+        shopHours: formatTodayHours(activeLocation.openingHours, new Date()),
         cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,
         items: cart.map((line) => ({

@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
-import { hasBlockingProblem, validateShift, type Shift, type ShiftProblem, type ValidationContext } from '@/lib/scheduling';
+import { OptionPicker } from '@/components/option-picker';
+import { hasBlockingProblem, validateShift, type Shift, type ShiftDraft, type ShiftProblem, type ValidationContext } from '@/lib/scheduling';
 import { isValidTime } from '@/lib/store-hours';
-import type { StaffMember } from '@/types/models';
+import type { ShopLocation, StaffMember } from '@/types/models';
 
 // The editor is deliberately thin: every rule it enforces comes from
 // validateShift in scheduling.ts, which is unit-tested. There is no React
@@ -18,6 +18,7 @@ export function ShiftEditorModal({
   existing,
   seedMemberId,
   context,
+  locations,
   onClose,
   onSave,
   onDelete,
@@ -32,24 +33,34 @@ export function ShiftEditorModal({
   // opened from.
   seedMemberId?: string | null;
   context: ValidationContext;
+  // Stores this shift may be scheduled at. A shift is always AT one — there is
+  // no business-wide shift — so unlike the accounting editors this picker has
+  // no null option.
+  locations: ShopLocation[];
   onClose: () => void;
-  onSave: (draft: { shopMemberId: string; date: string; start: string; end: string }, note: string | null) => Promise<void>;
+  onSave: (draft: ShiftDraft, note: string | null) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const [memberId, setMemberId] = useState(existing?.shopMemberId ?? seedMemberId ?? members[0]?.id ?? '');
   const [start, setStart] = useState(existing?.start ?? '09:00');
   const [end, setEnd] = useState(existing?.end ?? '17:00');
   const [note, setNote] = useState(existing?.note ?? '');
+  const [locationId, setLocationId] = useState(existing?.locationId ?? locations[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!visible) return null;
 
   const timesValid = isValidTime(start) && isValidTime(end) && end > start;
-  const draft = { shopMemberId: memberId, date, start, end };
+  const draft = { shopMemberId: memberId, locationId, date, start, end };
+  // Hours come from the shift's OWN store, not the device's: once two stores
+  // keep different hours, "outside opening hours" only means anything if it is
+  // asked of the store the shift is actually worked at. This replaces the
+  // interim that read the active store (migration 20260815000000).
+  const hours = locations.find((location) => location.id === locationId)?.openingHours ?? {};
   // Exclude the shift being edited, or it would always clash with itself.
   const problems: ShiftProblem[] = timesValid
-    ? validateShift(draft, { ...context, sameDayShifts: context.sameDayShifts.filter((s) => s.id !== existing?.id) })
+    ? validateShift(draft, { ...context, hours, sameDayShifts: context.sameDayShifts.filter((s) => s.id !== existing?.id) })
     : [];
   const blocked = !timesValid || !memberId || hasBlockingProblem(problems);
 
@@ -88,17 +99,30 @@ export function ShiftEditorModal({
             </Pressable>
           </View>
 
-          <Text style={styles.label}>STAFF</Text>
-          <View style={styles.chips}>
-            {members.map((member) => (
-              <CategoryChip
-                key={member.id}
-                label={member.fullName ?? 'Staff member'}
-                active={memberId === member.id}
-                onPress={() => setMemberId(member.id)}
+          {/* Only when there's a choice — a single-store business has one
+              answer and the row would be noise. */}
+          {locations.length > 1 && (
+            <>
+              <Text style={styles.label}>STORE</Text>
+              <OptionPicker
+                value={locationId}
+                onChange={(id) => id && setLocationId(id)}
+                options={locations.map((location) => ({ id: location.id, label: location.name }))}
+                title="Which store is this shift at?"
               />
-            ))}
-          </View>
+            </>
+          )}
+
+          <Text style={styles.label}>STAFF</Text>
+          {/* The list this most needed a dropdown for: a shop with a dozen
+              staff turned this into four wrapped rows of chips. */}
+          <OptionPicker
+            value={memberId}
+            onChange={(id) => id && setMemberId(id)}
+            options={members.map((member) => ({ id: member.id, label: member.fullName ?? 'Staff member' }))}
+            title="Who is working this shift?"
+            placeholder="Choose someone"
+          />
 
           <View style={styles.timeRow}>
             <View style={styles.timeField}>

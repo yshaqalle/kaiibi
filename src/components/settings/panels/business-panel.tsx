@@ -3,11 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Btn, EditableTextRow, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
-import { toCents } from '@/lib/currency';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
-import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { Shop } from '@/types/models';
 
 function LogoRow({ logoUri, onPick, onRemove }: { logoUri: string | null; onPick: () => void; onRemove: () => void }) {
@@ -28,18 +25,18 @@ function LogoRow({ logoUri, onPick, onRemove }: { logoUri: string | null; onPick
   );
 }
 
-export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+// What the BUSINESS is, of which there is exactly one: its name, logo,
+// description, return policy, revenue goal and pay cycle. Deliberately carries
+// no address, phone or hours — those belong to a place, and a business trades
+// from one or more of them. They live on the store location (migration
+// 20260811000000), which is also what a receipt prints and what a sale, a stock
+// count and a shift point at.
+export function BusinessPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
   const [name, setName] = useState(shop.name ?? '');
-  const [contactPhone, setContactPhone] = useState(shop.contactPhone ?? '');
-  const [city, setCity] = useState(shop.city ?? '');
-  const [neighborhood, setNeighborhood] = useState(shop.neighborhood ?? '');
   const [description, setDescription] = useState(shop.description ?? '');
   const [returnPolicy, setReturnPolicy] = useState(shop.returnPolicy ?? '');
-  const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
-  const [goalInput, setGoalInput] = useState(shopGoalInput);
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
   const [payPeriodAnchor, setPayPeriodAnchor] = useState(shop.payPeriodAnchor ?? '');
-  const [openingHours, setOpeningHours] = useState<OpeningHours>(shop.openingHours);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -47,21 +44,10 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
 
   const dirty =
     name.trim() !== (shop.name ?? '') ||
-    contactPhone.trim() !== (shop.contactPhone ?? '') ||
-    city.trim() !== (shop.city ?? '') ||
-    neighborhood.trim() !== (shop.neighborhood ?? '') ||
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
-    goalInput.trim() !== shopGoalInput ||
     logoUri !== shop.logoUrl ||
-    payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '') ||
-    // Compared by walking WEEK_ORDER rather than JSON.stringify on the raw
-    // objects: Postgres returns jsonb keys sorted bytewise by length then
-    // value, not in the editor's mon…sun insertion order, so a naive
-    // stringify comparison never matches after a round trip through the
-    // database and Save stays enabled forever.
-    JSON.stringify(WEEK_ORDER.map((day) => rangesFor(openingHours, day))) !==
-      JSON.stringify(WEEK_ORDER.map((day) => rangesFor(shop.openingHours, day)));
+    payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '');
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -71,14 +57,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   };
 
   const save = async () => {
-    // A range the rest of the app can't interpret must not reach the database.
-    // Naming the day matters: seven rows of time inputs make "invalid time"
-    // alone useless.
-    const badDay = WEEK_ORDER.find((day) => rangesFor(openingHours, day).some((range) => !isValidRange(range)));
-    if (badDay) {
-      setError(`${DAY_LABELS[badDay]}'s hours aren't valid — use 24-hour times like 09:00, and close after you open.`);
-      return;
-    }
     setSaving(true);
     setError(null);
     try {
@@ -92,15 +70,10 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
       }
       await updateShop(shop.id, {
         name: name.trim(),
-        contactPhone: contactPhone.trim(),
-        city: city.trim(),
-        neighborhood: neighborhood.trim(),
         description: description.trim(),
         returnPolicy: returnPolicy.trim(),
-        monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
         payPeriodAnchor: payPeriodAnchor.trim() || null,
-        openingHours,
       });
       await onSaved();
       setSaved(true);
@@ -116,19 +89,20 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   return (
     <View>
       <PageHeader
-        title="Store"
+        title="Business"
         actionLabel={saving || uploadingLogo ? 'Saving…' : saved ? 'Saved ✓' : 'Save changes'}
         onAction={save}
         actionDisabled={!dirty || saving || uploadingLogo}
       />
       {error && <Text style={styles.error}>{error}</Text>}
-      <Section title="Store details">
+      <Section title="Business details">
+        <Text style={styles.addressHint}>
+          Your address, phone, opening hours and revenue goal belong to each store — set them under Settings → Store
+          locations.
+        </Text>
         <LogoRow logoUri={logoUri} onPick={pickLogo} onRemove={() => setLogoUri(null)} />
-        <EditableTextRow label="Store name" value={name} onChangeText={setName} placeholder="Store name" />
+        <EditableTextRow label="Business name" value={name} onChangeText={setName} placeholder="Business name" />
         <EditableTextRow label="Description" value={description} onChangeText={setDescription} placeholder="A short description of your store" multiline />
-        <EditableTextRow label="City" value={city} onChangeText={setCity} placeholder="City" />
-        <EditableTextRow label="Neighborhood" value={neighborhood} onChangeText={setNeighborhood} placeholder="Neighborhood or landmark" />
-        <EditableTextRow label="Contact phone" value={contactPhone} onChangeText={setContactPhone} placeholder="Phone number" keyboardType="phone-pad" />
         <EditableTextRow
           label="Return policy"
           value={returnPolicy}
@@ -136,7 +110,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
           placeholder="e.g. Returns accepted within 7 days with receipt."
           multiline
         />
-        <EditableTextRow label="Monthly revenue goal" value={goalInput} onChangeText={setGoalInput} placeholder="e.g. 5000" keyboardType="decimal-pad" />
       </Section>
       <Section title="Payroll">
         <EditableTextRow
@@ -145,9 +118,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
           onChangeText={setPayPeriodAnchor}
           placeholder="YYYY-MM-DD"
         />
-      </Section>
-      <Section title="Opening hours">
-        <OpeningHoursEditor value={openingHours} onChange={setOpeningHours} />
       </Section>
       <Section title="Social links">
         {/* Phase 2 placeholders — no social link fields on the shop model yet. */}
@@ -167,5 +137,6 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
 
 const styles = StyleSheet.create({
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 16 },
+  addressHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   logoPreview: { width: 36, height: 36, borderRadius: 8 },
 });

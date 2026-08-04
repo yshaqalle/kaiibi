@@ -20,24 +20,19 @@ export type Shop = {
   ownerId: string;
   name: string;
   description: string | null;
-  city: string | null;
-  neighborhood: string | null;
-  contactPhone: string | null;
+  // No address here on purpose: a business doesn't have a street, its branches
+  // do. City/neighborhood/phone live on `ShopLocation` — see migration
+  // 20260811000000. A one-branch shop edits them under Settings → Store, which
+  // writes them to its primary location.
   // Printed on receipts (Print/Save/Email/WhatsApp) — see src/lib/receipt.ts.
   returnPolicy: string | null;
   // Shown in the admin sidebar avatar and on receipts.
   logoUrl: string | null;
   categories: string[];
-  // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
-  // until the admin sets one — the meter is hidden until then.
-  monthlyRevenueGoalCents: number | null;
   // Start date the weekly/biweekly pay cycles count from. Null until set; the
   // period picker asks for it rather than guessing, because a defaulted anchor
   // would silently choose everyone's pay days.
   payPeriodAnchor: string | null;
-  // Weekly opening hours. `{}` means the owner hasn't set them, which renders
-  // as nothing rather than as "closed all week".
-  openingHours: OpeningHours;
   // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
   // 2.5, editable) is applied server-side to every sale's post-discount
   // subtotal — see complete_sale/edit_sale in migration 0015.
@@ -78,6 +73,64 @@ export type Shop = {
   createdAt: string;
 };
 
+// A physical store. `Shop` is the business (the tenant every shop_id points
+// at); this is one of the places it trades from. A shop always has at least
+// one — migration 20260808000000 backfills a primary "Main" carrying the
+// address the shop row already held — so consumers never have to handle a
+// shop with no location.
+export type ShopLocation = {
+  id: string;
+  shopId: string;
+  name: string;
+  // Short, stable branch identifier ("002", "AR"). Optional — a small shop
+  // needs only the name. Used where a rename must not break the reference
+  // (imports, exports, per-branch accounting rows), never on a customer
+  // receipt. Distinct from the unit number inside `address`.
+  code: string | null;
+  city: string | null;
+  neighborhood: string | null;
+  address: string | null;
+  contactPhone: string | null;
+  // Weekly opening hours for THIS branch. `{}` means nobody has set them, which
+  // renders as nothing rather than as "closed all week". Lived on `Shop` until
+  // migration 20260809000000 moved it here — hours belong to a place, and two
+  // branches rarely keep the same ones.
+  openingHours: OpeningHours;
+  // This store's monthly revenue target. Null until set — the dashboard's goal
+  // meter is hidden rather than showing a zero target. Lives here, not on the
+  // business: a flagship and a kiosk don't share a target, and the
+  // business-wide figure is the sum across stores (migration 20260813000000).
+  monthlyRevenueGoalCents: number | null;
+  // Exactly one per shop. The fallback whenever a location isn't otherwise
+  // resolvable — what a fresh device selects before anyone chooses.
+  isPrimary: boolean;
+  // A closed branch is deactivated, never deleted: its sales and shifts stay
+  // readable. Inactive locations are hidden from the switcher.
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewShopLocationInput = Omit<
+  ShopLocation,
+  'id' | 'shopId' | 'isPrimary' | 'createdAt' | 'updatedAt'
+>;
+
+// How many units of a product sit at one branch. `Product.stock` is the sum of
+// these across every location, maintained by trigger (migration
+// 20260810000000) — writing to it directly has no effect, so this is the only
+// representation that actually decides anything.
+export type ProductLocationStock = {
+  productId: string;
+  locationId: string;
+  stock: number;
+  // Per-branch overrides of the product's own values. Null means "use the
+  // product's" — a flagship branch can carry a deeper reorder level than a
+  // kiosk, and the same item sits on a different shelf in each.
+  reorderLevel: number | null;
+  shelfNumber: string | null;
+};
+
 // An alternate currency a shop accepts as a way to settle a payment line
 // (see PaymentLine below) — USD itself is not a row here, it's the
 // implicit default when a payment's currencyCode is null. `rateToUsd` is
@@ -113,6 +166,11 @@ export type Product = {
   batchNumber: string | null;
   imageUrl: string | null;
   isListedOnline: boolean;
+  // Where this product's stock actually sits, per store. Populated by
+  // `listProducts`; absent on the single-product reads that don't need it.
+  // `stock` above stays the headline number — the shop-wide rollup, or this
+  // store's count when the list was scoped — so existing readers are unaffected.
+  locationStock?: { locationId: string; stock: number }[];
   createdAt: string;
   updatedAt: string;
 };
@@ -149,6 +207,9 @@ export type CustomerPurchase = {
   unitPriceCents: number;
   lineTotalCents: number;
   paymentMethod: string;
+  // Which store the sale was rung up at. Always set — `sales.location_id` is
+  // NOT NULL (migration 20260809000000).
+  locationId: string;
   createdAt: string;
 };
 
@@ -172,6 +233,11 @@ export type CartLine = {
 export type Promotion = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   name: string;
   discountType: 'percentage' | 'fixed';
   discountValue: number;
@@ -284,6 +350,10 @@ export type Refund = {
 export type Sale = {
   id: string;
   shopId: string;
+  // Which branch rang this sale up. Not null in the database (migration
+  // 20260809000000 backfilled every pre-existing sale to its shop's primary
+  // location), so per-location reporting can never have an unattributed row.
+  locationId: string;
   createdBy: string | null;
   paymentMethod: PaymentMethod;
   paymentNote: string | null;
@@ -375,6 +445,11 @@ export type ExpenseCategory =
 export type Expense = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   // When the money was actually spent, which is what decides the reporting
   // period — distinct from `createdAt`, when the receipt got typed in.
   occurredOn: string;
@@ -407,6 +482,11 @@ export type NewExpenseInput = Omit<
 export type Invoice = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   vendorId: string | null;
   // Frozen at creation, like Sale's customer fields — the record of who a bill
   // was owed to has to survive the vendor being renamed or removed.
@@ -446,6 +526,10 @@ export type NewInvoiceInput = Omit<
 export type CashAccount = {
   id: string;
   shopId: string;
+  // Which store this drawer or account belongs to. Always set: a till sits on a
+  // counter, and two stores each counting their own is the point (migration
+  // 20260815000000).
+  locationId: string;
   name: string;
   accountType: 'cash' | 'bank' | 'mobile_money' | 'other';
   // May be negative: a bank account can be overdrawn.
@@ -463,6 +547,11 @@ export type NewCashAccountInput = Omit<CashAccount, 'id' | 'shopId' | 'balanceAs
 export type RecurringBill = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   name: string;
   category: ExpenseCategory;
   frequency: 'weekly' | 'biweekly' | 'monthly' | 'quarterly' | 'yearly';
@@ -481,6 +570,11 @@ export type NewRecurringBillInput = Omit<RecurringBill, 'id' | 'shopId' | 'creat
 export type Budget = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   category: ExpenseCategory;
   limitCents: number;
   createdAt: string;
@@ -492,6 +586,11 @@ export type Budget = {
 export type PayrollRun = {
   id: string;
   shopId: string;
+  // Which store this belongs to. NULL = business-wide — head-office costs,
+  // group marketing, a licence covering every store. A real value, not a gap:
+  // per-store reporting excludes it, business-wide reporting includes it
+  // (migration 20260816000000).
+  locationId: string | null;
   periodStart: string;
   periodEnd: string;
   status: 'draft' | 'posted';
@@ -540,6 +639,10 @@ export type Tag = {
 export type Cashier = {
   id: string;
   shopId: string;
+  // Which store this happened at. Always set (migration 20260815000000) — a
+  // shift, a clock-in or a till without a store is a gap in the data, never a
+  // legitimate state.
+  locationId: string;
   name: string;
   createdAt: string;
 };
@@ -558,6 +661,15 @@ export type StaffMember = {
   userId: string;
   roleId: string;
   roleName: string;
+  // Which stores this person works at. An EMPTY array means every store — a
+  // person can cover two of three, so this is a set, not a single choice
+  // (migration 20260814000000). Access is (stores, role): the role says what
+  // they may do, this says where. Enforced by can_access_location() in the
+  // database, not only in the UI.
+  //
+  // Ids only, no names: the client already holds the store list and joins by
+  // id, which is what keeps a rename from leaving stale names behind.
+  locationIds: string[];
   active: boolean;
   fullName: string | null;
   email: string | null;
@@ -573,6 +685,10 @@ export type StaffMember = {
 export type TimeEntry = {
   id: string;
   shopId: string;
+  // Which store this happened at. Always set (migration 20260815000000) — a
+  // shift, a clock-in or a till without a store is a gap in the data, never a
+  // legitimate state.
+  locationId: string;
   shopMemberId: string;
   clockIn: string;
   clockOut: string | null;

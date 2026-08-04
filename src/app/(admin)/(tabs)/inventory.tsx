@@ -6,11 +6,15 @@ import { Card } from '@/components/card';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { ProductModal } from '@/components/product-modal';
+import { StoreDropdown } from '@/components/store-dropdown';
+import { StockByStoreModal } from '@/components/stock-by-store-modal';
+import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
-import { createProduct, listProducts, updateProduct } from '@/lib/products';
+import { hasMultipleLocations } from '@/lib/location-selection';
+import { createProduct, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 
@@ -32,7 +36,7 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
 ];
 
 export default function InventoryScreen() {
-  const { shop, can } = useAuth();
+  const { shop, can, locations, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
   // `inventory.view` alone is a read-only view of the catalog (the seeded
@@ -48,21 +52,47 @@ export default function InventoryScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  // null = the shop-wide rollup, which is what this screen has always shown.
+  // The picker only appears once there is a second branch.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const showLocationFilter = hasMultipleLocations(locations);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
-    setProducts(await listProducts(shop.id));
+    setProducts(await listProducts(shop.id, locationFilter));
     setLoading(false);
-  }, [shop]);
+  }, [shop, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Stock changes go through product_location_stock, never products.stock --
+  // that column is derived by trigger now, so `updateProduct({ stock })` would
+  // be silently discarded (migration 20260810000000).
+  //
+  // Which branch gets adjusted: the one being viewed, or this device's active
+  // location when viewing the combined rollup. Adjusting a rollup is
+  // meaningless -- "set stock to 12" across three branches has no single right
+  // answer -- so we refuse rather than guess when neither is resolved.
+  const stockLocationId = locationFilter ?? activeLocation?.id ?? null;
+  // Only when a store is actually selected is a direct +/- unambiguous. In the
+  // combined view of a multi-store business the row shows the total and opens
+  // the per-store breakdown instead.
+  const showsCombinedTotal = showLocationFilter && locationFilter === null;
   const adjustStock = async (product: Product, nextStock: number) => {
+    if (!stockLocationId) {
+      setStockError('Pick a location before adjusting stock.');
+      return;
+    }
+    setStockError(null);
     try {
-      const updated = await updateProduct(product.id, { stock: nextStock });
-      setProducts((current) => current.map((p) => (p.id === updated.id ? updated : p)));
-    } catch {
+      await setLocationStock(product.id, stockLocationId, nextStock);
+      await reload();
+    } catch (err) {
+      setStockError(err instanceof Error ? err.message : 'Could not update stock.');
       await reload();
     }
   };
@@ -110,6 +140,36 @@ export default function InventoryScreen() {
       }
     : null;
 
+  // What the LOCATION cell says for a row.
+  //
+  // Scoped to one store, every row is that store — the cell repeats it so a
+  // printed or exported table still says which store it describes.
+  //
+  // In the combined view a product can be carried at several. One store gets
+  // named; more than one gets a COUNT, tappable to see which. Naming one and
+  // appending "+2" implied the named store mattered more, and made the cell a
+  // different length on every row; a count says plainly that there is a set,
+  // and the names are one tap away in the breakdown that was already there.
+  //
+  // Counted by rows CARRIED, not rows in stock — a store that stocks an item
+  // and has run out still stocks it, which is the same distinction the list
+  // filter makes.
+  const locationLabelFor = useCallback(
+    (product: Product): { text: string; multiple: boolean } | undefined => {
+      if (!showLocationFilter) return undefined;
+      if (locationFilter) {
+        return { text: locations.find((l) => l.id === locationFilter)?.name ?? '—', multiple: false };
+      }
+      const carried = product.locationStock ?? [];
+      if (carried.length === 0) return { text: '—', multiple: false };
+      if (carried.length === 1) {
+        return { text: locations.find((l) => l.id === carried[0].locationId)?.name ?? '—', multiple: false };
+      }
+      return { text: `${carried.length} stores`, multiple: true };
+    },
+    [showLocationFilter, locationFilter, locations]
+  );
+
   const defaultLowStockLevel = shop?.defaultLowStockLevel ?? 5;
   const expiryWarningLeadDays = shop?.expiryTrackingEnabled ? shop.expiryWarningLeadDays : undefined;
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
@@ -123,7 +183,15 @@ export default function InventoryScreen() {
             <Text style={styles.subtitle}>{products.length} products · {needsAttention} need attention</Text>
           </View>
           <View style={styles.headerActions}>
+            <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
             <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
+            {/* Only with somewhere to move stock TO — a one-store shop has no
+                transfer to make, and the button would be a dead end. */}
+            {canEdit && showLocationFilter && (
+              <Pressable onPress={() => setShowTransfer(true)} style={styles.importButton}>
+                <Text style={styles.importButtonText}>Move stock</Text>
+              </Pressable>
+            )}
             {canEdit && (
               <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
                 <Text style={styles.importButtonText}>Import</Text>
@@ -137,10 +205,19 @@ export default function InventoryScreen() {
           </View>
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
+        {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
-          <Text style={styles.empty}>No products yet. Add your first one above.</Text>
+          <Text style={styles.empty}>
+            {locationFilter
+              ? // A store carries a product once it has a stock row there, so an
+                // empty list here is a real answer, not a missing filter. It
+                // also has to say how to change that, since the routes in are
+                // all somewhere else.
+                `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+              : 'No products yet. Add your first one above.'}
+          </Text>
         ) : (
           <Card style={styles.list}>
             {compact ? (
@@ -149,22 +226,25 @@ export default function InventoryScreen() {
                   key={product.id}
                   product={product}
                   onEdit={canEdit ? () => setEditingProduct(product) : undefined}
-                  onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                  onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
+                  onOpenBreakdown={showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                   defaultLowStockLevel={defaultLowStockLevel}
                   expiryWarningLeadDays={expiryWarningLeadDays}
                 />
               ))
             ) : (
               <>
-                <ProductTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} />
+                <ProductTableHeader sortField={sortField} sortDirection={sortDirection} onSort={toggleSort} showLocation={showLocationFilter} />
                 {filtered.map((product) => (
                   <ProductTableRow
                     key={product.id}
                     product={product}
                     onEdit={canEdit ? () => setEditingProduct(product) : undefined}
-                    onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                    onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
+                    onOpenBreakdown={showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                     defaultLowStockLevel={defaultLowStockLevel}
                     expiryWarningLeadDays={expiryWarningLeadDays}
+                    locationLabel={locationLabelFor(product)}
                   />
                 ))}
               </>
@@ -178,7 +258,8 @@ export default function InventoryScreen() {
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
           shopId={shop.id}
-          onSubmit={async (input) => { await createProduct(shop.id, input); await reload(); }}
+          defaultLocationId={stockLocationId}
+          onSubmit={async (input, locationId) => { await createProduct(shop.id, input, locationId ?? stockLocationId); await reload(); }}
         />
       )}
       {shop && canEdit && (
@@ -187,12 +268,29 @@ export default function InventoryScreen() {
           onClose={() => setEditingProduct(null)}
           shopId={shop.id}
           initial={editingProduct ?? undefined}
-          onSubmit={async (input) => { if (editingProduct) await updateProduct(editingProduct.id, input); await reload(); }}
+          onSubmit={async (input, locationId) => { if (editingProduct) await updateProduct(editingProduct.id, input, locationId ?? stockLocationId); await reload(); }}
           onDeleted={reload}
         />
       )}
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
+      )}
+      {breakdownProduct && (
+        <StockByStoreModal
+          key={breakdownProduct.id}
+          product={breakdownProduct}
+          onClose={() => setBreakdownProduct(null)}
+          onChanged={reload}
+          canEdit={canEdit}
+        />
+      )}
+      {shop && canEdit && (
+        <StockTransferModal
+          visible={showTransfer}
+          shopId={shop.id}
+          onClose={() => setShowTransfer(false)}
+          onDone={reload}
+        />
       )}
     </SafeAreaView>
   );
@@ -210,6 +308,7 @@ const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
+  stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
   list: { overflow: 'hidden' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
 });

@@ -13,6 +13,7 @@ function makeMember(overrides: Partial<StaffMember> = {}): StaffMember {
     userId: 'u1',
     roleId: 'r1',
     roleName: 'Cashier',
+    locationIds: [],
     active: true,
     fullName: 'Hodan Ali',
     email: null,
@@ -32,6 +33,7 @@ function makeEntry(day: string, hours: number, overrides: Partial<TimeEntry> = {
   return {
     id: `${day}-${hours}`,
     shopId: 'shop1',
+    locationId: 'loc1',
     shopMemberId: 'm1',
     clockIn: start.toISOString(),
     clockOut: new Date(start.getTime() + hours * 3_600_000).toISOString(),
@@ -385,6 +387,7 @@ function makeRun(
   return {
     id: `${periodStart}-${periodEnd}`,
     shopId: 'shop1',
+    locationId: null,
     periodStart,
     periodEnd,
     status,

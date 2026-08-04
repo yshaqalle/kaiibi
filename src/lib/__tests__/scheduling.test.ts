@@ -23,6 +23,7 @@ function makeShift(overrides: Partial<Shift> = {}): Shift {
   return {
     id: 's1',
     shopId: 'shop1',
+    locationId: 'loc1',
     shopMemberId: 'm1',
     date: MONDAY,
     start: '09:00',
@@ -39,7 +40,7 @@ function context(overrides: Partial<ValidationContext> = {}): ValidationContext 
 describe('validateShift — overlap', () => {
   it('blocks a shift overlapping another for the same member that day', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '12:00', end: '17:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '12:00', end: '17:00' },
       context({ sameDayShifts: [makeShift()] })
     );
     expect(problems).toHaveLength(1);
@@ -49,7 +50,7 @@ describe('validateShift — overlap', () => {
   // The boundary rule: back-to-back shifts are normal and must be allowed.
   it('allows a shift starting exactly when another ends', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '13:00', end: '17:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '13:00', end: '17:00' },
       context({ sameDayShifts: [makeShift()] })
     );
     expect(problems).toEqual([]);
@@ -57,7 +58,7 @@ describe('validateShift — overlap', () => {
 
   it('ignores a shift belonging to a different member', () => {
     const problems = validateShift(
-      { shopMemberId: 'm2', date: MONDAY, start: '12:00', end: '17:00' },
+      { shopMemberId: 'm2', locationId: 'loc1', date: MONDAY, start: '12:00', end: '17:00' },
       context({ sameDayShifts: [makeShift({ shopMemberId: 'm1' })] })
     );
     expect(problems).toEqual([]);
@@ -65,7 +66,7 @@ describe('validateShift — overlap', () => {
 
   it('ignores a shift on a different day', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: '2026-08-04', start: '09:00', end: '13:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: '2026-08-04', start: '09:00', end: '13:00' },
       context({ sameDayShifts: [makeShift({ date: MONDAY })] })
     );
     expect(problems).toEqual([]);
@@ -75,7 +76,7 @@ describe('validateShift — overlap', () => {
 describe('validateShift — opening hours', () => {
   it('warns when the shift falls outside opening hours', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '07:00', end: '10:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '07:00', end: '10:00' },
       context()
     );
     expect(problems).toHaveLength(1);
@@ -83,7 +84,7 @@ describe('validateShift — opening hours', () => {
   });
 
   it('does not warn for a shift inside opening hours', () => {
-    const problems = validateShift({ shopMemberId: 'm1', date: MONDAY, start: '09:00', end: '18:00' }, context());
+    const problems = validateShift({ shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '09:00', end: '18:00' }, context());
     expect(problems).toEqual([]);
   });
 
@@ -91,7 +92,7 @@ describe('validateShift — opening hours', () => {
   // shop that never opened Settings would warn on every shift it ever created.
   it('skips the hours check entirely when the shop has no hours configured', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '03:00', end: '05:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '03:00', end: '05:00' },
       context({ hours: {} })
     );
     expect(problems).toEqual([]);
@@ -99,7 +100,7 @@ describe('validateShift — opening hours', () => {
 
   it('warns on a day the shop is closed', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: '2026-08-09', start: '09:00', end: '13:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: '2026-08-09', start: '09:00', end: '13:00' },
       context()
     );
     expect(problems[0]).toMatchObject({ kind: 'outside_hours' });
@@ -109,7 +110,7 @@ describe('validateShift — opening hours', () => {
 describe('validateShift — leave', () => {
   it('warns when the member has approved leave that day', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '09:00', end: '13:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '09:00', end: '13:00' },
       context({ onLeave: new Set(['m1']) })
     );
     expect(problems).toHaveLength(1);
@@ -118,7 +119,7 @@ describe('validateShift — leave', () => {
 
   it('reports an overlap and leave together', () => {
     const problems = validateShift(
-      { shopMemberId: 'm1', date: MONDAY, start: '12:00', end: '17:00' },
+      { shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '12:00', end: '17:00' },
       context({ onLeave: new Set(['m1']), sameDayShifts: [makeShift()] })
     );
     expect(problems.map((p) => p.kind).sort()).toEqual(['on_leave', 'overlap']);
@@ -135,7 +136,7 @@ describe('hasBlockingProblem', () => {
 
 describe('shiftMinutes', () => {
   it('measures the shift in minutes', () => {
-    expect(shiftMinutes({ shopMemberId: 'm1', date: MONDAY, start: '09:00', end: '13:30' })).toBe(270);
+    expect(shiftMinutes({ shopMemberId: 'm1', locationId: 'loc1', date: MONDAY, start: '09:00', end: '13:30' })).toBe(270);
   });
 });
 
@@ -197,7 +198,7 @@ describe('shiftsToCopy', () => {
   it('shifts every date forward by a week', () => {
     const { copy, skipped } = shiftsToCopy([makeShift()], []);
     expect(skipped).toBe(0);
-    expect(copy).toEqual([{ shopMemberId: 'm1', date: '2026-08-10', start: '09:00', end: '13:00' }]);
+    expect(copy).toEqual([{ shopMemberId: 'm1', locationId: 'loc1', date: '2026-08-10', start: '09:00', end: '13:00' }]);
   });
 
   it('skips one that would clash with a shift already there', () => {

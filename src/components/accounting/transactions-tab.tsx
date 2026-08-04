@@ -15,6 +15,7 @@ import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
 import { formatCents, formatCompactCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
@@ -70,7 +71,7 @@ export function TransactionsTab({
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
 }) {
-  const { shop, can } = useAuth();
+  const { shop, can, locations } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
   // `sales.view` is read-only history (receipts included); rewriting or
@@ -92,6 +93,11 @@ export function TransactionsTab({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  // null = every location. Combined is the default because it is what this
+  // screen has always shown and what a single-location shop needs; the picker
+  // below only appears once there is a second branch to pick.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const showLocationFilter = hasMultipleLocations(locations);
 
   const { since: sinceDate, until: untilDate } = dateRange;
 
@@ -99,7 +105,10 @@ export function TransactionsTab({
     if (!shop) return;
     setLoading(true);
     try {
-      const [salesRows, productRows] = await Promise.all([listSalesInRange(shop.id, sinceDate, untilDate), listProducts(shop.id)]);
+      const [salesRows, productRows] = await Promise.all([
+        listSalesInRange(shop.id, sinceDate, untilDate, undefined, locationFilter),
+        listProducts(shop.id),
+      ]);
       setSales(salesRows);
       setProducts(productRows);
     } catch (err) {
@@ -107,7 +116,7 @@ export function TransactionsTab({
     } finally {
       setLoading(false);
     }
-  }, [shop, sinceDate, untilDate]);
+  }, [shop, sinceDate, untilDate, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -197,6 +206,26 @@ export function TransactionsTab({
         placeholderTextColor="#999999"
         style={styles.search}
       />
+
+      {showLocationFilter && (
+        <View style={styles.locationFilterRow}>
+          <Pressable
+            onPress={() => setLocationFilter(null)}
+            style={[styles.locationChip, locationFilter === null && styles.locationChipActive]}
+          >
+            <Text style={[styles.locationChipText, locationFilter === null && styles.locationChipTextActive]}>All locations</Text>
+          </Pressable>
+          {locations.filter((location) => location.active).map((location) => (
+            <Pressable
+              key={location.id}
+              onPress={() => setLocationFilter(location.id)}
+              style={[styles.locationChip, locationFilter === location.id && styles.locationChipActive]}
+            >
+              <Text style={[styles.locationChipText, locationFilter === location.id && styles.locationChipTextActive]}>{location.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
 
       {error && <Text style={styles.error}>{error}</Text>}
 
@@ -323,7 +352,7 @@ function SaleRow({
   onCancelDelete: () => void;
   onDelete: () => void;
 }) {
-  const { shop } = useAuth();
+  const { shop, locations } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showRefund, setShowRefund] = useState(false);
@@ -455,7 +484,24 @@ function SaleRow({
         <SaleEditor sale={sale} products={products} shop={shop} onCancel={onCancelEdit} onSaved={onSaved} />
       )}
 
-      {shop && <ReceiptModal receipt={showReceipt ? buildReceiptFromSale(sale, shop) : null} onClose={() => setShowReceipt(false)} title="Receipt" />}
+      {/* Reprints carry the branch the sale was actually rung up at, not
+          whichever one this device happens to be set to now. */}
+      {shop && (
+        <ReceiptModal
+          receipt={
+            showReceipt
+              ? buildReceiptFromSale(
+                  sale,
+                  shop,
+                  locations.find((location) => location.id === sale.locationId) ?? null,
+                  hasMultipleLocations(locations)
+                )
+              : null
+          }
+          onClose={() => setShowReceipt(false)}
+          title="Receipt"
+        />
+      )}
       <RefundModal
         visible={showRefund}
         sale={sale}
@@ -607,6 +653,11 @@ const styles = StyleSheet.create({
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
+  locationFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
+  locationChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  locationChipActive: { backgroundColor: '#111111' },
+  locationChipText: { fontSize: 12, fontWeight: '700', color: '#111111' },
+  locationChipTextActive: { color: '#FFFFFF' },
   list: { gap: 10 },
   listTable: { gap: 0 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 14, borderWidth: 1, borderColor: '#ECECEC', overflow: 'hidden' },

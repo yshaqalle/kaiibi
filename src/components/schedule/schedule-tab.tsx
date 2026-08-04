@@ -23,7 +23,7 @@ function totalHours(shifts: Shift[]): string {
 }
 
 export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
-  const { shop } = useAuth();
+  const { shop, locations, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
 
@@ -204,8 +204,12 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           members={members}
           existing={editing.shift}
           seedMemberId={editing.memberId}
+          locations={locations.filter((location) => location.active)}
           context={{
-            hours: shop?.openingHours ?? {},
+            // A placeholder: the modal overrides this with the hours of the
+            // store the shift is actually assigned to, which is the only
+            // reading that means anything once two stores differ.
+            hours: activeLocation?.openingHours ?? {},
             onLeave: onLeaveMemberIds(timeOff, fromDateColumn(editing.date)),
             sameDayShifts: shifts.filter((shift) => shift.date === editing.date),
           }}

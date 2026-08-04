@@ -13,6 +13,7 @@ function makeAccount(overrides: Partial<CashAccount> = {}): CashAccount {
   return {
     id: 'a1',
     shopId: 'shop1',
+    locationId: 'loc1',
     name: 'Cash drawer',
     accountType: 'cash',
     balanceCents: 18000,
@@ -28,6 +29,7 @@ function makeBill(overrides: Partial<RecurringBill> = {}): RecurringBill {
   return {
     id: 'b1',
     shopId: 'shop1',
+    locationId: null,
     name: 'Wadaadiid Mall rent',
     category: 'rent',
     frequency: 'monthly',
@@ -47,6 +49,7 @@ function makeExpense(overrides: Partial<Expense> = {}): Expense {
   return {
     id: 'e1',
     shopId: 'shop1',
+    locationId: null,
     occurredOn: '2026-08-10',
     amountCents: 10000,
     category: 'rent',
@@ -67,6 +70,7 @@ function makeBudget(category: Budget['category'], limitCents: number): Budget {
   return {
     id: `budget-${category}`,
     shopId: 'shop1',
+    locationId: null,
     category,
     limitCents,
     createdAt: '2026-08-01T00:00:00.000Z',

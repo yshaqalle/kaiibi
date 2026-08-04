@@ -8,12 +8,13 @@ import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels
 // NotificationsPanel is unused for now — nav item hidden in settings-sidebar.tsx,
 // no send infrastructure exists yet (see docs/backlog/2026-08-01-notification-delivery.md).
 // import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
+import { LocationsPanel } from '@/components/settings/panels/locations-panel';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
 import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { RolesPanel } from '@/components/settings/panels/roles-panel';
-import { StorePanel } from '@/components/settings/panels/store-panel';
+import { BusinessPanel } from '@/components/settings/panels/business-panel';
 import { VendorsPanel } from '@/components/settings/panels/vendors-panel';
 import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -27,10 +28,15 @@ import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
+import { listLocations } from '@/lib/locations';
 import { listVendors } from '@/lib/vendors';
-import type { Brand, Category, Currency, Product, Promotion, Role, Vendor } from '@/types/models';
+import type { Brand, Category, Currency, Product, Promotion, Role, ShopLocation, Vendor } from '@/types/models';
 
 export default function SettingsScreen() {
+  // Managing stores needs ALL of them, which is wider than `useAuth().locations`
+  // -- that is narrowed to the stores this user may operate at (a manager
+  // assigned to one store still administers the rest). refreshShop() is still
+  // called on save so the header switcher picks the edit up too.
   const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
@@ -47,6 +53,7 @@ export default function SettingsScreen() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [allLocations, setAllLocations] = useState<ShopLocation[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [roleUsage, setRoleUsage] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -60,7 +67,7 @@ export default function SettingsScreen() {
     // Not reset to true on subsequent calls -- reload() also runs after every
     // add/rename/delete/color-change, and flipping loading back to true would
     // unmount panels (and close any open modal) each time.
-    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult] =
+    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult, locationsResult] =
       await Promise.allSettled([
         listBrands(shop.id),
         listCategories(shop.id),
@@ -70,6 +77,7 @@ export default function SettingsScreen() {
         listPromotions(shop.id),
         listCurrencies(shop.id),
         listVendors(shop.id),
+        listLocations(shop.id),
       ]);
     if (brandsResult.status === 'fulfilled') setBrandRows(brandsResult.value);
     if (categoriesResult.status === 'fulfilled') setCategoryRows(categoriesResult.value);
@@ -82,6 +90,7 @@ export default function SettingsScreen() {
     if (promotionsResult.status === 'fulfilled') setPromotions(promotionsResult.value);
     if (currenciesResult.status === 'fulfilled') setCurrencies(currenciesResult.value);
     if (vendorsResult.status === 'fulfilled') setVendors(vendorsResult.value);
+    if (locationsResult.status === 'fulfilled') setAllLocations(locationsResult.value);
 
     const results: PromiseSettledResult<unknown>[] = [
       brandsResult,
@@ -92,6 +101,7 @@ export default function SettingsScreen() {
       promotionsResult,
       currenciesResult,
       vendorsResult,
+      locationsResult,
     ];
 
     // Roles/staff are only fetched for owners/managers who can actually see
@@ -153,8 +163,10 @@ export default function SettingsScreen() {
     switch (activeNav) {
       case 'profile':
         return profile ? <ProfilePanel profile={profile} email={session?.user.email ?? null} onSaved={setProfile} /> : null;
-      case 'store':
-        return <StorePanel shop={shop} onSaved={refreshShop} />;
+      case 'business':
+        return <BusinessPanel shop={shop} onSaved={refreshShop} />;
+      case 'locations':
+        return <LocationsPanel shopId={shop.id} locations={allLocations} onChange={async () => { await reload(); await refreshShop(); }} />;
       case 'receipt':
         return <ReceiptPanel shop={shop} onSaved={refreshShop} />;
       case 'catalog':

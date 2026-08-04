@@ -12,6 +12,13 @@ export type ReceiptItem = { name: string; quantity: number; unitPriceCents: numb
 export type ReceiptData = {
   shopName: string;
   shopLogoUrl: string | null;
+  // The name of the branch this sale was rung up at, printed under the shop
+  // name. Null for a single-location shop — repeating "Main" under the shop's
+  // own name tells the customer nothing.
+  locationName: string | null;
+  // The address, phone and hours below are the SELLING LOCATION's, not the
+  // business's: a receipt is proof of a transaction at a place, and the
+  // customer holding it needs to know which door to come back to.
   shopCity: string | null;
   shopNeighborhood: string | null;
   shopContactPhone: string | null;
@@ -41,6 +48,18 @@ export type ReceiptData = {
   totalCents: number;
   createdAt: string;
 };
+
+// The store's name, but only when it adds something. A shop's first store is
+// created named after the business (migration 20260808000000), so printing both
+// gives a receipt with the same words twice — which is what happens the moment a
+// second store is added and the name starts being printed at all.
+//
+// Exported so the POS checkout path, which builds a ReceiptData directly rather
+// than from a Sale, applies the same rule.
+export function storeNameFor(shopName: string, locationName: string | null, show: boolean): string | null {
+  if (!show || !locationName) return null;
+  return locationName.trim() === shopName.trim() ? null : locationName;
+}
 
 function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhood'>): string | null {
   const parts = [receipt.shopCity, receipt.shopNeighborhood].filter((p): p is string => Boolean(p && p.trim()));
@@ -75,28 +94,46 @@ export function formatTodayHours(hours: OpeningHours | undefined, on: Date): str
 // Reconstructs a receipt for a past sale — so a customer who comes back
 // later asking for their receipt again can be helped from the Sales screen,
 // not just right after checkout.
+// `location` is the branch the sale was rung up at, resolved by the caller from
+// `sale.locationId`, and it is the ONLY source of the address, phone and hours —
+// the shop itself no longer has any (migration 20260811000000). There is
+// deliberately nothing to fall back to: a second source is what let a receipt
+// print an address the owner had already changed.
+//
+// An unresolved location therefore prints no address rather than a stale one,
+// which is the right failure — a receipt with no address is incomplete, a
+// receipt with the wrong address sends someone to the wrong door.
+//
+// `showLocationName` is the caller's decision rather than inferred here,
+// because "is this shop multi-location" is a fact about the shop, not about the
+// one location passed in.
 export function buildReceiptFromSale(
   sale: Sale,
   shop: {
     name: string;
     logoUrl: string | null;
+    returnPolicy: string | null;
+    receiptShowLogo?: boolean;
+    receiptShowCashierName?: boolean;
+  },
+  location?: {
+    name: string;
     city: string | null;
     neighborhood: string | null;
     contactPhone: string | null;
-    returnPolicy: string | null;
-    openingHours?: OpeningHours;
-    receiptShowLogo?: boolean;
-    receiptShowCashierName?: boolean;
-  }
+    openingHours: OpeningHours;
+  } | null,
+  showLocationName = false
 ): ReceiptData {
   const subtotalCents = (sale.items ?? []).reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   return {
     shopName: shop.name,
     shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
-    shopCity: shop.city,
-    shopNeighborhood: shop.neighborhood,
-    shopContactPhone: shop.contactPhone,
-    shopHours: formatTodayHours(shop.openingHours, new Date(sale.createdAt)),
+    locationName: storeNameFor(shop.name, location?.name ?? null, showLocationName),
+    shopCity: location?.city ?? null,
+    shopNeighborhood: location?.neighborhood ?? null,
+    shopContactPhone: location?.contactPhone ?? null,
+    shopHours: formatTodayHours(location?.openingHours, new Date(sale.createdAt)),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
@@ -137,6 +174,7 @@ function formatPaymentLine(payment: PaymentLine): string {
 export function buildReceiptText(receipt: ReceiptData): string {
   const lines: string[] = [];
   lines.push(receipt.shopName);
+  if (receipt.locationName) lines.push(receipt.locationName);
   const location = formatLocation(receipt);
   if (location) lines.push(location);
   if (receipt.shopContactPhone) lines.push(receipt.shopContactPhone);
@@ -257,6 +295,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     <div class="head">
       ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
       <div class="shop">${esc(receipt.shopName)}</div>
+      ${receipt.locationName ? `<div class="muted">${esc(receipt.locationName)}</div>` : ''}
       ${location ? `<div class="muted">${esc(location)}</div>` : ''}
       ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
       ${receipt.shopHours ? `<div class="muted">${esc(receipt.shopHours)}</div>` : ''}

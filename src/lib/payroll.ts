@@ -26,6 +26,7 @@ function mapRunRow(row: any): PayrollRun {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id ?? null,
     periodStart: row.period_start,
     periodEnd: row.period_end,
     status: row.status,
@@ -56,18 +57,25 @@ export async function listPayrollRuns(shopId: string): Promise<PayrollRun[]> {
 // Creates the run and its computed lines together. The lines are written from
 // an already-computed draft rather than recomputed server-side, so what gets
 // stored is exactly what was reviewed on screen.
+// `locationId` is which store's labour this run covers. Null = the whole
+// business, which is the right answer for a shop that runs one payroll across
+// every store, and stays the default so nothing changes for a single-store
+// shop. When set, posting the run produces an expense carrying the same store,
+// so labour lands in that store's P&L.
 export async function createPayrollRun(
   shopId: string,
   periodStart: string,
   periodEnd: string,
   lines: PayrollDraftLine[],
-  cadence: PayrollRun['cadence']
+  cadence: PayrollRun['cadence'],
+  locationId?: string | null
 ): Promise<PayrollRun> {
   const { data: userData } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from('payroll_runs')
     .insert({
       shop_id: shopId,
+      location_id: locationId ?? null,
       period_start: periodStart,
       period_end: periodEnd,
       cadence,

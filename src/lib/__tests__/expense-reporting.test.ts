@@ -5,6 +5,7 @@ function makeExpense(overrides: Partial<Expense> = {}): Expense {
   return {
     id: 'e1',
     shopId: 's1',
+    locationId: null,
     occurredOn: '2026-08-02',
     amountCents: 1000,
     category: 'rent',

@@ -1,6 +1,6 @@
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { NewProductInput, Product } from '@/types/models';
+import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
 
 function mapProductRow(row: any): Product {
   return {
@@ -50,18 +50,124 @@ function toRow(input: Partial<NewProductInput>) {
   };
 }
 
-export async function listProducts(shopId: string): Promise<Product[]> {
+// `locationId` scopes `stock` (and `reorderLevel`/`shelfNumber`, where the
+// branch overrides them) to one branch. Omitted returns the shop-wide rollup,
+// which is what `products.stock` has always been and remains -- so every
+// existing caller keeps its old meaning without being touched.
+//
+// Scoped to a store, the list is the products that store CARRIES — the ones
+// with a stock row there, including rows sitting at zero, because "we stock
+// this and we're out" is exactly what an inventory screen needs to say.
+//
+// A product with no row at all is one that store does not carry, and it is
+// left out. The first version of this kept them, showing every catalog product
+// at zero, on the reasoning that they would otherwise be impossible to stock
+// there. That was the wrong trade: it turned an 86-product catalog into 86 rows
+// of "Out of stock" at a store carrying ten of them, and made "needs attention"
+// count the whole catalog. Introducing a product to a store is a deliberate act
+// with three routes that do not need this list to be wrong — the by-store
+// breakdown, a transfer, or creating the product with that store selected.
+export async function listProducts(shopId: string, locationId?: string | null): Promise<Product[]> {
+  // The per-store rows come back either way, so the inventory table can show
+  // WHERE a product's stock sits even in the combined view. `stock` still means
+  // what it always did — the shop-wide rollup when unscoped, this store's count
+  // when scoped — so nothing that reads it needs to know about the breakdown.
   const { data, error } = await supabase
     .from('products')
-    .select('*')
+    .select('*, product_location_stock(location_id, stock, reorder_level, shelf_number)')
     .eq('shop_id', shopId)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(mapProductRow);
+
+  const mapped: (Product | null)[] = (data ?? []).map((row: any) => {
+    const entries = (row.product_location_stock ?? []) as any[];
+    const locationStock = entries.map((entry) => ({ locationId: entry.location_id, stock: entry.stock }));
+    const base = { ...mapProductRow(row), locationStock };
+    if (!locationId) return base;
+    const here = entries.find((entry) => entry.location_id === locationId);
+    // `null` marks "not carried here" for the filter below — distinct from a
+    // row at zero, which IS carried and must stay.
+    if (!here) return null;
+    return {
+      ...base,
+      stock: here.stock,
+      reorderLevel: here.reorder_level ?? row.reorder_level,
+      shelfNumber: here.shelf_number ?? row.shelf_number,
+    };
+  });
+  return mapped.filter((product): product is Product => product !== null);
 }
 
-export async function getLowStockProducts(shopId: string, defaultLowStockLevel = 5): Promise<Product[]> {
-  const products = await listProducts(shopId);
+// Per-branch counts for one product, for the inventory detail breakdown and
+// the transfer picker.
+export async function listStockByLocation(productId: string): Promise<ProductLocationStock[]> {
+  const { data, error } = await supabase
+    .from('product_location_stock')
+    .select('*')
+    .eq('product_id', productId);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    productId: row.product_id,
+    locationId: row.location_id,
+    stock: row.stock,
+    reorderLevel: row.reorder_level,
+    shelfNumber: row.shelf_number,
+  }));
+}
+
+// The only supported way to change a count. `products.stock` is derived from
+// these rows by trigger (migration 20260810000000) and a direct write to it is
+// discarded, so an adjustment that doesn't go through here has no effect.
+export async function setLocationStock(
+  productId: string,
+  locationId: string,
+  stock: number,
+  overrides?: { reorderLevel?: number | null; shelfNumber?: string | null }
+): Promise<void> {
+  const { error } = await supabase.from('product_location_stock').upsert(
+    {
+      product_id: productId,
+      location_id: locationId,
+      stock,
+      ...(overrides?.reorderLevel !== undefined && { reorder_level: overrides.reorderLevel }),
+      ...(overrides?.shelfNumber !== undefined && { shelf_number: overrides.shelfNumber }),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'product_id,location_id' }
+  );
+  if (error) throw error;
+}
+
+// Moves stock between branches atomically -- both sides in one transaction, with
+// a recorded movement. Adjusting the two counts separately would leave the shop
+// short if the second write failed, and no record of what moved.
+export async function transferStock(
+  shopId: string,
+  fromLocationId: string,
+  toLocationId: string,
+  items: { productId: string; quantity: number }[],
+  note?: string | null
+): Promise<string> {
+  const { data, error } = await supabase.rpc('transfer_stock', {
+    p_shop_id: shopId,
+    p_from_location_id: fromLocationId,
+    p_to_location_id: toLocationId,
+    p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity })),
+    p_note: note ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+// Evaluated against the scoped stock when a location is given: a branch that is
+// out of an item needs reordering even if the other branch is overflowing --
+// which is exactly what the shop-wide rollup would hide.
+export async function getLowStockProducts(
+  shopId: string,
+  defaultLowStockLevel = 5,
+  locationId?: string | null
+): Promise<Product[]> {
+  const products = await listProducts(shopId, locationId);
   return products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel));
 }
 
@@ -85,14 +191,28 @@ export async function getProduct(id: string): Promise<Product> {
   return mapProductRow(data);
 }
 
-export async function createProduct(shopId: string, input: NewProductInput): Promise<Product> {
+// With no `locationId`, opening stock lands at the shop's primary location --
+// the database trigger does that, which is what keeps CSV import and any caller
+// that predates locations working unchanged.
+//
+// With one, the product is inserted at zero and the opening stock is written to
+// the named branch instead. Two writes rather than one, deliberately: letting
+// the trigger place the units at the primary and then moving them would
+// momentarily credit the wrong branch, and any failure between the two would
+// leave them there.
+export async function createProduct(shopId: string, input: NewProductInput, locationId?: string | null): Promise<Product> {
   const { data, error } = await supabase
     .from('products')
-    .insert({ shop_id: shopId, ...toRow(input) })
+    .insert({ shop_id: shopId, ...toRow(input), ...(locationId ? { stock: 0 } : {}) })
     .select('*')
     .single();
   if (error) throw error;
-  return mapProductRow(data);
+  const product = mapProductRow(data);
+  if (locationId && (input.stock ?? 0) > 0) {
+    await setLocationStock(product.id, locationId, input.stock ?? 0);
+    return { ...product, stock: input.stock ?? 0 };
+  }
+  return product;
 }
 
 // Bulk counterpart to createProduct -- used by CSV import (src/lib/products-import.ts)
@@ -107,10 +227,28 @@ export async function createProducts(shopId: string, inputs: NewProductInput[]):
   return (data ?? []).map(mapProductRow);
 }
 
-export async function updateProduct(id: string, input: Partial<NewProductInput>): Promise<Product> {
-  const { data, error } = await supabase.from('products').update(toRow(input)).eq('id', id).select('*').single();
+// `products.stock` is derived by trigger, so a `stock` in `input` would be
+// silently discarded by the database. Rather than let an edit form quietly do
+// nothing, the stock is split out and written to `locationId` -- which is why
+// every caller that can edit stock has to say which branch it means.
+//
+// Without a `locationId` the stock is dropped from the update and a warning is
+// the caller's problem, not a silent partial save: the other fields still
+// persist, which matches what the update did before locations existed for every
+// field except this one.
+export async function updateProduct(
+  id: string,
+  input: Partial<NewProductInput>,
+  locationId?: string | null
+): Promise<Product> {
+  const { stock, ...rest } = input;
+  if (stock !== undefined && locationId) {
+    await setLocationStock(id, locationId, stock);
+  }
+  const { data, error } = await supabase.from('products').update(toRow(rest)).eq('id', id).select('*').single();
   if (error) throw error;
-  return mapProductRow(data);
+  const product = mapProductRow(data);
+  return stock !== undefined && locationId ? { ...product, stock } : product;
 }
 
 export async function deleteProduct(id: string): Promise<void> {

@@ -160,6 +160,7 @@ export function ReceiptModal({
               <View style={styles.receiptHead}>
                 {receipt.shopLogoUrl && <Image source={{ uri: receipt.shopLogoUrl }} contentFit="cover" style={styles.logo} />}
                 <Text style={styles.shopName}>{receipt.shopName}</Text>
+                {receipt.locationName && <Text style={styles.muted}>{receipt.locationName}</Text>}
                 {location && <Text style={styles.muted}>{location}</Text>}
                 {receipt.shopContactPhone && <Text style={styles.muted}>{receipt.shopContactPhone}</Text>}
                 {receipt.shopHours && <Text style={styles.muted}>{receipt.shopHours}</Text>}

@@ -2,15 +2,17 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
 import { DateInput } from '@/components/date-input';
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
 import { isValidRateInput } from '@/lib/pay-rate';
-import type { Role, StaffMember } from '@/types/models';
+import type { Role, ShopLocation, StaffMember } from '@/types/models';
 
 type MemberEdits = {
   fullName: string;
   email: string;
   roleId: string;
+  locationIds: string[];
   active: boolean;
   hireDate?: string | null;
   payType?: StaffMember['payType'];
@@ -22,15 +24,17 @@ type TeamMemberEditModalProps = {
   visible: boolean;
   member: StaffMember;
   roles: Role[];
+  locations: ShopLocation[];
   canManagePayroll: boolean;
   onClose: () => void;
   onSave: (input: MemberEdits) => Promise<void>;
 };
 
-export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
+export function TeamMemberEditModal({ visible, member, roles, locations, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
   const [fullName, setFullName] = useState(member.fullName ?? '');
   const [email, setEmail] = useState(member.email ?? '');
   const [roleId, setRoleId] = useState(member.roleId);
+  const [locationIds, setLocationIds] = useState<string[]>(member.locationIds);
   const [active, setActive] = useState(member.active);
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
   const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
@@ -60,6 +64,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
         fullName: fullName.trim(),
         email: email.trim(),
         roleId,
+        locationIds,
         active,
         ...(canManagePayroll
           ? {
@@ -96,11 +101,39 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
             <Text style={styles.label}>EMAIL</Text>
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={styles.input} />
             <Text style={styles.label}>ROLE</Text>
-            <ScrollView horizontal contentContainerStyle={styles.chips} showsHorizontalScrollIndicator={false}>
-              {roles.map((role) => (
-                <CategoryChip key={role.id} label={role.name} active={role.id === roleId} onPress={() => setRoleId(role.id)} />
-              ))}
-            </ScrollView>
+            <OptionPicker
+              value={roleId}
+              onChange={(id) => id && setRoleId(id)}
+              options={roles.map((role) => ({ id: role.id, label: role.name }))}
+              title="Which role?"
+              placeholder="Choose a role"
+            />
+            {/* Access is (stores, role): the role above says what they may do,
+                these say where. A multi-select, not one choice — someone can
+                cover two of three stores. Hidden for a single-store business,
+                where "which store" has one answer and this would be noise. */}
+            {locations.length > 1 && (
+              <>
+                <Text style={styles.label}>STORES</Text>
+                {/* Clearing the set IS "all stores" — the empty array is the
+                    value, not a missing one, so it is a real choice rather than
+                    a shortcut for selecting everything. */}
+                <MultiOptionPicker
+                  values={locationIds}
+                  onChange={setLocationIds}
+                  options={locations
+                    .filter((location) => location.active)
+                    .map((location) => ({ id: location.id, label: location.name }))}
+                  allOption={{ label: 'All stores', hint: 'Can work anywhere' }}
+                  title="Which stores can they work at?"
+                />
+                <Text style={styles.hint}>
+                  {locationIds.length === 0
+                    ? 'Can work at every store.'
+                    : `Can sell, count stock and clock in at ${locationIds.length === 1 ? 'this store' : `these ${locationIds.length} stores`} only.`}
+                </Text>
+              </>
+            )}
             <Text style={styles.label}>STATUS</Text>
             <View style={styles.chips}>
               <CategoryChip label="Active" active={active} onPress={() => setActive(true)} />
@@ -132,6 +165,7 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 9 },
   closeText: { color: '#111111', fontWeight: '800', fontSize: 12 },
   label: { color: '#999999', fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
+  hint: { color: '#9CA3AF', fontSize: 12, lineHeight: 17, marginTop: 6 },
   input: { backgroundColor: '#F2F2F2', height: 42, borderRadius: 10, paddingHorizontal: 12, color: '#111111' },
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
   save: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignSelf: 'flex-start', marginTop: 20 },
