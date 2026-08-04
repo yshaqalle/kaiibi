@@ -124,6 +124,35 @@ operator account is a high-value target.
    with a mandatory reason. The log has no insert/update/delete policy for
    anyone.
 
+## Changing tiers
+
+Two paths, deliberately asymmetric.
+
+**An operator changes any shop's tier directly**, from the portal, with a
+downgrade warning computed from live usage before committing.
+
+**A shop asks.** It cannot switch itself. Payment is confirmed by hand, so a
+shop that could set its own plan could select Pro, never send the money, and
+keep it — the plan row *is* the entitlement, and there is no card to decline. A
+request is raised, an operator approves it against money that actually arrived.
+
+The shop can raise one request (a partial unique index enforces one pending per
+shop, so two taps cannot queue two approvals) and can cancel its own. It can
+never resolve one: there is no update policy on `plan_change_requests` for
+anyone, and both decisions run through the audited edge function. Cancelling is
+a DELETE rather than an update to `declined`, so a shop withdrawing its own ask
+is never confusable with an operator refusing it.
+
+Downgrades go through the same queue despite carrying no revenue risk — one code
+path instead of two, and a shop about to leave is the one conversation worth
+having before it happens rather than after.
+
+**Operators can also edit the tier definitions themselves** — modules as chips,
+limits as blank-means-unlimited fields. Saving changes entitlements for every
+shop on that plan at once with no further confirmation anywhere, so the editor
+computes and names the blast radius first: how many shops lose which module, and
+how many would be stranded over a lowered cap.
+
 ## Deliberately not built
 
 - **No "add operator" endpoint.** Appointing one is a manual SQL statement. A
@@ -132,10 +161,6 @@ operator account is a high-value target.
 - **No impersonation.** "Log in as this shop" is the feature most likely to
   become the breach. If it is ever needed it must be read-only, time-boxed,
   consented and audited — its own design.
-- **No plan editing from the portal UI yet.** The edge function supports
-  `upsert_plan`; the screen shows how many shops each plan affects but does not
-  yet write. Editing a plan changes entitlements for every shop on it at once,
-  which deserves a considered UI rather than a form bolted on.
 - **No dunning or reminder emails.** There is no send infrastructure — see
   `docs/backlog/2026-08-01-notification-delivery.md`.
 
