@@ -1,0 +1,155 @@
+import { useState } from 'react';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { CategoryChip } from '@/components/category-chip';
+import { hasBlockingProblem, validateShift, type Shift, type ShiftProblem, type ValidationContext } from '@/lib/scheduling';
+import { isValidTime } from '@/lib/store-hours';
+import type { StaffMember } from '@/types/models';
+
+// The editor is deliberately thin: every rule it enforces comes from
+// validateShift in scheduling.ts, which is unit-tested. There is no React
+// Native testing library here, so logic placed in this file would be logic no
+// test can reach.
+
+export function ShiftEditorModal({
+  visible,
+  date,
+  members,
+  existing,
+  context,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  visible: boolean;
+  date: string;
+  members: StaffMember[];
+  existing: Shift | null;
+  context: ValidationContext;
+  onClose: () => void;
+  onSave: (draft: { shopMemberId: string; date: string; start: string; end: string }, note: string | null) => Promise<void>;
+  onDelete: () => Promise<void>;
+}) {
+  const [memberId, setMemberId] = useState(existing?.shopMemberId ?? members[0]?.id ?? '');
+  const [start, setStart] = useState(existing?.start ?? '09:00');
+  const [end, setEnd] = useState(existing?.end ?? '17:00');
+  const [note, setNote] = useState(existing?.note ?? '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!visible) return null;
+
+  const timesValid = isValidTime(start) && isValidTime(end) && end > start;
+  const draft = { shopMemberId: memberId, date, start, end };
+  // Exclude the shift being edited, or it would always clash with itself.
+  const problems: ShiftProblem[] = timesValid
+    ? validateShift(draft, { ...context, sameDayShifts: context.sameDayShifts.filter((s) => s.id !== existing?.id) })
+    : [];
+  const blocked = !timesValid || !memberId || hasBlockingProblem(problems);
+
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onSave(draft, note.trim() || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save this shift.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onDelete();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete this shift.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <View style={styles.card}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{existing ? 'Edit shift' : 'New shift'} · {date}</Text>
+            <Pressable onPress={onClose} style={styles.close}>
+              <Text style={styles.closeText}>Close</Text>
+            </Pressable>
+          </View>
+
+          <Text style={styles.label}>STAFF</Text>
+          <View style={styles.chips}>
+            {members.map((member) => (
+              <CategoryChip
+                key={member.id}
+                label={member.fullName ?? 'Staff member'}
+                active={memberId === member.id}
+                onPress={() => setMemberId(member.id)}
+              />
+            ))}
+          </View>
+
+          <View style={styles.timeRow}>
+            <View style={styles.timeField}>
+              <Text style={styles.label}>FROM</Text>
+              <TextInput value={start} onChangeText={setStart} placeholder="09:00" placeholderTextColor="#999999" style={[styles.input, !isValidTime(start) && styles.inputInvalid]} />
+            </View>
+            <View style={styles.timeField}>
+              <Text style={styles.label}>TO</Text>
+              <TextInput value={end} onChangeText={setEnd} placeholder="17:00" placeholderTextColor="#999999" style={[styles.input, !isValidTime(end) && styles.inputInvalid]} />
+            </View>
+          </View>
+
+          <Text style={styles.label}>NOTE (OPTIONAL)</Text>
+          <TextInput value={note} onChangeText={setNote} placeholder="e.g. covering the delivery" placeholderTextColor="#999999" style={styles.input} />
+
+          {!timesValid && <Text style={styles.blocking}>Use 24-hour times like 09:00, and end after you start.</Text>}
+          {problems.map((problem) => (
+            <Text key={problem.kind} style={problem.blocking ? styles.blocking : styles.advisory}>
+              {problem.message}
+            </Text>
+          ))}
+          {error && <Text style={styles.blocking}>{error}</Text>}
+
+          <View style={styles.actions}>
+            <Pressable onPress={save} disabled={busy || blocked} style={[styles.primary, (busy || blocked) && styles.disabled]}>
+              <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save shift'}</Text>
+            </Pressable>
+            {existing && (
+              <Pressable onPress={remove} disabled={busy}>
+                <Text style={styles.danger}>Delete</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const styles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 460 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  title: { fontSize: 15, fontWeight: '800', color: '#111111', flexShrink: 1 },
+  close: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 },
+  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  label: { color: '#999999', fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  timeRow: { flexDirection: 'row', gap: 12 },
+  timeField: { flex: 1 },
+  input: { backgroundColor: '#F2F2F2', height: 42, borderRadius: 10, paddingHorizontal: 12, color: '#111111' },
+  inputInvalid: { borderWidth: 1, borderColor: '#C0392B', color: '#C0392B' },
+  blocking: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
+  advisory: { color: '#B7791F', fontSize: 12, fontWeight: '600', marginTop: 10 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 20 },
+  primary: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 18 },
+  primaryText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  danger: { color: '#C0392B', fontWeight: '700', fontSize: 13 },
+  disabled: { opacity: 0.5 },
+});

@@ -3,10 +3,13 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 
 import { useAuth } from '@/hooks/use-auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
-import { addDaysToDate, shiftMinutes, startOfWeek, weekDaysFrom, type Shift } from '@/lib/scheduling';
-import { listShiftsForWeek } from '@/lib/shifts';
+import { ShiftEditorModal } from '@/components/schedule/shift-editor-modal';
+import { addDaysToDate, shiftMinutes, shiftsToCopy, startOfWeek, weekDaysFrom, type Shift, type ShiftDraft } from '@/lib/scheduling';
+import { createShift, createShifts, deleteShift, listShiftsForWeek, updateShift } from '@/lib/shifts';
+import { onLeaveMemberIds } from '@/lib/shift-hours';
+import { listShopTimeOffRequests } from '@/lib/time-off';
 import { listStaff } from '@/lib/staff';
-import { toDateColumn } from '@/lib/period';
+import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
 
 function dayLabel(date: string): string {
@@ -30,14 +33,22 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
   const [selectedDay, setSelectedDay] = useState(() => toDateColumn(new Date()));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<{ date: string; shift: Shift | null } | null>(null);
+  const [timeOff, setTimeOff] = useState<Awaited<ReturnType<typeof listShopTimeOffRequests>>>([]);
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
     try {
-      const [weekShifts, staff] = await Promise.all([listShiftsForWeek(shop.id, monday), listStaff(shop.id)]);
+      const [weekShifts, staff, requests] = await Promise.all([
+        listShiftsForWeek(shop.id, monday),
+        listStaff(shop.id),
+        listShopTimeOffRequests(shop.id, { status: 'approved' }),
+      ]);
       setShifts(weekShifts);
       setMembers(staff.filter((member) => member.active));
+      setTimeOff(requests);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load the schedule.');
@@ -47,6 +58,41 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
   }, [shop, monday]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  const saveShift = async (draft: ShiftDraft, note: string | null) => {
+    if (!shop) return;
+    if (editing?.shift) await updateShift(editing.shift.id, { date: draft.date, start: draft.start, end: draft.end, note });
+    else await createShift(shop.id, draft, note);
+    setEditing(null);
+    await reload();
+  };
+
+  const removeShift = async () => {
+    if (!editing?.shift) return;
+    await deleteShift(editing.shift.id);
+    setEditing(null);
+    await reload();
+  };
+
+  // Reports both counts rather than silently doing partial work: an owner who
+  // asked to copy a week needs to know which shifts didn't make it.
+  const copyLastWeek = async () => {
+    if (!shop) return;
+    setCopyNotice(null);
+    try {
+      const previous = await listShiftsForWeek(shop.id, addDaysToDate(monday, -7));
+      const { copy, skipped } = shiftsToCopy(previous, shifts);
+      const created = await createShifts(shop.id, copy);
+      setCopyNotice(
+        skipped === 0
+          ? `Copied ${created} shift${created === 1 ? '' : 's'} from last week.`
+          : `Copied ${created}, skipped ${skipped} that clashed with a shift already here.`
+      );
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not copy last week.');
+    }
+  };
 
   const days = weekDaysFrom(monday);
   const shiftsFor = (memberId: string, date: string) =>
@@ -67,11 +113,15 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           <Pressable onPress={() => setMonday(startOfWeek(toDateColumn(new Date())))} style={styles.navButton}>
             <Text style={styles.navText}>Today</Text>
           </Pressable>
+          <Pressable onPress={copyLastWeek} style={styles.navButton}>
+            <Text style={styles.navText}>Copy last week</Text>
+          </Pressable>
         </View>
       </View>
       {tabSwitcher}
 
       {error && <Text style={styles.error}>{error}</Text>}
+      {copyNotice && <Text style={styles.notice}>{copyNotice}</Text>}
 
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
@@ -89,12 +139,12 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           {members.map((member) => {
             const memberShifts = shiftsFor(member.id, selectedDay);
             return (
-              <View key={member.id} style={styles.listRow}>
+              <Pressable key={member.id} onPress={() => setEditing({ date: selectedDay, shift: memberShifts[0] ?? null })} style={styles.listRow}>
                 <Text style={styles.memberName}>{member.fullName ?? 'Staff member'}</Text>
                 <Text style={memberShifts.length === 0 ? styles.off : styles.times}>
                   {memberShifts.length === 0 ? 'Off' : memberShifts.map((s) => `${s.start}–${s.end}`).join(', ')}
                 </Text>
-              </View>
+              </Pressable>
             );
           })}
         </>
@@ -114,9 +164,11 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
                 {days.map((date) => {
                   const cell = shiftsFor(member.id, date);
                   return (
-                    <Text key={date} style={[styles.gridCell, cell.length === 0 && styles.off]}>
-                      {cell.length === 0 ? '—' : cell.map((s) => `${s.start}–${s.end}`).join('\n')}
-                    </Text>
+                    <Pressable key={date} onPress={() => setEditing({ date, shift: cell[0] ?? null })}>
+                      <Text style={[styles.gridCell, cell.length === 0 && styles.off]}>
+                        {cell.length === 0 ? '—' : cell.map((s) => `${s.start}–${s.end}`).join('\n')}
+                      </Text>
+                    </Pressable>
                   );
                 })}
                 <Text style={[styles.gridCell, styles.total]}>
@@ -126,6 +178,23 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
             ))}
           </View>
         </ScrollView>
+      )}
+
+      {editing && (
+        <ShiftEditorModal
+          visible
+          date={editing.date}
+          members={members}
+          existing={editing.shift}
+          context={{
+            hours: shop?.openingHours ?? {},
+            onLeave: onLeaveMemberIds(timeOff, fromDateColumn(editing.date)),
+            sameDayShifts: shifts.filter((shift) => shift.date === editing.date),
+          }}
+          onClose={() => setEditing(null)}
+          onSave={saveShift}
+          onDelete={removeShift}
+        />
       )}
     </View>
   );
@@ -153,4 +222,5 @@ const styles = StyleSheet.create({
   total: { fontWeight: '800' },
   empty: { fontSize: 13, color: '#999999', paddingVertical: 24, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
+  notice: { fontSize: 12, fontWeight: '700', color: '#111111', marginBottom: 12 },
 });
