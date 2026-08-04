@@ -171,6 +171,11 @@ export default function PlatformHome() {
               // renewal when it is actually the day they lose access.
               const ends = shop.status === 'trialing' ? shop.trialEndsAt : shop.currentPeriodEnd ?? shop.trialEndsAt;
               const endsLabel = shop.status === 'trialing' ? 'trial ends' : 'renews';
+              // A shop can sit on a paid plan while still inside its free
+              // trial: the plan is what they GET, the status is how they are
+              // PAYING. Shown as "trialing · Pro" rather than leaving the two
+              // columns looking like they disagree.
+              const onPaidPlanInTrial = shop.status === 'trialing' && shop.planKey !== 'trial';
               // Narrow: one card per shop, name on top and the numbers
               // beneath. Squeezing five columns onto a phone makes every one of
               // them unreadable, which is worse than stacking.
@@ -212,6 +217,7 @@ export default function PlatformHome() {
                   <Text style={[styles.td, styles.colPlan]}>{shop.planName}</Text>
                   <View style={styles.colStatus}>
                     <Text style={[styles.status, STATUS_COLOR[shop.status]]}>{STATUS_DOT[shop.status]} {shop.status}</Text>
+                    {onPaidPlanInTrial && <Text style={styles.statusNote}>free until trial ends</Text>}
                   </View>
                   <Text style={[styles.td, styles.colDate, styles.tdMuted]}>{fmtDate(shop.createdAt)}</Text>
                   <Text style={[styles.td, styles.colDate, endsSoon(ends) && styles.tdAtLimit]}>{fmtDate(ends)}</Text>
@@ -499,9 +505,15 @@ function RecordPayment({
 }) {
   const plan = plans.find((p) => p.key === shop.planKey);
   const today = new Date().toISOString().slice(0, 10);
-  // Extend from the later of "their cover ends" and "today", matching what the
-  // edge function does to the period itself.
-  const from = shop.currentPeriodEnd && shop.currentPeriodEnd.slice(0, 10) > today ? shop.currentPeriodEnd.slice(0, 10) : today;
+  // Paid time starts when free time ends. Taking the latest of their current
+  // cover, their trial end, and today matters most for a shop that pays partway
+  // through a trial: starting the period today would spend the month they just
+  // bought against days they already had for nothing, and they would lapse
+  // early having paid in good faith.
+  const candidates = [today, shop.currentPeriodEnd?.slice(0, 10), shop.trialEndsAt?.slice(0, 10)].filter(
+    (d): d is string => Boolean(d)
+  );
+  const from = candidates.sort().at(-1) as string;
 
   const [amount, setAmount] = useState(plan ? String(plan.priceCents / 100) : '');
   const [method, setMethod] = useState('ZAAD');
@@ -973,6 +985,7 @@ const styles = StyleSheet.create({
   colStores: { flex: 1 },
   colUsage: { flex: 1.5 },
   status: { fontSize: 12, fontWeight: '700' },
+  statusNote: { fontSize: 10, color: '#AAAAAA', marginTop: 1 },
   detail: { marginTop: 22, borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 12, padding: 20 },
   detailTitle: { fontSize: 17, fontWeight: '800', color: '#111111' },
   detailMeta: { fontSize: 12, color: '#888888', marginTop: 2 },

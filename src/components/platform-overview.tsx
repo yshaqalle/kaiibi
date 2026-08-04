@@ -1,5 +1,6 @@
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { BarChart, CHART_COLORS, DonutChart, planColor, type Bar } from '@/components/platform-charts';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, type LimitResource } from '@/lib/entitlements';
 import { whatsappLink, type PlatformAuditRow, type PlatformShopRow, type SubscriptionPaymentRow } from '@/lib/platform';
@@ -93,6 +94,44 @@ export function PlatformOverview({
     .filter((s) => s.trialEndsAt && new Date(s.trialEndsAt).getTime() - now <= 7 * DAY)
     .sort((a, b) => (a.trialEndsAt ?? '').localeCompare(b.trialEndsAt ?? ''));
 
+  // Signups by week, oldest first. Weeks rather than days because at this
+  // volume a daily chart is mostly empty columns.
+  const signupBars: Bar[] = Array.from({ length: 8 }, (_, i) => {
+    const weeksAgo = 7 - i;
+    const start = now - (weeksAgo + 1) * 7 * DAY;
+    const end = now - weeksAgo * 7 * DAY;
+    const count = shops.filter((shop) => {
+      const t = new Date(shop.createdAt).getTime();
+      return t >= start && t < end;
+    }).length;
+    return { label: weeksAgo === 0 ? 'now' : `-${weeksAgo}w`, value: count };
+  });
+
+  // Money collected by calendar month, oldest first.
+  const revenueBars: Bar[] = Array.from({ length: 6 }, (_, i) => {
+    const monthsAgo = 5 - i;
+    const d = new Date(now);
+    d.setDate(1);
+    d.setMonth(d.getMonth() - monthsAgo);
+    const start = new Date(d);
+    const next = new Date(d);
+    next.setMonth(next.getMonth() + 1);
+    const cents = payments
+      .filter((p) => {
+        const t = new Date(p.paidAt).getTime();
+        return t >= start.getTime() && t < next.getTime();
+      })
+      .reduce((sum, p) => sum + p.amountCents, 0);
+    return { label: start.toLocaleDateString('en-GB', { month: 'short' }), value: cents };
+  });
+
+  const planSlices = plans.map((plan, i) => ({
+    key: plan.key,
+    label: plan.name,
+    value: shops.filter((s) => s.planKey === plan.key).length,
+    color: planColor(plan.key, i),
+  }));
+
   const headline =
     paying.length === 0
       ? `No paying shops yet. ${trialing.length} on trial${endingSoon.length > 0 ? `, ${endingSoon.length} deciding within a week` : ''}.`
@@ -123,22 +162,47 @@ export function PlatformOverview({
         <Tile value={String(expired.length + suspended.length)} label="Lapsed or suspended" tone={expired.length + suspended.length > 0 ? 'warn' : 'default'} />
       </View>
 
-      <Text style={styles.section}>PLAN MIX</Text>
-      <View style={styles.mix}>
-        {plans.map((plan) => {
-          const on = shops.filter((s) => s.planKey === plan.key).length;
-          const share = shops.length > 0 ? (on / shops.length) * 100 : 0;
-          return (
-            <View key={plan.id} style={styles.mixRow}>
-              <Text style={styles.mixName}>{plan.name}</Text>
-              <View style={styles.mixTrack}>
-                <View style={[styles.mixFill, { width: `${share}%` }]} />
-              </View>
-              <Text style={styles.mixCount}>{on}</Text>
-              <Text style={styles.mixRevenue}>{plan.priceCents > 0 ? formatCents(on * plan.priceCents) : '—'}</Text>
-            </View>
-          );
-        })}
+      <View style={[styles.panels, compact && styles.panelsCompact]}>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>New shops</Text>
+          <Text style={styles.panelSub}>signups per week</Text>
+          <BarChart bars={signupBars} color={CHART_COLORS.signups} />
+        </View>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Money collected</Text>
+          <Text style={styles.panelSub}>subscription payments per month</Text>
+          <BarChart bars={revenueBars} color={CHART_COLORS.revenue} formatValue={(v) => formatCents(v)} />
+        </View>
+      </View>
+
+      <View style={[styles.panels, compact && styles.panelsCompact]}>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Plan mix</Text>
+          <Text style={styles.panelSub}>where every shop sits today</Text>
+          <DonutChart slices={planSlices} centerValue={String(shops.length)} centerLabel="shops" />
+        </View>
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Revenue by plan</Text>
+          <Text style={styles.panelSub}>monthly, from paying shops only</Text>
+          <View style={styles.mix}>
+            {plans.filter((p) => p.priceCents > 0).map((plan, i) => {
+              const onPaying = paying.filter((s) => s.planKey === plan.key).length;
+              const revenue = onPaying * plan.priceCents;
+              const share = mrr > 0 ? (revenue / mrr) * 100 : 0;
+              return (
+                <View key={plan.id} style={styles.mixRow}>
+                  <Text style={styles.mixName}>{plan.name}</Text>
+                  <View style={styles.mixTrack}>
+                    <View style={[styles.mixFill, { width: `${share}%`, backgroundColor: planColor(plan.key, i) }]} />
+                  </View>
+                  <Text style={styles.mixCount}>{onPaying}</Text>
+                  <Text style={styles.mixRevenue}>{formatCents(revenue)}</Text>
+                </View>
+              );
+            })}
+            {mrr === 0 && <Text style={styles.empty}>No paying shops yet — this fills in as trials convert.</Text>}
+          </View>
+        </View>
       </View>
 
       <Text style={styles.section}>USAGE ACROSS ALL SHOPS</Text>
@@ -248,11 +312,16 @@ const styles = StyleSheet.create({
   tileValueWarn: { color: '#9A6412' },
   tileLabel: { fontSize: 12, color: '#555555', marginTop: 4, fontWeight: '600' },
   tileSub: { fontSize: 10.5, color: '#AAAAAA', marginTop: 2 },
+  panels: { flexDirection: 'row', gap: 12, marginTop: 6 },
+  panelsCompact: { flexDirection: 'column' },
+  panel: { flex: 1, minWidth: 260, borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 12, padding: 16, backgroundColor: '#FFFFFF' },
+  panelTitle: { fontSize: 14, fontWeight: '800', color: '#111111' },
+  panelSub: { fontSize: 11, color: '#AAAAAA', marginTop: 2, marginBottom: 14 },
   mix: { gap: 8 },
   mixRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   mixName: { fontSize: 13, fontWeight: '700', color: '#111111', width: 92 },
   mixTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: '#F0F0F0', overflow: 'hidden' },
-  mixFill: { height: 8, borderRadius: 4, backgroundColor: '#111111' },
+  mixFill: { height: 8, borderRadius: 4, backgroundColor: '#2563EB' },
   mixCount: { fontSize: 13, fontWeight: '800', color: '#111111', width: 34, textAlign: 'right' },
   mixRevenue: { fontSize: 12, color: '#777777', width: 76, textAlign: 'right' },
   attention: { gap: 8 },
