@@ -1,5 +1,6 @@
 import { formatCents, formatForeignCents } from '@/lib/currency';
 import { methodLabel } from '@/lib/payment-methods';
+import { formatDayHours, rangesFor, weekdayKeyFor, type OpeningHours } from '@/lib/store-hours';
 import type { PaymentLine, Sale } from '@/types/models';
 
 // A lighter shape than `CartLine`/`SaleItem` — just what a receipt needs to
@@ -14,6 +15,10 @@ export type ReceiptData = {
   shopCity: string | null;
   shopNeighborhood: string | null;
   shopContactPhone: string | null;
+  // Today's hours only, pre-formatted. A whole week's table would dominate a
+  // narrow receipt; today's line is what someone holding it wants. Null when
+  // hours are unset or the shop is closed today.
+  shopHours: string | null;
   // Who rang up the sale, if a cashier profile was picked in the POS — see
   // migration 0009. Optional: most shops are a single owner running the
   // register themselves.
@@ -42,6 +47,19 @@ function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhoo
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+// Null rather than 'Closed' when the shop is shut today: a receipt is proof of
+// a sale that just happened, so printing "Closed" on it would be absurd.
+// Exported so callers that build a ReceiptData without going through
+// `buildReceiptFromSale` (the POS checkout flow, which has a fresh cart
+// rather than a `Sale`) can compute the same field the same way.
+export function formatTodayHours(hours: OpeningHours | undefined): string | null {
+  if (!hours) return null;
+  const today = rangesFor(hours, weekdayKeyFor(new Date()));
+  if (today.length === 0) return null;
+  const formatted = formatDayHours(today);
+  return formatted === 'Closed' ? null : `Open today ${formatted}`;
+}
+
 // Reconstructs a receipt for a past sale — so a customer who comes back
 // later asking for their receipt again can be helped from the Sales screen,
 // not just right after checkout.
@@ -54,6 +72,7 @@ export function buildReceiptFromSale(
     neighborhood: string | null;
     contactPhone: string | null;
     returnPolicy: string | null;
+    openingHours?: OpeningHours;
     receiptShowLogo?: boolean;
     receiptShowCashierName?: boolean;
   }
@@ -65,6 +84,7 @@ export function buildReceiptFromSale(
     shopCity: shop.city,
     shopNeighborhood: shop.neighborhood,
     shopContactPhone: shop.contactPhone,
+    shopHours: formatTodayHours(shop.openingHours),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
@@ -108,6 +128,7 @@ export function buildReceiptText(receipt: ReceiptData): string {
   const location = formatLocation(receipt);
   if (location) lines.push(location);
   if (receipt.shopContactPhone) lines.push(receipt.shopContactPhone);
+  if (receipt.shopHours) lines.push(receipt.shopHours);
   lines.push(new Date(receipt.createdAt).toLocaleString());
   if (receipt.cashierName) lines.push(`Served by ${receipt.cashierName}`);
   lines.push('');
@@ -226,6 +247,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
       <div class="shop">${esc(receipt.shopName)}</div>
       ${location ? `<div class="muted">${esc(location)}</div>` : ''}
       ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
+      ${receipt.shopHours ? `<div class="muted">${esc(receipt.shopHours)}</div>` : ''}
       <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
       ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
     </div>
