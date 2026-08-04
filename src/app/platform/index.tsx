@@ -261,12 +261,123 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
         )}
       </View>
 
+      <Text style={styles.detailSection}>RECORD PAYMENT</Text>
+      <RecordPayment shop={shop} plans={plans} reason={reason} busy={busy} onRun={run} />
+
       {error && <Text style={styles.error}>{error}</Text>}
       <Text style={styles.privacyNote}>
         This portal cannot open this shop&apos;s products, sales, books, or schedule.
       </Text>
     </View>
   );
+}
+
+// Recording money that arrived by ZAAD or eDahab. This is the step that turns
+// an approved plan into a *paying* customer: approving a tier moves what they
+// can do, this moves `current_period_end`, and only shops with a live period
+// count toward MRR.
+//
+// Defaults do the arithmetic an operator would otherwise do by hand at the end
+// of a long day: today's date, the plan's own price, and a period running from
+// wherever their cover currently ends — so paying a month late buys a month
+// from today rather than a month that already elapsed.
+function RecordPayment({
+  shop,
+  plans,
+  reason,
+  busy,
+  onRun,
+}: {
+  shop: PlatformShopRow;
+  plans: Plan[];
+  reason: string;
+  busy: boolean;
+  onRun: (action: string, payload: Record<string, unknown>) => Promise<void>;
+}) {
+  const plan = plans.find((p) => p.key === shop.planKey);
+  const today = new Date().toISOString().slice(0, 10);
+  // Extend from the later of "their cover ends" and "today", matching what the
+  // edge function does to the period itself.
+  const from = shop.currentPeriodEnd && shop.currentPeriodEnd.slice(0, 10) > today ? shop.currentPeriodEnd.slice(0, 10) : today;
+
+  const [amount, setAmount] = useState(plan ? String(plan.priceCents / 100) : '');
+  const [method, setMethod] = useState('ZAAD');
+  const [ref, setRef] = useState('');
+  const [paidAt, setPaidAt] = useState(today);
+  const [coversFrom, setCoversFrom] = useState(from);
+  const [coversTo, setCoversTo] = useState(addMonths(from, 1));
+
+  const submit = () =>
+    onRun('record_payment', {
+      payment: {
+        amountCents: Math.round((Number(amount) || 0) * 100),
+        currency: plan?.currency ?? 'USD',
+        method,
+        providerRef: ref.trim() || null,
+        paidAt: new Date(paidAt).toISOString(),
+        coversFrom: new Date(coversFrom).toISOString(),
+        coversTo: new Date(coversTo).toISOString(),
+      },
+    });
+
+  return (
+    <View>
+      <View style={styles.actionRow}>
+        {['ZAAD', 'eDahab', 'Cash', 'Bank'].map((m) => (
+          <Pressable key={m} onPress={() => setMethod(m)} style={[styles.chip, method === m && styles.chipActive]}>
+            <Text style={[styles.chipText, method === m && styles.chipTextActive]}>{m}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <View style={styles.actionRow}>
+        <View style={styles.limitField}>
+          <Text style={styles.planMeta}>Amount ({plan?.currency ?? 'USD'})</Text>
+          <TextInput value={amount} onChangeText={setAmount} keyboardType="decimal-pad" style={styles.payInput} />
+        </View>
+        <View style={styles.limitField}>
+          {/* The ZAAD/eDahab transaction id. Optional, but it is the only thing
+              that ties this row back to the money if a payment is disputed. */}
+          <Text style={styles.planMeta}>Reference</Text>
+          <TextInput value={ref} onChangeText={setRef} placeholder="634812" placeholderTextColor="#CCCCCC" style={styles.payInput} />
+        </View>
+        <View style={styles.limitField}>
+          <Text style={styles.planMeta}>Paid on</Text>
+          <TextInput value={paidAt} onChangeText={setPaidAt} style={styles.payInput} />
+        </View>
+        <View style={styles.limitField}>
+          <Text style={styles.planMeta}>Covers from</Text>
+          <TextInput value={coversFrom} onChangeText={setCoversFrom} style={styles.payInput} />
+        </View>
+        <View style={styles.limitField}>
+          <Text style={styles.planMeta}>Covers to</Text>
+          <TextInput value={coversTo} onChangeText={setCoversTo} style={styles.payInput} />
+        </View>
+      </View>
+      <View style={styles.actionRow}>
+        {[1, 3, 12].map((n) => (
+          <Pressable key={n} onPress={() => setCoversTo(addMonths(coversFrom, n))} style={styles.chip}>
+            <Text style={styles.chipText}>+{n} month{n === 1 ? '' : 's'}</Text>
+          </Pressable>
+        ))}
+        <Btn label="Record payment" disabled={busy || !reason.trim()} onPress={submit} />
+      </View>
+      <Text style={styles.planMeta}>
+        Their access runs to {coversTo}, plus the grace period. Recording a payment does not change their tier — use
+        Change plan for that.
+      </Text>
+    </View>
+  );
+}
+
+// Calendar-month arithmetic on a yyyy-mm-dd string. Clamps the day so paying on
+// the 31st cannot roll a one-month period into the month after next — a
+// customer who pays on 31 January is covered to 28 February, not 3 March.
+function addMonths(iso: string, months: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const target = new Date(Date.UTC(y, m - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(d, lastDay));
+  return target.toISOString().slice(0, 10);
 }
 
 // The approval queue. A shop cannot move itself between tiers — payment is
@@ -648,6 +759,7 @@ const styles = StyleSheet.create({
   planCardEditing: { borderColor: '#111111' },
   planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
   limitField: { gap: 4 },
+  payInput: { borderWidth: 1, borderColor: '#DDDDDD', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 7, width: 108, fontSize: 12, color: '#111111' },
   requestCard: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 16, marginBottom: 10 },
   requestHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   requestShop: { fontSize: 15, fontWeight: '800', color: '#111111' },
