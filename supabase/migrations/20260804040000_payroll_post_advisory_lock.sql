@@ -46,11 +46,18 @@ begin
   -- explicitly. Keyed on the shop, so posts in different shops never block each
   -- other. Taken BEFORE the row lock so every guard below reads committed state
   -- rather than racing a concurrent post.
+  --
+  -- ADVISORY LOCK CLASSID REGISTRY -- Postgres has ONE global advisory keyspace,
+  -- shared by every feature in the database. The two-argument form reserves a
+  -- classid so a future caller can't collide with payroll posting:
+  --   74920 = payroll posting (this function)
+  -- Pick a distinct, non-round classid for any new advisory lock. 1, 2 and 100
+  -- are what a naive caller reaches for, which is exactly why they're unsafe.
   select shop_id into v_lock_shop from public.payroll_runs where id = p_run_id;
   if v_lock_shop is null then
     raise exception 'pay run % not found', p_run_id;
   end if;
-  perform pg_advisory_xact_lock(hashtext('payroll_post:' || v_lock_shop::text));
+  perform pg_advisory_xact_lock(74920, hashtext(v_lock_shop::text));
 
   select * into v_run from public.payroll_runs where id = p_run_id for update;
   if v_run.id is null then

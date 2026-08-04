@@ -123,7 +123,12 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
       const result = await config.run(parsed);
       setReport(result);
       setStep('done');
-      if (result.accepted.length > 0) onImported();
+      // Unconditional, not `if (accepted.length > 0)`: a staff row whose member
+      // is provisioned but whose pay write then fails is reported as *rejected*
+      // -- correctly, since they exist and need attention -- so an import where
+      // every pay write failed would otherwise create members and refresh
+      // nothing. A wasted refetch after a fully-rejected import is harmless.
+      onImported();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed.');
       setStep('parsed');

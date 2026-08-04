@@ -126,26 +126,45 @@ export async function updateStaffPay(
     payCadence?: StaffMember['payCadence'];
   }
 ): Promise<void> {
-  const { error } = await supabase
+  const { error, count } = await supabase
     .from('shop_members')
-    .update({
-      ...(patch.hireDate !== undefined && { hire_date: patch.hireDate }),
-      ...(patch.payType !== undefined && { pay_type: patch.payType }),
-      ...(patch.payRateCents !== undefined && { pay_rate_cents: patch.payRateCents }),
-      ...(patch.payCadence !== undefined && { pay_cadence: patch.payCadence }),
-    })
+    .update(
+      {
+        ...(patch.hireDate !== undefined && { hire_date: patch.hireDate }),
+        ...(patch.payType !== undefined && { pay_type: patch.payType }),
+        ...(patch.payRateCents !== undefined && { pay_rate_cents: patch.payRateCents }),
+        ...(patch.payCadence !== undefined && { pay_cadence: patch.payCadence }),
+      },
+      { count: 'exact' }
+    )
     .eq('id', memberId);
   if (error) throw error;
+  // RLS filters an update to zero rows without raising -- PostgREST returns 204
+  // and the write silently does nothing. Without the count that reads as
+  // success, and the value just fails to stick.
+  if (count === 0) throw new Error('Could not save pay details — you may no longer have permission to edit this member.');
 }
 
 export async function updateStaffRole(memberId: string, roleId: string): Promise<void> {
-  const { error } = await supabase.from('shop_members').update({ role_id: roleId }).eq('id', memberId);
+  const { error, count } = await supabase
+    .from('shop_members')
+    .update({ role_id: roleId }, { count: 'exact' })
+    .eq('id', memberId);
   if (error) throw error;
+  // Same silent-failure shape as updateStaffPay: a policy-filtered update
+  // returns 204 with no error, so without the count it looks like it worked.
+  if (count === 0) throw new Error('Could not change this role — you may no longer have permission to edit this member.');
 }
 
 export async function setStaffActive(memberId: string, active: boolean): Promise<void> {
-  const { error } = await supabase.from('shop_members').update({ active }).eq('id', memberId);
+  const { error, count } = await supabase
+    .from('shop_members')
+    .update({ active }, { count: 'exact' })
+    .eq('id', memberId);
   if (error) throw error;
+  if (count === 0) {
+    throw new Error(`Could not ${active ? 'enable' : 'disable'} this member — you may no longer have permission to edit them.`);
+  }
 }
 
 export async function updateStaffMember(input: {

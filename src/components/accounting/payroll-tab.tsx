@@ -209,13 +209,31 @@ export function PayrollTab({
             <CategoryChip label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
           </View>
           {activeStaff !== null && coveredCount !== null && (
-            <Text style={coveredCount === 0 ? styles.coverageEmpty : styles.coverage}>
-              {cadence === null
-                ? `This run covers all ${activeStaff.length} active staff.`
-                : coveredCount === 0
-                  ? `No active staff are on the ${CADENCE_ADJECTIVES[cadence]} cadence. Set one in People, or pick a different period.`
-                  : `This ${CADENCE_ADJECTIVES[cadence]} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
-            </Text>
+            <View style={styles.coverageRow}>
+              {/* Zero is tested first, and the two zeroes are distinguished:
+                  having no active staff at all is a different problem from
+                  having nobody on the chosen cadence, and the second one's
+                  advice is useless for the first. */}
+              <Text style={coveredCount === 0 ? styles.coverageEmpty : styles.coverage}>
+                {activeStaff.length === 0
+                  ? 'There are no active staff to pay.'
+                  : cadence === null
+                    ? `This run covers all ${activeStaff.length} active staff.`
+                    : coveredCount === 0
+                      ? `No active staff are on the ${CADENCE_ADJECTIVES[cadence]} cadence. Set one in People, then check again.`
+                      : `This ${CADENCE_ADJECTIVES[cadence]} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
+              </Text>
+              {/* NativeTabs keeps this screen mounted, so going to People to set
+                  a cadence and coming back leaves the count stale and Build
+                  draft disabled, with nothing saying Cancel/New would recover.
+                  Deliberately a control rather than a focus effect: this file
+                  already carries a react-hooks/set-state-in-effect finding. */}
+              {coveredCount === 0 && activeStaff.length > 0 && (
+                <Pressable onPress={openCreate}>
+                  <Text style={styles.coverageRetry}>Check again</Text>
+                </Pressable>
+              )}
+            </View>
           )}
           {periodOptions.reason === 'anchor_required' ? (
             <Text style={styles.subtitle}>
@@ -352,8 +370,10 @@ const styles = StyleSheet.create({
 
   createCard: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 16, marginBottom: 16 },
   createTitle: { fontSize: 13, fontWeight: '800', color: '#111111', marginBottom: 12 },
-  coverage: { fontSize: 11.5, color: '#999999', lineHeight: 16, marginBottom: 10 },
-  coverageEmpty: { fontSize: 11.5, fontWeight: '700', color: '#C0392B', lineHeight: 16, marginBottom: 10 },
+  coverageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' },
+  coverage: { fontSize: 11.5, color: '#999999', lineHeight: 16, marginBottom: 10, flexShrink: 1 },
+  coverageEmpty: { fontSize: 11.5, fontWeight: '700', color: '#C0392B', lineHeight: 16, marginBottom: 10, flexShrink: 1 },
+  coverageRetry: { fontSize: 11.5, fontWeight: '800', color: '#111111', lineHeight: 16, textDecorationLine: 'underline' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   createRow: { flexDirection: 'row', gap: 10 },
   createField: { flex: 1 },
