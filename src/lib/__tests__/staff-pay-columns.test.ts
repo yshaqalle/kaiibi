@@ -9,8 +9,9 @@ describe('parseStaffPayColumns', () => {
     expect(parseStaffPayColumns({ 'Pay Type': '  ', 'Pay Rate': '', 'Pay Cadence': '' })).toEqual({ kind: 'none' });
   });
 
-  // The export writes formatAccountingCents, so this is the literal string a
-  // round-trip produces. toCents strips everything but digits and '.'.
+  // The export actually writes formatCents ("$3000.00", no thousands
+  // separator) -- this feeds a harder string with a comma to prove toCents
+  // strips it defensively, in case a user hand-edits the exported file.
   it('parses the exact string the export writes', () => {
     expect(parseStaffPayColumns({ 'Pay Type': 'salary', 'Pay Rate': '$3,000.00', 'Pay Rate Unit': 'per month' })).toEqual({
       kind: 'ok',
@@ -67,6 +68,32 @@ describe('parseStaffPayColumns', () => {
   it('rejects a rate given without a pay type, which would have no unit', () => {
     const result = parseStaffPayColumns({ 'Pay Rate': '3000' });
     expect(result).toMatchObject({ kind: 'error' });
+  });
+
+  // The export writes Pay Cadence for every member (pay_cadence is NOT NULL),
+  // but leaves Pay Type/Rate/Unit blank for anyone with no pay set -- the
+  // default for every freshly provisioned member. Re-importing that exact
+  // exported row must round-trip, not get rejected as "rate without a type".
+  it('round-trips the row the export writes for a pay-less member', () => {
+    const result = parseStaffPayColumns({ 'Pay Type': '', 'Pay Rate': '', 'Pay Rate Unit': '', 'Pay Cadence': 'monthly' });
+    expect(result).toEqual({
+      kind: 'ok',
+      patch: { payType: null, payRateCents: null, payCadence: 'monthly' },
+    });
+  });
+
+  it('accepts a non-default cadence given with no pay type', () => {
+    const result = parseStaffPayColumns({ 'Pay Cadence': 'weekly' });
+    expect(result).toEqual({
+      kind: 'ok',
+      patch: { payType: null, payRateCents: null, payCadence: 'weekly' },
+    });
+  });
+
+  it('still rejects an invalid cadence given with no pay type', () => {
+    const result = parseStaffPayColumns({ 'Pay Cadence': 'fortnightly' });
+    expect(result).toMatchObject({ kind: 'error' });
+    expect((result as { reason: string }).reason).toMatch(/Pay Cadence/);
   });
 
   // The unit is informational and never converts. A file claiming "per hour"
