@@ -11,7 +11,9 @@ import {
   limitReachedMessage,
   moduleForPath,
   MODULES,
+  moduleNotIncludedMessage,
   parseLimitReached,
+  parseModuleNotIncluded,
 } from '@/lib/entitlements';
 
 // The plans seeded by migration 20260818000000 are the concrete cases this
@@ -223,6 +225,36 @@ describe('parseLimitReached', () => {
     expect(parseLimitReached({ message: 'limit_reached' })).toBeNull();
     expect(parseLimitReached({ message: 'limit_reached', details: '{"resource":"wormholes","limit":1,"usage":1}' })).toBeNull();
     expect(parseLimitReached({ message: 'limit_reached', details: '{"resource":"products"}' })).toBeNull();
+  });
+});
+
+describe('parseModuleNotIncluded', () => {
+  it('reads the module off a real gate error', () => {
+    expect(
+      parseModuleNotIncluded({
+        code: 'P0001',
+        message: 'module_not_included',
+        details: '{"module" : "accounting"}',
+      })
+    ).toBe('accounting');
+  });
+
+  it('does not confuse itself with a limit error', () => {
+    expect(parseModuleNotIncluded({ message: 'limit_reached', details: '{"resource":"products","limit":1,"usage":1}' })).toBeNull();
+  });
+
+  it('rejects an unknown module rather than guessing', () => {
+    expect(parseModuleNotIncluded({ message: 'module_not_included', details: '{"module":"telepathy"}' })).toBeNull();
+  });
+});
+
+describe('moduleNotIncludedMessage', () => {
+  it('refuses and reassures in the same breath', () => {
+    const message = moduleNotIncludedMessage('accounting');
+    expect(message).toContain('Accounting');
+    // Someone who just failed to save must be told their existing data is fine,
+    // or they will assume the worst about everything else on the screen.
+    expect(message).toContain('already saved is safe');
   });
 });
 

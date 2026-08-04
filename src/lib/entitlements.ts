@@ -199,6 +199,33 @@ export function parseLimitReached(error: unknown): LimitReached | null {
   }
 }
 
+// The sibling of parseLimitReached for the module gates in migration
+// 20260818000400. Same error vocabulary, different axis: a limit says "too
+// many", a module says "not on your plan at all".
+export function parseModuleNotIncluded(error: unknown): Module | null {
+  const err = error as { message?: unknown; details?: unknown; detail?: unknown } | null;
+  if (!err || typeof err !== 'object') return null;
+  if (err.message !== 'module_not_included') return null;
+
+  const raw = typeof err.details === 'string' ? err.details : typeof err.detail === 'string' ? err.detail : null;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { module?: string };
+    if (!parsed.module || !(ALL_MODULES as string[]).includes(parsed.module)) return null;
+    return parsed.module as Module;
+  } catch {
+    return null;
+  }
+}
+
+export function moduleNotIncludedMessage(module: Module): string {
+  const meta = MODULES.find((m) => m.key === module);
+  // Reassures in the same breath as refusing. Someone who just failed to save
+  // needs to know their existing data is untouched, or they will assume the
+  // worst about everything else on the screen.
+  return `${meta?.label ?? 'This feature'} isn't included in your plan. Everything already saved is safe — upgrade under Settings → Plan and billing to make changes again.`;
+}
+
 // What to tell someone who just hit a cap. Says the number they're on, not just
 // that they failed, and points at the two real ways out -- both of which the
 // shop controls.
@@ -210,6 +237,22 @@ export function limitReachedMessage(hit: LimitReached): string {
     return `Your plan doesn't include ${plural}. Upgrade to start adding them.`;
   }
   return `You've reached ${hit.limit.toLocaleString()} of ${hit.limit.toLocaleString()} ${plural} on your plan. Remove one, or upgrade to add more.`;
+}
+
+// One call for "was this refused by the plan, and if so what do I say". Returns
+// null for anything else so a caller keeps its existing error handling intact:
+//
+//   setError(describePlanError(err) ?? extractErrorMessage(err, 'Could not save.'));
+//
+// Exists so each screen doesn't reimplement the two checks and drift on the
+// wording -- a shop hitting a cap in Inventory and the same cap in an import
+// should be told the same thing.
+export function describePlanError(error: unknown): string | null {
+  const limit = parseLimitReached(error);
+  if (limit) return limitReachedMessage(limit);
+  const module = parseModuleNotIncluded(error);
+  if (module) return moduleNotIncludedMessage(module);
+  return null;
 }
 
 // Whole days from now until `iso`, rounded up, floored at 0. Used for the trial

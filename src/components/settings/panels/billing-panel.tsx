@@ -4,7 +4,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { Badge, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
-import { daysUntil, LIMIT_RESOURCES, MODULES, type LimitResource } from '@/lib/entitlements';
+import { daysUntil, LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
 import { listPlans, type Plan } from '@/lib/subscriptions';
 
 // What the shop is paying for, what it is using, and how to pay. Read-only by

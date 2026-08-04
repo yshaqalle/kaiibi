@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { CategoryChip } from '@/components/category-chip';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { useAuth } from '@/hooks/use-auth';
+import { describePlanError } from '@/lib/entitlements';
 import { listProducts, transferStock } from '@/lib/products';
 import type { Product } from '@/types/models';
 
@@ -216,6 +217,11 @@ export function StockTransferModal({
 // the product and the counts ("insufficient stock for Soap at the source
 // location: has 4, need 10").
 function extractErrorMessage(err: unknown): string {
+  // Moving stock between branches is the multi_location module, so this is the
+  // most likely place a Standard shop meets a plan wall. Without this it would
+  // read as the bare string "module_not_included".
+  const planError = describePlanError(err);
+  if (planError) return planError;
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     return (err as { message: string }).message;
   }

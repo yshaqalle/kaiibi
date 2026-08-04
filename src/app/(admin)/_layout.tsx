@@ -3,10 +3,11 @@ import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from '
 
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { moduleForPath, MODULES, type Module } from '@/lib/entitlements';
 import { firstAllowedRoute, permissionForPath } from '@/lib/permissions';
 
 export default function AdminLayout() {
-  const { loading, session, profile, permissions, can, myMembership } = useAuth();
+  const { loading, session, profile, permissions, can, myMembership, hasModule } = useAuth();
   const pathname = usePathname();
 
   if (loading) {
@@ -52,6 +53,20 @@ export default function AdminLayout() {
     return fallback ? <Redirect href={fallback} /> : <NoAccessScreen />;
   }
 
+  // The entitlement half of the same choke point. Checked AFTER permissions so
+  // the more specific answer wins: someone whose role doesn't grant a screen
+  // should be told that, not sold an upgrade for something they still couldn't
+  // open.
+  //
+  // Renders in place rather than redirecting. A redirect would loop whenever
+  // the un-entitled route IS the landing tab -- and an upgrade wall is the
+  // whole point, since a screen the shop can't reach is exactly where telling
+  // them what it costs belongs.
+  const requiredModule = moduleForPath(pathname);
+  if (requiredModule && !hasModule(requiredModule)) {
+    return <UpgradeScreen module={requiredModule} />;
+  }
+
   // `(tabs)` hosts the 5 tab-bar routes (dashboard/pos/inventory/customers/sales)
   // via AdminTabs. `product/new`, `product/[id]` and `settings` are not tabs —
   // they're detail screens that should push on top of the tab bar, the same
@@ -93,9 +108,39 @@ function NoAccessScreen() {
   );
 }
 
+// A screen the shop's plan doesn't cover. Distinct from NoAccessScreen: that
+// one is about who you are and can only be fixed by the shop owner, this one is
+// about what the shop pays for and is fixed by upgrading.
+//
+// Says plainly that nothing has been lost. A shop that opens Accounting after a
+// lapse and sees only a paywall will assume its books are gone -- the most
+// damaging thing this screen could imply, and the least true.
+function UpgradeScreen({ module }: { module: Module }) {
+  const router = useRouter();
+  const meta = MODULES.find((m) => m.key === module);
+  return (
+    <View style={styles.noAccess}>
+      <Text style={styles.upgradeLock}>🔒</Text>
+      <Text style={styles.noAccessTitle}>{meta?.label ?? 'This feature'} isn&apos;t on your plan</Text>
+      <Text style={styles.noAccessBody}>{meta?.description}</Text>
+      <Text style={styles.upgradeReassure}>
+        Anything you already added is safe and still here — it just can&apos;t be changed until your plan covers
+        this again.
+      </Text>
+      <Pressable onPress={() => router.push('/settings')} style={styles.upgradeButton}>
+        <Text style={styles.upgradeButtonText}>See plans</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   noAccess: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 10, backgroundColor: '#FFFFFF' },
-  noAccessTitle: { color: '#111111', fontSize: 18, fontWeight: '800' },
+  noAccessTitle: { color: '#111111', fontSize: 18, fontWeight: '800', textAlign: 'center' },
   noAccessBody: { color: '#777777', fontSize: 13, textAlign: 'center', maxWidth: 320, lineHeight: 19 },
   noAccessSignOut: { color: '#111111', fontSize: 12, fontWeight: '800', marginTop: 8 },
+  upgradeLock: { fontSize: 30, marginBottom: 2 },
+  upgradeReassure: { color: '#9A6412', fontSize: 12, textAlign: 'center', maxWidth: 320, lineHeight: 18, marginTop: 2 },
+  upgradeButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11, marginTop: 10 },
+  upgradeButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 });

@@ -5,7 +5,7 @@ import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { useAuth } from '@/hooks/use-auth';
 import { toCents } from '@/lib/currency';
-import { limitReachedMessage, parseLimitReached } from '@/lib/entitlements';
+import { describePlanError } from '@/lib/entitlements';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
 import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { NewShopLocationInput, ShopLocation } from '@/types/models';
@@ -337,11 +337,11 @@ function LocationEditorModal({
 // `instanceof Error`, so an instanceof check alone always falls through to the
 // fallback and hides the real message. Same fix as vendors-panel.tsx.
 function extractErrorMessage(err: unknown, fallback: string): string {
-  // A plan cap is a specific, actionable failure with its own copy — checked
-  // before the generic branch so it never surfaces as the bare word
-  // "limit_reached".
-  const hit = parseLimitReached(err);
-  if (hit) return limitReachedMessage(hit);
+  // A plan cap or an un-included module is a specific, actionable failure with
+  // its own copy — checked before the generic branch so it never surfaces as
+  // the bare word "limit_reached".
+  const planError = describePlanError(err);
+  if (planError) return planError;
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     const message = (err as { message: string }).message;
     if (message.includes('shop_locations_shop_id_name_key')) return 'A store with that name already exists.';

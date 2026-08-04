@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
@@ -42,7 +43,7 @@ type NavItem = (typeof navItems)[number];
 // Extracted so each row can own its own hover state (react-native-web fires
 // onHoverIn/onHoverOut on Pressable; native no-ops these harmlessly) without
 // the parent re-rendering the whole nav on every mouse move.
-function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) {
+function SidebarNavItem({ item, focused, locked }: { item: NavItem; focused: boolean; locked?: boolean }) {
   const [hovered, setHovered] = useState(false);
   return (
     <Link href={item.href} asChild>
@@ -52,7 +53,12 @@ function SidebarNavItem({ item, focused }: { item: NavItem; focused: boolean }) 
         style={StyleSheet.flatten([styles.navButton, hovered && !focused && styles.navButtonHovered, focused && styles.navButtonFocused])}
       >
         <Image source={item.icon} style={[styles.navIcon, focused && styles.navIconFocused]} tintColor={focused ? '#111111' : '#777777'} />
-        <Text style={[styles.navText, focused && styles.navTextFocused]}>{item.label}</Text>
+        <Text style={[styles.navText, focused && styles.navTextFocused, locked && styles.navTextLocked]}>{item.label}</Text>
+        {/* Still navigable: tapping lands on the upgrade wall in
+            (admin)/_layout.tsx, which is where the offer belongs. Hiding the
+            row instead would mean nobody ever discovers what they'd be paying
+            for. */}
+        {locked && <Text style={styles.navLock}>🔒</Text>}
       </Pressable>
     </Link>
   );
@@ -62,7 +68,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can, canAny, myMembership } = useAuth();
+  const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -104,9 +110,17 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
           </View>
         </View>
         <View style={styles.nav}>
-          {visibleNavItems.map((item) => (
-            <SidebarNavItem key={item.href} item={item} focused={pathname === item.href} />
-          ))}
+          {visibleNavItems.map((item) => {
+            const required = moduleForPath(item.href);
+            return (
+              <SidebarNavItem
+                key={item.href}
+                item={item}
+                focused={pathname === item.href}
+                locked={Boolean(required) && !hasModule(required!)}
+              />
+            );
+          })}
         </View>
         <View style={styles.footer}>
           <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
@@ -189,6 +203,8 @@ const styles = StyleSheet.create({
   navIcon: { width: 19, height: 19 },
   navIconFocused: {},
   navText: { color: '#555555', fontSize: 14.5, fontWeight: '700' },
+  navTextLocked: { color: '#999999' },
+  navLock: { fontSize: 11, marginLeft: 'auto' },
   navTextFocused: { color: '#111111', fontWeight: '800' },
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },

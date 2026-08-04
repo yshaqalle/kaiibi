@@ -163,6 +163,48 @@ begin
   -- Freed slot is genuinely reusable.
   insert into public.products (shop_id, name, price_cents) values (v_shop_id, 'now it fits', 100);
 
+  -- ------------------------------------------------------- 7b. module gates
+  -- Free excludes accounting, so an expense insert must be refused.
+  v_raised := false;
+  begin
+    insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category, created_by)
+    values (v_shop_id, v_location_id, current_date, 1000, 'other', v_user_id);
+  exception when others then
+    v_raised := true;
+    v_detail := sqlerrm;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an expense was written without the accounting module';
+  end if;
+  if v_detail <> 'module_not_included' then
+    raise exception 'FAIL: the accounting gate raised the wrong error (%)', v_detail;
+  end if;
+
+  -- Inventory IS in Free, so the control case must still pass -- otherwise the
+  -- gate above proves nothing except that everything is broken.
+  update public.products set name = 'still editable' where shop_id = v_shop_id and name = 'now it fits';
+  if not exists (select 1 from public.products where shop_id = v_shop_id and name = 'still editable') then
+    raise exception 'FAIL: the inventory module is in Free but products became uneditable';
+  end if;
+
+  -- Deleting is never gated: it is how a shop gets back under a cap, and a
+  -- cascade must never be blocked by billing state. Uses expenses rather than
+  -- vendors because Free caps vendors at 0, so the LIMIT trigger would refuse
+  -- the setup insert before the module gate was ever reached -- expenses are
+  -- module-gated but uncapped, which isolates the thing under test.
+  insert into public.shop_entitlement_overrides (shop_id, kind, key, reason)
+  values (v_shop_id, 'module', 'accounting', 'temporarily, to create a row to delete');
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category, created_by)
+  values (v_shop_id, v_location_id, current_date, 1000, 'other', v_user_id);
+  delete from public.shop_entitlement_overrides where shop_id = v_shop_id and kind = 'module' and key = 'accounting';
+  if public.shop_has_module(v_shop_id, 'accounting') then
+    raise exception 'FAIL: setup error -- accounting is still granted';
+  end if;
+  delete from public.expenses where shop_id = v_shop_id and amount_cents = 1000;
+  if exists (select 1 from public.expenses where shop_id = v_shop_id and amount_cents = 1000) then
+    raise exception 'FAIL: deleting was blocked by a module gate';
+  end if;
+
   -- ------------------------------------------------------ 8. override precedence
   insert into public.shop_entitlement_overrides (shop_id, kind, key, value, reason)
   values (v_shop_id, 'limit', 'products', '5000'::jsonb, 'verify');
