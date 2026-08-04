@@ -19,6 +19,9 @@ export default function RootLayout() {
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(public)" />
           <Stack.Screen name="(admin)" />
+          {/* Kaiibi's own back office, not a shop's. Its layout refuses
+              anything but an MFA-verified operator on web. */}
+          <Stack.Screen name="(platform)" />
           <Stack.Screen name="marketplace-coming-soon" />
         </Stack>
       </AuthProvider>

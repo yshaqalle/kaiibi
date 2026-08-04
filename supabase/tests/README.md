@@ -13,6 +13,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-accounting-writes.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-entitlements.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-platform-portal.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -78,6 +80,31 @@ both months are misstated.
     catches someone "tidying up" by adding a module gate to a SELECT policy.
 11. A shop with **no subscription row at all** fails closed to Free, never open.
 12. `my_shop_entitlements()` returns status, plan and live usage.
+
+## What `verify-platform-portal.sql` covers
+
+Written as "the attacker got this far, and then could not", because that is the
+question being asked of a back office that can see every customer.
+
+1. An operator at **aal1** (password only, no second factor) fails
+   `is_platform_admin()` and reads **zero** rows. A stolen password is worth
+   nothing on its own.
+2. `is_platform_admin_pending_mfa()` still recognises them, so the portal can
+   tell "you don't work here" from "finish signing in" instead of offering a
+   dead end.
+3. At **aal2** the same operator reads subscriptions, shops and usage.
+4. …and **still cannot read `products`, `sales`, `customers`, `expenses`,
+   `shifts`, or `shop_members`.** If any of those ever returns rows, someone
+   widened a policy that should have stayed narrow — this is the blast radius of
+   a compromised operator account.
+5. An operator **cannot** update a subscription directly from a client session
+   (every mutation must go through the audited edge function), **cannot** forge
+   or delete an audit row, and **cannot** appoint another operator.
+6. A shop owner cannot enumerate our operators or read the audit log, and still
+   sees exactly their own shop — so the operator policies widened nothing for
+   ordinary users.
+
+## Concurrency
 
 The limit triggers take a `select … for update` on the counter row, which is
 what makes a cap *exact* rather than usually-right. To see that directly, run
