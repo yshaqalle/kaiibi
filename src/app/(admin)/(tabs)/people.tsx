@@ -66,6 +66,7 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
   // The file leaves the app and loses every bit of context that would
   // otherwise say what the number means, so the unit travels with it.
   { header: 'Pay Rate Unit', value: (m) => payRateUnitLabel(m.payType) },
+  { header: 'Pay Cadence', value: (m) => m.payCadence },
 ];
 
 export default function PeopleScreen() {
@@ -479,7 +480,7 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
           filenamePrefix: 'team',
           templateColumns: STAFF_TEMPLATE_COLUMNS,
           exampleRows: [STAFF_EXAMPLE_ROW],
-          run: (parsed) => runStaffImport(shop.id, roles, parsed),
+          run: (parsed) => runStaffImport(shop.id, roles, parsed, canManagePayroll),
           unitLabel: 'staff member',
         }
       : null;
