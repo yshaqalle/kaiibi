@@ -2,11 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Session } from '@supabase/supabase-js';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 
+import {
+  canWrite,
+  FREE_FALLBACK,
+  type Entitlements,
+  type LimitResource,
+  type Module,
+  type SubscriptionStatus,
+} from '@/lib/entitlements';
 import { resolveActiveLocation } from '@/lib/location-selection';
 import { listMyLocations } from '@/lib/locations';
 import type { Permission } from '@/lib/permissions';
 import { getMyShop } from '@/lib/shops';
 import { getMyMembership, getMyPermissions } from '@/lib/staff';
+import { getMyEntitlements } from '@/lib/subscriptions';
 import { supabase } from '@/lib/supabase';
 import type { Profile, Shop, ShopLocation, StaffMember } from '@/types/models';
 
@@ -50,6 +59,24 @@ type AuthState = {
   // while unresolved or signed out.
   activeLocation: ShopLocation | null;
   setActiveLocation: (locationId: string) => void;
+  // What the SHOP has paid for, as opposed to what this USER may do. Both
+  // gates apply: `can('inventory.edit') && hasModule('inventory')`. Consumers
+  // should use the helpers below rather than reading this directly.
+  entitlements: Entitlements;
+  // Whether the shop's plan includes this module. False also when the account
+  // is suspended, whatever the plan says.
+  hasModule: (module: Module) => boolean;
+  // The cap on a countable resource; null means unlimited.
+  limitFor: (resource: LimitResource) => number | null;
+  // How many the shop has now, per the server-side counters.
+  usageOf: (resource: LimitResource) => number;
+  // True when the shop is already at or over the cap, so the next create must
+  // be refused. Asked BEFORE creating, hence at-or-over rather than over.
+  atLimit: (resource: LimitResource) => boolean;
+  subscriptionStatus: SubscriptionStatus;
+  // False once expired or suspended. Gates buttons, never screens -- reads stay
+  // open at every status so a shop never loses sight of its own books.
+  canWriteNow: boolean;
   loading: boolean;
   refreshShop: () => Promise<void>;
   // Settings' profile editor already gets the freshly-updated row back from
@@ -75,11 +102,19 @@ async function loadShopAndPermissions(): Promise<{
   myMembership: StaffMember | null;
   locations: ShopLocation[];
   activeLocation: ShopLocation | null;
+  entitlements: Entitlements;
 }> {
   const [{ data: userData }, shop] = await Promise.all([supabase.auth.getUser(), getMyShop()]);
   const userId = userData.user?.id;
   if (!shop || !userId) {
-    return { shop, permissions: noPermissions, myMembership: null, locations: noLocations, activeLocation: null };
+    return {
+      shop,
+      permissions: noPermissions,
+      myMembership: null,
+      locations: noLocations,
+      activeLocation: null,
+      entitlements: FREE_FALLBACK,
+    };
   }
   // Fetched independently -- each with its own fail-closed fallback -- so a
   // failure on one can't cost the other. Permissions failing closed to
@@ -99,17 +134,35 @@ async function loadShopAndPermissions(): Promise<{
   // sale rather than guessing a branch, which is the safe direction -- a sale
   // filed against the wrong store is far harder to unpick than one that was
   // never rung up.
-  const [permissionsResult, membershipResult, locationsResult, rememberedResult] = await Promise.allSettled([
-    getMyPermissions(shop, userId),
-    getMyMembership(shop.id, userId),
-    listMyLocations(shop.id),
-    AsyncStorage.getItem(ACTIVE_LOCATION_KEY),
-  ]);
+  //
+  // Entitlements join it too, failing closed to the FREE tier rather than to
+  // the full catalog. The database is the authority (the module gates and limit
+  // triggers in migrations 20260818000300/400 are what actually refuse a
+  // write), so a client that briefly under-reports costs a retry, while one
+  // that fails *open* would hand every shop the top tier for as long as one RPC
+  // was flaky -- and that is the shape a monetization bypass takes. Same
+  // direction as `noPermissions` above, for the same reason.
+  const [permissionsResult, membershipResult, locationsResult, rememberedResult, entitlementsResult] =
+    await Promise.allSettled([
+      getMyPermissions(shop, userId),
+      getMyMembership(shop.id, userId),
+      listMyLocations(shop.id),
+      AsyncStorage.getItem(ACTIVE_LOCATION_KEY),
+      getMyEntitlements(shop.id),
+    ]);
   const permissions = permissionsResult.status === 'fulfilled' ? permissionsResult.value : noPermissions;
   const myMembership = membershipResult.status === 'fulfilled' ? membershipResult.value : null;
   const locations = locationsResult.status === 'fulfilled' ? locationsResult.value : noLocations;
   const rememberedId = rememberedResult.status === 'fulfilled' ? rememberedResult.value : null;
-  return { shop, permissions, myMembership, locations, activeLocation: resolveActiveLocation(locations, rememberedId) };
+  const entitlements = entitlementsResult.status === 'fulfilled' ? entitlementsResult.value : FREE_FALLBACK;
+  return {
+    shop,
+    permissions,
+    myMembership,
+    locations,
+    activeLocation: resolveActiveLocation(locations, rememberedId),
+    entitlements,
+  };
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -122,6 +175,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [myMembership, setMyMembership] = useState<StaffMember | null>(null);
   const [locations, setLocations] = useState<ShopLocation[]>(noLocations);
   const [activeLocation, setActiveLocationState] = useState<ShopLocation | null>(null);
+  const [entitlements, setEntitlements] = useState<Entitlements>(FREE_FALLBACK);
   const [loading, setLoading] = useState(true);
   // Two independent counters guard against out-of-order async writes, one per
   // logically distinct concern:
@@ -178,6 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // belongs to the device, not the session, so the next cashier to sign in
         // at this register lands on the same branch.
         setActiveLocationState(null);
+        setEntitlements(FREE_FALLBACK);
         setLoading(false);
         return;
       }
@@ -208,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMyMembership(resolved.myMembership);
         setLocations(resolved.locations);
         setActiveLocationState(resolved.activeLocation);
+        setEntitlements(resolved.entitlements);
       }
       setLoading(false);
     };
@@ -232,6 +288,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setMyMembership(resolved.myMembership);
     setLocations(resolved.locations);
     setActiveLocationState(resolved.activeLocation);
+    setEntitlements(resolved.entitlements);
   };
 
   // Adopts the chosen row into state immediately and persists in the
@@ -249,8 +306,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const can = (permission: Permission) => permissions.includes(permission);
   const canAny = (perms: Permission[]) => perms.some((p) => permissions.includes(p));
 
+  const hasModule = (module: Module) => entitlements.modules.includes(module);
+  // Undefined (a resource the plan never mentions) means unlimited, which is
+  // why this returns null rather than 0 -- see shop_limit() in migration
+  // 20260818000200 for the same rule on the server.
+  const limitFor = (resource: LimitResource) => entitlements.limits[resource] ?? null;
+  const usageOf = (resource: LimitResource) => entitlements.usage[resource] ?? 0;
+  const atLimit = (resource: LimitResource) => {
+    const limit = limitFor(resource);
+    return limit != null && usageOf(resource) >= limit;
+  };
+
   return (
-    <AuthContext.Provider value={{ session, profile, shop, permissions, can, canAny, myMembership, locations, activeLocation, setActiveLocation, loading, refreshShop, setProfile }}>
+    <AuthContext.Provider
+      value={{
+        session,
+        profile,
+        shop,
+        permissions,
+        can,
+        canAny,
+        myMembership,
+        locations,
+        activeLocation,
+        setActiveLocation,
+        entitlements,
+        hasModule,
+        limitFor,
+        usageOf,
+        atLimit,
+        subscriptionStatus: entitlements.status,
+        canWriteNow: canWrite(entitlements.status),
+        loading,
+        refreshShop,
+        setProfile,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

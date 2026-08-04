@@ -86,6 +86,34 @@ Deno.serve(async (req) => {
     return errorResponse(403, 'forbidden', 'Not authorized to add staff to this shop.');
   }
 
+  // Seat check before creating anything. The BEFORE INSERT trigger on
+  // shop_members (migration 20260818000300) is what actually enforces this --
+  // asking here is about the failure MODE, not the rule. Without it the seat
+  // cap would be hit at the shop_members insert, which is after
+  // auth.admin.createUser() has already succeeded: the rollback below would
+  // fire and the admin would see a bare 500 for what is really "your plan is
+  // full". Checking first turns that into a typed, actionable reason and
+  // avoids creating a login we're about to delete.
+  const { data: seatLimit, error: seatLimitError } = await adminClient.rpc('shop_limit', {
+    p_shop_id: shopId,
+    p_resource: 'staff',
+  });
+  if (seatLimitError) return errorResponse(500, 'unknown', seatLimitError.message);
+  if (seatLimit !== null) {
+    const { count, error: countError } = await adminClient
+      .from('shop_members')
+      .select('id', { count: 'exact', head: true })
+      .eq('shop_id', shopId);
+    if (countError) return errorResponse(500, 'unknown', countError.message);
+    if ((count ?? 0) >= seatLimit) {
+      return errorResponse(
+        409,
+        'limit_reached',
+        `Your plan includes ${seatLimit} team member${seatLimit === 1 ? '' : 's'}. Upgrade under Settings → Plan and billing to add more.`
+      );
+    }
+  }
+
   const { data: role, error: roleError } = await adminClient
     .from('roles')
     .select('id')

@@ -55,11 +55,24 @@ function parseWholeNumber(value: string | undefined): number | null {
 // Rejects any row whose name or SKU collides with an existing product, or
 // with an earlier row in the same file -- never auto-updates, per the
 // confirmed "reject both, tell the user to update it in the app" rule.
-export async function runProductsImport(shopId: string, parsed: ParsedCsv): Promise<ImportReport<Product>> {
+//
+// `headroom` is how many more products the shop's plan allows (null =
+// unlimited), and it exists because createProducts() inserts every accepted row
+// in ONE statement: without a pre-flight check, a 400-row file over the cap
+// comes back as a single opaque `limit_reached` with nothing imported and no
+// indication of how many would have fit. Checking here turns that into "12
+// imported, 388 rejected -- plan limit", which is the difference between a
+// dead end and a decision.
+export async function runProductsImport(
+  shopId: string,
+  parsed: ParsedCsv,
+  options?: { headroom?: number | null }
+): Promise<ImportReport<Product>> {
   const existing = await listProducts(shopId);
   const existingNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
   const existingSkus = new Set(existing.filter((p) => p.sku).map((p) => p.sku!.trim().toLowerCase()));
 
+  const headroom = options?.headroom ?? null;
   const rejected: RejectedRow[] = [];
   const toCreate: NewProductInput[] = [];
   const seenNames = new Set<string>();
@@ -68,6 +81,17 @@ export async function runProductsImport(shopId: string, parsed: ParsedCsv): Prom
   parsed.rows.forEach((raw, i) => {
     const row = i + 2; // header occupies row 1 in the uploaded file
     const reject = (reason: string) => rejected.push({ row, reason, data: raw });
+
+    // Checked before the field validations so the reason given is the one the
+    // shop can actually act on: a row past the cap is refused for being past
+    // the cap, not for a missing SKU it would also have had.
+    if (headroom !== null && toCreate.length >= headroom) {
+      return reject(
+        headroom === 0
+          ? 'Your plan is at its product limit. Upgrade under Settings → Plan and billing to import more.'
+          : `Only ${headroom} more product${headroom === 1 ? '' : 's'} fit on your plan. Upgrade to import the rest.`
+      );
+    }
 
     const name = raw['Name']?.trim();
     if (!name) return reject('Name is required.');

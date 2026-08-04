@@ -11,6 +11,8 @@ supabase start                 # first run pulls images, takes a few minutes
 supabase db reset              # applies every migration from scratch
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-accounting-writes.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-entitlements.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -52,3 +54,32 @@ to point it at real data.
 Dates are asserted explicitly because they're the easiest thing to get subtly
 wrong: posting August's payroll in September must land the cost in August, or
 both months are misstated.
+
+## What `verify-entitlements.sql` covers
+
+1. Creating a shop starts a **trial** granting every module and no caps.
+2. A lapsed trial resolves to **expired** and falls back to the Free plan —
+   losing accounting, **keeping POS**, so a shop can still run its till.
+3. `grace_until` keeps the **paid** plan, because mobile-money payment is
+   confirmed by hand and a shop that paid yesterday must not be locked out
+   today.
+4. A paid `current_period_end` reads as **active** even though the trial date
+   is long past.
+5. The **store cap** refuses a second location on Free — and the existing one
+   stays fully editable, because a downgrade freezes growth and never takes
+   away what a shop already has.
+6. A limit of **zero** (Free grants `vendors: 0`) blocks everything.
+7. Counters track **deletes**: removing a product frees a slot that is
+   genuinely reusable.
+8. **Override precedence** — a limit override beats the plan, a module override
+   grants, and an *expired* override stops granting.
+9. `manual_status = 'suspended'` strips every module whatever the plan says.
+10. **An expired shop can still read all its own data.** This is the check that
+    catches someone "tidying up" by adding a module gate to a SELECT policy.
+11. A shop with **no subscription row at all** fails closed to Free, never open.
+12. `my_shop_entitlements()` returns status, plan and live usage.
+
+The limit triggers take a `select … for update` on the counter row, which is
+what makes a cap *exact* rather than usually-right. To see that directly, run
+two `psql` sessions inserting the boundary-th record at the same moment:
+exactly one succeeds, and the counter matches the real row count afterwards.

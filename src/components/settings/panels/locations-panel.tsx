@@ -3,7 +3,9 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
+import { useAuth } from '@/hooks/use-auth';
 import { toCents } from '@/lib/currency';
+import { limitReachedMessage, parseLimitReached } from '@/lib/entitlements';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
 import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { NewShopLocationInput, ShopLocation } from '@/types/models';
@@ -31,6 +33,14 @@ export function LocationsPanel({
 }) {
   const [editing, setEditing] = useState<ShopLocation | 'new' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { limitFor, usageOf } = useAuth();
+
+  // Opening another branch is the clearest reason to move up a tier, so this
+  // is the one cap worth stating before it's hit rather than after. The
+  // database trigger is the real gate (migration 20260818000300) -- this only
+  // stops the UI offering something the server will refuse.
+  const storeLimit = limitFor('locations');
+  const atStoreLimit = storeLimit != null && usageOf('locations') >= storeLimit;
 
   const close = () => setEditing(null);
 
@@ -64,8 +74,16 @@ export function LocationsPanel({
           </Row>
         ))}
         {error && <Text style={styles.error}>{error}</Text>}
+        {atStoreLimit && (
+          <Text style={styles.limitNote}>
+            Your plan includes {storeLimit === 1 ? 'one store' : `${storeLimit} stores`}. Upgrade in Plan and billing to
+            open another — everything you already have stays exactly as it is.
+          </Text>
+        )}
         <View style={styles.actionsRow}>
-          <Btn onPress={() => setEditing('new')}>New store</Btn>
+          <Btn onPress={() => setEditing('new')} disabled={atStoreLimit}>
+            New store
+          </Btn>
         </View>
       </Section>
 
@@ -319,6 +337,11 @@ function LocationEditorModal({
 // `instanceof Error`, so an instanceof check alone always falls through to the
 // fallback and hides the real message. Same fix as vendors-panel.tsx.
 function extractErrorMessage(err: unknown, fallback: string): string {
+  // A plan cap is a specific, actionable failure with its own copy — checked
+  // before the generic branch so it never surfaces as the bare word
+  // "limit_reached".
+  const hit = parseLimitReached(err);
+  if (hit) return limitReachedMessage(hit);
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     const message = (err as { message: string }).message;
     if (message.includes('shop_locations_shop_id_name_key')) return 'A store with that name already exists.';
@@ -336,6 +359,7 @@ const styles = StyleSheet.create({
   hint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   actionsRow: { flexDirection: 'row', gap: 8, marginTop: 4 },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 10 },
+  limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginTop: 10, marginBottom: 2 },
 });
 
 const modalStyles = StyleSheet.create({

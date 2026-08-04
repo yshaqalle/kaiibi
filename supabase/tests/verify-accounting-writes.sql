@@ -406,7 +406,18 @@ begin
     v_mine_id uuid;
     v_theirs_id uuid;
     v_seen integer;
+    -- shifts.location_id became NOT NULL when multi-store landed (migration
+    -- 20260815000000): a shift is worked at a branch, not at a business.
+    -- Migration 20260808000000 backfilled one location per shop that existed
+    -- at the time, but nothing creates one for a shop inserted afterwards --
+    -- so this throwaway shop has none and has to make its own.
+    v_shift_location uuid;
   begin
+    select id into v_shift_location from public.shop_locations where shop_id = v_shop_id and is_primary limit 1;
+    if v_shift_location is null then
+      insert into public.shop_locations (shop_id, name, is_primary)
+        values (v_shop_id, 'Verify Store', true) returning id into v_shift_location;
+    end if;
     -- Brief defect found and authorized fix: the brief's own-shift reader was
     -- v_member_id, which belongs to v_user_id -- the SHOP OWNER (see line 36:
     -- `insert into public.shops (owner_id, ...) values (v_user_id, ...)`).
@@ -433,10 +444,10 @@ begin
       values (v_shop_id, v_mate_user, v_role_id, true, 'Rota Mate')
       returning id into v_mate_id;
 
-    insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
-      values (v_shop_id, v_own_id, '2026-08-03', '09:00', '17:00') returning id into v_mine_id;
-    insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
-      values (v_shop_id, v_mate_id, '2026-08-03', '09:00', '17:00') returning id into v_theirs_id;
+    insert into public.shifts (shop_id, location_id, shop_member_id, shift_date, start_time, end_time)
+      values (v_shop_id, v_shift_location, v_own_id, '2026-08-03', '09:00', '17:00') returning id into v_mine_id;
+    insert into public.shifts (shop_id, location_id, shop_member_id, shift_date, start_time, end_time)
+      values (v_shop_id, v_shift_location, v_mate_id, '2026-08-03', '09:00', '17:00') returning id into v_theirs_id;
 
     -- The role held by both members grants only expenses.manage, so neither
     -- has people.schedule.manage and each must fall back to the own-rows
@@ -452,8 +463,8 @@ begin
 
     v_raised := false;
     begin
-      insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
-        values (v_shop_id, v_own_id, '2026-08-04', '09:00', '17:00');
+      insert into public.shifts (shop_id, location_id, shop_member_id, shift_date, start_time, end_time)
+        values (v_shop_id, v_shift_location, v_own_id, '2026-08-04', '09:00', '17:00');
     exception when others then
       v_raised := true;
     end;
@@ -531,8 +542,8 @@ begin
       -- never catch that. Prove the positive: a member holding ONLY
       -- people.schedule.manage inserts a shift for a teammate in their own
       -- shop, and the row exists afterwards.
-      insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
-        values (v_shop_id, v_mate_id, '2026-08-05', '09:00', '17:00')
+      insert into public.shifts (shop_id, location_id, shop_member_id, shift_date, start_time, end_time)
+        values (v_shop_id, v_shift_location, v_mate_id, '2026-08-05', '09:00', '17:00')
         returning id into v_new_shift_id;
       select count(*) into v_seen from public.shifts
         where id = v_new_shift_id and shop_id = v_shop_id and shop_member_id = v_mate_id;
@@ -547,8 +558,8 @@ begin
       -- guards in the WITH CHECK.
       v_raised := false;
       begin
-        insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
-          values (v_shop_id, v_outsider_id, '2026-08-05', '09:00', '17:00');
+        insert into public.shifts (shop_id, location_id, shop_member_id, shift_date, start_time, end_time)
+          values (v_shop_id, v_shift_location, v_outsider_id, '2026-08-05', '09:00', '17:00');
       exception when others then
         v_raised := true;
       end;

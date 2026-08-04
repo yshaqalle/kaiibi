@@ -8,6 +8,7 @@ import type { Permission } from '@/lib/permissions';
 export type SettingsNavId =
   | 'profile'
   | 'security'
+  | 'billing'
   | 'notifications'
   | 'business'
   | 'locations'
@@ -40,6 +41,11 @@ export const SETTINGS_NAV: NavGroup[] = [
     items: [
       { id: 'profile', label: 'Profile', icon: 'person-outline' },
       { id: 'security', label: 'Security', icon: 'lock-closed-outline' },
+      // Deliberately ungated by permission, and deliberately not under a
+      // module: this is the one screen that explains why something else is
+      // locked and how to unlock it. Hiding it from a lapsed shop would leave
+      // them with failures and no route out of them.
+      { id: 'billing', label: 'Plan and billing', icon: 'card-outline' },
       // { id: 'notifications', label: 'Notifications', icon: 'notifications-outline' },
     ],
   },

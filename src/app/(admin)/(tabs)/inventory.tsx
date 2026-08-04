@@ -36,7 +36,7 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
 ];
 
 export default function InventoryScreen() {
-  const { shop, can, locations, activeLocation } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
   // `inventory.view` alone is a read-only view of the catalog (the seeded
@@ -44,6 +44,11 @@ export default function InventoryScreen() {
   // edit modals all need `inventory.edit`, which is what the products write
   // policies check too.
   const canEdit = can('inventory.edit');
+  // The second gate, orthogonal to the permission above: `canEdit` asks whether
+  // this USER may add products, this asks whether the SHOP's plan still has room
+  // for one. Both must pass.
+  const productLimit = limitFor('products');
+  const atProductLimit = productLimit != null && usageOf('products') >= productLimit;
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -136,7 +141,12 @@ export default function InventoryScreen() {
         filenamePrefix: 'products',
         templateColumns: PRODUCTS_TEMPLATE_COLUMNS,
         exampleRows: [PRODUCTS_EXAMPLE_ROW],
-        run: (parsed) => runProductsImport(shop.id, parsed),
+        // Headroom is read at import time rather than captured on render, so a
+        // long-open screen doesn't import against a stale allowance.
+        run: (parsed) =>
+          runProductsImport(shop.id, parsed, {
+            headroom: productLimit == null ? null : Math.max(0, productLimit - usageOf('products')),
+          }),
       }
     : null;
 
@@ -198,12 +208,25 @@ export default function InventoryScreen() {
               </Pressable>
             )}
             {canEdit && (
-              <Pressable onPress={() => setShowAddModal(true)} style={styles.addButton}>
-                <Text style={styles.addButtonText}>+ Add product</Text>
+              <Pressable
+                onPress={() => setShowAddModal(true)}
+                disabled={atProductLimit}
+                style={[styles.addButton, atProductLimit && styles.addButtonDisabled]}
+              >
+                <Text style={[styles.addButtonText, atProductLimit && styles.addButtonTextDisabled]}>+ Add product</Text>
               </Pressable>
             )}
           </View>
         </View>
+        {/* Stated where the button is, not after a failed save: the shop needs
+            to know the cap exists before deciding what to do about it. The
+            database trigger remains the real gate. */}
+        {canEdit && atProductLimit && (
+          <Text style={styles.limitNote}>
+            You&apos;ve reached {productLimit?.toLocaleString()} products on your plan. Remove one, or upgrade under
+            Settings → Plan and billing. Nothing you already have is affected.
+          </Text>
+        )}
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
@@ -305,6 +328,9 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
   addButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
+  addButtonDisabled: { backgroundColor: '#E5E5E5' },
+  addButtonTextDisabled: { color: '#999999' },
+  limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
