@@ -13,8 +13,8 @@ export type SortDirection = 'asc' | 'desc';
 // typing can't cleanly infer a shape valid for both (TextStyle/ViewStyle
 // disagree on `userSelect`) — inline objects sidestep that ambiguity since
 // they're contextually typed at each call site instead.
-const colLocation = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
 const colProduct = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
+const colLocation = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
 const colBrand = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
 const colCategory = { flexBasis: '12%', flexGrow: 0, flexShrink: 0 } as const;
 const colTags = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
@@ -48,8 +48,8 @@ export function ProductTableHeader({
   return (
     <View style={styles.headerRow}>
       <View style={styles.dataCols}>
-        {showLocation && <Text style={[styles.headerLabel, colLocation]}>LOCATION</Text>}
         <HeaderCell field="name" label="PRODUCT" style={colProduct} />
+        {showLocation && <Text style={[styles.headerLabel, colLocation]}>LOCATION</Text>}
         <HeaderCell field="brand" label="BRAND" style={colBrand} />
         <HeaderCell field="category" label="CATEGORY" style={colCategory} />
         <Text style={[styles.headerLabel, colTags]}>TAGS</Text>
@@ -71,9 +71,14 @@ export function ProductTableRow({
   onOpenBreakdown,
 }: {
   product: Product;
-  // The store cell's text, resolved by the caller (which holds the store list).
+  // The store cell, resolved by the caller (which holds the store list).
   // Undefined hides the column entirely, for a single-store business.
-  locationLabel?: string;
+  //
+  // When a product is carried at several stores the cell shows a COUNT rather
+  // than a name plus "+2" — naming one store and hiding the rest implies the
+  // named one matters more, and the count is honest about there being a set.
+  // Tapping it opens the same per-store breakdown the stock cell does.
+  locationLabel?: { text: string; multiple: boolean };
   // Both omitted for a read-only viewer (a role with `inventory.view` but not
   // `inventory.edit`) — same contract as ProductTile.
   onEdit?: () => void;
@@ -96,9 +101,6 @@ export function ProductTableRow({
   return (
     <View style={styles.row}>
       <View style={styles.dataCols}>
-        {locationLabel !== undefined && (
-          <Text style={[styles.cellText, styles.muted, colLocation]} numberOfLines={1}>{locationLabel}</Text>
-        )}
         <View style={[styles.cell, colProduct]}>
           {product.imageUrl ? (
             <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
@@ -107,6 +109,15 @@ export function ProductTableRow({
           )}
           <Text style={styles.name} numberOfLines={2}>{product.name}</Text>
         </View>
+
+        {locationLabel !== undefined &&
+          (locationLabel.multiple && onOpenBreakdown ? (
+            <Pressable onPress={onOpenBreakdown} style={[styles.cell, colLocation]}>
+              <Text style={styles.locationLink} numberOfLines={1}>{locationLabel.text}</Text>
+            </Pressable>
+          ) : (
+            <Text style={[styles.cellText, styles.muted, colLocation]} numberOfLines={1}>{locationLabel.text}</Text>
+          ))}
 
         <Text style={[styles.cellText, styles.muted, colBrand]} numberOfLines={1}>{product.brand || '—'}</Text>
         <Text style={[styles.cellText, colCategory]} numberOfLines={1}>{product.category || '—'}</Text>
@@ -200,6 +211,7 @@ const styles = StyleSheet.create({
   tagChip: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, maxWidth: '100%' },
   tagChipText: { fontSize: 11, fontWeight: '600', color: '#555555' },
 
+  locationLink: { fontSize: 12, fontWeight: '700', color: '#111111', textDecorationLine: 'underline' },
   breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   breakdownCount: { fontSize: 14, fontWeight: '800', color: '#111111' },
   breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },

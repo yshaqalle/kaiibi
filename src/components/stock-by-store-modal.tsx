@@ -22,10 +22,15 @@ export function StockByStoreModal({
   product,
   onClose,
   onChanged,
+  canEdit = true,
 }: {
   product: Product;
   onClose: () => void;
   onChanged: () => Promise<void>;
+  // Seeing WHERE stock sits is a read, so this opens for anyone who can view
+  // inventory; only the steppers need `inventory.edit`. Without the split, a
+  // read-only viewer would see "3 stores" with no way to find out which.
+  canEdit?: boolean;
 }) {
   const { locations } = useAuth();
   const stores = locations.filter((location) => location.active);
@@ -87,17 +92,23 @@ export function StockByStoreModal({
                     {savingId === store.id ? 'Saving…' : counts[store.id] === 0 ? 'None here' : `${counts[store.id]} here`}
                   </Text>
                 </View>
-                <QuantityStepper
-                  quantity={counts[store.id] ?? 0}
-                  onChange={(next) => adjust(store.id, Math.max(0, next))}
-                />
+                {canEdit ? (
+                  <QuantityStepper
+                    quantity={counts[store.id] ?? 0}
+                    onChange={(next) => adjust(store.id, Math.max(0, next))}
+                  />
+                ) : (
+                  <Text style={styles.readOnlyCount}>{counts[store.id] ?? 0}</Text>
+                )}
               </View>
             ))}
           </ScrollView>
 
-          <Text style={styles.footnote}>
-            Each change saves to that store on its own. To move stock between stores instead, use Move stock.
-          </Text>
+          {canEdit && (
+            <Text style={styles.footnote}>
+              Each change saves to that store on its own. To move stock between stores instead, use Move stock.
+            </Text>
+          )}
         </View>
       </View>
     </Modal>
@@ -125,6 +136,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1 },
   storeName: { fontSize: 14, fontWeight: '700', color: '#111111' },
   storeMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
+  readOnlyCount: { fontSize: 14, fontWeight: '800', color: '#111111' },
   footnote: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginTop: 14 },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 10 },
 });

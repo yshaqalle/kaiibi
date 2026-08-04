@@ -143,20 +143,29 @@ export default function InventoryScreen() {
   // What the LOCATION cell says for a row.
   //
   // Scoped to one store, every row is that store — the cell repeats it so a
-  // printed or exported table still says which store it describes. In the
-  // combined view a product can hold stock at several, so it names the ones
-  // that actually carry any: "—" when none do (the product exists in the
-  // catalog but is nowhere in stock), the store when only one does, and
-  // "Hargeisa +2" when more do. The alternative — one row per store — would
-  // triple the table for a business with three stores.
+  // printed or exported table still says which store it describes.
+  //
+  // In the combined view a product can be carried at several. One store gets
+  // named; more than one gets a COUNT, tappable to see which. Naming one and
+  // appending "+2" implied the named store mattered more, and made the cell a
+  // different length on every row; a count says plainly that there is a set,
+  // and the names are one tap away in the breakdown that was already there.
+  //
+  // Counted by rows CARRIED, not rows in stock — a store that stocks an item
+  // and has run out still stocks it, which is the same distinction the list
+  // filter makes.
   const locationLabelFor = useCallback(
-    (product: Product): string | undefined => {
+    (product: Product): { text: string; multiple: boolean } | undefined => {
       if (!showLocationFilter) return undefined;
-      if (locationFilter) return locations.find((l) => l.id === locationFilter)?.name ?? '—';
-      const holding = (product.locationStock ?? []).filter((entry) => entry.stock > 0);
-      if (holding.length === 0) return '—';
-      const first = locations.find((l) => l.id === holding[0].locationId)?.name ?? '—';
-      return holding.length === 1 ? first : `${first} +${holding.length - 1}`;
+      if (locationFilter) {
+        return { text: locations.find((l) => l.id === locationFilter)?.name ?? '—', multiple: false };
+      }
+      const carried = product.locationStock ?? [];
+      if (carried.length === 0) return { text: '—', multiple: false };
+      if (carried.length === 1) {
+        return { text: locations.find((l) => l.id === carried[0].locationId)?.name ?? '—', multiple: false };
+      }
+      return { text: `${carried.length} stores`, multiple: true };
     },
     [showLocationFilter, locationFilter, locations]
   );
@@ -218,7 +227,7 @@ export default function InventoryScreen() {
                   product={product}
                   onEdit={canEdit ? () => setEditingProduct(product) : undefined}
                   onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
-                  onOpenBreakdown={canEdit && showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
+                  onOpenBreakdown={showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                   defaultLowStockLevel={defaultLowStockLevel}
                   expiryWarningLeadDays={expiryWarningLeadDays}
                 />
@@ -232,7 +241,7 @@ export default function InventoryScreen() {
                     product={product}
                     onEdit={canEdit ? () => setEditingProduct(product) : undefined}
                     onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
-                    onOpenBreakdown={canEdit && showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
+                    onOpenBreakdown={showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                     defaultLowStockLevel={defaultLowStockLevel}
                     expiryWarningLeadDays={expiryWarningLeadDays}
                     locationLabel={locationLabelFor(product)}
@@ -272,6 +281,7 @@ export default function InventoryScreen() {
           product={breakdownProduct}
           onClose={() => setBreakdownProduct(null)}
           onChanged={reload}
+          canEdit={canEdit}
         />
       )}
       {shop && canEdit && (
