@@ -8,7 +8,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: 'Inventory', permissions: ['inventory.view', 'inventory.edit'] },
   {
     label: 'People',
-    permissions: ['customers.view', 'customers.edit', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'],
+    permissions: ['customers.view', 'customers.edit', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'],
   },
   {
     label: 'Accounting',

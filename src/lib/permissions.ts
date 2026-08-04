@@ -23,6 +23,7 @@ export type Permission =
   | 'people.timeoff.approve'
   | 'people.payroll.manage'
   | 'people.timesheet.view'
+  | 'people.schedule.manage'
   | 'expenses.view'
   | 'expenses.manage'
   | 'invoices.view'
@@ -44,6 +45,7 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'people.timeoff.approve', label: 'Approve time off', description: 'Approve or deny staff time-off requests.' },
   { key: 'people.payroll.manage', label: 'Manage payroll', description: 'Set hire date, pay type, and pay rate for staff.' },
   { key: 'people.timesheet.view', label: 'View team hours', description: "See the whole team's clock-in history and shift hours, not just your own." },
+  { key: 'people.schedule.manage', label: 'Manage the schedule', description: "Create and change shifts for the whole team. Everyone can see their own shifts without this." },
   { key: 'expenses.view', label: 'View expenses', description: 'See logged expenses and what the shop is spending.' },
   { key: 'expenses.manage', label: 'Manage expenses', description: 'Log, edit, or delete expenses and record recurring bills.' },
   { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },

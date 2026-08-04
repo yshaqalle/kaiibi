@@ -395,6 +395,74 @@ begin
   end if;
   raise notice 'OK: sale_items.unit_cost_cents present';
 
+  ------------------------------------------------------------------
+  raise notice '=== 8. Shifts: a member reads their own, not a colleague''s ===';
+  ------------------------------------------------------------------
+  declare
+    v_own_user uuid := gen_random_uuid();
+    v_own_id uuid;
+    v_mate_user uuid := gen_random_uuid();
+    v_mate_id uuid;
+    v_mine_id uuid;
+    v_theirs_id uuid;
+    v_seen integer;
+  begin
+    -- Brief defect found and authorized fix: the brief's own-shift reader was
+    -- v_member_id, which belongs to v_user_id -- the SHOP OWNER (see line 36:
+    -- `insert into public.shops (owner_id, ...) values (v_user_id, ...)`).
+    -- user_has_shop_permission() (0024_permission_gates.sql) gives the owner
+    -- every permission unconditionally, so "read shop shifts" would match for
+    -- the owner regardless of v_role_id's grants, and the colleague-hidden
+    -- assertion below would fail for the wrong reason -- masking exactly the
+    -- bug this test exists to catch. Use a fresh, non-owner member on the
+    -- same expenses.manage-only role instead, so it's the own-rows policy
+    -- actually being exercised, not the owner bypass.
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_own_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-' || v_own_user || '@example.test', '', now(), now(), now());
+    insert into public.shop_members (shop_id, user_id, role_id, active, full_name)
+      values (v_shop_id, v_own_user, v_role_id, true, 'Rota Self')
+      returning id into v_own_id;
+
+    -- A second member, with their own auth user (shop_members is unique on
+    -- (shop_id, user_id), and user_id references auth.users).
+    insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+      values (v_mate_user, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+              'verify-' || v_mate_user || '@example.test', '', now(), now(), now());
+    insert into public.shop_members (shop_id, user_id, role_id, active, full_name)
+      values (v_shop_id, v_mate_user, v_role_id, true, 'Rota Mate')
+      returning id into v_mate_id;
+
+    insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
+      values (v_shop_id, v_own_id, '2026-08-03', '09:00', '17:00') returning id into v_mine_id;
+    insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
+      values (v_shop_id, v_mate_id, '2026-08-03', '09:00', '17:00') returning id into v_theirs_id;
+
+    -- The role held by both members grants only expenses.manage, so neither
+    -- has people.schedule.manage and each must fall back to the own-rows
+    -- policy.
+    set local role authenticated;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_own_user)::text, true);
+
+    select count(*) into v_seen from public.shifts where id = v_mine_id;
+    if v_seen <> 1 then raise exception 'FAIL: a member cannot read their own shift'; end if;
+
+    select count(*) into v_seen from public.shifts where id = v_theirs_id;
+    if v_seen <> 0 then raise exception 'FAIL: a member read a colleague''s shift without people.schedule.manage'; end if;
+
+    v_raised := false;
+    begin
+      insert into public.shifts (shop_id, shop_member_id, shift_date, start_time, end_time)
+        values (v_shop_id, v_own_id, '2026-08-04', '09:00', '17:00');
+    exception when others then
+      v_raised := true;
+    end;
+    if not v_raised then raise exception 'FAIL: a member wrote a shift without people.schedule.manage'; end if;
+
+    reset role;
+    raise notice 'OK: own shift readable, colleague''s hidden, writes refused';
+  end;
+
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';
 
