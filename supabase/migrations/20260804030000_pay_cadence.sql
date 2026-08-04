@@ -70,7 +70,7 @@ declare
 begin
   if not public.has_any_shop_permission(
     p_shop_id,
-    array['staff.manage', 'people.payroll.manage', 'people.timesheet.view', 'people.timeoff.approve']
+    array['staff.manage', 'people.payroll.manage', 'people.timesheet.view', 'people.timeoff.approve', 'people.schedule.manage']
   ) then
     raise exception 'not authorized for shop %', p_shop_id;
   end if;

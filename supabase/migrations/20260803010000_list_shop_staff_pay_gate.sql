@@ -37,8 +37,15 @@ language plpgsql security definer stable set search_path = public as $$
 declare
   v_can_see_pay boolean;
 begin
-  -- Same set the "read shop_members" policy admits, so this function never
-  -- widens who can see the roster -- it only narrows which columns they get.
+  -- Originally the same set the "read shop_members" policy admits, so this
+  -- function never widened who could see the roster -- it only narrowed
+  -- which columns they got. 20260804030000_pay_cadence.sql broke that
+  -- invariant on purpose: it added people.schedule.manage here without
+  -- adding it to "read shop_members", so this function is now WIDER than
+  -- the table policy. That is deliberate, not a regression -- it is the
+  -- safe path for a scheduler to resolve names, precisely because it still
+  -- blanks pay for anyone without people.payroll.manage. See that file for
+  -- the current gate array.
   if not public.has_any_shop_permission(
     p_shop_id,
     array['staff.manage', 'people.payroll.manage', 'people.timesheet.view', 'people.timeoff.approve']
