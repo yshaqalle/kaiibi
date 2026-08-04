@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
+import { planColor } from '@/components/platform-charts';
 import { PlatformOverview } from '@/components/platform-overview';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { formatCents } from '@/lib/currency';
@@ -176,6 +177,9 @@ export default function PlatformHome() {
               // PAYING. Shown as "trialing · Pro" rather than leaving the two
               // columns looking like they disagree.
               const onPaidPlanInTrial = shop.status === 'trialing' && shop.planKey !== 'trial';
+              // Paid, but their cover starts when the free period ends.
+              const paidAhead =
+                shop.status === 'trialing' && shop.currentPeriodEnd != null && new Date(shop.currentPeriodEnd) > new Date(shop.createdAt);
               // Narrow: one card per shop, name on top and the numbers
               // beneath. Squeezing five columns onto a phone makes every one of
               // them unreadable, which is worse than stacking.
@@ -217,7 +221,11 @@ export default function PlatformHome() {
                   <Text style={[styles.td, styles.colPlan]}>{shop.planName}</Text>
                   <View style={styles.colStatus}>
                     <Text style={[styles.status, STATUS_COLOR[shop.status]]}>{STATUS_DOT[shop.status]} {shop.status}</Text>
-                    {onPaidPlanInTrial && <Text style={styles.statusNote}>free until trial ends</Text>}
+                    {paidAhead ? (
+                      <Text style={styles.statusPaid}>paid · starts {fmtDate(shop.currentPeriodEnd)}</Text>
+                    ) : onPaidPlanInTrial ? (
+                      <Text style={styles.statusNote}>free until trial ends</Text>
+                    ) : null}
                   </View>
                   <Text style={[styles.td, styles.colDate, styles.tdMuted]}>{fmtDate(shop.createdAt)}</Text>
                   <Text style={[styles.td, styles.colDate, endsSoon(ends) && styles.tdAtLimit]}>{fmtDate(ends)}</Text>
@@ -724,33 +732,111 @@ function RequestsView({
 
 function PlansView({ plans, shops, onDone }: { plans: Plan[]; shops: PlatformShopRow[]; onDone: () => Promise<void> }) {
   const [editing, setEditing] = useState<string | null>(null);
+  const editingPlan = plans.find((p) => p.key === editing) ?? null;
   return (
     <View>
       <Text style={styles.h1}>Plans</Text>
-      {plans.map((plan) => {
+      {plans.map((plan, i) => {
         const on = shops.filter((s) => s.planKey === plan.key).length;
-        if (editing === plan.key) {
-          return <PlanEditor key={plan.id} plan={plan} shopsOn={on} shops={shops} onClose={() => setEditing(null)} onDone={onDone} />;
-        }
+        const accent = planColor(plan.key, i);
+        const revenue = plan.priceCents * shops.filter((s) => s.planKey === plan.key && s.status === 'active').length;
         return (
           <View key={plan.id} style={styles.planCard}>
-            <View style={styles.planHead}>
-              <Text style={styles.planName}>{plan.name}</Text>
-              <View style={styles.actionRow}>
-                <Text style={styles.planPrice}>
-                  {plan.priceCents === 0 ? 'Free' : `${formatCents(plan.priceCents)}/${plan.billingInterval ?? 'month'}`}
-                </Text>
-                <Btn label="Edit" onPress={() => setEditing(plan.key)} />
+            {/* A colour stripe per tier, matching the donut on the Overview, so
+                a plan is recognisable by colour in both places. */}
+            <View style={[styles.planAccent, { backgroundColor: accent }]} />
+            <View style={styles.planBody}>
+              <View style={styles.planHead}>
+                <View style={styles.planHeadLeft}>
+                  <Text style={styles.planName}>{plan.name}</Text>
+                  {!plan.isPublic && <View style={styles.planTag}><Text style={styles.planTagText}>NOT PUBLIC</Text></View>}
+                </View>
+                <View style={styles.actionRow}>
+                  <View style={styles.planPriceWrap}>
+                    <Text style={styles.planPriceBig}>{plan.priceCents === 0 ? 'Free' : formatCents(plan.priceCents)}</Text>
+                    {plan.priceCents > 0 && <Text style={styles.planPer}>/{plan.billingInterval ?? 'month'}</Text>}
+                  </View>
+                  <Btn label="Edit" onPress={() => setEditing(plan.key)} />
+                </View>
+              </View>
+
+              <View style={styles.planStats}>
+                <View style={styles.planStat}>
+                  <Text style={[styles.planStatValue, { color: accent }]}>{on}</Text>
+                  <Text style={styles.planStatLabel}>shop{on === 1 ? '' : 's'}</Text>
+                </View>
+                <View style={styles.planStat}>
+                  <Text style={styles.planStatValue}>{revenue > 0 ? formatCents(revenue) : '—'}</Text>
+                  <Text style={styles.planStatLabel}>monthly revenue</Text>
+                </View>
+                <View style={styles.planStat}>
+                  <Text style={styles.planStatValue}>{plan.modules.length}<Text style={styles.planStatOf}>/{MODULES.length}</Text></Text>
+                  <Text style={styles.planStatLabel}>modules</Text>
+                </View>
+              </View>
+
+              {/* Every module shown, not just the included ones — what a tier
+                  leaves out is what sells the tier above it, and that is
+                  invisible if excluded features simply aren't listed. */}
+              <Text style={styles.planSubhead}>WHAT&apos;S INCLUDED</Text>
+              <View style={styles.pillWrap}>
+                {MODULES.map((m) => {
+                  const on2 = plan.modules.includes(m.key);
+                  return (
+                    <View key={m.key} style={[styles.pill, on2 ? { backgroundColor: `${accent}1A`, borderColor: accent } : styles.pillOff]}>
+                      <Text style={[styles.pillText, on2 ? { color: accent } : styles.pillTextOff]}>
+                        {on2 ? '' : '✕ '}{m.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.planSubhead}>LIMITS</Text>
+              <View style={styles.limitGrid}>
+                {LIMIT_RESOURCES.map((r) => {
+                  const limit = plan.limits[r.key];
+                  return (
+                    <View key={r.key} style={styles.limitCell}>
+                      <Text style={[styles.limitValue, limit == null && styles.limitUnlimited]}>
+                        {limit == null ? '∞' : limit.toLocaleString()}
+                      </Text>
+                      <Text style={styles.limitLabel}>{r.label}</Text>
+                    </View>
+                  );
+                })}
               </View>
             </View>
-            <Text style={styles.planMeta}>{on} shop{on === 1 ? '' : 's'} on this plan</Text>
-            <Text style={styles.planModules}>{plan.modules.join(' · ')}</Text>
-            <Text style={styles.planMeta}>
-              {LIMIT_RESOURCES.map((r) => `${r.label}: ${plan.limits[r.key] ?? '∞'}`).join('  ·  ')}
-            </Text>
           </View>
         );
       })}
+
+      {/* A modal, not an inline swap: the editor is a form, and dropping a form
+          into a row-laid-out card list mangled both. */}
+      {editingPlan && (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setEditing(null)}>
+          <View style={[styles.sheetBackdrop, styles.dialogBackdrop]}>
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setEditing(null)} />
+            <View style={styles.dialog}>
+              <View style={styles.dialogHeader}>
+                <Text style={styles.dialogTitle}>Edit {editingPlan.name}</Text>
+                <Pressable onPress={() => setEditing(null)} hitSlop={10}>
+                  <Text style={styles.dialogClose}>✕</Text>
+                </Pressable>
+              </View>
+              <ScrollView contentContainerStyle={styles.sheetContent}>
+                <PlanEditor
+                  plan={editingPlan}
+                  shopsOn={shops.filter((s) => s.planKey === editingPlan.key).length}
+                  shops={shops}
+                  onClose={() => setEditing(null)}
+                  onDone={onDone}
+                />
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -832,13 +918,15 @@ function PlanEditor({
   };
 
   return (
-    <View style={[styles.planCard, styles.planCardEditing]}>
-      <View style={styles.planHead}>
-        <TextInput value={name} onChangeText={setName} style={styles.planNameInput} />
-        <View style={styles.inlineDays}>
-          <Text style={styles.planMeta}>$</Text>
-          <TextInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" style={styles.daysInput} />
-          <Btn label="Cancel" onPress={onClose} />
+    <View>
+      <View style={styles.editorRow}>
+        <View style={styles.editorField}>
+          <Text style={styles.planMeta}>Name</Text>
+          <TextInput value={name} onChangeText={setName} style={styles.planNameInput} />
+        </View>
+        <View style={styles.editorField}>
+          <Text style={styles.planMeta}>Price ({plan.currency})</Text>
+          <TextInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" style={styles.payInput} />
         </View>
       </View>
       <Text style={styles.planMeta}>key `{plan.key}` — not editable, {shopsOn} shop{shopsOn === 1 ? '' : 's'} depend on it</Text>
@@ -887,6 +975,7 @@ function PlanEditor({
       {error && <Text style={styles.error}>{error}</Text>}
       <View style={styles.actionRow}>
         <Btn label={busy ? 'Saving…' : 'Save plan'} disabled={busy} onPress={save} />
+        <Pressable onPress={onClose}><Text style={styles.dangerCancel}>Cancel</Text></Pressable>
       </View>
     </View>
   );
@@ -1026,6 +1115,7 @@ const styles = StyleSheet.create({
   colUsage: { flex: 1.5 },
   status: { fontSize: 12, fontWeight: '700' },
   statusNote: { fontSize: 10, color: '#AAAAAA', marginTop: 1 },
+  statusPaid: { fontSize: 10, color: '#1E7A3C', fontWeight: '700', marginTop: 1 },
   detail: { marginTop: 22, borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 12, padding: 20 },
   detailTitle: { fontSize: 17, fontWeight: '800', color: '#111111' },
   detailMeta: { fontSize: 12, color: '#888888', marginTop: 2 },
@@ -1053,9 +1143,35 @@ const styles = StyleSheet.create({
   warn: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginVertical: 8 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 6 },
   privacyNote: { color: '#AAAAAA', fontSize: 11, lineHeight: 17, marginTop: 18 },
-  planCard: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 16, marginBottom: 10 },
+  planCard: { borderWidth: 1, borderColor: '#EDEDF2', borderRadius: 14, marginBottom: 14, flexDirection: 'row', overflow: 'hidden', backgroundColor: '#FFFFFF' },
+  planAccent: { width: 5 },
+  planBody: { flex: 1, padding: 18 },
+  planHeadLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  planTag: { borderWidth: 1, borderColor: '#DDDDDD', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
+  planTagText: { fontSize: 9, fontWeight: '800', color: '#999999', letterSpacing: 0.4 },
+  planPriceWrap: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  planPriceBig: { fontSize: 20, fontWeight: '800', color: '#111111' },
+  planPer: { fontSize: 11, color: '#999999', fontWeight: '700' },
+  planStats: { flexDirection: 'row', gap: 26, marginTop: 14, marginBottom: 4 },
+  planStat: { gap: 1 },
+  planStatValue: { fontSize: 17, fontWeight: '800', color: '#111111' },
+  planStatOf: { fontSize: 12, color: '#BBBBBB', fontWeight: '700' },
+  planStatLabel: { fontSize: 10.5, color: '#999999' },
+  planSubhead: { fontSize: 9.5, fontWeight: '800', color: '#AAAAAA', letterSpacing: 0.6, marginTop: 16, marginBottom: 8 },
+  pillWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  pill: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 5 },
+  pillOff: { borderColor: '#EEEEEE', backgroundColor: '#FAFAFA' },
+  pillText: { fontSize: 11.5, fontWeight: '700' },
+  pillTextOff: { color: '#C4C4C4' },
+  limitGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  limitCell: { minWidth: 96, flexGrow: 1, borderWidth: 1, borderColor: '#F0F0F5', borderRadius: 9, paddingVertical: 9, paddingHorizontal: 11, backgroundColor: '#FBFBFD' },
+  limitValue: { fontSize: 15, fontWeight: '800', color: '#111111' },
+  limitUnlimited: { color: '#1E9E5A' },
+  limitLabel: { fontSize: 10, color: '#999999', marginTop: 1 },
   planCardEditing: { borderColor: '#111111' },
-  planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
+  planNameInput: { borderWidth: 1, borderColor: '#DDDDDD', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 13, fontWeight: '700', color: '#111111', minWidth: 200 },
+  editorRow: { flexDirection: 'row', gap: 12, flexWrap: 'wrap', marginBottom: 10 },
+  editorField: { gap: 4 },
   limitField: { gap: 4 },
   convertRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 },
   checkbox: { width: 17, height: 17, borderRadius: 4, borderWidth: 1.5, borderColor: '#BBBBBB', alignItems: 'center', justifyContent: 'center' },

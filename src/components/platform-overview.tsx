@@ -42,9 +42,23 @@ export function PlatformOverview({
   // Only shops actually paying right now. Trials and lapsed shops are excluded
   // deliberately -- counting them is how a dashboard tells you the business is
   // doing better than it is.
-  const paying = shops.filter((s) => s.status === 'active');
-  const mrr = paying.reduce((sum, s) => sum + priceOf(s.planKey), 0);
-  const arpu = paying.length > 0 ? Math.round(mrr / paying.length) : 0;
+  const billing = shops.filter((s) => s.status === 'active');
+
+  // Paid, but still inside their free period: money has arrived and their
+  // cover starts when the trial ends. They are customers, not prospects —
+  // counting them as merely "on trial" under-reports a decision they have
+  // already made and paid for.
+  const committed = shops.filter(
+    (s) => s.status === 'trialing' && s.currentPeriodEnd != null && new Date(s.currentPeriodEnd).getTime() > now
+  );
+
+  const paying = [...billing, ...committed];
+  // MRR is what is billing NOW. Committed money is shown beside it rather than
+  // folded in, because a figure that mixes "collecting today" with "collecting
+  // from November" answers neither question.
+  const mrr = billing.reduce((sum, s) => sum + priceOf(s.planKey), 0);
+  const committedMrr = committed.reduce((sum, s) => sum + priceOf(s.planKey), 0);
+  const arpu = paying.length > 0 ? Math.round((mrr + committedMrr) / paying.length) : 0;
 
   const monthStart = new Date(now);
   monthStart.setDate(1);
@@ -68,14 +82,15 @@ export function PlatformOverview({
   const upgrades = movesIn30.filter((a) => direction(a) === 'up').length;
   const downgrades = movesIn30.filter((a) => direction(a) === 'down').length;
 
-  const trialing = shops.filter((s) => s.status === 'trialing');
+  const trialing = shops.filter((s) => s.status === 'trialing' && !committed.includes(s));
   const expired = shops.filter((s) => s.status === 'expired');
   const suspended = shops.filter((s) => s.status === 'suspended');
 
   // Conversion: of the shops whose trial has already ended, how many are paying.
   // Shops still trialing are excluded -- they haven't had the chance to decide,
   // and including them would flatter the number early on.
-  const decided = shops.filter((s) => s.status !== 'trialing');
+  // A shop that has paid has decided, whether or not its trial has run out.
+  const decided = shops.filter((s) => s.status !== 'trialing' || committed.includes(s));
   const conversion = decided.length > 0 ? Math.round((paying.length / decided.length) * 100) : 0;
 
   // Platform-wide usage: how much work the product is actually doing.
@@ -90,6 +105,8 @@ export function PlatformOverview({
     })
   );
 
+  // `trialing` already excludes shops that have paid, so nobody gets chased
+  // for a decision they have made.
   const endingSoon = trialing
     .filter((s) => s.trialEndsAt && new Date(s.trialEndsAt).getTime() - now <= 7 * DAY)
     .sort((a, b) => (a.trialEndsAt ?? '').localeCompare(b.trialEndsAt ?? ''));
@@ -135,7 +152,9 @@ export function PlatformOverview({
   const headline =
     paying.length === 0
       ? `No paying shops yet. ${trialing.length} on trial${endingSoon.length > 0 ? `, ${endingSoon.length} deciding within a week` : ''}.`
-      : `${formatCents(mrr)} a month from ${paying.length} paying shop${paying.length === 1 ? '' : 's'}${
+      : `${formatCents(mrr + committedMrr)} a month from ${paying.length} paying shop${paying.length === 1 ? '' : 's'}${
+          committed.length > 0 ? ` (${formatCents(committedMrr)} of it starting after trials end)` : ''
+        }${
           endingSoon.length > 0 ? ` · ${endingSoon.length} trial${endingSoon.length === 1 ? '' : 's'} ending within a week` : ''
         }.`;
 
@@ -148,7 +167,10 @@ export function PlatformOverview({
 
       <Text style={styles.section}>MONEY</Text>
       <View style={styles.tiles}>
-        <Tile value={formatCents(mrr)} label="MRR" sub="paying shops only" />
+        <Tile value={formatCents(mrr)} label="MRR" sub="billing right now" />
+        {committedMrr > 0 && (
+          <Tile value={formatCents(committedMrr)} label="Committed" sub={`${committed.length} paid, starts after trial`} />
+        )}
         <Tile value={formatCents(collectedThisMonth)} label="Collected this month" sub={`${payments.filter((p) => new Date(p.paidAt) >= monthStart).length} payments`} />
         <Tile value={formatCents(arpu)} label="Average per shop" />
         <Tile value={`${conversion}%`} label="Trial → paid" sub={`of ${decided.length} decided`} tone={conversion === 0 && decided.length > 0 ? 'warn' : 'default'} />
@@ -157,7 +179,7 @@ export function PlatformOverview({
       <Text style={styles.section}>MOVEMENT</Text>
       <View style={styles.tiles}>
         <Tile value={`+${newIn(7)}`} label="New this week" sub={`+${newIn(30)} in 30 days`} />
-        <Tile value={String(trialing.length)} label="On trial" />
+        <Tile value={String(trialing.length)} label="On trial" sub={committed.length > 0 ? `${committed.length} more already paid` : undefined} />
         <Tile value={`↑${upgrades}  ↓${downgrades}`} label="Plan changes" sub="last 30 days" tone={downgrades > upgrades ? 'warn' : 'default'} />
         <Tile value={String(expired.length + suspended.length)} label="Lapsed or suspended" tone={expired.length + suspended.length > 0 ? 'warn' : 'default'} />
       </View>
