@@ -20,7 +20,7 @@ import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
-import type { ReceiptData } from '@/lib/receipt';
+import { formatTodayHours, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { Currency, Discount, PaymentMethod, Product, Promotion } from '@/types/models';
@@ -160,6 +160,7 @@ export default function PosScreen() {
         shopCity: shop.city,
         shopNeighborhood: shop.neighborhood,
         shopContactPhone: shop.contactPhone,
+        shopHours: formatTodayHours(shop.openingHours, new Date()),
         cashierName: shop.receiptShowCashierName ? cashierName : null,
         returnPolicy: shop.returnPolicy,
         items: cart.map((line) => ({

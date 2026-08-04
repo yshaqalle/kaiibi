@@ -13,7 +13,7 @@ import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
-import { formatCents } from '@/lib/currency';
+import { formatCents, formatCompactCents } from '@/lib/currency';
 import { listProducts } from '@/lib/products';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
@@ -186,7 +186,7 @@ export function TransactionsTab({
   return (
     <View>
       <View style={styles.metricRow}>
-        <StatTile value={formatCents(rangeTotalCents)} label={rangeLabel} />
+        <StatTile value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
         <StatTile value={String(filtered.length)} label="Orders" />
       </View>
 

@@ -15,7 +15,7 @@ import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, t
 import { listExpensesInRange } from '@/lib/expenses';
 import { sharePdf } from '@/lib/export-file';
 import { listPayrollRuns } from '@/lib/payroll';
-import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { sumDurationHours } from '@/lib/shift-hours';
 import { buildDashboardReportHtml, type ReportSection, type ReportStat } from '@/lib/report-pdf';
 import { getCategoryBreakdown, getCategoryRevenueByMonth, getSalesAndRefundsInRange } from '@/lib/sales';
@@ -34,7 +34,8 @@ import type { Expense } from '@/types/models';
 type LaborPicture = {
   accruedCents: number;
   hours: number;
-  salariedExcludedCount: number;
+  fixedExcludedCount: number;
+  nonHourlyCount: number;
   // Every hour clocked in the range, whether or not a pay run has settled it.
   // The accrual only counts unposted days, so it's the wrong denominator for
   // "what did an hour of work earn".
@@ -111,10 +112,12 @@ export function ReportsTab({
       setCategoryByMonth(categoryMonths);
 
       if (canSeeLabor) {
-        // Labour worked on days no posted pay run covers. Once a run is
-        // posted its days drop out of `uncovered`, and its expense row takes
-        // over — so the accrual and the posted wages can never both count the
-        // same day.
+        // Labour worked on days no posted pay run covers. Coverage is now
+        // per member, derived from each posted run's lines rather than its
+        // period, so a run drops days only for the members it actually
+        // paid — never for someone else's still-unpaid days — and the
+        // accrual and the posted wages can never both count the same day
+        // for the same person.
         const rangeEnd = until ?? new Date();
         const [members, entries, runs] = await Promise.all([
           listStaff(shop.id),
@@ -126,7 +129,7 @@ export function ReportsTab({
           return at >= since.getTime() && at <= rangeEnd.getTime();
         });
         setLabor({
-          ...accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)),
+          ...accruedLaborCents(members, entries, since, rangeEnd, runs),
           totalHoursInRange: Number(sumDurationHours(inRange).toFixed(2)),
         });
       } else {
@@ -282,7 +285,7 @@ export function ReportsTab({
         {accruedLabor > 0 && (
           <PnlRow
             label="Wages earned, not yet paid"
-            hint={`${labor?.hours ?? 0}h worked with no pay run yet`}
+            hint={labor && labor.hours > 0 ? `incl. ${labor.hours}h worked, no pay run yet` : 'no pay run yet'}
             amountCents={-accruedLabor}
           />
         )}
@@ -302,10 +305,10 @@ export function ReportsTab({
         )}
         {accruedLabor > 0 && (
           <Text style={styles.caveat}>
-            Wages above cover hours worked with no pay run yet. Post a run in Payroll and this line moves into operating
-            expenses — the total won&apos;t change.
-            {labor && labor.salariedExcludedCount > 0
-              ? ` ${labor.salariedExcludedCount} salaried ${labor.salariedExcludedCount === 1 ? 'person is' : 'people are'} not included — their pay is settled by a pay run.`
+            Wages above are pay already earned — hourly or salaried — with no pay run posted yet. Post a run in Payroll
+            and this line moves into operating expenses — the total won&apos;t change.
+            {labor && labor.fixedExcludedCount > 0
+              ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
               : ''}
           </Text>
         )}
@@ -340,8 +343,8 @@ export function ReportsTab({
             {labor && labor.totalHoursInRange > 0 && (
               <Text style={styles.caveat}>
                 Based on {labor.totalHoursInRange}h clocked in this period.
-                {labor.salariedExcludedCount > 0
-                  ? ` ${labor.salariedExcludedCount} salaried ${labor.salariedExcludedCount === 1 ? 'person does' : 'people do'} not clock hours, so the hourly figure covers hourly staff only.`
+                {labor.nonHourlyCount > 0
+                  ? ` ${labor.nonHourlyCount} salaried or fixed-pay ${labor.nonHourlyCount === 1 ? 'person does' : 'people do'} not clock hours, so the per-hour figure reflects hourly staff only.`
                   : ''}
               </Text>
             )}

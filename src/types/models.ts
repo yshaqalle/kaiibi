@@ -1,3 +1,6 @@
+import type { PayCadence } from '@/lib/pay-periods';
+import type { OpeningHours } from '@/lib/store-hours';
+
 export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
 
 export type Profile = {
@@ -28,6 +31,13 @@ export type Shop = {
   // Set in Settings; drives the dashboard's monthly revenue goal meter. Null
   // until the admin sets one — the meter is hidden until then.
   monthlyRevenueGoalCents: number | null;
+  // Start date the weekly/biweekly pay cycles count from. Null until set; the
+  // period picker asks for it rather than guessing, because a defaulted anchor
+  // would silently choose everyone's pay days.
+  payPeriodAnchor: string | null;
+  // Weekly opening hours. `{}` means the owner hasn't set them, which renders
+  // as nothing rather than as "closed all week".
+  openingHours: OpeningHours;
   // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
   // 2.5, editable) is applied server-side to every sale's post-discount
   // subtotal — see complete_sale/edit_sale in migration 0015.
@@ -485,6 +495,9 @@ export type PayrollRun = {
   periodStart: string;
   periodEnd: string;
   status: 'draft' | 'posted';
+  // Which cadence this run was built for; null for an off-cycle run over
+  // hand-typed dates, which includes every active member.
+  cadence: PayCadence | null;
   totalCents: number;
   // The expense this run generated; null while still a draft.
   expenseId: string | null;
@@ -509,6 +522,10 @@ export type PayrollRunLine = {
   // Computed to begin with, then editable until the run is posted.
   amountCents: number;
   note: string | null;
+  // Frozen at draft time alongside pay_type/pay_rate_cents. Never recomputed:
+  // a later pay-rate change must not restate what a past run warned about.
+  warning: string | null;
+  warningBlocking: boolean;
   createdAt: string;
 };
 
@@ -548,6 +565,9 @@ export type StaffMember = {
   hireDate: string | null;
   payType: 'hourly' | 'salary' | 'fixed' | null;
   payRateCents: number | null;
+  // How often they're paid, independent of what they're paid. Applies to
+  // hourly staff too.
+  payCadence: PayCadence;
 };
 
 export type TimeEntry = {

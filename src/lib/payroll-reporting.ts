@@ -1,3 +1,5 @@
+import { dailySalaryCents } from '@/lib/pay-rate';
+import { isWholePayPeriod, perPaymentCents, type PayCadence } from '@/lib/pay-periods';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import { sumDurationHours } from '@/lib/shift-hours';
 import type { PayrollRun, StaffMember, TimeEntry } from '@/types/models';
@@ -15,6 +17,10 @@ export type PayrollDraftLine = {
   // Set when the figure needs a human decision rather than being wrong --
   // surfaced in the editor so it's corrected before posting, not after.
   warning: string | null;
+  // Only a warning that means the money is *wrong* -- currently just a missing
+  // pay rate, which pays zero -- blocks a post. An approximate figure is
+  // displayed and left to the owner's judgement.
+  warningBlocking: boolean;
 };
 
 const MS_PER_DAY = 86_400_000;
@@ -26,22 +32,32 @@ export function periodDayCount(periodStart: string, periodEnd: string): number {
   return Math.max(1, Math.round((end - start) / MS_PER_DAY) + 1);
 }
 
-// Hourly pay is exact. Salary and fixed pay are prorated by day count against
-// a nominal month, which is an approximation -- flagged on the line so whoever
-// posts the run adjusts it rather than trusting it silently.
-const NOMINAL_MONTH_DAYS = 30;
+// Stepping by whole local days. Deliberately NOT `date.getTime() +
+// MS_PER_DAY`: across a daylight-saving boundary that lands at 23:00 the
+// previous day, so `toDateColumn` would report the wrong date and a day-list
+// loop would emit a duplicate or drop the tail day. Same hazard, same fix, as
+// `addDays` in pay-periods.ts -- duplicated locally rather than imported to
+// avoid a cycle between the two modules.
+function nextLocalDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1);
+}
 
 export function computePayrollDraft(
   members: StaffMember[],
   entries: TimeEntry[],
   periodStart: string,
-  periodEnd: string
+  periodEnd: string,
+  cadence: PayCadence | null,
+  anchor: string | null
 ): PayrollDraftLine[] {
   const days = periodDayCount(periodStart, periodEnd);
   const entriesByMember = groupEntriesByMember(entries, periodStart, periodEnd);
 
   return members
-    .filter((member) => member.active)
+    // A cadence-less run is off-cycle over hand-typed dates and covers
+    // everyone; a cadence run must not sweep in a member paid on a different
+    // rhythm, or their whole month lands inside someone else's week.
+    .filter((member) => member.active && (cadence === null || member.payCadence === cadence))
     .map((member) => {
       const memberEntries = entriesByMember.get(member.id) ?? [];
       // Open shifts are excluded by sumDurationHours -- an in-progress shift
@@ -49,7 +65,7 @@ export function computePayrollDraft(
       const hoursWorked = Number(sumDurationHours(memberEntries).toFixed(2));
       const openShiftCount = memberEntries.filter((e) => !e.clockOut).length;
 
-      const base: Omit<PayrollDraftLine, 'amountCents' | 'warning'> = {
+      const base: Omit<PayrollDraftLine, 'amountCents' | 'warning' | 'warningBlocking'> = {
         shopMemberId: member.id,
         memberName: member.fullName,
         payType: member.payType,
@@ -58,7 +74,12 @@ export function computePayrollDraft(
       };
 
       if (member.payRateCents === null || member.payType === null) {
-        return { ...base, amountCents: 0, warning: 'No pay rate set — add one in People, or enter the amount here.' };
+        return {
+          ...base,
+          amountCents: 0,
+          warning: 'No pay rate set — add one in People, or enter the amount here.',
+          warningBlocking: true,
+        };
       }
 
       if (member.payType === 'hourly') {
@@ -69,16 +90,38 @@ export function computePayrollDraft(
         } else if (hoursWorked === 0) {
           warning = 'No hours clocked in this period.';
         }
-        return { ...base, amountCents, warning };
+        return { ...base, amountCents, warning, warningBlocking: false };
       }
 
-      // salary | fixed
-      const amountCents = Math.round((member.payRateCents * days) / NOMINAL_MONTH_DAYS);
-      const wholeMonth = days >= 28 && days <= 31;
+      // Flat per pay run, whatever the period length -- that is what makes
+      // 'fixed' a different thing from 'salary' rather than a second name
+      // for it. A stipend or allowance is the case this serves.
+      if (member.payType === 'fixed') {
+        return { ...base, amountCents: member.payRateCents, warning: null, warningBlocking: false };
+      }
+
+      // A run matching the member's own cadence period pays the exact
+      // per-payment figure -- no proration, nothing for a human to check.
+      const memberCadence = cadence ?? member.payCadence;
+      if (isWholePayPeriod(memberCadence, anchor, periodStart, periodEnd)) {
+        return {
+          ...base,
+          amountCents: perPaymentCents(member.payRateCents, memberCadence),
+          warning: null,
+          warningBlocking: false,
+        };
+      }
+
+      // Anything else is a genuine part period. Spread across the real year
+      // rather than a nominal 30-day month, so month length can't distort it,
+      // and round once at the end.
+      const year = fromDateColumn(periodStart).getFullYear();
+      const amountCents = Math.round(dailySalaryCents(member.payRateCents, year) * days);
       return {
         ...base,
         amountCents,
-        warning: wholeMonth ? null : `Prorated for ${days} day${days === 1 ? '' : 's'} — check this figure.`,
+        warning: `Prorated for ${days} day${days === 1 ? '' : 's'} — check this figure.`,
+        warningBlocking: false,
       };
     });
 }
@@ -87,65 +130,105 @@ export function draftTotalCents(lines: { amountCents: number }[]): number {
   return lines.reduce((sum, line) => sum + line.amountCents, 0);
 }
 
-// Days in the range not already covered by a posted run. This is what makes
-// accrued-but-unpaid labour safe to add to the P&L: the moment a run is
-// posted, its days drop out here and its expense row takes over, so the two
-// can never both count the same day.
-export function uncoveredDays(since: Date, until: Date, postedRuns: PayrollRun[]): string[] {
-  const covered = new Set<string>();
+// Days each member has already been paid for. Derived from each run's LINES,
+// not its period: once runs are per-member, a run that paid Bob says nothing
+// about whether Alice has been paid, and reading coverage off the period alone
+// would silently under-report her accrual.
+function coveredDaysByMember(postedRuns: PayrollRun[]): Map<string, Set<string>> {
+  const covered = new Map<string, Set<string>>();
   for (const run of postedRuns) {
     if (run.status !== 'posted') continue;
-    let cursor = fromDateColumn(run.periodStart).getTime();
-    const end = fromDateColumn(run.periodEnd).getTime();
-    while (cursor <= end) {
-      covered.add(toDateColumn(new Date(cursor)));
-      cursor += MS_PER_DAY;
+    const days: string[] = [];
+    let cursor = fromDateColumn(run.periodStart);
+    const end = fromDateColumn(run.periodEnd);
+    while (cursor.getTime() <= end.getTime()) {
+      days.push(toDateColumn(cursor));
+      cursor = nextLocalDay(cursor);
+    }
+    for (const line of run.lines ?? []) {
+      let memberDays = covered.get(line.shopMemberId);
+      if (!memberDays) {
+        memberDays = new Set<string>();
+        covered.set(line.shopMemberId, memberDays);
+      }
+      for (const day of days) memberDays.add(day);
     }
   }
-
-  const days: string[] = [];
-  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate()).getTime();
-  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate()).getTime();
-  while (cursor <= last) {
-    const key = toDateColumn(new Date(cursor));
-    if (!covered.has(key)) days.push(key);
-    cursor += MS_PER_DAY;
-  }
-  return days;
+  return covered;
 }
 
-// Labour worked on days no posted run covers -- the accrual figure. Hourly
-// only: prorating a salary across an arbitrary uncovered stretch would be a
-// guess presented as a number, so salaried staff are reported as a count
-// instead and left for the pay run to settle.
+// Labour worked or earned on days no posted run covers -- the accrual figure.
+// This is what makes accrued-but-unpaid labour safe to add to the P&L: the
+// moment a run is posted, its days drop out for the members it paid and its
+// expense row takes over, so the two can never both count the same day.
+//
+// Salaried staff accrue by day, using the same exact per-day figure the draft
+// prorates with. 'fixed' staff don't: a flat amount per pay run has no daily
+// rate to derive, and inventing one would be a guess presented as a number.
 export function accruedLaborCents(
   members: StaffMember[],
   entries: TimeEntry[],
-  uncovered: string[]
-): { accruedCents: number; hours: number; salariedExcludedCount: number } {
-  if (uncovered.length === 0) {
-    return { accruedCents: 0, hours: 0, salariedExcludedCount: 0 };
+  since: Date,
+  until: Date,
+  postedRuns: PayrollRun[]
+): { accruedCents: number; hours: number; fixedExcludedCount: number; nonHourlyCount: number } {
+  const covered = coveredDaysByMember(postedRuns);
+  const memberById = new Map(members.map((member) => [member.id, member]));
+
+  const rangeDays: string[] = [];
+  let cursor = new Date(since.getFullYear(), since.getMonth(), since.getDate());
+  const last = new Date(until.getFullYear(), until.getMonth(), until.getDate());
+  while (cursor.getTime() <= last.getTime()) {
+    rangeDays.push(toDateColumn(cursor));
+    cursor = nextLocalDay(cursor);
   }
-  const uncoveredSet = new Set(uncovered);
-  const rateByMember = new Map(members.map((m) => [m.id, m]));
+  // A Set for the per-entry membership test below: a year-long range against a
+  // busy shop's time entries makes a linear scan per entry needlessly quadratic.
+  const rangeDaySet = new Set(rangeDays);
 
   let accruedCents = 0;
   let hours = 0;
+
   for (const entry of entries) {
     if (!entry.clockOut) continue;
-    if (!uncoveredSet.has(toDateColumn(new Date(entry.clockIn)))) continue;
-    const member = rateByMember.get(entry.shopMemberId);
+    const member = memberById.get(entry.shopMemberId);
     if (!member || member.payType !== 'hourly' || member.payRateCents === null) continue;
+    const day = toDateColumn(new Date(entry.clockIn));
+    if (!rangeDaySet.has(day)) continue;
+    if (covered.get(member.id)?.has(day)) continue;
     const entryHours = sumDurationHours([entry]);
     hours += entryHours;
     accruedCents += Math.round(member.payRateCents * entryHours);
   }
 
-  const salariedExcludedCount = members.filter(
-    (m) => m.active && m.payRateCents !== null && (m.payType === 'salary' || m.payType === 'fixed')
+  for (const member of members) {
+    if (!member.active || member.payType !== 'salary' || member.payRateCents === null) continue;
+    const memberCovered = covered.get(member.id);
+    // A day before the member was hired isn't labour they performed, so it
+    // can't accrue -- unlike hourly, which is naturally bounded by actual
+    // time entries, nothing else stops a salaried member from accruing every
+    // day in an arbitrarily long range. `hireDate` is a YYYY-MM-DD date-column
+    // string, so it compares lexicographically against `day` without needing
+    // to round-trip through `Date`. A null hire date leaves the lower bound
+    // off rather than dropping the member's labour from the P&L.
+    const uncovered = rangeDays.filter(
+      (day) => !memberCovered?.has(day) && (member.hireDate === null || day >= member.hireDate)
+    );
+    if (uncovered.length === 0) continue;
+    const year = fromDateColumn(uncovered[0]).getFullYear();
+    accruedCents += Math.round(dailySalaryCents(member.payRateCents, year) * uncovered.length);
+  }
+
+  const fixedExcludedCount = members.filter(
+    (member) => member.active && member.payRateCents !== null && member.payType === 'fixed'
   ).length;
 
-  return { accruedCents, hours: Number(hours.toFixed(2)), salariedExcludedCount };
+  const nonHourlyCount = members.filter(
+    (member) =>
+      member.active && member.payRateCents !== null && (member.payType === 'salary' || member.payType === 'fixed')
+  ).length;
+
+  return { accruedCents, hours: Number(hours.toFixed(2)), fixedExcludedCount, nonHourlyCount };
 }
 
 function groupEntriesByMember(entries: TimeEntry[], periodStart: string, periodEnd: string): Map<string, TimeEntry[]> {

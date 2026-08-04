@@ -31,11 +31,11 @@ import {
   createRecurringBill,
   updateRecurringBill,
 } from '@/lib/cash-budgets';
-import { formatAccountingCents, toCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents, toCents } from '@/lib/currency';
 import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
-import { accruedLaborCents, uncoveredDays } from '@/lib/payroll-reporting';
+import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
@@ -112,7 +112,7 @@ export function CashBudgetsTab({
           listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }),
           listPayrollRuns(shop.id),
         ]);
-        setAccruedWagesCents(accruedLaborCents(members, entries, uncoveredDays(since, rangeEnd, runs)).accruedCents);
+        setAccruedWagesCents(accruedLaborCents(members, entries, since, rangeEnd, runs).accruedCents);
       } else {
         setAccruedWagesCents(0);
       }
@@ -148,10 +148,10 @@ export function CashBudgetsTab({
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatAccountingCents(cashTotal)} label="Cash on hand" />
-        <StatTile value={formatAccountingCents(monthlyCommitment)} label="Committed each month" />
+        <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />
+        <StatTile value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
         {canSeeWagesOwed && accruedWagesCents > 0 && (
-          <StatTile value={formatAccountingCents(accruedWagesCents)} label="Wages owed" tone="warning" />
+          <StatTile value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
         )}
       </View>
 

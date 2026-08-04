@@ -39,8 +39,11 @@ to point it at real data.
    was recognised when the bill was raised — this is the check that accrual
    isn't double-counting). Overpayment is rejected.
 5. Posting a pay run writes one `salaries_wages` expense dated **period end**;
-   posting twice is rejected; a period overlapping an already-posted run is
-   rejected; unposting removes the expense and returns the run to draft.
+   posting twice is rejected; a line that warns of a missing pay rate and has
+   no amount is rejected but posts once an amount is entered — and keeps its
+   warning; an overlapping period is **accepted** for a different member and
+   **rejected** for the same one, naming them; unposting removes the expense
+   and returns the run to draft.
 6. Logging a recurring bill posts an expense dated the **due date** and
    advances the schedule by one interval.
 7. `sale_items.unit_cost_cents` exists, so COGS reads a frozen cost rather

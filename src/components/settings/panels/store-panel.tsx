@@ -3,9 +3,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Btn, EditableTextRow, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { toCents } from '@/lib/currency';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { Shop } from '@/types/models';
 
 function LogoRow({ logoUri, onPick, onRemove }: { logoUri: string | null; onPick: () => void; onRemove: () => void }) {
@@ -36,6 +38,8 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   const shopGoalInput = shop.monthlyRevenueGoalCents != null ? String(shop.monthlyRevenueGoalCents / 100) : '';
   const [goalInput, setGoalInput] = useState(shopGoalInput);
   const [logoUri, setLogoUri] = useState<string | null>(shop.logoUrl);
+  const [payPeriodAnchor, setPayPeriodAnchor] = useState(shop.payPeriodAnchor ?? '');
+  const [openingHours, setOpeningHours] = useState<OpeningHours>(shop.openingHours);
   const [saving, setSaving] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -49,7 +53,15 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
     description.trim() !== (shop.description ?? '') ||
     returnPolicy.trim() !== (shop.returnPolicy ?? '') ||
     goalInput.trim() !== shopGoalInput ||
-    logoUri !== shop.logoUrl;
+    logoUri !== shop.logoUrl ||
+    payPeriodAnchor.trim() !== (shop.payPeriodAnchor ?? '') ||
+    // Compared by walking WEEK_ORDER rather than JSON.stringify on the raw
+    // objects: Postgres returns jsonb keys sorted bytewise by length then
+    // value, not in the editor's mon…sun insertion order, so a naive
+    // stringify comparison never matches after a round trip through the
+    // database and Save stays enabled forever.
+    JSON.stringify(WEEK_ORDER.map((day) => rangesFor(openingHours, day))) !==
+      JSON.stringify(WEEK_ORDER.map((day) => rangesFor(shop.openingHours, day)));
 
   const pickLogo = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -59,6 +71,14 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
   };
 
   const save = async () => {
+    // A range the rest of the app can't interpret must not reach the database.
+    // Naming the day matters: seven rows of time inputs make "invalid time"
+    // alone useless.
+    const badDay = WEEK_ORDER.find((day) => rangesFor(openingHours, day).some((range) => !isValidRange(range)));
+    if (badDay) {
+      setError(`${DAY_LABELS[badDay]}'s hours aren't valid — use 24-hour times like 09:00, and close after you open.`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -79,6 +99,8 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
         returnPolicy: returnPolicy.trim(),
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         logoUrl,
+        payPeriodAnchor: payPeriodAnchor.trim() || null,
+        openingHours,
       });
       await onSaved();
       setSaved(true);
@@ -115,6 +137,17 @@ export function StorePanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promi
           multiline
         />
         <EditableTextRow label="Monthly revenue goal" value={goalInput} onChangeText={setGoalInput} placeholder="e.g. 5000" keyboardType="decimal-pad" />
+      </Section>
+      <Section title="Payroll">
+        <EditableTextRow
+          label="Pay period start"
+          value={payPeriodAnchor}
+          onChangeText={setPayPeriodAnchor}
+          placeholder="YYYY-MM-DD"
+        />
+      </Section>
+      <Section title="Opening hours">
+        <OpeningHoursEditor value={openingHours} onChange={setOpeningHours} />
       </Section>
       <Section title="Social links">
         {/* Phase 2 placeholders — no social link fields on the shop model yet. */}

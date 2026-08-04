@@ -11,6 +11,7 @@ import { CustomerModal } from '@/components/customer-modal';
 import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { NotesField } from '@/components/notes-field';
+import { ScheduleTab } from '@/components/schedule/schedule-tab';
 import { SegmentedControl } from '@/components/segmented-control';
 import { StaffSelfService } from '@/components/staff-self-service';
 import { StatTile } from '@/components/stat-tile';
@@ -28,13 +29,14 @@ import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport }
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, updateStaffMember, updateStaffPay } from '@/lib/staff';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
+import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
-type PeopleTab = 'customers' | 'team' | 'me';
+type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
 
@@ -62,6 +64,10 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
   ...TEAM_EXPORT_COLUMNS_BASIC,
   { header: 'Pay Type', value: (m) => m.payType ?? '' },
   { header: 'Pay Rate', value: (m) => (m.payRateCents != null ? formatCents(m.payRateCents) : '') },
+  // The file leaves the app and loses every bit of context that would
+  // otherwise say what the number means, so the unit travels with it.
+  { header: 'Pay Rate Unit', value: (m) => payRateUnitLabel(m.payType) },
+  { header: 'Pay Cadence', value: (m) => m.payCadence },
 ];
 
 export default function PeopleScreen() {
@@ -70,12 +76,14 @@ export default function PeopleScreen() {
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
   const canSeeTeam = canAny([...TEAM_PERMISSIONS]);
+  const canSeeSchedule = can('people.schedule.manage');
   const canUseSelfService = Boolean(myMembership?.active);
-  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : 'me');
+  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me');
 
   const options = [
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: 'Customers' }] : []),
     ...(canSeeTeam ? [{ key: 'team' as const, label: 'Team' }] : []),
+    ...(canSeeSchedule ? [{ key: 'schedule' as const, label: 'Schedule' }] : []),
     ...(canUseSelfService ? [{ key: 'me' as const, label: 'Me (self-service)' }] : []),
   ];
 
@@ -91,6 +99,7 @@ export default function PeopleScreen() {
       <View style={styles.body}>
         {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
         {tab === 'team' && canSeeTeam ? <TeamTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
+        {tab === 'schedule' && canSeeSchedule ? <ScheduleTab tabSwitcher={tabSwitcher} /> : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} tabSwitcher={tabSwitcher} />
         ) : null}
@@ -475,7 +484,7 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
           filenamePrefix: 'team',
           templateColumns: STAFF_TEMPLATE_COLUMNS,
           exampleRows: [STAFF_EXAMPLE_ROW],
-          run: (parsed) => runStaffImport(shop.id, roles, parsed),
+          run: (parsed) => runStaffImport(shop.id, roles, parsed, canManagePayroll),
           unitLabel: 'staff member',
         }
       : null;
@@ -712,9 +721,9 @@ function TeamDetailPane({
         <Text style={tabStyles.payrollValue}>
           {!canManagePayroll
             ? 'Hidden'
-            : member.payType && member.payRateCents != null
-              ? `${formatCents(member.payRateCents)}${member.payType === 'hourly' ? ' / hour' : member.payType === 'salary' ? ' / year' : ''}`
-              : 'Not set'}
+            : member.payType == null || member.payRateCents == null
+              ? 'Not set'
+              : formatPayRateLong(member.payType, member.payRateCents)}
         </Text>
       </View>
 

@@ -162,6 +162,7 @@ export function ReceiptModal({
                 <Text style={styles.shopName}>{receipt.shopName}</Text>
                 {location && <Text style={styles.muted}>{location}</Text>}
                 {receipt.shopContactPhone && <Text style={styles.muted}>{receipt.shopContactPhone}</Text>}
+                {receipt.shopHours && <Text style={styles.muted}>{receipt.shopHours}</Text>}
                 <Text style={styles.muted}>{new Date(receipt.createdAt).toLocaleString()}</Text>
                 {receipt.cashierName && <Text style={styles.muted}>{`Served by ${receipt.cashierName}`}</Text>}
               </View>

@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
+import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
 import type { DateRange } from '@/components/range-selector';
 import { useAuth } from '@/hooks/use-auth';
@@ -18,10 +19,11 @@ import {
   unpostPayrollRun,
   updatePayrollRunLine,
 } from '@/lib/payroll';
+import { payPeriodsFor, type PayCadence } from '@/lib/pay-periods';
 import { toDateColumn } from '@/lib/period';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
-import type { PayrollRun } from '@/types/models';
+import type { PayrollRun, StaffMember } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -29,6 +31,26 @@ function extractErrorMessage(err: unknown): string {
   }
   return 'Something went wrong.';
 }
+
+// Shared by the chips and the coverage line so the prose can never say
+// "biweekly" while the chip says "Every 2 weeks".
+const CADENCE_LABELS: Record<PayCadence, string> = {
+  weekly: 'Weekly',
+  biweekly: 'Every 2 weeks',
+  semimonthly: 'Twice a month',
+  monthly: 'Monthly',
+};
+
+// A second vocabulary for the coverage prose: the chip labels above read well
+// as button text ("Every 2 weeks") but not as adjectives mid-sentence ("This
+// every 2 weeks run..."). These read correctly in both "This __ run" and
+// "the __ cadence" positions.
+const CADENCE_ADJECTIVES: Record<PayCadence, string> = {
+  weekly: 'weekly',
+  biweekly: 'fortnightly',
+  semimonthly: 'twice-monthly',
+  monthly: 'monthly',
+};
 
 export function PayrollTab({
   dateRange,
@@ -45,11 +67,39 @@ export function PayrollTab({
   const [runs, setRuns] = useState<PayrollRun[]>([]);
   const [open, setOpen] = useState<PayrollRun | null>(null);
   const [creating, setCreating] = useState(false);
-  const [periodStart, setPeriodStart] = useState(toDateColumn(dateRange.since));
-  const [periodEnd, setPeriodEnd] = useState(toDateColumn(dateRange.until ?? new Date()));
+  // Loaded when the create card opens so the covered count can be shown before
+  // a run exists. Null means "not loaded yet" -- distinct from an empty roster.
+  const [activeStaff, setActiveStaff] = useState<StaffMember[] | null>(null);
+  // Defaults to the current calendar month rather than the Accounting
+  // rolling-days range: seeding from that range meant the dates almost never
+  // lined up with a whole pay period, so "Build draft" always took the
+  // prorated branch even for a salaried member. `periods[0]` is guaranteed
+  // here -- payPeriodsFor('monthly', ...) over a single day always returns
+  // exactly the one month containing it -- but the fallback keeps this call
+  // from ever throwing if that guarantee changes.
+  const thisMonth = payPeriodsFor('monthly', null, toDateColumn(new Date()), toDateColumn(new Date())).periods[0]
+    ?? { start: toDateColumn(new Date()), end: toDateColumn(new Date()) };
+  const [cadence, setCadence] = useState<PayCadence | null>('monthly');
+  const [periodStart, setPeriodStart] = useState(thisMonth.start);
+  const [periodEnd, setPeriodEnd] = useState(thisMonth.end);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped each time openCreate runs so a slow, superseded listStaff response
+  // can be told apart from the latest one and discarded instead of clobbering
+  // fresher state -- see openCreate below.
+  const createRequestRef = useRef(0);
+
+  const anchor = shop?.payPeriodAnchor ?? null;
+  const periodOptions = cadence
+    ? payPeriodsFor(cadence, anchor, toDateColumn(dateRange.since), toDateColumn(dateRange.until ?? new Date()))
+    : { periods: [], reason: 'ok' as const };
+
+  // How many of the active roster this run will actually include. The draft
+  // silently drops members on a different cadence, so without this a shop that
+  // moves to weekly and misses one member excludes them from every run.
+  const coveredCount =
+    activeStaff === null ? null : cadence === null ? activeStaff.length : activeStaff.filter((member) => member.payCadence === cadence).length;
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
@@ -84,6 +134,28 @@ export function PayrollTab({
     await reload();
   };
 
+  // Deliberately not a useEffect keyed on `creating`: this file already carries
+  // a react-hooks/set-state-in-effect finding, and adding another effect that
+  // sets state would add a second.
+  const openCreate = async () => {
+    setCreating(true);
+    setActiveStaff(null);
+    const requestId = ++createRequestRef.current;
+    if (!shop) return;
+    try {
+      const members = await listStaff(shop.id);
+      // Discard a superseded response: Cancel stays clickable while this is
+      // in flight, so a quick cancel-and-reopen can leave two calls racing.
+      if (createRequestRef.current !== requestId) return;
+      setActiveStaff(members.filter((member) => member.active));
+    } catch {
+      // A failed load leaves the count hidden rather than blocking the card --
+      // startRun re-fetches and will surface a real error there.
+      if (createRequestRef.current !== requestId) return;
+      setActiveStaff(null);
+    }
+  };
+
   const startRun = async () => {
     if (!shop) return;
     const start = parseDateInput(periodStart);
@@ -101,8 +173,8 @@ export function PayrollTab({
         listStaff(shop.id),
         listShopTimeEntries(shop.id, { sinceIso: start.toISOString() }),
       ]);
-      const lines = computePayrollDraft(members, entries, periodStart, periodEnd);
-      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines);
+      const lines = computePayrollDraft(members, entries, periodStart, periodEnd, cadence, anchor);
+      const created = await createPayrollRun(shop.id, periodStart, periodEnd, lines, cadence);
       setCreating(false);
       setOpen(created);
       await reload();
@@ -115,7 +187,7 @@ export function PayrollTab({
 
   return (
     <View>
-      <PayrollHeaderActions allowed={allowed} creating={creating} onNew={() => setCreating(true)} setHeaderActions={setHeaderActions} />
+      <PayrollHeaderActions allowed={allowed} creating={creating} onNew={openCreate} setHeaderActions={setHeaderActions} />
       <View style={styles.header}>
         <Text style={styles.subtitle}>
           Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
@@ -125,6 +197,63 @@ export function PayrollTab({
       {creating && (
         <View style={styles.createCard}>
           <Text style={styles.createTitle}>Pay period</Text>
+          <View style={styles.chips}>
+            {(['weekly', 'biweekly', 'semimonthly', 'monthly'] as const).map((option) => (
+              <CategoryChip
+                key={option}
+                label={CADENCE_LABELS[option]}
+                active={cadence === option}
+                onPress={() => setCadence(option)}
+              />
+            ))}
+            <CategoryChip label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
+          </View>
+          {activeStaff !== null && coveredCount !== null && (
+            <View style={styles.coverageRow}>
+              {/* Zero is tested first, and the two zeroes are distinguished:
+                  having no active staff at all is a different problem from
+                  having nobody on the chosen cadence, and the second one's
+                  advice is useless for the first. */}
+              <Text style={coveredCount === 0 ? styles.coverageEmpty : styles.coverage}>
+                {activeStaff.length === 0
+                  ? 'There are no active staff to pay.'
+                  : cadence === null
+                    ? `This run covers all ${activeStaff.length} active staff.`
+                    : coveredCount === 0
+                      ? `No active staff are on the ${CADENCE_ADJECTIVES[cadence]} cadence. Set one in People, then check again.`
+                      : `This ${CADENCE_ADJECTIVES[cadence]} run covers ${coveredCount} of ${activeStaff.length} active staff.`}
+              </Text>
+              {/* NativeTabs keeps this screen mounted, so going to People to set
+                  a cadence and coming back leaves the count stale and Build
+                  draft disabled, with nothing saying Cancel/New would recover.
+                  Deliberately a control rather than a focus effect: this file
+                  already carries a react-hooks/set-state-in-effect finding. */}
+              {coveredCount === 0 && activeStaff.length > 0 && (
+                <Pressable onPress={openCreate}>
+                  <Text style={styles.coverageRetry}>Check again</Text>
+                </Pressable>
+              )}
+            </View>
+          )}
+          {periodOptions.reason === 'anchor_required' ? (
+            <Text style={styles.subtitle}>
+              Set a pay period start date in Settings → Store before using weekly or fortnightly periods.
+            </Text>
+          ) : (
+            <View style={styles.chips}>
+              {periodOptions.periods.map((period) => (
+                <CategoryChip
+                  key={`${period.start}-${period.end}`}
+                  label={`${period.start} → ${period.end}`}
+                  active={periodStart === period.start && periodEnd === period.end}
+                  onPress={() => {
+                    setPeriodStart(period.start);
+                    setPeriodEnd(period.end);
+                  }}
+                />
+              ))}
+            </View>
+          )}
           <View style={styles.createRow}>
             <View style={styles.createField}>
               <Text style={styles.fieldLabel}>FROM</Text>
@@ -136,7 +265,11 @@ export function PayrollTab({
             </View>
           </View>
           <View style={styles.createActions}>
-            <Pressable onPress={startRun} disabled={busy} style={[styles.primaryButton, busy && styles.buttonDisabled]}>
+            <Pressable
+              onPress={startRun}
+              disabled={busy || coveredCount === 0}
+              style={[styles.primaryButton, (busy || coveredCount === 0) && styles.buttonDisabled]}
+            >
               <Text style={styles.primaryButtonText}>{busy ? 'Working…' : 'Build draft'}</Text>
             </Pressable>
             <Pressable onPress={() => { setCreating(false); setError(null); }} disabled={busy} style={styles.actionButton}>
@@ -237,6 +370,11 @@ const styles = StyleSheet.create({
 
   createCard: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 16, marginBottom: 16 },
   createTitle: { fontSize: 13, fontWeight: '800', color: '#111111', marginBottom: 12 },
+  coverageRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, flexWrap: 'wrap' },
+  coverage: { fontSize: 11.5, color: '#999999', lineHeight: 16, marginBottom: 10, flexShrink: 1 },
+  coverageEmpty: { fontSize: 11.5, fontWeight: '700', color: '#C0392B', lineHeight: 16, marginBottom: 10, flexShrink: 1 },
+  coverageRetry: { fontSize: 11.5, fontWeight: '800', color: '#111111', lineHeight: 16, textDecorationLine: 'underline' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   createRow: { flexDirection: 'row', gap: 10 },
   createField: { flex: 1 },
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },

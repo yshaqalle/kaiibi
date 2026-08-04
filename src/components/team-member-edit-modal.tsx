@@ -3,6 +3,8 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput } from '@/components/date-input';
+import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
+import { isValidRateInput } from '@/lib/pay-rate';
 import type { Role, StaffMember } from '@/types/models';
 
 type MemberEdits = {
@@ -13,6 +15,7 @@ type MemberEdits = {
   hireDate?: string | null;
   payType?: StaffMember['payType'];
   payRateCents?: number | null;
+  payCadence?: StaffMember['payCadence'];
 };
 
 type TeamMemberEditModalProps = {
@@ -30,8 +33,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
   const [roleId, setRoleId] = useState(member.roleId);
   const [active, setActive] = useState(member.active);
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
-  const [payType, setPayType] = useState<StaffMember['payType']>(member.payType);
-  const [rate, setRate] = useState(member.payRateCents != null ? (member.payRateCents / 100).toString() : '');
+  const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,10 +42,16 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
       setError('Name, email, and role are required.');
       return;
     }
-    if (rate.trim() && Number.isNaN(Number(rate))) {
+    // payFieldsToCents delegates to toCents, which never fails to parse --
+    // unparseable text like "abc" quietly collapses to 0 rather than null.
+    // Validating the raw text with isValidRateInput (rather than gating on
+    // the converted cents) is what catches that, without also rejecting a
+    // legitimately-typed "0".
+    if (!isValidRateInput(pay.rate)) {
       setError('Enter a valid pay rate.');
       return;
     }
+    const rateCents = payFieldsToCents(pay);
 
     setSaving(true);
     setError(null);
@@ -56,8 +64,9 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
         ...(canManagePayroll
           ? {
               hireDate: hireDate || null,
-              payType: payType ?? null,
-              payRateCents: rate.trim() ? Math.round(Number(rate) * 100) : null,
+              payType: pay.payType ?? null,
+              payRateCents: rateCents,
+              payCadence: pay.payCadence,
             }
           : {}),
       });
@@ -101,14 +110,7 @@ export function TeamMemberEditModal({ visible, member, roles, canManagePayroll, 
               <>
                 <Text style={styles.label}>HIRE DATE</Text>
                 <DateInput value={hireDate} onChangeText={setHireDate} />
-                <Text style={styles.label}>PAY TYPE</Text>
-                <View style={styles.chips}>
-                  {(['hourly', 'salary', 'fixed'] as const).map((type) => (
-                    <CategoryChip key={type} label={type[0].toUpperCase() + type.slice(1)} active={payType === type} onPress={() => setPayType(type)} />
-                  ))}
-                </View>
-                <Text style={styles.label}>PAY RATE (DOLLARS)</Text>
-                <TextInput value={rate} onChangeText={setRate} keyboardType="decimal-pad" style={styles.input} />
+                <PayFields value={pay} onChange={setPay} />
               </>
             )}
             {error && <Text style={styles.error}>{error}</Text>}

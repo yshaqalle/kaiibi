@@ -10,6 +10,44 @@ export function formatCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// Glance formatter for stat tiles, where the number has to survive a narrow
+// column on a phone. Two compromises the detailed formatters don't make:
+//
+//   * whole dollars, no cents -- "$407" not "$406.50". A tile answers "roughly
+//     how much"; the exact figure is a tap away in Transactions or Reports.
+//   * K/M past ten thousand, so a good month can't overflow the tile. Capped
+//     at about six characters however large the underlying number gets.
+//
+// Deliberately not used on the P&L or any row a shop owner might reconcile
+// against a bank statement -- those need the real number.
+export function formatCompactCents(cents: number): string {
+  const sign = cents < 0 ? '-' : '';
+  // Rounds the magnitude, not the signed value: Math.round(-406.5) is -406
+  // while Math.round(406.5) is 407, so rounding before taking the sign would
+  // format the same amount differently either side of zero.
+  const dollars = Math.round(Math.abs(cents) / 100);
+
+  if (dollars < 10_000) {
+    return `${sign}$${dollars.toLocaleString()}`;
+  }
+
+  // The unit is chosen from the *rounded* figure, because rounding can push a
+  // value past the next boundary -- $999,999 rounds to 1000K, which should be
+  // reported as $1M rather than "$1000K".
+  const thousands = dollars / 1000;
+  if (Number(thousands.toFixed(1)) < 1000) {
+    return `${sign}$${trimZero(thousands)}K`;
+  }
+  return `${sign}$${trimZero(dollars / 1_000_000)}M`;
+}
+
+// One decimal, but "45K" rather than "45.0K" -- the trailing zero costs a
+// character and says nothing.
+function trimZero(value: number): string {
+  const rounded = value.toFixed(1);
+  return rounded.endsWith('.0') ? rounded.slice(0, -2) : rounded;
+}
+
 // Accounting-surface formatter. `formatCents` is fine for a receipt line but
 // reads badly on a P&L: no thousands separator, and a loss renders as
 // "$-1925.10" with the sign stranded inside the amount. Kept as a separate

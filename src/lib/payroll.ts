@@ -16,6 +16,8 @@ function mapLineRow(row: any): PayrollRunLine {
     hoursWorked: row.hours_worked !== null && row.hours_worked !== undefined ? Number(row.hours_worked) : null,
     amountCents: row.amount_cents,
     note: row.note,
+    warning: row.warning ?? null,
+    warningBlocking: row.warning_blocking ?? false,
     createdAt: row.created_at,
   };
 }
@@ -27,6 +29,7 @@ function mapRunRow(row: any): PayrollRun {
     periodStart: row.period_start,
     periodEnd: row.period_end,
     status: row.status,
+    cadence: row.cadence,
     totalCents: row.total_cents ?? 0,
     expenseId: row.expense_id,
     postedAt: row.posted_at,
@@ -57,12 +60,19 @@ export async function createPayrollRun(
   shopId: string,
   periodStart: string,
   periodEnd: string,
-  lines: PayrollDraftLine[]
+  lines: PayrollDraftLine[],
+  cadence: PayrollRun['cadence']
 ): Promise<PayrollRun> {
   const { data: userData } = await supabase.auth.getUser();
   const { data, error } = await supabase
     .from('payroll_runs')
-    .insert({ shop_id: shopId, period_start: periodStart, period_end: periodEnd, created_by: userData.user?.id ?? null })
+    .insert({
+      shop_id: shopId,
+      period_start: periodStart,
+      period_end: periodEnd,
+      cadence,
+      created_by: userData.user?.id ?? null,
+    })
     .select('*')
     .single();
   if (error) throw error;
@@ -77,6 +87,8 @@ export async function createPayrollRun(
         pay_rate_cents: line.payRateCents,
         hours_worked: line.hoursWorked,
         amount_cents: line.amountCents,
+        warning: line.warning,
+        warning_blocking: line.warningBlocking,
       }))
     );
     if (lineError) throw lineError;

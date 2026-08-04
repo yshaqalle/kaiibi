@@ -10,6 +10,7 @@ type RequestBody = {
   hireDate?: string | null;
   payType?: 'hourly' | 'salary' | 'fixed' | null;
   payRateCents?: number | null;
+  payCadence?: 'weekly' | 'biweekly' | 'semimonthly' | 'monthly';
 };
 
 const corsHeaders = {
@@ -28,7 +29,7 @@ Deno.serve(async (req) => {
 
   let body: RequestBody;
   try { body = await req.json(); } catch { return errorResponse(400, 'Invalid JSON body.'); }
-  const { shopId, memberId, fullName, email, roleId, active, hireDate, payType, payRateCents } = body;
+  const { shopId, memberId, fullName, email, roleId, active, hireDate, payType, payRateCents, payCadence } = body;
   if (!shopId || !memberId || !fullName?.trim() || !email?.trim() || !roleId || typeof active !== 'boolean') return errorResponse(400, 'All member details are required.');
 
   const authHeader = req.headers.get('Authorization');
@@ -52,7 +53,7 @@ Deno.serve(async (req) => {
   if (roleError) return errorResponse(500, roleError.message);
   if (!role) return errorResponse(400, 'That role does not belong to this shop.');
 
-  const editsPayroll = hireDate !== undefined || payType !== undefined || payRateCents !== undefined;
+  const editsPayroll = hireDate !== undefined || payType !== undefined || payRateCents !== undefined || payCadence !== undefined;
   if (editsPayroll) {
     const { data: canManagePayroll, error: payrollError } = await admin.rpc('user_has_shop_permission', { p_user_id: callerData.user.id, p_shop_id: shopId, p_permission: 'people.payroll.manage' });
     if (payrollError) return errorResponse(500, payrollError.message);
@@ -68,7 +69,7 @@ Deno.serve(async (req) => {
   if (profileError) return errorResponse(500, profileError.message);
   const { error: updateError } = await admin
     .from('shop_members')
-    .update({ full_name: normalizedName, email: normalizedEmail, role_id: roleId, active, ...(editsPayroll ? { hire_date: hireDate ?? null, pay_type: payType ?? null, pay_rate_cents: payRateCents ?? null } : {}) })
+    .update({ full_name: normalizedName, email: normalizedEmail, role_id: roleId, active, ...(editsPayroll ? { hire_date: hireDate ?? null, pay_type: payType ?? null, pay_rate_cents: payRateCents ?? null, pay_cadence: payCadence ?? 'monthly' } : {}) })
     .eq('id', memberId)
     .eq('shop_id', shopId);
   if (updateError) return errorResponse(500, updateError.message);

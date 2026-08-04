@@ -1,4 +1,49 @@
-import { foreignCentsToUsdCents, formatAccountingCents, formatCents, formatForeignCents, toCents, usdCentsToForeignCents } from '@/lib/currency';
+import {
+  foreignCentsToUsdCents,
+  formatAccountingCents,
+  formatCents,
+  formatCompactCents,
+  formatForeignCents,
+  toCents,
+  usdCentsToForeignCents,
+} from '@/lib/currency';
+
+describe('formatCompactCents', () => {
+  // The case from the bug: $406.50 clipped its tile on a phone.
+  it('drops the cents', () => {
+    expect(formatCompactCents(40650)).toBe('$407');
+    expect(formatCompactCents(40640)).toBe('$406');
+    expect(formatCompactCents(0)).toBe('$0');
+  });
+
+  it('groups thousands below the compaction threshold', () => {
+    expect(formatCompactCents(999_900)).toBe('$9,999');
+  });
+
+  // Past ten thousand the full number stops fitting, so it compacts.
+  it('compacts thousands', () => {
+    expect(formatCompactCents(1_000_000)).toBe('$10K');
+    expect(formatCompactCents(4_523_000)).toBe('$45.2K');
+    expect(formatCompactCents(99_999_900)).toBe('$1M');
+  });
+
+  it('compacts millions', () => {
+    expect(formatCompactCents(123_400_000)).toBe('$1.2M');
+  });
+
+  // Six characters is the widest this can produce, which is what makes the
+  // tile safe however large the shop's numbers get.
+  it('never exceeds six characters', () => {
+    for (const cents of [0, 40650, 999_900, 4_523_000, 123_400_000, 99_999_900_000]) {
+      expect(formatCompactCents(cents).length).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it('puts the minus outside the currency symbol', () => {
+    expect(formatCompactCents(-40650)).toBe('-$407');
+    expect(formatCompactCents(-123_400_000)).toBe('-$1.2M');
+  });
+});
 
 describe('formatAccountingCents', () => {
   it('groups thousands', () => {

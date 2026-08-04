@@ -159,7 +159,11 @@ export default function AdminTabs() {
           </NativeTabs.Trigger>
           <NativeTabs.Trigger name="accounting" hidden={!can('sales.view')}>
             <NativeTabs.Trigger.Label>Accounting</NativeTabs.Trigger.Label>
-            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/chart.png')} />
+            {/* An image rather than an SF Symbol: NativeTabs' icon prop takes
+                either `sf` (iOS only) or `src`, and there's no Android
+                drawable to pair an SF Symbol with, so `sf` would leave Android
+                with no icon at all. */}
+            <NativeTabs.Trigger.Icon src={require('@/assets/images/tabIcons/accounting.png')} />
           </NativeTabs.Trigger>
         </NativeTabs>
       </View>

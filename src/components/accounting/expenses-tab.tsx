@@ -9,7 +9,7 @@ import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
-import { formatAccountingCents } from '@/lib/currency';
+import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import {
   EXPENSE_CATEGORIES,
   expenseCategoryLabel,
@@ -132,10 +132,10 @@ export function ExpensesTab({
   return (
     <View>
       <View style={styles.metricRow}>
-        <StatTile value={formatAccountingCents(totalCents)} label={`Spent · ${rangeLabel}`} />
-        <StatTile value={formatAccountingCents(operatingCents)} label="Operating expenses" />
+        <StatTile value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
+        <StatTile value={formatCompactCents(operatingCents)} label="Operating expenses" />
         {nonOperatingCents > 0 && (
-          <StatTile value={formatAccountingCents(nonOperatingCents)} label="Stock & owner draws" />
+          <StatTile value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" />
         )}
       </View>
 

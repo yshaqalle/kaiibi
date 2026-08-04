@@ -23,6 +23,7 @@ export type Permission =
   | 'people.timeoff.approve'
   | 'people.payroll.manage'
   | 'people.timesheet.view'
+  | 'people.schedule.manage'
   | 'expenses.view'
   | 'expenses.manage'
   | 'invoices.view'
@@ -44,6 +45,7 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'people.timeoff.approve', label: 'Approve time off', description: 'Approve or deny staff time-off requests.' },
   { key: 'people.payroll.manage', label: 'Manage payroll', description: 'Set hire date, pay type, and pay rate for staff.' },
   { key: 'people.timesheet.view', label: 'View team hours', description: "See the whole team's clock-in history and shift hours, not just your own." },
+  { key: 'people.schedule.manage', label: 'Manage the schedule', description: "Create and change shifts for the whole team. Everyone can see their own shifts without this." },
   { key: 'expenses.view', label: 'View expenses', description: 'See logged expenses and what the shop is spending.' },
   { key: 'expenses.manage', label: 'Manage expenses', description: 'Log, edit, or delete expenses and record recurring bills.' },
   { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },
@@ -95,7 +97,14 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[]
   { prefix: '/pos', permission: 'pos.access' },
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/product', permission: 'inventory.edit' },
-  { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] },
+  // In practice this list is never what grants a schedule-only (or any
+  // other People-manager) role access to /people: (admin)/_layout.tsx
+  // short-circuits the check for `/people` via `isPeopleRoute && canReachMe`
+  // -- true for any active member, via the self-service path -- before
+  // `required.some(can)` is even reached. This entry stays anyway so the
+  // catalogue documents intent (which permissions *should* justify reaching
+  // /people) consistently with every other route here.
+  { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'] },
   // Accounting is gated on sales.view: its Transactions tab *is* the sales
   // history, and "can see what the shop takes" is the right bar for the
   // screen as a whole. The expenses/invoices read policies separately accept
