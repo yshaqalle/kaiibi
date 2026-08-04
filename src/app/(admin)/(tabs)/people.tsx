@@ -11,6 +11,7 @@ import { CustomerModal } from '@/components/customer-modal';
 import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { NotesField } from '@/components/notes-field';
+import { ScheduleTab } from '@/components/schedule/schedule-tab';
 import { SegmentedControl } from '@/components/segmented-control';
 import { StaffSelfService } from '@/components/staff-self-service';
 import { StatTile } from '@/components/stat-tile';
@@ -35,9 +36,9 @@ import { listShopTimeOffRequests } from '@/lib/time-off';
 import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
-type PeopleTab = 'customers' | 'team' | 'me';
+type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
-const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
+const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'] as const;
 
 const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'First Name', value: (c) => c.firstName },
@@ -75,12 +76,14 @@ export default function PeopleScreen() {
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
   const canSeeTeam = canAny([...TEAM_PERMISSIONS]);
+  const canSeeSchedule = can('people.schedule.manage');
   const canUseSelfService = Boolean(myMembership?.active);
-  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : 'me');
+  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me');
 
   const options = [
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: 'Customers' }] : []),
     ...(canSeeTeam ? [{ key: 'team' as const, label: 'Team' }] : []),
+    ...(canSeeSchedule ? [{ key: 'schedule' as const, label: 'Schedule' }] : []),
     ...(canUseSelfService ? [{ key: 'me' as const, label: 'Me (self-service)' }] : []),
   ];
 
@@ -96,6 +99,7 @@ export default function PeopleScreen() {
       <View style={styles.body}>
         {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
         {tab === 'team' && canSeeTeam ? <TeamTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
+        {tab === 'schedule' && canSeeSchedule ? <ScheduleTab tabSwitcher={tabSwitcher} /> : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} tabSwitcher={tabSwitcher} />
         ) : null}

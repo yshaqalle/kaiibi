@@ -97,7 +97,7 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[]
   { prefix: '/pos', permission: 'pos.access' },
   { prefix: '/inventory', permission: 'inventory.view' },
   { prefix: '/product', permission: 'inventory.edit' },
-  { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] },
+  { prefix: '/people', permission: ['customers.view', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'] },
   // Accounting is gated on sales.view: its Transactions tab *is* the sales
   // history, and "can see what the shop takes" is the right bar for the
   // screen as a whole. The expenses/invoices read policies separately accept

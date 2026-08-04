@@ -87,13 +87,14 @@ describe('permissionForPath', () => {
     expect(permissionForPath(path)).toEqual(permissions);
   });
 
-  it('gates /people on any permission that unlocks Customers or Team', () => {
+  it('gates /people on any permission that unlocks Customers, Team, or Schedule', () => {
     expect(permissionForPath('/people')).toEqual([
       'customers.view',
       'staff.manage',
       'people.timeoff.approve',
       'people.payroll.manage',
       'people.timesheet.view',
+      'people.schedule.manage',
     ]);
   });
 
