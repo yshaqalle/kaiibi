@@ -11,10 +11,14 @@ import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { ScanResultBar } from '@/components/scan-result-bar';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { createProduct, listProducts, setLocationStock, updateProduct } from '@/lib/products';
+import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 
@@ -102,6 +106,89 @@ export default function InventoryScreen() {
     }
   };
 
+  // The product the last scan landed on, pinned above the list so a `+1` acts
+  // on something named rather than on whichever row the filter happens to leave
+  // at the top.
+  const [pinnedProduct, setPinnedProduct] = useState<Product | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant, and the React Compiler handles the rest.
+  const handleScannedCode = async (raw: string) => {
+    const resolution = resolveBarcode(products, raw);
+    if (resolution.status === 'match') {
+      // Filtering the list to the code as well as pinning the result keeps the
+      // two views agreeing about what was just scanned.
+      setSearch(resolution.product.barcode ?? resolution.product.sku ?? raw.trim());
+      setPinnedProduct(resolution.product);
+      setScanFeedback({ tone: 'ok', message: `${resolution.product.name} — ${resolution.product.stock} in stock` });
+      return true;
+    }
+    if (resolution.status === 'ambiguous') {
+      setSearch(raw.trim());
+      setPinnedProduct(null);
+      setScanFeedback({ tone: 'warn', message: `${resolution.products.length} products share this code — pick the right one below` });
+      return true;
+    }
+
+    // Unlike POS, an unknown code here is often a product that exists but isn't
+    // carried at the filtered store, so the server lookup is worth the trip.
+    if (shop) {
+      try {
+        const found = await findProductsByCode(shop.id, barcodeCandidates(resolution.code));
+        if (found.length === 1) {
+          setSearch(found[0].barcode ?? found[0].sku ?? raw.trim());
+          setPinnedProduct(found[0]);
+          setScanFeedback({ tone: 'warn', message: `${found[0].name} isn't carried at this store` });
+          return true;
+        }
+      } catch {
+        // Fall through to the unknown message.
+      }
+    }
+    setPinnedProduct(null);
+    setScanFeedback({
+      tone: 'error',
+      message: atProductLimit
+        ? `No product with code ${resolution.code}. Your plan is at its product limit, so remove one or upgrade before adding it.`
+        : `No product with code ${resolution.code}${canEdit ? ' — add it with “+ Add product”' : ''}`,
+    });
+    return false;
+  };
+
+  const handleSearchSubmit = async () => {
+    const raw = search.trim();
+    if (!raw) return;
+    // Typing a product name and pressing Enter is a search, not a failed scan.
+    if (resolveBarcode(products, raw).status === 'not-found' && !looksLikeBarcode(raw)) return;
+    const handled = await handleScannedCode(raw);
+    // Unlike POS the text is kept on a hit: it IS the filter showing the result.
+    // A wedge's next scan replaces it wholesale, so nothing concatenates.
+    if (!handled) setPinnedProduct(null);
+  };
+
+  useBarcodeWedge({ enabled: !showAddModal && editingProduct === null && !showImportModal, onScan: handleScannedCode });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
+
+  // Derived, not synced by an effect. `adjustStock` reloads the whole list, so
+  // the stored copy holds the count from before the adjustment -- pressing +1
+  // twice would send the same number twice and appear to do nothing the second
+  // time. Reading through `products` on every render means the bar can never
+  // show a stale count.
+  //
+  // Falls back to the stored copy when the product isn't in the list at all,
+  // which is the "scanned something this store doesn't carry" case -- there the
+  // stored copy is the only thing we have, and +1 is how it starts being
+  // carried here.
+  const scannedProduct = pinnedProduct
+    ? products.find((p) => p.id === pinnedProduct.id) ?? pinnedProduct
+    : null;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const matches = !q
@@ -110,6 +197,7 @@ export default function InventoryScreen() {
           p.name.toLowerCase().includes(q) ||
           (p.brand ?? '').toLowerCase().includes(q) ||
           (p.sku ?? '').toLowerCase().includes(q) ||
+          (p.barcode ?? '').toLowerCase().includes(q) ||
           (p.category ?? '').toLowerCase().includes(q) ||
           p.tags.some((tag) => tag.toLowerCase().includes(q))
         );
@@ -227,7 +315,28 @@ export default function InventoryScreen() {
             Settings → Plan and billing. Nothing you already have is affected.
           </Text>
         )}
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search or scan — name, brand, SKU, barcode, category, or tag"
+          placeholderTextColor="#999999"
+          style={styles.search}
+          onSubmitEditing={handleSearchSubmit}
+          blurOnSubmit={false}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <ScanFeedbackBanner feedback={scanFeedback} />
+        {scannedProduct && (
+          <ScanResultBar
+            product={scannedProduct}
+            locationLabel={locationLabelFor(scannedProduct)?.text}
+            onAdjust={canEdit ? (delta) => adjustStock(scannedProduct, Math.max(0, scannedProduct.stock + delta)) : undefined}
+            onEdit={canEdit ? () => setEditingProduct(scannedProduct) : undefined}
+            onDismiss={() => setPinnedProduct(null)}
+          />
+        )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>

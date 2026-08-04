@@ -1,3 +1,4 @@
+import { normalizeBarcode } from '@/lib/barcode';
 import type { ParsedCsv } from '@/lib/csv';
 import type { ImportReport, RejectedRow } from '@/lib/import-shared';
 import { createProducts, listProducts } from '@/lib/products';
@@ -52,9 +53,15 @@ function parseWholeNumber(value: string | undefined): number | null {
   return Number.isFinite(n) && Number.isInteger(n) ? n : null;
 }
 
-// Rejects any row whose name or SKU collides with an existing product, or
-// with an earlier row in the same file -- never auto-updates, per the
+// Rejects any row whose name, SKU or barcode collides with an existing product,
+// or with an earlier row in the same file -- never auto-updates, per the
 // confirmed "reject both, tell the user to update it in the app" rule.
+//
+// The barcode half is not merely tidy: `products_shop_barcode_key` (migration
+// 20260819000000) enforces it in the database, and because createProducts()
+// inserts every accepted row in one statement, a single colliding barcode would
+// otherwise fail the WHOLE import with an opaque constraint error. Same reason
+// the plan headroom is checked here rather than left to the trigger.
 //
 // `headroom` is how many more products the shop's plan allows (null =
 // unlimited), and it exists because createProducts() inserts every accepted row
@@ -71,12 +78,18 @@ export async function runProductsImport(
   const existing = await listProducts(shopId);
   const existingNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
   const existingSkus = new Set(existing.filter((p) => p.sku).map((p) => p.sku!.trim().toLowerCase()));
+  // Keyed through normalizeBarcode so a stored code carrying a stray scanner
+  // suffix still collides with the same code typed cleanly into a spreadsheet.
+  const existingBarcodes = new Set(
+    existing.map((p) => normalizeBarcode(p.barcode ?? '').toLowerCase()).filter(Boolean)
+  );
 
   const headroom = options?.headroom ?? null;
   const rejected: RejectedRow[] = [];
   const toCreate: NewProductInput[] = [];
   const seenNames = new Set<string>();
   const seenSkus = new Set<string>();
+  const seenBarcodes = new Set<string>();
 
   parsed.rows.forEach((raw, i) => {
     const row = i + 2; // header occupies row 1 in the uploaded file
@@ -100,10 +113,19 @@ export async function runProductsImport(
     const sku = raw['SKU']?.trim() || null;
     const skuKey = sku?.toLowerCase();
 
+    const barcode = normalizeBarcode(raw['Barcode'] ?? '') || null;
+    const barcodeKey = barcode?.toLowerCase();
+
     if (existingNames.has(nameKey) || (skuKey && existingSkus.has(skuKey))) {
       return reject(`A product named "${name}"${sku ? ` or with SKU "${sku}"` : ''} already exists — edit it in Inventory instead of importing.`);
     }
-    if (seenNames.has(nameKey) || (skuKey && seenSkus.has(skuKey))) {
+    // Separate from the name/SKU message above because the fix is different: a
+    // barcode is unique by constraint, so the only way forward is to correct
+    // the code or edit the product that already owns it.
+    if (barcodeKey && existingBarcodes.has(barcodeKey)) {
+      return reject(`Barcode "${barcode}" already belongs to another product — edit that product in Inventory instead of importing.`);
+    }
+    if (seenNames.has(nameKey) || (skuKey && seenSkus.has(skuKey)) || (barcodeKey && seenBarcodes.has(barcodeKey))) {
       return reject('Duplicate of an earlier row in this file.');
     }
 
@@ -115,12 +137,13 @@ export async function runProductsImport(
 
     seenNames.add(nameKey);
     if (skuKey) seenSkus.add(skuKey);
+    if (barcodeKey) seenBarcodes.add(barcodeKey);
 
     toCreate.push({
       name,
       description: null,
       sku,
-      barcode: raw['Barcode']?.trim() || null,
+      barcode,
       brand: raw['Brand']?.trim() || null,
       category: raw['Category']?.trim() || null,
       tags: (raw['Tags'] ?? '').split(/[;,]/).map((t) => t.trim()).filter(Boolean),

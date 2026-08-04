@@ -8,9 +8,12 @@ import { CheckoutPanel } from '@/components/checkout-panel';
 import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
+import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
@@ -19,7 +22,7 @@ import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { listProducts } from '@/lib/products';
+import { findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
@@ -78,6 +81,10 @@ export default function PosScreen() {
   // tile — rows stretch every tile to match the tallest in that row, so this
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
   const [compactTileHeight, setCompactTileHeight] = useState<number | null>(null);
+  // The result of the last scan. Deliberately transient (see the clearing
+  // effect below): a cashier scanning a basket needs to glance at the outcome,
+  // not dismiss a notice per item.
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
 
   // Scoped to the register's store, which is what checkout will actually
   // decrement. Unscoped this listed the shop-wide rollup, so a cashier saw "99
@@ -107,10 +114,20 @@ export default function PosScreen() {
     listCurrencies(shop.id).then((rows) => setCurrencies(rows.filter((c) => c.active))).catch(() => {});
   }, [shop]);
 
-  const filtered = products.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) &&
-    (category === null || p.category === category)
-  );
+  // Brand, SKU and barcode alongside name: the placeholder always promised
+  // brand, and the code fields are what make a partially-typed or ambiguous
+  // scan land on something -- putting a barcode in here used to match nothing
+  // at all.
+  const filtered = products.filter((p) => {
+    const q = search.trim().toLowerCase();
+    const matches =
+      !q ||
+      p.name.toLowerCase().includes(q) ||
+      (p.brand ?? '').toLowerCase().includes(q) ||
+      (p.sku ?? '').toLowerCase().includes(q) ||
+      (p.barcode ?? '').toLowerCase().includes(q);
+    return matches && (category === null || p.category === category);
+  });
 
   const addToCart = (product: Product) => {
     setCart((current) => {
@@ -127,6 +144,84 @@ export default function PosScreen() {
   const setLineDiscount = (productId: string, discount: Discount | null) => {
     setCart((current) => current.map((line) => (line.product.id === productId ? { ...line, manualDiscount: discount } : line)));
   };
+
+  // One entry point for every source of a scanned code: the hardware wedge
+  // below, Enter in the search box, and (from the next phase) the camera.
+  //
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant, and the React Compiler handles the rest.
+  const handleScannedCode = async (raw: string) => {
+    const outcome = posScanOutcome(products, cart, raw);
+    switch (outcome.kind) {
+      case 'add':
+        addToCart(outcome.product);
+        setScanFeedback({ tone: 'ok', message: `${outcome.product.name} added` });
+        return true;
+      case 'out-of-stock':
+        setScanFeedback({ tone: 'error', message: `${outcome.product.name} is out of stock at this store` });
+        return true;
+      case 'exceeds-stock':
+        setScanFeedback({
+          tone: 'warn',
+          message: `Only ${outcome.product.stock} of ${outcome.product.name} in stock — all of them are already in the cart`,
+        });
+        return true;
+      case 'ambiguous':
+        // Deliberately not resolved here. Narrowing the grid to the candidates
+        // lets the cashier tap the right one, which is the only safe answer.
+        setSearch(raw.trim());
+        setScanFeedback({ tone: 'warn', message: `${outcome.products.length} products share this code — pick the right one` });
+        return true;
+      case 'unknown': {
+        // The catalog in state can predate another till adding this product, so
+        // one lookup before calling it unknown.
+        if (shop) {
+          try {
+            const found = await findProductsByCode(shop.id, barcodeCandidates(outcome.code));
+            if (found.length === 1) {
+              setProducts((current) => (current.some((p) => p.id === found[0].id) ? current : [found[0], ...current]));
+              addToCart(found[0]);
+              setScanFeedback({ tone: 'ok', message: `${found[0].name} added` });
+              return true;
+            }
+          } catch {
+            // Offline or refused: fall through to the unknown message rather
+            // than surface a network error for what is still a failed scan.
+          }
+        }
+        setScanFeedback({ tone: 'error', message: `No product with code ${outcome.code}` });
+        return false;
+      }
+    }
+  };
+
+  // Enter in the search box. A wedge scanner types into whatever is focused, so
+  // this covers the cashier who clicked the box first, on native as well as web.
+  const handleSearchSubmit = async () => {
+    const raw = search.trim();
+    if (!raw) return;
+    const outcome = posScanOutcome(products, cart, raw);
+    // Someone searching for "toner" and pressing Enter is not a failed scan.
+    // Staying silent here is what keeps the box feeling like a search box.
+    if (outcome.kind === 'unknown' && !looksLikeBarcode(raw)) return;
+    const handled = await handleScannedCode(raw);
+    // Clear only on a hit: a wedge's next scan would otherwise be appended to
+    // this one. On a miss the text stays so it can be read and corrected.
+    if (handled) setSearch('');
+  };
+
+  useBarcodeWedge({
+    // While the receipt is up the sale is already done, and a stray scan would
+    // silently start the next one behind the modal.
+    enabled: receipt === null,
+    onScan: handleScannedCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 3500);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
 
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
@@ -269,8 +364,22 @@ export default function PosScreen() {
     <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>⌕</Text>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search products or brands" placeholderTextColor="#9B9B9B" style={styles.search} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search or scan a product"
+          placeholderTextColor="#9B9B9B"
+          style={styles.search}
+          onSubmitEditing={handleSearchSubmit}
+          // A wedge scanner fires this on its trailing Enter; keeping focus
+          // means the next scan lands here too instead of nowhere.
+          blurOnSubmit={false}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
       </View>
+      <ScanFeedbackBanner feedback={scanFeedback} />
       <ScrollView {...categoryListProps}>
         <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
         {categories.map((item) => (
