@@ -79,7 +79,7 @@ No operator is seeded — the first is appointed by hand.
   reports "12 fit" rather than one opaque failure.
 - `src/components/settings/panels/billing-panel.tsx`, ungated by permission or
   module — it is the one screen that explains why something else is locked.
-- `src/app/(platform)/` — web-only portal with an MFA challenge, shops list,
+- `src/app/platform/` — web-only portal at `/platform` with an MFA challenge, shops list,
   shop detail with actions, plans, audit log and operators.
 
 ## Verification

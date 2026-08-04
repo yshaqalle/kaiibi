@@ -20,8 +20,13 @@ export default function RootLayout() {
           <Stack.Screen name="(public)" />
           <Stack.Screen name="(admin)" />
           {/* Kaiibi's own back office, not a shop's. Its layout refuses
-              anything but an MFA-verified operator on web. */}
-          <Stack.Screen name="(platform)" />
+              anything but an MFA-verified operator on web.
+
+              A real path segment, NOT a `(platform)` route group: groups are
+              stripped from the URL, so `(platform)/index.tsx` resolved to `/`
+              and collided with the marketing home page — leaving the portal
+              with no reachable address at all. */}
+          <Stack.Screen name="platform" />
           <Stack.Screen name="marketplace-coming-soon" />
         </Stack>
       </AuthProvider>

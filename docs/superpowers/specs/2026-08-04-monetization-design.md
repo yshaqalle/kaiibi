@@ -178,4 +178,4 @@ how many would be stranded over a lowered cap.
 Enabling TOTP in `config.toml` for the portal gives
 `docs/backlog/2026-08-01-two-factor-authentication.md` the infrastructure it was
 waiting on. Shop-side 2FA is still a UI-only mock, but the enrol/challenge/verify
-flow now exists and works, in `src/app/(platform)/_layout.tsx`.
+flow now exists and works, in `src/app/platform/_layout.tsx`.
