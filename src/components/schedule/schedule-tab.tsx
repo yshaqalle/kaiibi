@@ -83,10 +83,14 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
       const previous = await listShiftsForWeek(shop.id, addDaysToDate(monday, -7));
       const { copy, skipped } = shiftsToCopy(previous, shifts);
       const created = await createShifts(shop.id, copy);
+      // "Copied 0" alone reads as an unexplained no-op, which is the ambiguity
+      // this notice exists to remove -- so an empty source week says so.
       setCopyNotice(
-        skipped === 0
-          ? `Copied ${created} shift${created === 1 ? '' : 's'} from last week.`
-          : `Copied ${created}, skipped ${skipped} that clashed with a shift already here.`
+        previous.length === 0
+          ? 'Last week had no shifts to copy.'
+          : skipped === 0
+            ? `Copied ${created} shift${created === 1 ? '' : 's'} from last week.`
+            : `Copied ${created}, skipped ${skipped} that clashed with a shift already here.`
       );
       await reload();
     } catch (err) {
@@ -182,6 +186,12 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
 
       {editing && (
         <ShiftEditorModal
+          // Keyed on the edit target so switching targets remounts rather than
+          // keeping the previous shift's times: the modal seeds its state from
+          // `existing` with useState, which only reads it on first mount. This
+          // matches invoices-tab, cash-budgets-tab, expenses-tab and
+          // taxonomy-manage-modal, which all key their editors for this reason.
+          key={editing.shift ? editing.shift.id : `new-${editing.date}`}
           visible
           date={editing.date}
           members={members}
