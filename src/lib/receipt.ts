@@ -12,6 +12,13 @@ export type ReceiptItem = { name: string; quantity: number; unitPriceCents: numb
 export type ReceiptData = {
   shopName: string;
   shopLogoUrl: string | null;
+  // The name of the branch this sale was rung up at, printed under the shop
+  // name. Null for a single-location shop — repeating "Main" under the shop's
+  // own name tells the customer nothing.
+  locationName: string | null;
+  // The address, phone and hours below are the SELLING LOCATION's, not the
+  // business's: a receipt is proof of a transaction at a place, and the
+  // customer holding it needs to know which door to come back to.
   shopCity: string | null;
   shopNeighborhood: string | null;
   shopContactPhone: string | null;
@@ -75,6 +82,16 @@ export function formatTodayHours(hours: OpeningHours | undefined, on: Date): str
 // Reconstructs a receipt for a past sale — so a customer who comes back
 // later asking for their receipt again can be helped from the Sales screen,
 // not just right after checkout.
+// `location` is the branch the sale was rung up at, resolved by the caller from
+// `sale.locationId`. Optional so a caller that hasn't resolved it yet still
+// renders a valid receipt — it then falls back to the business's own address,
+// which is exactly right for the single-location shops that are the norm and
+// merely incomplete (never wrong) for anyone else.
+//
+// A `null` location is distinct from an omitted one only in intent; both take
+// the fallback. `showLocationName` is deliberately the caller's decision rather
+// than inferred here, because "is this shop multi-location" is a fact about the
+// shop, not about the one location passed in.
 export function buildReceiptFromSale(
   sale: Sale,
   shop: {
@@ -84,19 +101,27 @@ export function buildReceiptFromSale(
     neighborhood: string | null;
     contactPhone: string | null;
     returnPolicy: string | null;
-    openingHours?: OpeningHours;
     receiptShowLogo?: boolean;
     receiptShowCashierName?: boolean;
-  }
+  },
+  location?: {
+    name: string;
+    city: string | null;
+    neighborhood: string | null;
+    contactPhone: string | null;
+    openingHours: OpeningHours;
+  } | null,
+  showLocationName = false
 ): ReceiptData {
   const subtotalCents = (sale.items ?? []).reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   return {
     shopName: shop.name,
     shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
-    shopCity: shop.city,
-    shopNeighborhood: shop.neighborhood,
-    shopContactPhone: shop.contactPhone,
-    shopHours: formatTodayHours(shop.openingHours, new Date(sale.createdAt)),
+    locationName: showLocationName ? (location?.name ?? null) : null,
+    shopCity: location?.city ?? shop.city,
+    shopNeighborhood: location?.neighborhood ?? shop.neighborhood,
+    shopContactPhone: location?.contactPhone ?? shop.contactPhone,
+    shopHours: formatTodayHours(location?.openingHours, new Date(sale.createdAt)),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
     returnPolicy: shop.returnPolicy,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
@@ -137,6 +162,7 @@ function formatPaymentLine(payment: PaymentLine): string {
 export function buildReceiptText(receipt: ReceiptData): string {
   const lines: string[] = [];
   lines.push(receipt.shopName);
+  if (receipt.locationName) lines.push(receipt.locationName);
   const location = formatLocation(receipt);
   if (location) lines.push(location);
   if (receipt.shopContactPhone) lines.push(receipt.shopContactPhone);
@@ -257,6 +283,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     <div class="head">
       ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
       <div class="shop">${esc(receipt.shopName)}</div>
+      ${receipt.locationName ? `<div class="muted">${esc(receipt.locationName)}</div>` : ''}
       ${location ? `<div class="muted">${esc(location)}</div>` : ''}
       ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
       ${receipt.shopHours ? `<div class="muted">${esc(receipt.shopHours)}</div>` : ''}

@@ -6,6 +6,7 @@ import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'r
 
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import type { Permission } from '@/lib/permissions';
@@ -80,6 +81,7 @@ export default function AdminTabs() {
             <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
           </View>
           <View style={styles.mobileHeaderRight}>
+            <LocationSwitcher />
             <Pressable onPress={() => setMenuOpen(true)} style={styles.menuButtonCompact} hitSlop={8}>
               <Text style={styles.menuIconCompact}>☰</Text>
             </Pressable>

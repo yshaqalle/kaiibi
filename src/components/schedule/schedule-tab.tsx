@@ -23,7 +23,7 @@ function totalHours(shifts: Shift[]): string {
 }
 
 export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
-  const { shop } = useAuth();
+  const { shop, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
 
@@ -205,7 +205,16 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           existing={editing.shift}
           seedMemberId={editing.memberId}
           context={{
-            hours: shop?.openingHours ?? {},
+            // The ACTIVE location's hours, not the shop's -- opening hours moved
+            // onto the location in migration 20260809000000, and a shift at the
+            // Airport Road branch has to be judged against Airport Road's hours.
+            //
+            // Interim: shifts themselves don't carry a location yet (Phase 3),
+            // so this validates against whichever branch the device is set to.
+            // Correct and non-breaking for a single-location shop, which is
+            // every shop until someone adds a second one; once shifts are
+            // location-scoped this reads the shift's own location instead.
+            hours: activeLocation?.openingHours ?? {},
             onLeave: onLeaveMemberIds(timeOff, fromDateColumn(editing.date)),
             sameDayShifts: shifts.filter((shift) => shift.date === editing.date),
           }}

@@ -54,7 +54,7 @@ type HrSnapshot = {
 };
 
 export default function DashboardScreen() {
-  const { shop, can } = useAuth();
+  const { shop, can, activeLocation } = useAuth();
   // Time and leave data is RLS-protected; without these the queries would just
   // fail, so the rows are left out rather than erroring the whole screen.
   const canSeeTeam = can('people.timesheet.view');
@@ -93,7 +93,10 @@ export default function DashboardScreen() {
     await attempt('sales', async () => {
       const [dailyRows, low, expiring, recent] = await Promise.all([
         getDailyTotalsCents(shop.id, since, until),
-        getLowStockProducts(shop.id, shop.defaultLowStockLevel),
+        // Scoped to this device's branch: a branch that is out of an item needs
+        // reordering even when the other branch is overflowing, and the
+        // shop-wide rollup hides exactly that.
+        getLowStockProducts(shop.id, shop.defaultLowStockLevel, activeLocation?.id ?? null),
         shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
         listSales(shop.id, 5),
       ]);
@@ -139,7 +142,9 @@ export default function DashboardScreen() {
     }
 
     setError(failures.length ? `Couldn't load ${failures.join(', ')}.` : null);
-  }, [shop, dateRange, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
+    // activeLocation is a dependency because low stock is scoped to it --
+  // switching branch must re-evaluate, not show the previous branch's alerts.
+  }, [shop, dateRange, activeLocation, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
 
   useEffect(() => { reload(); }, [reload]);
 

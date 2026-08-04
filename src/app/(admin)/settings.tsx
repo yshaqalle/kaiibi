@@ -8,6 +8,7 @@ import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels
 // NotificationsPanel is unused for now — nav item hidden in settings-sidebar.tsx,
 // no send infrastructure exists yet (see docs/backlog/2026-08-01-notification-delivery.md).
 // import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
+import { LocationsPanel } from '@/components/settings/panels/locations-panel';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
@@ -31,7 +32,10 @@ import { listVendors } from '@/lib/vendors';
 import type { Brand, Category, Currency, Product, Promotion, Role, Vendor } from '@/types/models';
 
 export default function SettingsScreen() {
-  const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
+  // `locations` comes from the auth context rather than this screen's own
+  // reload(): the header switcher reads the same list, so refetching here would
+  // leave the two able to disagree after an edit. refreshShop() reloads both.
+  const { shop, profile, session, locations, setProfile, refreshShop, can } = useAuth();
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
 
@@ -155,6 +159,8 @@ export default function SettingsScreen() {
         return profile ? <ProfilePanel profile={profile} email={session?.user.email ?? null} onSaved={setProfile} /> : null;
       case 'store':
         return <StorePanel shop={shop} onSaved={refreshShop} />;
+      case 'locations':
+        return <LocationsPanel shopId={shop.id} locations={locations} onChange={refreshShop} />;
       case 'receipt':
         return <ReceiptPanel shop={shop} onSaved={refreshShop} />;
       case 'catalog':

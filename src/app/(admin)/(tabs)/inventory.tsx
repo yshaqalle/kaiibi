@@ -10,7 +10,8 @@ import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField
 import { ProductTile } from '@/components/product-tile';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
-import { createProduct, listProducts, updateProduct } from '@/lib/products';
+import { hasMultipleLocations } from '@/lib/location-selection';
+import { createProduct, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 
@@ -32,7 +33,7 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
 ];
 
 export default function InventoryScreen() {
-  const { shop, can } = useAuth();
+  const { shop, can, locations, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < 860;
   // `inventory.view` alone is a read-only view of the catalog (the seeded
@@ -48,21 +49,41 @@ export default function InventoryScreen() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
+  // null = the shop-wide rollup, which is what this screen has always shown.
+  // The picker only appears once there is a second branch.
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
+  const showLocationFilter = hasMultipleLocations(locations);
+  const [stockError, setStockError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
-    setProducts(await listProducts(shop.id));
+    setProducts(await listProducts(shop.id, locationFilter));
     setLoading(false);
-  }, [shop]);
+  }, [shop, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
 
+  // Stock changes go through product_location_stock, never products.stock --
+  // that column is derived by trigger now, so `updateProduct({ stock })` would
+  // be silently discarded (migration 20260810000000).
+  //
+  // Which branch gets adjusted: the one being viewed, or this device's active
+  // location when viewing the combined rollup. Adjusting a rollup is
+  // meaningless -- "set stock to 12" across three branches has no single right
+  // answer -- so we refuse rather than guess when neither is resolved.
+  const stockLocationId = locationFilter ?? activeLocation?.id ?? null;
   const adjustStock = async (product: Product, nextStock: number) => {
+    if (!stockLocationId) {
+      setStockError('Pick a location before adjusting stock.');
+      return;
+    }
+    setStockError(null);
     try {
-      const updated = await updateProduct(product.id, { stock: nextStock });
-      setProducts((current) => current.map((p) => (p.id === updated.id ? updated : p)));
-    } catch {
+      await setLocationStock(product.id, stockLocationId, nextStock);
+      await reload();
+    } catch (err) {
+      setStockError(err instanceof Error ? err.message : 'Could not update stock.');
       await reload();
     }
   };
@@ -137,6 +158,28 @@ export default function InventoryScreen() {
           </View>
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
+        {showLocationFilter && (
+          <View style={styles.locationFilterRow}>
+            <Pressable onPress={() => setLocationFilter(null)} style={[styles.locationChip, locationFilter === null && styles.locationChipActive]}>
+              <Text style={[styles.locationChipText, locationFilter === null && styles.locationChipTextActive]}>All locations</Text>
+            </Pressable>
+            {locations.filter((location) => location.active).map((location) => (
+              <Pressable
+                key={location.id}
+                onPress={() => setLocationFilter(location.id)}
+                style={[styles.locationChip, locationFilter === location.id && styles.locationChipActive]}
+              >
+                <Text style={[styles.locationChipText, locationFilter === location.id && styles.locationChipTextActive]}>{location.name}</Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+        {/* Adjusting a combined figure has no single right answer, so the
+            combined view says which branch an edit would land on. */}
+        {showLocationFilter && locationFilter === null && activeLocation && (
+          <Text style={styles.locationHint}>Showing every branch combined. Stock edits apply to {activeLocation.name}.</Text>
+        )}
+        {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
@@ -178,7 +221,7 @@ export default function InventoryScreen() {
           visible={showAddModal}
           onClose={() => setShowAddModal(false)}
           shopId={shop.id}
-          onSubmit={async (input) => { await createProduct(shop.id, input); await reload(); }}
+          onSubmit={async (input) => { await createProduct(shop.id, input, stockLocationId); await reload(); }}
         />
       )}
       {shop && canEdit && (
@@ -187,7 +230,7 @@ export default function InventoryScreen() {
           onClose={() => setEditingProduct(null)}
           shopId={shop.id}
           initial={editingProduct ?? undefined}
-          onSubmit={async (input) => { if (editingProduct) await updateProduct(editingProduct.id, input); await reload(); }}
+          onSubmit={async (input) => { if (editingProduct) await updateProduct(editingProduct.id, input, stockLocationId); await reload(); }}
           onDeleted={reload}
         />
       )}
@@ -210,6 +253,13 @@ const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
+  locationFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  locationChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
+  locationChipActive: { backgroundColor: '#111111' },
+  locationChipText: { fontSize: 12, fontWeight: '700', color: '#111111' },
+  locationChipTextActive: { color: '#FFFFFF' },
+  locationHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
+  stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
   list: { overflow: 'hidden' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
 });

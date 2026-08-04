@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
@@ -84,6 +85,9 @@ export default function AdminTabs() {
           <Text style={[styles.shopName, { color: colors.text }]} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
         </View>
         <View style={styles.headerRight}>
+          {/* tone="dark" because this header is fixed dark chrome regardless of
+              the device color scheme — see the comment above tabBarColors. */}
+          <LocationSwitcher tone="dark" />
           <Pressable
             onPress={() => setMenuOpen(true)}
             hitSlop={8}

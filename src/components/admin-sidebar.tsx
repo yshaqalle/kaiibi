@@ -5,6 +5,7 @@ import { ReactNode, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import type { Permission } from '@/lib/permissions';
@@ -96,9 +97,10 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
           <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, shop?.logoUrl && styles.avatarWithLogo]}>
             {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
           </Pressable>
-          <View>
+          <View style={styles.headerText}>
             <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
             {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
+            <LocationSwitcher />
           </View>
         </View>
         <View style={styles.nav}>
@@ -156,6 +158,10 @@ const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
+  // alignItems, not stretch: the switcher sizes to its label rather than
+  // filling the sidebar width, and renders nothing at all for a one-branch shop
+  // (so this column collapses back to name + subtitle).
+  headerText: { flex: 1, alignItems: 'flex-start', gap: 4 },
   avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   // A shop's uploaded logo is usually dark ink on a transparent background
   // (meant to sit on a light surface), so the black fallback swatch above

@@ -6,6 +6,10 @@ import type { CartLine, PaymentLine, Promotion, Refund, RefundItem, Sale, SaleEd
 
 export type SaleCustomer = { id?: string | null; name?: string | null; phone?: string | null; email?: string | null };
 
+// `locationId` is which branch rang the sale up. Optional at this layer, and
+// omitted rather than sent as null when absent: complete_sale falls back to the
+// shop's primary location, which is the only correct answer for a
+// single-location shop and keeps CSV sales import working unchanged.
 export async function completeSale(
   shopId: string,
   lines: CartLine[],
@@ -13,7 +17,8 @@ export async function completeSale(
   customer?: SaleCustomer,
   cashierName?: string | null,
   promotions: Promotion[] = [],
-  transactionDiscountCents = 0
+  transactionDiscountCents = 0,
+  locationId?: string | null
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
@@ -27,6 +32,7 @@ export async function completeSale(
     p_cashier_name: cashierName ?? null,
     p_discount_cents: transactionDiscountCents,
     p_customer_id: customer?.id ?? null,
+    ...(locationId ? { p_location_id: locationId } : {}),
   });
   if (error) throw error;
   return data as string;
@@ -101,6 +107,7 @@ function mapSaleRow(row: any): Sale {
   return {
     id: row.id,
     shopId: row.shop_id,
+    locationId: row.location_id,
     createdBy: row.created_by,
     paymentMethod: row.payment_method,
     paymentNote: row.payment_note,
@@ -200,13 +207,17 @@ function mapSaleRow(row: any): Sale {
   };
 }
 
-export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
-  const { data, error } = await supabase
+// `locationId` narrows to one branch; omitted means every location, which is
+// both the pre-multi-location behaviour and what the "All locations" view wants.
+// Filtered in the query rather than after fetching so a shop with several busy
+// branches doesn't pull the other branches' rows over the wire to discard them.
+export async function listSales(shopId: string, limit = 50, locationId?: string | null): Promise<Sale[]> {
+  let query = supabase
     .from('sales')
     .select('*, sale_items(*), sale_payments(*)')
-    .eq('shop_id', shopId)
-    .order('created_at', { ascending: false })
-    .limit(limit);
+    .eq('shop_id', shopId);
+  if (locationId) query = query.eq('location_id', locationId);
+  const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
 }
@@ -216,7 +227,7 @@ export async function listSales(shopId: string, limit = 50): Promise<Sale[]> {
 // each sale's edit history. Kept separate from `listSales` (used for a plain
 // most-recent-N fetch, e.g. the dashboard's "recent transactions" list) since
 // that caller doesn't need edit history.
-function salesInRangeQuery(shopId: string, sinceDate: Date, untilDate?: Date) {
+function salesInRangeQuery(shopId: string, sinceDate: Date, untilDate?: Date, locationId?: string | null) {
   let query = supabase
     .from('sales')
     .select('*, sale_items(*), sale_payments(*), sale_edits(*), refunds(*, refund_items(*))')
@@ -224,11 +235,18 @@ function salesInRangeQuery(shopId: string, sinceDate: Date, untilDate?: Date) {
     .gte('created_at', sinceDate.toISOString())
     .order('created_at', { ascending: false });
   if (untilDate) query = query.lte('created_at', untilDate.toISOString());
+  if (locationId) query = query.eq('location_id', locationId);
   return query;
 }
 
-export async function listSalesInRange(shopId: string, sinceDate: Date, untilDate?: Date, limit = 300): Promise<Sale[]> {
-  const { data, error } = await salesInRangeQuery(shopId, sinceDate, untilDate).limit(limit);
+export async function listSalesInRange(
+  shopId: string,
+  sinceDate: Date,
+  untilDate?: Date,
+  limit = 300,
+  locationId?: string | null
+): Promise<Sale[]> {
+  const { data, error } = await salesInRangeQuery(shopId, sinceDate, untilDate, locationId).limit(limit);
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
 }

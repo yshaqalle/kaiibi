@@ -1,7 +1,6 @@
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { Shop } from '@/types/models';
-import type { OpeningHours } from '@/lib/store-hours';
 
 function mapShopRow(row: any): Shop {
   return {
@@ -17,7 +16,6 @@ function mapShopRow(row: any): Shop {
     categories: row.categories ?? [],
     monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
     payPeriodAnchor: row.pay_period_anchor,
-    openingHours: row.opening_hours ?? {},
     taxEnabled: row.tax_enabled,
     taxRatePercent: Number(row.tax_rate_percent),
     receiptShowLogo: row.receipt_show_logo,
@@ -103,11 +101,24 @@ export async function createShop(input: {
     { shop_id: shop.id, code: 'ETB', name: 'Ethiopian Birr', symbol: 'Br', rate_to_usd: 130, active: false },
   ]);
   if (currencyError) throw currencyError;
+  // The primary location, mirroring what migration 20260808000000 backfills for
+  // shops that predate it. Every shop must have one from the moment it exists —
+  // a shop with no location can't take a sale, and signup is the one path that
+  // creates a shop the backfill will never see.
+  const { error: locationError } = await supabase.from('shop_locations').insert({
+    shop_id: shop.id,
+    name: 'Main',
+    city: shop.city,
+    neighborhood: shop.neighborhood,
+    contact_phone: shop.contactPhone,
+    is_primary: true,
+  });
+  if (locationError) throw locationError;
   return shop;
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; payPeriodAnchor: string | null; openingHours: OpeningHours; taxEnabled: boolean; taxRatePercent: number;
+  name: string; description: string; city: string; neighborhood: string; contactPhone: string; returnPolicy: string; logoUrl: string | null; categories: string[]; monthlyRevenueGoalCents: number | null; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
@@ -127,7 +138,6 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.categories !== undefined && { categories: input.categories }),
       ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
       ...(input.payPeriodAnchor !== undefined && { pay_period_anchor: input.payPeriodAnchor }),
-      ...(input.openingHours !== undefined && { opening_hours: input.openingHours }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
       ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),
       ...(input.receiptShowLogo !== undefined && { receipt_show_logo: input.receiptShowLogo }),

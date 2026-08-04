@@ -9,6 +9,7 @@ export type SettingsNavId =
   | 'security'
   | 'notifications'
   | 'store'
+  | 'locations'
   | 'roles'
   | 'vendors'
   | 'receipt'
@@ -22,11 +23,13 @@ export type SettingsNavId =
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
 type NavGroup = { group: string; items: NavItem[] };
 
-// "Locations" was removed — see docs/backlog for the multi-location work
-// it would take. "Notifications" is hidden for the same reason — no
-// push/email/WhatsApp send infrastructure exists yet, see
-// docs/backlog/2026-08-01-notification-delivery.md. Re-add the nav item
-// below (and the 'notifications' case in settings.tsx) once that's built.
+// "Notifications" is hidden — no push/email/WhatsApp send infrastructure
+// exists yet, see docs/backlog/2026-08-01-notification-delivery.md. Re-add the
+// nav item below (and the 'notifications' case in settings.tsx) once that's
+// built.
+//
+// "Locations" is back and real (migration 20260808000000): the shop's physical
+// stores, gated on settings.access like the rest of the Store group.
 export const SETTINGS_NAV: NavGroup[] = [
   {
     group: 'Account',
@@ -40,6 +43,7 @@ export const SETTINGS_NAV: NavGroup[] = [
     group: 'Store',
     items: [
       { id: 'store', label: 'Store', icon: 'storefront-outline' },
+      { id: 'locations', label: 'Locations', icon: 'location-outline' },
       { id: 'roles', label: 'Roles', icon: 'shield-checkmark-outline', permission: 'staff.manage' },
       { id: 'vendors', label: 'Vendors', icon: 'briefcase-outline' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },

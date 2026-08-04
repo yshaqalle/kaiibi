@@ -35,9 +35,6 @@ export type Shop = {
   // period picker asks for it rather than guessing, because a defaulted anchor
   // would silently choose everyone's pay days.
   payPeriodAnchor: string | null;
-  // Weekly opening hours. `{}` means the owner hasn't set them, which renders
-  // as nothing rather than as "closed all week".
-  openingHours: OpeningHours;
   // Shop-wide tax, off by default. When enabled, `taxRatePercent` (default
   // 2.5, editable) is applied server-side to every sale's post-discount
   // subtotal — see complete_sale/edit_sale in migration 0015.
@@ -76,6 +73,54 @@ export type Shop = {
   expiryTrackingEnabled: boolean;
   expiryWarningLeadDays: number;
   createdAt: string;
+};
+
+// A physical store. `Shop` is the business (the tenant every shop_id points
+// at); this is one of the places it trades from. A shop always has at least
+// one — migration 20260808000000 backfills a primary "Main" carrying the
+// address the shop row already held — so consumers never have to handle a
+// shop with no location.
+export type ShopLocation = {
+  id: string;
+  shopId: string;
+  name: string;
+  city: string | null;
+  neighborhood: string | null;
+  address: string | null;
+  contactPhone: string | null;
+  // Weekly opening hours for THIS branch. `{}` means nobody has set them, which
+  // renders as nothing rather than as "closed all week". Lived on `Shop` until
+  // migration 20260809000000 moved it here — hours belong to a place, and two
+  // branches rarely keep the same ones.
+  openingHours: OpeningHours;
+  // Exactly one per shop. The fallback whenever a location isn't otherwise
+  // resolvable — what a fresh device selects before anyone chooses.
+  isPrimary: boolean;
+  // A closed branch is deactivated, never deleted: its sales and shifts stay
+  // readable. Inactive locations are hidden from the switcher.
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewShopLocationInput = Omit<
+  ShopLocation,
+  'id' | 'shopId' | 'isPrimary' | 'createdAt' | 'updatedAt'
+>;
+
+// How many units of a product sit at one branch. `Product.stock` is the sum of
+// these across every location, maintained by trigger (migration
+// 20260810000000) — writing to it directly has no effect, so this is the only
+// representation that actually decides anything.
+export type ProductLocationStock = {
+  productId: string;
+  locationId: string;
+  stock: number;
+  // Per-branch overrides of the product's own values. Null means "use the
+  // product's" — a flagship branch can carry a deeper reorder level than a
+  // kiosk, and the same item sits on a different shelf in each.
+  reorderLevel: number | null;
+  shelfNumber: string | null;
 };
 
 // An alternate currency a shop accepts as a way to settle a payment line
@@ -284,6 +329,10 @@ export type Refund = {
 export type Sale = {
   id: string;
   shopId: string;
+  // Which branch rang this sale up. Not null in the database (migration
+  // 20260809000000 backfilled every pre-existing sale to its shop's primary
+  // location), so per-location reporting can never have an unattributed row.
+  locationId: string;
   createdBy: string | null;
   paymentMethod: PaymentMethod;
   paymentNote: string | null;
