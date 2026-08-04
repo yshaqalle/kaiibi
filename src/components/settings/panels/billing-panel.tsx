@@ -1,11 +1,18 @@
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { Badge, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
+import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
 import { daysUntil, LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
-import { listPlans, type Plan } from '@/lib/subscriptions';
+import {
+  cancelPlanChangeRequest,
+  getMyPlanChangeRequest,
+  listPlans,
+  requestPlanChange,
+  type Plan,
+  type PlanChangeRequest,
+} from '@/lib/subscriptions';
 
 // What the shop is paying for, what it is using, and how to pay. Read-only by
 // design: there is no in-app purchase flow here, and deliberately so. Payment in
@@ -13,18 +20,35 @@ import { listPlans, type Plan } from '@/lib/subscriptions';
 // iOS would pull the whole app under Apple's IAP rules for a transaction that
 // never touches the device. So this screen tells you what to send and where.
 export function BillingPanel() {
-  const { entitlements, subscriptionStatus, shop } = useAuth();
+  const { entitlements, subscriptionStatus, shop, can } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [request, setRequest] = useState<PlanChangeRequest | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  // Same permission that guards the rest of Settings — asking to change tier is
+  // a billing act, not something a cashier should be able to set in motion.
+  const canRequest = can('settings.access');
+
+  const reloadRequest = async () => {
+    if (!shop) return;
+    try {
+      setRequest(await getMyPlanChangeRequest(shop.id));
+    } catch {
+      setRequest(null);
+    }
+  };
 
   useEffect(() => {
     let active = true;
-    listPlans()
-      .then((rows) => {
-        if (active) setPlans(rows);
+    Promise.all([listPlans().catch(() => [] as Plan[]), shop ? getMyPlanChangeRequest(shop.id).catch(() => null) : null])
+      .then(([planRows, requestRow]) => {
+        if (!active) return;
+        setPlans(planRows);
+        setRequest(requestRow);
       })
-      // A failed plan list costs the comparison table, not the panel: the
-      // shop's own status and usage come from context and are already resolved.
+      // A failure here costs the comparison table, not the panel: the shop's
+      // own status and usage come from context and are already resolved.
       .catch(() => {})
       .finally(() => {
         if (active) setLoading(false);
@@ -32,7 +56,35 @@ export function BillingPanel() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [shop]);
+
+  const ask = async (plan: Plan) => {
+    if (!shop) return;
+    setBusyPlan(plan.key);
+    setRequestError(null);
+    try {
+      await requestPlanChange(shop.id, plan.id, null);
+      await reloadRequest();
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : 'Could not send that request.');
+    } finally {
+      setBusyPlan(null);
+    }
+  };
+
+  const cancel = async () => {
+    if (!request) return;
+    setBusyPlan(request.planKey);
+    setRequestError(null);
+    try {
+      await cancelPlanChangeRequest(request.id);
+      await reloadRequest();
+    } catch (err) {
+      setRequestError(err instanceof Error ? err.message : 'Could not cancel that request.');
+    } finally {
+      setBusyPlan(null);
+    }
+  };
 
   const trialDays = daysUntil(entitlements.trialEndsAt);
   const periodDays = daysUntil(entitlements.currentPeriodEnd);
@@ -99,18 +151,52 @@ export function BillingPanel() {
         <ActivityIndicator style={styles.loader} />
       ) : plans.length > 0 ? (
         <Section title="Plans">
-          {plans.map((plan) => (
-            <Row
-              key={plan.id}
-              label={plan.name}
-              desc={plan.description ?? undefined}
-              badge={plan.key === entitlements.planKey ? <Badge>Current</Badge> : undefined}
-            >
-              <Text style={styles.price}>
-                {plan.priceCents === 0 ? 'Free' : `${formatCents(plan.priceCents)}/${plan.billingInterval ?? 'month'}`}
+          {request?.status === 'pending' && (
+            <View style={styles.requestBanner}>
+              <Text style={styles.requestBannerText}>
+                You&apos;ve asked to move to {request.planName}. We&apos;ll confirm it once your payment reaches us —
+                usually within one business day. Nothing changes until then.
               </Text>
-            </Row>
-          ))}
+              {canRequest && (
+                <Btn onPress={cancel} disabled={busyPlan !== null}>
+                  Cancel request
+                </Btn>
+              )}
+            </View>
+          )}
+          {request?.status === 'declined' && (
+            <View style={styles.requestBanner}>
+              <Text style={styles.requestBannerText}>
+                Your request to move to {request.planName} wasn&apos;t approved
+                {request.decisionNote ? `: ${request.decisionNote}` : '.'} You can ask again below.
+              </Text>
+            </View>
+          )}
+
+          {plans.map((plan) => {
+            const current = plan.key === entitlements.planKey;
+            const pending = request?.status === 'pending';
+            return (
+              <Row
+                key={plan.id}
+                label={plan.name}
+                desc={plan.description ?? undefined}
+                badge={current ? <Badge>Current</Badge> : undefined}
+              >
+                <Text style={styles.price}>
+                  {plan.priceCents === 0 ? 'Free' : `${formatCents(plan.priceCents)}/${plan.billingInterval ?? 'month'}`}
+                </Text>
+                {/* An ask, not a switch. The tier only moves when an operator
+                    confirms the money arrived — see migration 20260818000700. */}
+                {canRequest && !current && (
+                  <Btn onPress={() => ask(plan)} disabled={pending || busyPlan !== null}>
+                    {busyPlan === plan.key ? 'Sending…' : plan.priceCents === 0 ? 'Move to Free' : 'Request'}
+                  </Btn>
+                )}
+              </Row>
+            );
+          })}
+          {requestError && <Text style={styles.error}>{requestError}</Text>}
         </Section>
       ) : null}
 
@@ -194,4 +280,10 @@ const styles = StyleSheet.create({
   note: { color: '#777777', fontSize: 12, lineHeight: 18, marginTop: 10 },
   payBody: { color: '#555555', fontSize: 13, lineHeight: 20, marginBottom: 12 },
   loader: { marginVertical: 20 },
+  requestBanner: {
+    backgroundColor: '#F1F6FF', borderWidth: 1, borderColor: '#B9D2FF', borderRadius: 10,
+    padding: 14, marginBottom: 12, gap: 10, alignItems: 'flex-start',
+  },
+  requestBannerText: { color: '#1B4FA8', fontSize: 12.5, lineHeight: 19 },
+  error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
 });

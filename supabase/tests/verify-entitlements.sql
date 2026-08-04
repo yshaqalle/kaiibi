@@ -279,6 +279,62 @@ begin
     raise exception 'FAIL: my_shop_entitlements is missing status or plan';
   end if;
 
+  -- ------------------------------ 13. a shop cannot upgrade itself for free
+  -- Payment is confirmed by hand, so a shop that could set its own plan could
+  -- select Pro, never send the money, and keep it. These are the assertions
+  -- that keep "request" from quietly becoming "switch".
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  insert into public.plan_change_requests (shop_id, requested_plan_id, requested_by, note)
+  values (v_shop_id, v_pro_id, v_user_id, 'paid by ZAAD');
+
+  -- One open ask per shop: two taps must not queue two approvals.
+  v_raised := false;
+  begin
+    insert into public.plan_change_requests (shop_id, requested_plan_id, requested_by)
+    values (v_shop_id, v_free_id, v_user_id);
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a shop queued two pending plan requests';
+  end if;
+
+  v_raised := false;
+  begin
+    update public.plan_change_requests set status = 'approved' where shop_id = v_shop_id;
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a shop approved its own plan request';
+  end if;
+
+  v_raised := false;
+  begin
+    update public.shop_subscriptions set plan_id = v_pro_id where shop_id = v_shop_id;
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a shop moved its own subscription';
+  end if;
+
+  -- The point of all of the above: the tier did not actually move.
+  if exists (
+    select 1 from public.shop_subscriptions s join public.plans p on p.id = s.plan_id
+    where s.shop_id = v_shop_id and p.key = 'pro'
+  ) then
+    raise exception 'FAIL: the shop is on Pro without an operator approving it';
+  end if;
+
+  -- Withdrawing your own ask must still work, or a mistaken request is stuck.
+  delete from public.plan_change_requests where shop_id = v_shop_id;
+  if exists (select 1 from public.plan_change_requests where shop_id = v_shop_id) then
+    raise exception 'FAIL: a shop could not cancel its own pending request';
+  end if;
+
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+
   raise notice 'ALL CHECKS PASSED';
   -- Deliberate rollback: everything above was throwaway.
   raise exception 'rollback_marker';

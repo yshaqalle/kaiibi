@@ -22,7 +22,9 @@ type Action =
   | 'grant_override'
   | 'revoke_override'
   | 'upsert_plan'
-  | 'set_platform_settings';
+  | 'set_platform_settings'
+  | 'approve_plan_change'
+  | 'decline_plan_change';
 
 type RequestBody = {
   action: Action;
@@ -34,6 +36,7 @@ type RequestBody = {
   override?: { kind: 'module' | 'limit'; key: string; value?: unknown; expiresAt?: string | null };
   plan?: Record<string, unknown>;
   settings?: Record<string, unknown>;
+  requestId?: string;
 };
 
 const corsHeaders = {
@@ -310,6 +313,52 @@ Deno.serve(async (req) => {
         if (error) return errorResponse(500, 'unknown', error.message);
         await audit('set_platform_settings', null, before, after);
         return ok({ settings: after });
+      }
+
+      case 'approve_plan_change':
+      case 'decline_plan_change': {
+        if (!body.requestId) return errorResponse(400, 'unknown', 'requestId is required.');
+        const { data: request, error: requestError } = await adminClient
+          .from('plan_change_requests')
+          .select('*')
+          .eq('id', body.requestId)
+          .maybeSingle();
+        if (requestError) return errorResponse(500, 'unknown', requestError.message);
+        if (!request) return errorResponse(400, 'unknown', 'No such request.');
+        // Guards the double-approve: two operators with the queue open, both
+        // clicking. Without it the second one re-applies a decision that has
+        // already been made and logs it as if it were new.
+        if (request.status !== 'pending') {
+          return errorResponse(409, 'already_decided', `That request was already ${request.status}.`);
+        }
+
+        const before = await loadSubscription(request.shop_id);
+        let after = before;
+
+        if (action === 'approve_plan_change') {
+          const { data: updated, error } = await adminClient
+            .from('shop_subscriptions')
+            .update({ plan_id: request.requested_plan_id, updated_at: new Date().toISOString() })
+            .eq('shop_id', request.shop_id)
+            .select('*')
+            .single();
+          if (error) return errorResponse(500, 'unknown', error.message);
+          after = updated;
+        }
+
+        const { error: closeError } = await adminClient
+          .from('plan_change_requests')
+          .update({
+            status: action === 'approve_plan_change' ? 'approved' : 'declined',
+            decided_by: actorId,
+            decided_at: new Date().toISOString(),
+            decision_note: reason.trim(),
+          })
+          .eq('id', body.requestId);
+        if (closeError) return errorResponse(500, 'unknown', closeError.message);
+
+        await audit(action, request.shop_id, before, after);
+        return ok({ subscription: after });
       }
 
       default:

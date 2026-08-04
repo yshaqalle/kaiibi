@@ -32,6 +32,37 @@ export type PlatformAuditRow = {
   createdAt: string;
 };
 
+export type PendingPlanRequest = {
+  id: string;
+  shopId: string;
+  requestedPlanId: string;
+  planKey: string;
+  planName: string;
+  note: string | null;
+  createdAt: string;
+};
+
+// The approval queue. Only pending ones -- a decided request belongs in the
+// audit log, which records who decided it and why, rather than lingering here
+// looking actionable.
+export async function listPendingPlanRequests(): Promise<PendingPlanRequest[]> {
+  const { data, error } = await supabase
+    .from('plan_change_requests')
+    .select('id, shop_id, requested_plan_id, note, created_at, plans(key, name)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    shopId: row.shop_id,
+    requestedPlanId: row.requested_plan_id,
+    planKey: row.plans?.key ?? '',
+    planName: row.plans?.name ?? '',
+    note: row.note,
+    createdAt: row.created_at,
+  }));
+}
+
 export type PlatformOperator = {
   userId: string;
   role: 'owner' | 'support' | 'billing';

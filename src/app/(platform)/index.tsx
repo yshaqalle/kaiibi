@@ -7,14 +7,16 @@ import {
   callPlatformAdmin,
   listAuditLog,
   listOperators,
+  listPendingPlanRequests,
   listPlatformShops,
+  type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
   type PlatformShopRow,
 } from '@/lib/platform';
 import { listPlans, type Plan } from '@/lib/subscriptions';
 
-type Tab = 'shops' | 'plans' | 'audit' | 'operators';
+type Tab = 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
 
 export default function PlatformHome() {
   const [tab, setTab] = useState<Tab>('shops');
@@ -22,6 +24,7 @@ export default function PlatformHome() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [audit, setAudit] = useState<PlatformAuditRow[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
+  const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -31,16 +34,18 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    const [shopRows, planRows, auditRows, operatorRows] = await Promise.all([
+    const [shopRows, planRows, auditRows, operatorRows, requestRows] = await Promise.all([
       listPlatformShops(),
       listPlans(),
       listAuditLog(),
       listOperators(),
+      listPendingPlanRequests(),
     ]);
     setShops(shopRows);
     setPlans(planRows);
     setAudit(auditRows);
     setOperators(operatorRows);
+    setRequests(requestRows);
     setLoading(false);
   }, []);
 
@@ -73,9 +78,12 @@ export default function PlatformHome() {
         <Text style={styles.brand}>KAIIBI</Text>
         <Text style={styles.brandSub}>PLATFORM</Text>
         <View style={styles.nav}>
-          {(['shops', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
+          {(['shops', 'requests', 'plans', 'audit', 'operators'] as Tab[]).map((t) => (
             <Pressable key={t} onPress={() => setTab(t)} style={[styles.navItem, tab === t && styles.navItemActive]}>
-              <Text style={[styles.navText, tab === t && styles.navTextActive]}>{TAB_LABELS[t]}</Text>
+              <Text style={[styles.navText, tab === t && styles.navTextActive]}>
+                {TAB_LABELS[t]}
+                {t === 'requests' && requests.length > 0 ? `  ${requests.length}` : ''}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -137,8 +145,10 @@ export default function PlatformHome() {
 
             {selectedShop && <ShopDetail shop={selectedShop} plans={plans} onDone={reload} />}
           </>
+        ) : tab === 'requests' ? (
+          <RequestsView requests={requests} shops={shops} onDone={reload} />
         ) : tab === 'plans' ? (
-          <PlansView plans={plans} shops={shops} />
+          <PlansView plans={plans} shops={shops} onDone={reload} />
         ) : tab === 'audit' ? (
           <AuditView rows={audit} shops={shops} />
         ) : (
@@ -259,37 +269,250 @@ function ShopDetail({ shop, plans, onDone }: { shop: PlatformShopRow; plans: Pla
   );
 }
 
-function PlansView({ plans, shops }: { plans: Plan[]; shops: PlatformShopRow[] }) {
+// The approval queue. A shop cannot move itself between tiers — payment is
+// ZAAD/eDahab confirmed by hand, so this is where a tier gets tied to money
+// actually arriving.
+function RequestsView({
+  requests,
+  shops,
+  onDone,
+}: {
+  requests: PendingPlanRequest[];
+  shops: PlatformShopRow[];
+  onDone: () => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const decide = async (requestId: string, approve: boolean) => {
+    if (!reason.trim()) {
+      setError('A reason is required — it is what the shop sees if you decline.');
+      return;
+    }
+    setBusy(requestId);
+    setError(null);
+    try {
+      await callPlatformAdmin(approve ? 'approve_plan_change' : 'decline_plan_change', { requestId }, reason.trim());
+      setReason('');
+      await onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That decision did not go through.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <View>
+      <Text style={styles.h1}>Plan requests</Text>
+      {requests.length === 0 && <Text style={styles.empty}>Nothing waiting.</Text>}
+      {requests.length > 0 && (
+        <TextInput
+          value={reason}
+          onChangeText={setReason}
+          placeholder="Reason (required — a decline shows this to the shop)"
+          placeholderTextColor="#AAAAAA"
+          style={styles.reasonInput}
+        />
+      )}
+      {requests.map((request) => {
+        const shop = shops.find((s) => s.shopId === request.shopId);
+        return (
+          <View key={request.id} style={styles.requestCard}>
+            <View style={styles.requestHead}>
+              <Text style={styles.requestShop}>{shop?.shopName ?? request.shopId.slice(0, 8)}</Text>
+              <Text style={styles.requestMove}>
+                {shop?.planName ?? '—'} → <Text style={styles.requestTarget}>{request.planName}</Text>
+              </Text>
+            </View>
+            <Text style={styles.planMeta}>
+              asked {request.createdAt.slice(0, 10)}
+              {request.note ? ` · “${request.note}”` : ''}
+            </Text>
+            <View style={styles.actionRow}>
+              <Btn label="Approve" disabled={busy !== null} onPress={() => decide(request.id, true)} />
+              <Btn label="Decline" danger disabled={busy !== null} onPress={() => decide(request.id, false)} />
+            </View>
+          </View>
+        );
+      })}
+      {error && <Text style={styles.error}>{error}</Text>}
+      <Text style={styles.privacyNote}>
+        Approving moves the tier and records who decided it and why. A shop can raise and cancel its own request but can
+        never resolve one — there is no update policy on the table at all, and both decisions run through the audited
+        platform-admin function.
+      </Text>
+    </View>
+  );
+}
+
+function PlansView({ plans, shops, onDone }: { plans: Plan[]; shops: PlatformShopRow[]; onDone: () => Promise<void> }) {
+  const [editing, setEditing] = useState<string | null>(null);
   return (
     <View>
       <Text style={styles.h1}>Plans</Text>
       {plans.map((plan) => {
         const on = shops.filter((s) => s.planKey === plan.key).length;
+        if (editing === plan.key) {
+          return <PlanEditor key={plan.id} plan={plan} shopsOn={on} shops={shops} onClose={() => setEditing(null)} onDone={onDone} />;
+        }
         return (
           <View key={plan.id} style={styles.planCard}>
             <View style={styles.planHead}>
               <Text style={styles.planName}>{plan.name}</Text>
-              <Text style={styles.planPrice}>
-                {plan.priceCents === 0 ? 'Free' : `${formatCents(plan.priceCents)}/${plan.billingInterval ?? 'month'}`}
-              </Text>
+              <View style={styles.actionRow}>
+                <Text style={styles.planPrice}>
+                  {plan.priceCents === 0 ? 'Free' : `${formatCents(plan.priceCents)}/${plan.billingInterval ?? 'month'}`}
+                </Text>
+                <Btn label="Edit" onPress={() => setEditing(plan.key)} />
+              </View>
             </View>
             <Text style={styles.planMeta}>{on} shop{on === 1 ? '' : 's'} on this plan</Text>
             <Text style={styles.planModules}>{plan.modules.join(' · ')}</Text>
             <Text style={styles.planMeta}>
               {LIMIT_RESOURCES.map((r) => `${r.label}: ${plan.limits[r.key] ?? '∞'}`).join('  ·  ')}
             </Text>
-            {on > 0 && (
-              <Text style={styles.warn}>
-                ⚠ Editing this plan changes what {on} shop{on === 1 ? '' : 's'} can do, immediately.
-              </Text>
-            )}
           </View>
         );
       })}
-      <Text style={styles.privacyNote}>
-        Plans are edited through the platform-admin function, which records every change. Editing from this screen is
-        not built yet — change them in SQL and the audit log will show it.
-      </Text>
+    </View>
+  );
+}
+
+// Editing a plan changes entitlements for every shop on it at once, with no
+// further confirmation anywhere — which is why the blast radius is computed and
+// shown before saving rather than described in the abstract.
+function PlanEditor({
+  plan,
+  shopsOn,
+  shops,
+  onClose,
+  onDone,
+}: {
+  plan: Plan;
+  shopsOn: number;
+  shops: PlatformShopRow[];
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [name, setName] = useState(plan.name);
+  const [price, setPrice] = useState(String(plan.priceCents / 100));
+  const [modules, setModules] = useState<string[]>(plan.modules);
+  // Kept as raw text, blank meaning unlimited, so an operator clearing a field
+  // says "no cap" rather than being forced to invent a number.
+  const [limits, setLimits] = useState<Record<string, string>>(
+    Object.fromEntries(LIMIT_RESOURCES.map((r) => [r.key, plan.limits[r.key] == null ? '' : String(plan.limits[r.key])]))
+  );
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (key: string) =>
+    setModules((current) => (current.includes(key) ? current.filter((m) => m !== key) : [...current, key]));
+
+  // Who this edit actually hurts, right now, by name.
+  const losingModules = plan.modules.filter((m) => !modules.includes(m));
+  const strandedByLimit = LIMIT_RESOURCES.flatMap((r) => {
+    const raw = limits[r.key].trim();
+    if (raw === '') return [];
+    const next = Number(raw);
+    if (!Number.isFinite(next)) return [];
+    const over = shops.filter((s) => s.planKey === plan.key && (s.usage[r.key] ?? 0) > next);
+    return over.length > 0 ? [`${over.length} over ${r.label.toLowerCase()}`] : [];
+  });
+
+  const save = async () => {
+    if (!reason.trim()) {
+      setError('A reason is required for every change.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await callPlatformAdmin(
+        'upsert_plan',
+        {
+          plan: {
+            key: plan.key,
+            name: name.trim(),
+            price_cents: Math.round((Number(price) || 0) * 100),
+            modules,
+            limits: Object.fromEntries(
+              LIMIT_RESOURCES.map((r) => [r.key, limits[r.key].trim() === '' ? null : Number(limits[r.key])]).filter(
+                ([, v]) => v !== null
+              )
+            ),
+          },
+        },
+        reason.trim()
+      );
+      await onDone();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save that plan.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View style={[styles.planCard, styles.planCardEditing]}>
+      <View style={styles.planHead}>
+        <TextInput value={name} onChangeText={setName} style={styles.planNameInput} />
+        <View style={styles.inlineDays}>
+          <Text style={styles.planMeta}>$</Text>
+          <TextInput value={price} onChangeText={setPrice} keyboardType="decimal-pad" style={styles.daysInput} />
+          <Btn label="Cancel" onPress={onClose} />
+        </View>
+      </View>
+      <Text style={styles.planMeta}>key `{plan.key}` — not editable, {shopsOn} shop{shopsOn === 1 ? '' : 's'} depend on it</Text>
+
+      <Text style={styles.detailSection}>MODULES</Text>
+      <View style={styles.actionRow}>
+        {MODULES.map((m) => (
+          <Pressable key={m.key} onPress={() => toggle(m.key)} style={[styles.chip, modules.includes(m.key) && styles.chipActive]}>
+            <Text style={[styles.chipText, modules.includes(m.key) && styles.chipTextActive]}>{m.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      <Text style={styles.detailSection}>LIMITS — blank means unlimited</Text>
+      <View style={styles.actionRow}>
+        {LIMIT_RESOURCES.map((r) => (
+          <View key={r.key} style={styles.limitField}>
+            <Text style={styles.planMeta}>{r.label}</Text>
+            <TextInput
+              value={limits[r.key]}
+              onChangeText={(v) => setLimits((c) => ({ ...c, [r.key]: v }))}
+              keyboardType="number-pad"
+              placeholder="∞"
+              placeholderTextColor="#CCCCCC"
+              style={styles.daysInput}
+            />
+          </View>
+        ))}
+      </View>
+
+      {(losingModules.length > 0 || strandedByLimit.length > 0) && shopsOn > 0 && (
+        <Text style={styles.warn}>
+          ⚠ This affects {shopsOn} shop{shopsOn === 1 ? '' : 's'} immediately.
+          {losingModules.length > 0 ? ` Removing ${losingModules.join(', ')} makes that data read-only for them at once.` : ''}
+          {strandedByLimit.length > 0 ? ` Lowering caps strands ${strandedByLimit.join(', ')} — existing records are kept, new ones blocked.` : ''}
+        </Text>
+      )}
+
+      <TextInput
+        value={reason}
+        onChangeText={setReason}
+        placeholder="Reason (required — goes into the audit log)"
+        placeholderTextColor="#AAAAAA"
+        style={styles.reasonInput}
+      />
+      {error && <Text style={styles.error}>{error}</Text>}
+      <View style={styles.actionRow}>
+        <Btn label={busy ? 'Saving…' : 'Save plan'} disabled={busy} onPress={save} />
+      </View>
     </View>
   );
 }
@@ -355,7 +578,7 @@ function Btn({ label, onPress, disabled, danger }: { label: string; onPress: () 
   );
 }
 
-const TAB_LABELS: Record<Tab, string> = { shops: 'Shops', plans: 'Plans', audit: 'Audit log', operators: 'Operators' };
+const TAB_LABELS: Record<Tab, string> = { shops: 'Shops', requests: 'Requests', plans: 'Plans', audit: 'Audit log', operators: 'Operators' };
 const STATUS_DOT: Record<SubscriptionStatus, string> = { trialing: '●', active: '●', grace: '◐', expired: '○', suspended: '✕' };
 const STATUS_COLOR: Record<SubscriptionStatus, object> = {
   trialing: { color: '#1B4FA8' },
@@ -422,6 +645,14 @@ const styles = StyleSheet.create({
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 6 },
   privacyNote: { color: '#AAAAAA', fontSize: 11, lineHeight: 17, marginTop: 18 },
   planCard: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 16, marginBottom: 10 },
+  planCardEditing: { borderColor: '#111111' },
+  planNameInput: { fontSize: 15, fontWeight: '800', color: '#111111', borderBottomWidth: 1, borderBottomColor: '#DDDDDD', paddingVertical: 2, minWidth: 160 },
+  limitField: { gap: 4 },
+  requestCard: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 16, marginBottom: 10 },
+  requestHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+  requestShop: { fontSize: 15, fontWeight: '800', color: '#111111' },
+  requestMove: { fontSize: 13, color: '#777777' },
+  requestTarget: { color: '#111111', fontWeight: '800' },
   planHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   planName: { fontSize: 15, fontWeight: '800', color: '#111111' },
   planPrice: { fontSize: 13, fontWeight: '800', color: '#111111' },

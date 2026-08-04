@@ -75,6 +75,57 @@ export async function getMyEntitlements(shopId: string): Promise<Entitlements> {
   return mapEntitlements(data);
 }
 
+export type PlanChangeRequest = {
+  id: string;
+  status: 'pending' | 'approved' | 'declined';
+  planKey: string;
+  planName: string;
+  note: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+};
+
+// The shop's own latest request, whatever its state — a declined one still has
+// to be shown, or the shop is left waiting on an answer that already came.
+export async function getMyPlanChangeRequest(shopId: string): Promise<PlanChangeRequest | null> {
+  const { data, error } = await supabase.rpc('my_plan_change_request', { p_shop_id: shopId });
+  if (error) throw error;
+  if (!data) return null;
+  const row = data as any;
+  return {
+    id: row.id,
+    status: row.status,
+    planKey: row.plan_key,
+    planName: row.plan_name,
+    note: row.note,
+    decisionNote: row.decision_note,
+    createdAt: row.created_at,
+  };
+}
+
+// Asks to move tier. Deliberately not a switch: payment is confirmed by hand,
+// so an operator approving is what ties the tier to money arriving. See
+// migration 20260818000700.
+export async function requestPlanChange(shopId: string, planId: string, note: string | null): Promise<void> {
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData.user?.id;
+  if (!userId) throw new Error('Must be signed in to request a plan change.');
+  const { error } = await supabase.from('plan_change_requests').insert({
+    shop_id: shopId,
+    requested_plan_id: planId,
+    requested_by: userId,
+    note,
+  });
+  if (error) throw error;
+}
+
+// Cancelling is deleting the pending row — the shop withdrawing its own ask,
+// which must not look like an operator's decision in the record.
+export async function cancelPlanChangeRequest(requestId: string): Promise<void> {
+  const { error } = await supabase.from('plan_change_requests').delete().eq('id', requestId);
+  if (error) throw error;
+}
+
 // The tiers a shop can move to, in display order.
 export async function listPlans(): Promise<Plan[]> {
   const { data, error } = await supabase
