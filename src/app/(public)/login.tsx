@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -10,6 +10,16 @@ const kMark = require('@/assets/images/cover.jpeg');
 
 export default function LoginScreen() {
   const router = useRouter();
+  // Where to go after signing in. Set by a guard that bounced you here — the
+  // platform portal does, since without it `/platform` sends you to login and
+  // login sends you to `/dashboard`, and you never arrive at the thing you
+  // asked for.
+  //
+  // Only ever an in-app path: anything not starting with a single `/` is
+  // discarded, so a crafted `?next=//evil.example` cannot turn our login screen
+  // into an open redirect.
+  const { next } = useLocalSearchParams<{ next?: string }>();
+  const destination = typeof next === 'string' && /^\/(?!\/)/.test(next) ? next : '/dashboard';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +30,7 @@ export default function LoginScreen() {
     setError(null);
     try {
       await signIn({ email: email.trim(), password });
-      router.replace('/dashboard');
+      router.replace(destination as never);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not log in. Check your email and password.');
     } finally {

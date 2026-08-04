@@ -55,7 +55,11 @@ export default function PlatformLayout() {
     );
   }
 
-  if (!session) return <Redirect href="/login" />;
+  // Carries the destination, because login's own default is `/dashboard` — the
+  // shop app. Without this an operator opening /platform signed out is bounced
+  // to login, then landed in a shop, with no sign the portal was ever the
+  // target.
+  if (!session) return <Redirect href={'/login?next=/platform' as never} />;
 
   if (resolved?.pendingMfa) return <MfaChallenge />;
 
