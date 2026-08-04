@@ -68,6 +68,7 @@ export function ProductTableRow({
   defaultLowStockLevel = 5,
   expiryWarningLeadDays,
   locationLabel,
+  onOpenBreakdown,
 }: {
   product: Product;
   // The store cell's text, resolved by the caller (which holds the store list).
@@ -77,6 +78,10 @@ export function ProductTableRow({
   // `inventory.edit`) — same contract as ProductTile.
   onEdit?: () => void;
   onStockChange?: (nextStock: number) => void;
+  // Supplied instead of `onStockChange` in the combined multi-store view, where
+  // a single stepper has no correct answer for WHICH store it changes. The cell
+  // then shows the total as a button opening the per-store breakdown.
+  onOpenBreakdown?: () => void;
   // See ProductTile for what these mean — same Settings → Inventory alerts
   // values, same "omitted = off" contract.
   defaultLowStockLevel?: number;
@@ -124,6 +129,13 @@ export function ProductTableRow({
         <Text style={[styles.cellText, styles.price, colPrice]}>{formatCents(product.priceCents)}</Text>
 
         <View style={[styles.cell, colStock]}>
+          {onOpenBreakdown ? (
+            <Pressable onPress={onOpenBreakdown} style={styles.breakdownButton}>
+              <Text style={styles.breakdownCount}>{product.stock}</Text>
+              <Text style={styles.breakdownHint}>by store ▸</Text>
+            </Pressable>
+          ) : (
+            <>
           {onStockChange && (
             <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={styles.stepperButton}>
               <Text style={styles.stepperButtonText}>−</Text>
@@ -142,6 +154,8 @@ export function ProductTableRow({
             <Pressable onPress={() => onStockChange(product.stock + 1)} style={styles.stepperButton}>
               <Text style={styles.stepperButtonText}>+</Text>
             </Pressable>
+          )}
+            </>
           )}
         </View>
       </View>
@@ -186,6 +200,9 @@ const styles = StyleSheet.create({
   tagChip: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, maxWidth: '100%' },
   tagChipText: { fontSize: 11, fontWeight: '600', color: '#555555' },
 
+  breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  breakdownCount: { fontSize: 14, fontWeight: '800', color: '#111111' },
+  breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },
   stepperButton: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { color: '#111111', fontSize: 14, fontWeight: '800' },
   stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 10 },

@@ -7,6 +7,7 @@ import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import
 import { ExportMenu } from '@/components/export-menu';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
+import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
@@ -57,6 +58,7 @@ export default function InventoryScreen() {
   const showLocationFilter = hasMultipleLocations(locations);
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -76,6 +78,10 @@ export default function InventoryScreen() {
   // meaningless -- "set stock to 12" across three branches has no single right
   // answer -- so we refuse rather than guess when neither is resolved.
   const stockLocationId = locationFilter ?? activeLocation?.id ?? null;
+  // Only when a store is actually selected is a direct +/- unambiguous. In the
+  // combined view of a multi-store business the row shows the total and opens
+  // the per-store breakdown instead.
+  const showsCombinedTotal = showLocationFilter && locationFilter === null;
   const adjustStock = async (product: Product, nextStock: number) => {
     if (!stockLocationId) {
       setStockError('Pick a location before adjusting stock.');
@@ -190,11 +196,6 @@ export default function InventoryScreen() {
           </View>
         </View>
         <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
-        {/* Adjusting a combined figure has no single right answer, so the
-            combined view says which store an edit would land on. */}
-        {showLocationFilter && locationFilter === null && activeLocation && (
-          <Text style={styles.locationHint}>Showing every store combined. Stock edits apply to {activeLocation.name}.</Text>
-        )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
@@ -208,7 +209,8 @@ export default function InventoryScreen() {
                   key={product.id}
                   product={product}
                   onEdit={canEdit ? () => setEditingProduct(product) : undefined}
-                  onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                  onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
+                  onOpenBreakdown={canEdit && showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                   defaultLowStockLevel={defaultLowStockLevel}
                   expiryWarningLeadDays={expiryWarningLeadDays}
                 />
@@ -221,7 +223,8 @@ export default function InventoryScreen() {
                     key={product.id}
                     product={product}
                     onEdit={canEdit ? () => setEditingProduct(product) : undefined}
-                    onStockChange={canEdit ? (next) => adjustStock(product, next) : undefined}
+                    onStockChange={canEdit && !showsCombinedTotal ? (next) => adjustStock(product, next) : undefined}
+                    onOpenBreakdown={canEdit && showsCombinedTotal ? () => setBreakdownProduct(product) : undefined}
                     defaultLowStockLevel={defaultLowStockLevel}
                     expiryWarningLeadDays={expiryWarningLeadDays}
                     locationLabel={locationLabelFor(product)}
@@ -255,6 +258,14 @@ export default function InventoryScreen() {
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
       )}
+      {breakdownProduct && (
+        <StockByStoreModal
+          key={breakdownProduct.id}
+          product={breakdownProduct}
+          onClose={() => setBreakdownProduct(null)}
+          onChanged={reload}
+        />
+      )}
       {shop && canEdit && (
         <StockTransferModal
           visible={showTransfer}
@@ -279,7 +290,6 @@ const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
-  locationHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginBottom: 12 },
   stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
   list: { overflow: 'hidden' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
