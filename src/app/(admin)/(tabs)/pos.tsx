@@ -21,7 +21,7 @@ import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDi
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
-import { formatTodayHours, type ReceiptData } from '@/lib/receipt';
+import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { Currency, Discount, PaymentMethod, Product, Promotion } from '@/types/models';
@@ -179,7 +179,7 @@ export default function PosScreen() {
         // The branch's own address, phone and hours -- what the customer needs
         // to find their way back. The name is only printed when there is more
         // than one branch to tell apart.
-        locationName: showLocationName ? activeLocation.name : null,
+        locationName: storeNameFor(shop.name, activeLocation.name, showLocationName),
         shopCity: activeLocation.city,
         shopNeighborhood: activeLocation.neighborhood,
         shopContactPhone: activeLocation.contactPhone,

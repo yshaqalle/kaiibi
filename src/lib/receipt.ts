@@ -49,6 +49,18 @@ export type ReceiptData = {
   createdAt: string;
 };
 
+// The store's name, but only when it adds something. A shop's first store is
+// created named after the business (migration 20260808000000), so printing both
+// gives a receipt with the same words twice — which is what happens the moment a
+// second store is added and the name starts being printed at all.
+//
+// Exported so the POS checkout path, which builds a ReceiptData directly rather
+// than from a Sale, applies the same rule.
+export function storeNameFor(shopName: string, locationName: string | null, show: boolean): string | null {
+  if (!show || !locationName) return null;
+  return locationName.trim() === shopName.trim() ? null : locationName;
+}
+
 function formatLocation(receipt: Pick<ReceiptData, 'shopCity' | 'shopNeighborhood'>): string | null {
   const parts = [receipt.shopCity, receipt.shopNeighborhood].filter((p): p is string => Boolean(p && p.trim()));
   return parts.length > 0 ? parts.join(' · ') : null;
@@ -117,7 +129,7 @@ export function buildReceiptFromSale(
   return {
     shopName: shop.name,
     shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
-    locationName: showLocationName ? (location?.name ?? null) : null,
+    locationName: storeNameFor(shop.name, location?.name ?? null, showLocationName),
     shopCity: location?.city ?? null,
     shopNeighborhood: location?.neighborhood ?? null,
     shopContactPhone: location?.contactPhone ?? null,

@@ -1,4 +1,4 @@
-import { buildReceiptFromSale } from '@/lib/receipt';
+import { buildReceiptFromSale, storeNameFor } from '@/lib/receipt';
 import type { Sale } from '@/types/models';
 
 // A receipt is proof of a transaction at a PLACE. Once a business has two
@@ -90,5 +90,30 @@ describe('buildReceiptFromSale location resolution', () => {
     it('stays null when asked for but no location was resolved', () => {
       expect(buildReceiptFromSale(makeSale(), SHOP, null, true).locationName).toBeNull();
     });
+  });
+});
+
+describe('storeNameFor', () => {
+  // The case from a real receipt: a shop's first store is created named after
+  // the business, so once a second store exists and names start printing, the
+  // header showed the same words twice.
+  it('omits the store name when it matches the business name', () => {
+    expect(storeNameFor('Jaalala Skincare', 'Jaalala Skincare', true)).toBeNull();
+  });
+
+  it('ignores surrounding whitespace when comparing', () => {
+    expect(storeNameFor('Jaalala Skincare', '  Jaalala Skincare  ', true)).toBeNull();
+  });
+
+  it('prints the store name once it actually differs', () => {
+    expect(storeNameFor('Jaalala Skincare', 'Jaalala 2', true)).toBe('Jaalala 2');
+  });
+
+  it('prints nothing for a single-store shop, whatever the names', () => {
+    expect(storeNameFor('Jaalala Skincare', 'Jaalala 2', false)).toBeNull();
+  });
+
+  it('prints nothing when no store was resolved', () => {
+    expect(storeNameFor('Jaalala Skincare', null, true)).toBeNull();
   });
 });
