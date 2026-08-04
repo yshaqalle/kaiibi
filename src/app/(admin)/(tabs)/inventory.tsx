@@ -6,6 +6,7 @@ import { Card } from '@/components/card';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { ProductModal } from '@/components/product-modal';
+import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
 import { useAuth } from '@/hooks/use-auth';
@@ -54,6 +55,7 @@ export default function InventoryScreen() {
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
   const [stockError, setStockError] = useState<string | null>(null);
+  const [showTransfer, setShowTransfer] = useState(false);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -145,6 +147,13 @@ export default function InventoryScreen() {
           </View>
           <View style={styles.headerActions}>
             <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
+            {/* Only with somewhere to move stock TO — a one-store shop has no
+                transfer to make, and the button would be a dead end. */}
+            {canEdit && showLocationFilter && (
+              <Pressable onPress={() => setShowTransfer(true)} style={styles.importButton}>
+                <Text style={styles.importButtonText}>Move stock</Text>
+              </Pressable>
+            )}
             {canEdit && (
               <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
                 <Text style={styles.importButtonText}>Import</Text>
@@ -236,6 +245,14 @@ export default function InventoryScreen() {
       )}
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
+      )}
+      {shop && canEdit && (
+        <StockTransferModal
+          visible={showTransfer}
+          shopId={shop.id}
+          onClose={() => setShowTransfer(false)}
+          onDone={reload}
+        />
       )}
     </SafeAreaView>
   );

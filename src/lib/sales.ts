@@ -313,7 +313,11 @@ export async function getTopSellingProducts(shopId: string, sinceDate: Date, unt
 // Refunds that *happened* in the range, whatever period the original sale
 // belongs to -- so reversing them never restates a closed month. Carries each
 // line's frozen unit cost so COGS can be reversed alongside the revenue.
-async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date): Promise<PeriodRefund[]> {
+// `locationId` narrows through the parent sale, using the inner join that is
+// already here. Deliberately NOT filtered in memory against the fetched sales:
+// a refund inside the range can belong to a sale from before it, and matching
+// on the fetched ids would silently drop exactly those.
+async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date, locationId?: string | null): Promise<PeriodRefund[]> {
   type RefundRow = {
     id: string;
     created_at: string;
@@ -326,6 +330,7 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
       .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id)')
       .eq('sales.shop_id', shopId)
       .gte('created_at', startOfDay(sinceDate).toISOString());
+    if (locationId) query = query.eq('sales.location_id', locationId);
     if (untilDate) query = query.lte('created_at', endOfDay(untilDate).toISOString());
     return query.range(from, to) as unknown as PromiseLike<{ data: RefundRow[] | null; error: unknown }>;
   });
@@ -350,11 +355,12 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
 export async function getSalesAndRefundsInRange(
   shopId: string,
   sinceDate: Date,
-  untilDate?: Date
+  untilDate?: Date,
+  locationId?: string | null
 ): Promise<{ sales: Sale[]; refunds: PeriodRefund[] }> {
   const [sales, refunds] = await Promise.all([
-    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
-    listRefundsInRange(shopId, sinceDate, untilDate),
+    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate, locationId),
+    listRefundsInRange(shopId, sinceDate, untilDate, locationId),
   ]);
   return { sales, refunds };
 }

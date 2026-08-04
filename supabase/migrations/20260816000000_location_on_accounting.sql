@@ -159,3 +159,135 @@ begin
   return v_expense_id;
 end;
 $$;
+
+-- post_payroll_run writes the run's total into expenses. Reproduced from its
+-- live definition -- lock ordering, overlap guards and all -- with only the
+-- store carried onto the expense.
+create or replace function public.post_payroll_run(p_run_id uuid)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $$
+declare
+  v_run public.payroll_runs%rowtype;
+  v_total integer;
+  v_expense_id uuid;
+  v_conflict_names text;
+  v_conflict_count integer;
+  v_blocked_names text;
+  v_blocked_count integer;
+  v_lock_shop uuid;
+begin
+  -- Serialises posting within a shop. The row lock below covers only THIS run,
+  -- so two different overlapping runs sharing a member each locked a different
+  -- row, neither saw the other's uncommitted 'posted' status, and both
+  -- succeeded -- paying that member twice. Harmless while the old shop-wide
+  -- guard rejected overlapping runs outright; per-member cadence makes
+  -- overlapping drafts the normal mode, so the race became reachable.
+  --
+  -- The shop id is read separately because v_run isn't populated until the
+  -- statement below, so the lock key can't be derived from it yet. Transaction-
+  -- scoped, so it releases on commit or rollback with nothing to unlock
+  -- explicitly. Keyed on the shop, so posts in different shops never block each
+  -- other. Taken BEFORE the row lock so every guard below reads committed state
+  -- rather than racing a concurrent post.
+  --
+  -- ADVISORY LOCK CLASSID REGISTRY -- Postgres has ONE global advisory keyspace,
+  -- shared by every feature in the database. The two-argument form reserves a
+  -- classid so a future caller can't collide with payroll posting:
+  --   74920 = payroll posting (this function)
+  -- Pick a distinct, non-round classid for any new advisory lock. 1, 2 and 100
+  -- are what a naive caller reaches for, which is exactly why they're unsafe.
+  select shop_id into v_lock_shop from public.payroll_runs where id = p_run_id;
+  if v_lock_shop is null then
+    raise exception 'pay run % not found', p_run_id;
+  end if;
+  perform pg_advisory_xact_lock(74920, hashtext(v_lock_shop::text));
+
+  select * into v_run from public.payroll_runs where id = p_run_id for update;
+  if v_run.id is null then
+    raise exception 'pay run % not found', p_run_id;
+  end if;
+  if not (public.has_shop_permission(v_run.shop_id, 'people.payroll.manage')
+          and public.has_shop_permission(v_run.shop_id, 'expenses.manage')) then
+    raise exception 'not authorized to post pay runs for shop %', v_run.shop_id;
+  end if;
+  if v_run.status = 'posted' then
+    raise exception 'this pay run has already been posted';
+  end if;
+
+  with conflicts as (
+    select distinct coalesce(l.member_name, 'A staff member') as name
+    from public.payroll_runs r
+      join public.payroll_run_lines l on l.payroll_run_id = r.id
+    where r.shop_id = v_run.shop_id
+      and r.id <> v_run.id
+      and r.status = 'posted'
+      and r.period_start <= v_run.period_end
+      and r.period_end   >= v_run.period_start
+      and l.shop_member_id in (
+        select shop_member_id from public.payroll_run_lines where payroll_run_id = p_run_id
+      )
+  )
+  select
+    (select string_agg(name, ', ' order by name) from (select name from conflicts order by name limit 6) top6),
+    (select count(*) from conflicts)
+  into v_conflict_names, v_conflict_count;
+  if v_conflict_names is not null then
+    raise exception '% was already paid for part of % to %',
+      case when v_conflict_count > 6 then v_conflict_names || ' and others' else v_conflict_names end,
+      v_run.period_start, v_run.period_end;
+  end if;
+
+  with blocked as (
+    select distinct coalesce(member_name, 'A staff member') as name
+    from public.payroll_run_lines
+    where payroll_run_id = p_run_id
+      and warning_blocking
+      and amount_cents = 0
+  )
+  select
+    (select string_agg(name, ', ' order by name) from (select name from blocked order by name limit 6) top6),
+    (select count(*) from blocked)
+  into v_blocked_names, v_blocked_count;
+  if v_blocked_names is not null then
+    raise exception 'no amount set for % — enter an amount, or set a pay rate in People',
+      case when v_blocked_count > 6 then v_blocked_names || ' and others' else v_blocked_names end;
+  end if;
+
+  select coalesce(sum(amount_cents), 0) into v_total
+    from public.payroll_run_lines where payroll_run_id = p_run_id;
+  if v_total <= 0 then
+    raise exception 'this pay run has nothing to pay';
+  end if;
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category, payment_method, note, created_by, payroll_run_id)
+    values (
+      v_run.shop_id,
+      -- The run's store travels onto the cost it produces. Without this a pay
+      -- run for one store would post a business-wide expense, and that store's
+      -- P&L would show its revenue with none of its labour against it.
+      v_run.location_id,
+      v_run.period_end,
+      v_total,
+      'salaries_wages',
+      'cash',
+      'Payroll ' || v_run.period_start || ' to ' || v_run.period_end,
+      auth.uid(),
+      v_run.id
+    )
+    returning id into v_expense_id;
+
+  update public.payroll_runs set
+    status = 'posted',
+    total_cents = v_total,
+    expense_id = v_expense_id,
+    posted_at = now(),
+    posted_by = auth.uid(),
+    updated_at = now()
+  where id = p_run_id;
+
+  return v_expense_id;
+end;
+$$

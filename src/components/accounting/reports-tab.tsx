@@ -12,7 +12,9 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
 import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
+import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { listExpensesInRange } from '@/lib/expenses';
+import { scopeToLocation } from '@/lib/location-reporting';
 import { sharePdf } from '@/lib/export-file';
 import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
@@ -76,6 +78,12 @@ export function ReportsTab({
   // cost and showing a different profit than a payroll manager would see.
   const canSeeLabor = can('people.payroll.manage') && can('expenses.manage');
 
+  // null = the combined business view. Scoping applies to BOTH sides of the
+  // P&L — a store's revenue against a store's costs — which is the whole point
+  // of the dimension. Business-wide costs drop out of a per-store view, so the
+  // per-store profits will not sum to the business's; the difference is the
+  // unattributed overhead (see lib/location-reporting.ts).
+  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [performance, setPerformance] = useState<SalesPerformance | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
@@ -94,7 +102,7 @@ export function ReportsTab({
       // the cashier ranking each pulled the whole nested sales set for the
       // range -- the same heavy query, twice per screen load.
       const [{ sales, refunds }, expenseRows, categoryRows, categoryMonths] = await Promise.all([
-        getSalesAndRefundsInRange(shop.id, since, until),
+        getSalesAndRefundsInRange(shop.id, since, until, locationFilter),
         listExpensesInRange(shop.id, since, until),
         getCategoryBreakdown(shop.id, since, until),
         getCategoryRevenueByMonth(shop.id, since, until),
@@ -106,7 +114,7 @@ export function ReportsTab({
         netRevenueCents: netRevenueCents(sales, refunds),
         ...costOfGoodsSold(sales, refunds),
       });
-      setExpenses(expenseRows);
+      setExpenses(scopeToLocation(expenseRows, locationFilter));
       setCategories(categoryRows);
       setCashiers(cashierPerformance(sales));
       setCategoryByMonth(categoryMonths);
@@ -141,7 +149,9 @@ export function ReportsTab({
     } finally {
       setLoading(false);
     }
-  }, [shop, since, until, canSeeLabor]);
+    // locationFilter is a dependency: switching store must refetch, since the
+  // scoping happens in the query for sales and refunds, not only in memory.
+  }, [shop, since, until, locationFilter, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -271,6 +281,8 @@ export function ReportsTab({
       <ReportsHeaderActions onExport={exportPdf} exporting={exporting} setHeaderActions={setHeaderActions} />
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       <Text style={styles.sectionTitle}>Profit &amp; loss · {rangeLabel}</Text>
       <Card style={styles.card}>
