@@ -1,4 +1,4 @@
-import { parseStaffPayColumns } from '@/lib/staff-import';
+import { parseStaffPayColumns } from '@/lib/staff-pay-columns';
 
 describe('parseStaffPayColumns', () => {
   it('reports nothing to do when no pay columns are present', () => {
