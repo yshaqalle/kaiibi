@@ -101,6 +101,18 @@ export type ShopLocation = {
   // business: a flagship and a kiosk don't share a target, and the
   // business-wide figure is the sum across stores (migration 20260813000000).
   monthlyRevenueGoalCents: number | null;
+  // Whether this store scans barcodes, and how. Per store because a scanner is
+  // a physical fact about a counter, not a business-wide policy — the flagship
+  // has one wired to the till, the kiosk has a phone, the stockroom has neither
+  // (migration 20260819000100).
+  //
+  // Camera scanning defaults on: it is additive, and a Scan button that
+  // explains itself is better than a setting nobody finds. The hardware wedge
+  // defaults OFF, because supporting those scanners means watching every
+  // keystroke on the page — worth it where one is plugged in, pure risk where
+  // one isn't.
+  barcodeScanningEnabled: boolean;
+  hardwareScannerEnabled: boolean;
   // Exactly one per shop. The fallback whenever a location isn't otherwise
   // resolvable — what a fresh device selects before anyone chooses.
   isPrimary: boolean;
@@ -111,10 +123,15 @@ export type ShopLocation = {
   updatedAt: string;
 };
 
+// The scanner flags are optional on create: the database defaults them
+// (camera on, wedge off), so the "add a store" form has no reason to ask about
+// hardware before the store exists. They stay settable on the update patches
+// that Settings sends.
 export type NewShopLocationInput = Omit<
   ShopLocation,
-  'id' | 'shopId' | 'isPrimary' | 'createdAt' | 'updatedAt'
->;
+  'id' | 'shopId' | 'isPrimary' | 'createdAt' | 'updatedAt' | 'barcodeScanningEnabled' | 'hardwareScannerEnabled'
+> &
+  Partial<Pick<ShopLocation, 'barcodeScanningEnabled' | 'hardwareScannerEnabled'>>;
 
 // How many units of a product sit at one branch. `Product.stock` is the sum of
 // these across every location, maintained by trigger (migration

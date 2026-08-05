@@ -1,16 +1,19 @@
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { forwardRef, useEffect, useImperativeHandle, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { useAuth } from '@/hooks/use-auth';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { barcodeCandidates, normalizeBarcode } from '@/lib/barcode';
 import { primaryLocationOf } from '@/lib/location-selection';
 import { createBrand, listBrands } from '@/lib/brands';
 import { createCategory, listCategories } from '@/lib/categories';
 import { formatCents, toCents } from '@/lib/currency';
-import { uploadProductImage } from '@/lib/products';
+import { findProductsByCode, uploadProductImage } from '@/lib/products';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
@@ -20,6 +23,11 @@ export type ProductFormHandle = {
 
 export const ProductForm = forwardRef<ProductFormHandle, {
   initial?: Product;
+  // Seed values for a NEW product -- currently a barcode that was just scanned
+  // and found to belong to nothing. Kept separate from `initial`, which means
+  // "an existing row being edited" and drives the delete button, the duplicate
+  // check's self-exclusion, and the modal's title.
+  defaults?: Partial<NewProductInput>;
   // The store the opening stock lands at. Only asked for when a business has
   // more than one; the caller passes it straight to createProduct/updateProduct,
   // which is the only thing that can actually move a count.
@@ -32,6 +40,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   onStatusChange?: (status: { valid: boolean; submitting: boolean }) => void;
 }>(function ProductForm({
   initial,
+  defaults,
   onSubmit,
   submitLabel,
   shopId,
@@ -39,6 +48,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   onStatusChange,
 }, ref) {
   const { locations } = useAuth();
+  const scanner = useScannerSettings();
   const stores = locations.filter((location) => location.active);
   const [locationId, setLocationId] = useState<string | null>(
     defaultLocationId ?? primaryLocationOf(stores)?.id ?? null
@@ -46,7 +56,19 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const [name, setName] = useState(initial?.name ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [sku, setSku] = useState(initial?.sku ?? '');
-  const [barcode, setBarcode] = useState(initial?.barcode ?? '');
+  const [barcode, setBarcode] = useState(initial?.barcode ?? defaults?.barcode ?? '');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  // The product that already owns this barcode, if any. A barcode identifies
+  // exactly one product per shop (products_shop_barcode_key), so this blocks
+  // the save rather than merely warning: two products sharing a code makes
+  // every future scan of it ambiguous, which is the one thing a scanner exists
+  // to prevent.
+  //
+  // Stored as "the answer, and the code it is an answer TO". Whether a check is
+  // outstanding is then derived by comparing that code to what's in the field,
+  // rather than tracked as its own flag that could disagree with it.
+  const [conflictFor, setConflictFor] = useState(() => normalizeBarcode(initial?.barcode ?? ''));
+  const [conflictOwner, setConflictOwner] = useState<Product | null>(null);
   const [brand, setBrand] = useState(initial?.brand ?? '');
   const [category, setCategory] = useState(initial?.category ?? '');
   const [tags, setTags] = useState(initial?.tags?.join(', ') ?? '');
@@ -76,11 +98,63 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const [imageUri, setImageUri] = useState<string | null>(initial?.imageUrl ?? null);
   const [uploading, setUploading] = useState(false);
 
+  // Looks up whoever already owns this barcode. Shared by the debounced
+  // as-you-type check and the authoritative re-check inside submit().
+  //
+  // Matches on `barcodeCandidates`, not the literal string, so the UPC-A form
+  // of a code stored as EAN-13 (or the reverse) is caught here -- the database
+  // constraint compares literal strings and cannot see that equivalence.
+  const findBarcodeOwner = useCallback(async (raw: string): Promise<Product | null> => {
+    const code = normalizeBarcode(raw);
+    if (!code) return null;
+    const owners = await findProductsByCode(shopId, barcodeCandidates(code));
+    return (
+      owners.find(
+        (product) =>
+          product.id !== initial?.id &&
+          // A SKU collision is not a barcode collision -- only the barcode
+          // column is unique, and SKUs are internal labels that may repeat.
+          barcodeCandidates(code).some((candidate) => candidate.toLowerCase() === normalizeBarcode(product.barcode ?? '').toLowerCase())
+      ) ?? null
+    );
+  }, [shopId, initial?.id]);
+
+  const normalizedBarcode = normalizeBarcode(barcode);
+  // An empty field has nothing to collide with, and a stale answer belongs to a
+  // code that is no longer typed -- neither is a conflict.
+  const barcodeConflict = normalizedBarcode && normalizedBarcode === conflictFor ? conflictOwner : null;
+  const checkingBarcode = Boolean(normalizedBarcode) && normalizedBarcode !== conflictFor;
+
+  // Debounced so typing a 13-digit code is one lookup, not thirteen.
+  useEffect(() => {
+    if (!checkingBarcode) return;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      let owner: Product | null = null;
+      try {
+        owner = await findBarcodeOwner(normalizedBarcode);
+      } catch {
+        // Offline or refused: leave the field un-blocked rather than stopping
+        // someone from saving because a check couldn't run. The unique index
+        // still refuses a genuine collision, and submit() re-checks.
+        owner = null;
+      }
+      if (cancelled) return;
+      setConflictOwner(owner);
+      setConflictFor(normalizedBarcode);
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [checkingBarcode, normalizedBarcode, findBarcodeOwner]);
+
   // `toCents` leniently coerces anything it can't parse to 0 (see
   // src/lib/currency.ts) so a non-empty-but-garbage price (e.g. "abc") isn't
   // distinguishable from a real 0 by string-emptiness alone -- require the
   // parsed value to actually be positive.
-  const valid = Boolean(name.trim() && priceInput.trim() && toCents(priceInput) > 0);
+  //
+  // Blocking on `checkingBarcode` too closes the window where someone pastes a
+  // code and hits Save before the debounce has fired.
+  const valid =
+    Boolean(name.trim() && priceInput.trim() && toCents(priceInput) > 0) && !barcodeConflict && !checkingBarcode;
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -94,6 +168,18 @@ export const ProductForm = forwardRef<ProductFormHandle, {
     setSubmitting(true);
     setError(null);
     try {
+      // Re-checked here, not just on change: the debounce is a UX affordance,
+      // this is the correctness check. Someone else may have claimed the code
+      // in the seconds since, and the alternative is a raw constraint error
+      // after the photo has already uploaded.
+      const owner = await findBarcodeOwner(normalizedBarcode);
+      if (owner) {
+        setConflictOwner(owner);
+        setConflictFor(normalizedBarcode);
+        setSubmitting(false);
+        return;
+      }
+
       let imageUrl = initial?.imageUrl ?? null;
       // A freshly picked photo is a local URI, not the http(s) URL of an
       // already-uploaded image. On native this is `file://`; on web
@@ -160,8 +246,33 @@ export const ProductForm = forwardRef<ProductFormHandle, {
       <Field label="DESCRIPTION"><TextInput value={description} onChangeText={setDescription} placeholder="Materials, size, story…" placeholderTextColor="#999999" style={[styles.input, styles.multiline]} multiline textAlignVertical="top" /></Field>
       <Row>
         <Field label="SKU" style={styles.half}><TextInput value={sku} onChangeText={setSku} placeholder="SKU-001" placeholderTextColor="#999999" style={styles.input} /></Field>
-        <Field label="BARCODE" style={styles.half}><TextInput value={barcode} onChangeText={setBarcode} placeholder="Optional" placeholderTextColor="#999999" style={styles.input} /></Field>
+        {/* Scan button on the barcode only, never on the SKU: a SKU is an
+            internal label a shop invents, not something printed to be read. */}
+        <Field label="BARCODE" style={styles.half}>
+          <View style={styles.barcodeRow}>
+            <TextInput
+              value={barcode}
+              onChangeText={setBarcode}
+              placeholder="Optional"
+              placeholderTextColor="#999999"
+              style={[styles.input, styles.barcodeInput, barcodeConflict && styles.inputInvalid]}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {scanner.camera && (
+              <Pressable onPress={() => setScannerOpen(true)} style={styles.scanButton} accessibilityLabel="Scan a barcode">
+                <Text style={styles.scanButtonText}>⛶</Text>
+              </Pressable>
+            )}
+          </View>
+        </Field>
       </Row>
+      {barcodeConflict && (
+        <Text style={styles.error}>
+          Barcode already used by &ldquo;{barcodeConflict.name}&rdquo;. Every product needs its own code, or scanning it
+          would be ambiguous — enter a different one, or edit that product instead.
+        </Text>
+      )}
       <Field label="BRAND">
         <SearchableChipField
           value={brand}
@@ -232,6 +343,15 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         <Switch value={isListedOnline} onValueChange={setIsListedOnline} />
       </View>
       {error && <Text style={styles.error}>{error}</Text>}
+      <BarcodeScannerModal
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={(code) => setBarcode(code)}
+        mode="single"
+        title="Scan this product"
+        hint="The code goes into the barcode field."
+      />
+
       <Pressable onPress={submit} style={[styles.save, (!valid || submitting) && styles.saveDisabled]} disabled={!valid || submitting}>
         <Text style={styles.saveText}>{uploading ? 'Uploading photo…' : submitting ? 'Saving…' : submitLabel}</Text>
       </Pressable>
@@ -340,6 +460,11 @@ const styles = StyleSheet.create({
   photoPreview: { width: '100%', height: '100%' },
   photoHint: { color: '#999999', fontSize: 13 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#111111', marginBottom: 8 },
+  inputInvalid: { borderWidth: 1, borderColor: '#C0392B' },
+  barcodeRow: { flexDirection: 'row', gap: 6 },
+  barcodeInput: { flex: 1 },
+  scanButton: { width: 43, height: 43, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center' },
+  scanButtonText: { color: '#FFFFFF', fontSize: 17 },
   multiline: { height: 78, paddingTop: 11 },
   chips: { gap: 7, paddingBottom: 12 },
   categoryHint: { color: '#999999', fontSize: 11, marginTop: 6 },

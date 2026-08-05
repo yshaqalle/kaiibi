@@ -34,8 +34,17 @@
         "expo-image-picker",
         {
           "photosPermission": "Allow Ka Iibi to access your photos so you can add product images.",
-          "cameraPermission": "Allow Ka Iibi to use your camera so you can photograph products.",
+          "cameraPermission": "Allow Ka Iibi to use your camera so you can scan barcodes and photograph products.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Ka Iibi to use your camera so you can scan barcodes and photograph products.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
         }
       ],
       "expo-font",

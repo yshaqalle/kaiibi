@@ -12,6 +12,8 @@ function location(overrides: Partial<ShopLocation> & { id: string }): ShopLocati
     contactPhone: null,
     openingHours: {},
     monthlyRevenueGoalCents: null,
+    barcodeScanningEnabled: true,
+    hardwareScannerEnabled: false,
     isPrimary: false,
     active: true,
     createdAt: '2026-08-04T00:00:00Z',

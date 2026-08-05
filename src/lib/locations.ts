@@ -13,6 +13,11 @@ function mapLocationRow(row: any): ShopLocation {
     contactPhone: row.contact_phone,
     openingHours: row.opening_hours ?? {},
     monthlyRevenueGoalCents: row.monthly_revenue_goal_cents,
+    // Defaults mirror the column defaults, so a row read back from an older
+    // client (or a select that predates the columns) resolves the same way the
+    // database would rather than silently disabling scanning.
+    barcodeScanningEnabled: row.barcode_scanning_enabled ?? true,
+    hardwareScannerEnabled: row.hardware_scanner_enabled ?? false,
     isPrimary: row.is_primary,
     active: row.active,
     createdAt: row.created_at,
@@ -30,6 +35,8 @@ function toRow(input: Partial<NewShopLocationInput>) {
     ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
     ...(input.openingHours !== undefined && { opening_hours: input.openingHours }),
     ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
+    ...(input.barcodeScanningEnabled !== undefined && { barcode_scanning_enabled: input.barcodeScanningEnabled }),
+    ...(input.hardwareScannerEnabled !== undefined && { hardware_scanner_enabled: input.hardwareScannerEnabled }),
     ...(input.active !== undefined && { active: input.active }),
   };
 }

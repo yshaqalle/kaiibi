@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
@@ -152,6 +152,10 @@ function LocationEditorModal({
     location?.monthlyRevenueGoalCents != null ? String(location.monthlyRevenueGoalCents / 100) : ''
   );
   const [active, setActive] = useState(location?.active ?? true);
+  // Defaults match the column defaults, so a brand-new store behaves the same
+  // whether it was created here or straight in the database.
+  const [barcodeScanningEnabled, setBarcodeScanningEnabled] = useState(location?.barcodeScanningEnabled ?? true);
+  const [hardwareScannerEnabled, setHardwareScannerEnabled] = useState(location?.hardwareScannerEnabled ?? false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -184,6 +188,8 @@ function LocationEditorModal({
         contactPhone: contactPhone.trim() || null,
         openingHours,
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
+        barcodeScanningEnabled,
+        hardwareScannerEnabled,
         active,
       });
     } catch (err) {
@@ -285,6 +291,27 @@ function LocationEditorModal({
               This store&apos;s target for the month. Each store can set its own. Leave blank to hide the goal meter.
             </Text>
 
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>BARCODE SCANNING</Text>
+            <View style={modalStyles.toggleRow}>
+              <View style={modalStyles.toggleCopy}>
+                <Text style={modalStyles.toggleTitle}>Scan with the camera</Text>
+                <Text style={modalStyles.toggleHint}>
+                  Adds a Scan button to the register and to Inventory, for phones and tablets.
+                </Text>
+              </View>
+              <Switch value={barcodeScanningEnabled} onValueChange={setBarcodeScanningEnabled} />
+            </View>
+            <View style={modalStyles.toggleRow}>
+              <View style={modalStyles.toggleCopy}>
+                <Text style={modalStyles.toggleTitle}>This store has a barcode scanner</Text>
+                <Text style={modalStyles.toggleHint}>
+                  For the USB or Bluetooth kind that plugs into the till. Turn this on only if one is connected here —
+                  it makes the register watch the keyboard for scans.
+                </Text>
+              </View>
+              <Switch value={hardwareScannerEnabled} onValueChange={setHardwareScannerEnabled} />
+            </View>
+
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>OPENING HOURS</Text>
             <OpeningHoursEditor value={openingHours} onChange={setOpeningHours} />
 
@@ -375,6 +402,10 @@ const modalStyles = StyleSheet.create({
   fieldLabelSpaced: { marginTop: 16 },
   fieldHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginTop: 6 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
+  toggleCopy: { flex: 1 },
+  toggleTitle: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  toggleHint: { fontSize: 12, color: '#9CA3AF', lineHeight: 17, marginTop: 3 },
   statusRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 18 },
   statusLabel: { fontSize: 13, fontWeight: '700', color: '#111111' },
   statusAction: { fontSize: 12, fontWeight: '700', color: '#111111', textDecorationLine: 'underline' },

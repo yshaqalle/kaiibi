@@ -18,6 +18,24 @@ export const RETAIL_BARCODE_TYPES = [
   'datamatrix',
 ] as const;
 
+// The same set again, in the names the browser's Barcode Detection API uses.
+// expo-camera says `ean13`, the web spec says `ean_13` -- two vocabularies for
+// one list, so they are written out together here rather than translated by a
+// clever rule that would quietly drop a format when one side renames something.
+export const WEB_BARCODE_FORMATS = [
+  'ean_13',
+  'ean_8',
+  'upc_a',
+  'upc_e',
+  'code_128',
+  'code_39',
+  'code_93',
+  'itf_14',
+  'codabar',
+  'qr_code',
+  'data_matrix',
+] as const;
+
 // Everything a scanner can send that isn't part of the code. Hardware wedge
 // scanners are usually configured with a CR (or CRLF, or Tab) suffix so the
 // receiving field knows the scan ended, and when that lands in a React Native
