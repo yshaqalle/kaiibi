@@ -88,7 +88,10 @@ export const ProductForm = forwardRef<ProductFormHandle, {
     listTags(shopId).then((rows) => { setTagSuggestions(rows.map((r) => r.name)); setTagColors(new Map(rows.map((r) => [r.name, r.color]))); }).catch(() => {});
   }, [shopId]);
   const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '');
-  const [costInput, setCostInput] = useState(initial?.costCents ? formatCents(initial.costCents).replace('$', '') : '');
+  // Null check, not truthiness: a cost of 0 is a real recorded answer (free
+  // sample, gift with purchase), and `initial?.costCents ? … : ''` would treat
+  // it the same as never having been set, erasing it from the field.
+  const [costInput, setCostInput] = useState(initial?.costCents != null ? formatCents(initial.costCents).replace('$', '') : '');
   const [priceInput, setPriceInput] = useState(initial?.priceCents ? formatCents(initial.priceCents).replace('$', '') : '');
   const [stock, setStock] = useState(initial?.stock ? String(initial.stock) : '');
   const [reorderLevel, setReorderLevel] = useState(initial?.reorderLevel ? String(initial.reorderLevel) : '');

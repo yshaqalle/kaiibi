@@ -311,7 +311,7 @@ export function ReportsTab({
             something is fixed, blue means it is right and here is why it looks
             odd, grey means part of it is withheld. */}
         {performance.uncostedItemCount > 0 && (
-          <Caveat tone="wrong" action={{ label: 'Set costs in Inventory', onPress: () => router.push('/inventory') }}>
+          <Caveat tone="wrong" action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}>
             {`${performance.uncostedItemCount} sold item${performance.uncostedItemCount === 1 ? '' : 's'} had no cost recorded (${formatAccountingCents(performance.uncostedRevenueCents)} of revenue), so cost of goods sold is understated and profit looks higher than it is.`}
           </Caveat>
         )}

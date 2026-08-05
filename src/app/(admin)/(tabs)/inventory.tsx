@@ -452,13 +452,24 @@ export default function InventoryScreen() {
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           <Text style={styles.empty}>
-            {locationFilter
-              ? // A store carries a product once it has a stock row there, so an
-                // empty list here is a real answer, not a missing filter. It
-                // also has to say how to change that, since the routes in are
-                // all somewhere else.
-                `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
-              : 'No products yet. Add your first one above.'}
+            {// A filtered-to-zero list must say WHICH filter emptied it --
+            // otherwise it reads as an empty shop rather than a shop that
+            // happens to have nothing matching the chip it's on. Checked
+            // first, and ahead of locationFilter, because it's the more
+            // specific, more actionable explanation of the two.
+            stockFilter === 'nocost'
+              ? 'Every product has a purchase cost recorded. Uncosted sales on the Dashboard belong to products that have since been given one.'
+              : stockFilter === 'low'
+                ? 'Nothing is low on stock right now.'
+                : stockFilter === 'expiring'
+                  ? 'No products have an expiry date set.'
+                  : locationFilter
+                    ? // A store carries a product once it has a stock row there, so an
+                      // empty list here is a real answer, not a missing filter. It
+                      // also has to say how to change that, since the routes in are
+                      // all somewhere else.
+                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+                    : 'No products yet. Add your first one above.'}
           </Text>
         ) : (
           <Card style={styles.list}>

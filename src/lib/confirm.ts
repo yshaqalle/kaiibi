@@ -36,10 +36,6 @@ export function confirmChoice(title: string, message: string, confirmLabel: stri
     Alert.alert(title, message, [
       { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
       { text: confirmLabel, onPress: () => resolve(true) },
-    ], {
-      // Tapping outside the dialog on Android must settle the promise too,
-      // or the save is left hanging with its spinner spinning.
-      onDismiss: () => resolve(false),
-    });
+    ]);
   });
 }

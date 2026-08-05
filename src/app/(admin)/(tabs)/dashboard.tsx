@@ -379,7 +379,7 @@ export default function DashboardScreen() {
         {cogs && cogs.uncostedItemCount > 0 ? (
           <Caveat
             tone="wrong"
-            action={{ label: 'Set costs in Inventory', onPress: () => router.push('/inventory?filter=nocost') }}
+            action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}
           >
             {`${cogs.uncostedItemCount} sold ${cogs.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(cogs.uncostedRevenueCents)} of revenue), so gross profit looks higher than it is.`}
           </Caveat>
