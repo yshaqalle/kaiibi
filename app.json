@@ -47,6 +47,7 @@
           "barcodeScannerEnabled": true
         }
       ],
+      "./plugins/with-camera-optional",
       "expo-font",
       "expo-image",
       "expo-status-bar",
