@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
+import { Colors } from '@/constants/theme';
 
 // Picking one of a list, presented as chips while the list is short and as a
 // dropdown once it isn't.
@@ -37,6 +38,7 @@ export function OptionPicker({
   placeholder = 'Choose…',
   title,
   chipLimit = CHIP_LIMIT,
+  variant = 'default',
 }: {
   options: PickerOption[];
   value: string | null;
@@ -48,6 +50,12 @@ export function OptionPicker({
   placeholder?: string;
   title?: string;
   chipLimit?: number;
+  /**
+   * `bento` swaps the grey trigger for the white-on-hairline pill the bento
+   * screens use. Same metrics, so the two can sit in one control bar without
+   * one of them changing the bar's height.
+   */
+  variant?: 'default' | 'bento';
 }) {
   const [open, setOpen] = useState(false);
   const total = options.length + (allOption ? 1 : 0);
@@ -67,7 +75,7 @@ export function OptionPicker({
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} style={styles.trigger}>
+      <Pressable onPress={() => setOpen(true)} style={[styles.trigger, variant === 'bento' && styles.triggerBento]}>
         <Text style={[styles.triggerText, !selected && value !== null && styles.placeholder]} numberOfLines={1}>{label}</Text>
         <Text style={styles.chevron}>▾</Text>
       </Pressable>
@@ -236,6 +244,13 @@ const styles = StyleSheet.create({
     // store visibly resizes the toolbar around it.
     paddingVertical: 8,
     paddingHorizontal: 14,
+  },
+  // Same padding and font as `trigger` above, so swapping variants never
+  // changes the control bar's height.
+  triggerBento: {
+    backgroundColor: Colors.light.bentoSurface,
+    borderWidth: 1,
+    borderColor: Colors.light.bentoLine,
   },
   triggerText: { fontSize: 13, fontWeight: '600', color: '#111111', flexShrink: 1 },
   placeholder: { color: '#999999' },

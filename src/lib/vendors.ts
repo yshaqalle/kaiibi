@@ -1,3 +1,4 @@
+import { escapeLikePattern } from '@/lib/like-pattern';
 import { supabase } from '@/lib/supabase';
 import type { NewVendorInput, Vendor } from '@/types/models';
 
@@ -80,8 +81,3 @@ export async function deleteVendor(id: string): Promise<void> {
   if (error) throw error;
 }
 
-// `%` and `_` are wildcards inside an ilike pattern, so a vendor searching for
-// "50% off supplier" would otherwise match far more than intended.
-function escapeLikePattern(value: string): string {
-  return value.replace(/[\\%_]/g, (char) => `\\${char}`);
-}

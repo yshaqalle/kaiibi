@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { customerPointsAvailable, quickAddCustomer, searchCustomers } from '@/lib/customers';
+import { customerDisplayName, customerPointsAvailable, quickAddCustomer, searchCustomers } from '@/lib/customers';
 import { pointsValueLabel } from '@/lib/loyalty';
 import type { Customer } from '@/types/models';
 
@@ -21,9 +21,9 @@ export type SelectedCustomer = {
   availablePoints: number | null;
 };
 
-function fullName(c: Customer): string {
-  return [c.firstName, c.lastName].filter(Boolean).join(' ');
-}
+// Re-exported name kept local so the many call sites below read unchanged;
+// the rule itself now lives in lib/customers.ts, shared with global search.
+const fullName = customerDisplayName;
 
 // Supabase rpc() errors are plain {code, details, hint, message} objects,
 // never instanceof Error -- checking that first always falls through to the

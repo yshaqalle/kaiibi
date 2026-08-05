@@ -1,4 +1,5 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
+import { containsPattern } from '@/lib/like-pattern';
 import { endOfDay, startOfDay } from '@/lib/period';
 import { bucketDailyTotals, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
@@ -229,6 +230,28 @@ export async function listSales(shopId: string, limit = 50, locationId?: string 
     .eq('shop_id', shopId);
   if (locationId) query = query.eq('location_id', locationId);
   const { data, error } = await query.order('created_at', { ascending: false }).limit(limit);
+  if (error) throw error;
+  return (data ?? []).map(mapSaleRow);
+}
+
+// Type-ahead for global search.
+//
+// Matches the frozen customer name on the sale rather than the linked customer
+// record: a walk-in sale has a typed name and no customer id, and that sale is
+// exactly the one someone is trying to find again. Sale ITEMS are not searched
+// -- finding "every sale containing rice" is a report, and Accounting →
+// Transactions is where it belongs.
+export async function searchSales(shopId: string, query: string, locationId?: string | null): Promise<Sale[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  const pattern = containsPattern(q);
+  let request = supabase
+    .from('sales')
+    .select('*, sale_items(*), sale_payments(*)')
+    .eq('shop_id', shopId)
+    .or(`customer_name.ilike.${pattern},customer_phone.ilike.${pattern},cashier_name.ilike.${pattern}`);
+  if (locationId) request = request.eq('location_id', locationId);
+  const { data, error } = await request.order('created_at', { ascending: false }).limit(6);
   if (error) throw error;
   return (data ?? []).map(mapSaleRow);
 }

@@ -1,6 +1,14 @@
 import { supabase } from '@/lib/supabase';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, NewCustomerInput } from '@/types/models';
 
+// A customer is stored as first + optional last name, so every screen that
+// shows one has to join them. Lived privately in customer-picker.tsx until
+// global search needed the same thing; kept here so a third copy doesn't
+// appear, and so "how a customer is named" is answered in one place.
+export function customerDisplayName(customer: Pick<Customer, 'firstName' | 'lastName'>): string {
+  return [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+}
+
 function mapCustomerRow(row: any): Customer {
   return {
     id: row.id,

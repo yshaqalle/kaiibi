@@ -7,6 +7,8 @@ import { Badge } from '@/components/badge';
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
 import type { DateRange } from '@/components/range-selector';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
 import { computePayrollDraft } from '@/lib/payroll-reporting';
@@ -123,9 +125,15 @@ export function PayrollTab({
   // any of this. Say so rather than rendering an empty screen that looks broken.
   if (!allowed) {
     return (
-      <Text style={styles.empty}>
-        Pay runs need both payroll and expense permissions. Ask an owner to grant them in Settings → Roles.
-      </Text>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard title="Payroll">
+            <Text style={styles.empty}>
+              Pay runs need both payroll and expense permissions. Ask an owner to grant them in Settings → Roles.
+            </Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
     );
   }
 
@@ -186,16 +194,20 @@ export function PayrollTab({
   };
 
   return (
-    <View>
+    <BentoGrid>
       <PayrollHeaderActions allowed={allowed} creating={creating} onNew={openCreate} setHeaderActions={setHeaderActions} />
-      <View style={styles.header}>
-        <Text style={styles.subtitle}>
-          Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
-        </Text>
-      </View>
+
+      <BentoCell span={12}>
+        <BentoCard title="Payroll">
+          <Text style={styles.subtitle}>
+            Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
+          </Text>
+        </BentoCard>
+      </BentoCell>
 
       {creating && (
-        <View style={styles.createCard}>
+        <BentoCell span={12}>
+        <BentoCard title="New pay run">
           <Text style={styles.createTitle}>Pay period</Text>
           <View style={styles.chips}>
             {(['weekly', 'biweekly', 'semimonthly', 'monthly'] as const).map((option) => (
@@ -276,11 +288,21 @@ export function PayrollTab({
               <Text style={styles.actionButtonText}>Cancel</Text>
             </Pressable>
           </View>
-        </View>
+        </BentoCard>
+        </BentoCell>
       )}
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? (
+        <BentoCell span={12}>
+          <Text style={styles.error}>{error}</Text>
+        </BentoCell>
+      ) : null}
 
+      <BentoCell span={12}>
+        {/* The empty and loading states live INSIDE the card, not above it:
+            a tab with no pay runs yet should read as an empty card, not as a
+            line of grey text floating on the page. */}
+        <BentoCard title="Pay runs" scope="All time">
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : runs.length === 0 ? (
@@ -307,6 +329,8 @@ export function PayrollTab({
           })}
         </View>
       )}
+        </BentoCard>
+      </BentoCell>
 
       {open && (
         <PayrollRunEditor
@@ -332,7 +356,7 @@ export function PayrollTab({
           }}
         />
       )}
-    </View>
+    </BentoGrid>
   );
 }
 

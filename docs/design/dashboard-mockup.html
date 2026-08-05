@@ -1,0 +1,516 @@
+<title>Kaiibi Dashboard — Redesign Mockup</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff;
+    --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+           --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* The app itself is light-only ("Pinned to the light palette for now" —
+     theme.ts), so the device frames below stay light in both themes on
+     purpose. Only this page's chrome follows the viewer. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  /* Wide enough that the 1280px frame below fits without scrolling on a
+     desktop viewport; prose blocks set their own measure via max-width. */
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  /* ---- page chrome ---- */
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 30px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:66ch;}
+  .note code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px;}
+  .meta span{font-size:12px;font-weight:600;color:var(--ink2);background:var(--pg2);
+    border:1px solid var(--ln);border-radius:999px;padding:5px 12px;}
+
+  /* ---- device frame ---- */
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .frameHead b{font-size:14.5px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w900{width:900px;} .frame.w380{width:380px;}
+
+  /* ---- app chrome inside the frame ---- */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    background:var(--d-sf);border-radius:22px;padding:12px 16px;margin-bottom:14px;flex-wrap:wrap;}
+  .tb-l,.tb-r{display:flex;align-items:center;gap:11px;}
+  .logo{width:40px;height:40px;border-radius:50%;background:var(--d-ink);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0;}
+  .brand b{display:block;font-size:15px;font-weight:800;line-height:1.2;}
+  .brand span{display:block;font-size:12px;color:var(--d-mut);line-height:1.2;}
+  .rnd{width:38px;height:38px;border-radius:50%;border:1px solid var(--d-ln);background:var(--d-sf);
+    display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;cursor:pointer;}
+  .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--d-ln);border-radius:999px;
+    padding:8px 14px;background:var(--d-soft);min-width:180px;}
+  .srch span{font-size:13px;color:var(--d-mut2);}
+  .who b{display:block;font-size:13.5px;font-weight:700;line-height:1.25;}
+  .who span{display:block;font-size:11.5px;color:var(--d-mut);line-height:1.25;}
+
+  .greet{display:flex;align-items:center;gap:16px;padding:4px 6px 18px;flex-wrap:wrap;}
+  .datechip{width:78px;height:78px;border-radius:50%;border:1px solid var(--d-ln);background:var(--d-sf);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;}
+  .datechip b{font-size:24px;font-weight:800;line-height:1;}
+  .datechip span{font-size:10.5px;color:var(--d-mut);text-align:center;margin-top:3px;line-height:1.25;}
+  .greet-t{flex:1;min-width:230px;}
+  .greet-t h3{margin:0 0 3px;font-size:24px;font-weight:800;letter-spacing:-.02em;}
+  .greet-t p{margin:0;font-size:14px;color:var(--d-mut);max-width:60ch;line-height:1.5;}
+  .cta{background:var(--d-ink);color:#fff;border:none;border-radius:999px;padding:13px 22px;
+    font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}
+
+  /* ---- bento ---- */
+  .grid{display:grid;gap:14px;}
+  .grid.wide{grid-template-columns:repeat(12,1fr);}
+  .grid.mid{grid-template-columns:repeat(2,1fr);}
+  .grid.narrow{grid-template-columns:1fr;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .num{font-variant-numeric:tabular-nums;}
+
+  /* warning banner */
+  .warn{display:flex;gap:12px;align-items:flex-start;background:#fff8e6;border:1px solid #f0d99a;
+    border-radius:22px;padding:15px 18px;}
+  .warn b{display:block;font-size:13.5px;margin-bottom:3px;color:#5c4a12;}
+  .warn p{margin:0;font-size:12.5px;color:#7a6320;line-height:1.5;}
+  .warn a{color:#5c4a12;font-weight:700;}
+
+  /* P&L */
+  .pl{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .pl:last-child{border-bottom:none;}
+  .pl .nm{font-size:13.5px;font-weight:600;}
+  .pl .hint{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .pl .amt{font-size:15px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .pl.sub{border-top:1px solid var(--d-ln);}
+  .pl.tot{background:var(--d-soft);border-radius:14px;border-bottom:none;margin-top:8px;padding:13px 16px;}
+  .pl.tot .nm{font-size:14.5px;font-weight:800;}
+  .pl.tot .amt{font-size:19px;}
+  .loss{color:var(--loss);} .profit{color:var(--profit);}
+
+  /* KPI */
+  /* Column count is pinned per frame rather than left to auto-fit: at 1280
+     auto-fit gave five across and orphaned the last three. Keyed off the
+     frame width class because these frames are fixed-width, so a media
+     query (which reads the viewport) would answer the wrong question. */
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w900 .kpis,.w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .s{margin-top:6px;height:22px;}
+
+  /* payment rows */
+  .pm{display:flex;align-items:center;gap:11px;padding:9px 0;}
+  .pm-ic{width:32px;height:32px;border-radius:10px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+  .pm-b{flex:1;min-width:0;}
+  .pm-t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+  .pm-n{font-size:13.5px;font-weight:700;}
+  .pm-a{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .bar{height:6px;border-radius:3px;background:var(--d-ln);margin-top:5px;overflow:hidden;}
+  .bar i{display:block;height:100%;border-radius:3px;}
+  .pm-p{font-size:11px;color:var(--d-mut);margin-top:3px;font-variant-numeric:tabular-nums;}
+
+  /* attention */
+  .att{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .att:last-child{border-bottom:none;}
+  .att .tx{display:flex;gap:10px;min-width:0;}
+  .sev{width:4px;border-radius:2px;flex-shrink:0;align-self:stretch;}
+  .sev.act{background:var(--loss);} .sev.soon{background:var(--c3);} .sev.info{background:var(--d-mut2);}
+  .att b{display:block;font-size:13px;font-weight:700;}
+  .att span{display:block;font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .tag{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;}
+  .tag.hot{background:var(--d-ink);color:#fff;}
+
+  /* low stock table */
+  table{width:100%;border-collapse:collapse;}
+  th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);
+    text-align:left;padding:0 0 8px;border-bottom:1px solid var(--d-ln);}
+  th.r,td.r{text-align:right;}
+  td{padding:10px 0;border-bottom:1px solid var(--d-ln);font-size:13px;}
+  tr:last-child td{border-bottom:none;}
+  td .p{font-weight:700;} td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  .qty{font-weight:800;font-variant-numeric:tabular-nums;}
+  .qty.zero{color:var(--loss);} .qty.low{color:var(--c3);}
+  .muted{color:var(--d-mut);font-variant-numeric:tabular-nums;}
+
+  /* goal */
+  .goal{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
+  .goal .g{width:108px;height:108px;flex-shrink:0;}
+  .goal .v{font-size:21px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  .goal .c{font-size:12px;color:var(--d-mut);margin-top:4px;line-height:1.45;max-width:22ch;}
+
+  /* An SVG scales its text with the viewBox, so at 380px the 10.5-unit
+     labels landed at about 5px — legible in the wide frame, not on a phone.
+     Narrow steps the type up in user units and drops the sub-captions, which
+     is what the React Native charts must do at this width too. */
+  .w380 .chart text{font-size:16px;}
+  .w380 .chart .sub{display:none;}
+
+  .legend{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--d-mut);flex-wrap:wrap;}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  /* ---- palette proof ---- */
+  .sw{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0;}
+  .swx{border:1px solid var(--ln);border-radius:14px;overflow:hidden;background:var(--sf);}
+  .swx .chip{height:62px;}
+  .swx .t{padding:10px 12px;}
+  .swx .t b{display:block;font-size:12.5px;font-weight:700;}
+  .swx .t code{font-size:11.5px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  pre{background:var(--pg2);border:1px solid var(--ln);border-radius:12px;padding:14px 16px;
+    overflow-x:auto;font-size:12.5px;line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;}
+  .ok{color:#0f9d58;font-weight:700;} .bad{color:#d92d3f;font-weight:700;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  @media (prefers-reduced-motion:no-preference){ .cta{transition:opacity .18s;} .cta:hover{opacity:.85;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Step 1</p>
+  <h1>Dashboard redesign</h1>
+  <p class="lede">The bento composition from <code>dashboard3.html</code>, rebuilt around kaiibi's
+  real card set and a corrected chart palette. Three breakpoints below, then the colour proof.
+  Nothing in the app has changed yet.</p>
+
+  <div class="meta">
+    <span>7 days · Hodan Store</span>
+    <span>3 new cards: P&amp;L · Waterfall · Payment methods</span>
+    <span>Palette re-stepped for colour-blind readers</span>
+    <span>Figures are illustrative</span>
+  </div>
+
+  <section>
+    <h2>Wide — 12 columns</h2>
+    <p class="h2sub">≥ 1000px. Desktop web with the sidebar shell alongside.</p>
+    <div class="scroller"><div class="frame w1280" data-bento="wide"></div></div>
+  </section>
+
+  <section>
+    <h2>Medium — half-width cards</h2>
+    <p class="h2sub">820–999px. Tablet, and the narrower desktop window. Each card takes 6 of 12.</p>
+    <div class="scroller"><div class="frame w900" data-bento="mid"></div></div>
+  </section>
+
+  <section>
+    <h2>Narrow — single column</h2>
+    <p class="h2sub">&lt; 820px. Phone, native and mobile web, under the bottom tab bar.</p>
+    <div class="scroller"><div class="frame w380" data-bento="narrow"></div></div>
+  </section>
+
+  <section>
+    <h2>Colour proof</h2>
+    <p class="note">The mockup's original chart hues could not ship: its blue and purple are
+    separated by ΔE&nbsp;0.1 for deutan viewers — the same colour to roughly 8% of men — and
+    ΔE&nbsp;10.2 even with full colour vision, under the floor of 15. These four are the same
+    blue-led family, re-stepped until every check passes.</p>
+
+    <div class="sw">
+      <div class="swx"><div class="chip" style="background:#2f6bff"></div><div class="t"><b>Series 1 · Cash</b><code>#2f6bff</code></div></div>
+      <div class="swx"><div class="chip" style="background:#00a396"></div><div class="t"><b>Series 2 · ZAAD</b><code>#00a396</code></div></div>
+      <div class="swx"><div class="chip" style="background:#c8791a"></div><div class="t"><b>Series 3 · e-Dahab</b><code>#c8791a</code></div></div>
+      <div class="swx"><div class="chip" style="background:#d4457e"></div><div class="t"><b>Series 4 · Other</b><code>#d4457e</code></div></div>
+    </div>
+
+<pre>$ node scripts/validate_palette.js "#2f6bff,#00a396,#c8791a,#d4457e" \
+      --mode light --surface "#ffffff"
+
+Palette (light, surface #ffffff, categorical): 4 slots
+  <span class="ok">[PASS]</span> Lightness band      all 4 inside L 0.43–0.77
+  <span class="ok">[PASS]</span> Chroma floor        all 4 &gt;= 0.1
+  <span class="ok">[PASS]</span> CVD separation      worst adjacent #d4457e↔#c8791a ΔE 12.2 (deutan) · tritan 7.4
+  <span class="ok">[PASS]</span> Normal-vision floor worst adjacent #d4457e↔#c8791a ΔE 18.0 (normal)
+  <span class="ok">[PASS]</span> Contrast vs surface all 4 &gt;= 3:1</pre>
+
+    <p class="note" style="margin-top:18px">Profit green <code>#0f9d58</code> and loss red
+    <code>#d92d3f</code> are kept from the original, but they sit at ΔE&nbsp;4.0 for deutan
+    viewers — the classic red/green trap. They are only legal because every mark carrying them
+    also carries a signed number: each waterfall bar is labelled, each P&amp;L figure shows its
+    minus sign. <strong>That labelling is load-bearing, not decoration</strong> — if a future
+    card drops it, the colour stops meaning anything.</p>
+
+    <p class="note" style="margin-top:14px">Type is the system UI stack rather than a webfont,
+    deliberately: React Native renders system faces on device, so a mockup in anything else
+    would misrepresent what ships. Every figure is set in tabular numerals so columns align.</p>
+  </section>
+
+  <section>
+    <h2>What changed, and what didn't</h2>
+    <p class="note"><strong>New:</strong> the P&amp;L card, the revenue→profit waterfall, and
+    payment methods — the last reusing <code>PaymentMixChart</code>, which already exists in
+    Accounting. The greeting sentence is generated from figures the screen already holds.</p>
+    <p class="note" style="margin-top:12px"><strong>Restyled, same data:</strong> revenue trend,
+    goal meter, needs attention, low stock. The uncosted-cost caveat becomes the amber banner
+    and keeps its deep link to the inventory filter.</p>
+    <p class="note" style="margin-top:12px"><strong>Deliberately absent:</strong> cash on hand,
+    budget vs actual, recurring bills, sales tax, and the expense donut. They stay in Accounting
+    — on a new shop's dashboard they would be five empty states above the fold.</p>
+  </section>
+</div>
+
+<template id="cards">
+
+  <div class="cardx" data-w="12" data-m="2" style="padding:0;background:transparent">
+    <div class="warn">
+      <div style="font-size:16px;line-height:1.3">⚠️</div>
+      <div>
+        <b>Cost of goods sold is understated</b>
+        <p>6 sold items have no cost recorded ($312.40 of revenue), so gross profit looks higher
+        than it is. <a href="#">Set costs in Inventory →</a></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="5" data-m="1">
+    <div class="crow"><h4 class="ctitle">Profit &amp; loss</h4><div class="pill">7 days</div></div>
+    <div class="pl"><div class="nm">Revenue<span class="hint">net of sales tax and refunds</span></div><div class="amt num">$3,847.20</div></div>
+    <div class="pl"><div class="nm">Cost of goods sold<span class="hint">what the items sold cost you</span></div><div class="amt num loss">−$2,412.60</div></div>
+    <div class="pl sub"><div class="nm" style="font-weight:800">Gross profit</div><div class="amt num">$1,434.60</div></div>
+    <div class="pl"><div class="nm">Operating expenses<span class="hint">excludes stock purchases and owner draws</span></div><div class="amt num loss">−$890.00</div></div>
+    <div class="pl tot"><div class="nm">Net profit</div><div class="amt num profit">$544.60</div></div>
+  </div>
+
+  <div class="cardx" data-w="7" data-m="1">
+    <h4 class="ctitle">How revenue becomes profit</h4>
+    <svg class="chart" viewBox="0 0 620 230" style="width:100%;height:auto;display:block" role="img"
+         aria-label="Waterfall: revenue $3,847.20 less cost of goods $2,412.60 gives gross profit $1,434.60, less operating expenses $890.00 gives net profit $544.60.">
+      <line x1="46" y1="186" x2="606" y2="186" stroke="#c9c9d0" stroke-dasharray="3 3"/>
+      <line x1="130" y1="16" x2="186" y2="16" stroke="#c9c9d0" stroke-dasharray="3 3"/>
+      <line x1="354" y1="122.6" x2="410" y2="122.6" stroke="#c9c9d0" stroke-dasharray="3 3"/>
+      <rect x="74"  y="16"    width="56" height="170"  rx="5" fill="#2f6bff"/>
+      <rect x="186" y="16"    width="56" height="106.6" rx="5" fill="#d92d3f"/>
+      <rect x="298" y="122.6" width="56" height="63.4"  rx="5" fill="#2f6bff"/>
+      <rect x="410" y="122.6" width="56" height="39.3"  rx="5" fill="#d92d3f"/>
+      <rect x="522" y="161.9" width="56" height="24.1"  rx="5" fill="#0f9d58"/>
+      <g font-size="11.5" font-weight="800" fill="#0b0b0d" text-anchor="middle">
+        <text x="102" y="10">$3,847</text>
+        <text x="214" y="10">−$2,413</text>
+        <text x="326" y="116.6">$1,435</text>
+        <text x="438" y="116.6">−$890</text>
+        <text x="550" y="155.9">$545</text>
+      </g>
+      <g font-size="10.5" fill="#6b6b73" text-anchor="middle">
+        <text x="102" y="206">Revenue</text>
+        <text x="214" y="206">Cost of goods</text>
+        <text x="326" y="206">Gross profit</text>
+        <text x="438" y="206">Operating exp.</text>
+        <text x="550" y="206">Net profit</text>
+      </g>
+      <g class="sub" font-size="9.5" fill="#a8a8b0" text-anchor="middle">
+        <text x="214" y="220">what stock cost</text>
+        <text x="438" y="220">wages, rent, power</text>
+      </g>
+    </svg>
+    <p class="foot">Green and red are backed by the signed figure on every bar — the colour alone
+    never carries the meaning.</p>
+  </div>
+
+  <div class="cardx" data-w="8" data-m="1">
+    <h4 class="ctitle">This period at a glance</h4>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Revenue</div><div class="n">$3,847.20</div>
+        <div class="s"><svg viewBox="0 0 100 22" preserveAspectRatio="none" style="width:100%;height:100%" aria-hidden="true">
+          <path d="M0 14.6 L16.7 13.5 L33.3 16.2 L50 9.9 L66.7 4.8 L83.3 7.2 L100 17.2"
+                fill="none" stroke="#2f6bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="100" cy="17.2" r="2.6" fill="#fff" stroke="#2f6bff" stroke-width="2"/></svg></div></div>
+      <div class="kpi"><div class="l">Gross profit</div><div class="n">$1,434.60</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Expenses</div><div class="n">$890.00</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Net profit</div><div class="n profit">$544.60</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Orders</div><div class="n">214</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Average sale</div><div class="n">$17.98</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Net margin</div><div class="n">14%</div><div class="s"></div></div>
+      <div class="kpi"><div class="l">Team on today</div><div class="n">4/5</div><div class="s"></div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="4" data-m="1">
+    <div class="crow"><h4 class="ctitle">Revenue goal</h4><div class="pill">This month</div></div>
+    <div class="goal">
+      <div class="g">
+        <svg viewBox="0 0 120 120" style="width:100%;height:100%" role="img" aria-label="62% of the monthly revenue goal.">
+          <circle cx="60" cy="60" r="45.6" fill="none" stroke="#ececf0" stroke-width="13.2"/>
+          <circle cx="60" cy="60" r="45.6" fill="none" stroke="#2f6bff" stroke-width="13.2" stroke-linecap="round"
+                  stroke-dasharray="176.5 286.5" transform="rotate(-90 60 60)"/>
+          <text x="60" y="67" text-anchor="middle" font-size="23" font-weight="800" fill="#0b0b0d">62%</text>
+        </svg>
+      </div>
+      <div>
+        <div class="v">$9,240.00</div>
+        <div class="c">of a $15,000.00 goal · $5,760.00 to go with 11 days left</div>
+      </div>
+    </div>
+    <div class="pl" style="border-top:1px solid var(--d-ln);border-bottom:none;margin-top:14px">
+      <div class="nm">Needed per day<span class="hint">to land the goal by month end</span></div>
+      <div class="amt num">$523.64</div>
+    </div>
+    <p class="foot">Month to date, and always the selected store's own goal — never the
+    whole business's.</p>
+  </div>
+
+  <div class="cardx" data-w="7" data-m="1">
+    <div class="crow"><h4 class="ctitle">Revenue</h4><div class="pill">7 days</div></div>
+    <svg class="chart" viewBox="0 0 600 200" style="width:100%;height:auto;display:block" role="img"
+         aria-label="Daily revenue over seven days, from $486.30 on Monday to a peak of $721.50 on Friday and $416.10 on Sunday.">
+      <defs><linearGradient id="rv" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#2f6bff" stop-opacity="0.20"/>
+        <stop offset="100%" stop-color="#2f6bff" stop-opacity="0"/></linearGradient></defs>
+      <g stroke="#ececf0">
+        <line x1="44" y1="174" x2="588" y2="174"/><line x1="44" y1="93" x2="588" y2="93"/><line x1="44" y1="12" x2="588" y2="12"/>
+      </g>
+      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7 L588 174 L44 174 Z" fill="url(#rv)"/>
+      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7"
+            fill="none" stroke="#2f6bff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <g fill="#fff" stroke="#2f6bff" stroke-width="2">
+        <circle cx="44" cy="75.5" r="3"/><circle cx="134.7" cy="70.2" r="3"/><circle cx="225.3" cy="83.3" r="3"/>
+        <circle cx="316" cy="52.8" r="3"/><circle cx="497.3" cy="39.5" r="3"/><circle cx="588" cy="89.7" r="3"/>
+      </g>
+      <circle cx="406.7" cy="27.9" r="4.6" fill="#2f6bff" stroke="#fff" stroke-width="2"/>
+      <text x="406.7" y="18" text-anchor="middle" font-size="11" font-weight="800" fill="#0b0b0d">$721.50</text>
+      <g font-size="10" fill="#a8a8b0" text-anchor="end">
+        <text x="36" y="178">0</text><text x="36" y="97">400</text><text x="36" y="16">800</text></g>
+      <g font-size="10" fill="#a8a8b0" text-anchor="middle">
+        <text x="44" y="192">Mon</text><text x="134.7" y="192">Tue</text><text x="225.3" y="192">Wed</text>
+        <text x="316" y="192">Thu</text><text x="406.7" y="192">Fri</text><text x="497.3" y="192">Sat</text>
+        <text x="588" y="192">Sun</text></g>
+    </svg>
+    <p class="foot">Friday is the week's peak at $721.50 — market day.</p>
+  </div>
+
+  <div class="cardx" data-w="5" data-m="1">
+    <h4 class="ctitle">Payment methods</h4>
+    <div class="pm"><div class="pm-ic">💵</div><div class="pm-b">
+      <div class="pm-t"><span class="pm-n">Cash</span><span class="pm-a">$2,118.00</span></div>
+      <div class="bar"><i style="width:55.1%;background:#2f6bff"></i></div>
+      <div class="pm-p">55% of takings</div></div></div>
+    <div class="pm"><div class="pm-ic">📱</div><div class="pm-b">
+      <div class="pm-t"><span class="pm-n">ZAAD</span><span class="pm-a">$1,244.20</span></div>
+      <div class="bar"><i style="width:32.3%;background:#00a396"></i></div>
+      <div class="pm-p">32% of takings</div></div></div>
+    <div class="pm"><div class="pm-ic">📱</div><div class="pm-b">
+      <div class="pm-t"><span class="pm-n">e-Dahab</span><span class="pm-a">$431.00</span></div>
+      <div class="bar"><i style="width:11.2%;background:#c8791a"></i></div>
+      <div class="pm-p">11% of takings</div></div></div>
+    <div class="pm"><div class="pm-ic">•</div><div class="pm-b">
+      <div class="pm-t"><span class="pm-n">Other</span><span class="pm-a">$54.00</span></div>
+      <div class="bar"><i style="width:1.4%;background:#d4457e"></i></div>
+      <div class="pm-p">1% of takings</div></div></div>
+    <div class="legend"><span><i class="dot" style="background:#2f6bff"></i>Cash</span>
+      <span><i class="dot" style="background:#00a396"></i>ZAAD</span>
+      <span><i class="dot" style="background:#c8791a"></i>e-Dahab</span>
+      <span><i class="dot" style="background:#d4457e"></i>Other</span></div>
+  </div>
+
+  <div class="cardx" data-w="6" data-m="1">
+    <div class="crow"><h4 class="ctitle">Needs attention</h4><div class="pill">5 items</div></div>
+    <div class="att"><div class="tx"><div class="sev act"></div><div>
+      <b>2 supplier bills are overdue</b><span>$1,240.00 outstanding · oldest 18 days</span></div></div>
+      <span class="tag hot">Pay</span></div>
+    <div class="att"><div class="tx"><div class="sev act"></div><div>
+      <b>Faduma Ali is waiting on time off</b><span>3 days from Sun 14 Sep</span></div></div>
+      <span class="tag hot">Decide</span></div>
+    <div class="att"><div class="tx"><div class="sev soon"></div><div>
+      <b>4 products are low on stock</b><span>at or below their reorder level</span></div></div>
+      <span class="tag">Reorder</span></div>
+    <div class="att"><div class="tx"><div class="sev soon"></div><div>
+      <b>Shop rent is due in 3 days</b><span>$450.00 · every month</span></div></div>
+      <span class="tag">Schedule</span></div>
+    <div class="att"><div class="tx"><div class="sev info"></div><div>
+      <b>5 customers went quiet</b><span>no order in 60 days or more</span></div></div>
+      <span class="tag">Follow up</span></div>
+    <p class="foot">Ordered by what blocks someone or costs money today, not by area.</p>
+  </div>
+
+  <div class="cardx" data-w="6" data-m="1">
+    <div class="crow"><h4 class="ctitle">Low stock</h4><div class="pill">Hodan Store</div></div>
+    <table>
+      <thead><tr><th>Product</th><th class="r">Left</th><th class="r">Reorder at</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Powdered Milk 900g</span><span class="m">Dairy · SKU 4021</span></td>
+            <td class="r"><span class="qty zero">0</span></td><td class="r muted">12</td></tr>
+        <tr><td><span class="p">Cooking Oil 3L</span><span class="m">Pantry · SKU 3310</span></td>
+            <td class="r"><span class="qty low">2</span></td><td class="r muted">8</td></tr>
+        <tr><td><span class="p">Basmati Rice 5kg</span><span class="m">Grains · SKU 1180</span></td>
+            <td class="r"><span class="qty low">3</span></td><td class="r muted">10</td></tr>
+        <tr><td><span class="p">Sugar 2kg</span><span class="m">Pantry · SKU 2075</span></td>
+            <td class="r"><span class="qty low">5</span></td><td class="r muted">15</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</template>
+
+<script>
+  // Not `chrome`: that name is already taken on the global object in
+  // Chromium, and re-declaring it throws before a single card renders.
+  const shellHtml = (narrow) => `
+    <div class="topbar">
+      <div class="tb-l">
+        <div class="logo">HS</div>
+        <div class="brand"><b>Hodan Store</b><span>Dashboard</span></div>
+      </div>
+      <div class="tb-r">
+        <div class="srch"><span>🔍</span><span>Search products, people, bills…</span></div>
+        ${narrow ? '' : '<div class="rnd">+</div>'}
+        <div class="logo" style="background:#2f6bff">AM</div>
+        ${narrow ? '' : '<div class="who"><b>Abdi M.</b><span>Owner</span></div>'}
+      </div>
+    </div>
+    <div class="greet">
+      <div class="datechip"><b>12</b><span>Thu,<br>September</span></div>
+      <div class="greet-t">
+        <h3>Good morning 👋</h3>
+        <p>Net profit is $544.60 this period on $3,847.20 of revenue. 6 sold items still have no cost recorded.</p>
+      </div>
+      <button class="cta" type="button">Show my tasks →</button>
+    </div>`;
+
+  const tpl = document.getElementById('cards');
+  document.querySelectorAll('[data-bento]').forEach((frame) => {
+    const mode = frame.dataset.bento;
+    frame.innerHTML = shellHtml(mode === 'narrow');
+    const grid = document.createElement('div');
+    grid.className = 'grid ' + mode;
+    tpl.content.querySelectorAll('.cardx').forEach((card) => {
+      const el = card.cloneNode(true);
+      if (mode === 'wide') el.style.gridColumn = 'span ' + el.dataset.w;
+      else if (mode === 'mid') el.style.gridColumn = 'span ' + el.dataset.m;
+      grid.appendChild(el);
+    });
+    frame.appendChild(grid);
+  });
+</script>

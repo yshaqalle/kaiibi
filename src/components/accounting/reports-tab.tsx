@@ -4,7 +4,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
-import { Card } from '@/components/card';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { StatementRow } from '@/components/ui/statement-row';
 import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
@@ -14,7 +15,8 @@ import { RankingChart } from '@/components/ranking-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
-import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
+import { expenseCategoryLabel, expenseTotalsByCategory } from '@/lib/expense-reporting';
+import { profitAndLoss } from '@/lib/pnl';
 import { listExpensesInRange } from '@/lib/expenses';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { sharePdf } from '@/lib/export-file';
@@ -164,19 +166,18 @@ export function ReportsTab({
 
   const revenueCents = performance.netRevenueCents;
   const cogsCents = performance.cogsCents;
-  const grossProfitCents = revenueCents - cogsCents;
-  const postedOperatingCents = operatingExpenseCents(expenses);
   // Wages are earned as they're worked, so unpaid labour is a real cost of
   // this period even before a pay run settles it. Counting it here is what
   // keeps profit honest for a period payroll hasn't been run for yet.
   const accruedLabor = labor?.accruedCents ?? 0;
-  const operatingCents = postedOperatingCents + accruedLabor;
-  const netProfitCents = grossProfitCents - operatingCents;
-
-  // Against the *posted* operating figure, not the accrual-inclusive one:
-  // `expenses` holds only real rows, so subtracting accrued labour (which has
-  // no row yet) would understate this and could drive it negative.
-  const nonOperatingCents = totalExpenseCents(expenses) - postedOperatingCents;
+  // The arithmetic itself lives in lib/pnl.ts, shared with the Dashboard's
+  // P&L card — see the note there on the two screens having disagreed.
+  const { grossProfitCents, postedOperatingCents, operatingCents, netProfitCents, nonOperatingCents } = profitAndLoss({
+    revenueCents,
+    cogsCents,
+    expenses,
+    accruedLaborCents: accruedLabor,
+  });
   const categoryTotals = expenseTotalsByCategory(expenses);
   const rangeLabel = formatRangeLabel(dateRange);
 
@@ -282,13 +283,20 @@ export function ReportsTab({
   };
 
   return (
-    <View>
+    <BentoGrid>
       <ReportsHeaderActions onExport={exportPdf} exporting={exporting} setHeaderActions={setHeaderActions} />
 
-      {error && <Text style={styles.error}>{error}</Text>}
+      {error ? (
+        <BentoCell span={12}>
+          <Text style={styles.error}>{error}</Text>
+        </BentoCell>
+      ) : null}
 
-      <Text style={styles.sectionTitle}>Profit &amp; loss · {rangeLabel}</Text>
-      <Card style={styles.card}>
+      {/* The P&L, labour and tax now sit in one row rather than stacked down a
+          466-line scroll. They are the three answers to "what did this period
+          cost me", and reading them side by side is the point of the bento. */}
+      <BentoCell span={5}>
+        <BentoCard title="Profit &amp; loss" scope={rangeLabel}>
         <StatementRow label="Revenue" hint="net of sales tax and refunds" amountCents={revenueCents} />
         <StatementRow
           label="Cost of goods sold"
@@ -334,12 +342,12 @@ export function ReportsTab({
             Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
           </Caveat>
         )}
-      </Card>
+        </BentoCard>
+      </BentoCell>
 
       {canSeeLabor && totalLaborCents > 0 && (
-        <>
-          <Text style={styles.sectionTitle}>Labour</Text>
-          <Card style={styles.card}>
+        <BentoCell span={4}>
+          <BentoCard title="Labour" scope={rangeLabel}>
             <StatementRow label="Wages posted by a pay run" amountCents={postedWagesCents} />
             {accruedLabor > 0 && <StatementRow label="Earned, not yet paid" amountCents={accruedLabor} />}
             <StatementRow label="Total labour cost" amountCents={totalLaborCents} variant="emphasis" />
@@ -366,55 +374,58 @@ export function ReportsTab({
                 }`}
               </Caveat>
             )}
-          </Card>
-        </>
+          </BentoCard>
+        </BentoCell>
       )}
 
-      <Text style={styles.sectionTitle}>Sales tax collected</Text>
-      <Card style={styles.card}>
-        <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
-        <StatementRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
-        {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />}
-        <Caveat tone="context">
-          {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
-            shop?.taxEnabled
-              ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.`
-              : ''
-          }`}
-        </Caveat>
-      </Card>
+      <BentoCell span={canSeeLabor && totalLaborCents > 0 ? 3 : 7}>
+        <BentoCard title="Sales tax collected" scope={rangeLabel}>
+          <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
+          <StatementRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
+          {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />}
+          <Caveat tone="context">
+            {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
+              shop?.taxEnabled
+                ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.`
+                : ''
+            }`}
+          </Caveat>
+        </BentoCard>
+      </BentoCell>
 
       {categoryTotals.length > 0 && (
-        <>
-          <Text style={styles.sectionTitle}>Where the money went</Text>
-          <Card style={styles.card}>
+        <BentoCell span={6}>
+          <BentoCard title="Where the money went" scope={rangeLabel}>
             {categoryTotals.map((row) => (
               <StatementRow key={row.category} label={expenseCategoryLabel(row.category)} amountCents={row.totalCents} />
             ))}
-          </Card>
-        </>
+          </BentoCard>
+        </BentoCell>
       )}
 
-      <Text style={styles.sectionTitle}>Sales by product category</Text>
-      <Card style={styles.chartCard}>
-        <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
-      </Card>
+      <BentoCell span={6}>
+        <BentoCard title="Sales by product category" scope={rangeLabel}>
+          <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
+        </BentoCard>
+      </BentoCell>
 
-      <Text style={styles.sectionTitle}>Revenue by category over time</Text>
-      <Card style={styles.chartCard}>
-        <CategoryOverTimeChart months={categoryByMonth} />
-      </Card>
+      <BentoCell span={7}>
+        <BentoCard title="Revenue by category over time" scope="By month">
+          <CategoryOverTimeChart months={categoryByMonth} />
+        </BentoCard>
+      </BentoCell>
 
-      <Text style={styles.sectionTitle}>Cashier performance</Text>
-      <Card style={styles.chartCard}>
-        <RankingChart
-          showRank
-          items={cashiers.map((c) => ({ name: c.name, value: c.revenueCents }))}
-          formatValue={formatAccountingCents}
-          emptyLabel="No cashier-attributed sales yet."
-        />
-      </Card>
-    </View>
+      <BentoCell span={5}>
+        <BentoCard title="Cashier performance" scope={rangeLabel}>
+          <RankingChart
+            showRank
+            items={cashiers.map((c) => ({ name: c.name, value: c.revenueCents }))}
+            formatValue={formatAccountingCents}
+            emptyLabel="No cashier-attributed sales yet."
+          />
+        </BentoCard>
+      </BentoCell>
+    </BentoGrid>
   );
 }
 

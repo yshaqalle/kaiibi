@@ -7,6 +7,8 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
@@ -131,28 +133,38 @@ export function InvoicesTab({
   );
 
   return (
-    <View>
+    <BentoGrid>
+      <BentoCell span={12}>
+        {/* "As of today", not the range: what you owe is a fact about now, and
+            invoice-reporting.ts already insists on it. */}
+        <BentoCard title="What you owe" scope="As of today">
+          <View style={styles.metricRow}>
+            <StatTile
+              value={formatCompactCents(totals.outstandingCents)}
+              label="Still owed"
+              tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
+            />
+            <StatTile
+              value={formatCompactCents(totals.overdueCents)}
+              label="Overdue"
+              tone={totals.overdueCents > 0 ? 'warning' : 'default'}
+            />
+            <StatTile value={String(totals.openCount)} label="Unpaid bills" />
+          </View>
+          <Text style={styles.subtitle}>
+            Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.
+          </Text>
+        </BentoCard>
+      </BentoCell>
 
-      <View style={styles.metricRow}>
-        <StatTile
-          value={formatCompactCents(totals.outstandingCents)}
-          label="Still owed"
-          tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
-        />
-        <StatTile
-          value={formatCompactCents(totals.overdueCents)}
-          label="Overdue"
-          tone={totals.overdueCents > 0 ? 'warning' : 'default'}
-        />
-        <StatTile value={String(totals.openCount)} label="Unpaid bills" />
-      </View>
+      {error ? (
+        <BentoCell span={12}>
+          <Text style={styles.error}>{error}</Text>
+        </BentoCell>
+      ) : null}
 
-      <View style={styles.header}>
-        <Text style={styles.subtitle}>Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.</Text>
-      </View>
-
-      {error && <Text style={styles.error}>{error}</Text>}
-
+      <BentoCell span={12}>
+        <BentoCard title="Bills" scope="Selected range">
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visible.length === 0 ? (
@@ -198,6 +210,8 @@ export function InvoicesTab({
           })}
         </View>
       )}
+        </BentoCard>
+      </BentoCell>
 
       {editing !== null && shop && (
         <InvoiceEditorModal
@@ -238,14 +252,13 @@ export function InvoicesTab({
           }}
         />
       )}
-    </View>
+    </BentoGrid>
   );
 }
 
 const styles = StyleSheet.create({
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
-  subtitle: { fontSize: 11.5, color: '#999999', flexShrink: 1, lineHeight: 16 },
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  subtitle: { fontSize: 11.5, color: '#999999', flexShrink: 1, lineHeight: 16, marginTop: 12 },
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
 

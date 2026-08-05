@@ -11,6 +11,8 @@ import type { DateRange } from '@/components/range-selector';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
 import { formatCents, formatCompactCents } from '@/lib/currency';
@@ -194,12 +196,24 @@ export function TransactionsTab({
   );
 
   return (
-    <View>
-      <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
-        <StatTile value={String(filtered.length)} label="Orders" />
-      </View>
+    <BentoGrid>
+      <BentoCell span={12}>
+        <BentoCard title="Sales in this range" scope={rangeLabel}>
+          <View style={styles.metricRow}>
+            <StatTile value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
+            <StatTile value={String(filtered.length)} label="Orders" />
+          </View>
+        </BentoCard>
+      </BentoCell>
 
+      {error ? (
+        <BentoCell span={12}>
+          <Text style={styles.error}>{error}</Text>
+        </BentoCell>
+      ) : null}
+
+      <BentoCell span={12}>
+        <BentoCard title="Transactions" scope={rangeLabel}>
       <TextInput
         value={search}
         onChangeText={setSearch}
@@ -227,8 +241,6 @@ export function TransactionsTab({
           ))}
         </View>
       )}
-
-      {error && <Text style={styles.error}>{error}</Text>}
 
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
@@ -260,10 +272,13 @@ export function TransactionsTab({
           ))}
         </View>
       )}
+        </BentoCard>
+      </BentoCell>
+
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
       )}
-    </View>
+    </BentoGrid>
   );
 }
 
@@ -683,7 +698,9 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  // No bottom margin: the card around this owns its padding now, and keeping
+  // one here left a dead band under the tiles.
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
   locationFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   locationChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
