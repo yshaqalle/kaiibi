@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
+import * as Device from 'expo-device';
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet } from 'react-native';
@@ -86,15 +87,24 @@ export function BarcodeScannerModal({
     if (mode === 'single') close();
   };
 
-  const status: CameraStatus = mountFailed
-    ? 'unavailable'
-    : !permission
-      ? 'checking'
-      : permission.granted
-        ? 'ready'
-        : permission.canAskAgain
-          ? 'prompt'
-          : 'blocked';
+  // A simulator has no camera, and asking it for one produces a permanently
+  // black preview rather than an error anyone can act on: the capture session
+  // fails at RUNTIME (AVFoundation -11800), which is not the same thing as
+  // failing to mount, so `onMountError` never fires and nothing tells the UI.
+  // `Device.isDevice` answers it exactly instead of inferring it from a
+  // timeout, and keeps the modal honest about why it can't scan.
+  const noCameraHardware = !Device.isDevice;
+
+  const status: CameraStatus =
+    noCameraHardware || mountFailed
+      ? 'unavailable'
+      : !permission
+        ? 'checking'
+        : permission.granted
+          ? 'ready'
+          : permission.canAskAgain
+            ? 'prompt'
+            : 'blocked';
 
   return (
     <BarcodeScannerFrame
@@ -103,7 +113,13 @@ export function BarcodeScannerModal({
       hint={hint}
       feedback={feedback}
       status={status}
-      statusDetail={mountFailed ? 'The camera could not start. It may be in use by another app.' : null}
+      statusDetail={
+        noCameraHardware
+          ? 'Simulators have no camera. Type a code below, or try scanning on a real device.'
+          : mountFailed
+            ? 'The camera could not start. It may be in use by another app.'
+            : null
+      }
       onRequestPermission={() => { requestPermission().catch(() => {}); }}
       flash={flash}
       // Torch is a native capability; the web build has no equivalent control.

@@ -118,7 +118,11 @@ export function BarcodeScannerFrame({
             {feedback ? (
               <ScanFeedbackBanner feedback={feedback} />
             ) : (
-              hint && <Text style={styles.hint}>{hint}</Text>
+              // Only while there is actually a camera. "Point the camera at a
+              // barcode" printed underneath "No camera available on this
+              // device" is a straight contradiction, and the reader has to
+              // work out which half to believe.
+              status === 'ready' && hint && <Text style={styles.hint}>{hint}</Text>
             )}
             {/* Always present, not just as a fallback. It is the way to enter a
                 code the camera can't read (a torn or curved label), and on a
