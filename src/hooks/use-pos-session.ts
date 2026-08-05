@@ -9,6 +9,10 @@ type PosSession = {
   selectedCustomer: SelectedCustomer | null;
   cashierName: string | null;
   transactionDiscount: Discount | null;
+  // Points the cashier has entered against the attached customer. Held here
+  // with the rest of the in-progress sale so a tab switch mid-checkout doesn't
+  // silently drop the redemption and change the total.
+  pointsRedeemed: number;
 };
 
 // Module-level, not component state: the admin tab shell renders the
@@ -24,6 +28,7 @@ const session: PosSession = {
   selectedCustomer: null,
   cashierName: null,
   transactionDiscount: null,
+  pointsRedeemed: 0,
 };
 
 export function usePosSessionField<K extends keyof PosSession>(key: K) {

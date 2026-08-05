@@ -18,7 +18,12 @@ export async function completeSale(
   cashierName?: string | null,
   promotions: Promotion[] = [],
   transactionDiscountCents = 0,
-  locationId?: string | null
+  locationId?: string | null,
+  // Loyalty points the customer is spending on this sale. The server re-checks
+  // the balance under a row lock and recomputes what they're worth, so this is
+  // a request rather than an instruction -- if it no longer fits, the sale is
+  // refused rather than quietly rung up for a different amount.
+  pointsRedeemed = 0
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
@@ -32,6 +37,7 @@ export async function completeSale(
     p_cashier_name: cashierName ?? null,
     p_discount_cents: transactionDiscountCents,
     p_customer_id: customer?.id ?? null,
+    p_points_redeemed: pointsRedeemed,
     ...(locationId ? { p_location_id: locationId } : {}),
   });
   if (error) throw error;
@@ -119,6 +125,11 @@ function mapSaleRow(row: any): Sale {
     discountCents: row.discount_cents ?? 0,
     taxCents: row.tax_cents ?? 0,
     taxRatePercent: row.tax_rate_percent !== null && row.tax_rate_percent !== undefined ? Number(row.tax_rate_percent) : null,
+    pointsEarned: row.points_earned ?? 0,
+    pointsRedeemed: row.points_redeemed ?? 0,
+    pointsRedeemedCents: row.points_redeemed_cents ?? 0,
+    loyaltyPointsPerUsd:
+      row.loyalty_points_per_usd !== null && row.loyalty_points_per_usd !== undefined ? Number(row.loyalty_points_per_usd) : null,
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,

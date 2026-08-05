@@ -1,10 +1,25 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { quickAddCustomer, searchCustomers } from '@/lib/customers';
+import { customerPointsAvailable, quickAddCustomer, searchCustomers } from '@/lib/customers';
+import { pointsValueLabel } from '@/lib/loyalty';
 import type { Customer } from '@/types/models';
 
-export type SelectedCustomer = { id: string; name: string; phone: string | null; email: string | null };
+// `pointsBalance` rides along because pos_search_customers returns whole
+// customer rows, so showing a balance costs no extra query.
+//
+// `availablePoints` cannot: it depends on the clock and on the ledger, so it's
+// fetched once when a customer is attached. Null means "not looked up yet" —
+// distinct from 0, which means "nothing spendable" — so the checkout sheet can
+// say so rather than flashing a wrong number while it loads.
+export type SelectedCustomer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  pointsBalance: number;
+  availablePoints: number | null;
+};
 
 function fullName(c: Customer): string {
   return [c.firstName, c.lastName].filter(Boolean).join(' ');
@@ -31,11 +46,17 @@ export function CustomerPicker({
   selected,
   onSelect,
   onClear,
+  showPoints = false,
+  centsPerPoint = 1,
 }: {
   shopId: string;
   selected: SelectedCustomer | null;
   onSelect: (customer: SelectedCustomer) => void;
   onClear: () => void;
+  // Off by default so the sale editor, which has no redemption flow, keeps its
+  // current shape.
+  showPoints?: boolean;
+  centsPerPoint?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -61,7 +82,23 @@ export function CustomerPicker({
   };
 
   const pick = (customer: Customer) => {
-    onSelect({ id: customer.id, name: fullName(customer), phone: customer.phone, email: customer.email });
+    const selection: SelectedCustomer = {
+      id: customer.id,
+      name: fullName(customer),
+      phone: customer.phone,
+      email: customer.email,
+      pointsBalance: customer.pointsBalance,
+      availablePoints: null,
+    };
+    onSelect(selection);
+    // Resolved after the fact so attaching a customer stays instant. A failure
+    // leaves it null, which the checkout sheet reads as "unknown" and offers no
+    // redemption -- the safe direction, since the server would refuse anyway.
+    if (showPoints) {
+      customerPointsAvailable(customer.id)
+        .then((available) => onSelect({ ...selection, availablePoints: available }))
+        .catch(() => onSelect({ ...selection, availablePoints: 0 }));
+    }
     setOpen(false);
     setQuery('');
     setResults([]);
@@ -94,7 +131,10 @@ export function CustomerPicker({
   if (selected) {
     return (
       <View style={styles.selectedRow}>
-        <Text style={styles.selectedText}>Customer: {selected.name}</Text>
+        <Text style={styles.selectedText}>
+          Customer: {selected.name}
+          {showPoints && selected.pointsBalance > 0 ? ` · ${pointsValueLabel(selected.pointsBalance, centsPerPoint)}` : ''}
+        </Text>
         <Pressable onPress={onClear}><Text style={styles.clear}>Clear</Text></Pressable>
       </View>
     );
@@ -112,7 +152,13 @@ export function CustomerPicker({
           {results.map((customer) => (
             <Pressable key={customer.id} onPress={() => pick(customer)} style={styles.resultRow}>
               <Text style={styles.resultName}>{fullName(customer)}</Text>
-              {customer.phone && <Text style={styles.resultMeta}>{customer.phone}</Text>}
+              {(customer.phone || (showPoints && customer.pointsBalance > 0)) && (
+                <Text style={styles.resultMeta}>
+                  {[customer.phone, showPoints && customer.pointsBalance > 0 ? pointsValueLabel(customer.pointsBalance, centsPerPoint) : null]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
+              )}
             </Pressable>
           ))}
           {!quickAdd ? (

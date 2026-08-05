@@ -20,6 +20,7 @@ export type SettingsNavId =
   | 'promotions'
   | 'payments'
   | 'tax'
+  | 'loyalty'
   | 'cashiers';
 
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
@@ -72,6 +73,7 @@ export const SETTINGS_NAV: NavGroup[] = [
       { id: 'promotions', label: 'Promotions', icon: 'pricetags-outline' },
       { id: 'payments', label: 'Payments', icon: 'cash-outline' },
       { id: 'tax', label: 'Tax and currencies', icon: 'calculator-outline' },
+      { id: 'loyalty', label: 'Loyalty', icon: 'star-outline' },
       { id: 'cashiers', label: 'Cashiers', icon: 'card-outline' },
     ],
   },

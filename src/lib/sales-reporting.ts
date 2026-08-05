@@ -98,6 +98,47 @@ export function refundedQuantityFor(sale: Sale, saleItemId: string): number {
     .reduce((sum, item) => sum + item.quantity, 0);
 }
 
+// What refunding the selected quantities will actually hand back.
+//
+// Mirrors refund_sale_items (migration 20260820000200) exactly, and exists for
+// the same reason tax.ts and loyalty.ts do: the cashier is shown a figure before
+// confirming, and the server recomputes and is authoritative. If the two ever
+// disagree, this is the one that's wrong.
+//
+// The subtlety worth keeping straight: a line's `lineTotalCents` is its own
+// price net of its own discount, and knows nothing about the sale's order-level
+// discount, points redeemed, or tax. So it sets the PROPORTION coming back, and
+// the money is then scaled to `sale.totalCents` — the one figure the customer
+// actually handed over.
+export function refundPreviewCents(sale: Sale, selection: Record<string, number>): number {
+  const items = sale.items ?? [];
+  const saleGrossCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  if (saleGrossCents <= 0) return 0;
+
+  const grossShare = (item: { lineTotalCents: number; quantity: number }, qty: number) =>
+    Math.round((item.lineTotalCents * qty) / item.quantity);
+
+  let priorGrossCents = 0;
+  let thisGrossCents = 0;
+  for (const item of items) {
+    const refunded = refundedQuantityFor(sale, item.id);
+    priorGrossCents += grossShare(item, refunded);
+
+    const wanted = selection[item.id] ?? 0;
+    if (wanted > 0) {
+      thisGrossCents += grossShare(item, refunded + wanted) - grossShare(item, refunded);
+    }
+  }
+
+  // Prior paid comes from what was actually handed back, never recomputed —
+  // refunds issued before that migration used the old gross figure, and the
+  // server deliberately doesn't restate them.
+  const priorPaidCents = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
+  const cumPaidCents = Math.round((sale.totalCents * (priorGrossCents + thisGrossCents)) / saleGrossCents);
+
+  return Math.max(cumPaidCents - priorPaidCents, 0);
+}
+
 export type SaleProfit = {
   // What the shop kept on this sale: the total less the tax it is only
   // holding, less anything since refunded.

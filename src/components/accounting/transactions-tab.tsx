@@ -561,7 +561,12 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     }))
   );
   const [selectedCustomer, setSelectedCustomer] = useState<SelectedCustomer | null>(
-    sale.customerId ? { id: sale.customerId, name: sale.customerName ?? '', phone: sale.customerPhone, email: sale.customerEmail } : null
+    // pointsBalance is 0 rather than the customer's real balance: the sale
+    // editor has no redemption control, so nothing here reads it, and fetching
+    // a live balance just to satisfy the type would be a query for nothing.
+    sale.customerId
+      ? { id: sale.customerId, name: sale.customerName ?? '', phone: sale.customerPhone, email: sale.customerEmail, pointsBalance: 0, availablePoints: null }
+      : null
   );
   const [droppedCount] = useState(() => (sale.items?.length ?? 0) - items.length);
   const [addSearch, setAddSearch] = useState('');

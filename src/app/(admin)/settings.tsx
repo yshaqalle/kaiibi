@@ -12,7 +12,7 @@ import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels
 import { LocationsPanel } from '@/components/settings/panels/locations-panel';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
-import { CashiersPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
+import { CashiersPanel, LoyaltyPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
 import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { RolesPanel } from '@/components/settings/panels/roles-panel';
 import { BusinessPanel } from '@/components/settings/panels/business-panel';
@@ -256,6 +256,8 @@ export default function SettingsScreen() {
         ) : (
           <TaxAndCurrenciesPanel shop={shop} onShopSaved={refreshShop} currencies={currencies} onCurrenciesChange={reload} />
         );
+      case 'loyalty':
+        return <LoyaltyPanel shop={shop} onSaved={refreshShop} />;
       case 'cashiers':
         return loading ? (
           <Text style={styles.hint}>Loading…</Text>
