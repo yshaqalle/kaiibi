@@ -25,6 +25,13 @@ export function BarcodeScannerModal({
   // touching a ref during render is exactly the kind of tearing React 19 warns
   // about.
   const [locked, setLocked] = useState(false);
+  // The preview failed to start even though permission was granted. Permission
+  // alone is not proof of a working camera: a simulator has none at all, and a
+  // real device can have one held by another app or failing outright. Without
+  // this the modal shows a black rectangle with a reticle over it and no
+  // explanation -- the same silent dead end the permission screens exist to
+  // avoid, just arrived at from the other direction.
+  const [mountFailed, setMountFailed] = useState(false);
 
   // Refs, not state: `onBarcodeScanned` fires on every frame that contains a
   // code, and re-rendering the camera 30 times a second to record that would
@@ -54,6 +61,7 @@ export function BarcodeScannerModal({
     inFlightRef.current = false;
     setLocked(false);
     setTorch(false);
+    setMountFailed(false);
     onClose();
   };
 
@@ -78,7 +86,15 @@ export function BarcodeScannerModal({
     if (mode === 'single') close();
   };
 
-  const status: CameraStatus = !permission ? 'checking' : permission.granted ? 'ready' : permission.canAskAgain ? 'prompt' : 'blocked';
+  const status: CameraStatus = mountFailed
+    ? 'unavailable'
+    : !permission
+      ? 'checking'
+      : permission.granted
+        ? 'ready'
+        : permission.canAskAgain
+          ? 'prompt'
+          : 'blocked';
 
   return (
     <BarcodeScannerFrame
@@ -87,6 +103,7 @@ export function BarcodeScannerModal({
       hint={hint}
       feedback={feedback}
       status={status}
+      statusDetail={mountFailed ? 'The camera could not start. It may be in use by another app.' : null}
       onRequestPermission={() => { requestPermission().catch(() => {}); }}
       flash={flash}
       // Torch is a native capability; the web build has no equivalent control.
@@ -97,6 +114,7 @@ export function BarcodeScannerModal({
         style={StyleSheet.absoluteFill}
         facing="back"
         enableTorch={torch}
+        onMountError={() => setMountFailed(true)}
         barcodeScannerSettings={{ barcodeTypes: barcodeTypes as BarcodeType[] }}
         // Detaching the handler is the only reliable way to stop the native
         // callback; leaving it attached and returning early still pays the
