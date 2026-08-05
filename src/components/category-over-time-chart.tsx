@@ -80,8 +80,13 @@ export function CategoryOverTimeChart({ months }: { months: MonthlyCategoryBucke
 }
 
 const styles = StyleSheet.create({
-  chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 10, height: BAR_HEIGHT + 40 },
-  column: { flex: 1, alignItems: 'center' },
+  chart: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'flex-start', gap: 10, height: BAR_HEIGHT + 40 },
+  // Capped, not purely `flex: 1`. A shop with two months of history split the
+  // full card width between two columns, and a 500px-wide "column" of stacked
+  // segments reads as horizontal bands rather than a bar — the shape stopped
+  // saying anything about the months. Capped, two months look like two bars
+  // and six fill the card as intended.
+  column: { flex: 1, maxWidth: 140, alignItems: 'center' },
   totalLabel: { fontSize: 9.5, fontWeight: '700', color: theme.textSecondary, marginBottom: 4 },
   bar: { width: '100%', height: BAR_HEIGHT, justifyContent: 'flex-end', gap: 2 },
   segment: { width: '100%' },
