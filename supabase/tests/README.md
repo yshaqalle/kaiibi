@@ -17,6 +17,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-platform-portal.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-loyalty.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-refunds.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -149,6 +151,30 @@ question being asked of a back office that can see every customer.
     UPDATE trigger, and `security definer` does not bypass a trigger — without
     the `shop_has_module()` gate inside `complete_sale`, a shop that stopped
     paying could no longer ring up anything at all.
+
+## What `verify-refunds.sql` covers
+
+One question asked against every kind of pricing a sale can carry: **does
+refunding the whole thing return exactly what the customer paid?** Until
+20260820000200 the answer was no whenever a sale had an order discount, a points
+redemption, or tax, because refunds apportioned `line_total_cents`, which knows
+about none of the three.
+
+1. A plain sale refunds its price.
+2. An **order discount** is not handed back a second time — 1799 refunded on
+   1999 of goods with 200 off, where the old maths returned the full 1999.
+3. **Tax comes back**, so the customer isn't short the tax they paid.
+4. Points redeemed are **not** converted into a cash refund.
+5. All three at once, returned one unit at a time, sum to exactly what was
+   paid — the check that catches rounding drift in the scaling.
+6. `refund_items` still sum to their `refunds` row after the scaling rewrites
+   the child amounts.
+7. A fourth unit can't be refunded from a three-unit sale.
+
+Note the deliberate limit: the paid-equals-refunded guarantee holds for sales
+refunded entirely **after** that migration. Prior refunds are read from the
+stored rows and never recomputed, so an old partial refund is never silently
+"corrected" months later.
 
 ## Concurrency
 
