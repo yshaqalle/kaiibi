@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -45,7 +46,14 @@ const SHARED_PRESETS: RangePreset[] = [
 
 export default function AccountingScreen() {
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
-  const [tab, setTab] = useState<AccountingTab>('overview');
+  // Set by a link that already knows which tab it wants -- the Dashboard's
+  // overdue-bill row opens Bills rather than dropping the reader on Overview
+  // to find it. Read once as the INITIAL value; the tab bar owns it after
+  // that, so a stale URL cannot fight a tap.
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const [tab, setTab] = useState<AccountingTab>(
+    TAB_OPTIONS.some((option) => option.key === tabParam) ? (tabParam as AccountingTab) : 'overview'
+  );
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);

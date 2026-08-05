@@ -301,21 +301,35 @@ export default function DashboardScreen() {
     dormant,
   });
 
-  // Where each row goes. Deliberately the module, not the tab: the params it
-  // wants (`?tab=invoices`, `?filter=low`) are a separate change -- see the
-  // plan's phase 8 -- and sending someone to the right screen is already far
-  // better than the plain text these rows used to be.
+  // Where each row goes, down to the tab and the filter. The item's own key is
+  // what decides -- an overdue invoice belongs on Bills, a budget on
+  // Cash & Budgets -- so a reader lands on the thing the row was about rather
+  // than on a screen where they have to find it again.
+  //
+  // People's tab is validated against permissions on arrival (see people.tsx),
+  // so a link can't strand a cashier on an empty tab.
   const openAttention = (item: AttentionItem) => {
-    switch (item.area) {
-      case 'money':
-        router.push('/accounting');
-        return;
-      case 'stock':
-        router.push('/inventory');
-        return;
-      default:
-        router.push('/people');
+    if (item.key === 'invoices-overdue') {
+      router.push({ pathname: '/accounting', params: { tab: 'invoices' } });
+      return;
     }
+    if (item.key.startsWith('bill-') || item.key.startsWith('budget-')) {
+      router.push({ pathname: '/accounting', params: { tab: 'cash' } });
+      return;
+    }
+    if (item.key === 'low-stock') {
+      router.push({ pathname: '/inventory', params: { filter: 'low' } });
+      return;
+    }
+    if (item.key === 'expiring') {
+      router.push({ pathname: '/inventory', params: { filter: 'expiring' } });
+      return;
+    }
+    if (item.key === 'dormant') {
+      router.push({ pathname: '/people', params: { tab: 'customers' } });
+      return;
+    }
+    router.push({ pathname: '/people', params: { tab: 'team' } });
   };
 
   return (
