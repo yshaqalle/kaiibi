@@ -20,6 +20,7 @@ export function TeamAddModal({
 }) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [roleId, setRoleId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,6 +31,7 @@ export function TeamAddModal({
     if (visible) {
       setFullName('');
       setEmail('');
+      setPhone('');
       setPassword('');
       setRoleId(roles[0]?.id ?? null);
       setError(null);
@@ -42,7 +44,14 @@ export function TeamAddModal({
     setSaving(true);
     setError(null);
     try {
-      const created = await provisionStaff({ shopId, fullName: fullName.trim(), email: email.trim(), password: password.trim() || undefined, roleId });
+      const created = await provisionStaff({
+        shopId,
+        fullName: fullName.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        password: password.trim() || undefined,
+        roleId,
+      });
       await onChange();
       setResult({ email: created.email, temporaryPassword: created.temporaryPassword });
     } catch (err) {
@@ -105,6 +114,18 @@ export function TeamAddModal({
                   placeholderTextColor="#999999"
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  style={styles.input}
+                />
+                {/* Optional -- deliberately not in the submit guard below. It
+                    is how the roster reaches this person on WhatsApp, not
+                    part of their login. */}
+                <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PHONE (optional)</Text>
+                <TextInput
+                  value={phone}
+                  onChangeText={setPhone}
+                  placeholder="e.g. 063 400 0000"
+                  placeholderTextColor="#999999"
+                  keyboardType="phone-pad"
                   style={styles.input}
                 />
                 <Text style={[styles.fieldLabel, { marginTop: 10 }]}>PASSWORD (leave blank to generate one)</Text>

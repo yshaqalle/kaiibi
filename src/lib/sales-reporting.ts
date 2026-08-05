@@ -88,6 +88,66 @@ export function costOfGoodsSold(sales: Sale[], refunds: PeriodRefund[] = []): Co
   return { cogsCents, uncostedItemCount, uncostedRevenueCents };
 }
 
+// How much of one sold line came back. Refund items point at the sale item
+// they reverse, and a sale can be refunded more than once, so this sums across
+// every refund on the sale.
+export function refundedQuantityFor(sale: Sale, saleItemId: string): number {
+  return (sale.refunds ?? [])
+    .flatMap((refund) => refund.items)
+    .filter((item) => item.saleItemId === saleItemId)
+    .reduce((sum, item) => sum + item.quantity, 0);
+}
+
+export type SaleProfit = {
+  // What the shop kept on this sale: the total less the tax it is only
+  // holding, less anything since refunded.
+  netRevenueCents: number;
+  costCents: number;
+  profitCents: number;
+  // Share of revenue kept, or null when the sale earned nothing — dividing by
+  // zero would print NaN%, and a fully refunded sale has no margin to report.
+  marginPercent: number | null;
+  // Same admission costOfGoodsSold makes, at the scale of one receipt: these
+  // lines have no cost on file, so the profit shown is an upper bound.
+  uncostedItemCount: number;
+  uncostedRevenueCents: number;
+};
+
+// Per-transaction profit, on the same terms as the period figures above:
+// revenue excludes tax, cost comes from the snapshot frozen on each line, and
+// refunded quantities reverse out of both sides.
+export function saleProfit(sale: Sale): SaleProfit {
+  const refundedCentsOnSale = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
+  // totalCents is already after any sale-level discount, so the discount needs
+  // no separate subtraction here.
+  const netRevenueCents = sale.totalCents - sale.taxCents - refundedCentsOnSale;
+
+  let costCents = 0;
+  let uncostedItemCount = 0;
+  let uncostedRevenueCents = 0;
+
+  for (const item of sale.items ?? []) {
+    const soldQuantity = item.quantity - refundedQuantityFor(sale, item.id);
+    if (soldQuantity <= 0) continue;
+    if (item.unitCostCents === null) {
+      uncostedItemCount += 1;
+      uncostedRevenueCents += item.lineTotalCents;
+      continue;
+    }
+    costCents += item.unitCostCents * soldQuantity;
+  }
+
+  const profitCents = netRevenueCents - costCents;
+  return {
+    netRevenueCents,
+    costCents,
+    profitCents,
+    marginPercent: netRevenueCents > 0 ? (profitCents / netRevenueCents) * 100 : null,
+    uncostedItemCount,
+    uncostedRevenueCents,
+  };
+}
+
 // Takings per cashier. Gross rather than net: this ranks who rang up the most,
 // which is a staff question, not a profit one — netting tax out of it would
 // make the number harder to reconcile against a till without answering

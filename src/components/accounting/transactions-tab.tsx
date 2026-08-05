@@ -19,6 +19,7 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
+import { saleProfit } from '@/lib/sales-reporting';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 
@@ -360,6 +361,7 @@ function SaleRow({
   const refundCount = sale.refunds?.length ?? 0;
   const refundableCount = (sale.items ?? []).reduce((sum, item) => sum + Math.max(0, item.quantity - refundedQtyFor(sale, item.id)), 0);
   const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
+  const profit = saleProfit(sale);
 
   return (
     <View style={[styles.card, !compact && styles.cardTableRow]}>
@@ -430,6 +432,31 @@ function SaleRow({
               <Text style={styles.detailItemPrice}>{formatCents(payment.amountCents)}</Text>
             </View>
           ))}
+
+          {/* What this sale actually made, on the same terms as the period
+              figures: tax excluded (not the shop's money) and refunds netted
+              out of both revenue and cost. */}
+          <Text style={[styles.detailLabel, { marginTop: 14 }]}>PROFIT</Text>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailItemName}>Revenue{sale.taxCents > 0 ? ' (excl. tax)' : ''}</Text>
+            <Text style={styles.detailItemPrice}>{formatCents(profit.netRevenueCents)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailItemName}>Cost of goods</Text>
+            <Text style={styles.detailItemPrice}>{formatCents(profit.costCents)}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.profitLabel}>Profit</Text>
+            <Text style={[styles.profitValue, profit.profitCents < 0 && styles.profitNegative]}>
+              {formatCents(profit.profitCents)}
+              {profit.marginPercent !== null ? ` · ${profit.marginPercent.toFixed(0)}% margin` : ''}
+            </Text>
+          </View>
+          {profit.uncostedItemCount > 0 && (
+            <Text style={styles.profitCaveat}>
+              {`${profit.uncostedItemCount} ${profit.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost price on file (${formatCents(profit.uncostedRevenueCents)}), so this is the most the sale could have made — set the cost in Inventory.`}
+            </Text>
+          )}
 
           {editCount > 0 && (
             <>
@@ -691,6 +718,13 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
   detailItemName: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
   detailItemPrice: { fontSize: 13, fontWeight: '700', color: '#111111' },
+
+  // The bottom line of the sale, so it reads heavier than the two figures it
+  // is derived from. Red only when the sale lost money.
+  profitLabel: { fontSize: 13, fontWeight: '800', color: '#111111', flex: 1 },
+  profitValue: { fontSize: 14, fontWeight: '800', color: '#111111' },
+  profitNegative: { color: '#C0392B' },
+  profitCaveat: { color: '#B5793A', fontSize: 11, fontWeight: '600', marginTop: 4, lineHeight: 15 },
 
   itemsList: { backgroundColor: '#FAFAFA', borderRadius: 10, paddingHorizontal: 12 },
   itemRow: { flexDirection: 'row', alignItems: 'flex-start', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#EFEFEF' },

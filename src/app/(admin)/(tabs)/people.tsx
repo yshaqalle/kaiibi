@@ -1,4 +1,3 @@
-import { FontAwesome } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
@@ -18,8 +17,9 @@ import { StaffSelfService } from '@/components/staff-self-service';
 import { StatTile } from '@/components/stat-tile';
 import { TeamAddModal } from '@/components/team-add-modal';
 import { TeamMemberEditModal } from '@/components/team-member-edit-modal';
-import { TimeOffApprovalModal } from '@/components/time-off-approval-modal';
+import { TimeOffRequestsPanel } from '@/components/time-off-requests-panel';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
+import { WhatsAppButton } from '@/components/whatsapp-button';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
@@ -36,7 +36,6 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import { openWhatsApp } from '@/lib/whatsapp';
 import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // Where a member works, for display. An EMPTY set means every store — that is
@@ -79,6 +78,7 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
 const TEAM_EXPORT_COLUMNS_BASIC: CsvColumn<StaffMember>[] = [
   { header: 'Name', value: (m) => m.fullName ?? '' },
   { header: 'Email', value: (m) => m.email ?? '' },
+  { header: 'Phone', value: (m) => m.phone ?? '' },
   { header: 'Role', value: (m) => m.roleName },
   { header: 'Status', value: (m) => (m.active ? 'Active' : 'Disabled') },
   { header: 'Hire Date', value: (m) => m.hireDate ?? '' },
@@ -243,16 +243,7 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
                 </View>
                 <View style={tabStyles.rowTrailing}>
                   <Badge label={CUSTOMER_SEGMENT_LABELS[segmentKey]} tone={segmentKey === 'vip' ? 'danger' : segmentKey === 'at-risk' || segmentKey === 'new' ? 'warning' : 'default'} />
-                  {customer.phone && (
-                    <Pressable
-                      accessibilityLabel={`Message ${customer.firstName} on WhatsApp`}
-                      onPress={() => openWhatsApp(customer.phone!)}
-                      style={tabStyles.waButton}
-                      hitSlop={6}
-                    >
-                      <FontAwesome name="whatsapp" size={18} color="#25D366" />
-                    </Pressable>
-                  )}
+                  <WhatsAppButton phone={customer.phone} name={customer.firstName} />
                 </View>
               </Pressable>
             );
@@ -395,12 +386,7 @@ function CustomerDetailPane({
         <StatTile value={stats?.lastPurchaseAt ? new Date(stats.lastPurchaseAt).toLocaleDateString() : '—'} label="Last purchase" />
       </View>
       <View style={tabStyles.actions}>
-        {customer.phone && (
-          <Pressable onPress={() => openWhatsApp(customer.phone!)} style={[tabStyles.actionButton, tabStyles.whatsAppAction]}>
-            <FontAwesome name="whatsapp" size={16} color="#FFFFFF" />
-            <Text style={tabStyles.actionButtonText}>WhatsApp</Text>
-          </Pressable>
-        )}
+        <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
         {canEdit && (
           <Pressable onPress={onEdit} style={tabStyles.actionButtonGhost}>
             <Text style={tabStyles.actionButtonGhostText}>Edit</Text>
@@ -498,7 +484,6 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showApprovalList, setShowApprovalList] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -534,11 +519,15 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return staff;
-    return staff.filter((m) => (m.fullName ?? '').toLowerCase().includes(q) || m.roleName.toLowerCase().includes(q));
+    return staff.filter(
+      (m) =>
+        (m.fullName ?? '').toLowerCase().includes(q) ||
+        m.roleName.toLowerCase().includes(q) ||
+        (m.phone ?? '').toLowerCase().includes(q)
+    );
   }, [staff, search]);
 
   const selected = staff.find((m) => m.id === selectedId) ?? null;
-  const pendingCount = timeOff.filter((r) => r.status === 'pending').length;
 
   const importConfig: ImportEntityConfig<StaffMember> | null =
     shop && roles.length > 0
@@ -580,18 +569,9 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
     <>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
       <View style={tabStyles.search}>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name or role" placeholderTextColor="#999999" style={tabStyles.searchInput} />
+        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, role, or phone" placeholderTextColor="#999999" style={tabStyles.searchInput} />
       </View>
-      {canApproveTimeOff && (
-        <Pressable onPress={() => setShowApprovalList(true)} style={tabStyles.pendingButton}>
-          <Text style={tabStyles.pendingButtonText}>Time off requests</Text>
-          {pendingCount > 0 && (
-            <View style={tabStyles.pendingCount}>
-              <Text style={tabStyles.pendingCountText}>{pendingCount} pending</Text>
-            </View>
-          )}
-        </Pressable>
-      )}
+      {canApproveTimeOff && <TimeOffRequestsPanel requests={timeOff} staff={staff} onChange={reload} />}
       {loading ? (
         <Text style={tabStyles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
@@ -613,10 +593,13 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
                     {rosterStores(member) ? ` · ${rosterStores(member)}` : ''}
                   </Text>
                 </View>
-                <Badge
-                  label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
-                  tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'}
-                />
+                <View style={tabStyles.rowTrailing}>
+                  <Badge
+                    label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
+                    tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'}
+                  />
+                  <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} />
+                </View>
               </Pressable>
             );
           })}
@@ -678,9 +661,6 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
       />
       {shop && canManageRoster && (
         <TeamAddModal visible={showAddModal} shopId={shop.id} roles={roles} onClose={() => setShowAddModal(false)} onChange={reload} />
-      )}
-      {canApproveTimeOff && (
-        <TimeOffApprovalModal visible={showApprovalList} requests={timeOff} staff={staff} onClose={() => setShowApprovalList(false)} onChange={reload} />
       )}
       {importConfig && <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />}
     </View>
@@ -749,6 +729,7 @@ function TeamDetailPane({
       <Text style={tabStyles.detPhone}>
         {member.roleName}
         {memberStores ? ` · ${memberStores}` : ''}
+        {member.phone ? ` · ${member.phone}` : ''}
         {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
       </Text>
 
@@ -791,13 +772,17 @@ function TeamDetailPane({
         </View>
       )}
 
-      {canManageRoster && (
-        <View style={tabStyles.actions}>
+      {/* Messaging isn't editing: a scheduler who can see the roster but not
+          change it still needs to reach the person, so the WhatsApp button is
+          outside the canManageRoster gate. */}
+      <View style={tabStyles.actions}>
+        <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} variant="pill" />
+        {canManageRoster && (
           <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButtonGhost}>
             <Text style={tabStyles.actionButtonGhostText}>Edit member</Text>
           </Pressable>
-        </View>
-      )}
+        )}
+      </View>
       <View style={tabStyles.section}>
         <View style={tabStyles.sectionHeadRow}>
           <Text style={tabStyles.sectionTitle}>PAYROLL</Text>
@@ -893,7 +878,6 @@ const tabStyles = StyleSheet.create({
   subtitle: { color: '#999999', fontSize: 12 },
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
   actionButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  whatsAppAction: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   actionButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   actionButtonGhost: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   actionButtonGhostText: { color: '#111111', fontWeight: '800', fontSize: 11 },
@@ -908,7 +892,6 @@ const tabStyles = StyleSheet.create({
   rowTrailing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9, minWidth: 100 },
   rowName: { fontSize: 13.5, fontWeight: '700', color: '#111111' },
   rowSub: { fontSize: 11.5, color: '#999999', marginTop: 2 },
-  waButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#E1F0E4', alignItems: 'center', justifyContent: 'center' },
   empty: { color: '#999999', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
   emptyDetail: { padding: 24, alignItems: 'center' },
   detailCard: { padding: 18 },
@@ -926,10 +909,6 @@ const tabStyles = StyleSheet.create({
   usualStoreMeta: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
   histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
   actionButtonDisabled: { opacity: 0.5 },
-  pendingButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },
-  pendingButtonText: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
-  pendingCount: { backgroundColor: '#F8EEDA', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 3 },
-  pendingCountText: { fontSize: 11, fontWeight: '700', color: '#9A6B0C' },
   sectionHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   sectionLink: { fontSize: 11.5, fontWeight: '700', color: '#B23B4E' },
   payrollValue: { fontSize: 14, fontWeight: '700', color: '#111111' },

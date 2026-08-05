@@ -7,6 +7,9 @@ type RequestBody = {
   email: string;
   roleId: string;
   active: boolean;
+  // Contact detail, not payroll data -- written outside the editsPayroll
+  // branch below so saving a phone number never demands people.payroll.manage.
+  phone?: string | null;
   hireDate?: string | null;
   payType?: 'hourly' | 'salary' | 'fixed' | null;
   payRateCents?: number | null;
@@ -29,7 +32,7 @@ Deno.serve(async (req) => {
 
   let body: RequestBody;
   try { body = await req.json(); } catch { return errorResponse(400, 'Invalid JSON body.'); }
-  const { shopId, memberId, fullName, email, roleId, active, hireDate, payType, payRateCents, payCadence } = body;
+  const { shopId, memberId, fullName, email, phone, roleId, active, hireDate, payType, payRateCents, payCadence } = body;
   if (!shopId || !memberId || !fullName?.trim() || !email?.trim() || !roleId || typeof active !== 'boolean') return errorResponse(400, 'All member details are required.');
 
   const authHeader = req.headers.get('Authorization');
@@ -62,14 +65,23 @@ Deno.serve(async (req) => {
 
   const normalizedName = fullName.trim();
   const normalizedEmail = email.trim().toLowerCase();
+  // Blank clears it: the field is optional, so an emptied input means "no
+  // number", not "leave the old one".
+  const normalizedPhone = phone?.trim() || null;
   const { error: authError } = await admin.auth.admin.updateUserById(member.user_id, { email: normalizedEmail, user_metadata: { full_name: normalizedName } });
   if (authError) return errorResponse(400, authError.message);
 
-  const { error: profileError } = await admin.from('profiles').update({ full_name: normalizedName }).eq('id', member.user_id);
+  // profiles.phone is kept in step the same way full_name is -- the member's
+  // own Settings screen reads it, and a roster edit that left it stale would
+  // show them a different number than the admin just saved.
+  const { error: profileError } = await admin
+    .from('profiles')
+    .update({ full_name: normalizedName, ...(phone !== undefined && { phone: normalizedPhone }) })
+    .eq('id', member.user_id);
   if (profileError) return errorResponse(500, profileError.message);
   const { error: updateError } = await admin
     .from('shop_members')
-    .update({ full_name: normalizedName, email: normalizedEmail, role_id: roleId, active, ...(editsPayroll ? { hire_date: hireDate ?? null, pay_type: payType ?? null, pay_rate_cents: payRateCents ?? null, pay_cadence: payCadence ?? 'monthly' } : {}) })
+    .update({ full_name: normalizedName, email: normalizedEmail, ...(phone !== undefined && { phone: normalizedPhone }), role_id: roleId, active, ...(editsPayroll ? { hire_date: hireDate ?? null, pay_type: payType ?? null, pay_rate_cents: payRateCents ?? null, pay_cadence: payCadence ?? 'monthly' } : {}) })
     .eq('id', memberId)
     .eq('shop_id', shopId);
   if (updateError) return errorResponse(500, updateError.message);

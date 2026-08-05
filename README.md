@@ -28,13 +28,13 @@ Ka Iibi is an Expo SDK 57 app for managing a shop's products, sales, staff, and 
 
 ## Deploying the backend
 
-Deploy the database migrations and the `provision-staff` Edge Function before releasing a new client build. This app relies on both for core features.
+Deploy the database migrations and the Edge Functions before releasing a new client build. This app relies on both for core features.
 
 ```bash
 npx supabase login
 npx supabase link --project-ref <your-supabase-project-ref>
 npx supabase db push
-npx supabase functions deploy provision-staff
+npx supabase functions deploy provision-staff update-staff
 ```
 
 Do not put a Supabase service-role key in `.env` or in EAS variables. The Edge Function accesses it only from the Supabase server environment.
@@ -63,7 +63,7 @@ Before each mobile release, apply backend changes and validate the app:
 
 ```bash
 npx supabase db push
-npx supabase functions deploy provision-staff
+npx supabase functions deploy provision-staff update-staff
 npm run lint
 npm test
 ```

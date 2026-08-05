@@ -2,7 +2,15 @@ import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { OptionPicker } from '@/components/option-picker';
-import { hasBlockingProblem, validateShift, type Shift, type ShiftDraft, type ShiftProblem, type ValidationContext } from '@/lib/scheduling';
+import {
+  hasBlockingProblem,
+  validateShiftBlocks,
+  type Shift,
+  type ShiftBlock,
+  type ShiftDraft,
+  type ShiftProblem,
+  type ValidationContext,
+} from '@/lib/scheduling';
 import { isValidTime } from '@/lib/store-hours';
 import type { ShopLocation, StaffMember } from '@/types/models';
 
@@ -17,6 +25,7 @@ export function ShiftEditorModal({
   members,
   existing,
   seedMemberId,
+  seedLocationId,
   context,
   locations,
   onClose,
@@ -32,27 +41,42 @@ export function ShiftEditorModal({
   // shift never reassigns it just because the modal remembers where it was
   // opened from.
   seedMemberId?: string | null;
+  // Which store the board is filtered to, if any -- a new shift added while
+  // planning Berbera's week belongs to Berbera, not to whichever store happens
+  // to sort first.
+  seedLocationId?: string | null;
   context: ValidationContext;
   // Stores this shift may be scheduled at. A shift is always AT one — there is
   // no business-wide shift — so unlike the accounting editors this picker has
   // no null option.
   locations: ShopLocation[];
   onClose: () => void;
-  onSave: (draft: ShiftDraft, note: string | null) => Promise<void>;
+  // Receives every block of the day: one normally, two for a split day. The
+  // caller writes them as separate rows, which is what the schema has always
+  // stored -- there is no such thing as a "split shift" row.
+  onSave: (drafts: ShiftDraft[], note: string | null) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
   const [memberId, setMemberId] = useState(existing?.shopMemberId ?? seedMemberId ?? members[0]?.id ?? '');
   const [start, setStart] = useState(existing?.start ?? '09:00');
   const [end, setEnd] = useState(existing?.end ?? '17:00');
   const [note, setNote] = useState(existing?.note ?? '');
-  const [locationId, setLocationId] = useState(existing?.locationId ?? locations[0]?.id ?? '');
+  // Split days are two rows, so editing one block never shows this -- the other
+  // block is its own shift with its own row in the grid, and is edited there.
+  const [split, setSplit] = useState(false);
+  const [secondStart, setSecondStart] = useState('17:00');
+  const [secondEnd, setSecondEnd] = useState('21:00');
+  const [locationId, setLocationId] = useState(existing?.locationId ?? seedLocationId ?? locations[0]?.id ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!visible) return null;
 
-  const timesValid = isValidTime(start) && isValidTime(end) && end > start;
-  const draft = { shopMemberId: memberId, locationId, date, start, end };
+  const splitting = split && !existing;
+  const blocks: ShiftBlock[] = splitting
+    ? [{ start, end }, { start: secondStart, end: secondEnd }]
+    : [{ start, end }];
+  const timesValid = blocks.every((block) => isValidTime(block.start) && isValidTime(block.end) && block.end > block.start);
   // Hours come from the shift's OWN store, not the device's: once two stores
   // keep different hours, "outside opening hours" only means anything if it is
   // asked of the store the shift is actually worked at. This replaces the
@@ -60,7 +84,11 @@ export function ShiftEditorModal({
   const hours = locations.find((location) => location.id === locationId)?.openingHours ?? {};
   // Exclude the shift being edited, or it would always clash with itself.
   const problems: ShiftProblem[] = timesValid
-    ? validateShift(draft, { ...context, hours, sameDayShifts: context.sameDayShifts.filter((s) => s.id !== existing?.id) })
+    ? validateShiftBlocks(blocks, { shopMemberId: memberId, locationId, date }, {
+        ...context,
+        hours,
+        sameDayShifts: context.sameDayShifts.filter((s) => s.id !== existing?.id),
+      })
     : [];
   const blocked = !timesValid || !memberId || hasBlockingProblem(problems);
 
@@ -68,7 +96,10 @@ export function ShiftEditorModal({
     setBusy(true);
     setError(null);
     try {
-      await onSave(draft, note.trim() || null);
+      await onSave(
+        blocks.map((block) => ({ shopMemberId: memberId, locationId, date, start: block.start, end: block.end })),
+        note.trim() || null
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this shift.');
     } finally {
@@ -135,6 +166,28 @@ export function ShiftEditorModal({
             </View>
           </View>
 
+          {/* A second block, not a second shift form: the two are validated
+              against each other and saved together. Only offered for a new
+              shift -- an existing one IS a single block. */}
+          {!existing && (
+            <Pressable onPress={() => setSplit((on) => !on)} style={styles.splitToggle}>
+              <Text style={styles.splitToggleText}>{split ? '− Remove the second block' : '+ Split into two blocks'}</Text>
+            </Pressable>
+          )}
+
+          {splitting && (
+            <View style={styles.timeRow}>
+              <View style={styles.timeField}>
+                <Text style={styles.label}>THEN FROM</Text>
+                <TextInput value={secondStart} onChangeText={setSecondStart} placeholder="17:00" placeholderTextColor="#999999" style={[styles.input, !isValidTime(secondStart) && styles.inputInvalid]} />
+              </View>
+              <View style={styles.timeField}>
+                <Text style={styles.label}>TO</Text>
+                <TextInput value={secondEnd} onChangeText={setSecondEnd} placeholder="21:00" placeholderTextColor="#999999" style={[styles.input, !isValidTime(secondEnd) && styles.inputInvalid]} />
+              </View>
+            </View>
+          )}
+
           <Text style={styles.label}>NOTE (OPTIONAL)</Text>
           <TextInput value={note} onChangeText={setNote} placeholder="e.g. covering the delivery" placeholderTextColor="#999999" style={styles.input} />
 
@@ -148,7 +201,7 @@ export function ShiftEditorModal({
 
           <View style={styles.actions}>
             <Pressable onPress={save} disabled={busy || blocked} style={[styles.primary, (busy || blocked) && styles.disabled]}>
-              <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save shift'}</Text>
+              <Text style={styles.primaryText}>{busy ? 'Saving…' : splitting ? 'Save both blocks' : 'Save shift'}</Text>
             </Pressable>
             {existing && (
               <Pressable onPress={remove} disabled={busy}>
@@ -171,6 +224,8 @@ const styles = StyleSheet.create({
   closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
   label: { color: '#999999', fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  splitToggle: { alignSelf: 'flex-start', marginTop: 12 },
+  splitToggleText: { color: '#111111', fontSize: 12, fontWeight: '700' },
   timeRow: { flexDirection: 'row', gap: 12 },
   timeField: { flex: 1 },
   input: { backgroundColor: '#F2F2F2', height: 42, borderRadius: 10, paddingHorizontal: 12, color: '#111111' },

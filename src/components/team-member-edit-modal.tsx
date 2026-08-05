@@ -11,6 +11,7 @@ import type { Role, ShopLocation, StaffMember } from '@/types/models';
 type MemberEdits = {
   fullName: string;
   email: string;
+  phone: string | null;
   roleId: string;
   locationIds: string[];
   active: boolean;
@@ -33,6 +34,7 @@ type TeamMemberEditModalProps = {
 export function TeamMemberEditModal({ visible, member, roles, locations, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
   const [fullName, setFullName] = useState(member.fullName ?? '');
   const [email, setEmail] = useState(member.email ?? '');
+  const [phone, setPhone] = useState(member.phone ?? '');
   const [roleId, setRoleId] = useState(member.roleId);
   const [locationIds, setLocationIds] = useState<string[]>(member.locationIds);
   const [active, setActive] = useState(member.active);
@@ -63,6 +65,9 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
       await onSave({
         fullName: fullName.trim(),
         email: email.trim(),
+        // Blank clears the number rather than leaving the old one in place --
+        // the field is optional, so emptying it is a real edit.
+        phone: phone.trim() || null,
         roleId,
         locationIds,
         active,
@@ -100,6 +105,17 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
             <TextInput value={fullName} onChangeText={setFullName} style={styles.input} />
             <Text style={styles.label}>EMAIL</Text>
             <TextInput value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" style={styles.input} />
+            {/* Outside the payroll block below on purpose: a phone number is
+                contact detail, so anyone who can edit the roster can set it. */}
+            <Text style={styles.label}>PHONE</Text>
+            <TextInput
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="e.g. 063 400 0000"
+              placeholderTextColor="#999999"
+              keyboardType="phone-pad"
+              style={styles.input}
+            />
             <Text style={styles.label}>ROLE</Text>
             <OptionPicker
               value={roleId}

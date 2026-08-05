@@ -55,18 +55,10 @@ export async function listSubscriptionPayments(): Promise<SubscriptionPaymentRow
   }));
 }
 
-// wa.me only accepts digits. Somaliland numbers are written locally as
-// 063 xxx xxxx, so a leading 0 is dropped and the 252 country code assumed
-// when none is given -- otherwise every link would silently open an empty chat.
-export function whatsappLink(phone: string | null, message?: string): string | null {
-  if (!phone) return null;
-  let digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '');
-  if (digits.startsWith('00')) digits = digits.slice(2);
-  if (digits.startsWith('0')) digits = `252${digits.slice(1)}`;
-  else if (!digits.startsWith('252') && digits.length <= 9) digits = `252${digits}`;
-  if (digits.length < 9) return null;
-  return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
-}
+// Moved to src/lib/whatsapp.ts so the admin app (customers, staff, receipts)
+// and this portal normalize numbers identically. Re-exported rather than
+// re-pointed at the call sites: this is the module the portal imports from.
+export { whatsappLink } from '@/lib/whatsapp';
 
 export type PlatformAuditRow = {
   id: string;

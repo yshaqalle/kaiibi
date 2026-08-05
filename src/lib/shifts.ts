@@ -1,5 +1,8 @@
-import { addDaysToDate, type Shift, type ShiftDraft } from '@/lib/scheduling';
+import type { ImportReport } from '@/lib/import-shared';
+import { DATE_PATTERN, normalizeCell, parseScheduleRows, type ScheduleImportContext } from '@/lib/schedule-import';
+import { addDaysToDate, startOfWeek, type Shift, type ShiftDraft } from '@/lib/scheduling';
 import { supabase } from '@/lib/supabase';
+import type { ParsedCsv } from '@/lib/csv';
 
 // Data access for shifts. The validation and week arithmetic live in
 // scheduling.ts so they stay testable without the Supabase client.
@@ -94,8 +97,13 @@ export async function deleteShift(id: string): Promise<void> {
   if (count === 0) throw new Error('Could not delete this shift — you may no longer have permission to change the schedule.');
 }
 
-// Copy-last-week writes its whole batch in one insert. Returns how many rows
-// landed so the caller can report it alongside the skipped count.
+// Batch writes: copy-last-week, the bulk editor, split days and CSV import all
+// land here in one insert. Returns how many rows landed so the caller can
+// report it alongside the skipped count.
+//
+// `note` travels with the draft. Copy-last-week leaves it unset (a note
+// describes the shift it was written for), the others set it from what the
+// user typed.
 export async function createShifts(shopId: string, drafts: ShiftDraft[]): Promise<number> {
   if (drafts.length === 0) return 0;
   const { data: userData } = await supabase.auth.getUser();
@@ -109,10 +117,47 @@ export async function createShifts(shopId: string, drafts: ShiftDraft[]): Promis
         shift_date: draft.date,
         start_time: draft.start,
         end_time: draft.end,
+        note: draft.note ?? null,
         created_by: userData.user?.id ?? null,
       }))
     )
     .select('id');
   if (error) throw error;
   return (data ?? []).length;
+}
+
+// A week's rota built in a spreadsheet. Reads the weeks the file touches so
+// clashes are checked against what is actually stored, hands the rows to the
+// pure parser in schedule-import.ts, then writes the survivors in one insert.
+//
+// `accepted` is ShiftDraft rather than Shift: createShifts reports a count, and
+// the report only needs to say how many landed.
+export async function runScheduleImport(
+  shopId: string,
+  parsed: ParsedCsv,
+  context: Omit<ScheduleImportContext, 'existingShifts'>
+): Promise<ImportReport<ShiftDraft>> {
+  const dates = parsed.rows.map((raw) => normalizeCell(raw['Date'])).filter((date) => DATE_PATTERN.test(date));
+  const existingShifts = await fetchShiftsCovering(shopId, dates);
+
+  const { drafts, rejected } = parseScheduleRows(parsed, { ...context, existingShifts });
+  if (drafts.length === 0) return { accepted: [], rejected };
+
+  const created = await createShifts(shopId, drafts);
+  // The batch is one statement, so a short count means the database refused
+  // some of it -- reporting rows as imported when they weren't is worse than
+  // failing loudly.
+  if (created !== drafts.length) {
+    throw new Error(`Only ${created} of ${drafts.length} shifts were saved. Check the schedule and re-import what is missing.`);
+  }
+  return { accepted: drafts, rejected };
+}
+
+// listShiftsForWeek is the read we have, so dates are bucketed into the Mondays
+// they belong to and each week is fetched once -- a file covering one week
+// costs one query, not one per row.
+async function fetchShiftsCovering(shopId: string, dates: string[]): Promise<Shift[]> {
+  const mondays = [...new Set(dates.map((date) => startOfWeek(date)))];
+  const weeks = await Promise.all(mondays.map((monday) => listShiftsForWeek(shopId, monday)));
+  return weeks.flat();
 }

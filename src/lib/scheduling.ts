@@ -8,7 +8,12 @@ import { isConfigured, isRangeWithinHours, weekdayKeyFor, type OpeningHours } fr
 // is deliberate: there is no React Native testing library in this repo, so
 // logic in a component is logic no test can reach.
 
-export type ShiftDraft = { shopMemberId: string; date: string; start: string; end: string; locationId: string };
+export type ShiftDraft = { shopMemberId: string; date: string; start: string; end: string; locationId: string; note?: string | null };
+
+// One block of a day. A split day is two of these -- 09:00-13:00 and
+// 17:00-21:00 -- which the schema has always allowed (one row per block) and
+// `overlaps` has always permitted, since touching at a boundary is not a clash.
+export type ShiftBlock = { start: string; end: string };
 
 // `locationId` is which store the shift is worked at (migration
 // 20260815000000). Always set: it is what `validateShift` resolves opening
@@ -101,6 +106,114 @@ export function hasBlockingProblem(problems: ShiftProblem[]): boolean {
   return problems.some((problem) => problem.blocking);
 }
 
+// Does this draft collide with any of `against`? Same person, same day,
+// overlapping hours. Extracted from shiftsToCopy so copy-last-week, the bulk
+// editor and the CSV import all ask the same question -- three implementations
+// of "is this a clash" would eventually disagree, and the one that got it wrong
+// would double-book someone.
+export function clashesWith(
+  candidate: { shopMemberId: string; date: string; start: string; end: string },
+  against: readonly { shopMemberId: string; date: string; start: string; end: string }[]
+): boolean {
+  return against.some(
+    (other) => other.shopMemberId === candidate.shopMemberId && other.date === candidate.date && overlaps(other, candidate)
+  );
+}
+
+// A whole day at once: every block validated against what's already stored, and
+// against its own siblings. Problems are deduplicated by kind -- two blocks
+// both outside opening hours is still one thing to tell the user, and `kind` is
+// what the editor uses as a React key.
+//
+// The blocks-against-each-other check comes first so its message wins the
+// dedupe: "these two overlap" is more useful than pointing at a stored shift
+// when the thing being typed is self-contradictory.
+export function validateShiftBlocks(
+  blocks: readonly ShiftBlock[],
+  base: { shopMemberId: string; date: string; locationId: string },
+  context: ValidationContext
+): ShiftProblem[] {
+  const problems: ShiftProblem[] = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    for (let j = i + 1; j < blocks.length; j++) {
+      if (overlaps(blocks[i], blocks[j])) {
+        problems.push({
+          kind: 'overlap',
+          blocking: true,
+          message: `The ${blocks[i].start}–${blocks[i].end} and ${blocks[j].start}–${blocks[j].end} blocks overlap each other.`,
+        });
+      }
+    }
+  }
+
+  for (const block of blocks) {
+    problems.push(...validateShift({ ...base, start: block.start, end: block.end }, context));
+  }
+
+  const seen = new Set<ShiftProblem['kind']>();
+  return problems.filter((problem) => {
+    if (seen.has(problem.kind)) return false;
+    seen.add(problem.kind);
+    return true;
+  });
+}
+
+// Who may be scheduled at a store. An EMPTY locationIds means every store
+// (migration 20260814000000), so those people appear on every store's board --
+// they are not unassigned, they are unrestricted. `null` is the "All stores"
+// view, which shows everyone.
+export function membersForLocation<T extends { locationIds: string[] }>(
+  members: readonly T[],
+  locationId: string | null
+): T[] {
+  if (!locationId) return [...members];
+  return members.filter((member) => member.locationIds.length === 0 || member.locationIds.includes(locationId));
+}
+
+// Several people × several days × one or two blocks, in one pass. Skips
+// anything that would double-book someone rather than refusing the whole batch
+// -- scheduling five people over a week where one already has Tuesday should
+// still fill the other 34 slots, and the count says what didn't land.
+export function buildBulkShifts(
+  selection: {
+    memberIds: readonly string[];
+    dates: readonly string[];
+    blocks: readonly ShiftBlock[];
+    locationId: string;
+    note?: string | null;
+  },
+  existing: readonly { shopMemberId: string; date: string; start: string; end: string }[]
+): { create: ShiftDraft[]; skipped: number } {
+  const create: ShiftDraft[] = [];
+  let skipped = 0;
+
+  for (const shopMemberId of selection.memberIds) {
+    for (const date of selection.dates) {
+      for (const block of selection.blocks) {
+        const draft: ShiftDraft = {
+          shopMemberId,
+          date,
+          locationId: selection.locationId,
+          start: block.start,
+          end: block.end,
+          note: selection.note ?? null,
+        };
+        // Checked against the queue as well as the store, for the same reason
+        // shiftsToCopy does: two blocks in one selection can collide with each
+        // other, and the second can't see the first in `existing`.
+        if (clashesWith(draft, existing) || clashesWith(draft, create)) {
+          skipped += 1;
+          continue;
+        }
+        create.push(draft);
+      }
+    }
+  }
+
+  return { create, skipped };
+}
+
 export function shiftMinutes(draft: ShiftDraft): number {
   return toMinutes(draft.end) - toMinutes(draft.start);
 }
@@ -133,15 +246,15 @@ export function shiftsToCopy(previous: Shift[], existing: Shift[]): { copy: Shif
       date: addDaysToDate(shift.date, 7),
       start: shift.start,
       end: shift.end,
+      // Notes deliberately do NOT travel: "covering the delivery" describes
+      // last week's Tuesday, not next week's. Import and the bulk editor set
+      // notes because the user typed them for the shifts being created.
     };
 
     // Checked against what is already stored AND against what this run has
     // already queued -- two source shifts can land on the same slot, and the
     // second one cannot see the first in `existing`.
-    const clashes = (candidate: { shopMemberId: string; date: string; start: string; end: string }) =>
-      candidate.shopMemberId === draft.shopMemberId && candidate.date === draft.date && overlaps(candidate, draft);
-
-    if (existing.some(clashes) || copy.some(clashes)) {
+    if (clashesWith(draft, existing) || clashesWith(draft, copy)) {
       skipped += 1;
       continue;
     }
