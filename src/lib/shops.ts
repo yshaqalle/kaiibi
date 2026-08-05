@@ -14,6 +14,16 @@ function mapShopRow(row: any): Shop {
     payPeriodAnchor: row.pay_period_anchor,
     taxEnabled: row.tax_enabled,
     taxRatePercent: Number(row.tax_rate_percent),
+    // Defaulted rather than read straight through: a shop row fetched before
+    // the loyalty migration reaches this database has no such columns, and
+    // Number(undefined) is NaN -- which renders as a literal "NaN" in the
+    // settings field and poisons every calculation downstream. Falling back to
+    // the column defaults keeps the UI honest until the migration lands.
+    loyaltyEnabled: row.loyalty_enabled ?? false,
+    // numeric arrives as a string over PostgREST, same as tax_rate_percent.
+    loyaltyPointsPerUsd: row.loyalty_points_per_usd != null ? Number(row.loyalty_points_per_usd) : 1,
+    loyaltyCentsPerPoint: row.loyalty_cents_per_point ?? 1,
+    loyaltyPointsAvailableAfterDays: row.loyalty_points_available_after_days ?? 1,
     receiptShowLogo: row.receipt_show_logo,
     receiptShowCashierName: row.receipt_show_cashier_name,
     receiptAutoPrint: row.receipt_auto_print,
@@ -114,6 +124,7 @@ export async function createShop(input: {
 
 export async function updateShop(id: string, input: Partial<{
   name: string; description: string; returnPolicy: string; logoUrl: string | null; categories: string[]; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
+  loyaltyEnabled: boolean; loyaltyPointsPerUsd: number; loyaltyCentsPerPoint: number; loyaltyPointsAvailableAfterDays: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
@@ -131,6 +142,10 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.payPeriodAnchor !== undefined && { pay_period_anchor: input.payPeriodAnchor }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),
       ...(input.taxRatePercent !== undefined && { tax_rate_percent: input.taxRatePercent }),
+      ...(input.loyaltyEnabled !== undefined && { loyalty_enabled: input.loyaltyEnabled }),
+      ...(input.loyaltyPointsPerUsd !== undefined && { loyalty_points_per_usd: input.loyaltyPointsPerUsd }),
+      ...(input.loyaltyCentsPerPoint !== undefined && { loyalty_cents_per_point: input.loyaltyCentsPerPoint }),
+      ...(input.loyaltyPointsAvailableAfterDays !== undefined && { loyalty_points_available_after_days: input.loyaltyPointsAvailableAfterDays }),
       ...(input.receiptShowLogo !== undefined && { receipt_show_logo: input.receiptShowLogo }),
       ...(input.receiptShowCashierName !== undefined && { receipt_show_cashier_name: input.receiptShowCashierName }),
       ...(input.receiptAutoPrint !== undefined && { receipt_auto_print: input.receiptAutoPrint }),

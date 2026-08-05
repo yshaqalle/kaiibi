@@ -201,6 +201,12 @@ export function ReceiptModal({
                   </View>
                 </>
               )}
+              {Boolean(receipt.pointsRedeemed && receipt.pointsRedeemed > 0) && (
+                <View style={styles.row}>
+                  <Text style={styles.muted}>Points used ({receipt.pointsRedeemed})</Text>
+                  <Text style={styles.muted}>-{formatCents(receipt.pointsRedeemedCents ?? 0)}</Text>
+                </View>
+              )}
               {Boolean(receipt.taxCents && receipt.taxCents > 0) && (
                 <View style={styles.row}>
                   <Text style={styles.muted}>Tax ({receipt.taxRatePercent}%)</Text>
@@ -241,6 +247,9 @@ export function ReceiptModal({
                   {receipt.customer.name && <Text style={styles.muted}>{receipt.customer.name}</Text>}
                   {receipt.customer.phone && <Text style={styles.muted}>{receipt.customer.phone}</Text>}
                   {receipt.customer.email && <Text style={styles.muted}>{receipt.customer.email}</Text>}
+                  {Boolean(receipt.pointsEarned && receipt.pointsEarned > 0) && (
+                    <Text style={styles.muted}>Points earned: {receipt.pointsEarned}</Text>
+                  )}
                 </>
               )}
 

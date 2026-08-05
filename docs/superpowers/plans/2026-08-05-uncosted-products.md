@@ -12,11 +12,13 @@
 
 ## Global Constraints
 
-- **Branch:** `uncosted-products`, cut from `main` at `6f5e563`. The two doc
-  commits also exist on `customer-loyalty-points`, where they were originally
-  written; that branch is pushed and actively worked in another session, so it
-  must not be rewritten to remove them. The duplicate is harmless — identical
-  file content collapses when both branches merge.
+- **Branch:** `uncosted-products`, cut from `main` at `6f5e563`. The spec and
+  plan were originally written on `customer-loyalty-points` and cherry-picked
+  here; that branch then merged to `main` as PR #22, carrying the originals.
+  So `main` holds one copy and this branch holds another with different SHAs,
+  which is an add/add conflict on this file rather than the clean collapse a
+  cherry-pick might suggest. Resolved by merging `main` in and keeping this
+  branch's text.
 - **Uncosted means `costCents === null`, never `=== 0` and never falsy.** A cost of zero is a real recorded answer (free sample, gift with purchase). Only `null` means unrecorded.
 - **No component tests.** This repo has no `@testing-library/*` and no `.tsx` under any `__tests__`. Do not add the tooling — it is explicitly out of scope. Test only `src/lib/` modules. Rendering is verified manually at the end.
 - **Test command:** `npm test` (Jest). Lint: `npm run lint`.

@@ -38,6 +38,18 @@ export type Shop = {
   // subtotal — see complete_sale/edit_sale in migration 0015.
   taxEnabled: boolean;
   taxRatePercent: number;
+  // Customer loyalty points, off by default. `loyaltyPointsPerUsd` is how many
+  // points a dollar of pre-tax, post-discount spend earns; `loyaltyCentsPerPoint`
+  // is what a point is worth back when spent at checkout. The two are separate
+  // because their product is what the programme costs — see migration
+  // 20260820000000 and src/lib/loyalty.ts.
+  loyaltyEnabled: boolean;
+  loyaltyPointsPerUsd: number;
+  loyaltyCentsPerPoint: number;
+  // How long earned points wait before they can be spent, in days. Default 1.
+  // Zero re-opens the buy-earn-spend-return loop the window exists to close —
+  // see migration 20260820000100.
+  loyaltyPointsAvailableAfterDays: number;
   // Receipt customization — see src/lib/receipt.ts (show-logo/show-cashier
   // name) and src/components/receipt-modal.tsx (auto-print/auto-whatsapp).
   receiptShowLogo: boolean;
@@ -206,11 +218,34 @@ export type Customer = {
   neighborhood: string | null;
   tags: string[];
   notes: string | null;
+  // Loyalty points on hand. A stored counter, not a sum computed here: it's
+  // maintained by trigger from `customer_points_ledger` so a redemption has a
+  // row to lock against a second register — see migration 20260820000000.
+  //
+  // Never negative; a clawback that can't be met is clamped and the shop
+  // absorbs the rest. NOT the spendable figure either — points earned inside
+  // the shop's maturing window are counted here but can't yet be redeemed, for
+  // which see `customerPointsAvailable` in lib/customers.ts.
+  pointsBalance: number;
   createdAt: string;
   updatedAt: string;
 };
 
-export type NewCustomerInput = Omit<Customer, 'id' | 'shopId' | 'createdAt' | 'updatedAt'>;
+export type NewCustomerInput = Omit<Customer, 'id' | 'shopId' | 'pointsBalance' | 'createdAt' | 'updatedAt'>;
+
+// One movement in a customer's points balance. Append-only: a correction is
+// another row, never an edit, which is what lets the detail pane answer "why is
+// my balance 148" with the actual history.
+export type CustomerPointsEntry = {
+  id: string;
+  // Null once the sale it came from has been deleted — delete_sale posts
+  // reversing rows before that happens, so the balance stays right regardless.
+  saleId: string | null;
+  deltaPoints: number;
+  reason: 'earn' | 'redeem' | 'refund_clawback' | 'redeem_reversed' | 'adjustment';
+  note: string | null;
+  createdAt: string;
+};
 
 // One line item from a past sale attached to this customer -- powers the
 // Customer detail pane's itemized purchase history (src/lib/customers.ts's
@@ -398,6 +433,15 @@ export type Sale = {
   // 0015), independent of the shop's tax settings changing later.
   taxCents: number;
   taxRatePercent: number | null;
+  // Loyalty movement for this sale, frozen at the till like the tax rate above.
+  // `pointsRedeemedCents` is the money the redemption took off, kept apart from
+  // `discountCents` so a receipt can print the two as the different things they
+  // are. `loyaltyPointsPerUsd` is the earn rate that produced `pointsEarned`,
+  // null when the sale earned nothing.
+  pointsEarned: number;
+  pointsRedeemed: number;
+  pointsRedeemedCents: number;
+  loyaltyPointsPerUsd: number | null;
   totalCents: number;
   itemCount: number;
   createdAt: string;

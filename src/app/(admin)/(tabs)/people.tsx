@@ -25,7 +25,7 @@ import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
 import { formatCents } from '@/lib/currency';
 import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } from '@/lib/customer-segments';
-import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
+import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerPointsHistory, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, setStaffLocations, updateStaffMember, updateStaffPay } from '@/lib/staff';
@@ -36,7 +36,7 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, CustomerPointsEntry, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // Where a member works, for display. An EMPTY set means every store — that is
 // the value, not a missing one (migration 20260814000000) — so it reads as
@@ -63,6 +63,17 @@ type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
 
+// Plain-language names for the ledger's `reason` values -- 'refund_clawback'
+// is what the database calls it, not what a shop owner reading the history
+// should have to decode.
+const POINTS_REASON_LABELS: Record<CustomerPointsEntry['reason'], string> = {
+  earn: 'Earned on a sale',
+  redeem: 'Spent at checkout',
+  refund_clawback: 'Taken back on a refund',
+  redeem_reversed: 'Returned after a refund',
+  adjustment: 'Adjustment',
+};
+
 const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'First Name', value: (c) => c.firstName },
   { header: 'Last Name', value: (c) => c.lastName ?? '' },
@@ -73,6 +84,7 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'Neighborhood', value: (c) => c.neighborhood ?? '' },
   { header: 'Tags', value: (c) => c.tags.join('; ') },
   { header: 'Notes', value: (c) => c.notes ?? '' },
+  { header: 'Points', value: (c) => String(c.pointsBalance) },
 ];
 
 const TEAM_EXPORT_COLUMNS_BASIC: CsvColumn<StaffMember>[] = [
@@ -238,7 +250,14 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
                     {customer.firstName} {customer.lastName ?? ''}
                   </Text>
                   <Text style={tabStyles.rowSub}>
-                    {stats ? `${stats.visitCount} order${stats.visitCount === 1 ? '' : 's'} · ${formatCents(stats.totalSpentCents)}` : 'No orders yet'}
+                    {[
+                      stats ? `${stats.visitCount} order${stats.visitCount === 1 ? '' : 's'} · ${formatCents(stats.totalSpentCents)}` : 'No orders yet',
+                      // Only when the shop runs a programme -- a "0 pts" on
+                      // every row of a shop that doesn't is pure noise.
+                      shop?.loyaltyEnabled ? `${customer.pointsBalance.toLocaleString()} pts` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                 </View>
                 <View style={tabStyles.rowTrailing}>
@@ -343,8 +362,10 @@ function CustomerDetailPane({
 }) {
   const [stats, setStats] = useState<{ totalSpentCents: number; visitCount: number; lastPurchaseAt: string | null } | null>(null);
   const [purchases, setPurchases] = useState<CustomerPurchase[]>([]);
+  const [pointsHistory, setPointsHistory] = useState<CustomerPointsEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const { locations } = useAuth();
+  const { locations, shop } = useAuth();
+  const loyaltyOn = shop?.loyaltyEnabled ?? false;
   const multiStore = hasMultipleLocations(locations);
   // Resolved by id from the store list rather than denormalised onto the
   // purchase, so a renamed store reads correctly in old history.
@@ -355,7 +376,8 @@ function CustomerDetailPane({
   useEffect(() => {
     getCustomerStats(customer.id).then(setStats).catch(() => setStats(null));
     listCustomerPurchases(customer.id).then(setPurchases).catch(() => setPurchases([]));
-  }, [customer.id]);
+    if (loyaltyOn) listCustomerPointsHistory(customer.id).then(setPointsHistory).catch(() => setPointsHistory([]));
+  }, [customer.id, loyaltyOn]);
 
   const segment = segmentForCustomer(customer);
   const isVip = segment === 'vip';
@@ -384,6 +406,7 @@ function CustomerDetailPane({
         <StatTile value={stats ? formatCents(stats.totalSpentCents) : '—'} label="Lifetime spend" />
         <StatTile value={stats ? String(stats.visitCount) : '—'} label="Orders" />
         <StatTile value={stats?.lastPurchaseAt ? new Date(stats.lastPurchaseAt).toLocaleDateString() : '—'} label="Last purchase" />
+        {loyaltyOn && <StatTile value={customer.pointsBalance.toLocaleString()} label="Points" />}
       </View>
       <View style={tabStyles.actions}>
         <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
@@ -438,6 +461,33 @@ function CustomerDetailPane({
           ))
         )}
       </View>
+      {/* What answers "why is my balance 148" at the counter. The ledger is
+          append-only, so a correction shows up as its own row rather than
+          quietly changing an old one. */}
+      {loyaltyOn && (
+        <View style={tabStyles.section}>
+          <Text style={tabStyles.sectionTitle}>POINTS HISTORY</Text>
+          {pointsHistory.length === 0 ? (
+            <Text style={tabStyles.empty}>No points activity yet.</Text>
+          ) : (
+            pointsHistory.map((entry) => (
+              <View key={entry.id} style={tabStyles.histRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
+                  <Text style={tabStyles.histMeta}>
+                    {new Date(entry.createdAt).toLocaleDateString()}
+                    {entry.note ? ` · ${entry.note}` : ''}
+                  </Text>
+                </View>
+                <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
+                  {entry.deltaPoints > 0 ? '+' : ''}
+                  {entry.deltaPoints.toLocaleString()}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+      )}
     </Card>
   );
 }
@@ -898,7 +948,9 @@ const tabStyles = StyleSheet.create({
   detHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
   detName: { fontSize: 17, fontWeight: '800', color: '#111111' },
   detPhone: { fontSize: 12.5, color: '#666666', marginBottom: 16 },
-  tiles: { flexDirection: 'row', gap: 9, marginBottom: 16 },
+  // Wraps because loyalty adds a fourth tile — four across squeeze unreadably
+  // on a phone.
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 16 },
   actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 18 },
   section: { marginBottom: 18 },
   sectionTitle: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6, color: '#999999', marginBottom: 8 },
@@ -908,6 +960,7 @@ const tabStyles = StyleSheet.create({
   usualStore: { fontSize: 14, fontWeight: '700', color: '#111111' },
   usualStoreMeta: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
   histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
+  histAmountNegative: { color: '#C0392B' },
   actionButtonDisabled: { opacity: 0.5 },
   sectionHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   sectionLink: { fontSize: 11.5, fontWeight: '700', color: '#B23B4E' },

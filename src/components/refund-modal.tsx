@@ -5,7 +5,7 @@ import { QuantityStepper } from '@/components/quantity-stepper';
 import { confirmDestructive } from '@/lib/confirm';
 import { formatCents } from '@/lib/currency';
 import { refundSaleItems } from '@/lib/sales';
-import { refundedQuantityFor } from '@/lib/sales-reporting';
+import { refundedQuantityFor, refundPreviewCents } from '@/lib/sales-reporting';
 import type { Sale } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
@@ -51,13 +51,10 @@ export function RefundModal({
     .map((item) => ({ item, refunded: refundedQuantityFor(sale, item.id), remaining: item.quantity - refundedQuantityFor(sale, item.id) }))
     .filter((row) => row.remaining > 0);
 
-  const previewCents = rows.reduce((sum, { item, refunded }) => {
-    const qty = selected[item.id] ?? 0;
-    if (qty === 0) return sum;
-    const cum = Math.round((item.lineTotalCents * (refunded + qty)) / item.quantity);
-    const prior = Math.round((item.lineTotalCents * refunded) / item.quantity);
-    return sum + (cum - prior);
-  }, 0);
+  // Apportioning line totals here would quote the cashier a figure the server
+  // won't pay: a line total is gross of the sale's order discount and points,
+  // and excludes tax. refundPreviewCents mirrors refund_sale_items instead.
+  const previewCents = refundPreviewCents(sale, selected);
 
   const canRefund = previewCents > 0 && !submitting;
 

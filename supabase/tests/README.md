@@ -15,6 +15,10 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-entitlements.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-platform-portal.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-loyalty.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-refunds.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -103,6 +107,74 @@ question being asked of a back office that can see every customer.
 6. A shop owner cannot enumerate our operators or read the audit log, and still
    sees exactly their own shop — so the operator policies widened nothing for
    ordinary users.
+
+## What `verify-loyalty.sql` covers
+
+1. Loyalty off earns nothing and writes no ledger rows, even with a customer
+   attached.
+2. A $19.99 basket earns **19** points, not 20 — the floor case that makes "a
+   point for every dollar spent" literally true — and the earn rate is
+   snapshotted onto the sale.
+3. Turning tax on does **not** change what a sale earns: points are earned on
+   the goods, not on money collected for the state.
+4. A redemption comes off before tax; paying the un-reduced total is refused;
+   it stays out of `discount_cents`; and one sale writes **two** ledger rows
+   ("spent 38, earned 19"), never one net row.
+5. Redeeming more than the balance raises, and the balance is unchanged. This
+   is also the cross-register double-spend guard.
+6. **`customers.points_balance` equals `sum(customer_points_ledger.delta_points)`**
+   — re-checked after every step. If the counter and the ledger ever drift,
+   every other number here is meaningless.
+7. Refunding 1 of 3 units claws back `floor(59/3)`; refunding the other 2
+   brings the cumulative clawback to exactly the 59 earned, with no drift from
+   having done it in two passes.
+8. A full refund returns the redeemed points once, and only once.
+9. Editing a sale keeps its redemption (or the recomputed total jumps and the
+   payments check rejects an edit that changed nothing) and re-earns at the
+   sale's **frozen** rate rather than the shop's current one — deliberately
+   unlike tax, which `edit_sale` re-reads.
+10. `delete_sale` posts reversing rows before deleting, so a voided sale's
+    points don't count forever.
+11. **Earned points cannot be spent until they have matured.** Redeeming
+    same-day points is refused and names what is still on hold; aging the ledger
+    rows past the window makes the whole balance spendable.
+12. **A clawback never drives the balance negative.** Earn on one sale, spend it
+    all on another, return the first — the shop absorbs what it cannot recover
+    rather than posting the customer a debt.
+13. **A refund gives points back before it takes them away.** The ordering
+    check: reversing the two lets the clawback hit an emptied balance, get
+    clamped to nothing, and the reversal then hand back points the shop meant to
+    reclaim. Asserts the exact net, which is what distinguishes the two orders.
+14. **A shop whose plan has lapsed can still complete a sale** with a customer
+    attached, earning nothing. This is the regression that matters most:
+    `public.customers` carries `enforce_shop_module('customers')` as a BEFORE
+    UPDATE trigger, and `security definer` does not bypass a trigger — without
+    the `shop_has_module()` gate inside `complete_sale`, a shop that stopped
+    paying could no longer ring up anything at all.
+
+## What `verify-refunds.sql` covers
+
+One question asked against every kind of pricing a sale can carry: **does
+refunding the whole thing return exactly what the customer paid?** Until
+20260820000200 the answer was no whenever a sale had an order discount, a points
+redemption, or tax, because refunds apportioned `line_total_cents`, which knows
+about none of the three.
+
+1. A plain sale refunds its price.
+2. An **order discount** is not handed back a second time — 1799 refunded on
+   1999 of goods with 200 off, where the old maths returned the full 1999.
+3. **Tax comes back**, so the customer isn't short the tax they paid.
+4. Points redeemed are **not** converted into a cash refund.
+5. All three at once, returned one unit at a time, sum to exactly what was
+   paid — the check that catches rounding drift in the scaling.
+6. `refund_items` still sum to their `refunds` row after the scaling rewrites
+   the child amounts.
+7. A fourth unit can't be refunded from a three-unit sale.
+
+Note the deliberate limit: the paid-equals-refunded guarantee holds for sales
+refunded entirely **after** that migration. Prior refunds are read from the
+stored rows and never recomputed, so an old partial refund is never silently
+"corrected" months later.
 
 ## Concurrency
 
