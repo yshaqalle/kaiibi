@@ -5,6 +5,7 @@ import { QuantityStepper } from '@/components/quantity-stepper';
 import { confirmDestructive } from '@/lib/confirm';
 import { formatCents } from '@/lib/currency';
 import { refundSaleItems } from '@/lib/sales';
+import { refundedQuantityFor } from '@/lib/sales-reporting';
 import type { Sale } from '@/types/models';
 
 function extractErrorMessage(err: unknown): string {
@@ -14,9 +15,9 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function refundedQtyFor(sale: Sale, saleItemId: string): number {
-  return (sale.refunds ?? []).flatMap((r) => r.items).filter((i) => i.saleItemId === saleItemId).reduce((sum, i) => sum + i.quantity, 0);
-}
+// Re-exported from where the profit arithmetic lives, so "how much of this
+// line came back" has one definition rather than one per screen.
+export { refundedQuantityFor as refundedQtyFor };
 
 // Lists a sale's current items with a QuantityStepper per line so a cashier
 // can pick how much of each to refund in one go. Modeled on CustomerModal's
@@ -47,7 +48,7 @@ export function RefundModal({
   if (!visible) return null;
 
   const rows = (sale.items ?? [])
-    .map((item) => ({ item, refunded: refundedQtyFor(sale, item.id), remaining: item.quantity - refundedQtyFor(sale, item.id) }))
+    .map((item) => ({ item, refunded: refundedQuantityFor(sale, item.id), remaining: item.quantity - refundedQuantityFor(sale, item.id) }))
     .filter((row) => row.remaining > 0);
 
   const previewCents = rows.reduce((sum, { item, refunded }) => {

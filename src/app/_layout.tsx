@@ -5,13 +5,13 @@ import { useColorScheme } from 'react-native';
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider } from '@/hooks/use-auth';
 import { LocaleProvider } from '@/hooks/use-locale';
-import { useTabletOrientation } from '@/hooks/use-tablet-orientation';
+import { useUnlockedOrientation } from '@/hooks/use-orientation';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  useTabletOrientation();
+  useUnlockedOrientation();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       {/* Above AuthProvider deliberately: language doesn't depend on a

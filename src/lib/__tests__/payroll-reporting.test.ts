@@ -17,6 +17,7 @@ function makeMember(overrides: Partial<StaffMember> = {}): StaffMember {
     active: true,
     fullName: 'Hodan Ali',
     email: null,
+    phone: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     hireDate: '2026-01-01',
     payType: 'hourly',

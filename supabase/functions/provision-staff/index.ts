@@ -9,6 +9,9 @@ type RequestBody = {
   shopId: string;
   fullName: string;
   email: string;
+  // Optional, and deliberately absent from the required-field check below: a
+  // login needs an email, not a phone.
+  phone?: string;
   password?: string;
   roleId: string;
 };
@@ -137,7 +140,15 @@ Deno.serve(async (req) => {
 
   const { data: member, error: memberError } = await adminClient
     .from('shop_members')
-    .insert({ shop_id: shopId, user_id: newUserId, role_id: roleId, active: true, email: email.trim(), full_name: fullName.trim() })
+    .insert({
+      shop_id: shopId,
+      user_id: newUserId,
+      role_id: roleId,
+      active: true,
+      email: email.trim(),
+      full_name: fullName.trim(),
+      phone: body.phone?.trim() || null,
+    })
     .select('id, shop_id, user_id, role_id, active')
     .single();
   if (memberError) {

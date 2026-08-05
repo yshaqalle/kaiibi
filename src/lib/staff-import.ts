@@ -8,6 +8,7 @@ export const STAFF_TEMPLATE_COLUMNS: { header: string; required: boolean }[] = [
   { header: 'Full Name', required: true },
   { header: 'Email', required: true },
   { header: 'Role', required: true },
+  { header: 'Phone', required: false },
   { header: 'Password', required: false },
 ];
 
@@ -15,6 +16,7 @@ export const STAFF_EXAMPLE_ROW: Record<string, string> = {
   'Full Name': 'Hamse Jibril',
   Email: 'hamse@example.com',
   Role: 'Cashier',
+  Phone: '063 400 0000',
   Password: '',
 };
 
@@ -69,7 +71,8 @@ export async function runStaffImport(
     }
 
     try {
-      const created = await provisionStaff({ shopId, fullName, email, password: raw['Password']?.trim() || undefined, roleId: role.id });
+      const phone = raw['Phone']?.trim() || undefined;
+      const created = await provisionStaff({ shopId, fullName, email, phone, password: raw['Password']?.trim() || undefined, roleId: role.id });
 
       if (pay.kind === 'ok') {
         try {
@@ -99,6 +102,7 @@ export async function runStaffImport(
         active: true,
         fullName,
         email: created.email,
+        phone: phone ?? null,
         createdAt: new Date().toISOString(),
         hireDate: null,
         payType: pay.kind === 'ok' ? pay.patch.payType : null,

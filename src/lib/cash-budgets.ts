@@ -44,6 +44,7 @@ export async function createCashAccount(shopId: string, input: NewCashAccountInp
     .from('cash_accounts')
     .insert({
       shop_id: shopId,
+      location_id: input.locationId,
       name: input.name,
       account_type: input.accountType,
       balance_cents: input.balanceCents,
@@ -64,6 +65,7 @@ export async function updateCashAccount(id: string, patch: Partial<NewCashAccoun
     .from('cash_accounts')
     .update({
       ...(patch.name !== undefined && { name: patch.name }),
+      ...(patch.locationId !== undefined && { location_id: patch.locationId }),
       ...(patch.accountType !== undefined && { account_type: patch.accountType }),
       ...(patch.balanceCents !== undefined && { balance_cents: patch.balanceCents, balance_as_of: now }),
       ...(patch.notes !== undefined && { notes: patch.notes }),

@@ -198,7 +198,7 @@ export function CashBudgetsTab({
             </Pressable>
           </View>
           <View style={styles.card}>
-            {accounts.length === 0 && !addingAccount ? (
+            {accountsInScope.length === 0 && !addingAccount ? (
               <Text style={styles.sectionEmpty}>No accounts yet — add your cash drawer, bank, or a mobile wallet.</Text>
             ) : (
               accountsInScope.map((account) => (
@@ -213,26 +213,52 @@ export function CashBudgetsTab({
                       : 0
                   }
                   onSaveBalance={async (balanceCents) => {
-                    await updateCashAccount(account.id, { balanceCents });
-                    await reload();
+                    setError(null);
+                    try {
+                      await updateCashAccount(account.id, { balanceCents });
+                      await reload();
+                    } catch (err) {
+                      setError(extractErrorMessage(err));
+                    }
                   }}
                   onDelete={async () => {
-                    await deleteCashAccount(account.id);
-                    await reload();
+                    setError(null);
+                    try {
+                      await deleteCashAccount(account.id);
+                      await reload();
+                    } catch (err) {
+                      setError(extractErrorMessage(err));
+                    }
                   }}
                 />
               ))
             )}
             {addingAccount && shop && (
               <NewCashAccountRow
-                onCancel={() => setAddingAccount(false)}
-                onCreate={async (name, balanceCents, accountType) => {
-                  // A drawer sits at a store, so a new account belongs to the
-                  // one this device is set to rather than to the business.
-                  if (!activeLocation) throw new Error('Pick a store before adding a cash account.');
-                  await createCashAccount(shop.id, { name, balanceCents, accountType, notes: null, locationId: activeLocation.id });
-                  setAddingAccount(false);
-                  await reload();
+                // The tab-level banner sits above the fold once the account
+                // list is long, so a failed Add read as nothing happening.
+                // This puts the reason next to the button that caused it.
+                error={error}
+                onCancel={() => { setError(null); setAddingAccount(false); }}
+                onCreate={async (name, balanceCents, accountType, notes) => {
+                  // A drawer sits at a store, never at the business. The store
+                  // being looked at is the one meant, so the filter wins; on the
+                  // combined view there is nothing to read, so fall back to the
+                  // store this device is set to.
+                  const locationId = locationFilter ?? activeLocation?.id ?? null;
+                  if (!locationId) {
+                    setError('Pick a store before adding a cash account.');
+                    return;
+                  }
+                  setError(null);
+                  try {
+                    await createCashAccount(shop.id, { name, balanceCents, accountType, notes, locationId });
+                    setAddingAccount(false);
+                    await reload();
+                  } catch (err) {
+                    // The form stays open, so what was typed survives the retry.
+                    setError(extractErrorMessage(err));
+                  }
                 }}
               />
             )}
@@ -243,7 +269,7 @@ export function CashBudgetsTab({
             <Text style={styles.sectionTitle}>Recurring bills</Text>
           </View>
           <View style={styles.card}>
-            {bills.length === 0 ? (
+            {billsInScope.length === 0 ? (
               <Text style={styles.sectionEmpty}>No recurring bills set up yet.</Text>
             ) : (
               billsInScope.map((bill) => {
@@ -378,12 +404,23 @@ function CashAccountRow({
   onSaveBalance: (balanceCents: number) => Promise<void>;
   onDelete: () => Promise<void>;
 }) {
-  const [draft, setDraft] = useState((account.balanceCents / 100).toFixed(2));
+  const saved = (account.balanceCents / 100).toFixed(2);
+  const [draft, setDraft] = useState(saved);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Committing on blur meant tapping away from a half-typed figure recorded it
+  // as the counted balance. A count is a deliberate act, so it takes a
+  // deliberate tap -- and until then the typed figure is only a draft.
+  const dirty = toCents(draft) !== account.balanceCents;
 
-  const commit = () => {
-    const cents = toCents(draft);
-    if (cents !== account.balanceCents) onSaveBalance(cents);
+  const save = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    try {
+      await onSaveBalance(toCents(draft));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -393,6 +430,7 @@ function CashAccountRow({
         <Text style={styles.rowMeta}>
           {CASH_ACCOUNT_TYPE_LABELS[account.accountType]} · confirmed {new Date(account.balanceAsOf).toLocaleDateString()}
         </Text>
+        {account.notes && <Text style={styles.rowMeta}>{account.notes}</Text>}
         {expectedChangeCents !== 0 && (
           <Text style={styles.rowHint}>
             {formatAccountingCents(expectedChangeCents)} of cash spending recorded since — expect about{' '}
@@ -401,10 +439,24 @@ function CashAccountRow({
         )}
       </View>
       <View style={styles.rowRight}>
-        <TextInput value={draft} onChangeText={setDraft} onBlur={commit} keyboardType="decimal-pad" style={styles.balanceInput} />
-        {confirmingDelete ? (
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          keyboardType="decimal-pad"
+          style={[styles.balanceInput, dirty && styles.balanceInputDirty]}
+        />
+        {dirty ? (
+          // Save replaces Remove while there are unsaved changes: one decision
+          // at a time, and no deleting an account you were mid-count on.
           <>
-            <Pressable onPress={onDelete}><Text style={styles.dangerText}>Confirm</Text></Pressable>
+            <Pressable onPress={() => { void save(); }} disabled={saving} style={[styles.smallButtonDark, saving && styles.buttonDisabled]}>
+              <Text style={styles.smallButtonDarkText}>{saving ? 'Saving…' : 'Save'}</Text>
+            </Pressable>
+            <Pressable onPress={() => setDraft(saved)}><Text style={styles.mutedText}>Cancel</Text></Pressable>
+          </>
+        ) : confirmingDelete ? (
+          <>
+            <Pressable onPress={() => { void onDelete(); }}><Text style={styles.dangerText}>Confirm</Text></Pressable>
             <Pressable onPress={() => setConfirmingDelete(false)}><Text style={styles.mutedText}>Cancel</Text></Pressable>
           </>
         ) : (
@@ -416,15 +468,30 @@ function CashAccountRow({
 }
 
 function NewCashAccountRow({
+  error,
   onCancel,
   onCreate,
 }: {
+  error: string | null;
   onCancel: () => void;
-  onCreate: (name: string, balanceCents: number, type: CashAccount['accountType']) => Promise<void>;
+  onCreate: (
+    name: string,
+    balanceCents: number,
+    type: CashAccount['accountType'],
+    notes: string | null
+  ) => Promise<void>;
 }) {
   const [name, setName] = useState('');
   const [balance, setBalance] = useState('0.00');
   const [type, setType] = useState<CashAccount['accountType']>('cash');
+  // Optional: which bank branch, whose float, which drawer of the two. The
+  // name alone stops being enough as soon as a shop has more than one of a
+  // kind. Blank stays null rather than an empty string.
+  const [notes, setNotes] = useState('');
+  // The row stays mounted while the insert is in flight, so without this a
+  // second tap files the account twice.
+  const [saving, setSaving] = useState(false);
+  const canSave = name.trim().length > 0 && !saving;
 
   return (
     <View style={styles.newAccountRow}>
@@ -436,17 +503,33 @@ function NewCashAccountRow({
           </Pressable>
         ))}
       </View>
+      <TextInput
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Notes (optional) — which branch, whose float, account number"
+        placeholderTextColor="#9B9B9B"
+        style={styles.nameInput}
+      />
       <View style={styles.newAccountActions}>
         <TextInput value={balance} onChangeText={setBalance} keyboardType="decimal-pad" style={styles.balanceInput} />
         <Pressable
-          onPress={() => name.trim() && onCreate(name.trim(), toCents(balance), type)}
-          disabled={!name.trim()}
-          style={[styles.smallButtonDark, !name.trim() && styles.buttonDisabled]}
+          onPress={async () => {
+            if (!canSave) return;
+            setSaving(true);
+            try {
+              await onCreate(name.trim(), toCents(balance), type, notes.trim() || null);
+            } finally {
+              setSaving(false);
+            }
+          }}
+          disabled={!canSave}
+          style={[styles.smallButtonDark, !canSave && styles.buttonDisabled]}
         >
-          <Text style={styles.smallButtonDarkText}>Add</Text>
+          <Text style={styles.smallButtonDarkText}>{saving ? 'Adding…' : 'Add'}</Text>
         </Pressable>
         <Pressable onPress={onCancel}><Text style={styles.mutedText}>Cancel</Text></Pressable>
       </View>
+      {error && <Text style={styles.inlineError}>{error}</Text>}
     </View>
   );
 }
@@ -504,6 +587,9 @@ const styles = StyleSheet.create({
   rowAmount: { fontSize: 13, fontWeight: '800', color: '#111111' },
 
   balanceInput: { backgroundColor: '#F2F2F2', borderRadius: 8, height: 36, width: 100, paddingHorizontal: 10, color: '#111111', textAlign: 'right', fontWeight: '700' },
+  // An edited-but-unsaved figure has to look unsaved, or an explicit Save is
+  // just a button nobody notices they still have to press.
+  balanceInputDirty: { backgroundColor: '#FFF6E9', borderWidth: 1, borderColor: '#E0B27A' },
   nameInput: { backgroundColor: '#F2F2F2', borderRadius: 8, height: 38, paddingHorizontal: 10, color: '#111111' },
   newAccountRow: { paddingVertical: 12, gap: 10 },
   newAccountActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -535,4 +621,5 @@ const styles = StyleSheet.create({
   mutedText: { fontSize: 11.5, fontWeight: '700', color: '#999999' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center', lineHeight: 19 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
+  inlineError: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 8 },
 });

@@ -690,6 +690,10 @@ export type StaffMember = {
   active: boolean;
   fullName: string | null;
   email: string | null;
+  // Free text, like customers.phone — normalized only when a wa.me link is
+  // built (see whatsappLink). Optional: a staff login needs an email, not a
+  // phone.
+  phone: string | null;
   createdAt: string;
   hireDate: string | null;
   payType: 'hourly' | 'salary' | 'fixed' | null;

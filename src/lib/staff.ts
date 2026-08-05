@@ -74,6 +74,7 @@ function mapStaffRow(row: any): StaffMember {
     active: row.active,
     fullName: row.full_name,
     email: row.email,
+    phone: row.phone ?? null,
     createdAt: row.created_at,
     hireDate: row.hire_date,
     payType: row.pay_type,
@@ -186,7 +187,7 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
 }
 
 export async function updateStaffMember(input: {
-  shopId: string; memberId: string; fullName: string; email: string; roleId: string; active: boolean;
+  shopId: string; memberId: string; fullName: string; email: string; phone?: string | null; roleId: string; active: boolean;
   hireDate?: string | null; payType?: StaffMember['payType']; payRateCents?: number | null; payCadence?: StaffMember['payCadence'];
 }): Promise<void> {
   const { data, error } = await supabase.functions.invoke<{ error?: string; message?: string }>('update-staff', { body: input });
@@ -214,11 +215,22 @@ export async function provisionStaff(input: {
   shopId: string;
   fullName: string;
   email: string;
+  phone?: string;
   password?: string;
   roleId: string;
 }): Promise<ProvisionStaffResult> {
+  // The body is an explicit whitelist, not a spread of `input` -- a field left
+  // out here is silently dropped rather than rejected, so anything new has to
+  // be added in both places.
   const { data, error } = await supabase.functions.invoke<ProvisionStaffResult | ProvisionStaffError>('provision-staff', {
-    body: { shopId: input.shopId, fullName: input.fullName, email: input.email, password: input.password, roleId: input.roleId },
+    body: {
+      shopId: input.shopId,
+      fullName: input.fullName,
+      email: input.email,
+      phone: input.phone,
+      password: input.password,
+      roleId: input.roleId,
+    },
   });
   if (error) throw error;
   if (data && 'error' in data) throw new Error(data.message);

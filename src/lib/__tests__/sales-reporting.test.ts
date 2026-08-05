@@ -6,6 +6,7 @@ import {
   netRevenueCents,
   paymentMethodMix,
   refundedCents,
+  saleProfit,
   taxCollectedCents,
   type PeriodRefund,
 } from '@/lib/sales-reporting';
@@ -146,6 +147,138 @@ describe('costOfGoodsSold', () => {
 
   it('reports nothing for a period with no sales', () => {
     expect(costOfGoodsSold([])).toEqual({ cogsCents: 0, uncostedItemCount: 0, uncostedRevenueCents: 0 });
+  });
+});
+
+describe('saleProfit', () => {
+  // The per-transaction view of the same arithmetic the period totals use, so
+  // a shopkeeper can see which sales actually made money rather than only
+  // which ones were large.
+  it('is revenue less the cost frozen on each line', () => {
+    const sale = makeSale({
+      totalCents: 2200,
+      items: [makeItem({ quantity: 1, unitPriceCents: 2200, lineTotalCents: 2200, unitCostCents: 1200 })],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(2200);
+    expect(result.costCents).toBe(1200);
+    expect(result.profitCents).toBe(1000);
+    expect(result.marginPercent).toBeCloseTo(45.45, 2);
+  });
+
+  // Tax is collected on the authority's behalf. Counting it as revenue would
+  // inflate the profit on every sale in a tax-enabled shop.
+  it('excludes sales tax from revenue', () => {
+    const sale = makeSale({
+      totalCents: 2310,
+      taxCents: 110,
+      items: [makeItem({ unitCostCents: 1200 })],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(2200);
+    expect(result.profitCents).toBe(1000);
+  });
+
+  // A sale-level discount is already inside totalCents, so profit follows it
+  // down without the discount having to be subtracted a second time.
+  it('reflects a sale-level discount through the total', () => {
+    const sale = makeSale({
+      totalCents: 4950,
+      discountCents: 1650,
+      items: [
+        makeItem({ id: 'a', unitPriceCents: 2500, lineTotalCents: 2500, unitCostCents: 1500 }),
+        makeItem({ id: 'b', unitPriceCents: 2200, lineTotalCents: 2200, unitCostCents: 1300 }),
+        makeItem({ id: 'c', unitPriceCents: 1900, lineTotalCents: 1900, unitCostCents: 1000 }),
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(4950);
+    expect(result.costCents).toBe(3800);
+    expect(result.profitCents).toBe(1150);
+  });
+
+  // Refunded goods came back into stock: both their revenue and their cost
+  // have to come out, or a fully refunded sale still shows a profit.
+  it('nets out refunded revenue and the cost of returned goods', () => {
+    const sale = makeSale({
+      totalCents: 4400,
+      items: [makeItem({ id: 'a', quantity: 2, lineTotalCents: 4400, unitCostCents: 1200 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 2200,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 2200 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(2200);
+    expect(result.costCents).toBe(1200);
+    expect(result.profitCents).toBe(1000);
+  });
+
+  it('nets to zero when the whole sale is refunded', () => {
+    const sale = makeSale({
+      totalCents: 2200,
+      items: [makeItem({ id: 'a', quantity: 1, lineTotalCents: 2200, unitCostCents: 1200 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 2200,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 2200 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(0);
+    expect(result.costCents).toBe(0);
+    expect(result.profitCents).toBe(0);
+    expect(result.marginPercent).toBeNull();
+  });
+
+  // The number has to admit what it doesn't know. Treating an unknown cost as
+  // zero would show this sale as pure profit.
+  it('flags lines with no cost on file instead of valuing them at zero', () => {
+    const sale = makeSale({
+      totalCents: 5200,
+      items: [
+        makeItem({ id: 'a', lineTotalCents: 2200, unitCostCents: 1200 }),
+        makeItem({ id: 'b', lineTotalCents: 3000, unitCostCents: null }),
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.costCents).toBe(1200);
+    expect(result.uncostedItemCount).toBe(1);
+    expect(result.uncostedRevenueCents).toBe(3000);
+  });
+
+  it('does not flag a line whose refunded quantity leaves nothing sold', () => {
+    const sale = makeSale({
+      totalCents: 3000,
+      items: [makeItem({ id: 'b', quantity: 1, lineTotalCents: 3000, unitCostCents: null })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 3000,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'b', productId: 'p1', quantity: 1, amountCents: 3000 }],
+        },
+      ],
+    });
+    expect(saleProfit(sale).uncostedItemCount).toBe(0);
+  });
+
+  it('reports no margin for a sale that earned nothing', () => {
+    const sale = makeSale({ totalCents: 0, items: [] });
+    expect(saleProfit(sale).marginPercent).toBeNull();
   });
 });
 
