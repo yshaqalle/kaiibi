@@ -95,6 +95,10 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
   // already being fetched.
   const grossProfitCents = revenueCents - cogsCents;
 
+  // Null rather than 0 when there is no revenue: "0% margin" on a quiet day
+  // states something false about the shop, where no figure states nothing.
+  const marginPct = revenueCents > 0 ? Math.round((grossProfitCents / revenueCents) * 100) : null;
+
   const trendData: TrendPoint[] = useMemo(
     () =>
       daily.map((d) => ({
@@ -123,10 +127,15 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" />
-        <StatTile value={formatCompactCents(grossProfitCents)} label="Gross profit" />
-        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />
-        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" />
+        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of tax & refunds" />
+        <StatTile
+          value={formatCompactCents(grossProfitCents)}
+          label="Gross profit"
+          hint={marginPct === null ? 'before operating expenses' : `${marginPct}% margin · before expenses`}
+          tone="positive"
+        />
+        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
+        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
       </View>
 
       {/* Promoted from grey body text. Revenue excludes tax the shop is only
@@ -157,7 +166,7 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
 
       <Text style={styles.sectionTitle}>Payment methods</Text>
       <Card style={styles.chartCard}>
-        <PaymentMixChart items={paymentMix} />
+        <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
       </Card>
 
       <Text style={styles.sectionTitle}>Top products</Text>
