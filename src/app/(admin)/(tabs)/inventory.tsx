@@ -343,7 +343,11 @@ export default function InventoryScreen() {
           <TextInput
             value={search}
             onChangeText={setSearch}
-            placeholder="Search or scan — name, brand, SKU, barcode, category, or tag"
+            // The full list of searchable fields doesn't fit a phone -- it
+            // truncated mid-word at "barcod...", which reads as a bug rather
+            // than as a hint. The narrow form still says the two things that
+            // matter: you can search, and you can scan.
+            placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
             placeholderTextColor="#999999"
             style={[styles.search, scanner.camera && styles.searchWithScan]}
             onSubmitEditing={handleSearchSubmit}
