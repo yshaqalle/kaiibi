@@ -349,7 +349,9 @@ export default function DashboardScreen() {
         {/* Renders nothing for a single-store shop, and switches from chips to
             a dropdown past three entries — see components/option-picker.tsx,
             which argues against tuning that threshold per screen. */}
-        <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
+        <View style={styles.scopeRow}>
+          <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
+        </View>
 
         <View style={styles.metricRow}>
           {/* Net of sales tax and refunds — tax collected is the government's
@@ -534,6 +536,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, paddingBottom: 42 },
   title: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
   rangeRow: { marginBottom: 12 },
+  scopeRow: { marginBottom: 14 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },

@@ -229,9 +229,13 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 6,
     backgroundColor: '#F2F2F2',
-    borderRadius: 10,
-    height: 42,
-    paddingHorizontal: 12,
+    borderRadius: 999,
+    // Matched to CategoryChip's filter variant (8px padding, 13px text). This
+    // control swaps between chips and this trigger purely on how many options
+    // there are, so the two forms have to be the same height or adding a third
+    // store visibly resizes the toolbar around it.
+    paddingVertical: 8,
+    paddingHorizontal: 14,
   },
   triggerText: { fontSize: 13, fontWeight: '600', color: '#111111', flexShrink: 1 },
   placeholder: { color: '#999999' },

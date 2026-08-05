@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -75,25 +76,28 @@ export function RangeSelector({
 
   return (
     <View>
+      {/* CategoryChip, not a local pill. These sit directly beside the store
+          picker, which renders CategoryChips — and matching them by copying
+          padding and font size is how the two drifted apart in the first
+          place: same metrics, but a lighter border, a different grey and a
+          lighter active weight. Sharing the component makes them identical by
+          construction rather than by vigilance. */}
       <View style={styles.row}>
-        {presets.map((preset) => {
-          const active = mode === 'preset' && days === preset.days;
-          return (
-            <Pressable
-              key={preset.days}
-              onPress={() => selectPreset(preset.days)}
-              style={[styles.pill, { borderColor: theme.border }, active && { backgroundColor: theme.text, borderColor: theme.text }]}
-            >
-              <Text style={[styles.label, { color: active ? theme.background : theme.textSecondary }]}>{preset.label}</Text>
-            </Pressable>
-          );
-        })}
-        <Pressable
+        {presets.map((preset) => (
+          <CategoryChip
+            key={preset.days}
+            label={preset.label}
+            active={mode === 'preset' && days === preset.days}
+            onPress={() => selectPreset(preset.days)}
+            variant="filter"
+          />
+        ))}
+        <CategoryChip
+          label="Custom"
+          active={mode === 'custom'}
           onPress={() => setMode('custom')}
-          style={[styles.pill, { borderColor: theme.border }, mode === 'custom' && { backgroundColor: theme.text, borderColor: theme.text }]}
-        >
-          <Text style={[styles.label, { color: mode === 'custom' ? theme.background : theme.textSecondary }]}>Custom</Text>
-        </Pressable>
+          variant="filter"
+        />
       </View>
       {mode === 'custom' ? (
         <View style={styles.customRow}>
@@ -123,11 +127,6 @@ const styles = StyleSheet.create({
   // a trailing margin knocked it out of vertical centre. Callers that need
   // space below it own that space.
   row: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
-  // Matched to CategoryChip's `filter` variant on purpose: this sits beside
-  // the store picker in one control bar, and two filters at different heights
-  // read as two unrelated controls.
-  pill: { borderWidth: 1, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999 },
-  label: { fontSize: 13, fontWeight: '600' },
   customRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 16 },
   customField: { flex: 1 },
   fieldLabel: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4, marginBottom: 4 },
