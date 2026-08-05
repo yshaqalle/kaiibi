@@ -15,6 +15,7 @@ export function ProductModal({
   shopId,
   defaultLocationId,
   initial,
+  defaults,
   onSubmit,
   onDeleted,
 }: {
@@ -23,6 +24,9 @@ export function ProductModal({
   shopId: string;
   defaultLocationId?: string | null;
   initial?: Product;
+  // Seeds a new product -- e.g. the barcode that was just scanned and matched
+  // nothing. Ignored when `initial` is set.
+  defaults?: Partial<NewProductInput>;
   onSubmit: (input: NewProductInput, locationId: string | null) => Promise<void>;
   onDeleted?: () => void;
 }) {
@@ -54,6 +58,7 @@ export function ProductModal({
             <ProductForm
               ref={formRef}
               initial={initial}
+              defaults={defaults}
               shopId={shopId}
               defaultLocationId={defaultLocationId}
               submitLabel={initial ? 'Save changes' : 'Save product'}

@@ -2,6 +2,22 @@ import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
 
+// `products_shop_barcode_key` (migration 20260819000000) makes a barcode unique
+// per shop. Raw, that reads as "duplicate key value violates unique constraint
+// ...", which tells a shopkeeper nothing.
+//
+// Scoped tightly to that one constraint on purpose: every write below can also
+// raise the plan triggers' `limit_reached` / `module_not_included`, and those
+// have to pass through untouched for `describePlanError` to turn them into an
+// upgrade prompt.
+function rethrowBarcodeConflict(error: unknown): never {
+  const err = error as { code?: unknown; message?: unknown } | null;
+  if (err && typeof err === 'object' && err.code === '23505' && typeof err.message === 'string' && err.message.includes('products_shop_barcode_key')) {
+    throw new Error('That barcode is already used by another product.');
+  }
+  throw error;
+}
+
 function mapProductRow(row: any): Product {
   return {
     id: row.id,
@@ -185,6 +201,39 @@ export async function getExpiringProducts(shopId: string, leadDays: number): Pro
   return products.filter((p) => p.expiryDate != null && isExpiringSoon(p.expiryDate, leadDays));
 }
 
+// The server-side half of scanning. `resolveBarcode` answers from the catalog
+// already in memory; this is only reached when that misses -- because another
+// till added the product after this screen loaded, or because the caller (the
+// product form's duplicate check) holds no catalog at all.
+//
+// Exact match, never `ilike`: equality is what `products_shop_barcode_key` and
+// `products_shop_sku_idx` can serve, and a pattern search would scan the table.
+//
+// Two queries rather than one `.or()`: PostgREST's `or=(barcode.in.(...),
+// sku.in.(...))` needs each value quoted and escaped by hand, since a SKU may
+// contain a comma or a quote and would otherwise break out of the list. This
+// path is rare enough that a second round trip is the cheaper correctness.
+export async function findProductsByCode(shopId: string, codes: readonly string[]): Promise<Product[]> {
+  const wanted = codes.filter(Boolean);
+  if (wanted.length === 0) return [];
+
+  const [byBarcode, bySku] = await Promise.all([
+    supabase.from('products').select('*').eq('shop_id', shopId).in('barcode', wanted),
+    supabase.from('products').select('*').eq('shop_id', shopId).in('sku', wanted),
+  ]);
+  if (byBarcode.error) throw byBarcode.error;
+  if (bySku.error) throw bySku.error;
+
+  // A product whose barcode AND sku both match would otherwise appear twice and
+  // read as an ambiguous scan.
+  const seen = new Map<string, Product>();
+  for (const row of [...(byBarcode.data ?? []), ...(bySku.data ?? [])]) {
+    const product = mapProductRow(row);
+    if (!seen.has(product.id)) seen.set(product.id, product);
+  }
+  return [...seen.values()];
+}
+
 export async function getProduct(id: string): Promise<Product> {
   const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
   if (error) throw error;
@@ -206,7 +255,7 @@ export async function createProduct(shopId: string, input: NewProductInput, loca
     .insert({ shop_id: shopId, ...toRow(input), ...(locationId ? { stock: 0 } : {}) })
     .select('*')
     .single();
-  if (error) throw error;
+  if (error) rethrowBarcodeConflict(error);
   const product = mapProductRow(data);
   if (locationId && (input.stock ?? 0) > 0) {
     await setLocationStock(product.id, locationId, input.stock ?? 0);
@@ -223,7 +272,7 @@ export async function createProducts(shopId: string, inputs: NewProductInput[]):
     .from('products')
     .insert(inputs.map((input) => ({ shop_id: shopId, ...toRow(input) })))
     .select('*');
-  if (error) throw error;
+  if (error) rethrowBarcodeConflict(error);
   return (data ?? []).map(mapProductRow);
 }
 
@@ -246,7 +295,7 @@ export async function updateProduct(
     await setLocationStock(id, locationId, stock);
   }
   const { data, error } = await supabase.from('products').update(toRow(rest)).eq('id', id).select('*').single();
-  if (error) throw error;
+  if (error) rethrowBarcodeConflict(error);
   const product = mapProductRow(data);
   return stock !== undefined && locationId ? { ...product, stock } : product;
 }

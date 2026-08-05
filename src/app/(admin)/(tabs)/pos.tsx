@@ -3,14 +3,21 @@ import { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
+import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
 import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
@@ -19,12 +26,12 @@ import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { listProducts } from '@/lib/products';
+import { createProduct, findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
-import type { Currency, Discount, PaymentMethod, Product, Promotion } from '@/types/models';
+import type { Currency, Discount, NewProductInput, PaymentMethod, Product, Promotion } from '@/types/models';
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -39,7 +46,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop, locations, activeLocation } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -78,6 +85,21 @@ export default function PosScreen() {
   // tile — rows stretch every tile to match the tallest in that row, so this
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
   const [compactTileHeight, setCompactTileHeight] = useState<number | null>(null);
+  // The result of the last scan. Deliberately transient (see the clearing
+  // effect below): a cashier scanning a basket needs to glance at the outcome,
+  // not dismiss a notice per item.
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [unknownCode, setUnknownCode] = useState<string | null>(null);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const scanner = useScannerSettings();
+  // Same three gates Inventory applies. A cashier without `inventory.edit`
+  // simply sees the error -- the products insert policy would refuse them
+  // anyway, and offering a form that can't be saved is worse than not offering
+  // one.
+  const productLimit = limitFor('products');
+  const atProductLimit = productLimit != null && usageOf('products') >= productLimit;
+  const canCreateProduct = can('inventory.edit') && !atProductLimit;
 
   // Scoped to the register's store, which is what checkout will actually
   // decrement. Unscoped this listed the shop-wide rollup, so a cashier saw "99
@@ -107,10 +129,20 @@ export default function PosScreen() {
     listCurrencies(shop.id).then((rows) => setCurrencies(rows.filter((c) => c.active))).catch(() => {});
   }, [shop]);
 
-  const filtered = products.filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()) &&
-    (category === null || p.category === category)
-  );
+  // Brand, SKU and barcode alongside name: the placeholder always promised
+  // brand, and the code fields are what make a partially-typed or ambiguous
+  // scan land on something -- putting a barcode in here used to match nothing
+  // at all.
+  const filtered = products.filter((p) => {
+    const q = search.trim().toLowerCase();
+    const matches =
+      !q ||
+      p.name.toLowerCase().includes(q) ||
+      (p.brand ?? '').toLowerCase().includes(q) ||
+      (p.sku ?? '').toLowerCase().includes(q) ||
+      (p.barcode ?? '').toLowerCase().includes(q);
+    return matches && (category === null || p.category === category);
+  });
 
   const addToCart = (product: Product) => {
     setCart((current) => {
@@ -127,6 +159,109 @@ export default function PosScreen() {
   const setLineDiscount = (productId: string, discount: Discount | null) => {
     setCart((current) => current.map((line) => (line.product.id === productId ? { ...line, manualDiscount: discount } : line)));
   };
+
+  // One entry point for every source of a scanned code: the hardware wedge
+  // below, Enter in the search box, and (from the next phase) the camera.
+  //
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant, and the React Compiler handles the rest.
+  const handleScannedCode = async (raw: string) => {
+    const outcome = posScanOutcome(products, cart, raw);
+    switch (outcome.kind) {
+      case 'add':
+        addToCart(outcome.product);
+        setScanFeedback({ tone: 'ok', message: `${outcome.product.name} added` });
+        return true;
+      case 'out-of-stock':
+        setScanFeedback({ tone: 'error', message: `${outcome.product.name} is out of stock at this store` });
+        return true;
+      case 'exceeds-stock':
+        setScanFeedback({
+          tone: 'warn',
+          message: `Only ${outcome.product.stock} of ${outcome.product.name} in stock — all of them are already in the cart`,
+        });
+        return true;
+      case 'ambiguous':
+        // Deliberately not resolved here. Narrowing the grid to the candidates
+        // lets the cashier tap the right one, which is the only safe answer.
+        setSearch(raw.trim());
+        setScanFeedback({ tone: 'warn', message: `${outcome.products.length} products share this code — pick the right one` });
+        return true;
+      case 'unknown': {
+        // The catalog in state can predate another till adding this product, so
+        // one lookup before calling it unknown.
+        if (shop) {
+          try {
+            const found = await findProductsByCode(shop.id, barcodeCandidates(outcome.code));
+            if (found.length === 1) {
+              setProducts((current) => (current.some((p) => p.id === found[0].id) ? current : [found[0], ...current]));
+              addToCart(found[0]);
+              setScanFeedback({ tone: 'ok', message: `${found[0].name} added` });
+              return true;
+            }
+          } catch {
+            // Offline or refused: fall through to the unknown message rather
+            // than surface a network error for what is still a failed scan.
+          }
+        }
+        setUnknownCode(canCreateProduct ? outcome.code : null);
+        setScanFeedback({
+          tone: 'error',
+          message: atProductLimit
+            ? `No product with code ${outcome.code}. Your plan is at its product limit — remove one, or upgrade, before adding it.`
+            : `No product with code ${outcome.code}`,
+        });
+        return false;
+      }
+    }
+  };
+
+  // Creating the product the cashier just scanned, mid-sale, and dropping it
+  // straight into the basket.
+  //
+  // A named function rather than an arrow inline on the modal: the React
+  // Compiler cannot preserve the surrounding memoization when a closure this
+  // wide (products, cart, the session-backed setters) is built inside JSX.
+  const createProductFromScan = async (input: NewProductInput, locationId: string | null) => {
+    if (!shop) return;
+    const created = await createProduct(shop.id, input, locationId ?? activeLocation?.id ?? null);
+    setProducts((current) => [created, ...current]);
+    // Only if it actually has stock here -- otherwise the grid's own rule
+    // (out-of-stock items can't be added) would be contradicted by the scan.
+    if (created.stock > 0) addToCart(created);
+    setUnknownCode(null);
+    setScanFeedback({ tone: 'ok', message: `${created.name} created and added` });
+  };
+
+  // Enter in the search box. A wedge scanner types into whatever is focused, so
+  // this covers the cashier who clicked the box first, on native as well as web.
+  const handleSearchSubmit = async () => {
+    const raw = search.trim();
+    if (!raw || !scanner.resolveCodes) return;
+    const outcome = posScanOutcome(products, cart, raw);
+    // Someone searching for "toner" and pressing Enter is not a failed scan.
+    // Staying silent here is what keeps the box feeling like a search box.
+    if (outcome.kind === 'unknown' && !looksLikeBarcode(raw)) return;
+    const handled = await handleScannedCode(raw);
+    // Clear only on a hit: a wedge's next scan would otherwise be appended to
+    // this one. On a miss the text stays so it can be read and corrected.
+    if (handled) setSearch('');
+  };
+
+  useBarcodeWedge({
+    // Off unless this store says it has a wedge scanner: the hook listens to
+    // every keystroke on the page, which is only worth doing where such a
+    // scanner exists. Also off while the receipt or the camera scanner is up --
+    // the sale is already done, or that modal owns input.
+    enabled: scanner.hardware && receipt === null && !scannerOpen,
+    onScan: handleScannedCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 3500);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
 
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
@@ -269,8 +404,32 @@ export default function PosScreen() {
     <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>⌕</Text>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search products or brands" placeholderTextColor="#9B9B9B" style={styles.search} />
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search or scan a product"
+          placeholderTextColor="#9B9B9B"
+          style={styles.search}
+          onSubmitEditing={handleSearchSubmit}
+          // A wedge scanner fires this on its trailing Enter; keeping focus
+          // means the next scan lands here too instead of nowhere.
+          blurOnSubmit={false}
+          returnKeyType="search"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {scanner.camera && (
+          <Pressable onPress={() => setScannerOpen(true)} style={styles.scanInSearch} accessibilityLabel="Scan a barcode">
+            <Text style={styles.scanInSearchText}>⛶</Text>
+          </Pressable>
+        )}
       </View>
+      <ScanFeedbackBanner feedback={scanFeedback} />
+      {unknownCode && (
+        <Pressable onPress={() => { setScannerOpen(false); setShowAddProduct(true); }} style={styles.addFromScan}>
+          <Text style={styles.addFromScanText}>+ Add a product with barcode {unknownCode}</Text>
+        </Pressable>
+      )}
       <ScrollView {...categoryListProps}>
         <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
         {categories.map((item) => (
@@ -316,11 +475,22 @@ export default function PosScreen() {
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
       <View style={styles.cartTitleRow}>
         <Text style={styles.cartTitle}>Current sale</Text>
-        {cart.length > 0 && (
-          <Pressable onPress={clearSale} style={styles.clearAll}>
-            <Text style={styles.clearAllText}>⌫ Clear all</Text>
-          </Pressable>
-        )}
+        <View style={styles.cartTitleActions}>
+          {/* Beside the sale itself, not only above the product grid. On a
+              phone the cart renders ABOVE the browse pane, so this is the one
+              scan control that stays in reach mid-checkout without scrolling
+              back up past the whole basket. */}
+          {scanner.camera && (
+            <Pressable onPress={() => setScannerOpen(true)} style={styles.scanCartButton}>
+              <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
+            </Pressable>
+          )}
+          {cart.length > 0 && (
+            <Pressable onPress={clearSale} style={styles.clearAll}>
+              <Text style={styles.clearAllText}>⌫ Clear all</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
       <ScrollView {...cartListProps}>
         {cart.length === 0 ? (
@@ -452,6 +622,37 @@ export default function PosScreen() {
         autoPrint={shop?.receiptAutoPrint ?? false}
         autoSendWhatsApp={shop?.receiptAutoWhatsapp ?? false}
       />
+      {/* Native counterpart to useBarcodeWedge, on the same store setting.
+          Unmounted whenever a modal owns the keyboard, so it never competes for
+          focus with a form the cashier is filling in. */}
+      {scanner.hardware && !scannerOpen && !showAddProduct && receipt === null && (
+        <WedgeSink onScan={handleScannedCode} />
+      )}
+      {/* Scanning something the shop doesn't stock yet is a normal event mid-
+          sale (new delivery, mislabelled item). Creating it here and dropping
+          it straight into the cart beats abandoning the sale to go to
+          Inventory and starting over. */}
+      {shop && (
+        <ProductModal
+          visible={showAddProduct}
+          onClose={() => { setShowAddProduct(false); setUnknownCode(null); }}
+          shopId={shop.id}
+          defaultLocationId={activeLocation?.id ?? null}
+          defaults={unknownCode ? { barcode: unknownCode } : undefined}
+          onSubmit={createProductFromScan}
+        />
+      )}
+      {/* Continuous: a cashier scanning a basket of eight items should not
+          reopen the camera eight times. */}
+      <BarcodeScannerModal
+        visible={scannerOpen}
+        onClose={() => { setScannerOpen(false); setScanFeedback(null); }}
+        onScan={handleScannedCode}
+        mode="continuous"
+        title="Scan into this sale"
+        hint="Point the camera at a barcode. Keep scanning to add more items."
+        feedback={scanFeedback}
+      />
     </SafeAreaView>
   );
 }
@@ -465,7 +666,8 @@ const styles = StyleSheet.create({
   browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 20, paddingBottom: 12 },
   searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 20 },
   searchIcon: { position: 'absolute', left: 18, color: '#9B9B9B', fontSize: 18, zIndex: 1 },
-  search: { backgroundColor: '#F4F4F4', borderRadius: 14, height: 52, paddingLeft: 42, paddingRight: 16, fontSize: 15, color: '#111111' },
+  // paddingRight leaves room for the scan button overlaid on the right.
+  search: { backgroundColor: '#F4F4F4', borderRadius: 14, height: 52, paddingLeft: 42, paddingRight: 52, fontSize: 15, color: '#111111' },
   categoryScroll: { flexGrow: 0, flexShrink: 0 },
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 24 },
   categoryScrollCompact: { flexGrow: 0, flexShrink: 0 },
@@ -510,7 +712,14 @@ const styles = StyleSheet.create({
   stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8 },
   cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderBottomWidth: 1, borderBottomColor: '#ECECEC', padding: 20, paddingBottom: 16 },
-  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
+  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 8 },
+  cartTitleActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  scanCartButton: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
+  scanCartButtonText: { color: '#111111', fontSize: 12, fontWeight: '800' },
+  scanInSearch: { position: 'absolute', right: 6, height: 40, width: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  scanInSearchText: { fontSize: 17, color: '#111111' },
+  addFromScan: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 14 },
+  addFromScanText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800' },
   clearAll: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
   clearAllText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },

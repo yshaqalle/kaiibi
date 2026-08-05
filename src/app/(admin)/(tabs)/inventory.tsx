@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { Card } from '@/components/card';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
@@ -9,12 +10,18 @@ import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
+import { WedgeSink } from '@/components/wedge-sink';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { ScanResultBar } from '@/components/scan-result-bar';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { createProduct, listProducts, setLocationStock, updateProduct } from '@/lib/products';
+import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 
@@ -102,6 +109,105 @@ export default function InventoryScreen() {
     }
   };
 
+  // The product the last scan landed on, pinned above the list so a `+1` acts
+  // on something named rather than on whichever row the filter happens to leave
+  // at the top.
+  const [pinnedProduct, setPinnedProduct] = useState<Product | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+  const [scannerOpen, setScannerOpen] = useState(false);
+  // A code that resolved to nothing and that this user is allowed to turn into
+  // a product. Null both when there's no such code and when they can't.
+  const [unknownCode, setUnknownCode] = useState<string | null>(null);
+  const scanner = useScannerSettings();
+
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant, and the React Compiler handles the rest.
+  const handleScannedCode = async (raw: string) => {
+    const resolution = resolveBarcode(products, raw);
+    if (resolution.status === 'match') {
+      // Filtering the list to the code as well as pinning the result keeps the
+      // two views agreeing about what was just scanned.
+      setSearch(resolution.product.barcode ?? resolution.product.sku ?? raw.trim());
+      setPinnedProduct(resolution.product);
+      setScanFeedback({ tone: 'ok', message: `${resolution.product.name} — ${resolution.product.stock} in stock` });
+      return true;
+    }
+    if (resolution.status === 'ambiguous') {
+      setSearch(raw.trim());
+      setPinnedProduct(null);
+      setScanFeedback({ tone: 'warn', message: `${resolution.products.length} products share this code — pick the right one below` });
+      return true;
+    }
+
+    // Unlike POS, an unknown code here is often a product that exists but isn't
+    // carried at the filtered store, so the server lookup is worth the trip.
+    if (shop) {
+      try {
+        const found = await findProductsByCode(shop.id, barcodeCandidates(resolution.code));
+        if (found.length === 1) {
+          setSearch(found[0].barcode ?? found[0].sku ?? raw.trim());
+          setPinnedProduct(found[0]);
+          setScanFeedback({ tone: 'warn', message: `${found[0].name} isn't carried at this store` });
+          return true;
+        }
+      } catch {
+        // Fall through to the unknown message.
+      }
+    }
+    setPinnedProduct(null);
+    // Offered only when all three gates pass -- the permission, the plan's
+    // product cap, and (implicitly) the inventory module, since the trigger
+    // would refuse the insert anyway. Better to say why now than to let someone
+    // fill in a whole form the database will reject.
+    const canCreate = canEdit && !atProductLimit;
+    setUnknownCode(canCreate ? resolution.code : null);
+    setScanFeedback({
+      tone: 'error',
+      message: atProductLimit
+        ? `No product with code ${resolution.code}. Your plan is at its product limit — remove one, or upgrade, before adding it.`
+        : `No product with code ${resolution.code}`,
+    });
+    return false;
+  };
+
+  const handleSearchSubmit = async () => {
+    const raw = search.trim();
+    if (!raw || !scanner.resolveCodes) return;
+    // Typing a product name and pressing Enter is a search, not a failed scan.
+    if (resolveBarcode(products, raw).status === 'not-found' && !looksLikeBarcode(raw)) return;
+    const handled = await handleScannedCode(raw);
+    // Unlike POS the text is kept on a hit: it IS the filter showing the result.
+    // A wedge's next scan replaces it wholesale, so nothing concatenates.
+    if (!handled) setPinnedProduct(null);
+  };
+
+  // Off unless this store reports a wedge scanner, and off whenever a modal
+  // owns the keyboard.
+  useBarcodeWedge({
+    enabled: scanner.hardware && !showAddModal && editingProduct === null && !showImportModal && !scannerOpen,
+    onScan: handleScannedCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
+
+  // Derived, not synced by an effect. `adjustStock` reloads the whole list, so
+  // the stored copy holds the count from before the adjustment -- pressing +1
+  // twice would send the same number twice and appear to do nothing the second
+  // time. Reading through `products` on every render means the bar can never
+  // show a stale count.
+  //
+  // Falls back to the stored copy when the product isn't in the list at all,
+  // which is the "scanned something this store doesn't carry" case -- there the
+  // stored copy is the only thing we have, and +1 is how it starts being
+  // carried here.
+  const scannedProduct = pinnedProduct
+    ? products.find((p) => p.id === pinnedProduct.id) ?? pinnedProduct
+    : null;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const matches = !q
@@ -110,6 +216,7 @@ export default function InventoryScreen() {
           p.name.toLowerCase().includes(q) ||
           (p.brand ?? '').toLowerCase().includes(q) ||
           (p.sku ?? '').toLowerCase().includes(q) ||
+          (p.barcode ?? '').toLowerCase().includes(q) ||
           (p.category ?? '').toLowerCase().includes(q) ||
           p.tags.some((tag) => tag.toLowerCase().includes(q))
         );
@@ -227,7 +334,52 @@ export default function InventoryScreen() {
             Settings → Plan and billing. Nothing you already have is affected.
           </Text>
         )}
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, brand, SKU, category, or tag" placeholderTextColor="#999999" style={styles.search} />
+        {/* The scan button belongs here, not among the header actions. What a
+            scan does on this screen is FIND a product — it fills the search box
+            and filters the list — so it reads as a way to search, not as a
+            sibling of Export and Import. Same placement as the register, so the
+            control means the same thing in both places. */}
+        <View style={styles.searchWrap}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            // The full list of searchable fields doesn't fit a phone -- it
+            // truncated mid-word at "barcod...", which reads as a bug rather
+            // than as a hint. The narrow form still says the two things that
+            // matter: you can search, and you can scan.
+            placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
+            placeholderTextColor="#999999"
+            style={[styles.search, scanner.camera && styles.searchWithScan]}
+            onSubmitEditing={handleSearchSubmit}
+            blurOnSubmit={false}
+            returnKeyType="search"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          {/* Not gated on `canEdit` or the plan cap: looking a product up by
+              scanning it is a read, which `inventory.view` already covers, and
+              it stays useful to a shop that's out of room to add more. */}
+          {scanner.camera && (
+            <Pressable onPress={() => setScannerOpen(true)} style={styles.scanInSearch} accessibilityLabel="Scan a barcode">
+              <Text style={styles.scanInSearchText}>⛶</Text>
+            </Pressable>
+          )}
+        </View>
+        <ScanFeedbackBanner feedback={scanFeedback} />
+        {unknownCode && (
+          <Pressable onPress={() => setShowAddModal(true)} style={styles.addFromScan}>
+            <Text style={styles.addFromScanText}>+ Add a product with barcode {unknownCode}</Text>
+          </Pressable>
+        )}
+        {scannedProduct && (
+          <ScanResultBar
+            product={scannedProduct}
+            locationLabel={locationLabelFor(scannedProduct)?.text}
+            onAdjust={canEdit ? (delta) => adjustStock(scannedProduct, Math.max(0, scannedProduct.stock + delta)) : undefined}
+            onEdit={canEdit ? () => setEditingProduct(scannedProduct) : undefined}
+            onDismiss={() => setPinnedProduct(null)}
+          />
+        )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
@@ -279,10 +431,18 @@ export default function InventoryScreen() {
       {shop && canEdit && (
         <ProductModal
           visible={showAddModal}
-          onClose={() => setShowAddModal(false)}
+          onClose={() => { setShowAddModal(false); setUnknownCode(null); }}
           shopId={shop.id}
           defaultLocationId={stockLocationId}
-          onSubmit={async (input, locationId) => { await createProduct(shop.id, input, locationId ?? stockLocationId); await reload(); }}
+          // Prefilled when this was opened from a scan that matched nothing, so
+          // the code doesn't have to be read off the label and typed back in.
+          defaults={unknownCode ? { barcode: unknownCode } : undefined}
+          onSubmit={async (input, locationId) => {
+            await createProduct(shop.id, input, locationId ?? stockLocationId);
+            setUnknownCode(null);
+            setScanFeedback(null);
+            await reload();
+          }}
         />
       )}
       {shop && canEdit && (
@@ -315,6 +475,21 @@ export default function InventoryScreen() {
           onDone={reload}
         />
       )}
+      {scanner.hardware && !scannerOpen && !showAddModal && editingProduct === null && !showImportModal && !showTransfer && (
+        <WedgeSink onScan={handleScannedCode} />
+      )}
+      {/* Single, unlike POS: a scan here answers one question — "which product
+          is this, and what do I have?" — and the result bar behind the modal is
+          the answer, so staying in the camera would hide it. */}
+      <BarcodeScannerModal
+        visible={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleScannedCode}
+        mode="single"
+        title="Scan to find a product"
+        hint="Point the camera at a barcode to look it up."
+        feedback={scanFeedback}
+      />
     </SafeAreaView>
   );
 }
@@ -333,8 +508,16 @@ const styles = StyleSheet.create({
   limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
+  searchWrap: { position: 'relative', justifyContent: 'center' },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
+  // Only when the button is actually there, so a store without scanning keeps
+  // the full-width field.
+  searchWithScan: { paddingRight: 44 },
+  scanInSearch: { position: 'absolute', right: 5, height: 32, width: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
+  scanInSearchText: { fontSize: 15, color: '#111111' },
   stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
+  addFromScan: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 14 },
+  addFromScanText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
   list: { overflow: 'hidden' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
 });
