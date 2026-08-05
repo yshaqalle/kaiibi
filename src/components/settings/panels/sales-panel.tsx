@@ -571,6 +571,128 @@ export function TaxAndCurrenciesPanel({
   );
 }
 
+// ─── Loyalty ─────────────────────────────────────────────────────────────
+
+// Two rates rather than one, because the earn rate alone doesn't say what the
+// programme costs: a point per dollar is a 1% programme at 100 points to the
+// dollar and a 10% one at 10. Keeping them apart also lets the earn rate stay
+// the simple sentence a shop tells its customers.
+//
+// BOTH FIELDS ARE EXPRESSED IN POINTS, deliberately. The database stores the
+// second as cents-per-point (integer, so a redemption is always exact and never
+// rounds), but nobody setting up a loyalty scheme thinks in cents per point --
+// they think "a hundred points gets you a dollar off". Asking for cents here
+// invites entering 100 and quietly promising to give every dollar straight
+// back, which is a 100x error in what the shop pays out. So the field asks for
+// the number a shop owner already has in their head and converts.
+const DEFAULT_POINTS_FOR_A_DOLLAR = 100;
+
+// Both directions of the conversion in one place, so they can't drift.
+const pointsForADollarFrom = (centsPerPoint: number) =>
+  centsPerPoint > 0 ? Math.round(100 / centsPerPoint) : DEFAULT_POINTS_FOR_A_DOLLAR;
+const centsPerPointFrom = (pointsForADollar: number) =>
+  pointsForADollar > 0 ? Math.max(1, Math.round(100 / pointsForADollar)) : 100;
+
+export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Promise<void> }) {
+  const [enabled, setEnabled] = useState(shop.loyaltyEnabled);
+  const [perUsdInput, setPerUsdInput] = useState(String(shop.loyaltyPointsPerUsd));
+  const [pointsForDollarInput, setPointsForDollarInput] = useState(String(pointsForADollarFrom(shop.loyaltyCentsPerPoint)));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty =
+    enabled !== shop.loyaltyEnabled ||
+    perUsdInput.trim() !== String(shop.loyaltyPointsPerUsd) ||
+    pointsForDollarInput.trim() !== String(pointsForADollarFrom(shop.loyaltyCentsPerPoint));
+
+  const pointsForADollar = Math.max(1, Math.floor(Number(pointsForDollarInput) || 0));
+  const centsPerPoint = centsPerPointFrom(pointsForADollar);
+  const pointsPerUsd = Number(perUsdInput) || 0;
+  // The round trip, spelled out. Neither field says on its own what the
+  // programme costs -- that's the PRODUCT of the two -- so it gets stated as a
+  // sentence before Save rather than discovered at the till.
+  const centsBackPerDollar = Math.round(pointsPerUsd * centsPerPoint);
+  const givingItAllBack = centsBackPerDollar >= 100;
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateShop(shop.id, {
+        loyaltyEnabled: enabled,
+        loyaltyPointsPerUsd: pointsPerUsd,
+        loyaltyCentsPerPoint: centsPerPoint,
+      });
+      await onSaved();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      // Supabase errors are plain {code, details, hint, message} objects, never
+      // instanceof Error -- checking that first always falls through to the
+      // fallback and hides the real Postgres message ("column ... does not
+      // exist" reads as a mystery). Same fix as customer-picker.tsx.
+      setError(
+        err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+          ? (err as { message: string }).message
+          : 'Could not save changes.'
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View>
+      <PageHeader title="Loyalty" />
+      <Section title="Loyalty points">
+        <Text style={styles.hint}>
+          Customers earn points on what they pay for goods, before tax and after any discount. They can spend them at checkout for money
+          off. Points only apply to sales with a customer attached.
+        </Text>
+        <Row label="Earn points" desc={enabled ? `${pointsPerUsd} per $1 spent` : 'Disabled'}>
+          <Toggle value={enabled} onValueChange={setEnabled} />
+        </Row>
+        {enabled && (
+          <>
+            <Row label="Points per $1">
+              <TextInput
+                value={perUsdInput}
+                onChangeText={setPerUsdInput}
+                placeholder="1"
+                placeholderTextColor="#999999"
+                keyboardType="decimal-pad"
+                style={styles.rateInput}
+              />
+            </Row>
+            <Row label="Points for $1.00 off" desc={`Each point is worth ${formatCents(centsPerPoint)}`}>
+              <TextInput
+                value={pointsForDollarInput}
+                onChangeText={setPointsForDollarInput}
+                placeholder={String(DEFAULT_POINTS_FOR_A_DOLLAR)}
+                placeholderTextColor="#999999"
+                keyboardType="number-pad"
+                style={styles.rateInput}
+              />
+              <Text style={styles.percentSign}>pts</Text>
+            </Row>
+            <Text style={[styles.hint, styles.loyaltySummary, givingItAllBack && styles.loyaltyWarning]}>
+              {`Spend $1.00 → earn ${pointsPerUsd} ${pointsPerUsd === 1 ? 'point' : 'points'} → worth ${formatCents(centsBackPerDollar)} off.`}
+              {givingItAllBack ? ' That gives back every dollar spent, or more — check both numbers.' : ''}
+            </Text>
+          </>
+        )}
+        {error && <Text style={styles.error}>{error}</Text>}
+        <View style={styles.actionsRow}>
+          <Btn onPress={save} disabled={!dirty || saving}>
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+          </Btn>
+        </View>
+      </Section>
+    </View>
+  );
+}
+
 // ─── Cashiers ────────────────────────────────────────────────────────────
 
 export function CashiersPanel({
@@ -703,6 +825,8 @@ const styles = StyleSheet.create({
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 16 },
   rateInput: { width: 60, fontSize: 14, fontWeight: '700', color: '#111111', textAlign: 'right' },
   percentSign: { fontSize: 14, fontWeight: '700', color: '#9CA3AF' },
+  loyaltySummary: { marginTop: 12, marginBottom: 4 },
+  loyaltyWarning: { color: '#9A6700', fontWeight: '700' },
 });
 
 const modalStyles = StyleSheet.create({

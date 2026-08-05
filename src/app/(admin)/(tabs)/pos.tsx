@@ -25,6 +25,7 @@ import { confirmDestructive } from '@/lib/confirm';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
+import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { createProduct, findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
@@ -80,6 +81,7 @@ export default function PosScreen() {
   const [editingLineDiscount, setEditingLineDiscount] = useState<string | null>(null);
   const [transactionDiscount, setTransactionDiscount] = usePosSessionField('transactionDiscount');
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
+  const [pointsRedeemed, setPointsRedeemed] = usePosSessionField('pointsRedeemed');
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   // Height of a single compact grid tile, measured from the first rendered
   // tile — rows stretch every tile to match the tallest in that row, so this
@@ -266,10 +268,33 @@ export default function PosScreen() {
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
   const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
-  const preTaxTotalCents = subtotalCents - transactionDiscountCents;
+  // Points come off after the cashier's discount and before tax, mirroring
+  // complete_sale — a redemption is a seller-funded price reduction, so tax
+  // applies to the reduced price. See migration 20260820000000.
+  const preRedemptionCents = subtotalCents - transactionDiscountCents;
+  const loyalty: LoyaltySettings = {
+    enabled: shop?.loyaltyEnabled ?? false,
+    pointsPerUsd: shop?.loyaltyPointsPerUsd ?? 1,
+    centsPerPoint: shop?.loyaltyCentsPerPoint ?? 1,
+  };
+  // Re-clamped on every render rather than corrected imperatively when the cart
+  // changes: shrink the basket and the redemption shrinks with it, which moves
+  // `total` and so trips the clear-payments effect below, exactly as a discount
+  // change would.
+  const redemption = effectiveRedemption(
+    pointsRedeemed,
+    preRedemptionCents,
+    selectedCustomer?.pointsBalance ?? 0,
+    loyalty,
+    Boolean(selectedCustomer)
+  );
+  const preTaxTotalCents = preRedemptionCents - redemption.cents;
   const taxCents = shop?.taxEnabled ? taxCentsFor(preTaxTotalCents, shop.taxRatePercent) : 0;
   const total = preTaxTotalCents + taxCents;
-  const hasAnyDiscount = grossCents !== preTaxTotalCents;
+  // Points get their own summary line, so they must not also inflate the
+  // "Discount" one.
+  const hasAnyDiscount = grossCents !== preRedemptionCents;
+  const pointsEarned = loyalty.enabled && selectedCustomer ? pointsEarnedFor(preTaxTotalCents, loyalty.pointsPerUsd) : 0;
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
   const fullyPaid = payments.length > 0 && paidCents === total;
 
@@ -306,7 +331,8 @@ export default function PosScreen() {
         cashierName,
         promotions,
         transactionDiscountCents,
-        activeLocation.id
+        activeLocation.id,
+        redemption.points
       );
       setReceipt({
         shopName: shop.name,
@@ -330,9 +356,15 @@ export default function PosScreen() {
         payments,
         customer: { name: selectedCustomer?.name ?? null, phone: selectedCustomer?.phone ?? null, email: selectedCustomer?.email ?? null },
         subtotalCents: grossCents,
-        discountCents: grossCents - preTaxTotalCents,
+        // Stops short of the redemption on purpose: points print as their own
+        // line, and folding them in here would report a discount the shop
+        // didn't give.
+        discountCents: grossCents - preRedemptionCents,
         taxCents,
         taxRatePercent: shop.taxEnabled ? shop.taxRatePercent : null,
+        pointsRedeemed: redemption.points,
+        pointsRedeemedCents: redemption.cents,
+        pointsEarned,
         totalCents: total,
         createdAt: new Date().toISOString(),
       });
@@ -340,6 +372,7 @@ export default function PosScreen() {
       setPayments([]);
       setSelectedCustomer(null);
       setTransactionDiscount(null);
+      setPointsRedeemed(0);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
@@ -357,6 +390,7 @@ export default function PosScreen() {
       setPayments([]);
       setSelectedCustomer(null);
       setTransactionDiscount(null);
+      setPointsRedeemed(0);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       setError(null);
@@ -547,9 +581,15 @@ export default function PosScreen() {
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Discount</Text>
-              <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - preTaxTotalCents)}</Text>
+              <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - preRedemptionCents)}</Text>
             </View>
           </>
+        )}
+        {redemption.points > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Points ({redemption.points.toLocaleString()})</Text>
+            <Text style={styles.summaryValueDiscount}>-{formatCents(redemption.cents)}</Text>
+          </View>
         )}
         {taxCents > 0 && (
           <View style={styles.summaryRow}>
@@ -574,6 +614,7 @@ export default function PosScreen() {
         <Text style={styles.totalLabel}>Total</Text>
         <Text style={styles.totalValue}>{formatCents(total)}</Text>
       </View>
+      {pointsEarned > 0 && <Text style={styles.earnsPoints}>Earns {pointsEarned.toLocaleString()} points</Text>}
 
       {shop && (
         <CheckoutPanel
@@ -583,8 +624,10 @@ export default function PosScreen() {
           onSelectCashier={(name) => setCashierName((current) => (current === name ? null : name))}
           shopId={shop.id}
           selectedCustomer={selectedCustomer}
-          onSelectCustomer={setSelectedCustomer}
-          onClearCustomer={() => setSelectedCustomer(null)}
+          // A redemption is against one specific balance, so changing or
+          // clearing the customer has to drop it rather than carry it over.
+          onSelectCustomer={(customer) => { setSelectedCustomer(customer); setPointsRedeemed(0); }}
+          onClearCustomer={() => { setSelectedCustomer(null); setPointsRedeemed(0); }}
           totalCents={total}
           payments={payments}
           currencies={currencies}
@@ -595,6 +638,13 @@ export default function PosScreen() {
           submitting={submitting}
           error={error}
           onCheckout={checkout}
+          loyaltyEnabled={loyalty.enabled}
+          centsPerPoint={loyalty.centsPerPoint}
+          pointsRedeemed={pointsRedeemed}
+          maxRedeemable={maxRedeemablePoints(preRedemptionCents, selectedCustomer?.pointsBalance ?? 0, loyalty)}
+          redemptionCents={redemption.cents}
+          pointsEarned={pointsEarned}
+          onChangePointsRedeemed={setPointsRedeemed}
         />
       )}
     </View>
@@ -744,4 +794,5 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
   totalLabel: { color: '#111111', fontSize: 15, fontWeight: '800' },
   totalValue: { color: '#111111', fontSize: 26, fontWeight: '800' },
+  earnsPoints: { color: '#999999', fontSize: 11, fontWeight: '700', marginTop: -8 },
 });

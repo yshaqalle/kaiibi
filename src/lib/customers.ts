@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { Customer, CustomerPurchase, NewCustomerInput } from '@/types/models';
+import type { Customer, CustomerPointsEntry, CustomerPurchase, NewCustomerInput } from '@/types/models';
 
 function mapCustomerRow(row: any): Customer {
   return {
@@ -14,6 +14,10 @@ function mapCustomerRow(row: any): Customer {
     neighborhood: row.neighborhood,
     tags: row.tags ?? [],
     notes: row.notes,
+    // Rides along on the `select('*')` every read here already does, and on
+    // pos_search_customers' `setof public.customers` -- so a balance reaches
+    // the customer list and the checkout picker with no extra query.
+    pointsBalance: row.points_balance ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -196,6 +200,31 @@ export async function getCustomersStatsBatch(shopId: string): Promise<Map<string
     });
   }
   return stats;
+}
+
+// The movements behind a customer's points balance, newest first. A plain
+// table read rather than an RPC: the ledger's select policy already accepts
+// customers.view, and nothing here needs definer rights.
+//
+// Capped at `limit` because this answers "why is my balance 148" at the
+// counter, not "reconcile three years" -- the ledger is append-only and grows
+// with every sale.
+export async function listCustomerPointsHistory(customerId: string, limit = 20): Promise<CustomerPointsEntry[]> {
+  const { data, error } = await supabase
+    .from('customer_points_ledger')
+    .select('id, sale_id, delta_points, reason, note, created_at')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    saleId: row.sale_id,
+    deltaPoints: row.delta_points,
+    reason: row.reason,
+    note: row.note,
+    createdAt: row.created_at,
+  }));
 }
 
 // Repeat customers who've gone quiet -- the ones worth a message. Requires at

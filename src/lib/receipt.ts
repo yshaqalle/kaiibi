@@ -45,6 +45,19 @@ export type ReceiptData = {
   // produced it — omitted (or 0) when tax wasn't enabled for this sale.
   taxCents?: number;
   taxRatePercent?: number | null;
+  // Loyalty points spent on this sale and what they took off, printed as their
+  // own line rather than folded into `discountCents` — a customer needs to see
+  // their points did something, and the shop's own discount is a different
+  // fact. Both 0/omitted when no points were used.
+  pointsRedeemed?: number;
+  pointsRedeemedCents?: number;
+  // Points this sale earned, printed inside the CUSTOMER block since that's
+  // the only case where earning happens at all.
+  //
+  // Deliberately no balance-after: buildReceiptFromSale has no balance to work
+  // from, so a reprint could not reproduce it, and a receipt that prints a
+  // different number the second time is worse than one that omits it.
+  pointsEarned?: number;
   totalCents: number;
   createdAt: string;
 };
@@ -150,9 +163,15 @@ export function buildReceiptFromSale(
     })),
     customer: { name: sale.customerName, phone: sale.customerPhone, email: sale.customerEmail },
     subtotalCents,
-    discountCents: subtotalCents - (sale.totalCents - sale.taxCents),
+    // The points come back out of the derived figure: they're already inside
+    // (total - tax), and leaving them there would print them twice, once as a
+    // discount the shop never gave and once on the points line below.
+    discountCents: subtotalCents - (sale.totalCents - sale.taxCents) - sale.pointsRedeemedCents,
     taxCents: sale.taxCents,
     taxRatePercent: sale.taxRatePercent,
+    pointsRedeemed: sale.pointsRedeemed,
+    pointsRedeemedCents: sale.pointsRedeemedCents,
+    pointsEarned: sale.pointsEarned,
     totalCents: sale.totalCents,
     createdAt: sale.createdAt,
   };
@@ -193,6 +212,9 @@ export function buildReceiptText(receipt: ReceiptData): string {
     lines.push(`SUBTOTAL: ${formatCents(receipt.subtotalCents ?? receipt.totalCents + receipt.discountCents)}`);
     lines.push(`DISCOUNT: -${formatCents(receipt.discountCents)}`);
   }
+  if (receipt.pointsRedeemed && receipt.pointsRedeemed > 0) {
+    lines.push(`POINTS USED (${receipt.pointsRedeemed}): -${formatCents(receipt.pointsRedeemedCents ?? 0)}`);
+  }
   if (receipt.taxCents && receipt.taxCents > 0) {
     lines.push(`TAX (${receipt.taxRatePercent}%): ${formatCents(receipt.taxCents)}`);
   }
@@ -206,6 +228,7 @@ export function buildReceiptText(receipt: ReceiptData): string {
     if (receipt.customer.name) lines.push(receipt.customer.name);
     if (receipt.customer.phone) lines.push(receipt.customer.phone);
     if (receipt.customer.email) lines.push(receipt.customer.email);
+    if (receipt.pointsEarned && receipt.pointsEarned > 0) lines.push(`Points earned: ${receipt.pointsEarned}`);
   }
   if (receipt.returnPolicy && receipt.returnPolicy.trim()) {
     lines.push('');
@@ -233,8 +256,9 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
 
   const hasDiscount = Boolean(receipt.discountCents && receipt.discountCents > 0);
   const hasTax = Boolean(receipt.taxCents && receipt.taxCents > 0);
+  const hasPoints = Boolean(receipt.pointsRedeemed && receipt.pointsRedeemed > 0);
   const summaryRows = `${hasDiscount ? `<div class="row muted"><span>Subtotal</span><span>${formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
-       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>` : ''}${hasTax ? `<div class="row muted"><span>Tax (${receipt.taxRatePercent}%)</span><span>${formatCents(receipt.taxCents ?? 0)}</span></div>` : ''}`;
+       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>` : ''}${hasPoints ? `<div class="row muted"><span>Points used (${receipt.pointsRedeemed})</span><span>-${formatCents(receipt.pointsRedeemedCents ?? 0)}</span></div>` : ''}${hasTax ? `<div class="row muted"><span>Tax (${receipt.taxRatePercent}%)</span><span>${formatCents(receipt.taxCents ?? 0)}</span></div>` : ''}`;
 
   const paymentRows = receipt.payments
     .map((p) => {
@@ -253,7 +277,8 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
     ? `<div class="divider"></div><div class="label">CUSTOMER</div>
        ${receipt.customer.name ? `<div class="muted">${esc(receipt.customer.name)}</div>` : ''}
        ${receipt.customer.phone ? `<div class="muted">${esc(receipt.customer.phone)}</div>` : ''}
-       ${receipt.customer.email ? `<div class="muted">${esc(receipt.customer.email)}</div>` : ''}`
+       ${receipt.customer.email ? `<div class="muted">${esc(receipt.customer.email)}</div>` : ''}
+       ${receipt.pointsEarned && receipt.pointsEarned > 0 ? `<div class="muted">Points earned: ${receipt.pointsEarned}</div>` : ''}`
     : '';
 
   const location = formatLocation(receipt);
