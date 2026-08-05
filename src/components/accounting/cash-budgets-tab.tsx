@@ -7,7 +7,6 @@ import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
-import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import {
@@ -51,9 +50,12 @@ function extractErrorMessage(err: unknown): string {
 
 export function CashBudgetsTab({
   dateRange,
+  locationFilter,
   setHeaderActions,
 }: {
   dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop, can, activeLocation } = useAuth();
@@ -63,7 +65,6 @@ export function CashBudgetsTab({
   // null = the combined business view. Cash accounts always belong to a store
   // (a drawer sits on a counter), so scoping them is a straight filter; bills
   // and budgets can be business-wide, and scoping excludes those.
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<CashAccount[]>([]);
   const [bills, setBills] = useState<RecurringBill[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -165,8 +166,6 @@ export function CashBudgetsTab({
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
-
-      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       <View style={styles.metricRow}>
         <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />

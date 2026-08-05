@@ -11,23 +11,69 @@ const theme = Colors.light;
 const W = 300;
 const H = 100;
 const PAD_TOP = 14;
+// Wide enough for a compact money label without crowding the plot.
+const AXIS_WIDTH = 42;
+
+// The next "round" number at or above `value` -- 1, 2 or 5 times a power of
+// ten. The usual axis-tick rule, and the reason a chart topping out at 234
+// labels 250 rather than 234.
+function niceCeiling(value: number): number {
+  if (value <= 0) return 0;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    const candidate = step * magnitude;
+    if (candidate >= value) return candidate;
+  }
+  return 10 * magnitude;
+}
 
 export type TrendPoint = { label: string; value: number };
 
-export function TrendChart({ data, formatValue }: { data: TrendPoint[]; formatValue: (value: number) => string }) {
+export function TrendChart({
+  data,
+  formatValue,
+  showAxis = false,
+}: {
+  data: TrendPoint[];
+  formatValue: (value: number) => string;
+  /**
+   * Gridlines and a value scale down the left.
+   *
+   * Off by default because the tooltip already answers "what is this point
+   * worth", and a scale on a small sparkline is noise. Worth turning on where
+   * the chart is large enough to be read as a shape -- there, "is this a good
+   * week" needs a magnitude to judge against, and hovering seven points to
+   * find out is not reading a chart.
+   */
+  showAxis?: boolean;
+}) {
   const [width, setWidth] = useState(W);
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-  const points = useMemo(() => {
+  const { points, scale } = useMemo(() => {
     const values = data.map((d) => d.value);
     const max = Math.max(1, ...values);
     const min = Math.min(0, ...values);
-    const span = Math.max(1, max - min);
-    return data.map((d, i) => ({
-      x: data.length === 1 ? 0 : (i / (data.length - 1)) * W,
-      y: PAD_TOP + (H - ((d.value - min) / span) * H),
-    }));
-  }, [data]);
+    // Points are plotted against the ROUNDED ceiling when the axis is shown,
+    // so a gridline labelled $250 is actually at $250 -- otherwise the labels
+    // and the line describe different scales.
+    const top = showAxis ? Math.max(niceCeiling(max), min + 1) : max;
+    const plotSpan = Math.max(1, top - min);
+    return {
+      points: data.map((d, i) => ({
+        x: data.length === 1 ? 0 : (i / (data.length - 1)) * W,
+        y: PAD_TOP + (H - ((d.value - min) / plotSpan) * H),
+      })),
+      // Three ticks, not five: this is a shape with a magnitude attached, not
+      // a table. Read top-down so it matches the order they are drawn in.
+      //
+      // Rounded UP to a readable step rather than printed raw. The literal
+      // maximum gives axes like "$234 / $117", which are exact and read as
+      // noise -- an axis exists to be glanced at, and nobody glances at 234.
+      // Rounding up (never down) keeps every point inside the plotted range.
+      scale: [top, min + (top - min) / 2, min],
+    };
+  }, [data, showAxis]);
 
   if (data.length === 0) return null;
 
@@ -64,7 +110,17 @@ export function TrendChart({ data, formatValue }: { data: TrendPoint[]; formatVa
 
   return (
     <View>
-      <View style={styles.chartArea}>
+      <View style={styles.chartRow}>
+        {showAxis ? (
+          <View style={styles.axis}>
+            {scale.map((value, i) => (
+              <Text key={i} style={[styles.axisLabel, { color: theme.textSecondary }]} numberOfLines={1}>
+                {formatValue(value)}
+              </Text>
+            ))}
+          </View>
+        ) : null}
+        <View style={styles.chartArea}>
         <View
           style={styles.touchArea}
           onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width)}
@@ -76,6 +132,16 @@ export function TrendChart({ data, formatValue }: { data: TrendPoint[]; formatVa
           {...webHoverProps}
         >
           <Svg width="100%" height={128} viewBox={`0 0 ${W} ${PAD_TOP + H}`} preserveAspectRatio="none">
+            {/* Gridlines live in the SVG; their LABELS do not. This viewBox
+                uses preserveAspectRatio="none" so the line stretches to any
+                width, which would stretch text with it — the labels are RN
+                Text in a fixed gutter beside the chart instead. */}
+            {showAxis ? (
+              <>
+                <Line x1={0} y1={PAD_TOP} x2={W} y2={PAD_TOP} stroke={theme.border} strokeWidth={1} />
+                <Line x1={0} y1={PAD_TOP + H / 2} x2={W} y2={PAD_TOP + H / 2} stroke={theme.border} strokeWidth={1} />
+              </>
+            ) : null}
             <Line x1={0} y1={PAD_TOP + H} x2={W} y2={PAD_TOP + H} stroke={theme.border} strokeWidth={1} />
             <Path d={areaPath} fill={theme.chartAccent} opacity={0.1} />
             <Path d={linePath} fill="none" stroke={theme.chartAccent} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
@@ -101,9 +167,10 @@ export function TrendChart({ data, formatValue }: { data: TrendPoint[]; formatVa
             <Text style={[styles.tooltipLabel, { color: theme.textSecondary }]}>{activePoint.label}</Text>
           </View>
         ) : null}
+        </View>
       </View>
       {data.length <= 10 ? (
-        <View style={styles.daysRow}>
+        <View style={[styles.daysRow, showAxis && styles.daysRowInset]}>
           {data.map((d, i) => (
             <Text key={i} style={[styles.dayLabel, { color: theme.textSecondary }]}>{d.label}</Text>
           ))}
@@ -114,11 +181,15 @@ export function TrendChart({ data, formatValue }: { data: TrendPoint[]; formatVa
 }
 
 const styles = StyleSheet.create({
-  chartArea: { position: 'relative' },
+  chartRow: { flexDirection: 'row', alignItems: 'stretch' },
+  chartArea: { position: 'relative', flex: 1, minWidth: 0 },
+  axis: { width: AXIS_WIDTH, height: 128, justifyContent: 'space-between', paddingVertical: 4, paddingRight: 6 },
+  axisLabel: { fontSize: 9, fontWeight: '600', textAlign: 'right' },
   touchArea: { width: '100%' },
   tooltip: { position: 'absolute', top: -6, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 7, alignItems: 'center', width: 68 },
   tooltipValue: { fontSize: 11, fontWeight: '700' },
   tooltipLabel: { fontSize: 9, fontWeight: '600', marginTop: 1 },
   daysRow: { flexDirection: 'row', marginTop: 6 },
+  daysRowInset: { paddingLeft: AXIS_WIDTH },
   dayLabel: { flex: 1, textAlign: 'center', fontSize: 9.5, fontWeight: '700' },
 });

@@ -1,28 +1,39 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LocationFilterRow } from '@/components/accounting/location-filter-row';
+import { AttentionList } from '@/components/attention-list';
 import { Card } from '@/components/card';
 import { GoalMeter } from '@/components/goal-meter';
-import { ProductTile } from '@/components/product-tile';
 import { RangeSelector, type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { Caveat } from '@/components/ui/caveat';
+import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
+import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { buildAttentionItems, type AttentionItem } from '@/lib/attention';
+import { budgetRows, monthlyBillCommitmentCents, type BudgetRow } from '@/lib/cash-budget-reporting';
+import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { invoiceTotals } from '@/lib/invoice-reporting';
+import { listOpenInvoices } from '@/lib/invoices';
+import { scopeToLocation } from '@/lib/location-reporting';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
-import { getDailyTotalsCents, getMonthToDateRevenueCents, listSales } from '@/lib/sales';
-import type { DailyBucket } from '@/lib/sales-reporting';
+import { getDailyTotalsCents, getMonthToDateRevenueCents, getSalesAndRefundsInRange, listSales } from '@/lib/sales';
+import { costOfGoodsSold, type CogsResult, type DailyBucket } from '@/lib/sales-reporting';
 import { membersActiveToday, onLeaveMemberIds, staleOpenShifts } from '@/lib/shift-hours';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, Product, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // The Dashboard answers one question: what needs attention right now. The
 // deeper analysis it used to carry -- rankings, category mix, payment split --
@@ -47,6 +58,28 @@ const DASHBOARD_PRESETS: RangePreset[] = [
   { label: '30 days', days: 30 },
 ];
 
+// "Tomorrow" and "In 3 days" rather than a date: the column exists to convey
+// urgency, and a reader should not have to subtract dates to feel it.
+function formatExpiry(expiryDate: string | null): string {
+  if (!expiryDate) return '—';
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  const due = new Date(expiryDate);
+  due.setHours(0, 0, 0, 0);
+  const days = Math.round((due.getTime() - start.getTime()) / 86_400_000);
+  if (days < 0) return `${Math.abs(days)}d ago`;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return `In ${days} days`;
+}
+
+function startOfThisMonth(): Date {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 type HrSnapshot = {
   activeToday: number;
   onLeave: StaffMember[];
@@ -54,7 +87,18 @@ type HrSnapshot = {
   pendingTimeOff: TimeOffRequest[];
 };
 
+// What the shop owes and what it has committed to. Read separately from the
+// range above, because what you owe is a fact about RIGHT NOW -- a bill raised
+// four months ago and never paid is exactly the one worth surfacing (same
+// reasoning as invoiceTotals in lib/invoice-reporting.ts).
+type MoneySnapshot = {
+  openInvoices: Invoice[];
+  recurringBills: RecurringBill[];
+  budgets: BudgetRow[];
+};
+
 export default function DashboardScreen() {
+  const router = useRouter();
   const { shop, can, locations, activeLocation } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   // Time and leave data is RLS-protected; without these the queries would just
@@ -64,6 +108,15 @@ export default function DashboardScreen() {
   const canSeeExpenses = can('expenses.view');
   const canSeeCustomers = can('customers.view');
 
+  // Which store the FIGURES are for. Deliberately separate from
+  // `activeLocation`, which is where this DEVICE is operating -- a till at
+  // Airport Road stays Airport Road's till while its owner looks at the
+  // Berbera numbers. null is the combined business view, matching Accounting.
+  //
+  // Defaults to the device's branch rather than to null: someone standing at a
+  // counter is asking about that counter. A single-store shop sees no control
+  // at all (LocationFilterRow renders nothing), so this costs them nothing.
+  const [locationFilter, setLocationFilter] = useState<string | null>(activeLocation?.id ?? null);
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [daily, setDaily] = useState<DailyBucket[]>([]);
   const [expenseCents, setExpenseCents] = useState(0);
@@ -73,6 +126,8 @@ export default function DashboardScreen() {
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
+  const [money, setMoney] = useState<MoneySnapshot | null>(null);
+  const [cogs, setCogs] = useState<CogsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -93,24 +148,57 @@ export default function DashboardScreen() {
     };
 
     await attempt('sales', async () => {
-      const [dailyRows, low, expiring, recent] = await Promise.all([
-        getDailyTotalsCents(shop.id, since, until),
-        // Scoped to this device's branch: a branch that is out of an item needs
-        // reordering even when the other branch is overflowing, and the
-        // shop-wide rollup hides exactly that.
-        getLowStockProducts(shop.id, shop.defaultLowStockLevel, activeLocation?.id ?? null),
+      const [dailyRows, low, expiring, recent, salesAndRefunds] = await Promise.all([
+        getDailyTotalsCents(shop.id, since, until, locationFilter),
+        // A branch that is out of an item needs reordering even when the other
+        // branch is overflowing, and a shop-wide rollup hides exactly that.
+        getLowStockProducts(shop.id, shop.defaultLowStockLevel, locationFilter),
         shop.expiryTrackingEnabled ? getExpiringProducts(shop.id, shop.expiryWarningLeadDays) : Promise.resolve([]),
-        listSales(shop.id, 5),
+        listSales(shop.id, 5, locationFilter),
+        // The one query this screen did not previously make. The landing page
+        // sells "real profit, not guesswork" and the home screen showed no
+        // profit at all -- costOfGoodsSold() has been in sales-reporting.ts
+        // the whole time with no caller here.
+        getSalesAndRefundsInRange(shop.id, since, until, locationFilter),
       ]);
       setDaily(dailyRows);
       setLowStock(low);
       setExpiringSoon(expiring);
       setRecentSales(recent);
+      setCogs(costOfGoodsSold(salesAndRefunds.sales, salesAndRefunds.refunds));
     });
 
     if (canSeeExpenses) {
       await attempt('expenses', async () => {
-        setExpenseCents(totalExpenseCents(await listExpensesInRange(shop.id, since, until)));
+        const rows = await listExpensesInRange(shop.id, since, until);
+        setExpenseCents(totalExpenseCents(scopeToLocation(rows, locationFilter)));
+      });
+
+      // Same permission -- bills, budgets and what is owed to suppliers are
+      // the same kind of secret -- but its own attempt(), so a shop with no
+      // bills tables populated doesn't cost the expenses total above.
+      await attempt('bills', async () => {
+        const [invoices, bills, budgets, expenses] = await Promise.all([
+          listOpenInvoices(shop.id),
+          listRecurringBills(shop.id),
+          listBudgets(shop.id),
+          // Budgets are monthly, so they are measured against the month --
+          // not against whatever range the selector happens to be showing.
+          listExpensesInRange(shop.id, startOfThisMonth()),
+        ]);
+        // Scoped client-side: these tables are small, and scopeToLocation is
+        // the same filter the accounting screens use, so a per-store view here
+        // can't disagree with a per-store P&L there.
+        //
+        // Note the asymmetry it carries: a per-store view EXCLUDES
+        // business-wide rows (a licence, group marketing), so per-store
+        // figures do not sum to the business's. That is deliberate -- see
+        // lib/location-reporting.ts.
+        setMoney({
+          openInvoices: scopeToLocation(invoices, locationFilter),
+          recurringBills: scopeToLocation(bills, locationFilter),
+          budgets: budgetRows(scopeToLocation(expenses, locationFilter), scopeToLocation(budgets, locationFilter)),
+        });
       });
     }
 
@@ -144,9 +232,10 @@ export default function DashboardScreen() {
     }
 
     setError(failures.length ? `Couldn't load ${failures.join(', ')}.` : null);
-    // activeLocation is a dependency because low stock is scoped to it --
-  // switching branch must re-evaluate, not show the previous branch's alerts.
-  }, [shop, dateRange, activeLocation, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
+    // locationFilter is a dependency because every figure above is scoped to
+  // it -- switching store must re-fetch, not leave the previous store's
+  // numbers on screen under a new label.
+  }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -156,22 +245,95 @@ export default function DashboardScreen() {
     if (!shop) return;
     // Scoped to the same store the goal belongs to, so the meter compares like
     // with like.
-    getMonthToDateRevenueCents(shop.id, activeLocation?.id ?? null).then(setMonthToDateCents);
-  }, [shop, activeLocation]);
+    getMonthToDateRevenueCents(shop.id, locationFilter).then(setMonthToDateCents);
+  }, [shop, locationFilter]);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
   const orderCount = useMemo(() => daily.reduce((sum, d) => sum + d.orderCount, 0), [daily]);
 
+  // The goal belongs to whichever store is SELECTED, not to whichever one this
+  // device happens to be operating at — otherwise the meter compares one
+  // branch's target against another branch's takings, which is the exact
+  // mismatch this screen used to ship.
+  //
+  // For the combined view the goals sum, because a business-wide target is the
+  // sum across stores (see ShopLocation.monthlyRevenueGoalCents). A store with
+  // no goal set contributes nothing rather than blocking the total.
+  const goalCents = useMemo(() => {
+    const active = locations.filter((location) => location.active);
+    if (locationFilter === null) {
+      return active.reduce((sum, location) => sum + (location.monthlyRevenueGoalCents ?? 0), 0);
+    }
+    return active.find((location) => location.id === locationFilter)?.monthlyRevenueGoalCents ?? 0;
+  }, [locations, locationFilter]);
+
+  const grossProfitCents = revenueCents - (cogs?.cogsCents ?? 0);
+
+  const owed = useMemo(() => invoiceTotals(money?.openInvoices ?? []), [money]);
+  const monthlyCommitmentCents = useMemo(
+    () => monthlyBillCommitmentCents(money?.recurringBills ?? []),
+    [money]
+  );
+
+  const scopeName = useMemo(() => {
+    if (locationFilter === null) return 'All stores';
+    return locations.find((location) => location.id === locationFilter)?.name ?? 'This store';
+  }, [locations, locationFilter]);
+
   const trendData: TrendPoint[] = useMemo(
     () =>
       daily.map((d) => ({
-        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' })[0],
+        // Not [0]: a column of M/T/W/T/F/S/S is ambiguous twice over, and
+        // TrendChart only draws labels at 10 points or fewer, so the short
+        // name always fits.
+        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
         value: d.netRevenueCents,
       })),
     [daily]
   );
 
-  const attention = buildAttentionItems({ dormant, hr, lowStock, expiringSoon });
+  const attention = buildAttentionItems({
+    openInvoices: money?.openInvoices ?? [],
+    recurringBills: money?.recurringBills ?? [],
+    budgetRows: money?.budgets ?? [],
+    pendingTimeOff: hr?.pendingTimeOff ?? [],
+    staleShifts: hr?.staleShifts ?? [],
+    onLeave: hr?.onLeave ?? [],
+    lowStock,
+    expiringSoon,
+    dormant,
+  });
+
+  // Where each row goes, down to the tab and the filter. The item's own key is
+  // what decides -- an overdue invoice belongs on Bills, a budget on
+  // Cash & Budgets -- so a reader lands on the thing the row was about rather
+  // than on a screen where they have to find it again.
+  //
+  // People's tab is validated against permissions on arrival (see people.tsx),
+  // so a link can't strand a cashier on an empty tab.
+  const openAttention = (item: AttentionItem) => {
+    if (item.key === 'invoices-overdue') {
+      router.push({ pathname: '/accounting', params: { tab: 'invoices' } });
+      return;
+    }
+    if (item.key.startsWith('bill-') || item.key.startsWith('budget-')) {
+      router.push({ pathname: '/accounting', params: { tab: 'cash' } });
+      return;
+    }
+    if (item.key === 'low-stock') {
+      router.push({ pathname: '/inventory', params: { filter: 'low' } });
+      return;
+    }
+    if (item.key === 'expiring') {
+      router.push({ pathname: '/inventory', params: { filter: 'expiring' } });
+      return;
+    }
+    if (item.key === 'dormant') {
+      router.push({ pathname: '/people', params: { tab: 'customers' } });
+      return;
+    }
+    router.push({ pathname: '/people', params: { tab: 'team' } });
+  };
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
@@ -180,13 +342,26 @@ export default function DashboardScreen() {
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
+        <View style={styles.rangeRow}>
+          <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
+        </View>
+
+        {/* Renders nothing for a single-store shop, and switches from chips to
+            a dropdown past three entries — see components/option-picker.tsx,
+            which argues against tuning that threshold per screen. */}
+        <View style={styles.scopeRow}>
+          <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
+        </View>
 
         <View style={styles.metricRow}>
           {/* Net of sales tax and refunds — tax collected is the government's
               money, so it was never revenue. Reads lower than the old figure
               for tax-enabled shops; that's the correction, not a regression. */}
           <StatTile value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
+          {/* Gross, not net: this is revenue less what the goods cost, before
+              operating expenses. Named precisely so it cannot be mistaken for
+              the bottom line, which lives on Accounting → Reports. */}
+          {cogs && <StatTile value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
           {canSeeExpenses && <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />}
           <StatTile value={String(orderCount)} label="Orders" />
           {canSeeCustomers && (
@@ -199,46 +374,101 @@ export default function DashboardScreen() {
           {canSeeTeam && hr && <StatTile value={String(hr.activeToday)} label="Team active today" />}
         </View>
 
-        {activeLocation?.monthlyRevenueGoalCents ? (
+        {/* Travels with the figure rather than sitting in a footnote: without
+            it, gross profit reads as precise when it is knowably overstated. */}
+        {cogs && cogs.uncostedItemCount > 0 ? (
+          <Caveat
+            tone="wrong"
+            action={{ label: 'Set costs in Inventory', onPress: () => router.push('/inventory') }}
+          >
+            {`${cogs.uncostedItemCount} sold ${cogs.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(cogs.uncostedRevenueCents)} of revenue), so gross profit looks higher than it is.`}
+          </Caveat>
+        ) : null}
+
+        {money && (money.openInvoices.length > 0 || money.recurringBills.length > 0) ? (
           <>
-            {/* Named when there is more than one store, because the goal and
-                the revenue below it are BOTH that store's — an unlabelled meter
-                would read as the whole business's. */}
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Money going out</Text>
+            <Card style={styles.chartCard}>
+              <StatementRow label="Owed to suppliers" hint={`${owed.openCount} open ${owed.openCount === 1 ? 'bill' : 'bills'}`} amountCents={owed.outstandingCents} />
+              {owed.overdueCents > 0 && <StatementRow label="of that, overdue" variant="sub" amountCents={owed.overdueCents} />}
+              <StatementRow label="Committed every month" hint="active recurring bills" amountCents={monthlyCommitmentCents} variant="emphasis" />
+            </Card>
+            {/* These four figures deliberately ignore the range above — what
+                you owe is a fact about now, which invoice-reporting.ts already
+                insists on. Saying so stops it reading as a bug. */}
+            <Caveat tone="context">
+              Outstanding and committed are as of today, not for the selected date range.
+            </Caveat>
+          </>
+        ) : null}
+
+        {goalCents ? (
+          <>
+            {/* Named whenever there is a choice to have made, because the goal
+                and the revenue behind it are BOTH the selected store's — an
+                unlabelled meter reads as the whole business's. */}
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              {showLocationName ? `Revenue goal this month · ${activeLocation.name}` : 'Revenue goal this month'}
+              {showLocationName ? `Revenue goal this month · ${scopeName}` : 'Revenue goal this month'}
             </Text>
             <Card style={styles.chartCard}>
-              <GoalMeter valueCents={monthToDateCents} goalCents={activeLocation.monthlyRevenueGoalCents} />
+              <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
             </Card>
           </>
         ) : null}
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue</Text>
         <Card style={styles.chartCard}>
-          <TrendChart data={trendData} formatValue={formatAccountingCents} />
+          <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
         </Card>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Needs attention</Text>
-        {attention.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textSecondary }]}>Nothing needs attention right now.</Text>
-        ) : (
-          <Card style={styles.list}>
-            {attention.map((item, index) => (
-              <View key={item.key} style={[styles.attentionRow, index > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                <View style={styles.attentionMain}>
-                  <Text style={[styles.attentionTitle, { color: theme.text }]}>{item.title}</Text>
-                  {item.detail ? <Text style={[styles.attentionDetail, { color: theme.textSecondary }]}>{item.detail}</Text> : null}
-                </View>
-              </View>
-            ))}
-          </Card>
-        )}
+        <AttentionList items={attention} onSelect={openAttention} />
 
         {lowStock.length > 0 && (
           <>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Low stock</Text>
-            <Card style={styles.list}>
-              {lowStock.slice(0, 5).map((product) => <ProductTile key={product.id} product={product} />)}
+            {/* A table, not tiles. The question here is comparative -- units
+                left against the level that triggers a reorder -- and tiles
+                force each product to be read on its own. */}
+            <Card style={styles.tableCard}>
+              <DataTable
+                rows={lowStock.slice(0, 5)}
+                keyExtractor={(product) => product.id}
+                onRowPress={(product) => router.push(`/product/${product.id}`)}
+                emptyLabel="Nothing is running low."
+                minWidth={420}
+                columns={[
+                  {
+                    key: 'product',
+                    header: 'Product',
+                    render: (product) => (
+                      <NameCell title={product.name} meta={[product.category, product.sku].filter(Boolean).join(' · ')} />
+                    ),
+                  },
+                  {
+                    key: 'left',
+                    header: 'Left',
+                    numeric: true,
+                    width: 66,
+                    render: (product) => (
+                      <ValueCell
+                        value={String(product.stock)}
+                        strong
+                        tone={product.stock <= 0 ? 'danger' : 'warning'}
+                      />
+                    ),
+                  },
+                  {
+                    key: 'reorder',
+                    header: 'Reorder at',
+                    numeric: true,
+                    width: 92,
+                    render: (product) => (
+                      <ValueCell value={String(product.reorderLevel ?? shop?.defaultLowStockLevel ?? 0)} tone="muted" />
+                    ),
+                  },
+                ]}
+              />
             </Card>
           </>
         )}
@@ -264,8 +494,35 @@ export default function DashboardScreen() {
         {expiringSoon.length > 0 && (
           <>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Expiring soon</Text>
-            <Card style={styles.list}>
-              {expiringSoon.slice(0, 5).map((product) => <ProductTile key={product.id} product={product} />)}
+            <Card style={styles.tableCard}>
+              <DataTable
+                rows={expiringSoon.slice(0, 5)}
+                keyExtractor={(product) => product.id}
+                onRowPress={(product) => router.push(`/product/${product.id}`)}
+                emptyLabel="Nothing is expiring soon."
+                minWidth={420}
+                columns={[
+                  {
+                    key: 'product',
+                    header: 'Product',
+                    render: (product) => <NameCell title={product.name} meta={product.category ?? undefined} />,
+                  },
+                  {
+                    key: 'expires',
+                    header: 'Expires',
+                    numeric: true,
+                    width: 104,
+                    render: (product) => <ValueCell value={formatExpiry(product.expiryDate)} tone="warning" strong />,
+                  },
+                  {
+                    key: 'units',
+                    header: 'Units',
+                    numeric: true,
+                    width: 62,
+                    render: (product) => <ValueCell value={String(product.stock)} tone="muted" />,
+                  },
+                ]}
+              />
             </Card>
           </>
         )}
@@ -274,93 +531,19 @@ export default function DashboardScreen() {
   );
 }
 
-type AttentionItem = { key: string; title: string; detail?: string };
-
-// Ordered by actionability: things awaiting a decision first, then things that
-// are merely worth knowing. A list that opens with "3 customers went quiet"
-// buries the time-off request someone is waiting on.
-function buildAttentionItems({
-  dormant,
-  hr,
-  lowStock,
-  expiringSoon,
-}: {
-  dormant: { customer: Customer; lastOrderAt: string }[];
-  hr: HrSnapshot | null;
-  lowStock: Product[];
-  expiringSoon: Product[];
-}): AttentionItem[] {
-  const items: AttentionItem[] = [];
-
-  if (hr?.pendingTimeOff.length) {
-    items.push({
-      key: 'time-off',
-      title: `${hr.pendingTimeOff.length} time-off request${hr.pendingTimeOff.length === 1 ? '' : 's'} waiting`,
-      detail: 'Approve or decline in People → Team.',
-    });
-  }
-
-  if (hr?.staleShifts.length) {
-    items.push({
-      key: 'stale-shifts',
-      title: `${hr.staleShifts.length} shift${hr.staleShifts.length === 1 ? '' : 's'} still clocked in from an earlier day`,
-      // Said plainly because the knock-on is invisible otherwise: open shifts
-      // are excluded from hours worked, so pay is quietly understated.
-      detail: 'Those hours are not counted until they clock out — fix before running payroll.',
-    });
-  }
-
-  if (lowStock.length) {
-    items.push({
-      key: 'low-stock',
-      title: `${lowStock.length} product${lowStock.length === 1 ? '' : 's'} low on stock`,
-      detail: lowStock.slice(0, 3).map((p) => p.name).join(', '),
-    });
-  }
-
-  if (expiringSoon.length) {
-    items.push({
-      key: 'expiring',
-      title: `${expiringSoon.length} product${expiringSoon.length === 1 ? '' : 's'} expiring soon`,
-      detail: expiringSoon.slice(0, 3).map((p) => p.name).join(', '),
-    });
-  }
-
-  if (hr?.onLeave.length) {
-    items.push({
-      key: 'on-leave',
-      title: `${hr.onLeave.length} on leave today`,
-      detail: hr.onLeave.map((m) => m.fullName ?? 'Staff member').join(', '),
-    });
-  }
-
-  for (const entry of dormant.slice(0, 3)) {
-    const name = [entry.customer.firstName, entry.customer.lastName].filter(Boolean).join(' ');
-    items.push({
-      key: `dormant-${entry.customer.id}`,
-      title: name || 'Customer',
-      detail: `Last order ${new Date(entry.lastOrderAt).toLocaleDateString()}`,
-    });
-  }
-
-  return items;
-}
-
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: 24, paddingBottom: 42 },
   title: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
+  rangeRow: { marginBottom: 12 },
+  scopeRow: { marginBottom: 14 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },
   list: { overflow: 'hidden', marginBottom: 8 },
-  attentionRow: { flexDirection: 'row', alignItems: 'flex-start', padding: 13, gap: 12 },
-  attentionMain: { flex: 1, minWidth: 0 },
-  attentionTitle: { fontSize: 13, fontWeight: '700' },
-  attentionDetail: { fontSize: 11.5, marginTop: 3, lineHeight: 16 },
+  tableCard: { paddingHorizontal: 8, paddingVertical: 12, marginBottom: 8 },
   recentRow: { padding: 13, borderBottomWidth: 1 },
   recentName: { fontSize: 13, fontWeight: '700' },
   recentMeta: { fontSize: 11, marginTop: 3 },
-  empty: { fontSize: 13, marginBottom: 8 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

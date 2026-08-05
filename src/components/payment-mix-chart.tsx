@@ -11,7 +11,8 @@ export type PaymentMixItem = { method: PaymentMethod; amountCents: number; pct: 
 // Fixed order + color slot per method (never re-derived from sort order) so
 // a method's color and position stay stable as its share changes day to day.
 const METHOD_ORDER: PaymentMethod[] = ['cash', 'zaad', 'edahab', 'other'];
-const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', zaad: 'Zaad', edahab: 'eDahab', other: 'Other' };
+const METHOD_LABEL: Record<PaymentMethod, string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
+const METHOD_ICON: Record<PaymentMethod, string> = { cash: '💵', zaad: '📱', edahab: '📱', other: '•' };
 const METHOD_SERIES_KEY: Record<PaymentMethod, 'chartSeries1' | 'chartSeries2' | 'chartSeries3' | 'chartSeries4'> = {
   cash: 'chartSeries1',
   zaad: 'chartSeries2',
@@ -19,9 +20,23 @@ const METHOD_SERIES_KEY: Record<PaymentMethod, 'chartSeries1' | 'chartSeries2' |
   other: 'chartSeries4',
 };
 
-export function PaymentMixChart({ items }: { items: PaymentMixItem[] }) {
+// One row per method: what it is, what it took, and how big a share that is.
+//
+// Replaces a single stacked bar with a legend underneath. The stacked bar
+// showed proportion well and the actual AMOUNTS not at all — you could see
+// that cash was about half, but not that it was $784.50, which is the figure
+// an owner reconciles against a till. Reading a share off the legend also
+// meant matching a colour to a swatch, once per method.
+export function PaymentMixChart({
+  items,
+  formatValue,
+}: {
+  items: PaymentMixItem[];
+  /** Money formatter. Omit to show shares only. */
+  formatValue?: (cents: number) => string;
+}) {
   if (items.length === 0) {
-    return <Text style={[styles.empty, { color: theme.textSecondary }]}>No payments recorded yet.</Text>;
+    return <Text style={styles.empty}>No payments recorded yet.</Text>;
   }
 
   const ordered = METHOD_ORDER.map((method) => items.find((item) => item.method === method)).filter(
@@ -30,42 +45,51 @@ export function PaymentMixChart({ items }: { items: PaymentMixItem[] }) {
 
   return (
     <View>
-      <View style={[styles.bar, { backgroundColor: theme.surfaceMuted }]}>
-        {ordered.map((item, i) => (
-          <View
-            key={item.method}
-            style={[
-              styles.segment,
-              {
-                width: `${Math.max(item.pct, 1)}%`,
-                backgroundColor: theme[METHOD_SERIES_KEY[item.method]],
-                borderRightWidth: i === ordered.length - 1 ? 0 : 2,
-                borderRightColor: theme.surface,
-              },
-            ]}
-          />
-        ))}
-      </View>
-      <View style={styles.legend}>
-        {ordered.map((item) => (
-          <View key={item.method} style={styles.legendItem}>
-            <View style={[styles.swatch, { backgroundColor: theme[METHOD_SERIES_KEY[item.method]] }]} />
-            <Text style={[styles.legendName, { color: theme.text }]}>{METHOD_LABEL[item.method]}</Text>
-            <Text style={[styles.legendPct, { color: theme.textSecondary }]}>{Math.round(item.pct)}%</Text>
+      {ordered.map((item) => (
+        <View key={item.method} style={styles.row}>
+          <View style={styles.icon}>
+            <Text style={styles.iconGlyph}>{METHOD_ICON[item.method]}</Text>
           </View>
-        ))}
-      </View>
+          <View style={styles.body}>
+            <View style={styles.topRow}>
+              <Text style={styles.name}>{METHOD_LABEL[item.method]}</Text>
+              {formatValue ? <Text style={styles.amount}>{formatValue(item.amountCents)}</Text> : null}
+            </View>
+            <View style={styles.track}>
+              {/* A 1% floor so a method that took almost nothing still shows a
+                  sliver rather than vanishing entirely. */}
+              <View
+                style={[
+                  styles.fill,
+                  { width: `${Math.max(item.pct, 1)}%`, backgroundColor: theme[METHOD_SERIES_KEY[item.method]] },
+                ]}
+              />
+            </View>
+            <Text style={styles.pct}>{Math.round(item.pct)}%</Text>
+          </View>
+        </View>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  bar: { flexDirection: 'row', height: 22, borderRadius: 6, overflow: 'hidden', marginBottom: 14 },
-  segment: { height: '100%' },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: '45%' },
-  swatch: { width: 10, height: 10, borderRadius: 3 },
-  legendName: { fontSize: 11.5, fontWeight: '700', flex: 1 },
-  legendPct: { fontSize: 11, fontWeight: '700' },
-  empty: { fontSize: 13, paddingVertical: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7 },
+  icon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: theme.backgroundElement,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconGlyph: { fontSize: 13 },
+  body: { flex: 1, minWidth: 0 },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  name: { fontSize: 12.5, fontWeight: '700', color: theme.text },
+  amount: { fontSize: 12.5, fontWeight: '800', color: theme.text, fontVariant: ['tabular-nums'] },
+  track: { height: 5, borderRadius: 3, backgroundColor: theme.backgroundElement, marginTop: 5, overflow: 'hidden' },
+  fill: { height: '100%', borderRadius: 3 },
+  pct: { fontSize: 11, color: theme.textSecondary, fontWeight: '600', marginTop: 3, fontVariant: ['tabular-nums'] },
+  empty: { fontSize: 13, color: theme.textSecondary, paddingVertical: 4 },
 });

@@ -1,9 +1,12 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Card } from '@/components/card';
+import { Caveat } from '@/components/ui/caveat';
+import { StatementRow } from '@/components/ui/statement-row';
 import { CategoryDonutChart, type CategorySlice } from '@/components/category-donut-chart';
 import { CategoryOverTimeChart, type MonthlyCategoryBucket } from '@/components/category-over-time-chart';
 import type { DateRange } from '@/components/range-selector';
@@ -12,7 +15,6 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
 import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
-import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { listExpensesInRange } from '@/lib/expenses';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { sharePdf } from '@/lib/export-file';
@@ -66,11 +68,15 @@ function extractErrorMessage(err: unknown): string {
 
 export function ReportsTab({
   dateRange,
+  locationFilter,
   setHeaderActions,
 }: {
   dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
 }) {
+  const router = useRouter();
   const { shop, can } = useAuth();
   const { since, until } = dateRange;
   // Pay data is RLS-protected. Without both permissions the labour figures
@@ -83,7 +89,6 @@ export function ReportsTab({
   // of the dimension. Business-wide costs drop out of a per-store view, so the
   // per-store profits will not sum to the business's; the difference is the
   // unattributed overhead (see lib/location-reporting.ts).
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [performance, setPerformance] = useState<SalesPerformance | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
@@ -282,52 +287,52 @@ export function ReportsTab({
 
       {error && <Text style={styles.error}>{error}</Text>}
 
-      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
-
       <Text style={styles.sectionTitle}>Profit &amp; loss · {rangeLabel}</Text>
       <Card style={styles.card}>
-        <PnlRow label="Revenue" hint="net of sales tax and refunds" amountCents={revenueCents} />
-        <PnlRow
+        <StatementRow label="Revenue" hint="net of sales tax and refunds" amountCents={revenueCents} />
+        <StatementRow
           label="Cost of goods sold"
           hint="what the items sold cost you"
           amountCents={-cogsCents}
         />
-        <PnlRow label="Gross profit" amountCents={grossProfitCents} emphasis />
-        <PnlRow label="Operating expenses" hint="excludes stock purchases and owner draws" amountCents={-postedOperatingCents} />
+        <StatementRow label="Gross profit" amountCents={grossProfitCents} variant="emphasis" />
+        <StatementRow label="Operating expenses" hint="excludes stock purchases and owner draws" amountCents={-postedOperatingCents} />
         {accruedLabor > 0 && (
-          <PnlRow
+          <StatementRow
             label="Wages earned, not yet paid"
             hint={labor && labor.hours > 0 ? `incl. ${labor.hours}h worked, no pay run yet` : 'no pay run yet'}
             amountCents={-accruedLabor}
           />
         )}
-        <PnlRow label="Net profit" amountCents={netProfitCents} emphasis total />
+        <StatementRow label="Net profit" amountCents={netProfitCents} variant="total" />
+        {/* Each of these was already written and already correct — they just
+            rendered as small grey text that reads as boilerplate. The tone
+            carries the meaning: amber means this figure is WRONG until
+            something is fixed, blue means it is right and here is why it looks
+            odd, grey means part of it is withheld. */}
         {performance.uncostedItemCount > 0 && (
-          <Text style={styles.caveat}>
-            {performance.uncostedItemCount} sold item{performance.uncostedItemCount === 1 ? '' : 's'} had no cost recorded
-            ({formatAccountingCents(performance.uncostedRevenueCents)} of revenue), so cost of goods sold is understated and
-            profit looks higher than it is. Set a cost on those products in Inventory.
-          </Text>
+          <Caveat tone="wrong" action={{ label: 'Set costs in Inventory', onPress: () => router.push('/inventory') }}>
+            {`${performance.uncostedItemCount} sold item${performance.uncostedItemCount === 1 ? '' : 's'} had no cost recorded (${formatAccountingCents(performance.uncostedRevenueCents)} of revenue), so cost of goods sold is understated and profit looks higher than it is.`}
+          </Caveat>
         )}
         {nonOperatingCents > 0 && (
-          <Text style={styles.caveat}>
-            {formatAccountingCents(nonOperatingCents)} of stock purchases and owner draws is excluded above — stock becomes a
-            cost when it sells, and an owner draw isn&apos;t a business cost. Both still leave the bank account.
-          </Text>
+          <Caveat tone="context">
+            {`${formatAccountingCents(nonOperatingCents)} of stock purchases and owner draws is excluded above — stock becomes a cost when it sells, and an owner draw isn't a business cost. Both still leave the bank account.`}
+          </Caveat>
         )}
         {accruedLabor > 0 && (
-          <Text style={styles.caveat}>
-            Wages above are pay already earned — hourly or salaried — with no pay run posted yet. Post a run in Payroll
-            and this line moves into operating expenses — the total won&apos;t change.
-            {labor && labor.fixedExcludedCount > 0
-              ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
-              : ''}
-          </Text>
+          <Caveat tone="context">
+            {`Wages above are pay already earned — hourly or salaried — with no pay run posted yet. Post a run in Payroll and this line moves into operating expenses; the total won't change.${
+              labor && labor.fixedExcludedCount > 0
+                ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
+                : ''
+            }`}
+          </Caveat>
         )}
         {!canSeeLabor && (
-          <Text style={styles.caveat}>
+          <Caveat tone="partial">
             Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
-          </Text>
+          </Caveat>
         )}
       </Card>
 
@@ -335,9 +340,9 @@ export function ReportsTab({
         <>
           <Text style={styles.sectionTitle}>Labour</Text>
           <Card style={styles.card}>
-            <PnlRow label="Wages posted by a pay run" amountCents={postedWagesCents} />
-            {accruedLabor > 0 && <PnlRow label="Earned, not yet paid" amountCents={accruedLabor} />}
-            <PnlRow label="Total labour cost" amountCents={totalLaborCents} emphasis />
+            <StatementRow label="Wages posted by a pay run" amountCents={postedWagesCents} />
+            {accruedLabor > 0 && <StatementRow label="Earned, not yet paid" amountCents={accruedLabor} />}
+            <StatementRow label="Total labour cost" amountCents={totalLaborCents} variant="emphasis" />
             <View style={styles.kpiRow}>
               {laborPctOfRevenue !== null && (
                 <View style={styles.kpi}>
@@ -353,12 +358,13 @@ export function ReportsTab({
               )}
             </View>
             {labor && labor.totalHoursInRange > 0 && (
-              <Text style={styles.caveat}>
-                Based on {labor.totalHoursInRange}h clocked in this period.
-                {labor.nonHourlyCount > 0
-                  ? ` ${labor.nonHourlyCount} salaried or fixed-pay ${labor.nonHourlyCount === 1 ? 'person does' : 'people do'} not clock hours, so the per-hour figure reflects hourly staff only.`
-                  : ''}
-              </Text>
+              <Caveat tone="context">
+                {`Based on ${labor.totalHoursInRange}h clocked in this period.${
+                  labor.nonHourlyCount > 0
+                    ? ` ${labor.nonHourlyCount} salaried or fixed-pay ${labor.nonHourlyCount === 1 ? 'person does' : 'people do'} not clock hours, so the per-hour figure reflects hourly staff only.`
+                    : ''
+                }`}
+              </Caveat>
             )}
           </Card>
         </>
@@ -366,13 +372,16 @@ export function ReportsTab({
 
       <Text style={styles.sectionTitle}>Sales tax collected</Text>
       <Card style={styles.card}>
-        <PnlRow label="Gross takings" amountCents={performance.grossSalesCents} />
-        <PnlRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
-        {performance.refundedCents > 0 && <PnlRow label="Refunds issued" amountCents={-performance.refundedCents} />}
-        <Text style={styles.caveat}>
-          Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.
-          {shop?.taxEnabled ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.` : ''}
-        </Text>
+        <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
+        <StatementRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
+        {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />}
+        <Caveat tone="context">
+          {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
+            shop?.taxEnabled
+              ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.`
+              : ''
+          }`}
+        </Caveat>
       </Card>
 
       {categoryTotals.length > 0 && (
@@ -380,7 +389,7 @@ export function ReportsTab({
           <Text style={styles.sectionTitle}>Where the money went</Text>
           <Card style={styles.card}>
             {categoryTotals.map((row) => (
-              <PnlRow key={row.category} label={expenseCategoryLabel(row.category)} amountCents={row.totalCents} />
+              <StatementRow key={row.category} label={expenseCategoryLabel(row.category)} amountCents={row.totalCents} />
             ))}
           </Card>
         </>
@@ -399,6 +408,7 @@ export function ReportsTab({
       <Text style={styles.sectionTitle}>Cashier performance</Text>
       <Card style={styles.chartCard}>
         <RankingChart
+          showRank
           items={cashiers.map((c) => ({ name: c.name, value: c.revenueCents }))}
           formatValue={formatAccountingCents}
           emptyLabel="No cashier-attributed sales yet."
@@ -430,32 +440,6 @@ function ReportsHeaderActions({
   return null;
 }
 
-function PnlRow({
-  label,
-  hint,
-  amountCents,
-  emphasis,
-  total,
-}: {
-  label: string;
-  hint?: string;
-  amountCents: number;
-  emphasis?: boolean;
-  total?: boolean;
-}) {
-  return (
-    <View style={[styles.pnlRow, total && styles.pnlRowTotal]}>
-      <View style={styles.pnlLabelWrap}>
-        <Text style={[styles.pnlLabel, emphasis && styles.pnlLabelEmphasis]}>{label}</Text>
-        {hint ? <Text style={styles.pnlHint}>{hint}</Text> : null}
-      </View>
-      <Text style={[styles.pnlAmount, emphasis && styles.pnlAmountEmphasis, amountCents < 0 && styles.pnlAmountNegative]}>
-        {formatAccountingCents(amountCents)}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   exportButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, minWidth: 96, alignItems: 'center' },
   exportButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
@@ -477,7 +461,6 @@ const styles = StyleSheet.create({
   kpi: { minWidth: 120 },
   kpiValue: { fontSize: 20, fontWeight: '800', color: '#111111', letterSpacing: -0.5 },
   kpiLabel: { fontSize: 11, color: '#999999', marginTop: 2 },
-  caveat: { fontSize: 11, color: '#B5793A', lineHeight: 16, marginTop: 12 },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

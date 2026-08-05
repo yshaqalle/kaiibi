@@ -370,10 +370,20 @@ export async function getSalesAndRefundsInRange(
 // `netRevenueCents` is the figure to report as "revenue": gross minus the sales
 // tax held on the government's behalf, minus refunds. `grossCents` is kept on
 // each bucket for anything that genuinely wants takings rather than earnings.
-export async function getDailyTotalsCents(shopId: string, sinceDate: Date, untilDate?: Date): Promise<DailyBucket[]> {
+// `locationId` null/undefined means the combined business view, matching
+// scopeToLocation in lib/location-reporting.ts. Both underlying queries already
+// took a location; this simply stopped dropping it on the floor, which is what
+// let the Dashboard show one branch's goal directly beneath every branch's
+// revenue.
+export async function getDailyTotalsCents(
+  shopId: string,
+  sinceDate: Date,
+  untilDate?: Date,
+  locationId?: string | null
+): Promise<DailyBucket[]> {
   const [sales, refunds] = await Promise.all([
-    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate),
-    listRefundsInRange(shopId, sinceDate, untilDate),
+    listAllSalesInRange(shopId, startOfDay(sinceDate), untilDate, locationId),
+    listRefundsInRange(shopId, sinceDate, untilDate, locationId),
   ]);
   return bucketDailyTotals(sales, refunds, sinceDate, untilDate);
 }

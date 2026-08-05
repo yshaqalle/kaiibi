@@ -1,4 +1,5 @@
 import { FontAwesome } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -101,7 +102,20 @@ export default function PeopleScreen() {
   const canSeeTeam = canAny([...TEAM_PERMISSIONS]);
   const canSeeSchedule = can('people.schedule.manage');
   const canUseSelfService = Boolean(myMembership?.active);
-  const [tab, setTab] = useState<PeopleTab>(canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me');
+  // A `?tab=` param, VALIDATED against what this user may actually see. The
+  // default here is permission-dependent, so a link that skipped the check
+  // would land a cashier on an empty Team tab -- worse than ignoring it.
+  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const permittedTab = (candidate: string | undefined): PeopleTab | null => {
+    if (candidate === 'customers' && canSeeCustomers) return 'customers';
+    if (candidate === 'team' && canSeeTeam) return 'team';
+    if (candidate === 'schedule' && canSeeSchedule) return 'schedule';
+    if (candidate === 'me') return 'me';
+    return null;
+  };
+  const [tab, setTab] = useState<PeopleTab>(
+    permittedTab(tabParam) ?? (canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me')
+  );
 
   const options = [
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: 'Customers' }] : []),

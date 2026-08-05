@@ -1,23 +1,43 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { ExportMenu } from '@/components/export-menu';
 import { Card } from '@/components/card';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import type { DateRange } from '@/components/range-selector';
 import { RankingChart, type RankingItem } from '@/components/ranking-chart';
 import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { scopeToLocation } from '@/lib/location-reporting';
 import { getSalesAndRefundsInRange, getTopSellingProducts } from '@/lib/sales';
-import { bucketDailyTotals, paymentMethodMix, type DailyBucket } from '@/lib/sales-reporting';
+import {
+  bucketDailyTotals,
+  cashierPerformance,
+  costOfGoodsSold,
+  paymentMethodMix,
+  type DailyBucket,
+} from '@/lib/sales-reporting';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
+
+const OVERVIEW_EXPORT_COLUMNS = [
+  { header: 'Day', value: (d: DailyBucket) => d.day },
+  { header: 'Gross', value: (d: DailyBucket) => (d.grossCents / 100).toFixed(2) },
+  { header: 'Sales tax', value: (d: DailyBucket) => (d.taxCents / 100).toFixed(2) },
+  { header: 'Refunds', value: (d: DailyBucket) => (d.refundCents / 100).toFixed(2) },
+  { header: 'Revenue', value: (d: DailyBucket) => (d.netRevenueCents / 100).toFixed(2) },
+  { header: 'Discounts', value: (d: DailyBucket) => (d.discountCents / 100).toFixed(2) },
+  { header: 'Orders', value: (d: DailyBucket) => String(d.orderCount) },
+];
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -26,14 +46,30 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
+export function OverviewTab({
+  dateRange,
+  locationFilter,
+  setHeaderActions,
+}: {
+  dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
+  setHeaderActions: HeaderActionsSetter;
+}) {
   const { shop } = useAuth();
+  const { width } = useWindowDimensions();
+  // Matches the admin sidebar's own desktop breakpoint.
+  const wide = width >= 1000;
   const { since, until } = dateRange;
 
   const [daily, setDaily] = useState<DailyBucket[]>([]);
   const [expenseCents, setExpenseCents] = useState(0);
   const [paymentMix, setPaymentMix] = useState<PaymentMixItem[]>([]);
   const [topProducts, setTopProducts] = useState<{ name: string; revenueCents: number }[]>([]);
+  const [cashiers, setCashiers] = useState<{ name: string; revenueCents: number }[]>([]);
+  const [cogsCents, setCogsCents] = useState(0);
+  const [uncostedItemCount, setUncostedItemCount] = useState(0);
+  const [uncostedRevenueCents, setUncostedRevenueCents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,40 +77,68 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
     if (!shop) return;
     setLoading(true);
     try {
-      // The daily buckets and the payment mix are both derived from the same
-      // sales set, so it is fetched once -- that query pulls five nested
-      // relations and was previously run twice per screen load.
+      // The daily buckets, the payment mix, the cashier ranking and now the
+      // cost of goods are all derived from the SAME sales set, which is
+      // already fetched once here. Cost of goods is therefore free — which is
+      // why the profit figure below can be a real one rather than a
+      // simplification.
       const [{ sales, refunds }, expenses, top] = await Promise.all([
-        getSalesAndRefundsInRange(shop.id, since, until),
+        getSalesAndRefundsInRange(shop.id, since, until, locationFilter),
         listExpensesInRange(shop.id, since, until),
         getTopSellingProducts(shop.id, since, until),
       ]);
       setDaily(bucketDailyTotals(sales, refunds, since, until));
-      setExpenseCents(totalExpenseCents(expenses));
+      setExpenseCents(totalExpenseCents(scopeToLocation(expenses, locationFilter)));
       setPaymentMix(paymentMethodMix(sales));
       setTopProducts(top.byRevenue);
+      setCashiers(cashierPerformance(sales));
+      const cogs = costOfGoodsSold(sales, refunds);
+      setCogsCents(cogs.cogsCents);
+      setUncostedItemCount(cogs.uncostedItemCount);
+      setUncostedRevenueCents(cogs.uncostedRevenueCents);
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  }, [shop, since, until]);
+  }, [shop, since, until, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
 
-  // Revenue is already net of sales tax and refunds (see sales-reporting.ts),
-  // so this subtraction is a like-for-like comparison rather than mixing
-  // takings against costs.
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
   const refundCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);
   const taxCents = useMemo(() => daily.reduce((sum, d) => sum + d.taxCents, 0), [daily]);
-  const netProfitCents = revenueCents - expenseCents;
+
+  // Revenue less what the goods cost. NOT net profit: operating expenses and
+  // labour come off on Reports.
+  //
+  // This tile used to read "Net profit" and be `revenue - expenses`, with no
+  // cost of goods in it at all — so Overview and Reports each showed a figure
+  // called "Net profit" and they could differ by an order of magnitude, with
+  // nothing on either screen to explain why. The data to do it properly was
+  // already being fetched.
+  const grossProfitCents = revenueCents - cogsCents;
+
+  // Null rather than 0 when there is no revenue: "0% margin" on a quiet day
+  // states something false about the shop, where no figure states nothing.
+  //
+  // Null ALSO when nothing sold has a cost recorded. The arithmetic then says
+  // 100% margin, which is technically what revenue-minus-zero gives and is a
+  // flatly misleading thing to print next to a figure we already know is
+  // overstated. A shop that has never entered a cost price should be told it
+  // has no margin figure, not handed a perfect one.
+  const noCostsRecorded = cogsCents === 0 && uncostedItemCount > 0;
+  const marginPct =
+    revenueCents > 0 && !noCostsRecorded ? Math.round((grossProfitCents / revenueCents) * 100) : null;
 
   const trendData: TrendPoint[] = useMemo(
     () =>
       daily.map((d) => ({
-        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' })[0],
+        // Not [0]: a column of M/T/W/T/F/S/S is ambiguous twice over, and
+        // TrendChart only draws labels at 10 points or fewer, so the short
+        // name always fits.
+        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
         value: d.netRevenueCents,
       })),
     [daily]
@@ -85,7 +149,26 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
     [topProducts]
   );
 
+  const cashierItems: RankingItem[] = useMemo(
+    () => cashiers.map((c) => ({ name: c.name, value: c.revenueCents })),
+    [cashiers]
+  );
+
   const rangeLabel = formatRangeLabel(dateRange);
+
+  // The daily figures rather than the raw sales: this tab is a summary, so its
+  // export is the summary. Someone wanting every line has Transactions.
+  useHeaderActions(
+    setHeaderActions,
+    <ExportMenu
+      rows={daily}
+      columns={OVERVIEW_EXPORT_COLUMNS}
+      title="Accounting overview"
+      subtitle={rangeLabel}
+      filenamePrefix="overview"
+    />,
+    [daily, rangeLabel]
+  );
 
   if (loading) return <Text style={styles.empty}>Loading…</Text>;
 
@@ -94,47 +177,105 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" />
-        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />
+        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
+        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
         <StatTile
-          value={formatCompactCents(netProfitCents)}
-          label="Net profit"
-          tone={netProfitCents < 0 ? 'warning' : 'default'}
+          value={formatCompactCents(grossProfitCents)}
+          label="Gross profit"
+          hint={
+            marginPct !== null
+              ? `${marginPct}% margin · before expenses`
+              : noCostsRecorded
+                ? 'no cost prices recorded'
+                : 'before operating expenses'
+          }
+          tone={noCostsRecorded ? 'default' : 'positive'}
         />
-        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" />
+        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
       </View>
 
-      {/* Revenue excludes tax the shop is only holding, so the two figures
-          above never double-count. Said plainly because a shop owner checking
-          against the till will otherwise wonder where the difference went. */}
-      <Text style={styles.caption}>
-        Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.
-        {refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds already deducted.` : ''}
-      </Text>
+      {/* Promoted from grey body text. Revenue excludes tax the shop is only
+          holding, so the two figures above never double-count — said plainly
+          because an owner checking against the till will otherwise wonder
+          where the difference went. */}
+      <Caveat tone="context">
+        {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
+          refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
+        }`}
+      </Caveat>
 
-      <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
-      <Card style={styles.chartCard}>
-        <TrendChart data={trendData} formatValue={formatAccountingCents} />
-      </Card>
+      <Caveat tone="context">
+        Gross profit is revenue less what the goods cost. Operating expenses and wages come off on Reports, which is
+        where the bottom line lives.
+      </Caveat>
 
-      <Text style={styles.sectionTitle}>Payment methods</Text>
-      <Card style={styles.chartCard}>
-        <PaymentMixChart items={paymentMix} />
-      </Card>
+      {uncostedItemCount > 0 ? (
+        <Caveat tone="wrong">
+          {`${uncostedItemCount} sold ${uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(uncostedRevenueCents)} of revenue), so cost of goods is understated and gross profit looks higher than it is.`}
+        </Caveat>
+      ) : null}
 
-      <Text style={styles.sectionTitle}>Top products</Text>
-      <Card style={styles.chartCard}>
-        <RankingChart items={rankItems} formatValue={formatAccountingCents} emptyLabel="No sales yet in this range." />
-      </Card>
+      {/* Paired on a wide screen so the revenue shape and the payment split
+          are read together — they answer "how much" and "how" about the same
+          money. Stacks below the breakpoint, where side-by-side would crush
+          both. */}
+      <View style={[styles.row, wide && styles.rowWide]}>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
+          <Card style={styles.chartCard}>
+            <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
+          </Card>
+        </View>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Payment methods</Text>
+          <Card style={styles.chartCard}>
+            <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
+          </Card>
+        </View>
+      </View>
+
+      <View style={[styles.row, wide && styles.rowWide]}>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Top products</Text>
+          <Card style={styles.chartCard}>
+            <RankingChart
+              items={rankItems}
+              formatValue={formatAccountingCents}
+              emptyLabel="No sales yet in this range."
+              showRank
+            />
+          </Card>
+        </View>
+        <View style={styles.col}>
+
+          {/* Moved here from Reports: who served the most is a pulse question,
+              not an analysis one, and it comes free from the sales set already
+              loaded above. */}
+          <Text style={styles.sectionTitle}>Who rang it up</Text>
+          <Card style={styles.chartCard}>
+            <RankingChart
+              items={cashierItems}
+              formatValue={formatAccountingCents}
+              emptyLabel="No cashier activity in this range."
+              showRank
+            />
+            <Caveat tone="context">
+              Gross takings, not net — this ranks who served the most, so it reconciles against a till.
+            </Caveat>
+          </Card>
+        </View>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
-  caption: { fontSize: 11.5, color: theme.textSecondary, lineHeight: 17, marginBottom: 18 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 10, marginBottom: 12 },
+  sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 18, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },
+  row: { gap: 0 },
+  rowWide: { flexDirection: 'row', gap: 14 },
+  col: { flex: 1, minWidth: 0 },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

@@ -7,3 +7,47 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/* ── Marketing surfaces (web only) ────────────────────────────────────────────
+ * Three things React Native styles cannot express. Attached from RN via the
+ * `dataSet` prop, which react-native-web renders as a `data-*` attribute:
+ *
+ *   <View dataSet={{ kaiibi: 'hero-bg' }} />  ->  <div data-kaiibi="hero-bg">
+ *
+ * Reaching for CSS here rather than a library is deliberate: the alternative
+ * for the gradient was `expo-linear-gradient`, a native module added for a
+ * decoration that only ever renders in a browser.
+ *
+ * This file is imported once by constants/theme.ts, so nothing else needs
+ * wiring. */
+
+/* Section links scroll rather than jump. */
+html {
+  scroll-behavior: smooth;
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* The landing hero's two radial washes. Hex literals rather than the tokens in
+   constants/marketing-theme.ts because CSS cannot read them — keep the two in
+   step by hand; they are `blueSoft` and `brandSoft`. */
+[data-kaiibi='hero-bg'] {
+  background:
+    radial-gradient(900px 420px at 15% -10%, #eef4ff 0%, transparent 60%),
+    radial-gradient(700px 380px at 92% 8%, #eaf7f0 0%, transparent 62%);
+}
+
+/* The public nav's frosted backdrop. Degrades to the solid background colour
+   the View already carries wherever backdrop-filter isn't supported. */
+/* Prefixed FIRST, standard last. The other order looks tidier but the CSS
+   minifier in `expo export` treats the two as duplicates and keeps only the
+   last one — writing the standard property first silently shipped a
+   webkit-only rule, so Firefox lost the blur entirely. Verified by grepping
+   dist/_expo/static/css/global-*.css after an export. */
+[data-kaiibi='nav-blur'] {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}

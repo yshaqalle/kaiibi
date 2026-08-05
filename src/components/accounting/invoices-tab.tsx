@@ -7,7 +7,6 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
-import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
@@ -40,9 +39,12 @@ function extractErrorMessage(err: unknown): string {
 
 export function InvoicesTab({
   dateRange,
+  locationFilter,
   setHeaderActions,
 }: {
   dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop, can } = useAuth();
@@ -55,7 +57,6 @@ export function InvoicesTab({
   // in the selected window. Neither wants "every bill ever".
   // null = the combined business view. A bill can belong to no single store
   // (a group insurance policy), and picking a store excludes those.
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [openInvoices, setOpenInvoices] = useState<Invoice[]>([]);
   const [rangeInvoices, setRangeInvoices] = useState<Invoice[]>([]);
   const [editing, setEditing] = useState<Invoice | 'new' | null>(null);
@@ -131,7 +132,6 @@ export function InvoicesTab({
 
   return (
     <View>
-      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       <View style={styles.metricRow}>
         <StatTile

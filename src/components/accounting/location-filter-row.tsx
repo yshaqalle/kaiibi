@@ -38,5 +38,8 @@ export function LocationFilterRow({
 }
 
 const styles = StyleSheet.create({
-  row: { marginBottom: 14 },
+  // No margin. This sits inline in a centre-aligned control bar, where a
+  // bottom margin makes the group taller than the pills beside it and pushes
+  // its contents off their centre line. Callers that want space below own it.
+  row: {},
 });

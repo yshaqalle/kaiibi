@@ -1,3 +1,4 @@
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -42,6 +43,12 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Batch Number', value: (p) => p.batchNumber ?? '' },
 ];
 
+// Which slice of the list is showing. 'expiring' means "has an expiry date at
+// all" rather than "expires soon": the Dashboard's row already narrows to the
+// shop's warning window, and a second, different definition of "soon" living
+// here is how the two screens start disagreeing.
+type StockFilter = 'all' | 'low' | 'expiring';
+
 export default function InventoryScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
   const { width } = useWindowDimensions();
@@ -71,6 +78,18 @@ export default function InventoryScreen() {
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
+  // Set by a link that already knows what it wants -- the Dashboard's
+  // "5 products low on stock" row lands here rather than on the full list,
+  // where the reader would have to find those five again.
+  //
+  // Read once as the INITIAL value rather than tracked: the chips below are
+  // the control after arrival, and re-syncing to a stale URL would fight
+  // whoever is using them. Same shape as login.tsx's `next` param, the only
+  // other place this app reads a search param.
+  const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
+  const [stockFilter, setStockFilter] = useState<StockFilter>(
+    filterParam === 'low' || filterParam === 'expiring' ? filterParam : 'all'
+  );
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -210,9 +229,18 @@ export default function InventoryScreen() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
+    // The stock filter runs FIRST so the search box narrows within it rather
+    // than escaping it -- "rice" while filtered to low stock should mean
+    // "low-stock rice", not "every rice".
+    const scoped =
+      stockFilter === 'low'
+        ? products.filter((p) => p.stock <= (p.reorderLevel ?? shop?.defaultLowStockLevel ?? 5))
+        : stockFilter === 'expiring'
+          ? products.filter((p) => p.expiryDate !== null)
+          : products;
     const matches = !q
-      ? products
-      : products.filter((p) =>
+      ? scoped
+      : scoped.filter((p) =>
           p.name.toLowerCase().includes(q) ||
           (p.brand ?? '').toLowerCase().includes(q) ||
           (p.sku ?? '').toLowerCase().includes(q) ||
@@ -231,7 +259,7 @@ export default function InventoryScreen() {
         case 'stock': return (a.stock - b.stock) * dir;
       }
     });
-  }, [products, search, sortField, sortDirection]);
+  }, [products, search, sortField, sortDirection, stockFilter, shop?.defaultLowStockLevel]);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -297,7 +325,11 @@ export default function InventoryScreen() {
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>Inventory</Text>
-            <Text style={styles.subtitle}>{products.length} products · {needsAttention} need attention</Text>
+            <Text style={styles.subtitle}>
+              {stockFilter === 'all'
+                ? `${products.length} products · ${needsAttention} need attention`
+                : `${filtered.length} of ${products.length} products`}
+            </Text>
           </View>
           <View style={styles.headerActions}>
             <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
@@ -339,6 +371,26 @@ export default function InventoryScreen() {
             and filters the list — so it reads as a way to search, not as a
             sibling of Export and Import. Same placement as the register, so the
             control means the same thing in both places. */}
+        {/* Always rendered, never only-when-filtered: someone who arrives on a
+            deep link has to be able to SEE that the list is narrowed and get
+            back out of it. A filtered list that looks like the whole list is
+            worse than no link at all. */}
+        <View style={styles.stockFilterRow}>
+          {(['all', 'low', 'expiring'] as StockFilter[])
+            .filter((key) => key !== 'expiring' || shop?.expiryTrackingEnabled)
+            .map((key) => (
+              <Pressable
+                key={key}
+                onPress={() => setStockFilter(key)}
+                style={[styles.stockChip, stockFilter === key && styles.stockChipActive]}
+              >
+                <Text style={[styles.stockChipText, stockFilter === key && styles.stockChipTextActive]}>
+                  {key === 'all' ? 'All' : key === 'low' ? `Low stock ${needsAttention}` : 'Has expiry'}
+                </Text>
+              </Pressable>
+            ))}
+        </View>
+
         <View style={styles.searchWrap}>
           <TextInput
             value={search}
@@ -495,6 +547,11 @@ export default function InventoryScreen() {
 }
 
 const styles = StyleSheet.create({
+  stockFilterRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 10 },
+  stockChip: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  stockChipActive: { backgroundColor: '#111111', borderColor: '#111111' },
+  stockChipText: { fontSize: 12, fontWeight: '700', color: '#666666' },
+  stockChipTextActive: { color: '#FFFFFF' },
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
   content: { padding: 24, paddingBottom: 42 },
   header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
