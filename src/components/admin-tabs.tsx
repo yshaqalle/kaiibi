@@ -3,14 +3,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
-import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
+import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 
@@ -39,7 +39,6 @@ export default function AdminTabs() {
   const insets = useSafeAreaInsets();
   const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
-  const { width } = useWindowDimensions();
   const [menuOpen, setMenuOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const canEditShop = can('settings.access');
@@ -64,10 +63,19 @@ export default function AdminTabs() {
     }
   };
 
-  // Tablets (iPad, Android tablets — unlocked to landscape via
-  // use-tablet-orientation) get the same sidebar as web's desktop layout
-  // instead of a phone-shaped bottom bar. Phones keep NativeTabs below.
-  if (width >= TABLET_BREAKPOINT) {
+  // Tablets (iPad, Android tablets) get the same sidebar as web's desktop
+  // layout instead of a phone-shaped bottom bar. Phones keep NativeTabs below,
+  // in BOTH orientations — every device rotates freely (see use-orientation).
+  //
+  // Keyed on the DEVICE, deliberately, not on `useWindowDimensions().width`:
+  // the two branches are different navigators, so a width-based test tore
+  // down NativeTabs (a native UITabBarController via react-native-screens)
+  // and mounted a bare Slot in its place mid-rotation, which crashed. A
+  // device-class answer can't change while mounted, so rotation can't swap
+  // them. Screens below still reflow on width — that's just layout, and safe.
+  // The web shell has no such constraint: admin-tabs.web.tsx renders a Slot in
+  // both branches, so it keeps its live-width breakpoint.
+  if (isTabletDevice()) {
     return (
       <AdminSidebar>
         <Slot />
