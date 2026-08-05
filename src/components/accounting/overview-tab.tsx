@@ -122,7 +122,15 @@ export function OverviewTab({
 
   // Null rather than 0 when there is no revenue: "0% margin" on a quiet day
   // states something false about the shop, where no figure states nothing.
-  const marginPct = revenueCents > 0 ? Math.round((grossProfitCents / revenueCents) * 100) : null;
+  //
+  // Null ALSO when nothing sold has a cost recorded. The arithmetic then says
+  // 100% margin, which is technically what revenue-minus-zero gives and is a
+  // flatly misleading thing to print next to a figure we already know is
+  // overstated. A shop that has never entered a cost price should be told it
+  // has no margin figure, not handed a perfect one.
+  const noCostsRecorded = cogsCents === 0 && uncostedItemCount > 0;
+  const marginPct =
+    revenueCents > 0 && !noCostsRecorded ? Math.round((grossProfitCents / revenueCents) * 100) : null;
 
   const trendData: TrendPoint[] = useMemo(
     () =>
@@ -174,8 +182,14 @@ export function OverviewTab({
         <StatTile
           value={formatCompactCents(grossProfitCents)}
           label="Gross profit"
-          hint={marginPct === null ? 'before operating expenses' : `${marginPct}% margin · before expenses`}
-          tone="positive"
+          hint={
+            marginPct !== null
+              ? `${marginPct}% margin · before expenses`
+              : noCostsRecorded
+                ? 'no cost prices recorded'
+                : 'before operating expenses'
+          }
+          tone={noCostsRecorded ? 'default' : 'positive'}
         />
         <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
       </View>

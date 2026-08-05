@@ -14,6 +14,19 @@ const PAD_TOP = 14;
 // Wide enough for a compact money label without crowding the plot.
 const AXIS_WIDTH = 42;
 
+// The next "round" number at or above `value` -- 1, 2 or 5 times a power of
+// ten. The usual axis-tick rule, and the reason a chart topping out at 234
+// labels 250 rather than 234.
+function niceCeiling(value: number): number {
+  if (value <= 0) return 0;
+  const magnitude = 10 ** Math.floor(Math.log10(value));
+  for (const step of [1, 2, 2.5, 5, 10]) {
+    const candidate = step * magnitude;
+    if (candidate >= value) return candidate;
+  }
+  return 10 * magnitude;
+}
+
 export type TrendPoint = { label: string; value: number };
 
 export function TrendChart({
@@ -41,17 +54,26 @@ export function TrendChart({
     const values = data.map((d) => d.value);
     const max = Math.max(1, ...values);
     const min = Math.min(0, ...values);
-    const span = Math.max(1, max - min);
+    // Points are plotted against the ROUNDED ceiling when the axis is shown,
+    // so a gridline labelled $250 is actually at $250 -- otherwise the labels
+    // and the line describe different scales.
+    const top = showAxis ? Math.max(niceCeiling(max), min + 1) : max;
+    const plotSpan = Math.max(1, top - min);
     return {
       points: data.map((d, i) => ({
         x: data.length === 1 ? 0 : (i / (data.length - 1)) * W,
-        y: PAD_TOP + (H - ((d.value - min) / span) * H),
+        y: PAD_TOP + (H - ((d.value - min) / plotSpan) * H),
       })),
       // Three ticks, not five: this is a shape with a magnitude attached, not
       // a table. Read top-down so it matches the order they are drawn in.
-      scale: [max, min + span / 2, min],
+      //
+      // Rounded UP to a readable step rather than printed raw. The literal
+      // maximum gives axes like "$234 / $117", which are exact and read as
+      // noise -- an axis exists to be glanced at, and nobody glances at 234.
+      // Rounding up (never down) keeps every point inside the plotted range.
+      scale: [top, min + (top - min) / 2, min],
     };
-  }, [data]);
+  }, [data, showAxis]);
 
   if (data.length === 0) return null;
 
