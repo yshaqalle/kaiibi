@@ -2,6 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 
 import { Colors } from '@/constants/theme';
+import { categoryColors } from '@/lib/category-colors';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -11,8 +12,6 @@ const STROKE = 22;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const GAP = 3;
-
-const SLOT_COLORS = [theme.chartSeries1, theme.chartSeries2, theme.chartSeries3, theme.chartSeries4] as const;
 
 export type CategorySlice = { category: string; value: number };
 
@@ -34,13 +33,20 @@ export function CategoryDonutChart({ items, totalLabel }: { items: CategorySlice
   const slices = foldToTopThree(items);
   const total = slices.reduce((sum, item) => sum + item.value, 0);
 
+  // Colour by NAME, not by position. Assigning from the slice index meant a
+  // category's colour moved as its rank changed, and — worse — two different
+  // categories in two charts on the same screen took the same hue purely for
+  // sharing a rank. "Other" resolves to grey, since it is a residual bucket
+  // rather than a thing anyone sells.
+  const palette = categoryColors(slices.map((slice) => slice.category));
+
   let cumulativePct = 0;
-  const arcs = slices.map((slice, i) => {
+  const arcs = slices.map((slice) => {
     const pct = total > 0 ? (slice.value / total) * 100 : 0;
     const dashLength = (pct / 100) * CIRCUMFERENCE;
     const dashOffset = -(cumulativePct / 100) * CIRCUMFERENCE;
     cumulativePct += pct;
-    return { ...slice, pct, dashLength, dashOffset, color: SLOT_COLORS[i] };
+    return { ...slice, pct, dashLength, dashOffset, color: palette.get(slice.category) ?? theme.textSecondary };
   });
 
   return (
@@ -88,10 +94,13 @@ const styles = StyleSheet.create({
   centerLabel: { position: 'absolute', alignItems: 'center' },
   centerValue: { fontSize: 19, fontWeight: '800', color: theme.text, letterSpacing: -0.5 },
   centerCaption: { fontSize: 10, fontWeight: '700', color: theme.textSecondary, marginTop: 1 },
-  legend: { flex: 1, gap: 9 },
+  // Capped rather than flexed to fill. On a full-width card `flex: 1` threw
+  // the percentages against the far right edge, several hundred pixels from
+  // the label they belong to, so the pairing had to be reconstructed by eye.
+  legend: { flexShrink: 1, minWidth: 180, maxWidth: 300, gap: 9 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   swatch: { width: 10, height: 10, borderRadius: 3 },
-  legendName: { flex: 1, fontSize: 12, fontWeight: '700', color: theme.text },
+  legendName: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '700', color: theme.text },
   legendPct: { fontSize: 11.5, fontWeight: '700', color: theme.textSecondary },
   empty: { fontSize: 13, color: theme.textSecondary, paddingVertical: 4 },
 });

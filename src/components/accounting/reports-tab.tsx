@@ -408,6 +408,7 @@ export function ReportsTab({
       <Text style={styles.sectionTitle}>Cashier performance</Text>
       <Card style={styles.chartCard}>
         <RankingChart
+          showRank
           items={cashiers.map((c) => ({ name: c.name, value: c.revenueCents }))}
           formatValue={formatAccountingCents}
           emptyLabel="No cashier-attributed sales yet."

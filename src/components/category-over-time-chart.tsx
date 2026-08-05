@@ -1,12 +1,12 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { categoryColors } from '@/lib/category-colors';
 import { formatCents } from '@/lib/currency';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
-const SLOT_COLORS = [theme.chartSeries1, theme.chartSeries2, theme.chartSeries3, theme.chartSeries4] as const;
 const BAR_HEIGHT = 120;
 
 export type MonthlyCategoryBucket = { label: string; segments: { category: string; revenueCents: number }[] };
@@ -28,7 +28,11 @@ export function CategoryOverTimeChart({ months }: { months: MonthlyCategoryBucke
     .filter((c) => c !== 'Other')
     .sort((a, b) => (totalsByCategory.get(b) ?? 0) - (totalsByCategory.get(a) ?? 0));
   const categoryOrder = totalsByCategory.has('Other') ? [...namedCategories, 'Other'] : namedCategories;
-  const colorFor = (category: string) => SLOT_COLORS[categoryOrder.indexOf(category) % SLOT_COLORS.length];
+  // Shared with the donut above it, so a category is one colour on the whole
+  // screen. Indexing into slots gave "Starter Kit" and "Esssence" the same
+  // amber in two adjacent charts, purely for both ranking third.
+  const palette = categoryColors(categoryOrder);
+  const colorFor = (category: string) => palette.get(category) ?? theme.textSecondary;
 
   const monthTotal = (month: MonthlyCategoryBucket) => month.segments.reduce((sum, s) => sum + s.revenueCents, 0);
   const maxTotal = Math.max(1, ...months.map(monthTotal));
