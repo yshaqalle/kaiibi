@@ -283,7 +283,10 @@ export default function DashboardScreen() {
   const trendData: TrendPoint[] = useMemo(
     () =>
       daily.map((d) => ({
-        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' })[0],
+        // Not [0]: a column of M/T/W/T/F/S/S is ambiguous twice over, and
+        // TrendChart only draws labels at 10 points or fewer, so the short
+        // name always fits.
+        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
         value: d.netRevenueCents,
       })),
     [daily]
@@ -339,7 +342,9 @@ export default function DashboardScreen() {
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
+        <View style={styles.rangeRow}>
+          <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
+        </View>
 
         {/* Renders nothing for a single-store shop, and switches from chips to
             a dropdown past three entries — see components/option-picker.tsx,
@@ -411,7 +416,7 @@ export default function DashboardScreen() {
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue</Text>
         <Card style={styles.chartCard}>
-          <TrendChart data={trendData} formatValue={formatAccountingCents} />
+          <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
         </Card>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Needs attention</Text>
@@ -528,6 +533,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: 24, paddingBottom: 42 },
   title: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
+  rangeRow: { marginBottom: 12 },
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },

@@ -19,6 +19,11 @@ import { CategoryChip } from '@/components/category-chip';
 
 export type PickerOption = { id: string; label: string; hint?: string };
 
+// The chips use CategoryChip's `filter` variant, not its default. The default
+// is sized for a tappable taxonomy tag (11px vertical padding); a filter chip
+// sits in a control bar next to other filters, and at that size it towered
+// over the date-range pills beside it.
+
 // Above this many entries (the "all" entry included, since it takes a chip too)
 // the control becomes a dropdown. Three is the point where a second row starts
 // to be likely at typical widths.
@@ -52,9 +57,9 @@ export function OptionPicker({
   if (total <= chipLimit) {
     return (
       <View style={styles.chipRow}>
-        {allOption && <CategoryChip label={allOption.label} active={value === null} onPress={() => onChange(null)} />}
+        {allOption && <CategoryChip label={allOption.label} active={value === null} onPress={() => onChange(null)} variant="filter" />}
         {options.map((option) => (
-          <CategoryChip key={option.id} label={option.label} active={value === option.id} onPress={() => onChange(option.id)} />
+          <CategoryChip key={option.id} label={option.label} active={value === option.id} onPress={() => onChange(option.id)} variant="filter" />
         ))}
       </View>
     );
@@ -117,9 +122,9 @@ export function MultiOptionPicker({
   if (total <= chipLimit) {
     return (
       <View style={styles.chipRow}>
-        {allOption && <CategoryChip label={allOption.label} active={values.length === 0} onPress={() => onChange([])} />}
+        {allOption && <CategoryChip label={allOption.label} active={values.length === 0} onPress={() => onChange([])} variant="filter" />}
         {options.map((option) => (
-          <CategoryChip key={option.id} label={option.label} active={values.includes(option.id)} onPress={() => toggle(option.id)} />
+          <CategoryChip key={option.id} label={option.label} active={values.includes(option.id)} onPress={() => toggle(option.id)} variant="filter" />
         ))}
       </View>
     );

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { ExportMenu } from '@/components/export-menu';
 import { Card } from '@/components/card';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import type { DateRange } from '@/components/range-selector';
@@ -27,6 +29,16 @@ import {
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
+const OVERVIEW_EXPORT_COLUMNS = [
+  { header: 'Day', value: (d: DailyBucket) => d.day },
+  { header: 'Gross', value: (d: DailyBucket) => (d.grossCents / 100).toFixed(2) },
+  { header: 'Sales tax', value: (d: DailyBucket) => (d.taxCents / 100).toFixed(2) },
+  { header: 'Refunds', value: (d: DailyBucket) => (d.refundCents / 100).toFixed(2) },
+  { header: 'Revenue', value: (d: DailyBucket) => (d.netRevenueCents / 100).toFixed(2) },
+  { header: 'Discounts', value: (d: DailyBucket) => (d.discountCents / 100).toFixed(2) },
+  { header: 'Orders', value: (d: DailyBucket) => String(d.orderCount) },
+];
+
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
     return (err as { message: string }).message;
@@ -37,10 +49,12 @@ function extractErrorMessage(err: unknown): string {
 export function OverviewTab({
   dateRange,
   locationFilter,
+  setHeaderActions,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
+  setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop } = useAuth();
   const { width } = useWindowDimensions();
@@ -113,7 +127,10 @@ export function OverviewTab({
   const trendData: TrendPoint[] = useMemo(
     () =>
       daily.map((d) => ({
-        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' })[0],
+        // Not [0]: a column of M/T/W/T/F/S/S is ambiguous twice over, and
+        // TrendChart only draws labels at 10 points or fewer, so the short
+        // name always fits.
+        label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
         value: d.netRevenueCents,
       })),
     [daily]
@@ -130,6 +147,20 @@ export function OverviewTab({
   );
 
   const rangeLabel = formatRangeLabel(dateRange);
+
+  // The daily figures rather than the raw sales: this tab is a summary, so its
+  // export is the summary. Someone wanting every line has Transactions.
+  useHeaderActions(
+    setHeaderActions,
+    <ExportMenu
+      rows={daily}
+      columns={OVERVIEW_EXPORT_COLUMNS}
+      title="Accounting overview"
+      subtitle={rangeLabel}
+      filenamePrefix="overview"
+    />,
+    [daily, rangeLabel]
+  );
 
   if (loading) return <Text style={styles.empty}>Loading…</Text>;
 
@@ -178,7 +209,7 @@ export function OverviewTab({
         <View style={styles.col}>
           <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
           <Card style={styles.chartCard}>
-            <TrendChart data={trendData} formatValue={formatAccountingCents} />
+            <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
           </Card>
         </View>
         <View style={styles.col}>

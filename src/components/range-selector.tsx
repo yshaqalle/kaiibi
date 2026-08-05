@@ -119,9 +119,15 @@ export function RangeSelector({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', gap: 6, marginBottom: 12 },
-  pill: { borderWidth: 1, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999 },
-  label: { fontSize: 11, fontWeight: '700' },
+  // No bottom margin: this now sits inline in Accounting's control bar, where
+  // a trailing margin knocked it out of vertical centre. Callers that need
+  // space below it own that space.
+  row: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  // Matched to CategoryChip's `filter` variant on purpose: this sits beside
+  // the store picker in one control bar, and two filters at different heights
+  // read as two unrelated controls.
+  pill: { borderWidth: 1, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 999 },
+  label: { fontSize: 13, fontWeight: '600' },
   customRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginBottom: 16 },
   customField: { flex: 1 },
   fieldLabel: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.4, marginBottom: 4 },

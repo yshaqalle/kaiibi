@@ -26,14 +26,17 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 
 type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
 
-const TAB_OPTIONS: { key: AccountingTab; label: string }[] = [
-  { key: 'overview', label: 'Overview' },
-  { key: 'transactions', label: 'Transactions' },
-  { key: 'invoices', label: 'Bills' },
-  { key: 'expenses', label: 'Expenses' },
-  { key: 'payroll', label: 'Payroll' },
-  { key: 'cash', label: 'Cash & Budgets' },
-  { key: 'reports', label: 'Reports' },
+// The blurb says what the tab is FOR. Seven tabs of money is a lot to hold in
+// your head, and "Bills" alone does not distinguish what you owe suppliers
+// from what you spend day to day.
+const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
+  { key: 'overview', label: 'Overview', blurb: 'Where the money came from and where it went.' },
+  { key: 'transactions', label: 'Transactions', blurb: 'Every sale and refund, line by line.' },
+  { key: 'invoices', label: 'Bills', blurb: 'What you owe suppliers, and when it is due.' },
+  { key: 'expenses', label: 'Expenses', blurb: 'What the shop spent, by category.' },
+  { key: 'payroll', label: 'Payroll', blurb: 'Pay runs and what each one cost.' },
+  { key: 'cash', label: 'Cash & Budgets', blurb: 'Cash on hand, recurring bills and category limits.' },
+  { key: 'reports', label: 'Reports', blurb: 'Profit and loss, tax, labour and category breakdowns.' },
 ];
 
 // One range control for every tab. An earlier sketch gave Bills and
@@ -75,6 +78,7 @@ export default function AccountingScreen() {
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>ACCOUNTING</Text>
             <Text style={styles.title}>{TAB_OPTIONS.find((t) => t.key === tab)?.label}</Text>
+            <Text style={styles.blurb}>{TAB_OPTIONS.find((t) => t.key === tab)?.blurb}</Text>
           </View>
           {headerActions ? <View style={styles.headerActions}>{headerActions}</View> : null}
         </View>
@@ -94,12 +98,16 @@ export default function AccountingScreen() {
             <Text style={styles.controlLabel}>RANGE</Text>
             <RangeSelector onChange={setDateRange} presets={SHARED_PRESETS} initialDays={7} />
           </View>
-          {/* Renders nothing for a single-store shop, taking its label with it. */}
+          {/* Renders nothing for a single-store shop, taking its label and the
+              divider with it. */}
           {showStoreFilter && (
-            <View style={styles.controlGroup}>
-              <Text style={styles.controlLabel}>STORE</Text>
-              <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
-            </View>
+            <>
+              <View style={styles.controlDivider} />
+              <View style={styles.controlGroup}>
+                <Text style={styles.controlLabel}>STORE</Text>
+                <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
+              </View>
+            </>
           )}
         </View>
 
@@ -112,7 +120,7 @@ export default function AccountingScreen() {
             queries) in memory at once. */}
         {dateRange ? (
           <>
-            {tab === 'overview' && <OverviewTab dateRange={dateRange} locationFilter={locationFilter} />}
+            {tab === 'overview' && <OverviewTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
             {tab === 'transactions' && <TransactionsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
             {tab === 'invoices' && <InvoicesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
@@ -134,20 +142,24 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: '#999999', marginBottom: 3 },
   title: { color: '#111111', fontSize: 26, fontWeight: '800', letterSpacing: -1 },
+  blurb: { color: '#666666', fontSize: 13, marginTop: 3 },
   tabBar: { marginBottom: 16 },
   controls: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'flex-start',
-    gap: 20,
+    alignItems: 'center',
+    gap: 14,
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#ECECEC',
     borderRadius: 12,
     paddingHorizontal: 14,
-    paddingTop: 11,
+    paddingVertical: 10,
     marginBottom: 16,
   },
-  controlGroup: { gap: 6 },
+  // Label beside its control, not above it: stacked, the two groups sat at
+  // different heights and the bar read as two rows rather than one.
+  controlGroup: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   controlLabel: { fontSize: 9.5, letterSpacing: 1.1, fontWeight: '700', color: '#999999' },
+  controlDivider: { width: 1, height: 22, backgroundColor: '#ECECEC' },
 });
