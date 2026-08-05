@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { Card } from '@/components/card';
@@ -14,6 +14,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { scopeToLocation } from '@/lib/location-reporting';
 import { getSalesAndRefundsInRange, getTopSellingProducts } from '@/lib/sales';
 import {
   bucketDailyTotals,
@@ -33,8 +34,18 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
-export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
+export function OverviewTab({
+  dateRange,
+  locationFilter,
+}: {
+  dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
+}) {
   const { shop } = useAuth();
+  const { width } = useWindowDimensions();
+  // Matches the admin sidebar's own desktop breakpoint.
+  const wide = width >= 1000;
   const { since, until } = dateRange;
 
   const [daily, setDaily] = useState<DailyBucket[]>([]);
@@ -58,12 +69,12 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
       // why the profit figure below can be a real one rather than a
       // simplification.
       const [{ sales, refunds }, expenses, top] = await Promise.all([
-        getSalesAndRefundsInRange(shop.id, since, until),
+        getSalesAndRefundsInRange(shop.id, since, until, locationFilter),
         listExpensesInRange(shop.id, since, until),
         getTopSellingProducts(shop.id, since, until),
       ]);
       setDaily(bucketDailyTotals(sales, refunds, since, until));
-      setExpenseCents(totalExpenseCents(expenses));
+      setExpenseCents(totalExpenseCents(scopeToLocation(expenses, locationFilter)));
       setPaymentMix(paymentMethodMix(sales));
       setTopProducts(top.byRevenue);
       setCashiers(cashierPerformance(sales));
@@ -77,7 +88,7 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
     } finally {
       setLoading(false);
     }
-  }, [shop, since, until]);
+  }, [shop, since, until, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -127,14 +138,14 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
       {error && <Text style={styles.error}>{error}</Text>}
 
       <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of tax & refunds" />
+        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
+        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
         <StatTile
           value={formatCompactCents(grossProfitCents)}
           label="Gross profit"
           hint={marginPct === null ? 'before operating expenses' : `${marginPct}% margin · before expenses`}
           tone="positive"
         />
-        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
         <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
       </View>
 
@@ -159,36 +170,56 @@ export function OverviewTab({ dateRange }: { dateRange: DateRange }) {
         </Caveat>
       ) : null}
 
-      <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
-      <Card style={styles.chartCard}>
-        <TrendChart data={trendData} formatValue={formatAccountingCents} />
-      </Card>
+      {/* Paired on a wide screen so the revenue shape and the payment split
+          are read together — they answer "how much" and "how" about the same
+          money. Stacks below the breakpoint, where side-by-side would crush
+          both. */}
+      <View style={[styles.row, wide && styles.rowWide]}>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
+          <Card style={styles.chartCard}>
+            <TrendChart data={trendData} formatValue={formatAccountingCents} />
+          </Card>
+        </View>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Payment methods</Text>
+          <Card style={styles.chartCard}>
+            <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
+          </Card>
+        </View>
+      </View>
 
-      <Text style={styles.sectionTitle}>Payment methods</Text>
-      <Card style={styles.chartCard}>
-        <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
-      </Card>
+      <View style={[styles.row, wide && styles.rowWide]}>
+        <View style={styles.col}>
+          <Text style={styles.sectionTitle}>Top products</Text>
+          <Card style={styles.chartCard}>
+            <RankingChart
+              items={rankItems}
+              formatValue={formatAccountingCents}
+              emptyLabel="No sales yet in this range."
+              showRank
+            />
+          </Card>
+        </View>
+        <View style={styles.col}>
 
-      <Text style={styles.sectionTitle}>Top products</Text>
-      <Card style={styles.chartCard}>
-        <RankingChart items={rankItems} formatValue={formatAccountingCents} emptyLabel="No sales yet in this range." showRank />
-      </Card>
-
-      {/* Moved here from Reports: who served the most is a pulse question, not
-          an analysis one, and it comes free from the sales set already loaded
-          above. */}
-      <Text style={styles.sectionTitle}>Who rang it up</Text>
-      <Card style={styles.chartCard}>
-        <RankingChart
-          items={cashierItems}
-          formatValue={formatAccountingCents}
-          emptyLabel="No cashier activity in this range."
-          showRank
-        />
-        <Caveat tone="context">
-          Gross takings, not net — this ranks who served the most, so it reconciles against a till.
-        </Caveat>
-      </Card>
+          {/* Moved here from Reports: who served the most is a pulse question,
+              not an analysis one, and it comes free from the sales set already
+              loaded above. */}
+          <Text style={styles.sectionTitle}>Who rang it up</Text>
+          <Card style={styles.chartCard}>
+            <RankingChart
+              items={cashierItems}
+              formatValue={formatAccountingCents}
+              emptyLabel="No cashier activity in this range."
+              showRank
+            />
+            <Caveat tone="context">
+              Gross takings, not net — this ranks who served the most, so it reconciles against a till.
+            </Caveat>
+          </Card>
+        </View>
+      </View>
     </View>
   );
 }
@@ -197,6 +228,9 @@ const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 18, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },
+  row: { gap: 0 },
+  rowWide: { flexDirection: 'row', gap: 14 },
+  col: { flex: 1, minWidth: 0 },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

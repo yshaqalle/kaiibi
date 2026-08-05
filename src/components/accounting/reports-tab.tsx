@@ -15,7 +15,6 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatAccountingCents } from '@/lib/currency';
 import { expenseCategoryLabel, expenseTotalsByCategory, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
-import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { listExpensesInRange } from '@/lib/expenses';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { sharePdf } from '@/lib/export-file';
@@ -69,9 +68,12 @@ function extractErrorMessage(err: unknown): string {
 
 export function ReportsTab({
   dateRange,
+  locationFilter,
   setHeaderActions,
 }: {
   dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
 }) {
   const router = useRouter();
@@ -87,7 +89,6 @@ export function ReportsTab({
   // of the dimension. Business-wide costs drop out of a per-store view, so the
   // per-store profits will not sum to the business's; the difference is the
   // unattributed overhead (see lib/location-reporting.ts).
-  const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const [performance, setPerformance] = useState<SalesPerformance | null>(null);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<{ category: string; unitsSold: number; revenueCents: number }[]>([]);
@@ -285,8 +286,6 @@ export function ReportsTab({
       <ReportsHeaderActions onExport={exportPdf} exporting={exporting} setHeaderActions={setHeaderActions} />
 
       {error && <Text style={styles.error}>{error}</Text>}
-
-      <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
 
       <Text style={styles.sectionTitle}>Profit &amp; loss · {rangeLabel}</Text>
       <Card style={styles.card}>
