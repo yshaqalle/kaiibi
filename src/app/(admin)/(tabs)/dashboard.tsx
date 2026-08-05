@@ -1,7 +1,9 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AttentionList } from '@/components/attention-list';
 import { Card } from '@/components/card';
 import { GoalMeter } from '@/components/goal-meter';
 import { ProductTile } from '@/components/product-tile';
@@ -10,10 +12,14 @@ import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { buildAttentionItems, type AttentionItem } from '@/lib/attention';
+import { budgetRows, type BudgetRow } from '@/lib/cash-budget-reporting';
+import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
+import { listOpenInvoices } from '@/lib/invoices';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, listSales } from '@/lib/sales';
@@ -22,7 +28,7 @@ import { membersActiveToday, onLeaveMemberIds, staleOpenShifts } from '@/lib/shi
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, Product, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // The Dashboard answers one question: what needs attention right now. The
 // deeper analysis it used to carry -- rankings, category mix, payment split --
@@ -47,6 +53,13 @@ const DASHBOARD_PRESETS: RangePreset[] = [
   { label: '30 days', days: 30 },
 ];
 
+function startOfThisMonth(): Date {
+  const start = new Date();
+  start.setDate(1);
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
 type HrSnapshot = {
   activeToday: number;
   onLeave: StaffMember[];
@@ -54,7 +67,18 @@ type HrSnapshot = {
   pendingTimeOff: TimeOffRequest[];
 };
 
+// What the shop owes and what it has committed to. Read separately from the
+// range above, because what you owe is a fact about RIGHT NOW -- a bill raised
+// four months ago and never paid is exactly the one worth surfacing (same
+// reasoning as invoiceTotals in lib/invoice-reporting.ts).
+type MoneySnapshot = {
+  openInvoices: Invoice[];
+  recurringBills: RecurringBill[];
+  budgets: BudgetRow[];
+};
+
 export default function DashboardScreen() {
+  const router = useRouter();
   const { shop, can, locations, activeLocation } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   // Time and leave data is RLS-protected; without these the queries would just
@@ -73,6 +97,7 @@ export default function DashboardScreen() {
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
+  const [money, setMoney] = useState<MoneySnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
@@ -111,6 +136,21 @@ export default function DashboardScreen() {
     if (canSeeExpenses) {
       await attempt('expenses', async () => {
         setExpenseCents(totalExpenseCents(await listExpensesInRange(shop.id, since, until)));
+      });
+
+      // Same permission -- bills, budgets and what is owed to suppliers are
+      // the same kind of secret -- but its own attempt(), so a shop with no
+      // bills tables populated doesn't cost the expenses total above.
+      await attempt('bills', async () => {
+        const [invoices, bills, budgets, expenses] = await Promise.all([
+          listOpenInvoices(shop.id),
+          listRecurringBills(shop.id),
+          listBudgets(shop.id),
+          // Budgets are monthly, so they are measured against the month --
+          // not against whatever range the selector happens to be showing.
+          listExpensesInRange(shop.id, startOfThisMonth()),
+        ]);
+        setMoney({ openInvoices: invoices, recurringBills: bills, budgets: budgetRows(expenses, budgets) });
       });
     }
 
@@ -171,7 +211,34 @@ export default function DashboardScreen() {
     [daily]
   );
 
-  const attention = buildAttentionItems({ dormant, hr, lowStock, expiringSoon });
+  const attention = buildAttentionItems({
+    openInvoices: money?.openInvoices ?? [],
+    recurringBills: money?.recurringBills ?? [],
+    budgetRows: money?.budgets ?? [],
+    pendingTimeOff: hr?.pendingTimeOff ?? [],
+    staleShifts: hr?.staleShifts ?? [],
+    onLeave: hr?.onLeave ?? [],
+    lowStock,
+    expiringSoon,
+    dormant,
+  });
+
+  // Where each row goes. Deliberately the module, not the tab: the params it
+  // wants (`?tab=invoices`, `?filter=low`) are a separate change -- see the
+  // plan's phase 8 -- and sending someone to the right screen is already far
+  // better than the plain text these rows used to be.
+  const openAttention = (item: AttentionItem) => {
+    switch (item.area) {
+      case 'money':
+        router.push('/accounting');
+        return;
+      case 'stock':
+        router.push('/inventory');
+        return;
+      default:
+        router.push('/people');
+    }
+  };
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
@@ -219,20 +286,7 @@ export default function DashboardScreen() {
         </Card>
 
         <Text style={[styles.sectionTitle, { color: theme.text }]}>Needs attention</Text>
-        {attention.length === 0 ? (
-          <Text style={[styles.empty, { color: theme.textSecondary }]}>Nothing needs attention right now.</Text>
-        ) : (
-          <Card style={styles.list}>
-            {attention.map((item, index) => (
-              <View key={item.key} style={[styles.attentionRow, index > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
-                <View style={styles.attentionMain}>
-                  <Text style={[styles.attentionTitle, { color: theme.text }]}>{item.title}</Text>
-                  {item.detail ? <Text style={[styles.attentionDetail, { color: theme.textSecondary }]}>{item.detail}</Text> : null}
-                </View>
-              </View>
-            ))}
-          </Card>
-        )}
+        <AttentionList items={attention} onSelect={openAttention} />
 
         {lowStock.length > 0 && (
           <>
@@ -274,78 +328,6 @@ export default function DashboardScreen() {
   );
 }
 
-type AttentionItem = { key: string; title: string; detail?: string };
-
-// Ordered by actionability: things awaiting a decision first, then things that
-// are merely worth knowing. A list that opens with "3 customers went quiet"
-// buries the time-off request someone is waiting on.
-function buildAttentionItems({
-  dormant,
-  hr,
-  lowStock,
-  expiringSoon,
-}: {
-  dormant: { customer: Customer; lastOrderAt: string }[];
-  hr: HrSnapshot | null;
-  lowStock: Product[];
-  expiringSoon: Product[];
-}): AttentionItem[] {
-  const items: AttentionItem[] = [];
-
-  if (hr?.pendingTimeOff.length) {
-    items.push({
-      key: 'time-off',
-      title: `${hr.pendingTimeOff.length} time-off request${hr.pendingTimeOff.length === 1 ? '' : 's'} waiting`,
-      detail: 'Approve or decline in People → Team.',
-    });
-  }
-
-  if (hr?.staleShifts.length) {
-    items.push({
-      key: 'stale-shifts',
-      title: `${hr.staleShifts.length} shift${hr.staleShifts.length === 1 ? '' : 's'} still clocked in from an earlier day`,
-      // Said plainly because the knock-on is invisible otherwise: open shifts
-      // are excluded from hours worked, so pay is quietly understated.
-      detail: 'Those hours are not counted until they clock out — fix before running payroll.',
-    });
-  }
-
-  if (lowStock.length) {
-    items.push({
-      key: 'low-stock',
-      title: `${lowStock.length} product${lowStock.length === 1 ? '' : 's'} low on stock`,
-      detail: lowStock.slice(0, 3).map((p) => p.name).join(', '),
-    });
-  }
-
-  if (expiringSoon.length) {
-    items.push({
-      key: 'expiring',
-      title: `${expiringSoon.length} product${expiringSoon.length === 1 ? '' : 's'} expiring soon`,
-      detail: expiringSoon.slice(0, 3).map((p) => p.name).join(', '),
-    });
-  }
-
-  if (hr?.onLeave.length) {
-    items.push({
-      key: 'on-leave',
-      title: `${hr.onLeave.length} on leave today`,
-      detail: hr.onLeave.map((m) => m.fullName ?? 'Staff member').join(', '),
-    });
-  }
-
-  for (const entry of dormant.slice(0, 3)) {
-    const name = [entry.customer.firstName, entry.customer.lastName].filter(Boolean).join(' ');
-    items.push({
-      key: `dormant-${entry.customer.id}`,
-      title: name || 'Customer',
-      detail: `Last order ${new Date(entry.lastOrderAt).toLocaleDateString()}`,
-    });
-  }
-
-  return items;
-}
-
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   content: { padding: 24, paddingBottom: 42 },
@@ -354,13 +336,8 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
   chartCard: { padding: 16, marginBottom: 8 },
   list: { overflow: 'hidden', marginBottom: 8 },
-  attentionRow: { flexDirection: 'row', alignItems: 'flex-start', padding: 13, gap: 12 },
-  attentionMain: { flex: 1, minWidth: 0 },
-  attentionTitle: { fontSize: 13, fontWeight: '700' },
-  attentionDetail: { fontSize: 11.5, marginTop: 3, lineHeight: 16 },
   recentRow: { padding: 13, borderBottomWidth: 1 },
   recentName: { fontSize: 13, fontWeight: '700' },
   recentMeta: { fontSize: 11, marginTop: 3 },
-  empty: { fontSize: 13, marginBottom: 8 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });
