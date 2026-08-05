@@ -6,14 +6,17 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
 import { StoreDropdown } from '@/components/store-dropdown';
+import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, normalizeBarcode } from '@/lib/barcode';
 import { primaryLocationOf } from '@/lib/location-selection';
 import { createBrand, listBrands } from '@/lib/brands';
 import { createCategory, listCategories } from '@/lib/categories';
+import { confirmChoice } from '@/lib/confirm';
 import { formatCents, toCents } from '@/lib/currency';
 import { findProductsByCode, uploadProductImage } from '@/lib/products';
+import { needsCostConfirmation } from '@/lib/product-costing';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
@@ -85,7 +88,10 @@ export const ProductForm = forwardRef<ProductFormHandle, {
     listTags(shopId).then((rows) => { setTagSuggestions(rows.map((r) => r.name)); setTagColors(new Map(rows.map((r) => [r.name, r.color]))); }).catch(() => {});
   }, [shopId]);
   const [supplierName, setSupplierName] = useState(initial?.supplierName ?? '');
-  const [costInput, setCostInput] = useState(initial?.costCents ? formatCents(initial.costCents).replace('$', '') : '');
+  // Null check, not truthiness: a cost of 0 is a real recorded answer (free
+  // sample, gift with purchase), and `initial?.costCents ? … : ''` would treat
+  // it the same as never having been set, erasing it from the field.
+  const [costInput, setCostInput] = useState(initial?.costCents != null ? formatCents(initial.costCents).replace('$', '') : '');
   const [priceInput, setPriceInput] = useState(initial?.priceCents ? formatCents(initial.priceCents).replace('$', '') : '');
   const [stock, setStock] = useState(initial?.stock ? String(initial.stock) : '');
   const [reorderLevel, setReorderLevel] = useState(initial?.reorderLevel ? String(initial.reorderLevel) : '');
@@ -156,6 +162,12 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const valid =
     Boolean(name.trim() && priceInput.trim() && toCents(priceInput) > 0) && !barcodeConflict && !checkingBarcode;
 
+  // `initial` is undefined for a new product, so `initial?.costCents` is
+  // undefined there and null for an existing product saved without a cost --
+  // the two cases differ and needsCostConfirmation depends on the difference.
+  const costBlank = costInput.trim() === '';
+  const willConfirmCost = needsCostConfirmation(costInput, initial?.costCents);
+
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return;
@@ -165,6 +177,17 @@ export const ProductForm = forwardRef<ProductFormHandle, {
 
   const submit = async () => {
     if (!valid) return;
+    // Asked before anything is spent: the photo upload and the brand/category
+    // /tag writes below are side effects that would have to be undone if the
+    // answer were no. Declining here costs nothing and leaves nothing behind.
+    if (willConfirmCost) {
+      const proceed = await confirmChoice(
+        'Save without a purchase cost?',
+        "Profit and cost of goods won't include this product.",
+        'Save anyway'
+      );
+      if (!proceed) return;
+    }
     setSubmitting(true);
     setError(null);
     try {
@@ -311,6 +334,18 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         <Field label="PURCHASE COST" style={styles.half}><TextInput value={costInput} onChangeText={setCostInput} placeholder="0.00" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} /></Field>
         <Field label="RETAIL PRICE *" style={styles.half}><TextInput value={priceInput} onChangeText={setPriceInput} placeholder="0.00" placeholderTextColor="#999999" keyboardType="decimal-pad" style={styles.input} /></Field>
       </Row>
+      {/* 'context', not 'wrong'. caveat.tsx is explicit that the wrong tone is
+          worse than not using it at all: 'wrong' means a figure is incorrect until
+          something is fixed and must carry an action. A cost field that is empty
+          mid-edit is not yet an error -- the person may be about to type in it --
+          and dressing it as one would train people to skip the whole family,
+          including the accurate caveat this same component draws on the dashboard.
+          No action prop: the fix is the field immediately above. */}
+      {costBlank && (
+        <Caveat tone="context">
+          No purchase cost means this product won&apos;t count toward profit or cost of goods.
+        </Caveat>
+      )}
       <Row>
         <Field label="STOCK" style={styles.half}><TextInput value={stock} onChangeText={setStock} placeholder="0" placeholderTextColor="#999999" keyboardType="number-pad" style={styles.input} /></Field>
         {/* Which store that stock is at. Defaults to the main store, or to the

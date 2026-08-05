@@ -22,6 +22,7 @@ import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
+import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
@@ -47,7 +48,7 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
 // all" rather than "expires soon": the Dashboard's row already narrows to the
 // shop's warning window, and a second, different definition of "soon" living
 // here is how the two screens start disagreeing.
-type StockFilter = 'all' | 'low' | 'expiring';
+type StockFilter = 'all' | 'low' | 'expiring' | 'nocost';
 
 export default function InventoryScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
@@ -88,7 +89,7 @@ export default function InventoryScreen() {
   // other place this app reads a search param.
   const { filter: filterParam } = useLocalSearchParams<{ filter?: string }>();
   const [stockFilter, setStockFilter] = useState<StockFilter>(
-    filterParam === 'low' || filterParam === 'expiring' ? filterParam : 'all'
+    filterParam === 'low' || filterParam === 'expiring' || filterParam === 'nocost' ? filterParam : 'all'
   );
 
   const reload = useCallback(async () => {
@@ -237,7 +238,9 @@ export default function InventoryScreen() {
         ? products.filter((p) => p.stock <= (p.reorderLevel ?? shop?.defaultLowStockLevel ?? 5))
         : stockFilter === 'expiring'
           ? products.filter((p) => p.expiryDate !== null)
-          : products;
+          : stockFilter === 'nocost'
+            ? products.filter(isUncosted)
+            : products;
     const matches = !q
       ? scoped
       : scoped.filter((p) =>
@@ -318,6 +321,7 @@ export default function InventoryScreen() {
   const defaultLowStockLevel = shop?.defaultLowStockLevel ?? 5;
   const expiryWarningLeadDays = shop?.expiryTrackingEnabled ? shop.expiryWarningLeadDays : undefined;
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
+  const uncostedCount = products.filter(isUncosted).length;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -376,7 +380,7 @@ export default function InventoryScreen() {
             back out of it. A filtered list that looks like the whole list is
             worse than no link at all. */}
         <View style={styles.stockFilterRow}>
-          {(['all', 'low', 'expiring'] as StockFilter[])
+          {(['all', 'low', 'expiring', 'nocost'] as StockFilter[])
             .filter((key) => key !== 'expiring' || shop?.expiryTrackingEnabled)
             .map((key) => (
               <Pressable
@@ -385,7 +389,18 @@ export default function InventoryScreen() {
                 style={[styles.stockChip, stockFilter === key && styles.stockChipActive]}
               >
                 <Text style={[styles.stockChipText, stockFilter === key && styles.stockChipTextActive]}>
-                  {key === 'all' ? 'All' : key === 'low' ? `Low stock ${needsAttention}` : 'Has expiry'}
+                  {/* Shown with its count even at zero, like Low stock. The comment
+                      above this row argues a narrowed list that looks unnarrowed is
+                      worse than no link at all -- a chip that hid itself when the
+                      count was zero could neither be got out of on a deep link, nor
+                      report the genuinely useful news that the count IS zero. */}
+                  {key === 'all'
+                    ? 'All'
+                    : key === 'low'
+                      ? `Low stock ${needsAttention}`
+                      : key === 'expiring'
+                        ? 'Has expiry'
+                        : `No cost ${uncostedCount}`}
                 </Text>
               </Pressable>
             ))}
@@ -437,13 +452,24 @@ export default function InventoryScreen() {
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           <Text style={styles.empty}>
-            {locationFilter
-              ? // A store carries a product once it has a stock row there, so an
-                // empty list here is a real answer, not a missing filter. It
-                // also has to say how to change that, since the routes in are
-                // all somewhere else.
-                `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
-              : 'No products yet. Add your first one above.'}
+            {// A filtered-to-zero list must say WHICH filter emptied it --
+            // otherwise it reads as an empty shop rather than a shop that
+            // happens to have nothing matching the chip it's on. Checked
+            // first, and ahead of locationFilter, because it's the more
+            // specific, more actionable explanation of the two.
+            stockFilter === 'nocost'
+              ? 'Every product has a purchase cost recorded. Uncosted sales on the Dashboard belong to products that have since been given one.'
+              : stockFilter === 'low'
+                ? 'Nothing is low on stock right now.'
+                : stockFilter === 'expiring'
+                  ? 'No products have an expiry date set.'
+                  : locationFilter
+                    ? // A store carries a product once it has a stock row there, so an
+                      // empty list here is a real answer, not a missing filter. It
+                      // also has to say how to change that, since the routes in are
+                      // all somewhere else.
+                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+                    : 'No products yet. Add your first one above.'}
           </Text>
         ) : (
           <Card style={styles.list}>
