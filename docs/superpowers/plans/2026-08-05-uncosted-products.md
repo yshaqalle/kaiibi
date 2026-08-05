@@ -12,7 +12,11 @@
 
 ## Global Constraints
 
-- **Branch:** work on `customer-loyalty-points`. Do not create a new branch.
+- **Branch:** `uncosted-products`, cut from `main` at `6f5e563`. The two doc
+  commits also exist on `customer-loyalty-points`, where they were originally
+  written; that branch is pushed and actively worked in another session, so it
+  must not be rewritten to remove them. The duplicate is harmless — identical
+  file content collapses when both branches merge.
 - **Uncosted means `costCents === null`, never `=== 0` and never falsy.** A cost of zero is a real recorded answer (free sample, gift with purchase). Only `null` means unrecorded.
 - **No component tests.** This repo has no `@testing-library/*` and no `.tsx` under any `__tests__`. Do not add the tooling — it is explicitly out of scope. Test only `src/lib/` modules. Rendering is verified manually at the end.
 - **Test command:** `npm test` (Jest). Lint: `npm run lint`.
