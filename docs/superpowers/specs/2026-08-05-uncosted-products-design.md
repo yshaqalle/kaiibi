@@ -165,29 +165,52 @@ indistinguishable from a real one.
 **Backfilling existing products.** No migration. The chip surfaces them; setting
 a cost is manual per product.
 
+### Both predicates live in `lib/`, not inline in the components
+
+This repo has no component test infrastructure — no `@testing-library/*` in
+`devDependencies`, and no `.tsx` file under any `__tests__` directory. Every
+test in the suite is a pure-logic test against a `src/lib/` module.
+
+Logic written inline in `inventory.tsx` or `product-form.tsx` is therefore
+untestable. Both decisions move to a new `src/lib/product-costing.ts`:
+
+```ts
+export function isUncosted(product: Pick<Product, 'costCents'>): boolean
+export function needsCostConfirmation(costInput: string, initialCostCents: number | null | undefined): boolean
+```
+
+The components call these and hold only rendering. This is the same split the
+codebase already uses — `sales-reporting.ts` owns `costOfGoodsSold()` and the
+`uncosted*` counts while `dashboard.tsx` only renders them — so the new module
+is a sibling of the code that first surfaced this problem, not a new pattern.
+
 ## Testing
 
-Unit:
+Unit, in `src/lib/__tests__/`:
 
-- Filter predicate: `costCents === null` matches; `0` does not; a positive cost
-  does not.
-- Confirm trigger, all four rows of the table above.
-- `confirmChoice` resolves `true` on accept and `false` on cancel, on both
-  platform branches.
+- `isUncosted`: `null` matches; `0` does not; a positive cost does not.
+- `needsCostConfirmation`: all four rows of the table above.
+- `confirmChoice`: resolves `true` on accept and `false` on cancel, on both the
+  web and native branches.
 
-Component:
+Manual, because the rendering cannot be tested here:
 
-- Chip renders with its count, including at zero, and selecting it narrows the
-  list.
-- `?filter=nocost` selects the chip on mount.
-- The `Caveat` appears when the cost field is empty and disappears once it has a
-  value.
+- Chip shows its count, including at zero, and selecting it narrows the list.
+- `/inventory?filter=nocost` opens with the chip already selected.
+- Dashboard caveat's action lands on that filtered list.
+- The hint appears when the cost field is empty and goes once it has a value.
+- Saving blank-cost prompts on create; editing an already-uncosted product does
+  not prompt.
+
+Adding component-test tooling is out of scope — it is a suite-wide decision that
+should not be made as a side effect of this feature.
 
 ## Files
 
 | File | Change |
 |---|---|
+| `src/lib/product-costing.ts` | Create: `isUncosted`, `needsCostConfirmation` |
+| `src/lib/confirm.ts` | Add `confirmChoice` |
 | `src/app/(admin)/(tabs)/inventory.tsx` | `StockFilter` union, filter branch, `uncostedCount`, chip label, param guard |
 | `src/app/(admin)/(tabs)/dashboard.tsx` | Caveat action → `/inventory?filter=nocost` |
 | `src/components/product-form.tsx` | Inline `Caveat`, confirm in `submit()` |
-| `src/lib/confirm.ts` | Add `confirmChoice` |
