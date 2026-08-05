@@ -133,7 +133,17 @@ question being asked of a back office that can see every customer.
    unlike tax, which `edit_sale` re-reads.
 10. `delete_sale` posts reversing rows before deleting, so a voided sale's
     points don't count forever.
-11. **A shop whose plan has lapsed can still complete a sale** with a customer
+11. **Earned points cannot be spent until they have matured.** Redeeming
+    same-day points is refused and names what is still on hold; aging the ledger
+    rows past the window makes the whole balance spendable.
+12. **A clawback never drives the balance negative.** Earn on one sale, spend it
+    all on another, return the first — the shop absorbs what it cannot recover
+    rather than posting the customer a debt.
+13. **A refund gives points back before it takes them away.** The ordering
+    check: reversing the two lets the clawback hit an emptied balance, get
+    clamped to nothing, and the reversal then hand back points the shop meant to
+    reclaim. Asserts the exact net, which is what distinguishes the two orders.
+14. **A shop whose plan has lapsed can still complete a sale** with a customer
     attached, earning nothing. This is the regression that matters most:
     `public.customers` carries `enforce_shop_module('customers')` as a BEFORE
     UPDATE trigger, and `security definer` does not bypass a trigger — without

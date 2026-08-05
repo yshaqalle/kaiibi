@@ -202,6 +202,19 @@ export async function getCustomersStatsBatch(shopId: string): Promise<Map<string
   return stats;
 }
 
+// What a customer can actually spend right now: their balance less anything
+// earned inside the shop's maturing window. Not derivable from the customer row
+// (it depends on the clock and on the ledger), so it's its own small RPC —
+// called once when a customer is attached at checkout.
+//
+// Display and clamping only. complete_sale recomputes this under a row lock and
+// refuses the sale if it no longer holds.
+export async function customerPointsAvailable(customerId: string): Promise<number> {
+  const { data, error } = await supabase.rpc('customer_points_available', { p_customer_id: customerId });
+  if (error) throw error;
+  return (data as number) ?? 0;
+}
+
 // The movements behind a customer's points balance, newest first. A plain
 // table read rather than an RPC: the ledger's select policy already accepts
 // customers.view, and nothing here needs definer rights.

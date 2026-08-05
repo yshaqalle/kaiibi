@@ -46,6 +46,10 @@ export type Shop = {
   loyaltyEnabled: boolean;
   loyaltyPointsPerUsd: number;
   loyaltyCentsPerPoint: number;
+  // How long earned points wait before they can be spent, in days. Default 1.
+  // Zero re-opens the buy-earn-spend-return loop the window exists to close —
+  // see migration 20260820000100.
+  loyaltyPointsAvailableAfterDays: number;
   // Receipt customization — see src/lib/receipt.ts (show-logo/show-cashier
   // name) and src/components/receipt-modal.tsx (auto-print/auto-whatsapp).
   receiptShowLogo: boolean;
@@ -216,8 +220,12 @@ export type Customer = {
   notes: string | null;
   // Loyalty points on hand. A stored counter, not a sum computed here: it's
   // maintained by trigger from `customer_points_ledger` so a redemption has a
-  // row to lock against a second register — see migration 20260820000000. Can
-  // go negative if a refund claws back points already spent.
+  // row to lock against a second register — see migration 20260820000000.
+  //
+  // Never negative; a clawback that can't be met is clamped and the shop
+  // absorbs the rest. NOT the spendable figure either — points earned inside
+  // the shop's maturing window are counted here but can't yet be redeemed, for
+  // which see `customerPointsAvailable` in lib/customers.ts.
   pointsBalance: number;
   createdAt: string;
   updatedAt: string;

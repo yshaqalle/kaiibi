@@ -565,7 +565,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     // editor has no redemption control, so nothing here reads it, and fetching
     // a live balance just to satisfy the type would be a query for nothing.
     sale.customerId
-      ? { id: sale.customerId, name: sale.customerName ?? '', phone: sale.customerPhone, email: sale.customerEmail, pointsBalance: 0 }
+      ? { id: sale.customerId, name: sale.customerName ?? '', phone: sale.customerPhone, email: sale.customerEmail, pointsBalance: 0, availablePoints: null }
       : null
   );
   const [droppedCount] = useState(() => (sale.items?.length ?? 0) - items.length);

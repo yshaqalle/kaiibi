@@ -38,6 +38,8 @@ export function CheckoutPanel({
   redemptionCents,
   pointsEarned,
   onChangePointsRedeemed,
+  pointsMaturing,
+  availableKnown,
 }: {
   cartEmpty: boolean;
   cashiers: string[];
@@ -66,6 +68,10 @@ export function CheckoutPanel({
   redemptionCents: number;
   pointsEarned: number;
   onChangePointsRedeemed: (points: number) => void;
+  // On the balance but not yet spendable -- earned inside the shop's maturing
+  // window. Shown so a cashier can answer "why can't I use all of them".
+  pointsMaturing: number;
+  availableKnown: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -120,6 +126,8 @@ export function CheckoutPanel({
               {loyaltyEnabled && selectedCustomer && (
                 <PointsSection
                   balance={selectedCustomer.pointsBalance}
+                  maturing={pointsMaturing}
+                  availableKnown={availableKnown}
                   centsPerPoint={centsPerPoint}
                   pointsRedeemed={pointsRedeemed}
                   maxRedeemable={maxRedeemable}
@@ -159,6 +167,8 @@ export function CheckoutPanel({
 // never a disabled points control on screen needing an explanation.
 function PointsSection({
   balance,
+  maturing,
+  availableKnown,
   centsPerPoint,
   pointsRedeemed,
   maxRedeemable,
@@ -167,6 +177,8 @@ function PointsSection({
   onChange,
 }: {
   balance: number;
+  maturing: number;
+  availableKnown: boolean;
   centsPerPoint: number;
   pointsRedeemed: number;
   maxRedeemable: number;
@@ -187,6 +199,7 @@ function PointsSection({
   // Derived from the already-clamped cents rather than recomputed, so this can
   // never disagree with the total the customer is being charged.
   const effectivePoints = centsPerPoint > 0 ? Math.round(redemptionCents / centsPerPoint) : 0;
+  const spendable = Math.max(balance - maturing, 0);
   const overEntered = Number(draft) > effectivePoints;
 
   return (
@@ -197,6 +210,15 @@ function PointsSection({
           <Text style={styles.pointsBalance}>
             Balance {balance.toLocaleString()} pts · worth {formatCents(pointsToCents(balance, centsPerPoint))}
           </Text>
+          {!availableKnown ? (
+            <Text style={styles.pointsMaturing}>Checking available points…</Text>
+          ) : maturing > 0 ? (
+            // Named rather than silently subtracted, or the cashier sees a
+            // "Use max" that doesn't match the balance right above it.
+            <Text style={styles.pointsMaturing}>
+              {maturing.toLocaleString()} still maturing · {spendable.toLocaleString()} can be used today
+            </Text>
+          ) : null}
           <View style={styles.pointsRow}>
             <TextInput
               value={draft}
@@ -258,4 +280,5 @@ const styles = StyleSheet.create({
   pointsUsing: { fontSize: 12, fontWeight: '700', color: '#111111', marginTop: 8 },
   pointsClamped: { color: '#9A6700' },
   pointsEarns: { fontSize: 11, color: '#999999', marginTop: 6 },
+  pointsMaturing: { fontSize: 11, color: '#9A6700', fontWeight: '700', marginTop: 4 },
 });

@@ -1,14 +1,25 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { quickAddCustomer, searchCustomers } from '@/lib/customers';
+import { customerPointsAvailable, quickAddCustomer, searchCustomers } from '@/lib/customers';
 import { pointsValueLabel } from '@/lib/loyalty';
 import type { Customer } from '@/types/models';
 
 // `pointsBalance` rides along because pos_search_customers returns whole
-// customer rows -- so the picker can show a balance, and checkout can clamp a
-// redemption against it, with no second lookup.
-export type SelectedCustomer = { id: string; name: string; phone: string | null; email: string | null; pointsBalance: number };
+// customer rows, so showing a balance costs no extra query.
+//
+// `availablePoints` cannot: it depends on the clock and on the ledger, so it's
+// fetched once when a customer is attached. Null means "not looked up yet" —
+// distinct from 0, which means "nothing spendable" — so the checkout sheet can
+// say so rather than flashing a wrong number while it loads.
+export type SelectedCustomer = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  pointsBalance: number;
+  availablePoints: number | null;
+};
 
 function fullName(c: Customer): string {
   return [c.firstName, c.lastName].filter(Boolean).join(' ');
@@ -71,13 +82,23 @@ export function CustomerPicker({
   };
 
   const pick = (customer: Customer) => {
-    onSelect({
+    const selection: SelectedCustomer = {
       id: customer.id,
       name: fullName(customer),
       phone: customer.phone,
       email: customer.email,
       pointsBalance: customer.pointsBalance,
-    });
+      availablePoints: null,
+    };
+    onSelect(selection);
+    // Resolved after the fact so attaching a customer stays instant. A failure
+    // leaves it null, which the checkout sheet reads as "unknown" and offers no
+    // redemption -- the safe direction, since the server would refuse anyway.
+    if (showPoints) {
+      customerPointsAvailable(customer.id)
+        .then((available) => onSelect({ ...selection, availablePoints: available }))
+        .catch(() => onSelect({ ...selection, availablePoints: 0 }));
+    }
     setOpen(false);
     setQuery('');
     setResults([]);

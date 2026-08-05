@@ -597,6 +597,7 @@ export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pro
   const [enabled, setEnabled] = useState(shop.loyaltyEnabled);
   const [perUsdInput, setPerUsdInput] = useState(String(shop.loyaltyPointsPerUsd));
   const [pointsForDollarInput, setPointsForDollarInput] = useState(String(pointsForADollarFrom(shop.loyaltyCentsPerPoint)));
+  const [graceDaysInput, setGraceDaysInput] = useState(String(shop.loyaltyPointsAvailableAfterDays));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -604,7 +605,8 @@ export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pro
   const dirty =
     enabled !== shop.loyaltyEnabled ||
     perUsdInput.trim() !== String(shop.loyaltyPointsPerUsd) ||
-    pointsForDollarInput.trim() !== String(pointsForADollarFrom(shop.loyaltyCentsPerPoint));
+    pointsForDollarInput.trim() !== String(pointsForADollarFrom(shop.loyaltyCentsPerPoint)) ||
+    graceDaysInput.trim() !== String(shop.loyaltyPointsAvailableAfterDays);
 
   const pointsForADollar = Math.max(1, Math.floor(Number(pointsForDollarInput) || 0));
   const centsPerPoint = centsPerPointFrom(pointsForADollar);
@@ -612,6 +614,7 @@ export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pro
   // The round trip, spelled out. Neither field says on its own what the
   // programme costs -- that's the PRODUCT of the two -- so it gets stated as a
   // sentence before Save rather than discovered at the till.
+  const graceDays = Math.max(0, Math.floor(Number(graceDaysInput) || 0));
   const centsBackPerDollar = Math.round(pointsPerUsd * centsPerPoint);
   const givingItAllBack = centsBackPerDollar >= 100;
 
@@ -623,6 +626,7 @@ export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pro
         loyaltyEnabled: enabled,
         loyaltyPointsPerUsd: pointsPerUsd,
         loyaltyCentsPerPoint: centsPerPoint,
+        loyaltyPointsAvailableAfterDays: graceDays,
       });
       await onSaved();
       setSaved(true);
@@ -676,6 +680,30 @@ export function LoyaltyPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pro
               />
               <Text style={styles.percentSign}>pts</Text>
             </Row>
+            <Row
+              label="Usable after"
+              desc={
+                graceDays === 0
+                  ? 'Spendable the moment they are earned'
+                  : `Points earned today can be spent in ${graceDays} ${graceDays === 1 ? 'day' : 'days'}`
+              }
+            >
+              <TextInput
+                value={graceDaysInput}
+                onChangeText={setGraceDaysInput}
+                placeholder="1"
+                placeholderTextColor="#999999"
+                keyboardType="number-pad"
+                style={styles.rateInput}
+              />
+              <Text style={styles.percentSign}>{graceDays === 1 ? 'day' : 'days'}</Text>
+            </Row>
+            {graceDays === 0 && (
+              <Text style={[styles.hint, styles.loyaltySummary, styles.loyaltyWarning]}>
+                With no waiting period a customer can buy, earn, spend the new points on a second basket, and return the first —
+                and the refund can only claw back points they still hold.
+              </Text>
+            )}
             <Text style={[styles.hint, styles.loyaltySummary, givingItAllBack && styles.loyaltyWarning]}>
               {`Spend $1.00 → earn ${pointsPerUsd} ${pointsPerUsd === 1 ? 'point' : 'points'} → worth ${formatCents(centsBackPerDollar)} off.`}
               {givingItAllBack ? ' That gives back every dollar spent, or more — check both numbers.' : ''}

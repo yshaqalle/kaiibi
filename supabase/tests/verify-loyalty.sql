@@ -24,6 +24,7 @@ declare
   v_sale_3x_id uuid;
   v_redeemed_sale_id uuid;
   v_doomed_sale_id uuid;
+  v_sale_c_id uuid;
   v_item_id uuid;
   v_refund_id uuid;
   v_items jsonb;
@@ -80,8 +81,13 @@ begin
   if v_count <> 0 then raise exception 'FAIL: loyalty off but % ledger rows were written', v_count; end if;
   raise notice 'OK: no points earned and no ledger rows while loyalty is off';
 
+  -- The maturing window is switched OFF for the arithmetic checks below, which
+  -- are about what a sale earns and refunds and would otherwise all trip over
+  -- points that are seconds old. It gets its own section (11) where it is the
+  -- thing under test.
   update public.shops
-    set loyalty_enabled = true, loyalty_points_per_usd = 1, loyalty_cents_per_point = 1
+    set loyalty_enabled = true, loyalty_points_per_usd = 1, loyalty_cents_per_point = 1,
+        loyalty_points_available_after_days = 0
     where id = v_shop_id;
 
   ------------------------------------------------------------------
@@ -375,7 +381,138 @@ begin
   end if;
 
   ------------------------------------------------------------------
-  raise notice '=== 11. A lapsed plan stops earning, and does NOT stop selling ===';
+  raise notice '=== 11. Earned points cannot be spent until they have matured ===';
+  ------------------------------------------------------------------
+  -- Without this window the loop is: buy, earn, spend the new points on a
+  -- second basket, return the first. The clamp in check 12 means the shop can
+  -- no longer claw those points back, so the two rules only work together.
+  update public.shops set loyalty_points_available_after_days = 1 where id = v_shop_id;
+
+  -- Everything on this balance was earned moments ago by this script, so all of
+  -- it is inside the window.
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  if public.customer_points_available(v_customer_id) <> 0 then
+    raise exception 'FAIL: % freshly earned points are already spendable', v_balance;
+  end if;
+
+  v_raised := false;
+  begin
+    perform public.complete_sale(
+      v_shop_id, v_items,
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1998, 'tendered_cents', 2000)),
+      null, null, null, null, 0, v_customer_id, null, v_location_id, 1
+    );
+  exception when others then
+    v_raised := true; v_detail := sqlerrm;
+  end;
+  if not v_raised then raise exception 'FAIL: a point that had not matured was spent'; end if;
+  raise notice 'OK: refused (%)', v_detail;
+
+  -- Age the earn rows past the window. The ledger has no update policy at all,
+  -- so this is postgres work.
+  perform set_config('role', 'postgres', true);
+  update public.customer_points_ledger
+     set created_at = created_at - interval '2 days'
+   where customer_id = v_customer_id and reason = 'earn';
+  perform set_config('role', 'authenticated', true);
+
+  if public.customer_points_available(v_customer_id) <> v_balance then
+    raise exception 'FAIL: matured points still unavailable (% of %)',
+      public.customer_points_available(v_customer_id), v_balance;
+  end if;
+  raise notice 'OK: once matured, all % points became spendable', v_balance;
+
+  update public.shops set loyalty_points_available_after_days = 0 where id = v_shop_id;
+
+  ------------------------------------------------------------------
+  raise notice '=== 12. A clawback never drives the balance negative ===';
+  ------------------------------------------------------------------
+  -- Earn on one sale, spend it all on another, then send the first one back.
+  -- The shop absorbs what it cannot recover rather than posting the customer a
+  -- debt for a refund it agreed to give.
+  select public.complete_sale(
+    v_shop_id, v_items,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1999, 'tendered_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_location_id, 0
+  ) into v_sale_c_id;
+
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  perform set_config('role', 'postgres', true);
+  update public.customer_points_ledger set created_at = created_at - interval '2 days'
+   where customer_id = v_customer_id and reason = 'earn';
+  perform set_config('role', 'authenticated', true);
+
+  -- Spend the lot, leaving less on hand than sale C is about to want back.
+  select public.complete_sale(
+    v_shop_id, v_items,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1999 - v_balance, 'tendered_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_location_id, v_balance
+  ) into v_sale_id;
+
+  select id into v_item_id from public.sale_items where sale_id = v_sale_c_id;
+  perform public.refund_sale_items(v_sale_c_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  if v_balance < 0 then
+    raise exception 'FAIL: the clawback drove the balance to %', v_balance;
+  end if;
+  raise notice 'OK: clawback clamped, balance sits at % rather than going negative', v_balance;
+
+  select coalesce(sum(delta_points), 0) into v_ledger_sum
+    from public.customer_points_ledger where customer_id = v_customer_id;
+  if v_balance <> v_ledger_sum then
+    raise exception 'FAIL: counter % <> ledger % after a clamped clawback', v_balance, v_ledger_sum;
+  end if;
+
+  ------------------------------------------------------------------
+  raise notice '=== 13. A refund gives points back BEFORE it takes them away ===';
+  ------------------------------------------------------------------
+  -- The ordering check. Reversing these two lets the clawback hit an emptied
+  -- balance, get clamped to nothing, and then the reversal lands on top --
+  -- handing the customer points the shop meant to reclaim.
+  perform set_config('role', 'postgres', true);
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  insert into public.customer_points_ledger (shop_id, customer_id, delta_points, reason, note)
+    values (v_shop_id, v_customer_id, 100 - v_balance, 'adjustment', 'test: set balance to 100');
+  update public.customer_points_ledger set created_at = created_at - interval '2 days'
+   where customer_id = v_customer_id;
+  perform set_config('role', 'authenticated', true);
+
+  -- Redeem all 100; the sale earns round(18.99) = 19 back.
+  select public.complete_sale(
+    v_shop_id, v_items,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1899, 'tendered_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_location_id, 100
+  ) into v_redeemed_sale_id;
+
+  select points_earned into v_earned from public.sales where id = v_redeemed_sale_id;
+
+  -- Drain to nothing, so the refund below lands on an empty balance.
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  perform set_config('role', 'postgres', true);
+  insert into public.customer_points_ledger (shop_id, customer_id, delta_points, reason, note)
+    values (v_shop_id, v_customer_id, -v_balance, 'adjustment', 'test: drain to zero');
+  perform set_config('role', 'authenticated', true);
+
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  if v_balance <> 0 then raise exception 'FAIL: could not drain the balance (at %)', v_balance; end if;
+
+  select id into v_item_id from public.sale_items where sale_id = v_redeemed_sale_id;
+  perform public.refund_sale_items(v_redeemed_sale_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+
+  -- Right order: +100 returned, then -19 clawed back = 81.
+  -- Wrong order: clawback clamped to 0 against an empty balance, then +100 = 100.
+  select points_balance into v_balance from public.customers where id = v_customer_id;
+  if v_balance <> 100 - v_earned then
+    raise exception 'FAIL: balance % after the refund, expected % -- the reversal and the clawback are the wrong way round',
+      v_balance, 100 - v_earned;
+  end if;
+  raise notice 'OK: 100 returned then % clawed back, leaving %', v_earned, v_balance;
+
+  ------------------------------------------------------------------
+  raise notice '=== 14. A lapsed plan stops earning, and does NOT stop selling ===';
   ------------------------------------------------------------------
   -- The regression this exists to catch: public.customers carries
   -- enforce_shop_module('customers') as a BEFORE UPDATE trigger, and security

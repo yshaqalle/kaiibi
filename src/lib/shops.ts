@@ -23,6 +23,7 @@ function mapShopRow(row: any): Shop {
     // numeric arrives as a string over PostgREST, same as tax_rate_percent.
     loyaltyPointsPerUsd: row.loyalty_points_per_usd != null ? Number(row.loyalty_points_per_usd) : 1,
     loyaltyCentsPerPoint: row.loyalty_cents_per_point ?? 1,
+    loyaltyPointsAvailableAfterDays: row.loyalty_points_available_after_days ?? 1,
     receiptShowLogo: row.receipt_show_logo,
     receiptShowCashierName: row.receipt_show_cashier_name,
     receiptAutoPrint: row.receipt_auto_print,
@@ -123,7 +124,7 @@ export async function createShop(input: {
 
 export async function updateShop(id: string, input: Partial<{
   name: string; description: string; returnPolicy: string; logoUrl: string | null; categories: string[]; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
-  loyaltyEnabled: boolean; loyaltyPointsPerUsd: number; loyaltyCentsPerPoint: number;
+  loyaltyEnabled: boolean; loyaltyPointsPerUsd: number; loyaltyCentsPerPoint: number; loyaltyPointsAvailableAfterDays: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
@@ -144,6 +145,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.loyaltyEnabled !== undefined && { loyalty_enabled: input.loyaltyEnabled }),
       ...(input.loyaltyPointsPerUsd !== undefined && { loyalty_points_per_usd: input.loyaltyPointsPerUsd }),
       ...(input.loyaltyCentsPerPoint !== undefined && { loyalty_cents_per_point: input.loyaltyCentsPerPoint }),
+      ...(input.loyaltyPointsAvailableAfterDays !== undefined && { loyalty_points_available_after_days: input.loyaltyPointsAvailableAfterDays }),
       ...(input.receiptShowLogo !== undefined && { receipt_show_logo: input.receiptShowLogo }),
       ...(input.receiptShowCashierName !== undefined && { receipt_show_cashier_name: input.receiptShowCashierName }),
       ...(input.receiptAutoPrint !== undefined && { receipt_auto_print: input.receiptAutoPrint }),

@@ -281,10 +281,15 @@ export default function PosScreen() {
   // changes: shrink the basket and the redemption shrinks with it, which moves
   // `total` and so trips the clear-payments effect below, exactly as a discount
   // change would.
+  // Spendable points, not the whole balance: anything earned inside the shop's
+  // maturing window is on the balance but can't be redeemed yet. Null means the
+  // lookup hasn't landed, which reads as zero here — the server would refuse a
+  // redemption built on a guess anyway.
+  const spendablePoints = selectedCustomer?.availablePoints ?? 0;
   const redemption = effectiveRedemption(
     pointsRedeemed,
     preRedemptionCents,
-    selectedCustomer?.pointsBalance ?? 0,
+    spendablePoints,
     loyalty,
     Boolean(selectedCustomer)
   );
@@ -641,7 +646,9 @@ export default function PosScreen() {
           loyaltyEnabled={loyalty.enabled}
           centsPerPoint={loyalty.centsPerPoint}
           pointsRedeemed={pointsRedeemed}
-          maxRedeemable={maxRedeemablePoints(preRedemptionCents, selectedCustomer?.pointsBalance ?? 0, loyalty)}
+          maxRedeemable={maxRedeemablePoints(preRedemptionCents, spendablePoints, loyalty)}
+          pointsMaturing={Math.max((selectedCustomer?.pointsBalance ?? 0) - spendablePoints, 0)}
+          availableKnown={selectedCustomer?.availablePoints !== null && selectedCustomer?.availablePoints !== undefined}
           redemptionCents={redemption.cents}
           pointsEarned={pointsEarned}
           onChangePointsRedeemed={setPointsRedeemed}
