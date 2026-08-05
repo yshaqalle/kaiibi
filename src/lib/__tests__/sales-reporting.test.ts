@@ -6,6 +6,7 @@ import {
   netRevenueCents,
   paymentMethodMix,
   refundedCents,
+  refundPreviewCents,
   saleProfit,
   taxCollectedCents,
   type PeriodRefund,
@@ -383,5 +384,66 @@ describe('bucketDailyTotals', () => {
     const sales = [makeSale({ createdAt: new Date(2026, 6, 20, 9, 0).toISOString(), totalCents: 9999 })];
     const buckets = bucketDailyTotals(sales, [], since, until);
     expect(buckets.every((b) => b.grossCents === 0)).toBe(true);
+  });
+});
+
+// The figures here are the same ones verify-refunds.sql asserts against the
+// real database. If these two ever drift, the cashier is being quoted a number
+// the server will not pay.
+describe('refundPreviewCents', () => {
+  const soap = (overrides: Partial<SaleItem> = {}) =>
+    makeItem({ id: 'i1', unitPriceCents: 1999, quantity: 1, lineTotalCents: 1999, ...overrides });
+
+  it('returns the price on a plain sale', () => {
+    const sale = makeSale({ items: [soap()], totalCents: 1999, taxCents: 0 });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBe(1999);
+  });
+
+  it('does not hand back an order discount a second time', () => {
+    // 1999 of goods, 200 off, so 1799 was paid — the old maths quoted 1999.
+    const sale = makeSale({ items: [soap()], totalCents: 1799, discountCents: 200, taxCents: 0 });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBe(1799);
+  });
+
+  it('includes tax, which is not in a line total at all', () => {
+    const sale = makeSale({ items: [soap()], totalCents: 2099, taxCents: 100 });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBe(2099);
+  });
+
+  it('does not turn redeemed points into cash', () => {
+    const sale = makeSale({ items: [soap()], totalCents: 1949, pointsRedeemed: 50, pointsRedeemedCents: 50 });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBe(1949);
+  });
+
+  it('returns nothing when nothing is selected', () => {
+    const sale = makeSale({ items: [soap()], totalCents: 1999 });
+    expect(refundPreviewCents(sale, {})).toBe(0);
+  });
+
+  it('nets off what earlier refunds already handed back', () => {
+    // Three units at 5997 gross, 300 off, 285 tax, 5982 paid. One already back.
+    const sale = makeSale({
+      items: [soap({ quantity: 3, lineTotalCents: 5997 })],
+      totalCents: 5982,
+      discountCents: 300,
+      taxCents: 285,
+      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1994, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1994 }] }],
+    });
+    expect(refundPreviewCents(sale, { i1: 2 })).toBe(5982 - 1994);
+  });
+
+  it('never goes negative on a sale already over-refunded under the old maths', () => {
+    const sale = makeSale({
+      items: [soap({ quantity: 2, lineTotalCents: 3998 })],
+      totalCents: 3598,
+      discountCents: 400,
+      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1999, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1999 }] }],
+    });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns 0 rather than dividing by zero when every line is free', () => {
+    const sale = makeSale({ items: [soap({ lineTotalCents: 0 })], totalCents: 0 });
+    expect(refundPreviewCents(sale, { i1: 1 })).toBe(0);
   });
 });
