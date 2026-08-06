@@ -910,6 +910,19 @@ function TeamDetailPane({
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
+  // A pay rate is sensitive in a way a hire date is not — someone glancing at
+  // a manager's screen over the counter shouldn't read it incidentally, so it
+  // stays masked until asked for. TeamDetailPane isn't remounted per member
+  // (no `key` at its call site, just a prop swap), so a plain useState would
+  // leave the previous person's rate revealed. Reset it during render (React's
+  // documented "adjusting state when a prop changes" pattern), not in a
+  // useEffect, which would fire a redundant extra render.
+  const [payRevealed, setPayRevealed] = useState(false);
+  const [payRevealedForId, setPayRevealedForId] = useState(member.id);
+  if (payRevealedForId !== member.id) {
+    setPayRevealedForId(member.id);
+    setPayRevealed(false);
+  }
 
   const role = roles.find((r) => r.id === member.roleId);
   const permissions = role?.permissions ?? [];
@@ -1008,13 +1021,27 @@ function TeamDetailPane({
                 ) : undefined
               }
             >
-              <Text style={tabStyles.payrollValue}>
-                {!canManagePayroll
-                  ? 'Hidden'
-                  : member.payType == null || member.payRateCents == null
-                    ? 'Not set'
-                    : formatPayRateLong(member.payType, member.payRateCents)}
-              </Text>
+              <View style={tabStyles.payrollRow}>
+                <Text style={tabStyles.payrollValue}>
+                  {!canManagePayroll
+                    ? 'Hidden'
+                    : member.payType == null || member.payRateCents == null
+                      ? 'Not set'
+                      : payRevealed
+                        ? formatPayRateLong(member.payType, member.payRateCents)
+                        : '•••••'}
+                </Text>
+                {canManagePayroll && member.payType != null && member.payRateCents != null && (
+                  <Pressable
+                    onPress={() => setPayRevealed((prev) => !prev)}
+                    style={tabStyles.actionButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={payRevealed ? 'Hide pay rate' : 'Show pay rate'}
+                  >
+                    <Text style={tabStyles.actionButtonText}>{payRevealed ? 'Hide' : 'Show'}</Text>
+                  </Pressable>
+                )}
+              </View>
               {!canManagePayroll && !noPayrollNote.dismissed && (
                 <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
                   You don&apos;t have payroll access, so this member&apos;s rate is hidden.
@@ -1167,6 +1194,7 @@ const tabStyles = StyleSheet.create({
   usualStore: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
   usualStoreMeta: { fontSize: 12, color: theme.bentoMuted, marginTop: 3 },
   payrollValue: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  payrollRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   shiftRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
   shiftDate: { fontSize: 12, color: theme.bentoInk2 },
   shiftDuration: { fontSize: 12, fontWeight: '700', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
