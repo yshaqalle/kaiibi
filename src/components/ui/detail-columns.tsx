@@ -36,23 +36,10 @@ export function DetailColumns({ left, right }: { left: ReactNode; right: ReactNo
 
 const styles = StyleSheet.create({
   // One column: a plain stack. The caller is inside a ScrollView at this
-  // width (TwoPaneListDetail's detailFills is false below the two-column
-  // breakpoint), so nothing here may flex.
+  // width, so nothing here may flex.
   stack: { gap: 14 },
   row: { flexDirection: 'row', gap: 14, flex: 1, minHeight: 0, alignItems: 'stretch' },
   // minWidth 0 lets a long product name shrink the column rather than
   // widening it past its half of the pane.
   column: { flex: 1, minWidth: 0, gap: 14 },
-});
-
-/**
- * For a card that should take the remaining height of its column and scroll
- * its own body -- a purchase ledger, a shift list. Spread onto a `BentoCard`
- * as `style={detailCardStyles.fill}` and `bodyStyle={detailCardStyles.fillBody}`,
- * ONLY when `useDetailColumns()` is 2. At one column the card is inside a
- * ScrollView and must size to its content instead.
- */
-export const detailCardStyles = StyleSheet.create({
-  fill: { flex: 1, minHeight: 0 },
-  fillBody: { flex: 1, minHeight: 0 },
 });

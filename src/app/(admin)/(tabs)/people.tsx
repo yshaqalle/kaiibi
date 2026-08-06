@@ -1151,7 +1151,6 @@ const tabStyles = StyleSheet.create({
   // The detail pane is a STACK of cards, not one card with headings -- 14px
   // apart, matching BentoGrid's own gutter.
   detailStack: { gap: 14 },
-  detailStackFills: { flex: 1, minHeight: 0 },
   detHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 3 },
   detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
   detMeta: { fontSize: 12.5, color: theme.bentoMuted },
