@@ -1,12 +1,13 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { OptionPicker } from '@/components/option-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
 import { provisionStaff, updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import type { Role } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 const theme = Colors.light;
 
@@ -99,7 +100,7 @@ export function TeamAddModal({
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -205,7 +206,7 @@ export function TeamAddModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

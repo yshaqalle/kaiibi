@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
 import { isValidRateInput } from '@/lib/pay-rate';
 import type { StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 export function EditPayModal({
   visible,
@@ -59,7 +60,7 @@ export function EditPayModal({
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -79,7 +80,7 @@ export function EditPayModal({
           {error && <Text style={styles.error}>{error}</Text>}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

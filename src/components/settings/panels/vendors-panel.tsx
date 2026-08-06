@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { createVendor, deleteVendor, updateVendor } from '@/lib/vendors';
 import type { NewVendorInput, Vendor } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // The full-detail vendor list. A cut-down "+ New vendor" quick-add also lives
 // on the expense editor (see vendor-picker.tsx) so recording a purchase
@@ -138,7 +139,7 @@ function VendorEditorModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -223,7 +224,7 @@ function VendorEditorModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

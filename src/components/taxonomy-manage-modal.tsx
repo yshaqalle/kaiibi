@@ -1,15 +1,16 @@
 import { Image } from 'expo-image';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { TaxonomyEditModal, type TaxonomyInput, type TaxonomyRow } from '@/components/taxonomy-edit-modal';
+import { AppModal } from '@/components/ui/app-modal';
 
 export type { TaxonomyInput, TaxonomyRow };
 
 // List view for Brands/Categories — tile rows like ProductTile (thumbnail,
 // name, description preview, usage count), tapping a row or "+ Add" swaps
 // the card's body to TaxonomyEditModal's form (see that file for why it's
-// embedded here rather than being its own `<Modal>`).
+// embedded here rather than being its own `<AppModal>`).
 export function TaxonomyManageModal({
   visible,
   onClose,
@@ -51,7 +52,7 @@ export function TaxonomyManageModal({
   }, [items, usage, search]);
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={dismiss}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={dismiss}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           {editingItem === null ? (
@@ -107,7 +108,7 @@ export function TaxonomyManageModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

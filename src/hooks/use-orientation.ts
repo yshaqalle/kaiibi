@@ -8,10 +8,25 @@ import * as ScreenOrientation from 'expo-screen-orientation';
 // a phone turned sideways keeps its NativeTabs bar rather than swapping it for
 // a different navigator mid-rotation, which used to crash the app.
 //
-// The unlock is NOT redundant with the Info.plist, which still lists portrait
-// only for iPhone. expo-screen-orientation installs an app-delegate subscriber
-// that answers `supportedInterfaceOrientationsFor:` out of its own registry and
-// never reads the plist, so what this hook asks for is what iOS honours.
+// Two things outside this file have to agree for rotation to actually work, and
+// both have bitten us:
+//
+//   1. `UISupportedInterfaceOrientations` in app.json must list the
+//      orientations. iOS will not rotate into one the app doesn't declare, so
+//      unlocking here is necessary but not sufficient.
+//
+//   2. Modals must go through `AppModal` (@/components/ui/app-modal), which
+//      sets `supportedOrientations`. React Native defaults that prop to
+//      `['portrait']`,
+//      and a modal host is a presented view controller that answers
+//      `supportedInterfaceOrientations` for ITSELF out of that prop -- neither
+//      the plist nor this hook is consulted. A default-configured modal opened
+//      in landscape therefore force-rotates the whole scene to portrait, and
+//      several opening and closing in quick succession stack up
+//      `_UIForcedOrientationTransactionToken`s that never commit, which makes
+//      iOS suspend interaction: a screen fully drawn and idle that accepts no
+//      touches at all. That is what froze the POS, which opens the most modals
+//      in the shortest time (checkout sheet -> receipt).
 export function useUnlockedOrientation() {
   useEffect(() => {
     // Web already reflows freely regardless of orientation; the browser's

@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
@@ -14,6 +14,7 @@ import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { deleteImageByPublicUrl } from '@/lib/storage';
+import { AppModal } from '@/components/ui/app-modal';
 
 // The top header is deliberately always dark — matching the marketing site's
 // black header brand treatment — regardless of the device's system color
@@ -109,7 +110,7 @@ export default function AdminTabs() {
           </Pressable>
         </View>
       </View>
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
             {canEditShop && (
@@ -138,7 +139,7 @@ export default function AdminTabs() {
             </Pressable>
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting

@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { useAuth } from '@/hooks/use-auth';
 import { setLocationStock } from '@/lib/products';
 import type { Product } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // One product's stock, broken down by store, with a stepper per store.
 //
@@ -68,7 +69,7 @@ export function StockByStoreModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -111,7 +112,7 @@ export function StockByStoreModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

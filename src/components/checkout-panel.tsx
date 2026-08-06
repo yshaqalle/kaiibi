@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
@@ -8,6 +8,7 @@ import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { formatPoints, pointsToCents } from '@/lib/loyalty';
 import type { Currency, PaymentLine, PaymentMethod } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -44,6 +45,7 @@ export function CheckoutPanel({
   onChangePointsRedeemed,
   pointsMaturing,
   availableKnown,
+  onDismiss,
 }: {
   cartEmpty: boolean;
   cashiers: string[];
@@ -76,6 +78,10 @@ export function CheckoutPanel({
   // window. Shown so a cashier can answer "why can't I use all of them".
   pointsMaturing: number;
   availableKnown: boolean;
+  // Fired once the sheet has FINISHED dismissing (iOS only -- RN's `onDismiss`
+  // is iOS-only). This is the safe moment for the caller to present a modal of
+  // its own, which is what pos.tsx does with the receipt.
+  onDismiss?: () => void;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -92,7 +98,18 @@ export function CheckoutPanel({
         <Text style={styles.checkoutText}>Checkout</Text>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+      {/* `onDismiss` fires only once the sheet's dismissal transition has
+          actually finished. pos.tsx needs that signal because iOS refuses to
+          present one modal while another is still mid-dismiss -- which is
+          exactly the handoff a completed sale makes, from this sheet to the
+          receipt. Without waiting for it the receipt is silently dropped. */}
+      <AppModal
+        visible={open}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setOpen(false)}
+        onDismiss={onDismiss}
+      >
         <View style={styles.overlay}>
           <View style={styles.sheet}>
             <View style={styles.header}>
@@ -162,7 +179,7 @@ export function CheckoutPanel({
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </>
   );
 }

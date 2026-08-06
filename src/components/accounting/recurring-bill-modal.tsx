@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { VendorPicker, type SelectedVendor } from '@/components/vendor-picker';
@@ -10,6 +10,7 @@ import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
 import { paymentMethods } from '@/lib/payment-methods';
 import { toDateColumn } from '@/lib/period';
 import type { ExpenseCategory, NewRecurringBillInput, PaymentMethod, RecurringBill } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 export function RecurringBillModal({
   shopId,
@@ -76,7 +77,7 @@ export function RecurringBillModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -174,7 +175,7 @@ export function RecurringBillModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

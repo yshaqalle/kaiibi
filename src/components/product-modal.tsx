@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ProductForm, type ProductFormHandle } from '@/components/product-form';
 import { confirmDestructive } from '@/lib/confirm';
 import { deleteProduct } from '@/lib/products';
 import type { NewProductInput, Product } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Add/Edit product as an overlay instead of a routed page — so managing
 // inventory doesn't lose your place in the list (search text, scroll
@@ -36,7 +37,7 @@ export function ProductModal({
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -82,7 +83,7 @@ export function ProductModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

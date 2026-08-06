@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -77,6 +77,23 @@ export default function PosScreen() {
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [selectedCustomer, setSelectedCustomer] = usePosSessionField('selectedCustomer');
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  // A completed sale hands off from the checkout sheet's modal to the receipt's,
+  // and iOS will not present a modal while another is still mid-dismiss -- it
+  // drops the presentation silently, so the sale went through and no receipt
+  // ever appeared. The receipt therefore waits here until the sheet reports it
+  // has finished dismissing (CheckoutPanel's `onDismiss`).
+  //
+  // iOS only, because only UIKit has that constraint: Android modals are
+  // Dialogs and web's are plain DOM, neither of which can refuse, and RN fires
+  // `onDismiss` on iOS alone -- so staging the receipt on those platforms would
+  // wait for a signal that never comes and never show it at all.
+  const stagesReceipt = Platform.OS === 'ios';
+  const [pendingReceipt, setPendingReceipt] = useState<ReceiptData | null>(null);
+  const showStagedReceipt = () => {
+    if (!pendingReceipt) return;
+    setReceipt(pendingReceipt);
+    setPendingReceipt(null);
+  };
   const [cashiers, setCashiers] = useState<string[]>([]);
   // Unlike customer info (cleared after every sale), the cashier stays
   // selected across sales — whoever is running the register doesn't change
@@ -270,6 +287,22 @@ export default function PosScreen() {
     return () => clearTimeout(timer);
   }, [scanFeedback]);
 
+  // Safety net for the staged receipt above, NOT the mechanism -- `onDismiss` is
+  // what normally promotes it, and normally wins this race by a wide margin.
+  // This exists because the failure it guards against is losing a paid sale's
+  // receipt entirely: if `onDismiss` ever fails to fire (a sheet already closed
+  // when the sale completed, so there was no dismissal to report), the cashier
+  // would be left with money taken and nothing to hand over. Showing the
+  // receipt slightly late is always better than not at all.
+  useEffect(() => {
+    if (!pendingReceipt) return;
+    const timer = setTimeout(() => {
+      setReceipt(pendingReceipt);
+      setPendingReceipt(null);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [pendingReceipt]);
+
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
   const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
@@ -344,7 +377,7 @@ export default function PosScreen() {
         activeLocation.id,
         redemption.points
       );
-      setReceipt({
+      const completed: ReceiptData = {
         shopName: shop.name,
         shopLogoUrl: shop.receiptShowLogo ? shop.logoUrl : null,
         // The branch's own address, phone and hours -- what the customer needs
@@ -377,7 +410,12 @@ export default function PosScreen() {
         pointsEarned,
         totalCents: total,
         createdAt: new Date().toISOString(),
-      });
+      };
+      // Emptying the cart below is what closes the checkout sheet, so on iOS the
+      // receipt is staged and presented from the sheet's `onDismiss` instead --
+      // presenting it here would race that dismissal and be dropped.
+      if (stagesReceipt) setPendingReceipt(completed);
+      else setReceipt(completed);
       setCart([]);
       setPayments([]);
       setSelectedCustomer(null);
@@ -665,6 +703,10 @@ export default function PosScreen() {
           redemptionCents={redemption.cents}
           pointsEarned={pointsEarned}
           onChangePointsRedeemed={setPointsRedeemed}
+          // The sheet is fully gone, so it's now safe to present the receipt.
+          // A no-op when nothing is staged, which is every dismissal that
+          // wasn't a completed sale (the cashier tapping Close).
+          onDismiss={showStagedReceipt}
         />
       )}
       </Card>

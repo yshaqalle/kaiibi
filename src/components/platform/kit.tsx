@@ -1,19 +1,8 @@
 import { type ReactNode } from 'react';
-import {
-  Modal,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-  type KeyboardTypeOptions,
-  type StyleProp,
-  type TextStyle,
-  type ViewStyle,
-} from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, type KeyboardTypeOptions, type StyleProp, type TextStyle, type ViewStyle } from 'react-native';
 
 import { BENTO_RADIUS, BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -134,7 +123,7 @@ export function PlatformModal({
   children: ReactNode;
 }) {
   return (
-    <Modal visible transparent animationType={compact ? 'slide' : 'fade'} onRequestClose={onClose}>
+    <AppModal visible transparent animationType={compact ? 'slide' : 'fade'} onRequestClose={onClose}>
       <View style={[styles.backdrop, !compact && styles.backdropCentred]}>
         <Pressable style={compact ? styles.dismiss : StyleSheet.absoluteFill} onPress={onClose} />
         <View style={compact ? styles.sheet : styles.dialog}>
@@ -150,7 +139,7 @@ export function PlatformModal({
           <ScrollView contentContainerStyle={styles.modalBody}>{children}</ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
 import { DateInput } from '@/components/date-input';
@@ -16,6 +16,7 @@ import { cancelTimeOffRequest, listMyTimeOffRequests, requestTimeOff, updateTime
 import { listMyShifts } from '@/lib/shifts';
 import type { Shift } from '@/lib/scheduling';
 import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Only the
 // People screen's Me tab renders this, and People is a bento screen.
@@ -263,7 +264,7 @@ function RequestTimeOffModal({ visible, onClose, onSubmit }: { visible: boolean;
   };
 
   if (!visible) return null;
-  return <Modal visible transparent animationType="fade" onRequestClose={onClose}><View style={styles.overlay}><View style={styles.modalCard}>
+  return <AppModal visible transparent animationType="fade" onRequestClose={onClose}><View style={styles.overlay}><View style={styles.modalCard}>
     <Text style={styles.modalTitle}>Request time off</Text>
     <Text style={styles.modalSubtitle}>Add one or more date ranges (e.g., work Mon/Wed, off Tue/Thu)</Text>
     
@@ -303,7 +304,7 @@ function RequestTimeOffModal({ visible, onClose, onSubmit }: { visible: boolean;
     </View>
     {error && <Text style={styles.error}>{error}</Text>}
     <View style={styles.modalActions}><Pressable onPress={onClose} style={styles.secondaryButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable><Pressable onPress={submit} disabled={saving || dateRanges.length === 0} style={[styles.primaryButton, (saving || dateRanges.length === 0) && styles.clockButtonDisabled]}><Text style={styles.primaryText}>{saving ? 'Sending…' : 'Send request'}</Text></Pressable></View>
-  </View></View></Modal>;
+  </View></View></AppModal>;
 }
 
 function EditTimeOffModal({ visible, request, onClose, onSubmit }: { visible: boolean; request: TimeOffRequest; onClose: () => void; onSubmit: (input: { dateRanges: {startDate: string; endDate: string}[]; reason?: string | null }) => Promise<void> }) {
@@ -363,7 +364,7 @@ function EditTimeOffModal({ visible, request, onClose, onSubmit }: { visible: bo
   };
 
   if (!visible) return null;
-  return <Modal visible transparent animationType="fade" onRequestClose={onClose}><View style={styles.overlay}><View style={styles.modalCard}>
+  return <AppModal visible transparent animationType="fade" onRequestClose={onClose}><View style={styles.overlay}><View style={styles.modalCard}>
     <Text style={styles.modalTitle}>Edit time off request</Text>
     <Text style={styles.modalSubtitle}>Add or remove date ranges</Text>
     
@@ -403,7 +404,7 @@ function EditTimeOffModal({ visible, request, onClose, onSubmit }: { visible: bo
     </View>
     {error && <Text style={styles.error}>{error}</Text>}
     <View style={styles.modalActions}><Pressable onPress={onClose} style={styles.secondaryButton}><Text style={styles.secondaryText}>Cancel</Text></Pressable><Pressable onPress={submit} disabled={saving || dateRanges.length === 0} style={[styles.primaryButton, (saving || dateRanges.length === 0) && styles.clockButtonDisabled]}><Text style={styles.primaryText}>{saving ? 'Saving…' : 'Save changes'}</Text></Pressable></View>
-  </View></View></Modal>;
+  </View></View></AppModal>;
 }
 
 const styles = StyleSheet.create({

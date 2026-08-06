@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { confirmDestructive } from '@/lib/confirm';
@@ -7,6 +7,7 @@ import { formatCents } from '@/lib/currency';
 import { refundSaleItems } from '@/lib/sales';
 import { refundedQuantityFor, refundPreviewCents } from '@/lib/sales-reporting';
 import type { Sale } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -82,7 +83,7 @@ export function RefundModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -125,7 +126,7 @@ export function RefundModal({
           </Pressable>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

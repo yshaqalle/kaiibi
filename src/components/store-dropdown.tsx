@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { hasMultipleLocations } from '@/lib/location-selection';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Which store a list is showing, as a dropdown rather than a chip row — it sits
 // in a header beside the export buttons, where a row of chips would push the
@@ -60,7 +61,7 @@ export function StoreDropdown({
         <Text style={[styles.chevron, variant !== 'field' && styles.chevronCompact]}>▾</Text>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <AppModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>{title}</Text>
@@ -91,7 +92,7 @@ export function StoreDropdown({
             </ScrollView>
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
     </>
   );
 }

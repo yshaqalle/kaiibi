@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -33,6 +33,7 @@ import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Name', value: (p) => p.name },
@@ -564,7 +565,14 @@ export default function InventoryScreen() {
           />
         )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
-        {loading ? (
+        {/* Only while there is genuinely nothing to show. `reload()` runs after
+            every stock adjustment too, and swapping the whole list for this one
+            line collapsed the scroll content to a few pixels -- iOS clamps the
+            offset to fit, so the list came back scrolled to the top and the
+            cashier lost their place after every single +/-. Keeping the list
+            mounted holds its height, and so its position; the row's own number
+            updates in place when the fetch lands. */}
+        {loading && products.length === 0 ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           // Boxed rather than floating on the page: an empty list is still an
@@ -628,7 +636,7 @@ export default function InventoryScreen() {
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
           wherever the app opens one. */}
-      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -680,7 +688,7 @@ export default function InventoryScreen() {
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
 
       {shop && canEdit && (
         <ProductModal

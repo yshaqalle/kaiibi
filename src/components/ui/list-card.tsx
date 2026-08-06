@@ -1,8 +1,9 @@
 import { useState, type ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 const theme = Colors.light;
 
@@ -84,7 +85,7 @@ export function ListCard<T>({
       )}
       {note}
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
+      <AppModal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>
           <View style={styles.sheet}>
             <View style={styles.head}>
@@ -111,7 +112,7 @@ export function ListCard<T>({
             </ScrollView>
           </View>
         </View>
-      </Modal>
+      </AppModal>
     </BentoCard>
   );
 }

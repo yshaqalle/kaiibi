@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PlatformOverview } from '@/components/platform-overview';
@@ -28,6 +28,7 @@ import {
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listAllPlans, type Plan } from '@/lib/subscriptions';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -271,7 +272,7 @@ function AccountMenu({ email, role }: { email: string | null; role: string | nul
       </Pressable>
 
       {anchor ? (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setAnchor(null)}>
+        <AppModal visible transparent animationType="fade" onRequestClose={() => setAnchor(null)}>
           {/* Clicking anywhere else dismisses, the usual way out of a menu. */}
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setAnchor(null)} />
           <View style={[styles.menu, { top: anchor.top, right: anchor.right }]}>
@@ -286,7 +287,7 @@ function AccountMenu({ email, role }: { email: string | null; role: string | nul
               <Text style={styles.menuActionText}>Sign out</Text>
             </Pressable>
           </View>
-        </Modal>
+        </AppModal>
       ) : null}
     </>
   );

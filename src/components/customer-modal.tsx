@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { CustomerForm, type CustomerFormHandle } from '@/components/customer-form';
 import { StatTile } from '@/components/stat-tile';
@@ -7,6 +7,7 @@ import { confirmDestructive } from '@/lib/confirm';
 import { formatCents } from '@/lib/currency';
 import { deleteCustomer, getCustomerStats } from '@/lib/customers';
 import type { Customer, NewCustomerInput } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 type Stats = { totalSpentCents: number; visitCount: number; lastPurchaseAt: string | null };
 
@@ -44,7 +45,7 @@ export function CustomerModal({
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -95,7 +96,7 @@ export function CustomerModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

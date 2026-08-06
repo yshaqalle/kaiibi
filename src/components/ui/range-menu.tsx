@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { OptionPicker } from '@/components/option-picker';
 import type { DateRange, RangePreset } from '@/components/range-selector';
 import { Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 const theme = Colors.light;
 
@@ -112,7 +113,7 @@ export function RangeMenu({
         variant={variant}
       />
 
-      <Modal visible={customOpen} transparent animationType="fade" onRequestClose={() => setCustomOpen(false)}>
+      <AppModal visible={customOpen} transparent animationType="fade" onRequestClose={() => setCustomOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setCustomOpen(false)}>
           {/* Swallows taps inside the card so choosing a date doesn't dismiss
               the sheet the way tapping the backdrop does. */}
@@ -142,7 +143,7 @@ export function RangeMenu({
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
     </>
   );
 }

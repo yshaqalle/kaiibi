@@ -1,12 +1,13 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { read as readWorkbook, utils as xlsxUtils } from 'xlsx';
 
 import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
 import { shareCsv } from '@/lib/export-file';
 import { downloadRejectedRowsCsv, type ImportReport } from '@/lib/import-shared';
+import { AppModal } from '@/components/ui/app-modal';
 
 const EXCEL_MIME_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
@@ -143,7 +144,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={close}>
+    <AppModal visible transparent animationType="fade" onRequestClose={close}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -225,7 +226,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

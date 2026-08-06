@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { ManageModal } from '@/components/settings/manage-modal';
@@ -9,6 +9,7 @@ import { formatCents } from '@/lib/currency';
 import { createPromotion, deletePromotion, updatePromotion } from '@/lib/promotions';
 import { updateShop } from '@/lib/shops';
 import type { Currency, Promotion, Shop } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
@@ -154,7 +155,7 @@ function PromotionsModal({
     });
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -290,7 +291,7 @@ function PromotionsModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 
@@ -441,7 +442,7 @@ function CurrenciesModal({
     });
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -547,7 +548,7 @@ function CurrenciesModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

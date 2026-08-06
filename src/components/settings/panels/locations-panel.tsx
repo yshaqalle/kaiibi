@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
@@ -9,6 +9,7 @@ import { describePlanError } from '@/lib/entitlements';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
 import { DAY_LABELS, WEEK_ORDER, findDayProblem, normalizeHours, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { NewShopLocationInput, ShopLocation } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // The shop's stores. `Shop` is the business — one name, one logo, one set of
 // books; each row here is a store it trades from, carrying its OWN name,
@@ -219,7 +220,7 @@ function LocationEditorModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -364,7 +365,7 @@ function LocationEditorModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

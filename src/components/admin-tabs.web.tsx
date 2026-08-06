@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Link, Slot, usePathname, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -13,6 +13,7 @@ import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { deleteImageByPublicUrl } from '@/lib/storage';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Bottom nav for narrow/mobile-web only — the wide layout uses the shared
 // `AdminSidebar` (see admin-sidebar.tsx), which has its own icon set.
@@ -92,7 +93,7 @@ export default function AdminTabs() {
             </Pressable>
           </View>
         </View>
-        <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
           <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
             <View style={styles.menuSheet}>
               {canEditShop && (
@@ -121,7 +122,7 @@ export default function AdminTabs() {
               </Pressable>
             </View>
           </Pressable>
-        </Modal>
+        </AppModal>
         <View style={styles.mobileSlot}><Slot /></View>
         <View style={styles.bottomNav}>
           {visibleNavItems.map((item) => {

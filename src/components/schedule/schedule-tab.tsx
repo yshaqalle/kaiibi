@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -29,6 +29,7 @@ import { listShopApprovedTimeOff } from '@/lib/time-off';
 import { listStaff } from '@/lib/staff';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -434,7 +435,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
         </BentoCard>
       )}
 
-      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -478,7 +479,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
 
       {showBulkModal && (
         <BulkShiftModal

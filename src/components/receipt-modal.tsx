@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import * as MailComposer from 'expo-mail-composer';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 
 import { formatCents, formatForeignCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
@@ -10,6 +10,7 @@ import { methodLabel } from '@/lib/payment-methods';
 import { buildReceiptHtml, buildReceiptText, type ReceiptData } from '@/lib/receipt';
 import { generateReceiptPdf } from '@/lib/receipt-pdf';
 import { openWhatsApp } from '@/lib/whatsapp';
+import { AppModal } from '@/components/ui/app-modal';
 
 const tornEdgeNotches = Array.from({ length: 18 });
 
@@ -141,7 +142,7 @@ export function ReceiptModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -292,7 +293,7 @@ export function ReceiptModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

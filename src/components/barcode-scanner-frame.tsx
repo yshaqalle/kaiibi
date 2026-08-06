@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Linking, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { normalizeBarcode, type ScanFeedback } from '@/lib/barcode';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Everything about the scanner except the detector itself.
 //
@@ -82,7 +83,7 @@ export function BarcodeScannerFrame({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         {/* `height`, not `maxHeight`: the camera surface below is flex-sized and
             needs a concrete parent to fill, or it resolves to zero height --
@@ -152,7 +153,7 @@ export function BarcodeScannerFrame({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

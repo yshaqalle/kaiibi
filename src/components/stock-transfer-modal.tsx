@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { QuantityStepper } from '@/components/quantity-stepper';
@@ -7,6 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { describePlanError } from '@/lib/entitlements';
 import { listProducts, transferStock } from '@/lib/products';
 import type { Product } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Moving stock between stores.
 //
@@ -110,7 +111,7 @@ export function StockTransferModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -208,7 +209,7 @@ export function StockTransferModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Only the
 // People screen renders this, and People is a bento screen.
@@ -37,7 +38,7 @@ export function TwoPaneListDetail({
     return (
       <View style={styles.compact}>
         <ScrollView contentContainerStyle={styles.compactContent}>{list}</ScrollView>
-        <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
+        <AppModal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
           <View style={styles.overlay}>
             <View style={styles.sheet}>
               <View style={styles.sheetHeader}>
@@ -51,7 +52,7 @@ export function TwoPaneListDetail({
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </AppModal>
       </View>
     );
   }
