@@ -533,7 +533,12 @@ function CustomerDetailPane({
         left={
           <>
             <BentoCard title="Notes">
-              <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
+              <NotesField
+                key={customer.id}
+                value={customer.notes}
+                onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }}
+                readOnly={!canEdit}
+              />
             </BentoCard>
 
             {/* Where they actually shop, by visit count. Hidden for a single-store

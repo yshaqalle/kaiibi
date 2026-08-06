@@ -19,10 +19,39 @@ export function NotesField({
   value,
   onSave,
   placeholder = 'Add a note…',
+  readOnly = false,
 }: {
   value: string | null;
   onSave: (value: string | null) => Promise<void>;
   placeholder?: string;
+  readOnly?: boolean;
+}) {
+  return readOnly ? <ReadOnlyNote value={value} /> : <EditableNotesField value={value} onSave={onSave} placeholder={placeholder} />;
+}
+
+// Plain text rendering for a viewer who cannot edit. Deliberately a separate
+// component rather than `editable={false}` on the TextInput below: that would
+// still mount the commit-on-blur and save-on-unmount paths, which stay wired
+// to `onSave` and can still fire. A read-only field that quietly tries to
+// save on unmount is the same data-loss bug this file already fixed once,
+// just harder to notice.
+function ReadOnlyNote({ value }: { value: string | null }) {
+  const trimmed = value?.trim();
+  return (
+    <View>
+      <Text style={trimmed ? styles.readOnlyText : styles.readOnlyPlaceholder}>{trimmed || 'No notes.'}</Text>
+    </View>
+  );
+}
+
+function EditableNotesField({
+  value,
+  onSave,
+  placeholder,
+}: {
+  value: string | null;
+  onSave: (value: string | null) => Promise<void>;
+  placeholder: string;
 }) {
   const [draft, setDraft] = useState(value ?? '');
   const [error, setError] = useState<string | null>(null);
@@ -114,4 +143,22 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   error: { marginTop: 6, fontSize: 12, color: theme.bentoLoss },
+  readOnlyText: {
+    backgroundColor: theme.bentoSoft,
+    borderRadius: 10,
+    padding: 11,
+    minHeight: 64,
+    color: theme.bentoInk,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  readOnlyPlaceholder: {
+    backgroundColor: theme.bentoSoft,
+    borderRadius: 10,
+    padding: 11,
+    minHeight: 64,
+    color: theme.bentoMuted2,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
 });
