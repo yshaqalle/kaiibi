@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { ExportMenu } from '@/components/export-menu';
@@ -87,9 +87,11 @@ export function formatRangeLabel(range: DateRange): string {
 export function TransactionsTab({
   dateRange,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can, locations } = useAuth();
   const { width } = useWindowDimensions();
@@ -148,6 +150,8 @@ export function TransactionsTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

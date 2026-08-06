@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
 import type { DateRange } from '@/components/range-selector';
@@ -59,11 +59,13 @@ export function CashBudgetsTab({
   dateRange,
   locationFilter,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can, activeLocation } = useAuth();
   const allowed = can('budgets.manage');
@@ -148,6 +150,8 @@ export function CashBudgetsTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // Above the permission guard below on purpose: hooks must run in the same
   // order every render, and an early return between them is what

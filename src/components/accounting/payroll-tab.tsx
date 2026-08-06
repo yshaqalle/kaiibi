@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
@@ -58,9 +58,11 @@ const CADENCE_ADJECTIVES: Record<PayCadence, string> = {
 export function PayrollTab({
   dateRange,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can } = useAuth();
   // Both are required: pay rates are sensitive, and posting writes a real
@@ -130,6 +132,8 @@ export function PayrollTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // Pay data is RLS-protected, so a role without both permissions can't read
   // any of this. Say so rather than rendering an empty screen that looks broken.

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { ExpenseEditorModal } from '@/components/accounting/expense-editor-modal';
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -67,11 +67,13 @@ export function ExpensesTab({
   dateRange,
   locationFilter,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
@@ -111,6 +113,8 @@ export function ExpensesTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // The store filter applies BEFORE the category one and, unlike category, it
   // does move the headline totals: "what did this store spend" is a different

@@ -1,5 +1,5 @@
-import { useCallback, useState } from 'react';
-import { RefreshControl } from 'react-native';
+import { useCallback, useState, type ReactElement } from 'react';
+import { RefreshControl, type RefreshControlProps } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 
@@ -22,7 +22,7 @@ const theme = Colors.light;
 // This is "is a user-initiated refresh in flight", which is what drives the
 // spinner. Conflating them is how the list ends up replaced by a placeholder
 // mid-pull — the bug that made the list jump back to the top on every edit.
-export function usePullToRefresh(refresh: () => Promise<void> | void) {
+export function usePullToRefresh(refresh: () => Promise<void> | void): ReactElement<RefreshControlProps> {
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {

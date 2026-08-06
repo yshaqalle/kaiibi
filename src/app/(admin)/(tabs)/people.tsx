@@ -47,6 +47,7 @@ import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -269,6 +270,8 @@ function CustomersTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // The manual counterpart, on the list pane only (see TwoPaneListDetail).
+  const pullToRefresh = usePullToRefresh(reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -420,6 +423,7 @@ function CustomersTab({
         </ScrollView>
       </View>
       <TwoPaneListDetail
+        listRefreshControl={pullToRefresh}
         compact={compact}
         list={list}
         detail={detail}
@@ -725,6 +729,8 @@ function TeamManagementTab({
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // The manual counterpart, on the list pane only (see TwoPaneListDetail).
+  const pullToRefresh = usePullToRefresh(reload);
 
   // Shared with the Dashboard so the two surfaces can't disagree about who's
   // off; also honours non-contiguous date ranges, which the previous inline
@@ -919,6 +925,7 @@ function TeamManagementTab({
       </View>
 
       <TwoPaneListDetail
+        listRefreshControl={pullToRefresh}
         compact={compact}
         list={list}
         detail={detail}
