@@ -9,6 +9,7 @@ import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import
 import { ExportMenu } from '@/components/export-menu';
 import { BulkShiftModal } from '@/components/schedule/bulk-shift-modal';
 import { ShiftEditorModal } from '@/components/schedule/shift-editor-modal';
+import { BentoCard } from '@/components/ui/bento-card';
 import {
   addDaysToDate,
   membersForLocation,
@@ -207,7 +208,11 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
         <Text style={[styles.navText, styles.navTextSolid]}>+ Add shifts</Text>
       </Pressable>
     </>,
-    [visibleShifts, exportColumns, days, locationId]
+    // The state these are all derived from, not the derived values:
+    // `visibleShifts`, `exportColumns` and `days` are rebuilt on every render,
+    // so depending on them would re-publish the actions every render and loop
+    // against the shell that stores them.
+    [shifts, locationId, monday, locations]
   );
 
   return (
@@ -269,6 +274,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
               </Pressable>
             ))}
           </ScrollView>
+          <BentoCard title={dayLabel(effectiveSelectedDay)} scope={`${visibleMembers.length} on the roster`}>
           {visibleMembers.map((member) => {
             const memberShifts = shiftsFor(member.id, effectiveSelectedDay);
             return (
@@ -300,49 +306,75 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
               </View>
             );
           })}
+          </BentoCard>
         </>
       ) : (
-        <ScrollView horizontal>
-          <View>
-            <View style={styles.gridRow}>
-              <Text style={[styles.gridCell, styles.gridHeadCell]}>Staff</Text>
-              {days.map((date) => (
-                <Text key={date} style={[styles.gridCell, styles.gridHeadCell]}>{dayLabel(date)}</Text>
-              ))}
-              <Text style={[styles.gridCell, styles.gridHeadCell]}>Total</Text>
-            </View>
-            {visibleMembers.map((member) => (
-              <View key={member.id} style={styles.gridRow}>
-                <Text style={[styles.gridCell, styles.memberName]}>{member.fullName ?? 'Staff member'}</Text>
-                {days.map((date) => {
-                  const cell = shiftsFor(member.id, date);
-                  return (
-                    <View key={date} style={[styles.gridCell, styles.gridCellStack]}>
-                      {cell.map((shift) => (
-                        <Pressable key={shift.id} onPress={() => setEditing({ date, shift, memberId: member.id })}>
-                          <Text style={styles.times}>{shiftLabel(shift)}</Text>
-                        </Pressable>
-                      ))}
-                      {/* Tapping an occupied cell used to edit its FIRST shift,
-                          which made a second block on the same day
-                          unreachable -- this is the whole of split-day entry. */}
-                      <Pressable
-                        accessibilityLabel={`Add a shift for ${member.fullName ?? 'this person'}`}
-                        onPress={() => setEditing({ date, shift: null, memberId: member.id })}
-                        hitSlop={6}
-                      >
-                        <Text style={cell.length === 0 ? styles.off : styles.addShift}>{cell.length === 0 ? '—' : '+ add'}</Text>
-                      </Pressable>
-                    </View>
-                  );
-                })}
-                <Text style={[styles.gridCell, styles.total]}>
-                  {totalHours(visibleShifts.filter((shift) => shift.shopMemberId === member.id))}
-                </Text>
+        // One card for the whole week, deliberately not subdivided: a week is a
+        // continuous object and the reason to look at it is to compare ACROSS a
+        // row. Cutting it into a cell per day would break exactly that.
+        <BentoCard style={styles.boardCard}>
+          {/* minWidth 100% on the content lets the seven day columns share any
+              width the card has spare, instead of the board hugging its
+              intrinsic size and leaving half the card empty on a wide screen.
+              Below that width it scrolls sideways INSIDE the card, which is the
+              one nested scroll this tab genuinely needs. */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.boardContent}>
+            <View style={styles.board}>
+              <View style={[styles.gridRow, styles.gridHeadRow]}>
+                <Text style={[styles.gridCell, styles.staffCell, styles.gridHeadCell]}>Staff</Text>
+                {days.map((date) => (
+                  <Text key={date} style={[styles.gridCell, styles.gridHeadCell]}>{dayLabel(date)}</Text>
+                ))}
+                <Text style={[styles.gridCell, styles.totalCell, styles.gridHeadCell, styles.alignRight]}>Total</Text>
               </View>
-            ))}
-          </View>
-        </ScrollView>
+              {visibleMembers.map((member) => (
+                <View key={member.id} style={styles.gridRow}>
+                  <Text style={[styles.gridCell, styles.staffCell, styles.memberName]} numberOfLines={2}>
+                    {member.fullName ?? 'Staff member'}
+                  </Text>
+                  {days.map((date) => {
+                    const cell = shiftsFor(member.id, date);
+                    return (
+                      <View key={date} style={[styles.gridCell, styles.gridCellStack]}>
+                        {/* A shift is a BLOCK, not a line of text. At 104px the
+                            old single-line label wrapped "17:00–22:00 · Store"
+                            across three lines, so a two-shift day was six lines
+                            of grey and the row lost its shape. */}
+                        {cell.map((shift) => (
+                          <Pressable
+                            key={shift.id}
+                            onPress={() => setEditing({ date, shift, memberId: member.id })}
+                            style={styles.shiftBlock}
+                          >
+                            <Text style={styles.shiftTime}>{`${shift.start}–${shift.end}`}</Text>
+                            {!locationId && multiStore && (
+                              <Text style={styles.shiftStore} numberOfLines={1}>
+                                {storeName(shift.locationId)}
+                              </Text>
+                            )}
+                          </Pressable>
+                        ))}
+                        {/* Tapping an occupied cell used to edit its FIRST shift,
+                            which made a second block on the same day
+                            unreachable -- this is the whole of split-day entry. */}
+                        <Pressable
+                          accessibilityLabel={`Add a shift for ${member.fullName ?? 'this person'}`}
+                          onPress={() => setEditing({ date, shift: null, memberId: member.id })}
+                          hitSlop={6}
+                        >
+                          <Text style={cell.length === 0 ? styles.off : styles.addShift}>{cell.length === 0 ? '—' : '+ add'}</Text>
+                        </Pressable>
+                      </View>
+                    );
+                  })}
+                  <Text style={[styles.gridCell, styles.totalCell, styles.total, styles.alignRight]}>
+                    {totalHours(visibleShifts.filter((shift) => shift.shopMemberId === member.id))}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+        </BentoCard>
       )}
 
       {showBulkModal && (
@@ -429,15 +461,33 @@ const styles = StyleSheet.create({
   dayChipTextActive: { color: theme.bentoSurface },
   listRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
   listRowRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
-  addShift: { fontSize: 12, fontWeight: '800', color: theme.bentoMuted },
-  gridRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
-  gridCell: { width: 104, padding: 10, fontSize: 12, color: theme.bentoInk },
-  gridCellStack: { gap: 4 },
-  gridHeadCell: { fontWeight: '800', color: theme.bentoMuted, fontSize: 11 },
+  addShift: { fontSize: 11, fontWeight: '700', color: theme.bentoMuted2 },
+  // Less horizontal padding than a normal bento card: the board manages its
+  // own column gutters, and doubling them squeezes seven days into less room.
+  boardCard: { paddingHorizontal: 10, paddingVertical: 14 },
+  boardContent: { minWidth: '100%' },
+  board: { flexGrow: 1, minWidth: 1050 },
+  gridRow: { flexDirection: 'row', alignItems: 'flex-start', borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  gridHeadRow: { borderBottomColor: theme.bentoLine },
+  // Day columns share whatever the card has spare, down to a floor of 116px --
+  // below that "17:00–22:00" itself starts to wrap and the board scrolls instead.
+  gridCell: { flexGrow: 1, flexShrink: 1, flexBasis: 116, minWidth: 116, paddingHorizontal: 8, paddingVertical: 11, fontSize: 12, color: theme.bentoInk },
+  // The name and total columns are fixed: the name is the row's label, and
+  // letting it flex would take room from the days that need it.
+  staffCell: { flexGrow: 0, flexShrink: 0, flexBasis: 156, width: 156, minWidth: 156 },
+  totalCell: { flexGrow: 0, flexShrink: 0, flexBasis: 78, width: 78, minWidth: 78 },
+  alignRight: { textAlign: 'right' },
+  gridCellStack: { gap: 5 },
+  gridHeadCell: { fontWeight: '700', color: theme.bentoMuted, fontSize: 10.5, letterSpacing: 0.6, textTransform: 'uppercase' },
   memberName: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  // A filled block, so a scheduled day reads as occupied at a glance and an
+  // empty one as a gap -- which is the question the board is actually asked.
+  shiftBlock: { backgroundColor: theme.bentoSoft, borderRadius: 11, paddingHorizontal: 8, paddingVertical: 6 },
+  shiftTime: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  shiftStore: { fontSize: 10, color: theme.bentoMuted, marginTop: 1 },
   times: { fontSize: 12, color: theme.bentoInk },
-  off: { color: theme.bentoMuted2 },
-  total: { fontWeight: '800' },
+  off: { color: theme.bentoMuted2, fontSize: 12 },
+  total: { fontWeight: '800', fontVariant: ['tabular-nums'] },
   empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 24, textAlign: 'center' },
   error: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginBottom: 12 },
   notice: { fontSize: 12, fontWeight: '700', color: theme.bentoInk, marginBottom: 12 },

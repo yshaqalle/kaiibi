@@ -713,7 +713,11 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
         </Pressable>
       )}
     </>,
-    [filtered, exportColumns, canManageRoster, roles.length]
+    // NOT `exportColumns`: it is an array literal rebuilt on every render, so
+    // depending on it would re-publish the actions every render, re-render the
+    // shell that owns them, and loop. Its two real inputs are here instead —
+    // `locations` is useAuth state and so is reference-stable.
+    [filtered, canManageRoster, canManagePayroll, locations, roles.length]
   );
 
   const list = (

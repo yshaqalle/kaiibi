@@ -7,7 +7,7 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { Badge } from '@/components/badge';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoFlow } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
@@ -132,39 +132,33 @@ export function InvoicesTab({
     [canManage]
   );
 
+  // Flow, not a grid — this is a ledger. See BentoFlow.
   return (
-    <BentoGrid>
-      <BentoCell span={12}>
-        {/* "As of today", not the range: what you owe is a fact about now, and
-            invoice-reporting.ts already insists on it. */}
-        <BentoCard title="What you owe" scope="As of today">
-          <View style={styles.metricRow}>
-            <StatTile variant="bento"
-              value={formatCompactCents(totals.outstandingCents)}
-              label="Still owed"
-              tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
-            />
-            <StatTile variant="bento"
-              value={formatCompactCents(totals.overdueCents)}
-              label="Overdue"
-              tone={totals.overdueCents > 0 ? 'warning' : 'default'}
-            />
-            <StatTile variant="bento" value={String(totals.openCount)} label="Unpaid bills" />
-          </View>
-          <Text style={styles.subtitle}>
-            Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.
-          </Text>
-        </BentoCard>
-      </BentoCell>
+    <BentoFlow>
+      {/* "As of today", not the range: what you owe is a fact about now, and
+          invoice-reporting.ts already insists on it. */}
+      <BentoCard title="What you owe" scope="As of today">
+        <View style={styles.metricRow}>
+          <StatTile variant="bento"
+            value={formatCompactCents(totals.outstandingCents)}
+            label="Still owed"
+            tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
+          />
+          <StatTile variant="bento"
+            value={formatCompactCents(totals.overdueCents)}
+            label="Overdue"
+            tone={totals.overdueCents > 0 ? 'warning' : 'default'}
+          />
+          <StatTile variant="bento" value={String(totals.openCount)} label="Unpaid bills" />
+        </View>
+        <Text style={styles.subtitle}>
+          Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.
+        </Text>
+      </BentoCard>
 
-      {error ? (
-        <BentoCell span={12}>
-          <Text style={styles.error}>{error}</Text>
-        </BentoCell>
-      ) : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <BentoCell span={12}>
-        <BentoCard title="Bills" scope="Selected range">
+      <BentoCard title="Bills" scope="Selected range">
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visible.length === 0 ? (
@@ -210,8 +204,7 @@ export function InvoicesTab({
           })}
         </View>
       )}
-        </BentoCard>
-      </BentoCell>
+      </BentoCard>
 
       {editing !== null && shop && (
         <InvoiceEditorModal
@@ -252,7 +245,7 @@ export function InvoicesTab({
           }}
         />
       )}
-    </BentoGrid>
+    </BentoFlow>
   );
 }
 

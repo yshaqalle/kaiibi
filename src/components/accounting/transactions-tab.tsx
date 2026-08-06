@@ -11,7 +11,7 @@ import type { DateRange } from '@/components/range-selector';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoFlow } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
@@ -195,25 +195,21 @@ export function TransactionsTab({
     [filtered, rangeLabel, canEdit]
   );
 
+  // Flow, not a grid: this is a ledger. See BentoFlow's own note — a table in
+  // a cell spans all twelve columns anyway and loses the cell's padding for
+  // nothing, and on a phone it nests two horizontal scrollers.
   return (
-    <BentoGrid>
-      <BentoCell span={12}>
-        <BentoCard title="Sales in this range" scope={rangeLabel}>
-          <View style={styles.metricRow}>
-            <StatTile variant="bento" value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
-            <StatTile variant="bento" value={String(filtered.length)} label="Orders" />
-          </View>
-        </BentoCard>
-      </BentoCell>
+    <BentoFlow>
+      <BentoCard title="Sales in this range" scope={rangeLabel}>
+        <View style={styles.metricRow}>
+          <StatTile variant="bento" value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
+          <StatTile variant="bento" value={String(filtered.length)} label="Orders" />
+        </View>
+      </BentoCard>
 
-      {error ? (
-        <BentoCell span={12}>
-          <Text style={styles.error}>{error}</Text>
-        </BentoCell>
-      ) : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <BentoCell span={12}>
-        <BentoCard title="Transactions" scope={rangeLabel}>
+      <BentoCard title="Transactions" scope={rangeLabel}>
       <TextInput
         value={search}
         onChangeText={setSearch}
@@ -272,13 +268,12 @@ export function TransactionsTab({
           ))}
         </View>
       )}
-        </BentoCard>
-      </BentoCell>
+      </BentoCard>
 
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
       )}
-    </BentoGrid>
+    </BentoFlow>
   );
 }
 

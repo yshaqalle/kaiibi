@@ -7,7 +7,7 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoFlow } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
@@ -142,31 +142,22 @@ export function ExpensesTab({
     [filtered, rangeLabel, canManage]
   );
 
+  // Flow, not a grid — this is a ledger. See BentoFlow.
   return (
-    <BentoGrid>
-      <BentoCell span={12}>
-        <BentoCard title="What the shop spent" scope={rangeLabel}>
-          <View style={styles.metricRow}>
-            <StatTile variant="bento" value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
-            <StatTile variant="bento" value={formatCompactCents(operatingCents)} label="Operating expenses" hint="feeds net profit" />
-            {nonOperatingCents > 0 && (
-              <StatTile variant="bento" value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" hint="excluded from profit" />
-            )}
-          </View>
-        </BentoCard>
-      </BentoCell>
+    <BentoFlow>
+      <BentoCard title="What the shop spent" scope={rangeLabel}>
+        <View style={styles.metricRow}>
+          <StatTile variant="bento" value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
+          <StatTile variant="bento" value={formatCompactCents(operatingCents)} label="Operating expenses" hint="feeds net profit" />
+          {nonOperatingCents > 0 && (
+            <StatTile variant="bento" value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" hint="excluded from profit" />
+          )}
+        </View>
+      </BentoCard>
 
-      {error ? (
-        <BentoCell span={12}>
-          <Text style={styles.error}>{error}</Text>
-        </BentoCell>
-      ) : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <BentoCell span={12}>
-        <BentoCard
-          title="Logged expenses"
-          scope={rangeLabel}
-        >
+      <BentoCard title="Logged expenses" scope={rangeLabel}>
       {presentCategories.length > 1 && (
         <View style={styles.filterRow}>
           <Pressable onPress={() => setCategoryFilter('all')} style={[styles.filterChip, categoryFilter === 'all' && styles.filterChipActive]}>
@@ -248,8 +239,7 @@ export function ExpensesTab({
           ))}
         </View>
       )}
-        </BentoCard>
-      </BentoCell>
+      </BentoCard>
 
       {editing !== null && shop && (
         <ExpenseEditorModal
@@ -274,7 +264,7 @@ export function ExpensesTab({
           }
         />
       )}
-    </BentoGrid>
+    </BentoFlow>
   );
 }
 
