@@ -1071,12 +1071,14 @@ const tabStyles = StyleSheet.create({
   actionButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
   actionButtonTextSolid: { color: theme.bentoSurface },
   actionButtonDisabled: { opacity: 0.5 },
+  // White on the grey page, like the cards — bentoSoft is two points off
+  // bentoPage and the field dissolved into it. Matches Inventory's.
   search: {
-    backgroundColor: theme.bentoSoft,
+    backgroundColor: theme.bentoSurface,
     borderWidth: 1,
-    borderColor: theme.bentoLine,
+    borderColor: theme.bentoRule,
     borderRadius: 14,
-    height: 42,
+    height: 44,
     paddingHorizontal: 14,
     marginBottom: 10,
     justifyContent: 'center',

@@ -34,12 +34,11 @@ export const Colors = {
     chartSeries4: '#e87ba4',
     // ---- Bento surfaces (see docs/design/dashboard-mockup.html) ----
     //
-    // The cool-grey/white world the Dashboard, Accounting and People have been
-    // converted to. Deliberately NOT a replacement for `background` /
-    // `surface` / `border` above: POS, Inventory and Settings still read those
-    // and stay cream until each is converted on purpose. Two palettes coexist
-    // during the conversion; that is the agreed interim state, not an
-    // oversight.
+    // The cool-grey/white world the Dashboard, Accounting, People and Inventory
+    // have been converted to. Deliberately NOT a replacement for `background` /
+    // `surface` / `border` above: POS and Settings still read those and stay
+    // cream until each is converted on purpose. Two palettes coexist during the
+    // conversion; that is the agreed interim state, not an oversight.
     //
     // Modals are a third case, not yet decided: every one in the app still
     // wears the stock white-card treatment, including the ones People opens.
@@ -50,6 +49,14 @@ export const Colors = {
     bentoMuted: '#8b8b93',
     bentoMuted2: '#a8a8b0',
     bentoLine: '#ececf0',
+    // The line BETWEEN rows, deliberately firmer than `bentoLine`.
+    //
+    // One weight could not serve both jobs. A pill or chip is a small closed
+    // shape and its hairline only has to hint at an edge, so `bentoLine` is
+    // nearly invisible on purpose. A divider in a table has to separate two
+    // 100px-tall rows across the full width of a card, and at that length the
+    // same value disappears and the rows read as one block.
+    bentoRule: '#dcdce4',
     bentoSoft: '#f6f6f7',
     // Categorical series for bento charts. The source mockup's own hues
     // could not ship: its blue and purple sit at ΔE 0.1 for deutan viewers
@@ -113,6 +120,10 @@ export const Colors = {
     bentoMuted: '#8a8a94',
     bentoMuted2: '#6f6f78',
     bentoLine: '#26262e',
+    // Lighter than bentoLine here, not darker: on a dark surface a divider
+    // separates by being brighter than its ground, which is the mirror of what
+    // it does on white.
+    bentoRule: '#33333d',
     bentoSoft: '#1e1e24',
     bentoSeries1: '#2f6bff',
     bentoSeries2: '#00a396',

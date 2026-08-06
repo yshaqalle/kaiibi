@@ -7,7 +7,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { toCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
 import { createLocation, deleteLocation, setPrimaryLocation, updateLocation } from '@/lib/locations';
-import { DAY_LABELS, WEEK_ORDER, isValidRange, rangesFor, type OpeningHours } from '@/lib/store-hours';
+import { DAY_LABELS, WEEK_ORDER, findDayProblem, normalizeHours, rangesFor, type OpeningHours } from '@/lib/store-hours';
 import type { NewShopLocationInput, ShopLocation } from '@/types/models';
 
 // The shop's stores. `Shop` is the business — one name, one logo, one set of
@@ -167,13 +167,16 @@ function LocationEditorModal({
 
   const save = async () => {
     if (!canSave) return;
-    // A range the rest of the app can't interpret must not reach the database.
-    // Naming the day matters: seven rows of time inputs make "invalid time"
-    // alone useless. Carried over from StorePanel, which owned hours before
-    // migration 20260809000000 moved them onto the location.
-    const badDay = WEEK_ORDER.find((day) => rangesFor(openingHours, day).some((range) => !isValidRange(range)));
+    // Hours the rest of the app can't interpret must not reach the database:
+    // a backwards range, or two blocks of a split day claiming the same minute.
+    // Naming the day matters -- with seven collapsed rows, "invalid hours"
+    // alone leaves the owner opening each one to find it. The precise reason
+    // lives inside the day, where the editor shows it against the block at
+    // fault. Carried over from StorePanel, which owned hours before migration
+    // 20260809000000 moved them onto the location.
+    const badDay = WEEK_ORDER.find((day) => findDayProblem(rangesFor(openingHours, day)));
     if (badDay) {
-      setError(`${DAY_LABELS[badDay]}'s hours aren't valid — use 24-hour times like 09:00, and close after you open.`);
+      setError(`${DAY_LABELS[badDay]}'s hours need fixing — tap that day to see what's wrong.`);
       return;
     }
     setSaving(true);
@@ -186,7 +189,12 @@ function LocationEditorModal({
         neighborhood: neighborhood.trim() || null,
         city: city.trim() || null,
         contactPhone: contactPhone.trim() || null,
-        openingHours,
+        // The editor normalises a day as it collapses, so this is the backstop
+        // for a day still open when Save is tapped -- blocks sorted, and any
+        // that touch merged into one. Two blocks with no closure between them
+        // would otherwise print "13:00 – 17:00, 17:00 – 21:00" on a receipt,
+        // describing a break the shop never takes.
+        openingHours: normalizeHours(openingHours),
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         barcodeScanningEnabled,
         hardwareScannerEnabled,

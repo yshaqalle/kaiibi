@@ -7,7 +7,20 @@ import { isExpiringSoon } from '@/lib/products';
 import type { Product } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
-const theme = Colors.light;
+// Inventory is a bento screen, so this tile reads the bento tokens. Mapped
+// under short names here rather than swapped at each of the ~20 inline style
+// objects below, which keeps the render diff-free and the palette in one place.
+const tile = {
+  border: Colors.light.bentoRule,
+  backgroundElement: Colors.light.bentoSoft,
+  text: Colors.light.bentoInk,
+  textSecondary: Colors.light.bentoMuted,
+  surface: Colors.light.bentoSurface,
+  // Warm on purpose: a low-stock or expiring flag is SUPPOSED to sit warmer
+  // than the cool-grey around it, so cooling it to match would cost the
+  // warning the alarm it carries.
+  warning: '#8A530F',
+};
 
 export function ProductTile({
   product,
@@ -36,57 +49,57 @@ export function ProductTile({
   const expiringSoon = expiryWarningLeadDays != null && product.expiryDate != null && isExpiringSoon(product.expiryDate, expiryWarningLeadDays);
 
   return (
-    <View style={[styles.row, { borderBottomColor: theme.border }]}>
+    <View style={[styles.row, { borderBottomColor: tile.border }]}>
       {product.imageUrl ? (
         <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
       ) : (
-        <View style={[styles.thumb, { backgroundColor: theme.backgroundElement }]} />
+        <View style={[styles.thumb, { backgroundColor: tile.backgroundElement }]} />
       )}
 
       <View style={styles.info}>
-        <Text style={[styles.name, { color: theme.text }]} numberOfLines={1}>{product.name}</Text>
-        <Text style={[styles.meta, { color: theme.textSecondary }]} numberOfLines={1}>
+        <Text style={[styles.name, { color: tile.text }]} numberOfLines={1}>{product.name}</Text>
+        <Text style={[styles.meta, { color: tile.textSecondary }]} numberOfLines={1}>
           {product.brand ?? 'No brand'}{product.sku ? ` · ${product.sku}` : ''} · {product.category || 'Uncategorized'}
         </Text>
         {product.description ? (
-          <Text style={[styles.description, { color: theme.textSecondary }]} numberOfLines={1}>{product.description}</Text>
+          <Text style={[styles.description, { color: tile.textSecondary }]} numberOfLines={1}>{product.description}</Text>
         ) : null}
 
         <View style={styles.controlsRow}>
-          <Text style={[styles.price, { color: theme.text }]}>{formatCents(product.priceCents)}</Text>
+          <Text style={[styles.price, { color: tile.text }]}>{formatCents(product.priceCents)}</Text>
 
           {onOpenBreakdown ? (
-            <Pressable onPress={onOpenBreakdown} style={[styles.breakdownButton, { backgroundColor: theme.backgroundElement }]}>
-              <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock}</Text>
+            <Pressable onPress={onOpenBreakdown} style={[styles.breakdownButton, { backgroundColor: tile.backgroundElement }]}>
+              <Text style={[styles.stockCount, { color: tile.text }]}>{product.stock}</Text>
               <Text style={styles.breakdownHint}>by store ▸</Text>
             </Pressable>
           ) : onStockChange ? (
             <View style={styles.stepper}>
-              <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={[styles.stepperButton, { backgroundColor: theme.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: theme.text }]}>−</Text></Pressable>
+              <Pressable onPress={() => onStockChange(Math.max(0, product.stock - 1))} style={[styles.stepperButton, { backgroundColor: tile.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: tile.text }]}>−</Text></Pressable>
               {outOfStock ? (
-                <Text style={[styles.outOfStockPill, { color: theme.surface, backgroundColor: theme.text }]}>Out of stock</Text>
+                <Text style={[styles.outOfStockPill, { color: tile.surface, backgroundColor: tile.text }]}>Out of stock</Text>
               ) : (
                 <View style={styles.stockWithBadge}>
-                  <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock}</Text>
-                  {lowStock && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⚠ Low</Text>}
-                  {expiringSoon && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⏳ Expiring</Text>}
+                  <Text style={[styles.stockCount, { color: tile.text }]}>{product.stock}</Text>
+                  {lowStock && <Text style={[styles.lowStockPill, { color: tile.warning, borderColor: tile.warning }]}>⚠ Low</Text>}
+                  {expiringSoon && <Text style={[styles.lowStockPill, { color: tile.warning, borderColor: tile.warning }]}>⏳ Expiring</Text>}
                 </View>
               )}
-              <Pressable onPress={() => onStockChange(product.stock + 1)} style={[styles.stepperButton, { backgroundColor: theme.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: theme.text }]}>+</Text></Pressable>
+              <Pressable onPress={() => onStockChange(product.stock + 1)} style={[styles.stepperButton, { backgroundColor: tile.backgroundElement }]}><Text style={[styles.stepperButtonText, { color: tile.text }]}>+</Text></Pressable>
             </View>
           ) : outOfStock ? (
-            <Text style={[styles.outOfStockPill, { color: theme.surface, backgroundColor: theme.text }]}>Out of stock</Text>
+            <Text style={[styles.outOfStockPill, { color: tile.surface, backgroundColor: tile.text }]}>Out of stock</Text>
           ) : (
             <View style={styles.stockWithBadge}>
-              <Text style={[styles.stockCount, { color: theme.text }]}>{product.stock} units</Text>
-              {lowStock && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⚠ Low</Text>}
-              {expiringSoon && <Text style={[styles.lowStockPill, { color: theme.warning, borderColor: theme.warning }]}>⏳ Expiring</Text>}
+              <Text style={[styles.stockCount, { color: tile.text }]}>{product.stock} units</Text>
+              {lowStock && <Text style={[styles.lowStockPill, { color: tile.warning, borderColor: tile.warning }]}>⚠ Low</Text>}
+              {expiringSoon && <Text style={[styles.lowStockPill, { color: tile.warning, borderColor: tile.warning }]}>⏳ Expiring</Text>}
             </View>
           )}
 
           {onEdit && (
             <Pressable onPress={onEdit} style={styles.editButton}>
-              <Text style={[styles.editIcon, { color: theme.text }]}>✎</Text>
+              <Text style={[styles.editIcon, { color: tile.text }]}>✎</Text>
             </Pressable>
           )}
         </View>
@@ -109,7 +122,7 @@ const styles = StyleSheet.create({
   lowStockPill: { fontSize: 9, fontWeight: '700', borderWidth: 1, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   outOfStockPill: { fontSize: 9, fontWeight: '700', paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, alignSelf: 'flex-start' },
-  breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },
+  breakdownHint: { fontSize: 11, fontWeight: '700', color: tile.textSecondary },
   stepper: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stepperButton: { width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   stepperButtonText: { fontSize: 13, fontWeight: '800' },

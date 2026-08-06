@@ -41,11 +41,24 @@ export function Caveat({
   children,
   tone = 'context',
   action,
+  onDismiss,
 }: {
   children: string;
   tone?: CaveatTone;
   /** The thing that removes the caveat. Omit when there is nothing to do. */
   action?: { label: string; onPress: () => void };
+  /**
+   * Lets the reader close it. Omit and no close button is drawn, which is the
+   * right default for a caveat that must be seen.
+   *
+   * The CALLER owns what dismissal means, and should be careful with `wrong`:
+   * that tone says a figure ON SCREEN is incorrect, so hiding it forever leaves
+   * the app knowingly showing a bad number with nothing to say so. Tie a
+   * `wrong` dismissal to the state that caused it — when the cause changes, the
+   * caveat is a new fact and should come back. A `context` caveat is only an
+   * explanation, so a plain "I've read it" is fine there.
+   */
+  onDismiss?: () => void;
 }) {
   const colors = TONES[tone];
 
@@ -60,6 +73,19 @@ export function Caveat({
           </Pressable>
         ) : null}
       </View>
+      {onDismiss ? (
+        <Pressable
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss this note"
+          // Generous, because the glyph itself is 13px and a 13px tap target on
+          // a phone is a miss waiting to happen.
+          hitSlop={10}
+          style={({ pressed }) => [styles.close, pressed && styles.closePressed]}
+        >
+          <Text style={[styles.closeIcon, { color: colors.text }]}>✕</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
@@ -80,4 +106,9 @@ const styles = StyleSheet.create({
   text: { fontSize: 12.5, lineHeight: 20 },
   actionRow: { marginTop: 6, alignSelf: 'flex-start' },
   action: { fontSize: 12.5, fontWeight: '700', textDecorationLine: 'underline' },
+  // Top-aligned rather than centred: on a caveat that wraps to three lines a
+  // centred ✕ floats in the middle of the sentence with nothing to align to.
+  close: { alignSelf: 'flex-start', paddingLeft: 4 },
+  closePressed: { opacity: 0.5 },
+  closeIcon: { fontSize: 13, fontWeight: '700', lineHeight: 20, opacity: 0.65 },
 });
