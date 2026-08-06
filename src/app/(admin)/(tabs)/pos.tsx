@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDime
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
+import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
@@ -13,6 +14,7 @@ import { ReceiptModal } from '@/components/receipt-modal';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
@@ -33,6 +35,9 @@ import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt'
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { Currency, Discount, NewProductInput, PaymentMethod, Product, Promotion } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
 
 // Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
 // (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
@@ -432,12 +437,16 @@ export default function PosScreen() {
         nestedScrollEnabled: true,
       }
     : { contentContainerStyle: styles.grid };
-  // Compact mode caps the cart's own scroll instead of letting it grow with
-  // the page, so the total/checkout stay reachable without paging past a
-  // long line-item list — the same idea as compactGridHeight above.
-  const cartListProps = compact
-    ? { style: styles.cartListCompact, nestedScrollEnabled: true, showsVerticalScrollIndicator: false }
-    : { style: styles.cartList };
+  // On mobile the cart list is a plain View, for exactly the reason the note
+  // above gives: it was a nested, flex-sized ScrollView capped at 240px, which
+  // is the sizing fight that note describes, and it left a tall band of dead
+  // page between the checkout button and the product grid.
+  //
+  // The cap it used to carry was meant to keep the total reachable. It is not
+  // needed here — the cart renders ABOVE the browse pane on a phone, so the
+  // total is already near the top of the page rather than beyond a long list.
+  const CartList = compact ? View : ScrollView;
+  const cartListProps = compact ? {} : { style: styles.cartList };
 
   const browsePaneEl = (
     <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
@@ -470,9 +479,9 @@ export default function PosScreen() {
         </Pressable>
       )}
       <ScrollView {...categoryListProps}>
-        <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
+        <CategoryChip variant="bento" label="All" active={category === null} onPress={() => setCategory(null)} />
         {categories.map((item) => (
-          <CategoryChip key={item} label={item} color={categoryColors.get(item)} active={category === item} onPress={() => setCategory(item)} />
+          <CategoryChip variant="bento" key={item} label={item} color={categoryColors.get(item)} active={category === item} onPress={() => setCategory(item)} />
         ))}
       </ScrollView>
       <GridList {...gridListProps}>
@@ -512,6 +521,10 @@ export default function PosScreen() {
 
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
+      {/* The whole sale is ONE card floating on the grey page — it used to be a
+          white column with a hairline down its left edge, which read as a
+          second page rather than as the thing being built. */}
+      <Card variant="bento" style={[styles.cartCard, compact && styles.cartCardCompact]}>
       <View style={styles.cartTitleRow}>
         <Text style={styles.cartTitle}>Current sale</Text>
         <View style={styles.cartTitleActions}>
@@ -531,7 +544,7 @@ export default function PosScreen() {
           )}
         </View>
       </View>
-      <ScrollView {...cartListProps}>
+      <CartList {...cartListProps}>
         {cart.length === 0 ? (
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyIcon}>🛒</Text>
@@ -576,7 +589,7 @@ export default function PosScreen() {
             );
           })
         )}
-      </ScrollView>
+      </CartList>
       <View style={styles.discountSection}>
         {hasAnyDiscount && (
           <>
@@ -654,6 +667,7 @@ export default function PosScreen() {
           onChangePointsRedeemed={setPointsRedeemed}
         />
       )}
+      </Card>
     </View>
   );
 
@@ -715,29 +729,59 @@ export default function PosScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  // The counter is a workspace, not a page of cards: the two panes are the
+  // layout, and the bento surfaces are what they are painted in.
+  safeArea: { flex: 1, backgroundColor: theme.bentoPage },
   split: { flex: 1, flexDirection: 'row' },
   splitCompact: { flex: 1, flexDirection: 'column' },
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },
-  browsePane: { flex: 2, padding: 32 },
-  browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 20, paddingBottom: 12 },
-  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 20 },
-  searchIcon: { position: 'absolute', left: 18, color: '#9B9B9B', fontSize: 18, zIndex: 1 },
-  // paddingRight leaves room for the scan button overlaid on the right.
-  search: { backgroundColor: '#F4F4F4', borderRadius: 14, height: 52, paddingLeft: 42, paddingRight: 52, fontSize: 15, color: '#111111' },
+  browsePane: { flex: 2, padding: 18 },
+  browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 10 },
+  // The gap below lives on the wrapper, not the input: the scan button is
+  // absolutely positioned and centred by this, so a margin on the field would
+  // push it below the field's real centre.
+  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 14 },
+  searchIcon: { position: 'absolute', left: 16, color: theme.bentoMuted2, fontSize: 18, zIndex: 1 },
+  // White with a firm edge, like the cards — an input is a surface you act on,
+  // and a soft grey field disappears into the grey page.
+  search: {
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoRule,
+    borderRadius: 14,
+    height: 52,
+    paddingLeft: 42,
+    paddingRight: 54,
+    fontSize: 15,
+    color: theme.bentoInk,
+  },
   categoryScroll: { flexGrow: 0, flexShrink: 0 },
-  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 24 },
+  categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 16 },
   categoryScrollCompact: { flexGrow: 0, flexShrink: 0 },
-  categoryRowCompact: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 18 },
+  categoryRowCompact: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCompact: { gap: 8 },
   gridScrollCompact: { flexGrow: 0, flexShrink: 0 },
-  gridTile: { flexBasis: '31%', flexGrow: 0, flexShrink: 0, minWidth: 190, backgroundColor: '#FFFFFF', borderRadius: 18, padding: 16, borderWidth: 1, borderColor: '#EDEDED' },
+  // Tiles keep a border while the panels float. This is the one screen read at
+  // arm's length in shop lighting, and the tile carries the most information
+  // per pixel in the app -- a visible edge is worth more here than the cleaner
+  // borderless look the desk screens get.
+  gridTile: {
+    flexBasis: '31%',
+    flexGrow: 0,
+    flexShrink: 0,
+    minWidth: 190,
+    backgroundColor: theme.bentoSurface,
+    borderRadius: BENTO_RADIUS_TILE,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+  },
   gridTileCompact: { flexBasis: '31%', minWidth: 90, flexGrow: 0, flexShrink: 0, borderRadius: 12, padding: 8 },
-  gridTileDisabled: { opacity: 0.4 },
-  gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 14, marginBottom: 14 },
+  gridTileDisabled: { opacity: 0.45 },
+  gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 12 },
   gridThumbCompact: { aspectRatio: 1.3, borderRadius: 8, marginBottom: 6 },
-  gridThumbPlaceholder: { backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
+  gridThumbPlaceholder: { backgroundColor: theme.bentoSoft, alignItems: 'center', justifyContent: 'center' },
   // A teardrop silhouette built from a rotated square with three rounded
   // corners — avoids pulling in an icon/SVG library just for one glyph, and
   // (unlike the 💧 emoji) its color is fully controllable to match the
@@ -745,7 +789,7 @@ const styles = StyleSheet.create({
   gridThumbDrop: {
     width: 30,
     height: 30,
-    backgroundColor: '#111111',
+    backgroundColor: theme.bentoInk,
     borderTopLeftRadius: 15,
     borderTopRightRadius: 15,
     borderBottomRightRadius: 15,
@@ -753,53 +797,76 @@ const styles = StyleSheet.create({
     transform: [{ rotate: '-45deg' }],
   },
   gridThumbDropCompact: { width: 16, height: 16, borderTopLeftRadius: 8, borderTopRightRadius: 8, borderBottomRightRadius: 8 },
-  gridThumbDropMuted: { backgroundColor: '#C7C7C7' },
-  gridBrand: { color: '#999999', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+  gridThumbDropMuted: { backgroundColor: theme.bentoMuted2 },
+  gridBrand: { color: theme.bentoMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 },
   gridBrandCompact: { fontSize: 8 },
-  gridName: { color: '#111111', fontSize: 15, fontWeight: '700', minHeight: 40, marginTop: 4 },
-  gridNameCompact: { fontSize: 11, minHeight: 15, marginTop: 2 },
-  gridFooter: { marginTop: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  gridName: { color: theme.bentoInk, fontSize: 14, fontWeight: '700', minHeight: 38, marginTop: 3, lineHeight: 18 },
+  gridNameCompact: { fontSize: 11, minHeight: 15, marginTop: 2, lineHeight: 14 },
+  gridFooter: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' },
   gridFooterCompact: { marginTop: 5, flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
-  gridPrice: { color: '#111111', fontSize: 18, fontWeight: '800' },
+  gridPrice: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] },
   gridPriceCompact: { fontSize: 13 },
-  gridStock: { color: '#999999', fontSize: 12 },
+  gridStock: { color: theme.bentoMuted, fontSize: 11.5 },
   gridStockCompact: { fontSize: 9 },
   gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12, alignSelf: 'flex-start' },
-  stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6, borderRadius: 8 },
-  cartPane: { flex: 1, backgroundColor: '#FFFFFF', borderLeftWidth: 1, borderLeftColor: '#ECECEC', padding: 28, minWidth: 320 },
-  cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, borderLeftWidth: 0, borderBottomWidth: 1, borderBottomColor: '#ECECEC', padding: 20, paddingBottom: 16 },
-  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, gap: 8 },
+  // Warm on purpose: a low-stock flag is SUPPOSED to sit warmer than the
+  // cool-grey around it.
+  stockPill: { fontSize: 10, fontWeight: '800', color: '#8A530F', backgroundColor: '#FDF1E3', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 999, alignSelf: 'flex-start', overflow: 'hidden' },
+  stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6 },
+
+  // ---- cart: one card, sitting on the page like every other card ----
+  cartPane: { flex: 1, padding: 18, paddingLeft: 4, minWidth: 340 },
+  cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 0 },
+  cartCard: { flex: 1, padding: 16 },
+  // Spelled out rather than `flex: 0`, matching the panes above: inside the
+  // page's vertical scroller the card must size to its content, and a bare
+  // `flex: 0` leaves flexBasis to interpretation.
+  cartCardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
+  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 },
   cartTitleActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  scanCartButton: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
-  scanCartButtonText: { color: '#111111', fontSize: 12, fontWeight: '800' },
-  scanInSearch: { position: 'absolute', right: 6, height: 40, width: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
-  scanInSearchText: { fontSize: 17, color: '#111111' },
-  addFromScan: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 14 },
-  addFromScanText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
-  cartTitle: { color: '#111111', fontSize: 22, fontWeight: '800' },
-  clearAll: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12 },
-  clearAllText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  cartTitle: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  miniButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
+  miniButtonText: { color: theme.bentoInk2, fontSize: 11.5, fontWeight: '700' },
+  // Black and larger than its neighbour: scanning is how a basket actually
+  // gets built, and this is the one scan control still in reach once the phone
+  // has pushed the search field below the cart. Clear all stays quiet beside
+  // it -- two black pills would make "wipe the sale" look equally inviting.
+  scanCartButton: { backgroundColor: theme.bentoInk, borderWidth: 1, borderColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
+  scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
+  clearAll: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
+  clearAllText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
+  // Bigger than Inventory's, and black: scanning is the fastest way to find a
+  // product here, and this is pressed at a counter rather than at a desk.
+  scanInSearch: { position: 'absolute', right: 6, height: 40, width: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bentoInk },
+  scanInSearchText: { fontSize: 17, lineHeight: 17, color: theme.bentoSurface, includeFontPadding: false, textAlignVertical: 'center' },
+  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
+  addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
-  cartListCompact: { maxHeight: 240, marginBottom: 4 },
-  emptyWrap: { alignItems: 'center', marginTop: 56 },
-  emptyIcon: { fontSize: 32, marginBottom: 12, opacity: 0.5 },
-  empty: { color: '#BBBBBB', fontSize: 14, textAlign: 'center', lineHeight: 20 },
-  cartLine: { backgroundColor: '#FAFAFA', borderRadius: 14, padding: 14, marginBottom: 10 },
+  emptyWrap: { alignItems: 'center', marginTop: 40, marginBottom: 24 },
+  emptyIcon: { fontSize: 30, marginBottom: 10, opacity: 0.5 },
+  empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },
+  // A ruled row, not a nested grey card: a card inside a card at every line
+  // made the basket read as a stack of panels rather than as a list.
+  cartLine: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoRule },
   cartLineRow: { flexDirection: 'row', alignItems: 'center' },
-  cartLineName: { color: '#111111', fontSize: 14, fontWeight: '700' },
+  cartLineName: { color: theme.bentoInk, fontSize: 13.5, fontWeight: '700' },
   cartLinePriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 },
-  cartLinePrice: { color: '#999999', fontSize: 12 },
-  cartLinePriceStruck: { color: '#BBBBBB', fontSize: 12, textDecorationLine: 'line-through' },
-  cartLinePromo: { color: '#111111', fontSize: 11, fontWeight: '700', marginTop: 4 },
-  cartLineDiscountToggle: { color: '#999999', fontSize: 11, fontWeight: '700', marginTop: 6 },
+  cartLinePrice: { color: theme.bentoMuted, fontSize: 12 },
+  cartLinePriceStruck: { color: theme.bentoMuted2, fontSize: 12, textDecorationLine: 'line-through' },
+  cartLinePromo: { color: theme.bentoProfit, fontSize: 11, fontWeight: '700', marginTop: 4 },
+  cartLineDiscountToggle: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6, textDecorationLine: 'underline' },
   discountSection: { marginTop: 4 },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
-  summaryLabel: { color: '#999999', fontSize: 13 },
-  summaryValue: { color: '#111111', fontSize: 13, fontWeight: '600' },
-  summaryValueDiscount: { color: '#C0392B', fontSize: 13, fontWeight: '700' },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingVertical: 16, borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 12 },
-  totalLabel: { color: '#111111', fontSize: 15, fontWeight: '800' },
-  totalValue: { color: '#111111', fontSize: 26, fontWeight: '800' },
-  earnsPoints: { color: '#999999', fontSize: 11, fontWeight: '700', marginTop: -8 },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
+  summaryLabel: { color: theme.bentoMuted, fontSize: 13 },
+  summaryValue: { color: theme.bentoInk, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  // Green, not red: money coming OFF the customer's bill is good news for them,
+  // and it carries a signed figure so the colour is never the only signal.
+  summaryValueDiscount: { color: theme.bentoProfit, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  // The one loud thing on the screen. This is the number said out loud to the
+  // customer and the one that gets a sale wrong if it is misread, so it does
+  // not share a size with "Subtotal".
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 12, borderTopWidth: 2, borderTopColor: theme.bentoInk, marginTop: 10 },
+  totalLabel: { color: theme.bentoInk, fontSize: 15, fontWeight: '800' },
+  totalValue: { color: theme.bentoInk, fontSize: 30, fontWeight: '800', letterSpacing: -1, fontVariant: ['tabular-nums'] },
+  earnsPoints: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6 },
 });

@@ -34,11 +34,12 @@ export const Colors = {
     chartSeries4: '#e87ba4',
     // ---- Bento surfaces (see docs/design/dashboard-mockup.html) ----
     //
-    // The cool-grey/white world the Dashboard, Accounting, People and Inventory
-    // have been converted to. Deliberately NOT a replacement for `background` /
-    // `surface` / `border` above: POS and Settings still read those and stay
-    // cream until each is converted on purpose. Two palettes coexist during the
-    // conversion; that is the agreed interim state, not an oversight.
+    // The cool-grey/white world every main screen now uses — Dashboard,
+    // Accounting, People, Inventory and POS. Deliberately NOT a replacement for
+    // `background` / `surface` / `border` above: Settings still reads those, as
+    // do the modals across the app, and both stay cream until converted on
+    // purpose. Two palettes coexist during the conversion; that is the agreed
+    // interim state, not an oversight.
     //
     // Modals are a third case, not yet decided: every one in the app still
     // wears the stock white-card treatment, including the ones People opens.
@@ -136,6 +137,17 @@ export const Colors = {
 
 /** Card radius for the bento surfaces. The stock `Card` stays at 12. */
 export const BENTO_RADIUS = 26;
+
+/**
+ * Radius for a small repeated TILE, not a panel — a POS product tile, a stat
+ * inset, anything roughly 150px or under.
+ *
+ * 26 is tuned for a card that holds a heading and a list. On a tile it eats the
+ * corners until the shape reads as a pill rather than a card, and a grid of
+ * pills loses the sense of a grid. Two radii, chosen by the size of the thing,
+ * rather than one radius misapplied.
+ */
+export const BENTO_RADIUS_TILE = 18;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
