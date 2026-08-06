@@ -35,6 +35,7 @@ import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } fr
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
 const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Name', value: (p) => p.name },
@@ -128,6 +129,9 @@ export default function InventoryScreen() {
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
+  // The manual counterpart: the only way to pick up another till's sale,
+  // since nothing is pushed to this device.
+  const pullToRefresh = usePullToRefresh(reload);
 
   // Stock changes go through product_location_stock, never products.stock --
   // that column is derived by trigger now, so `updateProduct({ stock })` would
@@ -383,7 +387,7 @@ export default function InventoryScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
         <View style={styles.header}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>INVENTORY</Text>
