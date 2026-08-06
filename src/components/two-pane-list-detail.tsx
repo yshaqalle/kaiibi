@@ -25,6 +25,7 @@ export function TwoPaneListDetail({
   detailOpen,
   onCloseDetail,
   detailTitle,
+  detailFills = false,
 }: {
   compact: boolean;
   list: ReactNode;
@@ -32,6 +33,17 @@ export function TwoPaneListDetail({
   detailOpen: boolean;
   onCloseDetail: () => void;
   detailTitle?: string;
+  /**
+   * Wide layout only. `true` makes the detail pane a flex container rather
+   * than a ScrollView, so a detail that lays itself out in columns can bound
+   * its own scrolling regions to the pane's height. The caller becomes
+   * responsible for ALL scrolling inside the detail -- content taller than
+   * the pane is clipped, not scrolled.
+   *
+   * Default `false` keeps the original behaviour for any caller whose detail
+   * is a plain stack.
+   */
+  detailFills?: boolean;
 }) {
   if (compact) {
     return (
@@ -62,10 +74,18 @@ export function TwoPaneListDetail({
           {list}
         </ScrollView>
       </View>
+      {/* The detail either scrolls as one block (the original shape) or fills
+          the pane and lets its own cards scroll internally. The second is what
+          keeps a bounded history list bounded: a flex child of a ScrollView
+          has no height to flex against. */}
       <View style={styles.detailPane}>
-        <ScrollView style={styles.paneScroll} contentContainerStyle={styles.paneContent} showsVerticalScrollIndicator={false}>
-          {detail}
-        </ScrollView>
+        {detailFills ? (
+          <View style={styles.paneFill}>{detail}</View>
+        ) : (
+          <ScrollView style={styles.paneScroll} contentContainerStyle={styles.paneContent} showsVerticalScrollIndicator={false}>
+            {detail}
+          </ScrollView>
+        )}
       </View>
     </View>
   );
@@ -77,6 +97,9 @@ const styles = StyleSheet.create({
   detailPane: { flex: 1, minWidth: 0 },
   paneScroll: { flex: 1 },
   paneContent: { flexGrow: 1 },
+  // minHeight: 0 is load-bearing on web -- without it a flex child refuses to
+  // shrink below its content size and the inner scrollers never engage.
+  paneFill: { flex: 1, minHeight: 0 },
   compact: { flex: 1, minHeight: 0 },
   compactContent: { paddingBottom: 24 },
   overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
