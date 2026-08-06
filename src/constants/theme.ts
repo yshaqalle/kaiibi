@@ -35,7 +35,8 @@ export const Colors = {
     // ---- Bento surfaces (see docs/design/dashboard-mockup.html) ----
     //
     // The cool-grey/white world every main screen now uses — Dashboard,
-    // Accounting, People, Inventory and POS. Deliberately NOT a replacement for
+    // Accounting, People, Inventory, POS and the Platform operator console.
+    // Deliberately NOT a replacement for
     // `background` / `surface` / `border` above: Settings still reads those, as
     // do the modals across the app, and both stay cream until converted on
     // purpose. Two palettes coexist during the conversion; that is the agreed
@@ -75,6 +76,15 @@ export const Colors = {
     // StatementRow prints the minus sign; that labelling is load-bearing.
     bentoProfit: '#0f9d58',
     bentoLoss: '#d92d3f',
+    // The third status: needs noticing, but is not broken.
+    //
+    // Profit/loss is a two-state world, and some states are neither. A shop in
+    // `grace` has paid and is fully usable -- somebody just has to record it.
+    // Painting that green hides the task; painting it red says the shop is cut
+    // off, which is the opposite of true. Also what `Caveat`'s `wrong` tone
+    // wants: it currently hardcodes #8A5A05 beside a `warning` that belongs to
+    // the cream palette.
+    bentoWarn: '#b07206',
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series
@@ -132,6 +142,7 @@ export const Colors = {
     bentoSeries4: '#d4457e',
     bentoProfit: '#2eb872',
     bentoLoss: '#e8515f',
+    bentoWarn: '#e0a244',
   },
 } as const;
 

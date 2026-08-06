@@ -1,10 +1,19 @@
+import { useEffect } from 'react';
 import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BarChart, CHART_COLORS, DonutChart, planColor, type Bar } from '@/components/platform-charts';
+import { BentoCard } from '@/components/ui/bento-card';
+import { BentoTile, BentoTileRow } from '@/components/ui/bento-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { Caveat } from '@/components/ui/caveat';
+import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, type LimitResource } from '@/lib/entitlements';
 import { whatsappLink, type PlatformAuditRow, type PlatformShopRow, type SubscriptionPaymentRow } from '@/lib/platform';
 import type { Plan } from '@/lib/subscriptions';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
 
 // The operator's first screen: is the business growing, is money arriving, and
 // who needs a conversation today.
@@ -13,6 +22,10 @@ import type { Plan } from '@/lib/subscriptions';
 // and how heavily shops use what they pay for. None of it is any shop's
 // takings: the portal cannot read sales, products, customers or expenses, and
 // that boundary is the point rather than an omission.
+//
+// Laid out on the bento grid, because every panel above "Needs attention" is
+// glanced at rather than read. The attention list drops out of the grid: it is
+// a worklist you read down, and the one thing on the tab you act on.
 
 const DAY = 86_400_000;
 
@@ -21,20 +34,26 @@ export function PlatformOverview({
   plans,
   payments,
   audit,
-  compact,
   now,
+  onHeadline,
   onOpenShop,
 }: {
   shops: PlatformShopRow[];
   plans: Plan[];
   payments: SubscriptionPaymentRow[];
   audit: PlatformAuditRow[];
-  compact: boolean;
   // Stamped by the caller when this data was fetched, rather than read here.
   // Reading the clock during render is impure, and it also means every figure
   // on the screen is measured against the same instant instead of drifting
   // apart as the component re-renders.
   now: number;
+  /**
+   * The one-line summary, published up to the shell so it can sit in the
+   * header's blurb slot beside the title -- the same shape accounting.tsx uses
+   * for a tab's header actions. It is a sentence about the whole tab, so it
+   * belongs with the title rather than in a card of its own.
+   */
+  onHeadline: (headline: string) => void;
   onOpenShop: (shopId: string) => void;
 }) {
   const priceOf = (key: string) => plans.find((p) => p.key === key)?.priceCents ?? 0;
@@ -63,9 +82,8 @@ export function PlatformOverview({
   const monthStart = new Date(now);
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
-  const collectedThisMonth = payments
-    .filter((p) => new Date(p.paidAt).getTime() >= monthStart.getTime())
-    .reduce((sum, p) => sum + p.amountCents, 0);
+  const paymentsThisMonth = payments.filter((p) => new Date(p.paidAt).getTime() >= monthStart.getTime());
+  const collectedThisMonth = paymentsThisMonth.reduce((sum, p) => sum + p.amountCents, 0);
 
   // Movement. Signups come from the shops themselves; upgrades, downgrades and
   // suspensions come from the audit log, which is the only place a *change* is
@@ -158,122 +176,179 @@ export function PlatformOverview({
           endingSoon.length > 0 ? ` · ${endingSoon.length} trial${endingSoon.length === 1 ? '' : 's'} ending within a week` : ''
         }.`;
 
+  // In an effect rather than during render: publishing it inline would set
+  // state on the parent mid-render, which React treats as a bug in dev and
+  // which would loop here because the headline is recomputed every pass.
+  useEffect(() => {
+    onHeadline(headline);
+  }, [headline, onHeadline]);
+
+  // The instant every figure on this tab is measured against, said once on the
+  // card that holds the money rather than left for the reader to assume.
+  const asOf = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+
+  const attention = [
+    ...endingSoon.map((shop) => ({
+      key: `t-${shop.shopId}`,
+      shop,
+      note: `Trial ends in ${Math.max(0, Math.ceil((new Date(shop.trialEndsAt!).getTime() - now) / DAY))} days`,
+      message: `Hi ${shop.shopName} — your Kaiibi trial ends soon. Would you like to keep going?`,
+    })),
+    ...atCap.map((shop) => {
+      const hit = LIMIT_RESOURCES.filter((r) => {
+        const limit = shop.limits[r.key];
+        return limit != null && (shop.usage[r.key] ?? 0) >= limit;
+      });
+      return {
+        key: `c-${shop.shopId}`,
+        shop,
+        note: `At their limit: ${hit.map((h) => h.label.toLowerCase()).join(', ')}`,
+        message: `Hi ${shop.shopName} — you've reached your plan's limit on Kaiibi. Want to move up a tier?`,
+      };
+    }),
+    ...expired.map((shop) => ({
+      key: `e-${shop.shopId}`,
+      shop,
+      note: 'Plan lapsed — can view but not change anything',
+      message: `Hi ${shop.shopName} — your Kaiibi plan has lapsed. Everything is still saved; shall we get you running again?`,
+    })),
+  ];
+
   return (
-    <View style={styles.root}>
-      <View style={styles.hero}>
-        <Text style={styles.heroLabel}>OVERVIEW</Text>
-        <Text style={[styles.heroLine, compact && styles.heroLineCompact]}>{headline}</Text>
-      </View>
-
-      <Text style={styles.section}>MONEY</Text>
-      <View style={styles.tiles}>
-        <Tile value={formatCents(mrr)} label="MRR" sub="billing right now" />
-        {committedMrr > 0 && (
-          <Tile value={formatCents(committedMrr)} label="Committed" sub={`${committed.length} paid, starts after trial`} />
-        )}
-        <Tile value={formatCents(collectedThisMonth)} label="Collected this month" sub={`${payments.filter((p) => new Date(p.paidAt) >= monthStart).length} payments`} />
-        <Tile value={formatCents(arpu)} label="Average per shop" />
-        <Tile value={`${conversion}%`} label="Trial → paid" sub={`of ${decided.length} decided`} tone={conversion === 0 && decided.length > 0 ? 'warn' : 'default'} />
-      </View>
-
-      <Text style={styles.section}>MOVEMENT</Text>
-      <View style={styles.tiles}>
-        <Tile value={`+${newIn(7)}`} label="New this week" sub={`+${newIn(30)} in 30 days`} />
-        <Tile value={String(trialing.length)} label="On trial" sub={committed.length > 0 ? `${committed.length} more already paid` : undefined} />
-        <Tile value={`↑${upgrades}  ↓${downgrades}`} label="Plan changes" sub="last 30 days" tone={downgrades > upgrades ? 'warn' : 'default'} />
-        <Tile value={String(expired.length + suspended.length)} label="Lapsed or suspended" tone={expired.length + suspended.length > 0 ? 'warn' : 'default'} />
-      </View>
-
-      <View style={[styles.panels, compact && styles.panelsCompact]}>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>New shops</Text>
-          <Text style={styles.panelSub}>signups per week</Text>
-          <BarChart bars={signupBars} color={CHART_COLORS.signups} />
-        </View>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Money collected</Text>
-          <Text style={styles.panelSub}>subscription payments per month</Text>
-          <BarChart bars={revenueBars} color={CHART_COLORS.revenue} formatValue={(v) => formatCents(v)} />
-        </View>
-      </View>
-
-      <View style={[styles.panels, compact && styles.panelsCompact]}>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Plan mix</Text>
-          <Text style={styles.panelSub}>where every shop sits today</Text>
-          <DonutChart slices={planSlices} centerValue={String(shops.length)} centerLabel="shops" />
-        </View>
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Revenue by plan</Text>
-          <Text style={styles.panelSub}>monthly, from paying shops only</Text>
-          <View style={styles.mix}>
-            {plans.filter((p) => p.priceCents > 0).map((plan, i) => {
-              const onPaying = paying.filter((s) => s.planKey === plan.key).length;
-              const revenue = onPaying * plan.priceCents;
-              const share = mrr > 0 ? (revenue / mrr) * 100 : 0;
-              return (
-                <View key={plan.id} style={styles.mixRow}>
-                  <Text style={styles.mixName}>{plan.name}</Text>
-                  <View style={styles.mixTrack}>
-                    <View style={[styles.mixFill, { width: `${share}%`, backgroundColor: planColor(plan.key, i) }]} />
-                  </View>
-                  <Text style={styles.mixCount}>{onPaying}</Text>
-                  <Text style={styles.mixRevenue}>{formatCents(revenue)}</Text>
-                </View>
-              );
-            })}
-            {mrr === 0 && <Text style={styles.empty}>No paying shops yet — this fills in as trials convert.</Text>}
-          </View>
-        </View>
-      </View>
-
-      <Text style={styles.section}>USAGE ACROSS ALL SHOPS</Text>
-      <View style={styles.tiles}>
-        {LIMIT_RESOURCES.map((r) => (
-          <Tile key={r.key} value={totalUsage(r.key).toLocaleString()} label={r.label} />
-        ))}
-      </View>
-
-      <Text style={styles.section}>NEEDS ATTENTION</Text>
-      {endingSoon.length === 0 && atCap.length === 0 && expired.length === 0 ? (
-        <Text style={styles.empty}>Nothing pressing.</Text>
-      ) : (
-        <View style={styles.attention}>
-          {endingSoon.map((shop) => (
-            <AttentionRow
-              key={`t-${shop.shopId}`}
-              shop={shop}
-              note={`Trial ends in ${Math.max(0, Math.ceil((new Date(shop.trialEndsAt!).getTime() - now) / DAY))} days`}
-              message={`Hi ${shop.shopName} — your Kaiibi trial ends soon. Would you like to keep going?`}
-              onOpen={onOpenShop}
-            />
-          ))}
-          {atCap.map((shop) => {
-            const hit = LIMIT_RESOURCES.filter((r) => {
-              const limit = shop.limits[r.key];
-              return limit != null && (shop.usage[r.key] ?? 0) >= limit;
-            });
-            return (
-              <AttentionRow
-                key={`c-${shop.shopId}`}
-                shop={shop}
-                note={`At their limit: ${hit.map((h) => h.label.toLowerCase()).join(', ')}`}
-                message={`Hi ${shop.shopName} — you've reached your plan's limit on Kaiibi. Want to move up a tier?`}
-                onOpen={onOpenShop}
+    <View>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard title="Money" scope={`as of ${asOf}`}>
+            <BentoTileRow>
+              <BentoTile label="MRR" value={formatCents(mrr)} hint="billing right now" />
+              {committedMrr > 0 ? (
+                <BentoTile
+                  label="Committed"
+                  value={formatCents(committedMrr)}
+                  hint={`${committed.length} paid, starts after trial`}
+                />
+              ) : null}
+              <BentoTile
+                label="Collected this month"
+                value={formatCents(collectedThisMonth)}
+                hint={`${paymentsThisMonth.length} payment${paymentsThisMonth.length === 1 ? '' : 's'}`}
               />
-            );
-          })}
-          {expired.map((shop) => (
+              <BentoTile label="Average per shop" value={formatCents(arpu)} />
+              <BentoTile
+                label="Trial → paid"
+                value={`${conversion}%`}
+                hint={`of ${decided.length} decided`}
+                tone={conversion === 0 && decided.length > 0 ? 'warn' : 'default'}
+              />
+            </BentoTileRow>
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={6}>
+          <BentoCard title="Movement" scope="last 30 days">
+            <BentoTileRow>
+              <BentoTile label="New this week" value={`+${newIn(7)}`} hint={`+${newIn(30)} in 30 days`} />
+              <BentoTile
+                label="On trial"
+                value={String(trialing.length)}
+                hint={committed.length > 0 ? `${committed.length} more already paid` : undefined}
+              />
+              <BentoTile
+                label="Plan changes"
+                value={`↑${upgrades}  ↓${downgrades}`}
+                hint="up and down a tier"
+                tone={downgrades > upgrades ? 'warn' : 'default'}
+              />
+              <BentoTile
+                label="Lapsed or suspended"
+                value={String(expired.length + suspended.length)}
+                tone={expired.length + suspended.length > 0 ? 'warn' : 'default'}
+              />
+            </BentoTileRow>
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={6}>
+          <BentoCard title="Plan mix" scope="today">
+            <DonutChart slices={planSlices} centerValue={String(shops.length)} centerLabel="shops" />
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={6}>
+          <BentoCard title="New shops" scope="per week">
+            <BarChart bars={signupBars} color={CHART_COLORS.signups} />
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={6}>
+          <BentoCard title="Money collected" scope="per month">
+            <BarChart bars={revenueBars} color={CHART_COLORS.revenue} formatValue={(v) => formatCents(v)} />
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={7}>
+          <BentoCard title="Revenue by plan" scope="paying shops only">
+            <View style={styles.mix}>
+              {plans
+                .filter((p) => p.priceCents > 0)
+                .map((plan, i) => {
+                  const onPaying = paying.filter((s) => s.planKey === plan.key).length;
+                  const revenue = onPaying * plan.priceCents;
+                  const share = mrr > 0 ? (revenue / mrr) * 100 : 0;
+                  return (
+                    <View key={plan.id} style={styles.mixRow}>
+                      <Text style={styles.mixName} numberOfLines={1}>
+                        {plan.name}
+                      </Text>
+                      <View style={styles.mixTrack}>
+                        <View style={[styles.mixFill, { width: `${share}%`, backgroundColor: planColor(plan.key, i) }]} />
+                      </View>
+                      <Text style={styles.mixCount}>{onPaying}</Text>
+                      <Text style={styles.mixRevenue}>{formatCents(revenue)}</Text>
+                    </View>
+                  );
+                })}
+              {mrr === 0 ? <Text style={styles.empty}>No paying shops yet — this fills in as trials convert.</Text> : null}
+            </View>
+          </BentoCard>
+        </BentoCell>
+
+        <BentoCell span={5}>
+          <BentoCard title="Usage across all shops" scope="right now">
+            <BentoTileRow>
+              {LIMIT_RESOURCES.map((r) => (
+                <BentoTile key={r.key} label={r.label} value={totalUsage(r.key).toLocaleString()} />
+              ))}
+            </BentoTileRow>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+
+      {/* Out of the grid: a worklist is read down a column, so it takes the
+          full width and its rows get the whole card. */}
+      <BentoCard
+        title="Needs attention"
+        scope={attention.length === 1 ? '1 shop' : `${attention.length} shops`}
+      >
+        {attention.length === 0 ? (
+          <Text style={styles.empty}>Nothing pressing.</Text>
+        ) : (
+          attention.map((item, i) => (
             <AttentionRow
-              key={`e-${shop.shopId}`}
-              shop={shop}
-              note="Plan lapsed — can view but not change anything"
-              message={`Hi ${shop.shopName} — your Kaiibi plan has lapsed. Everything is still saved; shall we get you running again?`}
+              key={item.key}
+              shop={item.shop}
+              note={item.note}
+              message={item.message}
+              first={i === 0}
               onOpen={onOpenShop}
             />
-          ))}
-        </View>
-      )}
+          ))
+        )}
+        <Caveat tone="context">
+          Every figure here is ours — subscriptions, signups and how heavily shops use what they pay for. None of it is
+          any shop&apos;s takings.
+        </Caveat>
+      </BentoCard>
     </View>
   );
 }
@@ -282,19 +357,25 @@ function AttentionRow({
   shop,
   note,
   message,
+  first,
   onOpen,
 }: {
   shop: PlatformShopRow;
   note: string;
   message: string;
+  first: boolean;
   onOpen: (shopId: string) => void;
 }) {
   const link = whatsappLink(shop.contactPhone, message);
   return (
-    <View style={styles.attentionRow}>
+    <View style={[styles.attentionRow, first && styles.attentionRowFirst]}>
       <Pressable style={styles.attentionMain} onPress={() => onOpen(shop.shopId)}>
-        <Text style={styles.attentionName} numberOfLines={1}>{shop.shopName}</Text>
-        <Text style={styles.attentionNote} numberOfLines={2}>{note}</Text>
+        <Text style={styles.attentionName} numberOfLines={1}>
+          {shop.shopName}
+        </Text>
+        <Text style={styles.attentionNote} numberOfLines={2}>
+          {note}
+        </Text>
       </Pressable>
       {/* Opens WhatsApp with the shop's own number and a first line already
           written. The number is the one they print on their receipts, read from
@@ -310,52 +391,31 @@ function AttentionRow({
   );
 }
 
-function Tile({ value, label, sub, tone = 'default' }: { value: string; label: string; sub?: string; tone?: 'default' | 'warn' }) {
-  return (
-    <View style={[styles.tile, tone === 'warn' && styles.tileWarn]}>
-      <Text style={[styles.tileValue, tone === 'warn' && styles.tileValueWarn]}>{value}</Text>
-      <Text style={styles.tileLabel}>{label}</Text>
-      {sub ? <Text style={styles.tileSub}>{sub}</Text> : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  root: { gap: 4 },
-  hero: { marginBottom: 20 },
-  heroLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 1 },
-  heroLine: { fontSize: 24, fontWeight: '800', color: '#111111', lineHeight: 32, marginTop: 6, maxWidth: 720 },
-  heroLineCompact: { fontSize: 18, lineHeight: 25 },
-  section: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.8, marginTop: 22, marginBottom: 10 },
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  tile: { borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 12, padding: 14, minWidth: 132, flexGrow: 1, backgroundColor: '#FBFBFB' },
-  tileWarn: { borderColor: '#F2D8A8', backgroundColor: '#FFFCF5' },
-  tileValue: { fontSize: 22, fontWeight: '800', color: '#111111' },
-  tileValueWarn: { color: '#9A6412' },
-  tileLabel: { fontSize: 12, color: '#555555', marginTop: 4, fontWeight: '600' },
-  tileSub: { fontSize: 10.5, color: '#AAAAAA', marginTop: 2 },
-  panels: { flexDirection: 'row', gap: 12, marginTop: 6 },
-  panelsCompact: { flexDirection: 'column' },
-  panel: { flex: 1, minWidth: 260, borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 12, padding: 16, backgroundColor: '#FFFFFF' },
-  panelTitle: { fontSize: 14, fontWeight: '800', color: '#111111' },
-  panelSub: { fontSize: 11, color: '#AAAAAA', marginTop: 2, marginBottom: 14 },
-  mix: { gap: 8 },
+  mix: { gap: 6 },
   mixRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  mixName: { fontSize: 13, fontWeight: '700', color: '#111111', width: 92 },
-  mixTrack: { flex: 1, height: 8, borderRadius: 4, backgroundColor: '#F0F0F0', overflow: 'hidden' },
-  mixFill: { height: 8, borderRadius: 4, backgroundColor: '#2563EB' },
-  mixCount: { fontSize: 13, fontWeight: '800', color: '#111111', width: 34, textAlign: 'right' },
-  mixRevenue: { fontSize: 12, color: '#777777', width: 76, textAlign: 'right' },
-  attention: { gap: 8 },
+  mixName: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk, width: 88 },
+  mixTrack: { flex: 1, height: 8, borderRadius: 999, backgroundColor: theme.bentoSoft, overflow: 'hidden' },
+  mixFill: { height: 8, borderRadius: 999 },
+  mixCount: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, width: 30, textAlign: 'right', fontVariant: ['tabular-nums'] },
+  mixRevenue: { fontSize: 12, color: theme.bentoMuted, width: 74, textAlign: 'right', fontVariant: ['tabular-nums'] },
+
+  // Rules between rows rather than a bordered box each: the card is already the
+  // container, and eight bordered boxes inside one card is two frames deep.
   attentionRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    borderWidth: 1, borderColor: '#EEEEEE', borderRadius: 10, padding: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: theme.bentoRule,
   },
+  attentionRowFirst: { borderTopWidth: 0, paddingTop: 0 },
   attentionMain: { flex: 1, gap: 3 },
-  attentionName: { fontSize: 14, fontWeight: '800', color: '#111111' },
-  attentionNote: { fontSize: 12, color: '#777777', lineHeight: 17 },
-  waButton: { backgroundColor: '#1E7A3C', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
-  waText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '800' },
-  waMissing: { color: '#BBBBBB', fontSize: 11 },
-  empty: { fontSize: 13, color: '#999999' },
+  attentionName: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
+  attentionNote: { fontSize: 11.5, color: theme.bentoMuted, lineHeight: 17 },
+  waButton: { backgroundColor: `${theme.bentoProfit}1A`, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
+  waText: { color: theme.bentoProfit, fontSize: 11.5, fontWeight: '800' },
+  waMissing: { color: theme.bentoMuted2, fontSize: 11 },
+  empty: { fontSize: 13, color: theme.bentoMuted },
 });

@@ -1,0 +1,318 @@
+import { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+
+import { BentoCard } from '@/components/ui/bento-card';
+import { BentoTile, BentoTileRow } from '@/components/ui/bento-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
+import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
+import { Field } from '@/components/platform/kit';
+import { Colors } from '@/constants/theme';
+import { formatCents } from '@/lib/currency';
+import type { SubscriptionStatus } from '@/lib/entitlements';
+import type { PlatformShopRow } from '@/lib/platform';
+import type { Plan } from '@/lib/subscriptions';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
+
+// Every business on Kaiibi. A roster you read DOWN, so the table is out of the
+// grid entirely and takes the full width; only the stat strip above it is
+// glanced at.
+
+type StatusFilter = 'all' | SubscriptionStatus;
+
+const FILTERS: { key: StatusFilter; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Paying' },
+  { key: 'trialing', label: 'Trialing' },
+  { key: 'grace', label: 'Grace' },
+  { key: 'expired', label: 'Expired' },
+  { key: 'suspended', label: 'Suspended' },
+];
+
+export function ShopsTab({
+  shops,
+  plans,
+  compact,
+  selected,
+  onSelect,
+}: {
+  shops: PlatformShopRow[];
+  plans: Plan[];
+  compact: boolean;
+  selected: string | null;
+  onSelect: (shopId: string | null) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<StatusFilter>('all');
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return shops.filter((shop) => {
+      if (status !== 'all' && shop.status !== status) return false;
+      if (!q) return true;
+      return (
+        shop.shopName.toLowerCase().includes(q) || shop.planKey.includes(q) || shop.status.includes(q)
+      );
+    });
+  }, [shops, search, status]);
+
+  const counts = useMemo(() => {
+    const by = (s: SubscriptionStatus) => shops.filter((shop) => shop.status === s).length;
+    // Monthly recurring revenue: only shops actually paying right now. Trials
+    // and lapsed shops are excluded on purpose — counting them is how a
+    // dashboard tells you the business is doing better than it is.
+    const mrr = shops
+      .filter((s) => s.status === 'active')
+      .reduce((sum, s) => sum + (plans.find((p) => p.key === s.planKey)?.priceCents ?? 0), 0);
+    return {
+      all: shops.length,
+      trialing: by('trialing'),
+      active: by('active'),
+      grace: by('grace'),
+      expired: by('expired'),
+      suspended: by('suspended'),
+      mrr,
+    };
+  }, [shops, plans]);
+
+  const columns: Column<PlatformShopRow>[] = [
+    {
+      key: 'shop',
+      header: 'Shop',
+      render: (shop) => <NameCell title={shop.shopName} meta={shop.planName} />,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      width: 168,
+      render: (shop) => {
+        const detail = statusDetail(shop);
+        return (
+          <View>
+            <SubscriptionStatusPill status={shop.status} />
+            {detail ? <Text style={[styles.statusNote, detail.paid && styles.statusNotePaid]}>{detail.label}</Text> : null}
+          </View>
+        );
+      },
+    },
+    {
+      key: 'joined',
+      header: 'Joined',
+      width: 118,
+      render: (shop) => <ValueCell value={fmtDate(shop.createdAt)} tone="muted" />,
+    },
+    {
+      key: 'ends',
+      header: 'Ends',
+      width: 168,
+      render: (shop) => {
+        const { ends, label } = coverEnd(shop);
+        return <ValueCell value={ends ? `${label} ${fmtDate(ends)}` : '—'} tone={endsSoon(ends) ? 'warning' : 'muted'} />;
+      },
+    },
+    {
+      key: 'stores',
+      header: 'Stores',
+      numeric: true,
+      width: 86,
+      render: (shop) => {
+        const limit = shop.limits.locations ?? null;
+        const used = shop.usage.locations ?? 0;
+        const atLimit = limit != null && used >= limit;
+        return <ValueCell value={`${used}${limit != null ? ` / ${limit}` : ''}`} tone={atLimit ? 'danger' : 'default'} strong={atLimit} />;
+      },
+    },
+    {
+      key: 'products',
+      header: 'Products',
+      numeric: true,
+      width: 118,
+      render: (shop) => {
+        const limit = shop.limits.products ?? null;
+        const used = shop.usage.products ?? 0;
+        const atLimit = limit != null && used >= limit;
+        return (
+          <ValueCell
+            value={`${used.toLocaleString()} / ${limit == null ? '∞' : limit.toLocaleString()}`}
+            tone={atLimit ? 'danger' : 'default'}
+            strong={atLimit}
+          />
+        );
+      },
+    },
+  ];
+
+  return (
+    <View>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard>
+            <BentoTileRow>
+              <BentoTile label="MRR" value={formatCents(counts.mrr)} hint="paying shops only" />
+              <BentoTile label="Paying" value={String(counts.active)} />
+              <BentoTile label="On trial" value={String(counts.trialing)} />
+              <BentoTile label="Grace" value={String(counts.grace)} tone={counts.grace > 0 ? 'warn' : 'default'} />
+              <BentoTile label="Expired" value={String(counts.expired)} tone={counts.expired > 0 ? 'warn' : 'default'} />
+            </BentoTileRow>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+
+      <View style={styles.controls}>
+        <Field value={search} onChangeText={setSearch} placeholder="Search shop, plan, or status" />
+        <View style={styles.filters}>
+          {FILTERS.map((filter) => {
+            const n = counts[filter.key];
+            const active = filter.key === status;
+            return (
+              <Pressable
+                key={filter.key}
+                onPress={() => setStatus(filter.key)}
+                style={[styles.filter, active && styles.filterActive]}
+              >
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                  {filter.label} · {n}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Narrow gets a card per shop rather than the table.
+          `DataTable` scrolls sideways inside its card, which is the right
+          answer for four columns and the wrong one for seven: it would put
+          "when does this trial end" off the edge of the screen, which is the
+          question the tab gets opened for. */}
+      <BentoCard bodyStyle={compact ? undefined : styles.tableBody}>
+        {compact ? (
+          filtered.length === 0 ? (
+            <Text style={styles.empty}>No shops match that.</Text>
+          ) : (
+            filtered.map((shop, i) => (
+              <ShopCard key={shop.shopId} shop={shop} first={i === 0} onPress={() => onSelect(shop.shopId)} />
+            ))
+          )
+        ) : (
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            keyExtractor={(shop) => shop.shopId}
+            onRowPress={(shop) => onSelect(shop.shopId === selected ? null : shop.shopId)}
+            emptyLabel="No shops match that."
+            minWidth={880}
+          />
+        )}
+      </BentoCard>
+    </View>
+  );
+}
+
+// One shop, stacked. Squeezing seven columns onto a phone makes every one of
+// them unreadable, which is worse than stacking.
+function ShopCard({ shop, first, onPress }: { shop: PlatformShopRow; first: boolean; onPress: () => void }) {
+  const storeLimit = shop.limits.locations ?? null;
+  const stores = shop.usage.locations ?? 0;
+  const products = shop.usage.products ?? 0;
+  const productLimit = shop.limits.products ?? null;
+  const overStores = storeLimit != null && stores >= storeLimit;
+  const overProducts = productLimit != null && products >= productLimit;
+  const { ends, label } = coverEnd(shop);
+
+  return (
+    <Pressable onPress={onPress} style={[styles.shopCard, first && styles.shopCardFirst]}>
+      <View style={styles.shopHead}>
+        <Text style={styles.shopName} numberOfLines={1}>
+          {shop.shopName}
+        </Text>
+        <SubscriptionStatusPill status={shop.status} />
+      </View>
+      <Text style={styles.shopMeta}>
+        {shop.planName} · joined {fmtDate(shop.createdAt)}
+      </Text>
+      {ends ? (
+        <Text style={[styles.shopMeta, endsSoon(ends) && styles.shopMetaWarn]}>
+          {label} {fmtDate(ends)}
+        </Text>
+      ) : null}
+      <Text style={[styles.shopMeta, (overStores || overProducts) && styles.shopMetaOver]}>
+        {stores}
+        {storeLimit != null ? `/${storeLimit}` : ''} stores · {products.toLocaleString()}
+        {productLimit != null ? `/${productLimit.toLocaleString()}` : ''} products
+      </Text>
+    </Pressable>
+  );
+}
+
+// What their cover runs to, and what kind of date that is. A trialing shop's
+// clock is trial_ends_at; a paying one's is the period they bought. Saying
+// which avoids reading "2 Nov" as a renewal when it is actually the day they
+// lose access.
+function coverEnd(shop: PlatformShopRow): { ends: string | null; label: string } {
+  if (shop.status === 'trialing') return { ends: shop.trialEndsAt, label: 'trial ends' };
+  return { ends: shop.currentPeriodEnd ?? shop.trialEndsAt, label: 'renews' };
+}
+
+// A shop can sit on a paid plan while still inside its free trial: the plan is
+// what they GET, the status is how they are PAYING. Said out loud rather than
+// leaving the two columns looking like they disagree.
+function statusDetail(shop: PlatformShopRow): { label: string; paid: boolean } | null {
+  if (shop.status !== 'trialing') return null;
+  if (shop.currentPeriodEnd != null && new Date(shop.currentPeriodEnd) > new Date(shop.createdAt)) {
+    return { label: `paid · starts ${fmtDate(shop.currentPeriodEnd)}`, paid: true };
+  }
+  if (shop.planKey !== 'trial') return { label: 'free until trial ends', paid: false };
+  return null;
+}
+
+// "2 Aug 2026" rather than 2026-08-04: an operator scanning a column reads a
+// month name faster than a numeric one, and it removes the day/month ambiguity
+// entirely.
+function fmtDate(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Flags a date inside a week so a trial about to lapse stands out in the column
+// rather than having to be worked out.
+function endsSoon(iso: string | null): boolean {
+  if (!iso) return false;
+  const ms = new Date(iso).getTime() - Date.now();
+  return ms > 0 && ms <= 7 * 86_400_000;
+}
+
+const styles = StyleSheet.create({
+  controls: { gap: 10, marginBottom: 14 },
+  filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  filter: {
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    backgroundColor: theme.bentoSurface,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  filterActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  filterText: { fontSize: 11.5, fontWeight: '700', color: theme.bentoInk2 },
+  filterTextActive: { color: theme.bentoSurface },
+
+  // The table brings its own gutters, so the card gives up most of its 18.
+  tableBody: { paddingHorizontal: 10 },
+
+  statusNote: { fontSize: 10, color: theme.bentoMuted2, marginTop: 3 },
+  statusNotePaid: { color: theme.bentoProfit, fontWeight: '700' },
+
+  shopCard: { paddingVertical: 13, borderTopWidth: 1, borderTopColor: theme.bentoRule, gap: 3 },
+  shopCardFirst: { borderTopWidth: 0, paddingTop: 0 },
+  shopHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  shopName: { fontSize: 14, fontWeight: '800', color: theme.bentoInk, flexShrink: 1 },
+  shopMeta: { fontSize: 11.5, color: theme.bentoMuted },
+  shopMetaWarn: { color: theme.bentoWarn, fontWeight: '700' },
+  shopMetaOver: { color: theme.bentoLoss, fontWeight: '700' },
+
+  empty: { fontSize: 13, color: theme.bentoMuted },
+});

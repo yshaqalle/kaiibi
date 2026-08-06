@@ -130,35 +130,40 @@ export function ValueCell({
 }
 
 const TONE = StyleSheet.create({
-  default: { color: theme.text },
-  muted: { color: theme.textSecondary },
-  warning: { color: theme.warning },
-  danger: { color: theme.danger },
-  success: { color: theme.success },
+  default: { color: theme.bentoInk },
+  muted: { color: theme.bentoMuted },
+  warning: { color: theme.bentoWarn },
+  danger: { color: theme.bentoLoss },
+  success: { color: theme.bentoProfit },
 });
 
+// Bento tokens throughout. This table only ever renders inside a bento card --
+// the Dashboard's and now the Platform console's -- and it was still drawing
+// its rules in the cream `border` (#EFEEE9), which is a warm hairline on a cool
+// grey page. `bentoRule` is the divider weight, deliberately firmer than
+// `bentoLine`; see the note on the token.
 const styles = StyleSheet.create({
   scrollContent: { flexGrow: 1 },
   headerRow: { flexDirection: 'row', paddingBottom: 9 },
-  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.border },
-  rowActive: { backgroundColor: theme.backgroundElement },
+  row: { flexDirection: 'row', alignItems: 'center', paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.bentoRule },
+  rowActive: { backgroundColor: theme.bentoSoft },
   cell: { paddingHorizontal: 8, minWidth: 0 },
   cellRight: { alignItems: 'flex-end' },
 
   headerText: {
     fontSize: 9.5,
     letterSpacing: 1.1,
-    color: theme.textSecondary,
+    color: theme.bentoMuted,
     fontWeight: '700',
   },
   alignRight: { textAlign: 'right' },
 
   nameCell: { minWidth: 0 },
-  nameTitle: { fontSize: 12.5, fontWeight: '700', color: theme.text },
-  nameMeta: { fontSize: 11, color: theme.textSecondary, marginTop: 2 },
+  nameTitle: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
+  nameMeta: { fontSize: 11, color: theme.bentoMuted, marginTop: 2 },
 
-  value: { fontSize: 12.5, fontVariant: ['tabular-nums'], color: theme.text },
+  value: { fontSize: 12.5, fontVariant: ['tabular-nums'], color: theme.bentoInk },
   valueStrong: { fontWeight: '800' },
 
-  empty: { fontSize: 13, color: theme.textSecondary, paddingVertical: 10 },
+  empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 10 },
 });

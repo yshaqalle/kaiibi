@@ -1,0 +1,1010 @@
+<title>Kaiibi Platform — the bento language, console layout kept</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every --d-* value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+    /* PROPOSED, does not exist yet — see "Five statuses, two tokens" below. */
+    --warn:#b07206;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,.h2sub code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---------- console shell ---------- */
+  .console{display:flex;gap:18px;align-items:flex-start;}
+  .w380 .console{display:block;}
+  .side{width:196px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;padding:4px 0 0;}
+  .w380 .side{display:none;}
+  .brand{font-size:14px;font-weight:800;letter-spacing:.11em;}
+  .brandSub{font-size:9.5px;font-weight:800;letter-spacing:.24em;color:var(--d-mut);margin:0 0 20px;}
+  .navItem{display:flex;align-items:center;justify-content:space-between;gap:8px;
+    border-radius:14px;padding:9px 13px;font-size:13px;font-weight:700;color:var(--d-mut);}
+  .navItem.on{background:var(--d-sf);color:var(--d-ink);}
+  .navItem .count{font-size:10.5px;font-weight:800;background:var(--d-ink);color:#fff;
+    border-radius:999px;min-width:19px;text-align:center;padding:1px 6px;}
+  .whoFoot{margin-top:22px;display:flex;align-items:center;gap:10px;background:var(--d-sf);
+    border-radius:18px;padding:10px 12px;}
+  .av{width:30px;height:30px;border-radius:999px;background:var(--d-ink);color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
+  .whoFoot .wt{min-width:0;}
+  .whoFoot .wt b{display:block;font-size:11.5px;font-weight:700;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .whoFoot .wt span{font-size:10px;color:var(--d-mut);}
+  .main{flex:1;min-width:0;}
+
+  /* narrow: the sidebar becomes the pill tab row accounting.tsx already uses */
+  .mobBrand{display:none;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .w380 .mobBrand{display:flex;}
+  .mobBrand .brand{font-size:11.5px;}
+  .signout{font-size:11.5px;font-weight:800;color:var(--loss);}
+
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.038em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);max-width:62ch;}
+  .headActs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+
+  .tabrow{display:none;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:14px;}
+  .w380 .tabrow{display:flex;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---------- bento primitives ---------- */
+  .grid{display:grid;gap:12px;margin-bottom:12px;}
+  .w1280 .grid{grid-template-columns:repeat(12,1fr);}
+  .w380 .grid{grid-template-columns:1fr;}
+  .w1280 .s12{grid-column:span 12;} .w1280 .s7{grid-column:span 7;}
+  .w1280 .s6{grid-column:span 6;} .w1280 .s5{grid-column:span 5;} .w1280 .s4{grid-column:span 4;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx + .cardx{margin-top:12px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:12px;line-height:1.5;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);font-family:inherit;white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.ghostLoss{color:var(--loss);border-color:#f2d3d6;}
+  .btn.off{color:var(--d-mut2);background:var(--d-soft);border-color:var(--d-ln);}
+
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(5,1fr);}
+  .w1280 .kpis.four{grid-template-columns:repeat(4,1fr);}
+  .w1280 .kpis.two{grid-template-columns:repeat(2,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:18px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:20px;font-weight:800;letter-spacing:-.025em;margin-top:4px;
+    font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+  .kpi .n.warnv{color:var(--warn);}
+
+  /* ---------- status: glyph + word, never colour alone ---------- */
+  .st{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;
+    border-radius:999px;padding:3px 10px;background:var(--d-soft);color:var(--d-ink2);white-space:nowrap;}
+  .st i{font-style:normal;font-size:9px;line-height:1;}
+  .st.active{background:#e6f4ec;color:#0b6b3c;}
+  .st.trialing{background:#ecf1ff;color:#274bb4;}
+  .st.grace{background:#fbf1e0;color:var(--warn);}
+  .st.expired{background:var(--d-soft);color:var(--d-mut);}
+  .st.suspended{background:#fbeaec;color:#a92433;}
+  .subnote{font-size:10px;color:var(--d-mut2);margin-top:3px;}
+  .subnote.ok{color:var(--profit);font-weight:700;}
+
+  /* ---------- table ---------- */
+  .tableCard{padding:18px 10px;}
+  .tscroll{overflow-x:auto;}
+  .tbl{min-width:820px;width:100%;}
+  .w380 .tbl{min-width:0;}
+  .th{display:flex;padding:0 0 9px;}
+  .th span{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut);padding:0 8px;}
+  .tr{display:flex;align-items:center;padding:11px 0;border-top:1px solid var(--d-rule);}
+  .tr.sel{background:var(--d-soft);border-radius:14px;}
+  .tr > *{padding:0 8px;min-width:0;}
+  .cShop{flex:2.1;} .cPlan{flex:1.2;} .cStat{flex:1.7;} .cDate{flex:1.9;} .cUse{flex:1.2;}
+  .t1{font-size:12.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .t2{font-size:12.5px;color:var(--d-ink2);font-variant-numeric:tabular-nums;}
+  .t2.mut{color:var(--d-mut);}
+  .t2.cap{color:var(--loss);font-weight:800;}
+  .t2.soon{color:var(--warn);font-weight:800;}
+
+  /* phone shop rows */
+  .shopRow{padding:12px 8px;border-top:1px solid var(--d-rule);}
+  .shopRow:first-child{border-top:none;}
+  .shopRow .rhead{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+
+  /* ---------- controls ---------- */
+  .controls{display:grid;gap:10px;margin-bottom:12px;}
+  .search{background:var(--d-soft);border-radius:16px;padding:11px 15px;font-size:13px;color:var(--d-mut2);}
+  .filters{display:flex;gap:7px;flex-wrap:wrap;}
+  .w380 .filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 12px;
+    font-size:11.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---------- charts ---------- */
+  .bars{display:flex;align-items:flex-end;gap:8px;height:136px;padding-top:18px;}
+  .bars .col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;height:100%;justify-content:flex-end;}
+  .bars .bar{width:100%;border-radius:8px 8px 3px 3px;}
+  .bars .bl{font-size:9.5px;color:var(--d-mut2);}
+  .bars .bv{font-size:9.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .donutWrap{display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
+  .legend{display:grid;gap:7px;flex:1;min-width:150px;}
+  .lgRow{display:flex;align-items:center;gap:9px;font-size:12.5px;}
+  .dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+  .lgRow .lgN{margin-left:auto;font-weight:800;font-variant-numeric:tabular-nums;}
+  .mixRow{display:flex;align-items:center;gap:12px;padding:7px 0;}
+  .mixRow .mn{font-size:12.5px;font-weight:700;width:88px;flex-shrink:0;}
+  .track{flex:1;height:8px;border-radius:999px;background:var(--d-soft);overflow:hidden;}
+  .track i{display:block;height:8px;border-radius:999px;}
+  .mixRow .mc{font-size:12.5px;font-weight:800;width:30px;text-align:right;font-variant-numeric:tabular-nums;}
+  .mixRow .mv{font-size:12px;color:var(--d-mut);width:70px;text-align:right;font-variant-numeric:tabular-nums;}
+
+  /* ---------- attention / queue rows ---------- */
+  .atRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--d-rule);}
+  .atRow:first-child{border-top:none;}
+  .atRow .bd{flex:1;min-width:0;}
+  .atRow .bd b{font-size:13.5px;font-weight:800;display:block;}
+  .atRow .bd span{font-size:11.5px;color:var(--d-mut);}
+  .wa{border-radius:999px;background:#e6f4ec;color:#0b6b3c;font-size:11.5px;font-weight:800;
+    padding:7px 13px;white-space:nowrap;}
+  .waOff{font-size:11px;color:var(--d-mut2);}
+  .qRow{padding:14px 0;border-top:1px solid var(--d-rule);}
+  .qRow:first-child{border-top:none;}
+  .qHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .qHead b{font-size:14px;font-weight:800;}
+  .move{font-size:12.5px;color:var(--d-mut);}
+  .move em{font-style:normal;color:var(--d-ink);font-weight:800;}
+  .qActs{display:flex;gap:7px;margin-top:10px;flex-wrap:wrap;}
+
+  /* ---------- input fields ---------- */
+  .field{background:var(--d-soft);border-radius:16px;padding:11px 14px;font-size:12.5px;color:var(--d-mut2);}
+  .field.needed{background:#fdf7ea;color:var(--warn);}
+  .flabel{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut);margin:0 0 6px;}
+  .fgrid{display:grid;gap:10px;}
+  .fgrid.three{grid-template-columns:repeat(3,1fr);}
+  .fgrid.two{grid-template-columns:repeat(2,1fr);}
+  .w380 .fgrid.three,.w380 .fgrid.two{grid-template-columns:1fr;}
+
+  /* ---------- plan cards ---------- */
+  .planName{display:flex;align-items:center;gap:8px;}
+  .planName b{font-size:16px;font-weight:800;letter-spacing:-.02em;}
+  .price{display:flex;align-items:baseline;gap:3px;margin:12px 0 2px;}
+  .price b{font-size:28px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+  .price span{font-size:12px;color:var(--d-mut);font-weight:700;}
+  .pstats{display:flex;gap:22px;margin:14px 0 4px;}
+  .pstat b{display:block;font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .pstat span{font-size:10.5px;color:var(--d-mut);}
+  .subhead{font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--d-mut2);margin:16px 0 8px;}
+  .mods{display:flex;flex-wrap:wrap;gap:6px;}
+  .mod{font-size:11px;font-weight:700;border-radius:999px;padding:4px 10px;background:var(--d-soft);color:var(--d-ink2);}
+  .mod.off{color:var(--d-mut2);}
+  .lims{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .lim{background:var(--d-soft);border-radius:14px;padding:9px 11px;}
+  .lim b{display:block;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .lim.inf b{color:var(--profit);}
+  .lim span{font-size:9.5px;color:var(--d-mut);}
+
+  /* ---------- audit / operators ---------- */
+  .aRow{display:flex;gap:12px;align-items:baseline;padding:10px 8px;border-top:1px solid var(--d-rule);}
+  .aRow:first-child{border-top:none;}
+  .aRow.aHead{padding-bottom:8px;}
+  .aRow.aHead span{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut);}
+  .aWhen{font-size:11px;color:var(--d-mut2);width:108px;flex-shrink:0;font-variant-numeric:tabular-nums;}
+  .aAct{font-size:11.5px;font-weight:800;width:150px;flex-shrink:0;}
+  .aShop{font-size:12px;color:var(--d-ink2);width:150px;flex-shrink:0;}
+  .aWhy{font-size:12px;color:var(--d-mut);flex:1;min-width:0;}
+  .w380 .aRow{display:block;}
+  .w380 .aWhen,.w380 .aAct,.w380 .aShop{width:auto;}
+  .w380 .aAct{margin:2px 0;}
+
+  /* ---------- caveats: Caveat's three tones ---------- */
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;
+    font-size:12.5px;line-height:1.5;margin-top:12px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+
+  /* ---------- the shop drawer ---------- */
+  .stage{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:26px;overflow-x:auto;}
+  .dialog{background:var(--d-sf);border-radius:26px;padding:22px;max-width:720px;margin:0 auto;}
+  .dHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px;}
+  .dHead h4{margin:0;font-size:20px;font-weight:800;letter-spacing:-.03em;}
+  .dHead .x{font-size:15px;color:var(--d-mut);font-weight:700;}
+  .dMeta{font-size:12px;color:var(--d-mut);margin:0 0 16px;}
+  .usageRow{display:flex;justify-content:space-between;gap:12px;padding:6px 0;font-size:12.5px;}
+  .usageRow .ul{color:var(--d-ink2);}
+  .usageRow .uv{font-weight:800;font-variant-numeric:tabular-nums;}
+  .usageRow .uv.cap{color:var(--loss);}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px;}
+  .chip{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .chip.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .danger{background:#fdf6f6;border-radius:20px;padding:16px;margin-top:6px;}
+  .danger b{color:#a92433;font-size:13.5px;}
+  .danger p{margin:8px 0 0;font-size:12.5px;color:#7a4a4a;line-height:1.55;}
+  .dangerField{background:#fff;border:1px solid #f0dada;border-radius:14px;padding:10px 13px;
+    font-size:12px;color:#c89a9a;margin-top:10px;}
+
+  /* ---------- token table ---------- */
+  .tokens{width:100%;border-collapse:collapse;margin-top:16px;font-size:13.5px;}
+  .tokens th,.tokens td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  .tokens th{font-size:11px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);}
+  .tokens code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .sw{display:inline-block;width:13px;height:13px;border-radius:4px;margin-right:7px;
+    vertical-align:-2px;border:1px solid rgba(0,0,0,.1);}
+  .tblScroll{overflow-x:auto;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Platform</p>
+  <h1>The operator console, in the bento language</h1>
+  <p class="lede">Dashboard and Accounting are converted. The platform portal is a separate shell
+  with its own sidebar, six tabs and about forty hardcoded hex values — it never got the pass at
+  all. This is that proposal: the bento palette, card shape and control vocabulary applied to the
+  console <em>as it is laid out today</em>. The grid appears only where an operator glances.
+  Flip through the six tabs; the drawer and my read are below.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · 196px sidebar / main fills</i></div>
+      <div class="scroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · sidebar becomes the pill tab row</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The shell: sidebar kept, surfaces swapped</h2>
+    <p class="h2sub">Six destinations and a second identity — that is a console, not a tab bar.</p>
+    <p class="note">The tempting move is to delete the sidebar and paste in <code>accounting.tsx</code>'s
+    shell wholesale, so both look identical. That would be the wrong read. Bento is a
+    <em>surface</em> system; the skill's own line is that most screens take the surfaces and keep
+    the layout they already have. Six destinations, three of which an operator ping-pongs between
+    while working a single shop, is exactly what a persistent sidebar is for.</p>
+    <p class="note">So the sidebar stays and changes materially: no <code>borderRight</code>, because
+    bento has no borders. It simply sits on <code>bentoPage</code> grey, and the active item is the
+    only white thing in it — a <code>bentoSurface</code> pill at radius 14. That inverts today's
+    logic, where the active item is <em>grey</em> on white, which is why nothing in the current nav
+    reads as selected from across a desk.</p>
+    <p class="note">Below the breakpoint the sidebar becomes the horizontal pill row, which is
+    already what <code>accounting.tsx</code> does and what the portal half-does today. The header row
+    above the body is then literally the accounting recipe: eyebrow, 26px title, blurb, controls
+    right. Every tab gets a real title instead of the current mix — some tabs render an
+    <code>h1</code>, Overview renders a hero sentence, Shops renders nothing at all.</p>
+    <p class="note"><strong>One relocation:</strong> <code>WhoAmI</code> stops floating over the top-right
+    of the scroll area and moves into the sidebar, below the nav — pinned to the rail's foot in the
+    real screen, where the sidebar is full height. Today it collides with whatever the tab puts in
+    the header, and it vanishes entirely on a phone except for a "Sign out" link. In the rail it is
+    where every console puts identity, it stops competing with the tab's own controls, and it frees
+    the header's right edge for search.</p>
+  </section>
+
+  <section>
+    <h2>Where the grid stops, and why</h2>
+    <p class="h2sub">Glance gets the grid. Scan gets one full-width card.</p>
+    <p class="note">Six tabs, and the split is clean — which is unusual and worth saying, because it
+    means no tab needs a compromise layout.</p>
+
+    <div class="tblScroll">
+      <table class="tokens">
+        <thead><tr><th>Tab</th><th>Read as</th><th>Layout</th></tr></thead>
+        <tbody>
+          <tr><td><b>Overview</b></td><td>Glance</td>
+            <td><code>BentoGrid</code> throughout — money strip at 12, then charts paired at 6,
+            usage at 12. "Needs attention" drops <em>out</em> of the grid: it is a worklist you read
+            down, and it is the one thing on the tab you act on.</td></tr>
+          <tr><td><b>Shops</b></td><td>Scan</td>
+            <td>Stat strip at 12 to set the scene, then a search-and-filter row, then one
+            full-width <code>BentoCard</code> holding a <code>DataTable</code>. The table is out of the
+            grid entirely.</td></tr>
+          <tr><td><b>Requests</b></td><td>Scan, but short</td>
+            <td>One card. The shared reason field lives at its head so it is visibly a
+            precondition for the buttons below, not a thing you discover by failing.</td></tr>
+          <tr><td><b>Plans</b></td><td>Glance — and this is the win</td>
+            <td><code>BentoCell span={4}</code> per tier, side by side. Today they are stacked
+            full-width rows, so comparing what Pro adds over Standard means scrolling and
+            remembering.</td></tr>
+          <tr><td><b>Audit log</b></td><td>Scan</td>
+            <td>One full-width card, one <code>DataTable</code>. A ledger.</td></tr>
+          <tr><td><b>Operators</b></td><td>Scan, three rows</td>
+            <td>One card. There will never be enough operators to need anything else.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note" style="margin-top:20px"><strong>The one place I would not use a
+    <code>DataTable</code>:</strong> the phone rendering of Shops. Seven columns in a horizontal
+    scroller means an operator swipes sideways to answer "when does this trial end", which is the
+    question they opened the tab for. The current per-shop card is the right call and survives the
+    conversion unchanged apart from its surfaces — see the phone frame. That is a deliberate
+    departure from "<code>DataTable</code> already scrolls horizontally, don't fight it", and it is
+    the only one.</p>
+  </section>
+
+  <section>
+    <h2>Five statuses, two tokens</h2>
+    <p class="h2sub">The gap this conversion actually exposes.</p>
+    <p class="note">Bento ships exactly two status colours — <code>bentoProfit</code> and
+    <code>bentoLoss</code> — and rules the four series colours out of status use entirely. The portal
+    has five subscription statuses, and today paints them with five loose hexes
+    (<code>#1B4FA8</code>, <code>#1E7A3C</code>, <code>#9A6412</code>, <code>#999999</code>,
+    <code>#B03535</code>) that appear nowhere else in the codebase.</p>
+    <p class="note">Three of the five map onto what exists. <code>grace</code> does not: it is the
+    status that means <em>paid but not yet recorded, still fully usable</em> — neither profit nor
+    loss, and rendering it grey would flatten the single most operationally interesting state on
+    the screen. So this proposes one new token, <code>bentoWarn</code> at <code>#b07206</code>,
+    which <code>Caveat</code>'s <code>wrong</code> tone is already reaching for via
+    <code>theme.warning</code> and a hardcoded <code>#8A5A05</code>. It earns its place twice over.</p>
+    <p class="note">Every status carries its glyph, in every rendering, at both widths — the skill's
+    rule about colour never being the only signal is not optional here, because two of these five
+    are red and green.</p>
+
+    <div class="stage" style="margin-top:18px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <span class="st trialing"><i>●</i> trialing</span>
+        <span class="st active"><i>●</i> active</span>
+        <span class="st grace"><i>◐</i> grace</span>
+        <span class="st expired"><i>○</i> expired</span>
+        <span class="st suspended"><i>✕</i> suspended</span>
+      </div>
+    </div>
+
+    <div class="tblScroll">
+      <table class="tokens">
+        <thead><tr><th>Status</th><th>Token</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td><b>active</b> ●</td><td><span class="sw" style="background:#0f9d58"></span><code>bentoProfit</code></td>
+            <td>Money is arriving. The one unambiguously good state.</td></tr>
+          <tr><td><b>trialing</b> ●</td><td><span class="sw" style="background:#2f6bff"></span><code>bentoSeries1</code></td>
+            <td>The exception to "series are never status", argued rather than assumed: a trial is
+            not good or bad, it is <em>pending</em>, and blue is the only neutral-but-present colour
+            in the ramp. If that exception is unacceptable, it falls back to plain
+            <code>bentoInk2</code> on <code>bentoSoft</code> and loses nothing but speed.</td></tr>
+          <tr><td><b>grace</b> ◐</td><td><span class="sw" style="background:#b07206"></span><code>bentoWarn</code> <em>(new)</em></td>
+            <td>Usable, but someone has to record a payment. Needs to be noticed, must not read as
+            broken.</td></tr>
+          <tr><td><b>expired</b> ○</td><td><span class="sw" style="background:#8b8b93"></span><code>bentoMuted</code></td>
+            <td>Not a fault — a lapse. Grey is the honest weight; the row is still readable and the
+            data is still there.</td></tr>
+          <tr><td><b>suspended</b> ✕</td><td><span class="sw" style="background:#d92d3f"></span><code>bentoLoss</code></td>
+            <td>The only status a human deliberately caused. It should look like a decision.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The charts have to give up their palette</h2>
+    <p class="h2sub"><code>platform-charts.tsx</code> ships its own seven colours.</p>
+    <p class="note"><code>CHART_COLORS</code> is violet for signups, green for revenue, amber for Pro,
+    slate for Free — a second, older palette that predates bento and collides with it in two
+    places. Its green is a hair off <code>bentoProfit</code>, so a green bar and a green figure on
+    the same screen disagree by an amount you can see but not name. And its comment ("green always
+    means money") is exactly the semantic overload the skill bans: green is status, not series.</p>
+    <p class="note">The mapping is mechanical and preserves the property the comment actually
+    cared about — a series keeps its colour everywhere:</p>
+    <div class="tblScroll">
+      <table class="tokens">
+        <thead><tr><th>Was</th><th>Becomes</th><th>Used by</th></tr></thead>
+        <tbody>
+          <tr><td><span class="sw" style="background:#7C5CFC"></span><code>signups</code> <code>#7C5CFC</code></td>
+            <td><span class="sw" style="background:#2f6bff"></span><code>bentoSeries1</code></td>
+            <td>New shops per week</td></tr>
+          <tr><td><span class="sw" style="background:#1E9E5A"></span><code>revenue</code> <code>#1E9E5A</code></td>
+            <td><span class="sw" style="background:#00a396"></span><code>bentoSeries2</code></td>
+            <td>Money collected per month. Deliberately no longer green — money is the subject of
+            the whole screen, so colouring it "money" says nothing.</td></tr>
+          <tr><td><code>standard</code> / <code>pro</code> / <code>free</code></td>
+            <td><code>bentoSeries1…4</code> by index</td>
+            <td><code>planColor()</code> — the donut, the plan stripes, the revenue-by-plan bars</td></tr>
+          <tr><td><span class="sw" style="background:#DC2626"></span><code>danger</code></td>
+            <td><span class="sw" style="background:#d92d3f"></span><code>bentoLoss</code></td>
+            <td>Unused in charts today; it was a status colour hiding in a chart file.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:16px">The 5px accent stripe on each plan card goes too. Bento
+    cards do not have edge decorations, and a 5px bar is the sort of thing that reads as a border
+    at a glance. The tier's colour survives as the dot beside its name and the colour of its
+    headline shop-count — enough to match a slice in the donut, which is all it was for.</p>
+  </section>
+
+  <section>
+    <h2>The shop drawer</h2>
+    <p class="h2sub">The densest surface in the product, and the one that can do the most damage.</p>
+    <p class="note">Radius 26 rather than 16, <code>bentoSoft</code> panels instead of hairline
+    boxes, section labels in <code>bentoMuted</code>. Two things do <em>not</em> get flattened into the
+    calm palette:</p>
+    <p class="note"><strong>The reason field.</strong> It gates every button below it, so while it is
+    empty it stays amber — not decoration, a precondition made visible. That is
+    <code>Caveat tone="wrong"</code> logic applied to an input, and it is honest here because there
+    genuinely is a fix and the fix is "type the reason".</p>
+    <p class="note"><strong>The danger zone.</strong> Deleting a shop destroys its catalogue, every
+    sale, its books and its payroll, with no undo anywhere. The bento treatment makes it a
+    <code>bentoLoss</code>-tinted panel rather than a bordered box, but it keeps all three pieces of
+    friction — collapsed by default, the counted list of what dies, and the retyped name. Nothing
+    about the visual pass touches that.</p>
+
+    <div class="stage" style="margin-top:20px" id="drawer"></div>
+  </section>
+
+  <section>
+    <h2>What this needs before it can be built</h2>
+    <p class="h2sub">Named honestly, because two of these are shared and will affect other screens.</p>
+    <div class="verdict">
+      <div class="vx mid"><b>1. A <code>bentoWarn</code> token</b>
+        <p>New. Consumed here by <code>grace</code> and the reason field, and immediately by
+        <code>Caveat</code>'s <code>wrong</code> tone, which currently hardcodes <code>#FFFBEB</code> and
+        <code>#8A5A05</code> beside a <code>theme.warning</code> that belongs to the cream palette.</p></div>
+      <div class="vx mid"><b>2. <code>StatTile</code> needs its <code>bento</code> variant — still</b>
+        <p>The skill already flags this as live on Dashboard and Accounting: cream-bordered tiles on
+        white bento cards. Overview alone puts eighteen tiles on screen, so the portal makes the
+        existing defect three times more visible rather than introducing a new one. Worth fixing in
+        the component, not per-screen.</p></div>
+      <div class="vx mid"><b>3. A status pill component</b>
+        <p>Five statuses rendered in four places (wide table, phone card, drawer header, attention
+        rows). Today that is a <code>STATUS_COLOR</code> record and a <code>STATUS_DOT</code> record
+        applied by hand at each site. It should be one <code>&lt;SubscriptionStatus /&gt;</code> so the
+        glyph can never be dropped by accident.</p></div>
+      <div class="vx good"><b>4. Everything else already exists</b>
+        <p><code>BentoGrid</code>, <code>BentoCell</code>, <code>BentoCard</code>, <code>DataTable</code>,
+        <code>NameCell</code>, <code>ValueCell</code>, <code>Caveat</code>, <code>TabPills</code>. No
+        new layout primitive. <code>BentoControlBar</code> is the one shared control the portal does
+        <em>not</em> want — there is no date range or store filter here, and the search box is the
+        header's right-hand slot instead.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>My read</h2>
+    <div class="verdict">
+      <div class="vx good"><b>Real gain: Plans becomes comparable</b>
+        <p>Three tiers side by side at <code>span={4}</code>, each showing what it includes
+        <em>and what it withholds</em>, is a different tool from three stacked rows. This is the tab
+        where the grid is not cosmetic.</p></div>
+      <div class="vx good"><b>Real gain: forty hexes become tokens</b>
+        <p>The portal is the last screen carrying its own private palette — five status colours,
+        seven chart colours, and roughly thirty greys. After this, changing the ink ramp changes the
+        portal too, which is not true today.</p></div>
+      <div class="vx good"><b>Real gain: the active nav item is finally legible</b>
+        <p>Grey-on-white becomes white-on-grey. Small change, and the first thing an operator will
+        notice.</p></div>
+      <div class="vx mid"><b>Neutral: Audit and Operators</b>
+        <p>They are already lists of rows with hairlines. They will look calmer and read the same.
+        Convert them for consistency, not for gain.</p></div>
+      <div class="vx bad"><b>The cost, named: Overview gets taller</b>
+        <p>26px cards with 18px padding and a 12px gutter spend more vertical space than today's
+        12px panels. On the desktop frame the Overview grows by roughly a screen-and-a-half of
+        scroll. The pairing at <code>span={6}</code> claws most of it back, but not all — and if that
+        is unacceptable, the honest lever is dropping the "Movement" strip into the same card as
+        "Money", not shrinking the radius.</p></div>
+    </div>
+    <p class="note" style="margin-top:18px">If this reads right, the build order that keeps each step
+    shippable is: shell and nav → Shops (proves the table + status pill) → Plans (proves the grid)
+    → Overview (the largest, and the one that wants <code>StatTile</code> fixed first) → Requests,
+    Audit, Operators → drawer. Then drop Platform from the still-cream list in the
+    <code>theme.ts</code> comment.</p>
+  </section>
+
+</div>
+
+<script>
+  const TABS = [
+    ['overview',  'Overview',   'Is the business growing, is money arriving, who needs a conversation today.'],
+    ['shops',     'Shops',      'Every business on Kaiibi, what they pay, and what they are using.'],
+    ['requests',  'Requests',   'Tier changes waiting on a decision. Approving one moves what a shop can do.'],
+    ['plans',     'Plans',      'What each tier includes, withholds, and caps — and who is on it.'],
+    ['audit',     'Audit log',  'Every operator action, who took it, and why. Append-only.'],
+    ['operators', 'Operators',  'Who can reach this portal at all.'],
+  ];
+  const PENDING = 3;
+
+  const nav = (active) => `
+    <div class="side">
+      <div class="brand">KAIIBI</div>
+      <p class="brandSub">PLATFORM</p>
+      ${TABS.map(([k, label]) => `
+        <div class="navItem ${k === active ? 'on' : ''}">
+          <span>${label}</span>
+          ${k === 'requests' ? `<span class="count">${PENDING}</span>` : ''}
+        </div>`).join('')}
+      <div class="whoFoot">
+        <div class="av">YS</div>
+        <div class="wt"><b>yusef@kaiibi.com</b><span>Owner · operator</span></div>
+      </div>
+    </div>`;
+
+  const tabrow = (active) => `
+    <div class="mobBrand"><div class="brand">KAIIBI PLATFORM</div><span class="signout">Sign out</span></div>
+    <div class="tabrow">${TABS.map(([k, label]) =>
+      `<span class="${k === active ? 'on' : ''}">${label}${k === 'requests' ? '  ' + PENDING : ''}</span>`
+    ).join('')}</div>`;
+
+  const head = (title, blurb, acts = '') => `
+    <div class="head">
+      <div>
+        <p class="eyebrow">PLATFORM</p>
+        <h3>${title}</h3>
+        <p>${blurb}</p>
+      </div>
+      <div class="headActs">${acts}</div>
+    </div>`;
+
+  const kpi = (label, n, hint, warn) =>
+    `<div class="kpi"><div class="l">${label}</div><div class="n ${warn ? 'warnv' : ''}">${n}</div>${
+      hint ? `<div class="h">${hint}</div>` : ''}</div>`;
+
+  const st = (s) => {
+    const glyph = { trialing: '●', active: '●', grace: '◐', expired: '○', suspended: '✕' }[s];
+    return `<span class="st ${s}"><i>${glyph}</i> ${s}</span>`;
+  };
+
+  const barchart = (data, color, fmt = (v) => v) => {
+    const max = Math.max(...data.map((d) => d[1])) || 1;
+    return `<div class="bars">${data.map(([label, v]) => `
+      <div class="col">
+        <div class="bv" style="color:${color}">${v ? fmt(v) : ''}</div>
+        <div class="bar" style="height:${Math.max(2, (v / max) * 84)}px;background:${color}"></div>
+        <div class="bl">${label}</div>
+      </div>`).join('')}</div>`;
+  };
+
+  // A donut drawn as a conic gradient rather than SVG paths — same result, and
+  // the slice maths stays readable.
+  const donut = (slices, total) => {
+    let at = 0;
+    const stops = slices.map((s) => {
+      const from = (at / total) * 100;
+      at += s.n;
+      return `${s.color} ${from}% ${(at / total) * 100}%`;
+    }).join(',');
+    return `
+      <div class="donutWrap">
+        <div style="width:132px;height:132px;border-radius:999px;flex-shrink:0;
+             background:conic-gradient(${stops});display:flex;align-items:center;justify-content:center">
+          <div style="width:88px;height:88px;border-radius:999px;background:var(--d-sf);
+               display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <b style="font-size:24px;font-weight:800;letter-spacing:-.03em">${total}</b>
+            <span style="font-size:10.5px;color:var(--d-mut)">shops</span>
+          </div>
+        </div>
+        <div class="legend">${slices.map((s) => `
+          <div class="lgRow"><span class="dot" style="background:${s.color}"></span>${s.label}
+            <span class="lgN">${s.n}</span></div>`).join('')}
+        </div>
+      </div>`;
+  };
+
+  const SHOPS = [
+    ['Hodan Store',            'Pro',      'active',    '4 Feb 2026', 'renews 2 Sep 2026',    '3 / 5',  '1,204 / ∞',    '', ''],
+    ['Berbera Fresh',          'Standard', 'active',    '18 Mar 2026','renews 18 Aug 2026',   '1 / 2',  '486 / 500',    '', 'cap'],
+    ['Xamar Electronics',      'Pro',      'trialing',  '21 Jul 2026','trial ends 11 Aug 2026','2 / 5', '96 / ∞',       'paid · starts 11 Aug 2026', 'soon'],
+    ['Maroodi Jeex Pharmacy',  'Standard', 'grace',     '9 Jan 2026', 'renews 9 Aug 2026',    '1 / 2',  '312 / 500',    '', 'soon'],
+    ['Sheikh Grocers',         'Trial',    'trialing',  '29 Jul 2026','trial ends 12 Aug 2026','1 / 1', '44 / 100',     '', ''],
+    ['Gacan Libaax Hardware',  'Standard', 'expired',   '3 Nov 2025', 'renews 3 Jun 2026',    '2 / 2',  '500 / 500',    '', 'cap'],
+    ['Xero Fashion',           'Standard', 'suspended', '12 Dec 2025','renews 12 Jul 2026',   '1 / 2',  '208 / 500',    '', ''],
+  ];
+
+  const shopTableWide = () => `
+    <div class="tscroll"><div class="tbl">
+      <div class="th">
+        <span class="cShop">Shop</span><span class="cPlan">Plan</span><span class="cStat">Status</span>
+        <span class="cDate">Joined</span><span class="cDate">Ends</span>
+        <span class="cUse">Stores</span><span class="cUse">Products</span>
+      </div>
+      ${SHOPS.map(([name, plan, status, joined, ends, stores, products, note, tone], i) => `
+        <div class="tr ${i === 1 ? 'sel' : ''}">
+          <div class="cShop"><div class="t1">${name}</div></div>
+          <div class="cPlan"><div class="t2">${plan}</div></div>
+          <div class="cStat">${st(status)}${note ? `<div class="subnote ok">${note}</div>` : ''}</div>
+          <div class="cDate"><div class="t2 mut">${joined}</div></div>
+          <div class="cDate"><div class="t2 ${tone === 'soon' ? 'soon' : 'mut'}">${ends}</div></div>
+          <div class="cUse"><div class="t2">${stores}</div></div>
+          <div class="cUse"><div class="t2 ${tone === 'cap' ? 'cap' : ''}">${products}</div></div>
+        </div>`).join('')}
+    </div></div>`;
+
+  const shopListNarrow = () => SHOPS.map(([name, plan, status, joined, ends, stores, products, note, tone]) => `
+    <div class="shopRow">
+      <div class="rhead"><div class="t1">${name}</div>${st(status)}</div>
+      <div class="t2 mut" style="font-size:11.5px;margin-top:5px">${plan} · joined ${joined}</div>
+      <div class="t2 ${tone === 'soon' ? 'soon' : 'mut'}" style="font-size:11.5px;margin-top:2px">${ends}</div>
+      <div class="t2 ${tone === 'cap' ? 'cap' : 'mut'}" style="font-size:11.5px;margin-top:4px">${stores} stores · ${products} products</div>
+    </div>`).join('');
+
+  const PLANS = [
+    { name: 'Trial',    color: 'var(--c1)', price: 'Free',  per: '',        shops: 12, revenue: '—',       mods: 4,  lims: ['1', '100', '3'],   inf: [] },
+    { name: 'Standard', color: 'var(--c2)', price: '$19',   per: '/month',  shops: 15, revenue: '$133.00', mods: 8,  lims: ['2', '500', '10'],  inf: [] },
+    { name: 'Pro',      color: 'var(--c3)', price: '$39',   per: '/month',  shops: 7,  revenue: '$156.00', mods: 12, lims: ['5', '∞', '∞'],     inf: [1, 2] },
+  ];
+  const MODS = ['Point of sale', 'Inventory', 'Customers', 'Dashboard', 'Accounting', 'Payroll',
+    'Budgets', 'Promotions', 'Team schedule', 'Multiple stores', 'Multiple currencies', 'Data export'];
+
+  const planCard = (p) => `
+    <div class="cardx">
+      <div class="crow">
+        <div class="planName"><span class="dot" style="background:${p.color}"></span><b>${p.name}</b>
+          ${p.name === 'Trial' ? '<span class="pill">Not public</span>' : ''}</div>
+        <button class="btn" type="button">Edit</button>
+      </div>
+      <div class="price"><b>${p.price}</b><span>${p.per}</span></div>
+      <div class="pstats">
+        <div class="pstat"><b style="color:${p.color}">${p.shops}</b><span>shops</span></div>
+        <div class="pstat"><b>${p.revenue}</b><span>monthly revenue</span></div>
+        <div class="pstat"><b>${p.mods}<span style="color:var(--d-mut2)">/12</span></b><span>modules</span></div>
+      </div>
+      <p class="subhead">What's included</p>
+      <div class="mods">${MODS.map((m, i) =>
+        i < p.mods ? `<span class="mod">${m}</span>` : `<span class="mod off">✕ ${m}</span>`).join('')}</div>
+      <p class="subhead">Limits</p>
+      <div class="lims">
+        ${['Stores', 'Products', 'Team members'].map((label, i) =>
+          `<div class="lim ${p.inf.includes(i) ? 'inf' : ''}"><b>${p.lims[i]}</b><span>${label}</span></div>`).join('')}
+      </div>
+    </div>`;
+
+  const AUDIT = [
+    ['2026-08-06 09:41', 'record_payment',       'Hodan Store',           'ZAAD 634812 received, covers Aug–Sep'],
+    ['2026-08-05 17:02', 'approve_plan_change',  'Xamar Electronics',     'Paid for Pro up front, asked to start after the trial'],
+    ['2026-08-05 11:20', 'extend_trial',         'Sheikh Grocers',        'Power cut all week, gave them 7 more days'],
+    ['2026-08-04 14:58', 'suspend',              'Xero Fashion',          'Chargeback claim opened, holding until it clears'],
+    ['2026-08-03 08:12', 'set_plan',             'Maroodi Jeex Pharmacy', 'Downgraded to Standard at their request'],
+  ];
+
+  const OPERATORS = [
+    ['owner',   'yusef@kaiibi.com',  'active · full access, appointed in migration'],
+    ['admin',   'a4f2c918…',         'active · can change plans and record payments'],
+    ['support', '7b19de03…',         'active · read-only, cannot delete or suspend'],
+  ];
+
+  const drawer = () => `
+    <div class="dialog">
+      <div class="dHead">
+        <div>
+          <h4>Berbera Fresh</h4>
+          <p class="dMeta">created 18 Mar 2026 · Standard</p>
+        </div>
+        <span class="x">✕</span>
+      </div>
+      <div style="margin:0 0 18px">${st('active')}</div>
+
+      <p class="flabel">Usage</p>
+      <div class="usageRow"><span class="ul">Stores</span><span class="uv">1 / 2</span></div>
+      <div class="usageRow"><span class="ul">Products</span><span class="uv cap">486 / 500</span></div>
+      <div class="usageRow"><span class="ul">Team members</span><span class="uv">6 / 10</span></div>
+      <div class="usageRow"><span class="ul">Customers</span><span class="uv">284 / ∞</span></div>
+
+      <p class="flabel" style="margin-top:20px">Modules on Standard</p>
+      <div class="mods">${MODS.slice(0, 8).map((m) => `<span class="mod">${m}</span>`).join('')}
+        ${MODS.slice(8).map((m) => `<span class="mod off">✕ ${m}</span>`).join('')}</div>
+
+      <p class="flabel" style="margin-top:20px">Actions</p>
+      <div class="field needed">Reason (required — goes into the audit log)</div>
+      <div class="cav wrong"><span>⚠</span><div>Type a reason to enable these actions. Every change
+        here is recorded against your operator account.</div></div>
+      <div class="chips" style="margin-top:14px">
+        <span class="chip">Trial</span><span class="chip on">Standard</span><span class="chip">Pro</span>
+      </div>
+      <div class="qActs">
+        <button class="btn off" type="button">Change plan</button>
+        <button class="btn off" type="button">Extend trial · 14 days</button>
+        <button class="btn ghostLoss" type="button">Suspend</button>
+      </div>
+
+      <p class="flabel" style="margin-top:20px">Record payment</p>
+      <div class="chips"><span class="chip on">ZAAD</span><span class="chip">eDahab</span>
+        <span class="chip">Cash</span><span class="chip">Bank</span></div>
+      <div class="fgrid three">
+        <div><p class="flabel">Amount (USD)</p><div class="field">19.00</div></div>
+        <div><p class="flabel">Reference</p><div class="field">634812</div></div>
+        <div><p class="flabel">Paid on</p><div class="field">2026-08-06</div></div>
+      </div>
+      <div class="fgrid two" style="margin-top:10px">
+        <div><p class="flabel">Covers from</p><div class="field">2026-08-18</div></div>
+        <div><p class="flabel">Covers to</p><div class="field">2026-09-18</div></div>
+      </div>
+      <p class="foot">Their access runs to 18 Sep 2026, plus the grace period. Recording a payment
+        does not change their tier — use Change plan for that.</p>
+
+      <p class="flabel" style="margin-top:22px;color:var(--loss)">Danger zone</p>
+      <div class="danger">
+        <b>Delete Berbera Fresh</b>
+        <p>This permanently destroys everything this business has recorded — including 486 products,
+          6 team members, 284 customers — along with its sales history, books and payroll. It cannot
+          be undone, and we keep no copy.</p>
+        <p>If you only need to cut off access, <b style="color:inherit">Suspend</b> above does that
+          and is reversible.</p>
+        <div class="dangerField">Reason (required — goes into the audit log)</div>
+        <div class="dangerField">Type "Berbera Fresh" to confirm</div>
+        <div class="qActs" style="margin-top:12px">
+          <button class="btn off" type="button">Delete this shop forever</button>
+          <button class="btn" type="button" style="border-color:transparent;background:transparent;color:#7a4a4a">Cancel</button>
+        </div>
+      </div>
+
+      <p class="foot">This portal cannot open this shop's products, sales, books, or schedule.</p>
+    </div>`;
+
+  const BODIES = {
+    overview: () => `
+      ${head('Overview',
+        '$366.00 a month from 14 paying shops ($77.00 of it starting after trials end) · 3 trials ending within a week.')}
+      <div class="grid">
+        <div class="s12 cardx">
+          <div class="crow"><h4 class="ctitle">Money</h4><span class="pill">as of 6 Aug, 09:41</span></div>
+          <div class="kpis">
+            ${kpi('MRR', '$289.00', 'billing right now')}
+            ${kpi('Committed', '$77.00', '3 paid, starts after trial')}
+            ${kpi('Collected this month', '$412.00', '16 payments')}
+            ${kpi('Average per shop', '$26.14', '')}
+            ${kpi('Trial → paid', '64%', 'of 22 decided')}
+          </div>
+        </div>
+
+        <div class="s6 cardx">
+          <h4 class="ctitle">Movement</h4>
+          <div class="kpis four">
+            ${kpi('New this week', '+4', '+11 in 30 days')}
+            ${kpi('On trial', '12', '3 more already paid')}
+            ${kpi('Plan changes', '↑5 ↓1', 'last 30 days')}
+            ${kpi('Lapsed or suspended', '6', '', true)}
+          </div>
+        </div>
+        <div class="s6 cardx">
+          <div class="crow"><h4 class="ctitle">Plan mix</h4><span class="pill">today</span></div>
+          ${donut([
+            { label: 'Trial', n: 12, color: '#2f6bff' },
+            { label: 'Standard', n: 15, color: '#00a396' },
+            { label: 'Pro', n: 7, color: '#c8791a' },
+          ], 34)}
+        </div>
+
+        <div class="s6 cardx">
+          <div class="crow"><h4 class="ctitle">New shops</h4><span class="pill">per week</span></div>
+          ${barchart([['-7w', 1], ['-6w', 3], ['-5w', 2], ['-4w', 5], ['-3w', 4], ['-2w', 6], ['-1w', 7], ['now', 4]], '#2f6bff')}
+        </div>
+        <div class="s6 cardx">
+          <div class="crow"><h4 class="ctitle">Money collected</h4><span class="pill">per month</span></div>
+          ${barchart([['Mar', 9800], ['Apr', 15200], ['May', 21400], ['Jun', 28600], ['Jul', 36100], ['Aug', 41200]],
+            '#00a396', (v) => '$' + Math.round(v / 100))}
+        </div>
+
+        <div class="s7 cardx">
+          <div class="crow"><h4 class="ctitle">Revenue by plan</h4><span class="pill">paying shops only</span></div>
+          <div class="mixRow"><span class="mn">Standard</span>
+            <span class="track"><i style="width:46%;background:var(--c2)"></i></span>
+            <span class="mc">7</span><span class="mv">$133.00</span></div>
+          <div class="mixRow"><span class="mn">Pro</span>
+            <span class="track"><i style="width:54%;background:var(--c3)"></i></span>
+            <span class="mc">4</span><span class="mv">$156.00</span></div>
+          <p class="foot">Committed revenue is excluded — it is not billing yet.</p>
+        </div>
+        <div class="s5 cardx">
+          <h4 class="ctitle">Usage across all shops</h4>
+          <div class="kpis two">
+            ${kpi('Stores', '61', '')}
+            ${kpi('Products', '18,402', '')}
+            ${kpi('Team members', '214', '')}
+            ${kpi('Sales this month', '12,860', '')}
+          </div>
+        </div>
+      </div>
+
+      <div class="cardx">
+        <div class="crow"><h4 class="ctitle">Needs attention</h4><span class="pill">9 shops</span></div>
+        <div class="atRow"><div class="bd"><b>Xamar Electronics</b><span>Trial ends in 5 days</span></div>
+          <span class="wa">WhatsApp</span></div>
+        <div class="atRow"><div class="bd"><b>Sheikh Grocers</b><span>Trial ends in 6 days</span></div>
+          <span class="wa">WhatsApp</span></div>
+        <div class="atRow"><div class="bd"><b>Berbera Fresh</b><span>At their limit: products</span></div>
+          <span class="wa">WhatsApp</span></div>
+        <div class="atRow"><div class="bd"><b>Gacan Libaax Hardware</b><span>Plan lapsed — can view but not change anything</span></div>
+          <span class="waOff">no phone</span></div>
+        <div class="cav context"><span>ⓘ</span><div>Every figure here is ours — subscriptions, signups
+          and how heavily shops use what they pay for. None of it is any shop's takings.</div></div>
+      </div>`,
+
+    shops: () => `
+      ${head('Shops', 'Every business on Kaiibi, what they pay, and what they are using.',
+        '<button class="btn" type="button">Search shop, plan, or status</button>')}
+      <div class="grid">
+        <div class="s12 cardx">
+          <div class="kpis">
+            ${kpi('MRR', '$289.00', 'paying shops only')}
+            ${kpi('Paying', '11', '')}
+            ${kpi('On trial', '12', '')}
+            ${kpi('Grace', '2', '', true)}
+            ${kpi('Expired', '4', '', true)}
+          </div>
+        </div>
+      </div>
+      <div class="controls">
+        <div class="filters"><span class="on">All · 34</span><span>Paying · 11</span>
+          <span>Trialing · 12</span><span>Grace · 2</span><span>Expired · 4</span><span>Suspended · 2</span></div>
+      </div>
+      <div class="cardx tableCard">
+        <div class="wideOnly">${shopTableWide()}</div>
+        <div class="narrowOnly">${shopListNarrow()}</div>
+      </div>`,
+
+    requests: () => `
+      ${head('Requests', 'Tier changes waiting on a decision. Approving one moves what a shop can do.')}
+      <div class="cardx">
+        <div class="crow"><h4 class="ctitle">Waiting on you</h4><span class="pill">3 requests</span></div>
+        <div class="field needed">Reason (required — a decline shows this to the shop)</div>
+        <div class="cav wrong"><span>⚠</span><div>Type a reason to enable Approve and Decline. If you
+          decline, this is the message the shop reads.</div></div>
+        <div style="margin-top:6px">
+          <div class="qRow">
+            <div class="qHead"><b>Sheikh Grocers</b>
+              <span class="move">Trial → <em>Standard</em></span></div>
+            <p class="foot" style="margin-top:4px">asked 2026-08-05 · "We opened a second counter and
+              need more products."</p>
+            <div class="qActs"><button class="btn off" type="button">Approve</button>
+              <button class="btn off" type="button">Decline</button></div>
+          </div>
+          <div class="qRow">
+            <div class="qHead"><b>Hodan Store</b>
+              <span class="move">Standard → <em>Pro</em></span></div>
+            <p class="foot" style="margin-top:4px">asked 2026-08-04 · "Opening in Berbera next month."</p>
+            <div class="qActs"><button class="btn off" type="button">Approve</button>
+              <button class="btn off" type="button">Decline</button></div>
+          </div>
+          <div class="qRow">
+            <div class="qHead"><b>Maroodi Jeex Pharmacy</b>
+              <span class="move">Standard → <em>Trial</em></span></div>
+            <p class="foot" style="margin-top:4px">asked 2026-08-02 · no note</p>
+            <div class="qActs"><button class="btn off" type="button">Approve</button>
+              <button class="btn off" type="button">Decline</button></div>
+          </div>
+        </div>
+        <div class="cav context"><span>ⓘ</span><div>A shop can raise and cancel its own request but can
+          never resolve one. Both decisions run through the audited platform-admin function.</div></div>
+      </div>`,
+
+    plans: () => `
+      ${head('Plans', 'What each tier includes, withholds, and caps — and who is on it.')}
+      <div class="grid">${PLANS.map((p) => `<div class="s4">${planCard(p)}</div>`).join('')}</div>
+      <div class="cav wrong" style="margin-top:0"><span>⚠</span><div>Editing a tier changes
+        entitlements for every shop on it at once. Removing a module makes that data read-only for
+        them immediately; lowering a cap keeps their existing records and blocks new ones.</div></div>`,
+
+    audit: () => `
+      ${head('Audit log', 'Every operator action, who took it, and why. Append-only.')}
+      <div class="cardx tableCard">
+        <div class="aRow aHead">
+          <span class="aWhen">When</span><span class="aAct">Action</span>
+          <span class="aShop">Shop</span><span class="aWhy">Reason</span>
+        </div>
+        ${AUDIT.map(([when, action, shop, why]) => `
+          <div class="aRow">
+            <span class="aWhen">${when}</span>
+            <span class="aAct">${action}</span>
+            <span class="aShop">${shop}</span>
+            <span class="aWhy">${why}</span>
+          </div>`).join('')}
+      </div>
+      <div class="cav context"><span>ⓘ</span><div>No client has an insert, update, or delete policy
+        on this table. Rows are written by the service role inside each action, so they can be
+        neither forged nor scrubbed.</div></div>`,
+
+    operators: () => `
+      ${head('Operators', 'Who can reach this portal at all.')}
+      <div class="cardx tableCard">
+        <div class="aRow aHead">
+          <span class="aAct">Role</span><span class="aShop">Account</span><span class="aWhy">Status</span>
+        </div>
+        ${OPERATORS.map(([role, who, note]) => `
+          <div class="aRow">
+            <span class="aAct">${role}</span>
+            <span class="aShop">${who}</span>
+            <span class="aWhy">${note}</span>
+          </div>`).join('')}
+      </div>
+      <div class="cav context"><span>ⓘ</span><div>Read-only by design. There is no "add operator"
+        button anywhere in this product — appointing one is a deliberate SQL statement, because a
+        privilege-granting endpoint is what turns a single compromised operator into a permanent
+        foothold.</div></div>`,
+  };
+
+  const render = (tab) => {
+    const body = BODIES[tab]();
+    document.getElementById('fWide').innerHTML =
+      `<div class="console">${nav(tab)}<div class="main">${body}</div></div>`;
+    document.getElementById('fNarrow').innerHTML =
+      `<div class="console"><div class="main">${tabrow(tab)}${body}</div></div>`;
+  };
+
+  const sw = document.getElementById('switch');
+  sw.innerHTML = TABS.map(([k, label], i) =>
+    `<button type="button" role="tab" data-tab="${k}" aria-selected="${i === 0}">${label}</button>`).join('');
+  sw.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    sw.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', String(b === btn)));
+    render(btn.dataset.tab);
+  });
+
+  render('overview');
+  document.getElementById('drawer').innerHTML = drawer();
+</script>
+
+<style>
+  /* The two shop renderings live in the same markup; each width shows one. */
+  .w1280 .narrowOnly{display:none;}
+  .w380 .wideOnly{display:none;}
+  .w380 .tableCard{padding:8px 10px;}
+</style>

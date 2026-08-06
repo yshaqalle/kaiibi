@@ -1,0 +1,206 @@
+import { useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
+
+import { planColor } from '@/components/platform-charts';
+import { PlanEditor } from '@/components/platform/plan-editor';
+import { Chip, PlatformButton, PlatformModal } from '@/components/platform/kit';
+import { Card } from '@/components/card';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { Caveat } from '@/components/ui/caveat';
+import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
+import { formatCents } from '@/lib/currency';
+import { LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
+import type { PlatformShopRow } from '@/lib/platform';
+import type { Plan } from '@/lib/subscriptions';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
+
+// The tiers, side by side.
+//
+// This is the one tab where the grid is not cosmetic. These were stacked
+// full-width rows, so comparing what Pro adds over Standard meant scrolling and
+// remembering. At `span={4}` the three sit in a row and the comparison is the
+// layout.
+//
+// The 5px accent stripe each card used to carry is gone — bento cards have no
+// edge decoration, and a 5px bar reads as a border at a glance. The tier's
+// colour survives as the dot beside its name and the colour of its headline
+// shop count, which is all it was ever for: matching a slice in the donut on
+// the Overview.
+
+export function PlansTab({
+  plans,
+  shops,
+  compact,
+  onDone,
+}: {
+  plans: Plan[];
+  shops: PlatformShopRow[];
+  compact: boolean;
+  onDone: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const editingPlan = plans.find((p) => p.key === editing) ?? null;
+
+  // Three tiers fill a row at 4; four or more wrap to a second row rather than
+  // shrinking below a readable width.
+  const span = plans.length >= 3 ? 4 : plans.length === 2 ? 6 : 12;
+
+  return (
+    <View>
+      <BentoGrid>
+        {plans.map((plan, i) => (
+          <BentoCell key={plan.id} span={span}>
+            <PlanCard
+              plan={plan}
+              accent={planColor(plan.key, i)}
+              shopsOn={shops.filter((s) => s.planKey === plan.key).length}
+              revenue={plan.priceCents * shops.filter((s) => s.planKey === plan.key && s.status === 'active').length}
+              onEdit={() => setEditing(plan.key)}
+            />
+          </BentoCell>
+        ))}
+      </BentoGrid>
+
+      <Caveat tone="context">
+        Editing a tier changes entitlements for every shop on it at once. Removing a module makes that data read-only for
+        them immediately; lowering a cap keeps their existing records and blocks new ones.
+      </Caveat>
+
+      {/* A modal, not an inline swap: the editor is a form, and dropping a form
+          into a row-laid-out card list mangled both. */}
+      {editingPlan ? (
+        <PlatformModal title={`Edit ${editingPlan.name}`} compact={compact} onClose={() => setEditing(null)}>
+          <PlanEditor
+            plan={editingPlan}
+            shopsOn={shops.filter((s) => s.planKey === editingPlan.key).length}
+            shops={shops}
+            onClose={() => setEditing(null)}
+            onDone={onDone}
+          />
+        </PlatformModal>
+      ) : null}
+    </View>
+  );
+}
+
+function PlanCard({
+  plan,
+  accent,
+  shopsOn,
+  revenue,
+  onEdit,
+}: {
+  plan: Plan;
+  accent: string;
+  shopsOn: number;
+  revenue: number;
+  onEdit: () => void;
+}) {
+  // A bare bento card rather than `BentoCard`: the head here is a colour dot,
+  // the tier name and two controls, which is not the title/scope-pill shape
+  // BentoCard exists to standardise.
+  return (
+    <Card variant="bento" style={styles.card}>
+      <View style={styles.head}>
+        <View style={styles.nameRow}>
+          <View style={[styles.dot, { backgroundColor: accent }]} />
+          <Text style={styles.name} numberOfLines={1}>
+            {plan.name}
+          </Text>
+          {!plan.isPublic ? <Chip label="Not public" /> : null}
+        </View>
+        <PlatformButton label="Edit" onPress={onEdit} />
+      </View>
+
+      <View style={styles.priceRow}>
+        <Text style={styles.price}>{plan.priceCents === 0 ? 'Free' : formatCents(plan.priceCents)}</Text>
+        {plan.priceCents > 0 ? <Text style={styles.per}>/{plan.billingInterval ?? 'month'}</Text> : null}
+      </View>
+
+      <View style={styles.stats}>
+        <View>
+          <Text style={[styles.statValue, { color: accent }]}>{shopsOn}</Text>
+          <Text style={styles.statLabel}>shop{shopsOn === 1 ? '' : 's'}</Text>
+        </View>
+        <View>
+          <Text style={styles.statValue}>{revenue > 0 ? formatCents(revenue) : '—'}</Text>
+          <Text style={styles.statLabel}>monthly revenue</Text>
+        </View>
+        <View>
+          <Text style={styles.statValue}>
+            {plan.modules.length}
+            <Text style={styles.statOf}>/{MODULES.length}</Text>
+          </Text>
+          <Text style={styles.statLabel}>modules</Text>
+        </View>
+      </View>
+
+      {/* Every module shown, not just the included ones — what a tier leaves
+          out is what sells the tier above it, and that is invisible if excluded
+          features simply aren't listed. */}
+      <Text style={styles.subhead}>WHAT&apos;S INCLUDED</Text>
+      <View style={styles.pills}>
+        {MODULES.map((m) => {
+          const on = plan.modules.includes(m.key);
+          return (
+            <View key={m.key} style={[styles.pill, on && { backgroundColor: `${accent}14` }]}>
+              <Text style={[styles.pillText, on ? { color: accent } : styles.pillTextOff]}>
+                {on ? '' : '✕ '}
+                {m.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      <Text style={styles.subhead}>LIMITS</Text>
+      <View style={styles.limits}>
+        {LIMIT_RESOURCES.map((r) => {
+          const limit = plan.limits[r.key];
+          return (
+            <View key={r.key} style={styles.limit}>
+              <Text style={[styles.limitValue, limit == null && styles.limitUnlimited]}>
+                {limit == null ? '∞' : limit.toLocaleString()}
+              </Text>
+              <Text style={styles.limitLabel} numberOfLines={1}>
+                {r.label}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </Card>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: { padding: 18 },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  dot: { width: 9, height: 9, borderRadius: 3 },
+  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk },
+
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3, marginTop: 12 },
+  price: { fontSize: 28, fontWeight: '800', letterSpacing: -1, color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  per: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted },
+
+  stats: { flexDirection: 'row', gap: 22, marginTop: 14, flexWrap: 'wrap' },
+  statValue: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  statOf: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted2 },
+  statLabel: { fontSize: 10.5, color: theme.bentoMuted },
+
+  subhead: { fontSize: 9.5, fontWeight: '800', letterSpacing: 1, color: theme.bentoMuted2, marginTop: 18, marginBottom: 8 },
+
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  pill: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  pillText: { fontSize: 11, fontWeight: '700' },
+  pillTextOff: { color: theme.bentoMuted2 },
+
+  limits: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  limit: { backgroundColor: theme.bentoSoft, borderRadius: BENTO_RADIUS_TILE, paddingVertical: 9, paddingHorizontal: 11, minWidth: 84, flexGrow: 1 },
+  limitValue: { fontSize: 14, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  limitUnlimited: { color: theme.bentoProfit },
+  limitLabel: { fontSize: 9.5, color: theme.bentoMuted, marginTop: 1 },
+});
