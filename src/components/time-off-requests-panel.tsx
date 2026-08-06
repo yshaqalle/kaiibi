@@ -103,7 +103,9 @@ export function TimeOffRequestsPanel({
       {error && <Text style={styles.error}>{error}</Text>}
       <ListCard
         title="Time off requests"
-        scope={pending.length > 0 ? `${pending.length} pending` : 'All clear'}
+        actions={
+          <Badge variant="bento" label={pending.length > 0 ? `${pending.length} pending` : 'All clear'} tone={pending.length > 0 ? 'warning' : 'default'} />
+        }
         rows={requests}
         keyExtractor={(request) => request.id}
         emptyLabel="No time off requests yet."
