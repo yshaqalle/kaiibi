@@ -37,8 +37,10 @@ export function CategoryDonutChart({ items, totalLabel }: { items: CategorySlice
   // category's colour moved as its rank changed, and — worse — two different
   // categories in two charts on the same screen took the same hue purely for
   // sharing a rank. "Other" resolves to grey, since it is a residual bucket
-  // rather than a thing anyone sells.
-  const palette = categoryColors(slices.map((slice) => slice.category));
+  // rather than a thing anyone sells. The `bento` ramp because this chart only
+  // renders on Accounting → Reports; a category keeps its slot across ramps,
+  // so this is a restep, not a reassignment.
+  const palette = categoryColors(slices.map((slice) => slice.category), 'bento');
 
   let cumulativePct = 0;
   const arcs = slices.map((slice) => {
@@ -46,7 +48,7 @@ export function CategoryDonutChart({ items, totalLabel }: { items: CategorySlice
     const dashLength = (pct / 100) * CIRCUMFERENCE;
     const dashOffset = -(cumulativePct / 100) * CIRCUMFERENCE;
     cumulativePct += pct;
-    return { ...slice, pct, dashLength, dashOffset, color: palette.get(slice.category) ?? theme.textSecondary };
+    return { ...slice, pct, dashLength, dashOffset, color: palette.get(slice.category) ?? theme.bentoMuted };
   });
 
   return (
@@ -54,7 +56,7 @@ export function CategoryDonutChart({ items, totalLabel }: { items: CategorySlice
       <View style={styles.donutWrap}>
         <Svg width={SIZE} height={SIZE} viewBox={`0 0 ${SIZE} ${SIZE}`}>
           <G transform={`rotate(-90, ${SIZE / 2}, ${SIZE / 2})`}>
-            <Circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} stroke={theme.surfaceMuted} strokeWidth={STROKE} fill="none" />
+            <Circle cx={SIZE / 2} cy={SIZE / 2} r={RADIUS} stroke={theme.bentoSoft} strokeWidth={STROKE} fill="none" />
             {arcs.map((arc) => (
               <Circle
                 key={arc.category}
@@ -92,15 +94,15 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 20 },
   donutWrap: { width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' },
   centerLabel: { position: 'absolute', alignItems: 'center' },
-  centerValue: { fontSize: 19, fontWeight: '800', color: theme.text, letterSpacing: -0.5 },
-  centerCaption: { fontSize: 10, fontWeight: '700', color: theme.textSecondary, marginTop: 1 },
+  centerValue: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
+  centerCaption: { fontSize: 10, fontWeight: '700', color: theme.bentoMuted, marginTop: 1 },
   // Capped rather than flexed to fill. On a full-width card `flex: 1` threw
   // the percentages against the far right edge, several hundred pixels from
   // the label they belong to, so the pairing had to be reconstructed by eye.
   legend: { flexShrink: 1, minWidth: 180, maxWidth: 300, gap: 9 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   swatch: { width: 10, height: 10, borderRadius: 3 },
-  legendName: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '700', color: theme.text },
-  legendPct: { fontSize: 11.5, fontWeight: '700', color: theme.textSecondary },
-  empty: { fontSize: 13, color: theme.textSecondary, paddingVertical: 4 },
+  legendName: { flex: 1, minWidth: 0, fontSize: 12, fontWeight: '700', color: theme.bentoInk },
+  legendPct: { fontSize: 11.5, fontWeight: '700', color: theme.bentoMuted },
+  empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 4 },
 });

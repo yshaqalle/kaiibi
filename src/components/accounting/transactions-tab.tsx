@@ -12,6 +12,7 @@ import { ReceiptModal } from '@/components/receipt-modal';
 import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
 import { BentoFlow } from '@/components/ui/bento';
+import { formatRangeLabel as baseFormatRangeLabel, type LabelPreset } from '@/lib/range-label';
 import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
@@ -63,8 +64,23 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+// Re-exported so the three tabs that already import it from here keep working.
+// The rule itself moved to lib/range-label.ts — it is preset-aware now, and a
+// pure function in lib/ can be tested, which one living in a component file
+// could not be.
+//
+// `SHARED_PRESETS` is duplicated from the Accounting shell rather than
+// threaded through every tab's props: it is the same fixed list, and passing
+// it down four levels to name a pill is not worth the churn. If the shell's
+// presets change, change these together.
+const SHELL_PRESETS: LabelPreset[] = [
+  { label: 'Today', days: 1 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+];
+
 export function formatRangeLabel(range: DateRange): string {
-  return `${range.since.toLocaleDateString()} – ${range.until ? range.until.toLocaleDateString() : 'today'}`;
+  return baseFormatRangeLabel(range, SHELL_PRESETS);
 }
 
 export function TransactionsTab({

@@ -34,6 +34,7 @@ import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { profitAndLoss } from '@/lib/pnl';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
+import { formatRangeLabel } from '@/lib/range-label';
 import type { SearchResult } from '@/lib/search';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, getSalesAndRefundsInRange, listSales } from '@/lib/sales';
 import { costOfGoodsSold, paymentMethodMix, type CogsResult, type DailyBucket } from '@/lib/sales-reporting';
@@ -351,19 +352,13 @@ export default function DashboardScreen() {
     scrollRef.current?.scrollTo({ y: Math.max(0, target - 16), animated: true });
   };
 
-  const rangeLabel = useMemo(() => {
-    if (!dateRange) return '';
-    const preset = DASHBOARD_PRESETS.find((option) => {
-      const start = new Date();
-      start.setDate(start.getDate() - (option.days - 1));
-      start.setHours(0, 0, 0, 0);
-      return !dateRange.until && start.getTime() === dateRange.since.getTime();
-    });
-    if (preset) return preset.label;
-    const until = dateRange.until ?? new Date();
-    const short = (date: Date) => date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
-    return `${short(dateRange.since)} – ${short(until)}`;
-  }, [dateRange]);
+  // Shared with Accounting via lib/range-label.ts, so the same range is named
+  // the same thing on both screens — this used to say "7 days" here while
+  // Accounting spelled out "7/30/2026 – today" for the identical window.
+  const rangeLabel = useMemo(
+    () => (dateRange ? formatRangeLabel(dateRange, DASHBOARD_PRESETS) : ''),
+    [dateRange]
+  );
 
   const trendData: TrendPoint[] = useMemo(
     () =>

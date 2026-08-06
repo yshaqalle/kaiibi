@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -126,6 +126,7 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
 
 export default function PeopleScreen() {
   const { can, canAny, myMembership } = useAuth();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
@@ -143,8 +144,25 @@ export default function PeopleScreen() {
     if (candidate === 'me') return 'me';
     return null;
   };
-  const [tab, setTab] = useState<PeopleTab>(
+  // Read from `?tab=` ONCE, as the initial value -- state stays authoritative
+  // while mounted, so a tap never has to wait for the URL to catch up.
+  const [tab, setTabState] = useState<PeopleTab>(
     permittedTab(tabParam) ?? (canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me')
+  );
+  // ...and mirrored back out on every change, because the URL is what survives
+  // a remount. The web nav shell renders two different trees either side of
+  // TABLET_BREAKPOINT (admin-tabs.web.tsx), so crossing it -- resizing a window,
+  // rotating a tablet -- tears this screen down and builds a new one. The
+  // initializer above then reads the tab back off the URL.
+  //
+  // NOT a fix for the remount itself: search text, filters and the selected
+  // person still reset. That has to be fixed in the shell.
+  const setTab = useCallback(
+    (next: PeopleTab) => {
+      setTabState(next);
+      router.setParams({ tab: next });
+    },
+    [router]
   );
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than each tab rendering a title and an action bar of its own. Same

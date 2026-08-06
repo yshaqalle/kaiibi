@@ -1,5 +1,5 @@
-import { useLocalSearchParams } from 'expo-router';
-import { useState, type ReactNode } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -53,17 +53,33 @@ const SHARED_PRESETS: RangePreset[] = [
 ];
 
 export default function AccountingScreen() {
+  const router = useRouter();
   // No `showStoreFilter` here any more: BentoControlBar makes that call
   // itself, so a single-store shop hides the pill without this screen (or the
   // Dashboard) each having to remember the rule.
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   // Set by a link that already knows which tab it wants -- the Dashboard's
   // overdue-bill row opens Bills rather than dropping the reader on Overview
-  // to find it. Read once as the INITIAL value; the tab bar owns it after
-  // that, so a stale URL cannot fight a tap.
+  // to find it. Read once as the INITIAL value; state is authoritative while
+  // mounted, so a tap never waits for the URL to catch up.
   const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
-  const [tab, setTab] = useState<AccountingTab>(
+  const [tab, setTabState] = useState<AccountingTab>(
     TAB_OPTIONS.some((option) => option.key === tabParam) ? (tabParam as AccountingTab) : 'overview'
+  );
+  // Mirrored back into the URL on every change, because the URL is what
+  // survives a remount. The web nav shell renders two different trees either
+  // side of TABLET_BREAKPOINT (admin-tabs.web.tsx), so crossing it -- resizing
+  // a window, rotating a tablet -- tears this screen down and builds a new one,
+  // and the initializer above then reads the tab back off the URL.
+  //
+  // NOT a fix for the remount itself: the range, the store filter and each
+  // tab's own data still reset. That has to be fixed in the shell.
+  const setTab = useCallback(
+    (next: AccountingTab) => {
+      setTabState(next);
+      router.setParams({ tab: next });
+    },
+    [router]
   );
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.

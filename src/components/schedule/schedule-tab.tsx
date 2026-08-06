@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -38,6 +38,12 @@ function dayLabel(date: string): string {
   return `${day}/${month}`;
 }
 
+// The phone shows ONE day at a time, so its date control has to say which day
+// it is in words -- "05/08" alone leaves you counting which weekday that was.
+function longDayLabel(date: string): string {
+  return fromDateColumn(date).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 function totalHours(shifts: Shift[]): string {
   const minutes = shifts.reduce((sum, shift) => sum + shiftMinutes(shift), 0);
   return `${(minutes / 60).toFixed(minutes % 60 === 0 ? 0 : 1)}h`;
@@ -60,6 +66,11 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ date: string; shift: Shift | null; memberId: string | null } | null>(null);
+  // Phone only. The occasional actions live behind one pill on the title row
+  // rather than in a row under the board: a roster of any real size pushes a
+  // bottom row past the fold, and an action you have to scroll a staff list to
+  // reach may as well not be there.
+  const [showMore, setShowMore] = useState(false);
   const [timeOff, setTimeOff] = useState<Awaited<ReturnType<typeof listShopApprovedTimeOff>>>([]);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -181,58 +192,101 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   const effectiveSelectedDay = days.includes(selectedDay) ? selectedDay : days[0];
   const shiftsFor = (memberId: string, date: string) =>
     visibleShifts.filter((shift) => shift.shopMemberId === memberId && shift.date === date);
-  // Under "All stores" a bare 09:00–17:00 doesn't say where, and two stores'
-  // rows sit side by side. Under one store the name is on the filter chip
-  // already, so repeating it in every cell is noise.
-  const shiftLabel = (shift: Shift) =>
-    `${shift.start}–${shift.end}${!locationId && multiStore ? ` · ${storeName(shift.locationId)}` : ''}`;
+  // Drives the phone card's scope pill -- "6h scheduled" says more about the day
+  // than a headcount does, since the point of opening it is the coverage.
+  const shiftsOnSelectedDay = visibleShifts.filter((shift) => shift.date === effectiveSelectedDay);
 
   // Export/Import/Add are SCREEN actions and go up to the shell's title row.
-  // The week nav below stays in the body: ‹ › Today and Copy last week act on
-  // the board underneath them, and moving them into the header would separate
-  // them from the thing they move.
+  // The date control below stays in the body: it acts on the board underneath
+  // it, and moving it into the header would separate it from the thing it moves.
+  //
+  // On a phone only the ONE primary action goes up. Four solid black pills in a
+  // row is most of a phone screen, and it makes four things look equally
+  // primary, which drains the black of the meaning it carries everywhere else.
+  // Export and Import move below the board, where they read as the occasional
+  // actions they are.
   useHeaderActions(
     setHeaderActions,
-    <>
-      <ExportMenu
-        rows={visibleShifts}
-        columns={exportColumns}
-        title="Schedule"
-        subtitle={`${dayLabel(days[0])} – ${dayLabel(days[6])}${locationId ? ` · ${storeName(locationId)}` : ''}`}
-        filenamePrefix="schedule"
-      />
-      <Pressable onPress={() => setShowImportModal(true)} style={styles.navButton}>
-        <Text style={styles.navText}>Import</Text>
-      </Pressable>
-      <Pressable onPress={() => setShowBulkModal(true)} style={[styles.navButton, styles.navButtonSolid]}>
-        <Text style={[styles.navText, styles.navTextSolid]}>+ Add shifts</Text>
-      </Pressable>
-    </>,
+    compact ? (
+      <>
+        <Pressable onPress={() => setShowMore(true)} style={styles.navButton} accessibilityLabel="More schedule actions">
+          <Text style={styles.navText}>More</Text>
+        </Pressable>
+        <Pressable onPress={() => setShowBulkModal(true)} style={[styles.navButton, styles.navButtonSolid]}>
+          <Text style={[styles.navText, styles.navTextSolid]}>+ Add shifts</Text>
+        </Pressable>
+      </>
+    ) : (
+      <>
+        <ExportMenu
+          rows={visibleShifts}
+          columns={exportColumns}
+          title="Schedule"
+          subtitle={`${dayLabel(days[0])} – ${dayLabel(days[6])}${locationId ? ` · ${storeName(locationId)}` : ''}`}
+          filenamePrefix="schedule"
+        />
+        <Pressable onPress={() => setShowImportModal(true)} style={styles.navButton}>
+          <Text style={styles.navText}>Import</Text>
+        </Pressable>
+        <Pressable onPress={() => setShowBulkModal(true)} style={[styles.navButton, styles.navButtonSolid]}>
+          <Text style={[styles.navText, styles.navTextSolid]}>+ Add shifts</Text>
+        </Pressable>
+      </>
+    ),
     // The state these are all derived from, not the derived values:
     // `visibleShifts`, `exportColumns` and `days` are rebuilt on every render,
     // so depending on them would re-publish the actions every render and loop
     // against the shell that stores them.
-    [shifts, locationId, monday, locations]
+    [shifts, locationId, monday, locations, compact]
   );
+
+  // Phone stepping is by DAY, not by week: the board below shows one day, so a
+  // week pager plus a day picker was two controls doing one job -- and two rows
+  // of chrome for it. Moving the week with it means crossing Sunday just works.
+  const stepDay = (delta: number) => {
+    const next = addDaysToDate(effectiveSelectedDay, delta);
+    setSelectedDay(next);
+    setMonday(startOfWeek(next));
+  };
+  const goToToday = () => {
+    const today = toDateColumn(new Date());
+    setSelectedDay(today);
+    setMonday(startOfWeek(today));
+  };
 
   return (
     <View>
       <View style={styles.header}>
-        <View style={styles.weekNav}>
-          <Pressable onPress={() => setMonday(addDaysToDate(monday, -7))} style={styles.navButton}>
-            <Text style={styles.navText}>‹</Text>
-          </Pressable>
-          <Text style={styles.weekLabel}>{dayLabel(days[0])} – {dayLabel(days[6])}</Text>
-          <Pressable onPress={() => setMonday(addDaysToDate(monday, 7))} style={styles.navButton}>
-            <Text style={styles.navText}>›</Text>
-          </Pressable>
-          <Pressable onPress={() => setMonday(startOfWeek(toDateColumn(new Date())))} style={styles.navButton}>
-            <Text style={styles.navText}>Today</Text>
-          </Pressable>
-          <Pressable onPress={copyLastWeek} style={styles.navButton}>
-            <Text style={styles.navText}>Copy last week</Text>
-          </Pressable>
-        </View>
+        {compact ? (
+          <View style={styles.dayNav}>
+            <Pressable onPress={() => stepDay(-1)} style={styles.navButton} accessibilityLabel="Previous day">
+              <Text style={styles.navText}>‹</Text>
+            </Pressable>
+            <Text style={styles.dayNavLabel} numberOfLines={1}>{longDayLabel(effectiveSelectedDay)}</Text>
+            <Pressable onPress={() => stepDay(1)} style={styles.navButton} accessibilityLabel="Next day">
+              <Text style={styles.navText}>›</Text>
+            </Pressable>
+            <Pressable onPress={goToToday} style={styles.navButton}>
+              <Text style={styles.navText}>Today</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <View style={styles.weekNav}>
+            <Pressable onPress={() => setMonday(addDaysToDate(monday, -7))} style={styles.navButton}>
+              <Text style={styles.navText}>‹</Text>
+            </Pressable>
+            <Text style={styles.weekLabel}>{dayLabel(days[0])} – {dayLabel(days[6])}</Text>
+            <Pressable onPress={() => setMonday(addDaysToDate(monday, 7))} style={styles.navButton}>
+              <Text style={styles.navText}>›</Text>
+            </Pressable>
+            <Pressable onPress={goToToday} style={styles.navButton}>
+              <Text style={styles.navText}>Today</Text>
+            </Pressable>
+            <Pressable onPress={copyLastWeek} style={styles.navButton}>
+              <Text style={styles.navText}>Copy last week</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
 
       {/* Only when there is a choice to make -- a single-store business has one
@@ -267,14 +321,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
         </Text>
       ) : compact ? (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayStrip}>
-            {days.map((date) => (
-              <Pressable key={date} onPress={() => setSelectedDay(date)} style={[styles.dayChip, effectiveSelectedDay === date && styles.dayChipActive]}>
-                <Text style={[styles.dayChipText, effectiveSelectedDay === date && styles.dayChipTextActive]}>{dayLabel(date)}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-          <BentoCard title={dayLabel(effectiveSelectedDay)} scope={`${visibleMembers.length} on the roster`}>
+          <BentoCard title={longDayLabel(effectiveSelectedDay)} scope={`${totalHours(shiftsOnSelectedDay)} scheduled`}>
           {visibleMembers.map((member) => {
             const memberShifts = shiftsFor(member.id, effectiveSelectedDay);
             return (
@@ -289,16 +336,26 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
                       <Text style={styles.off}>Off</Text>
                     </Pressable>
                   ) : (
+                    // The same block the desktop board uses, so a shift looks
+                    // like a shift on either size.
                     memberShifts.map((shift) => (
-                      <Pressable key={shift.id} onPress={() => setEditing({ date: effectiveSelectedDay, shift, memberId: member.id })}>
-                        <Text style={styles.times}>{shiftLabel(shift)}</Text>
+                      <Pressable
+                        key={shift.id}
+                        onPress={() => setEditing({ date: effectiveSelectedDay, shift, memberId: member.id })}
+                        style={styles.shiftBlock}
+                      >
+                        <Text style={styles.shiftTime}>{`${shift.start}–${shift.end}`}</Text>
+                        {!locationId && multiStore && (
+                          <Text style={styles.shiftStore} numberOfLines={1}>{storeName(shift.locationId)}</Text>
+                        )}
                       </Pressable>
                     ))
                   )}
                   <Pressable
                     accessibilityLabel={`Add a shift for ${member.fullName ?? 'this person'}`}
                     onPress={() => setEditing({ date: effectiveSelectedDay, shift: null, memberId: member.id })}
-                    hitSlop={8}
+                    hitSlop={10}
+                    style={styles.addTarget}
                   >
                     <Text style={styles.addShift}>+</Text>
                   </Pressable>
@@ -377,6 +434,52 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
         </BentoCard>
       )}
 
+      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+        <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
+          {/* Stops a tap inside the sheet from closing it. */}
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Schedule actions</Text>
+              <Pressable onPress={() => setShowMore(false)} style={styles.navButton}>
+                <Text style={styles.navText}>Close</Text>
+              </Pressable>
+            </View>
+
+            <Pressable
+              onPress={() => { setShowMore(false); copyLastWeek(); }}
+              style={styles.sheetRow}
+            >
+              <Text style={styles.sheetRowLabel}>Copy last week</Text>
+              <Text style={styles.sheetRowHint}>Repeats the previous week onto this one</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => { setShowMore(false); setShowImportModal(true); }}
+              style={styles.sheetRow}
+            >
+              <Text style={styles.sheetRowLabel}>Import shifts</Text>
+              <Text style={styles.sheetRowHint}>From a CSV file</Text>
+            </Pressable>
+
+            <View style={styles.sheetRow}>
+              <Text style={styles.sheetRowLabel}>Export</Text>
+              <Text style={styles.sheetRowHint}>
+                {`This week${locationId ? ` · ${storeName(locationId)}` : ''} — ${visibleShifts.length} shift${visibleShifts.length === 1 ? '' : 's'}`}
+              </Text>
+              <View style={styles.sheetExport}>
+                <ExportMenu
+                  rows={visibleShifts}
+                  columns={exportColumns}
+                  title="Schedule"
+                  subtitle={`${dayLabel(days[0])} – ${dayLabel(days[6])}${locationId ? ` · ${storeName(locationId)}` : ''}`}
+                  filenamePrefix="schedule"
+                />
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {showBulkModal && (
         <BulkShiftModal
           visible
@@ -449,16 +552,25 @@ const styles = StyleSheet.create({
   navText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
   navTextSolid: { color: theme.bentoSurface },
   weekLabel: { fontSize: 13, fontWeight: '700', color: theme.bentoInk, minWidth: 104, textAlign: 'center' },
+  // One row on a phone, and the date takes the space the day chips used to.
+  dayNav: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 },
+  dayNavLabel: { flex: 1, fontSize: 14, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.2, textAlign: 'center' },
+  // Same sheet treatment TwoPaneListDetail uses, so a sheet is a sheet
+  // wherever People puts one.
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 28 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  sheetRow: { backgroundColor: theme.bentoSurface, borderRadius: 16, paddingHorizontal: 15, paddingVertical: 13, marginBottom: 8 },
+  sheetRowLabel: { fontSize: 14, fontWeight: '700', color: theme.bentoInk },
+  sheetRowHint: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
+  sheetExport: { marginTop: 10 },
+  addTarget: { paddingHorizontal: 6, paddingVertical: 4 },
   storeStrip: { marginBottom: 12 },
   storeChip: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginRight: 8 },
   storeChipActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
   storeChipText: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
   storeChipTextActive: { color: theme.bentoSurface },
-  dayStrip: { marginBottom: 12 },
-  dayChip: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginRight: 8 },
-  dayChipActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
-  dayChipText: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
-  dayChipTextActive: { color: theme.bentoSurface },
   listRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
   listRowRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
   addShift: { fontSize: 11, fontWeight: '700', color: theme.bentoMuted2 },
@@ -485,7 +597,6 @@ const styles = StyleSheet.create({
   shiftBlock: { backgroundColor: theme.bentoSoft, borderRadius: 11, paddingHorizontal: 8, paddingVertical: 6 },
   shiftTime: { fontSize: 11.5, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
   shiftStore: { fontSize: 10, color: theme.bentoMuted, marginTop: 1 },
-  times: { fontSize: 12, color: theme.bentoInk },
   off: { color: theme.bentoMuted2, fontSize: 12 },
   total: { fontWeight: '800', fontVariant: ['tabular-nums'] },
   empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 24, textAlign: 'center' },
