@@ -81,20 +81,6 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
     setSaving(true);
     setError(null);
     try {
-      // A freshly picked photo is a local uri, not the http(s) URL already on
-      // the member -- written directly against shop_members (like
-      // setStaffLocations below), not folded into onSave's payload: the
-      // update-staff Edge Function has no idea this column exists and would
-      // silently drop it.
-      if (photoUri && photoUri !== member.photoUrl) {
-        setUploadingPhoto(true);
-        try {
-          const photoUrl = await uploadStaffPhoto(shopId, member.id, photoUri);
-          await updateStaffPhoto(member.id, photoUrl);
-        } finally {
-          setUploadingPhoto(false);
-        }
-      }
       await onSave({
         fullName: fullName.trim(),
         email: email.trim(),
@@ -113,6 +99,28 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
             }
           : {}),
       });
+      // Written AFTER onSave, not before: a freshly picked photo is a local
+      // uri, not the http(s) URL already on the member -- written directly
+      // against shop_members (like setStaffLocations below), not folded into
+      // onSave's payload, because the update-staff Edge Function has no idea
+      // this column exists and would silently drop it. It runs after onSave
+      // rather than before/inside the same try so a photo failure can't take
+      // the name/email/phone/role/active/location/pay write down with it --
+      // matching TeamAddModal's submit(), where the same failure is caught
+      // locally and reported as a partial success instead of failing the
+      // whole save.
+      if (photoUri && photoUri !== member.photoUrl) {
+        setUploadingPhoto(true);
+        try {
+          const photoUrl = await uploadStaffPhoto(shopId, member.id, photoUri);
+          await updateStaffPhoto(member.id, photoUrl);
+        } catch (err) {
+          setError(`Team member was saved, but their photo could not be saved (${err instanceof Error ? err.message : 'unknown error'}). Try again from their profile.`);
+          return;
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this team member.');
