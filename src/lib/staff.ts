@@ -75,6 +75,7 @@ function mapStaffRow(row: any): StaffMember {
     fullName: row.full_name,
     email: row.email,
     phone: row.phone ?? null,
+    photoUrl: row.photo_url ?? null,
     createdAt: row.created_at,
     hireDate: row.hire_date,
     payType: row.pay_type,

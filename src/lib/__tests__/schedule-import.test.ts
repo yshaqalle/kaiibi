@@ -21,6 +21,7 @@ function member(overrides: Partial<StaffMember> = {}): StaffMember {
     fullName: 'Hamse Jibril',
     email: 'hamse@example.com',
     phone: null,
+    photoUrl: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     hireDate: null,
     payType: null,
