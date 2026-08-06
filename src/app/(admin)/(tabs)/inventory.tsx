@@ -78,7 +78,13 @@ export default function InventoryScreen() {
   const atProductLimit = productLimit != null && usageOf('products') >= productLimit;
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // stock adjustment, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps the
+  // scroll offset to fit, so the list came back at the top and the cashier lost
+  // their place after every single +/-. Same flag, same reason, as the
+  // accounting tabs and people.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -109,9 +115,13 @@ export default function InventoryScreen() {
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
-    setProducts(await listProducts(shop.id, locationFilter));
-    setLoading(false);
+    try {
+      setProducts(await listProducts(shop.id, locationFilter));
+    } finally {
+      // In a `finally` so a failed fetch still clears the placeholder rather
+      // than leaving the screen reading "Loading…" for the rest of the session.
+      setLoaded(true);
+    }
   }, [shop, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
@@ -569,14 +579,7 @@ export default function InventoryScreen() {
           />
         )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
-        {/* Only while there is genuinely nothing to show. `reload()` runs after
-            every stock adjustment too, and swapping the whole list for this one
-            line collapsed the scroll content to a few pixels -- iOS clamps the
-            offset to fit, so the list came back scrolled to the top and the
-            cashier lost their place after every single +/-. Keeping the list
-            mounted holds its height, and so its position; the row's own number
-            updates in place when the fetch lands. */}
-        {loading && products.length === 0 ? (
+        {!loaded ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           // Boxed rather than floating on the page: an empty list is still an
