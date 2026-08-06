@@ -22,13 +22,14 @@ import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
-import { DetailColumns, detailCardStyles, useDetailColumns } from '@/components/ui/detail-columns';
+import { DetailColumns } from '@/components/ui/detail-columns';
 import { GlanceStrip } from '@/components/ui/glance-strip';
-import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
+import { ListCard } from '@/components/ui/list-card';
 import { TabPills } from '@/components/ui/tab-pills';
 import { WhatsAppButton } from '@/components/whatsapp-button';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
 import { formatCents, formatCompactCents } from '@/lib/currency';
@@ -215,7 +216,6 @@ export default function PeopleScreen() {
 function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHeaderActions: HeaderActionsSetter }) {
   const { shop, can } = useAuth();
   const canEdit = can('customers.edit');
-  const detailColumns = useDetailColumns();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rowStats, setRowStats] = useState<Map<string, { totalSpentCents: number; visitCount: number }>>(new Map());
   const [search, setSearch] = useState('');
@@ -403,7 +403,6 @@ function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHead
         detailOpen={selected !== null}
         onCloseDetail={() => setSelectedId(null)}
         detailTitle="Customer"
-        detailFills={detailColumns === 2}
       />
       {shop && canEdit && (
         <CustomerModal
@@ -451,10 +450,6 @@ function CustomerDetailPane({
   const [error, setError] = useState<string | null>(null);
   const { locations, shop } = useAuth();
   const ledgerNote = useCaveatDismissal('people.customers.append-only-ledger', 'v1');
-  // Only at two columns does a card have a bounded height to flex against. At
-  // one column the detail is inside TwoPaneListDetail's ScrollView, where a
-  // flex child would collapse to nothing.
-  const fills = useDetailColumns() === 2;
   const loyaltyOn = shop?.loyaltyEnabled ?? false;
   const multiStore = hasMultipleLocations(locations);
   // Resolved by id from the store list rather than denormalised onto the
@@ -484,7 +479,7 @@ function CustomerDetailPane({
   };
 
   return (
-    <View style={[tabStyles.detailStack, fills && tabStyles.detailStackFills]}>
+    <View style={tabStyles.detailStack}>
       <BentoCard>
         {/* Name, badge, phone and the actions on ONE line. Stacked, these were
             four bands and ~64px of margin before the first figure. The row
@@ -542,73 +537,65 @@ function CustomerDetailPane({
         }
         right={
           <>
-            <BentoCard
+            <ListCard
               title="Purchase history"
               scope={stats ? `${stats.visitCount} orders` : undefined}
-              style={fills ? detailCardStyles.fill : undefined}
-              bodyStyle={fills ? detailCardStyles.fillBody : undefined}
-            >
-              {purchases.length === 0 ? (
-                <Text style={tabStyles.empty}>No purchases yet.</Text>
-              ) : (
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  {purchases.map((p) => (
-                    <View key={p.saleItemId} style={tabStyles.histRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={tabStyles.histTitle}>
-                          {p.productName}
-                          {p.quantity > 1 ? ` ×${p.quantity}` : ''}
-                        </Text>
-                        <Text style={tabStyles.histMeta}>
-                          {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
-                          {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
-                        </Text>
-                      </View>
-                      <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
-                    </View>
-                  ))}
-                </ScrollView>
+              subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
+              rows={purchases}
+              keyExtractor={(p) => p.saleItemId}
+              emptyLabel="No purchases yet."
+              renderRow={(p) => (
+                <View style={tabStyles.histRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={tabStyles.histTitle}>
+                      {p.productName}
+                      {p.quantity > 1 ? ` ×${p.quantity}` : ''}
+                    </Text>
+                    <Text style={tabStyles.histMeta}>
+                      {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
+                      {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
+                </View>
               )}
-            </BentoCard>
+            />
 
             {/* What answers "why is my balance 148" at the counter. The ledger is
                 append-only, so a correction shows up as its own row rather than
                 quietly changing an old one. */}
             {loyaltyOn && (
-              <BentoCard
+              <ListCard
                 title="Points history"
                 scope={`${customer.pointsBalance.toLocaleString()} balance`}
-                style={fills ? detailCardStyles.fill : undefined}
-                bodyStyle={fills ? detailCardStyles.fillBody : undefined}
-              >
-                {pointsHistory.length === 0 ? (
-                  <Text style={tabStyles.empty}>No points activity yet.</Text>
-                ) : (
-                  <ScrollView showsVerticalScrollIndicator={false}>
-                    {pointsHistory.map((entry) => (
-                      <View key={entry.id} style={tabStyles.histRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
-                          <Text style={tabStyles.histMeta}>
-                            {new Date(entry.createdAt).toLocaleDateString()}
-                            {entry.note ? ` · ${entry.note}` : ''}
-                          </Text>
-                        </View>
-                        <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
-                          {entry.deltaPoints > 0 ? '+' : ''}
-                          {entry.deltaPoints.toLocaleString()}
-                        </Text>
-                      </View>
-                    ))}
-                    {pointsHistory.length > 0 && !ledgerNote.dismissed && (
-                      <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
-                        The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
-                        one, which is what answers &quot;why is my balance what it is&quot; at the counter.
-                      </Caveat>
-                    )}
-                  </ScrollView>
+                subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
+                rows={pointsHistory}
+                keyExtractor={(entry) => entry.id}
+                emptyLabel="No points activity yet."
+                renderRow={(entry) => (
+                  <View style={tabStyles.histRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
+                      <Text style={tabStyles.histMeta}>
+                        {new Date(entry.createdAt).toLocaleDateString()}
+                        {entry.note ? ` · ${entry.note}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
+                      {entry.deltaPoints > 0 ? '+' : ''}
+                      {entry.deltaPoints.toLocaleString()}
+                    </Text>
+                  </View>
                 )}
-              </BentoCard>
+                footer={
+                  pointsHistory.length > 0 && !ledgerNote.dismissed ? (
+                    <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
+                      The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
+                      one, which is what answers &quot;why is my balance what it is&quot; at the counter.
+                    </Caveat>
+                  ) : undefined
+                }
+              />
             )}
           </>
         }
