@@ -1,3 +1,4 @@
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
@@ -5,8 +6,13 @@ import { CategoryChip } from '@/components/category-chip';
 import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
 import { DateInput } from '@/components/date-input';
 import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } from '@/components/pay-fields';
+import { Avatar } from '@/components/ui/avatar';
+import { Colors } from '@/constants/theme';
 import { isValidRateInput } from '@/lib/pay-rate';
+import { updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import type { Role, ShopLocation, StaffMember } from '@/types/models';
+
+const theme = Colors.light;
 
 type MemberEdits = {
   fullName: string;
@@ -23,6 +29,7 @@ type MemberEdits = {
 
 type TeamMemberEditModalProps = {
   visible: boolean;
+  shopId: string;
   member: StaffMember;
   roles: Role[];
   locations: ShopLocation[];
@@ -31,7 +38,7 @@ type TeamMemberEditModalProps = {
   onSave: (input: MemberEdits) => Promise<void>;
 };
 
-export function TeamMemberEditModal({ visible, member, roles, locations, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
+export function TeamMemberEditModal({ visible, shopId, member, roles, locations, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
   const [fullName, setFullName] = useState(member.fullName ?? '');
   const [email, setEmail] = useState(member.email ?? '');
   const [phone, setPhone] = useState(member.phone ?? '');
@@ -40,8 +47,20 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
   const [active, setActive] = useState(member.active);
   const [hireDate, setHireDate] = useState(member.hireDate ?? '');
   const [pay, setPay] = useState<PayFieldsValue>(payFieldsInitial(member));
+  // The existing remote URL to start, a local uri once a new photo is picked
+  // -- distinguishing the two is what tells save() whether there is anything
+  // new to upload.
+  const [photoUri, setPhotoUri] = useState<string | null>(member.photoUrl);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const pickPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) return;
+    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
+    if (!picked.canceled) setPhotoUri(picked.assets[0].uri);
+  };
 
   const save = async () => {
     if (!fullName.trim() || !email.trim() || !roleId) {
@@ -62,6 +81,20 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
     setSaving(true);
     setError(null);
     try {
+      // A freshly picked photo is a local uri, not the http(s) URL already on
+      // the member -- written directly against shop_members (like
+      // setStaffLocations below), not folded into onSave's payload: the
+      // update-staff Edge Function has no idea this column exists and would
+      // silently drop it.
+      if (photoUri && photoUri !== member.photoUrl) {
+        setUploadingPhoto(true);
+        try {
+          const photoUrl = await uploadStaffPhoto(shopId, member.id, photoUri);
+          await updateStaffPhoto(member.id, photoUrl);
+        } finally {
+          setUploadingPhoto(false);
+        }
+      }
       await onSave({
         fullName: fullName.trim(),
         email: email.trim(),
@@ -101,6 +134,18 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
             </Pressable>
           </View>
           <ScrollView>
+            <Text style={styles.label}>PHOTO</Text>
+            <View style={styles.photoRow}>
+              <Avatar photoUrl={photoUri} name={fullName || null} size={56} />
+              <Pressable
+                onPress={pickPhoto}
+                style={styles.photoPicker}
+                accessibilityRole="button"
+                accessibilityLabel={photoUri ? 'Change staff photo' : 'Upload a staff photo'}
+              >
+                <Text style={styles.photoPickerText}>Click to upload a photo</Text>
+              </Pressable>
+            </View>
             <Text style={styles.label}>FULL NAME</Text>
             <TextInput value={fullName} onChangeText={setFullName} style={styles.input} />
             <Text style={styles.label}>EMAIL</Text>
@@ -164,7 +209,7 @@ export function TeamMemberEditModal({ visible, member, roles, locations, canMana
             )}
             {error && <Text style={styles.error}>{error}</Text>}
             <Pressable onPress={save} disabled={saving} style={[styles.save, saving && styles.disabled]}>
-              <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save changes'}</Text>
+              <Text style={styles.saveText}>{uploadingPhoto ? 'Uploading photo…' : saving ? 'Saving…' : 'Save changes'}</Text>
             </Pressable>
           </ScrollView>
         </View>
@@ -182,6 +227,19 @@ const styles = StyleSheet.create({
   closeText: { color: '#111111', fontWeight: '800', fontSize: 12 },
   label: { color: '#999999', fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
   hint: { color: '#9CA3AF', fontSize: 12, lineHeight: 17, marginTop: 6 },
+  photoRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  photoPicker: {
+    flex: 1,
+    height: 56,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderStyle: 'dashed',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bentoSoft,
+  },
+  photoPickerText: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted },
   input: { backgroundColor: '#F2F2F2', height: 42, borderRadius: 10, paddingHorizontal: 12, color: '#111111' },
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
   save: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignSelf: 'flex-start', marginTop: 20 },

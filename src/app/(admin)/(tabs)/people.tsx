@@ -19,6 +19,7 @@ import { TeamAddModal } from '@/components/team-add-modal';
 import { TeamMemberEditModal } from '@/components/team-member-edit-modal';
 import { TimeOffRequestsPanel } from '@/components/time-off-requests-panel';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
+import { Avatar } from '@/components/ui/avatar';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DetailColumns } from '@/components/ui/detail-columns';
@@ -800,6 +801,7 @@ function TeamManagementTab({
                 onPress={() => setSelectedId(member.id)}
                 style={[tabStyles.row, member.id === selectedId && tabStyles.rowSelected]}
               >
+                <Avatar photoUrl={member.photoUrl} name={member.fullName} size={32} />
                 <View style={tabStyles.rowMain}>
                   <Text style={tabStyles.rowName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
                   <Text style={tabStyles.rowSub}>
@@ -989,6 +991,7 @@ function TeamDetailPane({
       <BentoCard>
         <View style={tabStyles.detHeadRow}>
           <View style={tabStyles.detIdent}>
+            <Avatar photoUrl={member.photoUrl} name={member.fullName} size={40} />
             <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
             <Badge variant="bento" label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
             <Text style={tabStyles.detMeta}>
@@ -1126,6 +1129,7 @@ function TeamDetailPane({
         <TeamMemberEditModal
           key={`${member.id}-${editingMember}`}
           visible={editingMember}
+          shopId={shop.id}
           member={member}
           roles={roles}
           locations={locations}

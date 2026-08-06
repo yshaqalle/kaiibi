@@ -1,4 +1,5 @@
 import { ALL_PERMISSIONS, expandPermissions, type Permission } from '@/lib/permissions';
+import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { Role, Shop, StaffMember } from '@/types/models';
 
@@ -185,6 +186,29 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
   if (count === 0) {
     throw new Error(`Could not ${active ? 'enable' : 'disable'} this member — you may no longer have permission to edit them.`);
   }
+}
+
+// Shares the `product-images` bucket with product photos and shop logos --
+// its RLS only cares that the first path segment is the shop id (migration
+// 0002), not what kind of image this is. `staff` is a sub-folder so the two
+// kinds don't collide by id.
+export async function uploadStaffPhoto(shopId: string, memberId: string, localUri: string): Promise<string> {
+  return uploadImage(`${shopId}/staff/${memberId}`, localUri);
+}
+
+// Written separately from updateStaffMember, the same way setStaffLocations
+// is: that goes through the `update-staff` Edge Function, which has no idea
+// this column exists and would silently drop it. The direct write is gated
+// by "write shop_members roster" (staff.manage OR people.payroll.manage,
+// migration 20260802030200_hr_schema.sql), which grants the whole row, not
+// just the columns the function knows about.
+export async function updateStaffPhoto(memberId: string, photoUrl: string | null): Promise<void> {
+  const { error, count } = await supabase
+    .from('shop_members')
+    .update({ photo_url: photoUrl }, { count: 'exact' })
+    .eq('id', memberId);
+  if (error) throw error;
+  if (count === 0) throw new Error('Could not save this photo — you may no longer have permission to edit this member.');
 }
 
 export async function updateStaffMember(input: {
