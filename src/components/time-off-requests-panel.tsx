@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
-import { BENTO_RADIUS, Colors } from '@/constants/theme';
+import { ListCard } from '@/components/ui/list-card';
+import { Colors } from '@/constants/theme';
 import { decideTimeOffRequest } from '@/lib/time-off';
 import type { StaffMember, TimeOffRequest } from '@/types/models';
 
@@ -10,14 +11,14 @@ import type { StaffMember, TimeOffRequest } from '@/types/models';
 // People roster renders this, and People is a bento screen.
 const theme = Colors.light;
 
-// The roster's time-off inbox, inline rather than behind a modal.
+// The roster's time-off inbox.
 //
 // It used to be a grey bar reading "Time off requests" with a pending count and
 // nothing else -- you had to open a modal to find out whether the one pending
 // request was Hodan asking for Thursday or three people asking for the same
-// week. The common case is one request, so that one is shown with its
-// Approve/Deny buttons live and needs no expansion at all; the rest are one tap
-// away in the same place, instead of a screen away.
+// week. Now the newest couple of requests preview with their Approve/Deny
+// buttons live, and the rest are one tap away in the same card's modal,
+// instead of a screen away.
 
 function formatDay(date: string): string {
   return new Date(date).toLocaleDateString();
@@ -82,15 +83,10 @@ export function TimeOffRequestsPanel({
   staff: StaffMember[];
   onChange: () => Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const nameFor = (shopMemberId: string) => staff.find((m) => m.id === shopMemberId)?.fullName ?? 'Staff member';
   const pending = requests.filter((r) => r.status === 'pending');
-  // The newest pending one is what an approver came here for. With none
-  // pending, the newest decided request still says more than an empty box.
-  const preview = pending[0] ?? requests[0] ?? null;
-  const others = requests.length - 1;
 
   const decide = async (id: string, decision: 'approved' | 'denied') => {
     setError(null);
@@ -102,71 +98,25 @@ export function TimeOffRequestsPanel({
     }
   };
 
-  if (requests.length === 0) {
-    return (
-      <View style={styles.card}>
-        <View style={styles.head}>
-          <Text style={styles.title}>Time off requests</Text>
-          <Badge variant="bento" label="All clear" />
-        </View>
-        <Text style={styles.empty}>No time off requests yet.</Text>
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.card}>
-      <Pressable onPress={() => setExpanded((open) => !open)} style={styles.head}>
-        <Text style={styles.title}>Time off requests</Text>
-        <View style={styles.headRight}>
-          <Badge
-            variant="bento"
-            label={pending.length > 0 ? `${pending.length} pending` : 'All clear'}
-            tone={pending.length > 0 ? 'warning' : 'default'}
-          />
-          {requests.length > 1 && (
-            <Text style={styles.toggle}>{expanded ? 'Hide ▴' : `Show all (${requests.length}) ▾`}</Text>
-          )}
-        </View>
-      </Pressable>
-
+    <View style={styles.wrap}>
       {error && <Text style={styles.error}>{error}</Text>}
-
-      {expanded ? (
-        // Capped so a shop with a long history can't push the roster off the
-        // screen -- the panel scrolls, the page doesn't.
-        <ScrollView style={styles.list}>
-          {requests.map((request) => (
-            <TimeOffRequestRow key={request.id} request={request} name={nameFor(request.shopMemberId)} onDecide={decide} />
-          ))}
-        </ScrollView>
-      ) : (
-        preview && (
-          <>
-            <TimeOffRequestRow request={preview} name={nameFor(preview.shopMemberId)} onDecide={decide} />
-            {others > 0 && <Text style={styles.more}>+ {others} more</Text>}
-          </>
-        )
-      )}
+      <ListCard
+        title="Time off requests"
+        scope={pending.length > 0 ? `${pending.length} pending` : 'All clear'}
+        rows={requests}
+        keyExtractor={(request) => request.id}
+        emptyLabel="No time off requests yet."
+        renderRow={(request) => <TimeOffRequestRow request={request} name={nameFor(request.shopMemberId)} onDecide={decide} />}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  // A card in its own right now, not a grey inset: it sits above the roster
-  // card in the list pane, and two different greys stacked read as a mistake.
-  card: {
-    backgroundColor: theme.bentoSurface,
-    borderRadius: BENTO_RADIUS,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    marginBottom: 12,
-  },
-  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  headRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: theme.bentoInk },
-  toggle: { fontSize: 11.5, fontWeight: '700', color: theme.bentoMuted },
-  list: { maxHeight: 280, marginTop: 4 },
+  // Spacing where the old inline card used to sit above the roster card in
+  // the list pane.
+  wrap: { marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingTop: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.bentoLine },
   rowMain: { flex: 1, gap: 2 },
   name: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
@@ -178,7 +128,5 @@ const styles = StyleSheet.create({
   // the signal, so the green/red pair never has to carry the meaning by itself.
   approve: { fontSize: 12.5, fontWeight: '700', color: '#0B6B3C' },
   deny: { fontSize: 12.5, fontWeight: '700', color: '#B23B4E' },
-  more: { fontSize: 11.5, fontWeight: '600', color: theme.bentoMuted, marginTop: 10 },
-  empty: { fontSize: 12, color: theme.bentoMuted, marginTop: 10 },
-  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginTop: 10 },
+  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 8 },
 });
