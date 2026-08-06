@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useDetailSelection, useHeaderActions, type DetailSelectionSetter, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
@@ -172,6 +172,9 @@ export default function PeopleScreen() {
   // mechanism Accounting uses; the tabs previously each drew "People" as a
   // heading, which meant three copies of one string.
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);
+  // Published by whichever tab has a detail pane, so the blurb can get out of
+  // the way once there is something more specific to look at.
+  const [detailSelected, setDetailSelected] = useState(false);
 
   const options = [
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: TAB_BLURBS.customers.label }] : []),
@@ -190,7 +193,7 @@ export default function PeopleScreen() {
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>PEOPLE</Text>
             <Text style={styles.title}>{TAB_BLURBS[tab].label}</Text>
-            <Text style={styles.blurb}>{TAB_BLURBS[tab].blurb}</Text>
+            {!detailSelected && <Text style={styles.blurb}>{TAB_BLURBS[tab].blurb}</Text>}
           </View>
           <View style={styles.headerActions}>{headerActions}</View>
         </View>
@@ -201,8 +204,8 @@ export default function PeopleScreen() {
           </View>
         )}
 
-        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} setHeaderActions={setHeaderActions} /> : null}
-        {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} /> : null}
+        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
+        {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
         {tab === 'schedule' && canSeeSchedule ? <ScheduleTab setHeaderActions={setHeaderActions} /> : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} />
@@ -212,7 +215,15 @@ export default function PeopleScreen() {
   );
 }
 
-function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHeaderActions: HeaderActionsSetter }) {
+function CustomersTab({
+  compact,
+  setHeaderActions,
+  setDetailSelected,
+}: {
+  compact: boolean;
+  setHeaderActions: HeaderActionsSetter;
+  setDetailSelected: DetailSelectionSetter;
+}) {
   const { shop, can } = useAuth();
   const canEdit = can('customers.edit');
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -226,6 +237,8 @@ function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHead
   const [showImportModal, setShowImportModal] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+
+  useDetailSelection(setDetailSelected, selectedId !== null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -623,7 +636,15 @@ function MeTab({ shopId, member }: { shopId: string; member: StaffMember }) {
   );
 }
 
-function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; setHeaderActions: HeaderActionsSetter }) {
+function TeamManagementTab({
+  compact,
+  setHeaderActions,
+  setDetailSelected,
+}: {
+  compact: boolean;
+  setHeaderActions: HeaderActionsSetter;
+  setDetailSelected: DetailSelectionSetter;
+}) {
   const { shop, can, canAny, locations } = useAuth();
   const rosterStores = (member: StaffMember) =>
     describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
@@ -643,6 +664,8 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useDetailSelection(setDetailSelected, selectedId !== null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
