@@ -154,9 +154,15 @@ export function CashBudgetsTab({
 
   if (!allowed) {
     return (
-      <Text style={styles.empty}>
-        Cash and budgets need the budgets permission. Ask an owner to grant it in Settings → Roles.
-      </Text>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard title="Cash & Budgets">
+            <Text style={styles.empty}>
+              Cash and budgets need the budgets permission. Ask an owner to grant it in Settings → Roles.
+            </Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
     );
   }
 
@@ -177,10 +183,10 @@ export function CashBudgetsTab({
         <BentoCell span={12}>
           <BentoCard title="Cash position" scope="As of today">
             <View style={styles.metricRow}>
-              <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />
-              <StatTile value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
+              <StatTile variant="bento" value={formatCompactCents(cashTotal)} label="Cash on hand" />
+              <StatTile variant="bento" value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
               {canSeeWagesOwed && accruedWagesCents > 0 && (
-                <StatTile value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
+                <StatTile variant="bento" value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
               )}
             </View>
             {/* Worth saying out loud: this is the number that catches shops
@@ -198,7 +204,12 @@ export function CashBudgetsTab({
 
       {loading ? (
         <BentoCell span={12}>
-          <Text style={styles.empty}>Loading…</Text>
+          {/* In a card, like every other state on this screen. Bare grey text
+              on the page reads as the screen having failed rather than as it
+              still working. */}
+          <BentoCard>
+            <Text style={styles.empty}>Loading…</Text>
+          </BentoCard>
         </BentoCell>
       ) : (
         <>
@@ -298,7 +309,7 @@ export function CashBudgetsTab({
                     </View>
                     <View style={styles.rowRight}>
                       {state !== 'upcoming' && (
-                        <Badge
+                        <Badge variant="bento"
                           label={state === 'overdue' ? 'Overdue' : 'Due soon'}
                           tone={state === 'overdue' ? 'danger' : 'warning'}
                         />

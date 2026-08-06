@@ -139,17 +139,17 @@ export function InvoicesTab({
             invoice-reporting.ts already insists on it. */}
         <BentoCard title="What you owe" scope="As of today">
           <View style={styles.metricRow}>
-            <StatTile
+            <StatTile variant="bento"
               value={formatCompactCents(totals.outstandingCents)}
               label="Still owed"
               tone={totals.outstandingCents > 0 ? 'warning' : 'default'}
             />
-            <StatTile
+            <StatTile variant="bento"
               value={formatCompactCents(totals.overdueCents)}
               label="Overdue"
               tone={totals.overdueCents > 0 ? 'warning' : 'default'}
             />
-            <StatTile value={String(totals.openCount)} label="Unpaid bills" />
+            <StatTile variant="bento" value={String(totals.openCount)} label="Unpaid bills" />
           </View>
           <Text style={styles.subtitle}>
             Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.
@@ -187,7 +187,7 @@ export function InvoicesTab({
                     </Text>
                   </View>
                   <View style={[styles.cardRight, compact && styles.cardRightCompact]}>
-                    <Badge label={INVOICE_STATUS_LABELS[status]} tone={INVOICE_STATUS_TONES[status]} />
+                    <Badge variant="bento" label={INVOICE_STATUS_LABELS[status]} tone={INVOICE_STATUS_TONES[status]} />
                     <Text style={styles.cardAmount}>
                       {outstanding > 0 ? `${formatAccountingCents(outstanding)} owed` : formatAccountingCents(invoice.amountCents)}
                     </Text>

@@ -147,10 +147,10 @@ export function ExpensesTab({
       <BentoCell span={12}>
         <BentoCard title="What the shop spent" scope={rangeLabel}>
           <View style={styles.metricRow}>
-            <StatTile value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
-            <StatTile value={formatCompactCents(operatingCents)} label="Operating expenses" hint="feeds net profit" />
+            <StatTile variant="bento" value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
+            <StatTile variant="bento" value={formatCompactCents(operatingCents)} label="Operating expenses" hint="feeds net profit" />
             {nonOperatingCents > 0 && (
-              <StatTile value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" hint="excluded from profit" />
+              <StatTile variant="bento" value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" hint="excluded from profit" />
             )}
           </View>
         </BentoCard>

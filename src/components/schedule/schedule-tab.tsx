@@ -3,6 +3,8 @@ import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } fr
 
 import { useAuth } from '@/hooks/use-auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { Colors } from '@/constants/theme';
+import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { BulkShiftModal } from '@/components/schedule/bulk-shift-modal';
@@ -27,6 +29,9 @@ import { listStaff } from '@/lib/staff';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
 
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
+
 function dayLabel(date: string): string {
   const [, month, day] = date.split('-');
   return `${day}/${month}`;
@@ -37,7 +42,7 @@ function totalHours(shifts: Shift[]): string {
   return `${(minutes / 60).toFixed(minutes % 60 === 0 ? 0 : 1)}h`;
 }
 
-export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
+export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActionsSetter }) {
   const { shop, locations, activeLocation } = useAuth();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -181,10 +186,33 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
   const shiftLabel = (shift: Shift) =>
     `${shift.start}–${shift.end}${!locationId && multiStore ? ` · ${storeName(shift.locationId)}` : ''}`;
 
+  // Export/Import/Add are SCREEN actions and go up to the shell's title row.
+  // The week nav below stays in the body: ‹ › Today and Copy last week act on
+  // the board underneath them, and moving them into the header would separate
+  // them from the thing they move.
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      <ExportMenu
+        rows={visibleShifts}
+        columns={exportColumns}
+        title="Schedule"
+        subtitle={`${dayLabel(days[0])} – ${dayLabel(days[6])}${locationId ? ` · ${storeName(locationId)}` : ''}`}
+        filenamePrefix="schedule"
+      />
+      <Pressable onPress={() => setShowImportModal(true)} style={styles.navButton}>
+        <Text style={styles.navText}>Import</Text>
+      </Pressable>
+      <Pressable onPress={() => setShowBulkModal(true)} style={[styles.navButton, styles.navButtonSolid]}>
+        <Text style={[styles.navText, styles.navTextSolid]}>+ Add shifts</Text>
+      </Pressable>
+    </>,
+    [visibleShifts, exportColumns, days, locationId]
+  );
+
   return (
     <View>
       <View style={styles.header}>
-        <Text style={styles.title}>Schedule</Text>
         <View style={styles.weekNav}>
           <Pressable onPress={() => setMonday(addDaysToDate(monday, -7))} style={styles.navButton}>
             <Text style={styles.navText}>‹</Text>
@@ -199,22 +227,8 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
           <Pressable onPress={copyLastWeek} style={styles.navButton}>
             <Text style={styles.navText}>Copy last week</Text>
           </Pressable>
-          <ExportMenu
-            rows={visibleShifts}
-            columns={exportColumns}
-            title="Schedule"
-            subtitle={`${dayLabel(days[0])} – ${dayLabel(days[6])}${locationId ? ` · ${storeName(locationId)}` : ''}`}
-            filenamePrefix="schedule"
-          />
-          <Pressable onPress={() => setShowImportModal(true)} style={styles.navButton}>
-            <Text style={styles.navText}>Import</Text>
-          </Pressable>
-          <Pressable onPress={() => setShowBulkModal(true)} style={styles.navButton}>
-            <Text style={styles.navText}>+ Add shifts</Text>
-          </Pressable>
         </View>
       </View>
-      {tabSwitcher}
 
       {/* Only when there is a choice to make -- a single-store business has one
           answer and this row would say nothing. */}
@@ -390,33 +404,41 @@ export function ScheduleTab({ tabSwitcher }: { tabSwitcher: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' },
-  title: { fontSize: 20, fontWeight: '800', color: '#111111' },
   weekNav: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  navButton: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 12, paddingVertical: 8 },
-  navText: { fontSize: 13, fontWeight: '800', color: '#111111' },
-  weekLabel: { fontSize: 13, fontWeight: '700', color: '#111111', minWidth: 104, textAlign: 'center' },
+  navButton: {
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+  },
+  navButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  navText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+  navTextSolid: { color: theme.bentoSurface },
+  weekLabel: { fontSize: 13, fontWeight: '700', color: theme.bentoInk, minWidth: 104, textAlign: 'center' },
   storeStrip: { marginBottom: 12 },
-  storeChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
-  storeChipActive: { backgroundColor: '#111111' },
-  storeChipText: { fontSize: 12, fontWeight: '700', color: '#444444' },
-  storeChipTextActive: { color: '#FFFFFF' },
+  storeChip: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginRight: 8 },
+  storeChipActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  storeChipText: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
+  storeChipTextActive: { color: theme.bentoSurface },
   dayStrip: { marginBottom: 12 },
-  dayChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8, marginRight: 8 },
-  dayChipActive: { backgroundColor: '#111111' },
-  dayChipText: { fontSize: 12, fontWeight: '700', color: '#444444' },
-  dayChipTextActive: { color: '#FFFFFF' },
-  listRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
+  dayChip: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7, marginRight: 8 },
+  dayChipActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  dayChipText: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
+  dayChipTextActive: { color: theme.bentoSurface },
+  listRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
   listRowRight: { flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 1, flexWrap: 'wrap', justifyContent: 'flex-end' },
-  addShift: { fontSize: 12, fontWeight: '800', color: '#666666' },
-  gridRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
-  gridCell: { width: 104, padding: 10, fontSize: 12, color: '#111111' },
+  addShift: { fontSize: 12, fontWeight: '800', color: theme.bentoMuted },
+  gridRow: { flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  gridCell: { width: 104, padding: 10, fontSize: 12, color: theme.bentoInk },
   gridCellStack: { gap: 4 },
-  gridHeadCell: { fontWeight: '800', color: '#999999', fontSize: 11 },
-  memberName: { fontSize: 13, fontWeight: '700', color: '#111111' },
-  times: { fontSize: 12, color: '#111111' },
-  off: { color: '#999999' },
+  gridHeadCell: { fontWeight: '800', color: theme.bentoMuted, fontSize: 11 },
+  memberName: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  times: { fontSize: 12, color: theme.bentoInk },
+  off: { color: theme.bentoMuted2 },
   total: { fontWeight: '800' },
-  empty: { fontSize: 13, color: '#999999', paddingVertical: 24, textAlign: 'center' },
-  error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
-  notice: { fontSize: 12, fontWeight: '700', color: '#111111', marginBottom: 12 },
+  empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 24, textAlign: 'center' },
+  error: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginBottom: 12 },
+  notice: { fontSize: 12, fontWeight: '700', color: theme.bentoInk, marginBottom: 12 },
 });

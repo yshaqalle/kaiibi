@@ -197,8 +197,11 @@ export function PayrollTab({
     <BentoGrid>
       <PayrollHeaderActions allowed={allowed} creating={creating} onNew={openCreate} setHeaderActions={setHeaderActions} />
 
+      {/* No title: the page header two lines above already says "Payroll",
+          and repeating it made the screen read as having two headings. This
+          card is a note, not a section. */}
       <BentoCell span={12}>
-        <BentoCard title="Payroll">
+        <BentoCard>
           <Text style={styles.subtitle}>
             Turn clocked hours and pay rates into a cost. Posting a run adds it to expenses so wages count against profit.
           </Text>
@@ -321,7 +324,7 @@ export function PayrollTab({
                   </Text>
                 </View>
                 <View style={styles.cardRight}>
-                  <Badge label={r.status === 'posted' ? 'Posted' : 'Draft'} tone={r.status === 'posted' ? 'success' : 'default'} />
+                  <Badge variant="bento" label={r.status === 'posted' ? 'Posted' : 'Draft'} tone={r.status === 'posted' ? 'success' : 'default'} />
                   <Text style={styles.cardAmount}>{formatAccountingCents(total)}</Text>
                 </View>
               </Pressable>

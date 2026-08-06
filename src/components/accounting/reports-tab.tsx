@@ -162,7 +162,17 @@ export function ReportsTab({
 
   useEffect(() => { reload(); }, [reload]);
 
-  if (loading || !performance) return <Text style={styles.empty}>Loading…</Text>;
+  if (loading || !performance) {
+    return (
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard>
+            <Text style={styles.empty}>Loading…</Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+    );
+  }
 
   const revenueCents = performance.netRevenueCents;
   const cogsCents = performance.cogsCents;
@@ -403,7 +413,10 @@ export function ReportsTab({
         </BentoCell>
       )}
 
-      <BentoCell span={6}>
+      {/* Pairs with "Where the money went" when there is one, and takes the
+          whole row when there isn't — otherwise a shop with no expenses logged
+          gets a half-width card with a hole beside it. */}
+      <BentoCell span={categoryTotals.length > 0 ? 6 : 12}>
         <BentoCard title="Sales by product category" scope={rangeLabel}>
           <CategoryDonutChart items={categorySlices} totalLabel="Units sold" />
         </BentoCard>

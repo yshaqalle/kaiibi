@@ -51,6 +51,22 @@ export function BentoGrid({
 }
 
 /**
+ * The other body layout: full-width cards stacked down the page, no grid.
+ *
+ * For screens you READ rather than glance at — the ledgers (Transactions,
+ * Bills, Expenses, Payroll). A table in a `BentoCell` spans all twelve
+ * columns anyway, so the grid buys nothing while costing the cell's 36px of
+ * horizontal padding; on a phone it also puts a horizontally-scrolling table
+ * inside a horizontally-scrolling card.
+ *
+ * `gap` is safe here in a way it isn't in `BentoGrid`: the warning is about
+ * WRAPPING rows, and this never wraps.
+ */
+export function BentoFlow({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.flow, style]}>{children}</View>;
+}
+
+/**
  * One cell. `span` is in TWELFTHS regardless of the active column count --
  * callers describe the layout once, in the vocabulary of the design, and the
  * cell resolves it for the width it actually has.
@@ -109,6 +125,7 @@ const styles = StyleSheet.create({
     // targets, and the half-gutter trick works identically everywhere.
     marginHorizontal: -GAP / 2,
   },
+  flow: { gap: GAP },
   cellOuter: { paddingHorizontal: GAP / 2, marginBottom: GAP },
   // Lets a card inside stretch to the cell's width without the caller
   // remembering to set it.

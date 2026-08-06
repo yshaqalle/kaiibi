@@ -1,9 +1,10 @@
 import { Image } from 'expo-image';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { GlobalSearch } from '@/components/dashboard/global-search';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useShopLogo } from '@/hooks/use-shop-logo';
 import type { SearchResult } from '@/lib/search';
 
 const theme = Colors.light;
@@ -22,23 +23,34 @@ const theme = Colors.light;
 // and a screen that took them as props could be handed the wrong ones.
 export function DashboardPageHeader({ onSelectResult }: { onSelectResult: (result: SearchResult) => void }) {
   const { shop } = useAuth();
+  const { editLogo, uploading, canEditLogo, logoUrl } = useShopLogo();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
 
   return (
     <View style={styles.bar}>
       <View style={styles.brand}>
-        <View style={styles.mark}>
-          {shop?.logoUrl ? (
-            <Image source={{ uri: shop.logoUrl }} style={styles.markImage} contentFit="cover" />
+        <Pressable
+          onPress={editLogo}
+          disabled={!canEditLogo || uploading}
+          // Light behind a real logo, dark only behind the fallback initial.
+          // A logo is usually a transparent PNG, and on a near-black circle
+          // its dark strokes disappear into the background — which is exactly
+          // how this looked before.
+          style={[styles.mark, logoUrl ? styles.markWithLogo : styles.markFallback, uploading && styles.markBusy]}
+          accessibilityLabel={canEditLogo ? 'Change shop logo' : undefined}
+          accessibilityRole={canEditLogo ? 'button' : undefined}
+        >
+          {logoUrl ? (
+            <Image source={{ uri: logoUrl }} style={styles.markImage} contentFit="cover" />
           ) : (
             <Text style={styles.markText}>{initial}</Text>
           )}
-        </View>
+        </Pressable>
         <View style={styles.brandText}>
           <Text style={styles.shopName} numberOfLines={1}>
             {shop?.name ?? 'Dashboard'}
           </Text>
-          <Text style={styles.shopMeta}>Dashboard</Text>
+          <Text style={styles.shopMeta}>{canEditLogo ? 'Tap the logo to change it' : 'Dashboard'}</Text>
         </View>
       </View>
 
@@ -67,11 +79,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: theme.bentoInk,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  markWithLogo: { backgroundColor: theme.bentoSoft, borderWidth: 1, borderColor: theme.bentoLine },
+  markFallback: { backgroundColor: theme.bentoInk },
+  markBusy: { opacity: 0.5 },
   markImage: { width: '100%', height: '100%' },
   markText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
   brandText: { flexShrink: 1 },

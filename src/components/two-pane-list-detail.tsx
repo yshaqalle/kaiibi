@@ -1,6 +1,12 @@
 import type { ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { Colors } from '@/constants/theme';
+
+// Pinned to the light palette for now — no dark-mode switching yet. Only the
+// People screen renders this, and People is a bento screen.
+const theme = Colors.light;
+
 // Shared list+detail shell for the People screen's two sub-tabs (Customers,
 // Team). Wide: list and detail render side by side, both always visible.
 // Compact: the list owns the screen and the detail opens in a bottom-sheet
@@ -73,12 +79,20 @@ const styles = StyleSheet.create({
   paneContent: { flexGrow: 1 },
   compact: { flex: 1, minHeight: 0 },
   compactContent: { paddingBottom: 24 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' },
-  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: '#111111' },
+  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
+  // The sheet is the PAGE, not a card: the detail arrives as a stack of bento
+  // cards, and giving the sheet a white ground too would flatten them into it.
+  sheet: {
+    backgroundColor: theme.bentoPage,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 16,
+    maxHeight: '85%',
+  },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
   sheetContent: { paddingBottom: 8 },
-  close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  close: { backgroundColor: theme.bentoSurface, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999 },
   closePressed: { opacity: 0.6 },
-  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  closeText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
 });

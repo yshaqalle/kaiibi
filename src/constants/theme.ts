@@ -34,12 +34,15 @@ export const Colors = {
     chartSeries4: '#e87ba4',
     // ---- Bento surfaces (see docs/design/dashboard-mockup.html) ----
     //
-    // The cool-grey/white world the Dashboard and Accounting are being
+    // The cool-grey/white world the Dashboard, Accounting and People have been
     // converted to. Deliberately NOT a replacement for `background` /
-    // `surface` / `border` above: POS, Inventory, People and Settings still
-    // read those and stay cream until each is converted on purpose. Two
-    // palettes coexist during the conversion; that is the agreed interim
-    // state, not an oversight.
+    // `surface` / `border` above: POS, Inventory and Settings still read those
+    // and stay cream until each is converted on purpose. Two palettes coexist
+    // during the conversion; that is the agreed interim state, not an
+    // oversight.
+    //
+    // Modals are a third case, not yet decided: every one in the app still
+    // wears the stock white-card treatment, including the ones People opens.
     bentoPage: '#f4f4f5',
     bentoSurface: '#ffffff',
     bentoInk: '#0b0b0d',

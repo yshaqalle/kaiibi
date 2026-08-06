@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { Link, usePathname, useRouter } from 'expo-router';
 import { ReactNode, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,10 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
+import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // Shared between admin-tabs.tsx (native, tablet width) and
 // admin-tabs.web.tsx (web, desktop width) so the wide-layout nav only has
@@ -68,33 +67,17 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
+  const { shop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
-  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
 
-  // Lets the shop logo be changed straight from the sidebar avatar, not
-  // just from Settings — a quick "click your logo to change it" affordance.
-  // Same permission as Settings itself, since that's the screen this is a
-  // shortcut for (and what the shops/storage policies check).
-  const canEditShop = can('settings.access');
-  const editLogo = async () => {
-    if (!shop || uploadingLogo || !canEditShop) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (result.canceled) return;
-    setUploadingLogo(true);
-    try {
-      const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
-      await updateShop(shop.id, { logoUrl });
-      await refreshShop();
-    } finally {
-      setUploadingLogo(false);
-    }
-  };
+  // Lets the shop logo be changed straight from the sidebar avatar, not just
+  // from Settings — a quick "click your logo to change it" affordance. The
+  // flow itself lives in useShopLogo(), shared with the mobile header and the
+  // Dashboard's header band so all three crop and upload identically.
+  const { editLogo, canEditLogo: canEditShop } = useShopLogo();
 
   return (
     <View style={styles.tabs}>

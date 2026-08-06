@@ -25,6 +25,7 @@ export function StatTile({
   delta,
   tone = 'default',
   sparkline,
+  variant = 'default',
 }: {
   value: string;
   label: string;
@@ -32,12 +33,24 @@ export function StatTile({
   delta?: { text: string; direction: 'up' | 'down' };
   tone?: 'default' | 'warning' | 'positive';
   sparkline?: number[];
+  /**
+   * `bento` makes the tile an INSET panel rather than a card: soft grey fill,
+   * 16px radius, no border.
+   *
+   * A default tile inside a bento card reads as a box within a box — a cream
+   * hairline and a 12px corner sitting on a borderless 26px white card. On the
+   * bento screens the card is already the container, so the tile only has to
+   * separate itself from the card, which a fill does better than an outline.
+   */
+  variant?: 'default' | 'bento';
 }) {
+  const bento = variant === 'bento';
+
   return (
-    <Card style={styles.tile}>
+    <Card variant={bento ? 'bento' : 'default'} style={[styles.tile, bento && styles.tileBento]}>
       {/* Two lines, so "Customers to check on" wraps between words instead of
           being broken mid-word by a column too narrow for the longest one. */}
-      <Text style={styles.label} numberOfLines={2}>
+      <Text style={[styles.label, bento && styles.labelBento]} numberOfLines={2}>
         {label.toUpperCase()}
       </Text>
 
@@ -45,7 +58,7 @@ export function StatTile({
         {/* Shrinks rather than overflows, and never wraps: a figure broken
             across two lines is harder to read than one scaled down. */}
         <Text
-          style={[styles.value, TONE[tone]]}
+          style={[styles.value, bento ? TONE_BENTO[tone] : TONE[tone]]}
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.7}
@@ -59,7 +72,7 @@ export function StatTile({
         ) : null}
       </View>
 
-      {hint ? <Text style={styles.hint} numberOfLines={2}>{hint}</Text> : null}
+      {hint ? <Text style={[styles.hint, bento && styles.hintBento]} numberOfLines={2}>{hint}</Text> : null}
       {sparkline && sparkline.length > 1 ? <Sparkline values={sparkline} /> : null}
     </Card>
   );
@@ -96,12 +109,24 @@ const TONE = StyleSheet.create({
   positive: { color: theme.success },
 });
 
+// The bento ink ramp, not the cream one. `positive`/`warning` map to the
+// status tokens, which stay legal here because a tile always shows the figure
+// itself — the colour reinforces the number, it never replaces it.
+const TONE_BENTO = StyleSheet.create({
+  default: { color: theme.bentoInk },
+  warning: { color: theme.bentoLoss },
+  positive: { color: theme.bentoProfit },
+});
+
 const styles = StyleSheet.create({
   // `minWidth` is what makes the surrounding `flexWrap` row actually wrap.
   // With `flex: 1` alone the tiles shrink without limit, so five of them
   // squeeze onto one phone-width line, clipping the value and breaking the
   // label mid-word. Now they drop to the next line instead.
   tile: { flex: 1, minWidth: 148, minHeight: 92, padding: 14 },
+  // 16, not BENTO_RADIUS: this is a panel inside a 26px card, and matching the
+  // parent's corner makes the two read as the same surface.
+  tileBento: { backgroundColor: theme.bentoSoft, borderRadius: 16 },
   label: {
     fontSize: 9.5,
     letterSpacing: 1.1,
@@ -109,6 +134,7 @@ const styles = StyleSheet.create({
     color: theme.textSecondary,
     lineHeight: 13,
   },
+  labelBento: { color: theme.bentoMuted },
   valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 7 },
   // flexShrink lets adjustsFontSizeToFit actually engage — without it the Text
   // keeps its intrinsic width and overflows the tile instead of scaling.
@@ -117,5 +143,6 @@ const styles = StyleSheet.create({
   deltaUp: { color: theme.success },
   deltaDown: { color: theme.danger },
   hint: { fontSize: 11, color: theme.textSecondary, marginTop: 3, lineHeight: 15 },
+  hintBento: { color: theme.bentoMuted2 },
   spark: { marginTop: 8 },
 });

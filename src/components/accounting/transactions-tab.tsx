@@ -200,8 +200,8 @@ export function TransactionsTab({
       <BentoCell span={12}>
         <BentoCard title="Sales in this range" scope={rangeLabel}>
           <View style={styles.metricRow}>
-            <StatTile value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
-            <StatTile value={String(filtered.length)} label="Orders" />
+            <StatTile variant="bento" value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
+            <StatTile variant="bento" value={String(filtered.length)} label="Orders" />
           </View>
         </BentoCard>
       </BentoCell>

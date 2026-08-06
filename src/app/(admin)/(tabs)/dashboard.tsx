@@ -554,25 +554,25 @@ export default function DashboardScreen() {
               <View style={styles.metricRow}>
                 {/* Net of sales tax and refunds — tax collected is the
                     government's money, so it was never revenue. */}
-                <StatTile value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
-                {cogs && <StatTile value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
-                {canSeeExpenses && <StatTile value={formatCompactCents(pnl.operatingCents)} label="Expenses" hint="operating" />}
+                <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
+                {cogs && <StatTile variant="bento" value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
+                {canSeeExpenses && <StatTile variant="bento" value={formatCompactCents(pnl.operatingCents)} label="Expenses" hint="operating" />}
                 {canSeeExpenses && (
-                  <StatTile
+                  <StatTile variant="bento"
                     value={formatCompactCents(pnl.netProfitCents)}
                     label="Net profit"
                     tone={pnl.netProfitCents < 0 ? 'warning' : 'positive'}
                   />
                 )}
-                <StatTile value={String(orderCount)} label="Orders" />
+                <StatTile variant="bento" value={String(orderCount)} label="Orders" />
                 {canSeeCustomers && (
-                  <StatTile
+                  <StatTile variant="bento"
                     value={String(dormant.length)}
                     label="Customers to check on"
                     tone={dormant.length > 0 ? 'warning' : 'default'}
                   />
                 )}
-                {canSeeTeam && hr && <StatTile value={String(hr.activeToday)} label="Team active today" />}
+                {canSeeTeam && hr && <StatTile variant="bento" value={String(hr.activeToday)} label="Team active today" />}
               </View>
             </Card>
           </BentoCell>
@@ -649,8 +649,11 @@ export default function DashboardScreen() {
             </Card>
           </BentoCell>
 
+          {/* Span 12, not 6: DataTable manages its own horizontal scroll and
+              gutters, and a half-width cell squeezed three columns into ~360px
+              on a laptop. A table wants the width. */}
           {lowStock.length > 0 && (
-            <BentoCell span={6}>
+            <BentoCell span={12}>
             {/* A table, not tiles. The question here is comparative -- units
                 left against the level that triggers a reorder -- and tiles
                 force each product to be read on its own. */}
@@ -721,7 +724,7 @@ export default function DashboardScreen() {
           )}
 
           {expiringSoon.length > 0 && (
-            <BentoCell span={6}>
+            <BentoCell span={12}>
             <Card variant="bento" style={styles.tableCard}>
               <View style={[styles.cardHead, styles.tableHead]}>
                 <Text style={styles.cardTitle}>Expiring soon</Text>

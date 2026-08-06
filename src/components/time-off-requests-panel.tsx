@@ -2,8 +2,13 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
+import { BENTO_RADIUS, Colors } from '@/constants/theme';
 import { decideTimeOffRequest } from '@/lib/time-off';
 import type { StaffMember, TimeOffRequest } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet. Only the
+// People roster renders this, and People is a bento screen.
+const theme = Colors.light;
 
 // The roster's time-off inbox, inline rather than behind a modal.
 //
@@ -61,7 +66,7 @@ function TimeOffRequestRow({
           </Pressable>
         </View>
       ) : (
-        <Badge label={request.status === 'approved' ? 'Approved' : 'Denied'} tone={request.status === 'approved' ? 'success' : 'danger'} />
+        <Badge variant="bento" label={request.status === 'approved' ? 'Approved' : 'Denied'} tone={request.status === 'approved' ? 'success' : 'danger'} />
       )}
     </View>
   );
@@ -102,7 +107,7 @@ export function TimeOffRequestsPanel({
       <View style={styles.card}>
         <View style={styles.head}>
           <Text style={styles.title}>Time off requests</Text>
-          <Badge label="All clear" />
+          <Badge variant="bento" label="All clear" />
         </View>
         <Text style={styles.empty}>No time off requests yet.</Text>
       </View>
@@ -115,6 +120,7 @@ export function TimeOffRequestsPanel({
         <Text style={styles.title}>Time off requests</Text>
         <View style={styles.headRight}>
           <Badge
+            variant="bento"
             label={pending.length > 0 ? `${pending.length} pending` : 'All clear'}
             tone={pending.length > 0 ? 'warning' : 'default'}
           />
@@ -147,22 +153,32 @@ export function TimeOffRequestsPanel({
 }
 
 const styles = StyleSheet.create({
-  card: { backgroundColor: '#F7F7F7', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 12, marginBottom: 10 },
+  // A card in its own right now, not a grey inset: it sits above the roster
+  // card in the list pane, and two different greys stacked read as a mistake.
+  card: {
+    backgroundColor: theme.bentoSurface,
+    borderRadius: BENTO_RADIUS,
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    marginBottom: 12,
+  },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   headRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  title: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
-  toggle: { fontSize: 11.5, fontWeight: '700', color: '#666666' },
+  title: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: theme.bentoInk },
+  toggle: { fontSize: 11.5, fontWeight: '700', color: theme.bentoMuted },
   list: { maxHeight: 280, marginTop: 4 },
-  row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingTop: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: '#E6E6E6' },
+  row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingTop: 12, marginTop: 8, borderTopWidth: 1, borderTopColor: theme.bentoLine },
   rowMain: { flex: 1, gap: 2 },
-  name: { fontSize: 13, fontWeight: '700', color: '#111111' },
-  range: { fontSize: 12, color: '#444444' },
-  reason: { fontSize: 11.5, color: '#999999' },
-  requested: { fontSize: 10.5, color: '#B0B0B0', marginTop: 2 },
+  name: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  range: { fontSize: 12, color: theme.bentoInk2 },
+  reason: { fontSize: 11.5, color: theme.bentoMuted },
+  requested: { fontSize: 10.5, color: theme.bentoMuted2, marginTop: 2 },
   actions: { alignItems: 'flex-end', gap: 8 },
-  approve: { fontSize: 12.5, fontWeight: '700', color: '#2E7D46' },
+  // Kept as words, not colour alone: "Approve" and "Deny" are the label AND
+  // the signal, so the green/red pair never has to carry the meaning by itself.
+  approve: { fontSize: 12.5, fontWeight: '700', color: '#0B6B3C' },
   deny: { fontSize: 12.5, fontWeight: '700', color: '#B23B4E' },
-  more: { fontSize: 11.5, fontWeight: '600', color: '#999999', marginTop: 10 },
-  empty: { fontSize: 12, color: '#999999', marginTop: 10 },
-  error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
+  more: { fontSize: 11.5, fontWeight: '600', color: theme.bentoMuted, marginTop: 10 },
+  empty: { fontSize: 12, color: theme.bentoMuted, marginTop: 10 },
+  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginTop: 10 },
 });

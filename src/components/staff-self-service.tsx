@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
-import { Card } from '@/components/card';
 import { DateInput } from '@/components/date-input';
 import { StatTile } from '@/components/stat-tile';
+import { BentoCard } from '@/components/ui/bento-card';
+import { Colors } from '@/constants/theme';
 import { TIME_OFF_REASONS } from '@/constants/time-off';
 import { formatAccountingCents } from '@/lib/currency';
 import { toDateColumn } from '@/lib/period';
@@ -15,6 +16,10 @@ import { cancelTimeOffRequest, listMyTimeOffRequests, requestTimeOff, updateTime
 import { listMyShifts } from '@/lib/shifts';
 import type { Shift } from '@/lib/scheduling';
 import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet. Only the
+// People screen's Me tab renders this, and People is a bento screen.
+const theme = Colors.light;
 
 // The self-service view is intentionally a component rather than a route so
 // it can live under People → Team for every active staff member.
@@ -88,38 +93,35 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
   }, [openEntry, now]);
 
   return (
-    <View>
-      <Card style={styles.clockCard}>
+    <View style={styles.stack}>
+      <BentoCard>
         <Text style={styles.clockStatus}>{openEntry ? `Clocked in since ${new Date(openEntry.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : 'Not clocked in'}</Text>
         {elapsedLabel && <Text style={styles.clockElapsed}>{elapsedLabel}</Text>}
         <Pressable onPress={toggleClock} disabled={clocking} style={[styles.clockButton, clocking && styles.clockButtonDisabled]}>
           <Text style={styles.clockButtonText}>{clocking ? 'Working…' : openEntry ? 'Clock out' : 'Clock in'}</Text>
         </Pressable>
         {error && <Text style={styles.error}>{error}</Text>}
-      </Card>
+        <View style={styles.tiles}>
+          <StatTile variant="bento" value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
+          <StatTile variant="bento" value={member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—'} label="Pay type" />
+          <StatTile
+            variant="bento"
+            value={member.payType && member.payRateCents !== null ? formatAccountingCents(member.payRateCents) : '—'}
+            label={member.payType ? `Pay rate (${payRateUnitLabel(member.payType)})` : 'Pay rate'}
+          />
+        </View>
+      </BentoCard>
 
-      <View style={styles.tiles}>
-        <StatTile value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
-        <StatTile value={member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—'} label="Pay type" />
-        <StatTile
-          value={member.payType && member.payRateCents !== null ? formatAccountingCents(member.payRateCents) : '—'}
-          label={member.payType ? `Pay rate (${payRateUnitLabel(member.payType)})` : 'Pay rate'}
-        />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>RECENT SHIFTS</Text>
+      <BentoCard title="Recent shifts" scope={`${sumDurationHours(entries).toFixed(1)}h this period`}>
         {entries.length === 0 ? <Text style={styles.empty}>No shifts logged this period.</Text> : entries.slice(0, 8).map((entry) => (
           <View key={entry.id} style={styles.row}>
             <Text style={styles.rowText}>{new Date(entry.clockIn).toLocaleDateString()} · {new Date(entry.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}{entry.clockOut ? `–${new Date(entry.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}</Text>
             <Text style={styles.duration}>{entry.clockOut ? `${sumDurationHours([entry]).toFixed(1)}h` : '—'}</Text>
           </View>
         ))}
-        <Text style={styles.periodTotal}>{sumDurationHours(entries).toFixed(1)}h logged this period</Text>
-      </View>
+      </BentoCard>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>MY UPCOMING SHIFTS</Text>
+      <BentoCard title="My upcoming shifts">
         {shifts.length === 0 ? (
           <Text style={styles.empty}>Nothing scheduled yet.</Text>
         ) : (
@@ -133,22 +135,23 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
             </View>
           ))
         )}
-      </View>
+      </BentoCard>
 
-      <View style={styles.section}>
-        <View style={styles.sectionHead}>
-          <Text style={styles.sectionTitle}>TIME OFF</Text>
+      <BentoCard
+        title="Time off"
+        actions={
           <Pressable onPress={() => setShowRequestModal(true)} style={styles.requestButton}>
             <Text style={styles.requestButtonText}>Request time off</Text>
           </Pressable>
-        </View>
+        }
+      >
         {requests.length === 0 ? <Text style={styles.empty}>No requests yet.</Text> : requests.map((request) => (
           <View key={request.id} style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowText}>{request.startDate} – {request.endDate}</Text>
               {request.reason && <Text style={styles.reason}>{request.reason}</Text>}
             </View>
-            <Badge label={request.status === 'pending' ? 'Pending' : request.status === 'approved' ? 'Approved' : 'Denied'} tone={request.status === 'pending' ? 'warning' : request.status === 'approved' ? 'success' : 'danger'} />
+            <Badge variant="bento" label={request.status === 'pending' ? 'Pending' : request.status === 'approved' ? 'Approved' : 'Denied'} tone={request.status === 'pending' ? 'warning' : request.status === 'approved' ? 'success' : 'danger'} />
             <View style={styles.requestActions}>
               {request.status === 'pending' && (
                 <Pressable onPress={() => setEditingRequest(request)} style={styles.actionButton}>
@@ -174,7 +177,7 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
             </View>
           </View>
         ))}
-      </View>
+      </BentoCard>
 
       <RequestTimeOffModal
         visible={showRequestModal && !editingRequest}
@@ -404,7 +407,10 @@ function EditTimeOffModal({ visible, request, onClose, onSubmit }: { visible: bo
 }
 
 const styles = StyleSheet.create({
-  clockCard: { padding: 18, marginBottom: 14 }, clockStatus: { color: '#111111', fontSize: 16, fontWeight: '800' }, clockElapsed: { color: '#777777', fontSize: 12, marginTop: 3 }, clockButton: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }, clockButtonDisabled: { opacity: 0.5 }, clockButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12 }, error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
-  tiles: { flexDirection: 'row', gap: 9, marginBottom: 16 }, section: { marginBottom: 18 }, sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }, sectionTitle: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6, color: '#999999' }, requestButton: { backgroundColor: '#111111', borderRadius: 8, paddingHorizontal: 11, paddingVertical: 8 }, requestButtonText: { color: '#FFFFFF', fontSize: 11.5, fontWeight: '800' }, empty: { color: '#999999', fontSize: 13, paddingVertical: 8 }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#ECECEC' }, rowText: { color: '#666666', fontSize: 12, flexShrink: 1 }, duration: { color: '#111111', fontSize: 12, fontWeight: '700' }, reason: { color: '#999999', fontSize: 11, marginTop: 2 }, periodTotal: { color: '#666666', fontSize: 12, fontWeight: '700', marginTop: 10 }, requestActions: { flexDirection: 'row', gap: 6, alignItems: 'center' }, actionButton: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, backgroundColor: '#F2F2F2' }, cancelButton: { backgroundColor: '#F7E1E2' }, actionText: { fontSize: 11, fontWeight: '700', color: '#111111' }, cancelText: { color: '#B23B4E' },
+  // ---- on-page surfaces: bento. The two modals below keep the app's stock
+  // modal styling, which no screen has converted yet. ----
+  stack: { gap: 14 },
+  clockStatus: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 }, clockElapsed: { color: theme.bentoMuted, fontSize: 12, marginTop: 3 }, clockButton: { alignSelf: 'flex-start', marginTop: 14, backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 16, paddingVertical: 10 }, clockButtonDisabled: { opacity: 0.5 }, clockButtonText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 12 }, error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginTop: 10 },
+  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 16 }, requestButton: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 }, requestButtonText: { color: theme.bentoSurface, fontSize: 11.5, fontWeight: '800' }, empty: { color: theme.bentoMuted, fontSize: 13, paddingVertical: 8 }, row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.bentoLine }, rowText: { color: theme.bentoInk2, fontSize: 12, flexShrink: 1 }, duration: { color: theme.bentoInk, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] }, reason: { color: theme.bentoMuted, fontSize: 11, marginTop: 2 }, requestActions: { flexDirection: 'row', gap: 6, alignItems: 'center' }, actionButton: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: theme.bentoSoft }, cancelButton: { backgroundColor: '#FCE9EB' }, actionText: { fontSize: 11, fontWeight: '700', color: theme.bentoInk2 }, cancelText: { color: '#B0293A' },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 20 }, modalCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 20, maxWidth: 480, width: '100%', alignSelf: 'center', maxHeight: '90%' }, modalTitle: { color: '#111111', fontSize: 17, fontWeight: '800', marginBottom: 4 }, modalSubtitle: { color: '#999999', fontSize: 12, marginBottom: 14 }, dateField: { marginBottom: 10 }, fieldLabel: { color: '#666666', fontSize: 11.5, fontWeight: '700', marginBottom: 5 }, input: { borderWidth: 1, borderColor: '#E2E2E2', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, color: '#111111', marginBottom: 10 }, reasonInput: { minHeight: 82, textAlignVertical: 'top' }, reasonField: { marginBottom: 12 }, reasonButton: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 1, borderColor: '#E2E2E2', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#FFFFFF', marginBottom: 8 }, reasonButtonText: { color: '#111111', fontSize: 13, fontWeight: '600' }, reasonButtonPlaceholder: { color: '#999999' }, reasonDropdownIcon: { color: '#999999', fontSize: 11 }, reasonDropdown: { backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#E2E2E2', borderRadius: 8, borderTopWidth: 0, marginBottom: 8, maxHeight: 200, overflow: 'hidden' }, reasonOption: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' }, reasonOptionText: { color: '#111111', fontSize: 12 }, addRangeButton: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12, alignItems: 'center' }, addRangeButtonDisabled: { opacity: 0.5 }, addRangeText: { color: '#111111', fontSize: 12, fontWeight: '700' }, selectedRanges: { backgroundColor: '#F9F9F9', borderRadius: 8, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#ECECEC' }, selectedRangesTitle: { color: '#666666', fontSize: 11, fontWeight: '700', marginBottom: 8 }, selectedRangeItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#FFFFFF', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 6, borderWidth: 1, borderColor: '#E2E2E2' }, selectedRangeText: { color: '#111111', fontSize: 12, fontWeight: '600' }, removeRangeButton: { padding: 4 }, removeRangeText: { color: '#999999', fontSize: 14, fontWeight: '700' }, modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 8 }, secondaryButton: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }, secondaryText: { color: '#111111', fontSize: 12, fontWeight: '800' }, primaryButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10 }, primaryText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
 });

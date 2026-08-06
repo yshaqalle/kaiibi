@@ -171,7 +171,17 @@ export function OverviewTab({
     [daily, rangeLabel]
   );
 
-  if (loading) return <Text style={styles.empty}>Loading…</Text>;
+  if (loading) {
+    return (
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard>
+            <Text style={styles.empty}>Loading…</Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+    );
+  }
 
   return (
     <BentoGrid>
@@ -184,9 +194,9 @@ export function OverviewTab({
       <BentoCell span={12}>
         <BentoCard title="This period at a glance" scope={rangeLabel}>
           <View style={styles.metricRow}>
-            <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
-            <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
-            <StatTile
+            <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
+            <StatTile variant="bento" value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
+            <StatTile variant="bento"
               value={formatCompactCents(grossProfitCents)}
               label="Gross profit"
               hint={
@@ -198,7 +208,7 @@ export function OverviewTab({
               }
               tone={noCostsRecorded ? 'default' : 'positive'}
             />
-            <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
+            <StatTile variant="bento" value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
           </View>
         </BentoCard>
       </BentoCell>
