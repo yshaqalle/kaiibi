@@ -17,6 +17,7 @@ import { confirmChoice } from '@/lib/confirm';
 import { formatCents, toCents } from '@/lib/currency';
 import { findProductsByCode, uploadProductImage } from '@/lib/products';
 import { needsCostConfirmation } from '@/lib/product-costing';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
@@ -204,6 +205,10 @@ export const ProductForm = forwardRef<ProductFormHandle, {
       }
 
       let imageUrl = initial?.imageUrl ?? null;
+      // Set only when this submit actually replaces an already-uploaded
+      // photo -- gates the cleanup below so a save that doesn't touch the
+      // photo never tries to delete anything.
+      let replacedImageUrl: string | null = null;
       // A freshly picked photo is a local URI, not the http(s) URL of an
       // already-uploaded image. On native this is `file://`; on web
       // expo-image-picker returns a `blob:` object URL instead, so check
@@ -212,6 +217,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         setUploading(true);
         imageUrl = await uploadProductImage(shopId, imageUri);
         setUploading(false);
+        replacedImageUrl = initial?.imageUrl ?? null;
       }
 
       const tagList = tags.split(',').map((tag) => tag.trim()).filter(Boolean);
@@ -247,6 +253,9 @@ export const ProductForm = forwardRef<ProductFormHandle, {
         },
         locationId
       );
+      // Only after the new URL is safely persisted (onSubmit above has
+      // resolved) -- see storage.ts.
+      if (replacedImageUrl) await deleteImageByPublicUrl(replacedImageUrl);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this product.');
     } finally {

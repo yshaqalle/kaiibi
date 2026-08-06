@@ -55,3 +55,39 @@ export async function uploadImage(path: string, localUri: string): Promise<strin
   const { data } = supabase.storage.from('product-images').getPublicUrl(fullPath);
   return data.publicUrl;
 }
+
+const BUCKET = 'product-images';
+
+// Companion to uploadImage for the REPLACE case -- every upload above writes
+// to a new timestamped path and never touches whatever used to be there, so
+// callers that persist a new image over an old one need this to reclaim the
+// object the new one supersedes.
+//
+// The path is recovered by asking getPublicUrl itself what prefix it would
+// produce for an empty path, rather than assuming the shape of a Supabase
+// storage URL -- that stays correct however getPublicUrl happens to build it
+// (project ref, custom domain, a future SDK change) instead of hardcoding a
+// guess. Comparing the given URL against that prefix also doubles as the
+// "does this even look like ours" check: anything that doesn't start with it
+// -- a different bucket, a foreign URL, garbage -- is left alone rather than
+// having a path guessed at.
+//
+// NEVER throws. This runs after the operation it's cleaning up for has
+// already succeeded (new image uploaded, new URL persisted); a failed
+// cleanup here -- object already gone, a network blip, no permission -- must
+// not turn that success into a reported failure. Losing a few KB of orphaned
+// storage is an acceptable cost; losing confidence in a save that actually
+// worked is not.
+export async function deleteImageByPublicUrl(publicUrl: string | null | undefined): Promise<void> {
+  if (!publicUrl) return;
+  try {
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl('');
+    const prefix = data.publicUrl;
+    if (!publicUrl.startsWith(prefix)) return;
+    const path = decodeURIComponent(publicUrl.slice(prefix.length));
+    if (!path) return;
+    await supabase.storage.from(BUCKET).remove([path]);
+  } catch {
+    // Deliberately swallowed -- see comment above.
+  }
+}

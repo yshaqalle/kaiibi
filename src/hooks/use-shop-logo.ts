@@ -3,6 +3,7 @@ import { useState } from 'react';
 
 import { useAuth } from '@/hooks/use-auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 
 // "Tap your logo to change it", as one shared flow.
 //
@@ -33,10 +34,16 @@ export function useShopLogo() {
     });
     if (result.canceled) return;
     setUploading(true);
+    // Captured before the upload, not read back off `shop` afterward: `shop`
+    // itself doesn't change until refreshShop() below, but this is clearer
+    // about which URL is "old" than relying on that.
+    const oldLogoUrl = shop.logoUrl;
     try {
       const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
       await updateShop(shop.id, { logoUrl });
       await refreshShop();
+      // Only after the new URL is safely persisted -- see storage.ts.
+      await deleteImageByPublicUrl(oldLogoUrl);
     } finally {
       setUploading(false);
     }

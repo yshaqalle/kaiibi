@@ -13,6 +13,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 
 // The top header is deliberately always dark — matching the marketing site's
 // black header brand treatment — regardless of the device's system color
@@ -54,10 +55,13 @@ export default function AdminTabs() {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
     if (result.canceled) return;
     setUploadingLogo(true);
+    const oldLogoUrl = shop.logoUrl;
     try {
       const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
       await updateShop(shop.id, { logoUrl });
       await refreshShop();
+      // Only after the new URL is safely persisted -- see storage.ts.
+      await deleteImageByPublicUrl(oldLogoUrl);
     } finally {
       setUploadingLogo(false);
     }

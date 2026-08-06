@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
 import { isValidRateInput } from '@/lib/pay-rate';
 import { updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 import type { Role, ShopLocation, StaffMember } from '@/types/models';
 
 const theme = Colors.light;
@@ -114,6 +115,13 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
         try {
           const photoUrl = await uploadStaffPhoto(shopId, member.id, photoUri);
           await updateStaffPhoto(member.id, photoUrl);
+          // Only after the new URL is safely persisted -- deleting the old
+          // object first (or before updateStaffPhoto lands) would risk
+          // losing the only copy of the photo if either step above failed.
+          // member.photoUrl is the URL this member had when the modal
+          // opened, still the OLD one here since it's a prop, not the
+          // `photoUri` state this replaced.
+          await deleteImageByPublicUrl(member.photoUrl);
         } catch (err) {
           setError(`Team member was saved, but their photo could not be saved (${err instanceof Error ? err.message : 'unknown error'}). Try again from their profile.`);
           return;
