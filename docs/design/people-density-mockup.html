@@ -1,0 +1,959 @@
+<title>Kaiibi People — fitting a person on one screen</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  table.budget{border-collapse:collapse;margin-top:16px;font-size:13.5px;min-width:520px;}
+  table.budget th,table.budget td{text-align:left;padding:7px 16px 7px 0;border-bottom:1px solid var(--ln);}
+  table.budget th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);font-weight:700;}
+  table.budget td.n{text-align:right;font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  table.budget tr.tot td{font-weight:800;border-bottom:none;}
+  table.budget td.cut{color:var(--profit);}
+  .tblScroll{overflow-x:auto;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+
+  /* The frame IS a viewport: 1180x740 stands in for the content area of a
+     1440x900 laptop -- the tight case. Anything past the dashed rule is what
+     the reader has to go hunting for. */
+  .frame{position:relative;width:1180px;height:740px;overflow:hidden;
+    background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .fold{position:absolute;left:0;right:0;bottom:0;height:74px;pointer-events:none;
+    background:linear-gradient(to bottom,rgba(244,244,245,0) 0%,rgba(244,244,245,.86) 62%,rgba(244,244,245,.97) 100%);
+    border-bottom:2px dashed var(--loss);}
+  .foldTag{position:absolute;right:14px;bottom:8px;font-size:10.5px;font-weight:800;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--loss);pointer-events:none;}
+
+  /* ---- app chrome ---- */
+  .appHead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+  .aEyebrow{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);}
+  .aTitle{font-size:26px;font-weight:800;letter-spacing:-1px;color:var(--d-ink);line-height:1.15;}
+  .aBlurb{font-size:13px;color:var(--d-mut);}
+  .aActs{display:flex;gap:8px;align-items:center;}
+  .btn{border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;
+    background:var(--d-sf);color:var(--d-ink2);white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;}
+  .pills{display:flex;gap:8px;margin-top:14px;}
+  .pill{border-radius:999px;padding:8px 16px;font-size:13px;font-weight:700;background:var(--d-sf);color:var(--d-mut);}
+  .pill.on{background:var(--d-ink);color:#fff;}
+
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .cardTitle{font-size:15px;font-weight:800;color:var(--d-ink);letter-spacing:-.2px;margin-bottom:12px;
+    display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .scope{font-size:11px;font-weight:700;color:var(--d-mut);background:var(--d-soft);
+    border-radius:999px;padding:3px 10px;}
+
+  /* today's glance strip: titled card, four big tiles */
+  .tilesBig{display:flex;gap:12px;}
+  .tileBig{flex:1;background:var(--d-soft);border-radius:16px;padding:16px 18px;}
+  .tileBig .lb{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--d-mut);}
+  .tileBig .vl{font-size:30px;font-weight:800;letter-spacing:-1px;color:var(--d-ink);line-height:1.25;}
+  .tileBig .ht{font-size:11.5px;color:var(--d-mut2);}
+
+  /* proposed glance strip, option B: same tiles, smaller, card title dropped.
+     Keeps all four hints -- the qualification is the point of the figure. */
+  .tilesSm{display:flex;gap:10px;}
+  .tileSm{flex:1;background:var(--d-soft);border-radius:14px;padding:9px 13px;}
+  .tileSm .lb{font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--d-mut);}
+  .tileSm .vl{font-size:21px;font-weight:800;letter-spacing:-.7px;color:var(--d-ink);line-height:1.25;}
+  .tileSm .ht{font-size:10.5px;color:var(--d-mut2);line-height:1.35;}
+
+  /* proposed glance strip, option C: one slim row */
+  .glanceSlim{background:var(--d-sf);border-radius:26px;padding:11px 18px;display:flex;align-items:center;gap:26px;}
+  .gItem{display:flex;align-items:baseline;gap:7px;}
+  .gItem .vl{font-size:19px;font-weight:800;letter-spacing:-.5px;color:var(--d-ink);}
+  .gItem .lb{font-size:11.5px;font-weight:700;color:var(--d-mut);}
+  .gSep{width:1px;height:17px;background:var(--d-ln);}
+
+  .searchRow{display:flex;gap:10px;align-items:center;margin-top:12px;}
+  .search{background:var(--d-sf);border-radius:999px;padding:11px 18px;font-size:13.5px;color:var(--d-mut2);}
+  .searchRow .search{flex:1;}
+  .searchWide{background:var(--d-sf);border-radius:999px;padding:14px 18px;font-size:14px;color:var(--d-mut2);margin-top:14px;}
+  .chips{display:flex;gap:8px;}
+  .chip{border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:700;background:var(--d-sf);color:var(--d-mut);white-space:nowrap;}
+  .chip.on{background:var(--d-ink);color:#fff;}
+
+  /* ---- panes ---- */
+  .panes{display:flex;gap:18px;margin-top:14px;align-items:flex-start;}
+  .listPane{width:330px;flex:none;}
+  .detailPane{flex:1;min-width:0;}
+
+  .listCard{background:var(--d-sf);border-radius:26px;padding:6px 0;}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 16px;}
+  .row + .row{border-top:1px solid var(--d-ln);}
+  .row.sel{background:var(--d-soft);}
+  .rName{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .rSub{font-size:11.5px;color:var(--d-mut);}
+  .badge{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 9px;background:var(--d-soft);color:var(--d-mut);}
+  .badge.new{background:#fdf1dd;color:#8a5a12;}
+  .badge.vip{background:#fde7ec;color:#a5203a;}
+  .wa{width:26px;height:26px;border-radius:999px;background:#e4f5e9;color:#1a7f42;font-size:12px;
+    display:flex;align-items:center;justify-content:center;font-weight:800;}
+  .rowTrail{display:flex;align-items:center;gap:8px;}
+
+  .stack{display:flex;flex-direction:column;gap:14px;}
+  .cols{display:flex;gap:14px;align-items:flex-start;}
+  .col{flex:1;min-width:0;display:flex;flex-direction:column;gap:14px;}
+
+  /* detail identity */
+  .detHeadOld{display:flex;align-items:center;gap:10px;}
+  .detName{font-size:21px;font-weight:800;letter-spacing:-.5px;color:var(--d-ink);}
+  .detMeta{font-size:12.5px;color:var(--d-mut);}
+  .detActsOld{display:flex;gap:8px;margin-top:12px;}
+  /* proposed: name, badge, phone and buttons share one row */
+  .detHeadNew{display:flex;align-items:center;justify-content:space-between;gap:14px;}
+  .detIdent{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0;}
+
+  .tiles4{display:flex;gap:10px;margin-top:14px;}
+  .tile{flex:1;background:var(--d-soft);border-radius:14px;padding:11px 13px;}
+  .tile .lb{font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--d-mut);}
+  .tile .vl{font-size:20px;font-weight:800;letter-spacing:-.6px;color:var(--d-ink);line-height:1.3;}
+
+  .notesBox{background:var(--d-soft);border-radius:10px;padding:11px;min-height:64px;font-size:12.5px;color:var(--d-mut2);}
+
+  /* histories: bounded, they scroll inside a card you can see both ends of */
+  .hist{overflow:hidden;}
+  .histBody{max-height:196px;overflow-y:auto;}
+  .histBody.unbounded{max-height:none;overflow:visible;}
+  .hRow{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;}
+  .hRow + .hRow{border-top:1px solid var(--d-ln);}
+  .hT{font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .hM{font-size:11px;color:var(--d-mut);}
+  .hA{font-size:12.5px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .hA.neg{color:var(--loss);}
+  .usual{font-size:13.5px;font-weight:700;color:var(--d-ink);}
+  .usualMeta{font-size:11.5px;color:var(--d-mut);}
+
+  .callout{margin-top:20px;border-left:4px solid var(--blue);background:var(--sf);border-radius:0 12px 12px 0;
+    padding:14px 18px;}
+  .callout b{display:block;font-size:14px;margin-bottom:4px;}
+  .callout p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .callout + .callout{margin-top:12px;}
+  .callout.warn{border-left-color:#c8791a;}
+  .callout.good{border-left-color:var(--profit);}
+
+  ul.tight{font-size:13.5px;color:var(--ink2);padding-left:20px;margin:12px 0 0;}
+  ul.tight li{margin-bottom:7px;}
+  ul.tight b{color:var(--ink);}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi · People · Customers &amp; Team</p>
+<h1>Fitting a whole person on one screen</h1>
+<p class="lede">Both People tabs have the same problem: the detail pane needs far more height than
+it gets, so every selected person arrives pre-scrolled. The fix is one pair of moves applied
+twice — compress the chrome above the panes, and lay the detail out in two columns — so the answer
+fits without hiding anything behind a tap.</p>
+
+<div class="callout warn">
+  <b>Two tabs, one disease</b>
+  <p>Measured off the stylesheet in real CSS pixels: at a 900px-tall window Customers gives its
+  detail pane ~340px for ~830px of content. Team gives ~450px for ~700px — <em>better</em> than
+  Customers, not worse as an earlier version of this page claimed, because Team has no segment
+  chips and its search sits inside the list pane rather than in the chrome. Neither fits. The same
+  two moves fix both, which is why they share a spec.</p>
+</div>
+
+<section>
+  <h2>Customers — where the screen goes today</h2>
+  <p class="note">The page shell is <code>flex: 1</code> and deliberately does not scroll
+  (<code>people.tsx:183</code>) — the two panes scroll independently under fixed chrome. That is the
+  right structure. The problem is how much the chrome takes before the panes get a say.</p>
+
+  <div class="tblScroll">
+  <table class="budget">
+    <tr>
+      <th>Band</th><th class="n">Today</th><th class="n">B · smaller tiles</th>
+      <th class="n">C · slim row</th>
+    </tr>
+    <tr><td>Eyebrow, title, blurb</td><td class="n">160</td><td class="n">96</td><td class="n">96</td></tr>
+    <tr><td>Tab pills</td><td class="n">55</td><td class="n">44</td><td class="n">44</td></tr>
+    <tr><td>“Customers at a glance”</td><td class="n">215</td><td class="n cut">150</td><td class="n cut">64</td></tr>
+    <tr><td>Search field</td><td class="n">75</td><td class="n">52</td><td class="n">52</td></tr>
+    <tr><td>Segment chips</td><td class="n">55</td><td class="n">0</td><td class="n">0</td></tr>
+    <tr class="tot"><td>Chrome</td><td class="n">560</td><td class="n">342</td><td class="n">256</td></tr>
+    <tr class="tot"><td>…as a share of the window</td><td class="n">40%</td><td class="n">24%</td><td class="n">18%</td></tr>
+  </table>
+  </div>
+
+  <p class="note"><b>On the units:</b> these are measured off the 2630×1410 screenshot, not CSS
+  pixels — the device pixel ratio of that capture isn’t known. The last row is the number that
+  actually matters and is scale-free: the share of the window height spent before the panes get a
+  say. Every frame below is drawn to the same proportions.</p>
+
+  <p class="note">Search and the chips share one row in both proposals, which is why the chips band
+  goes to zero rather than shrinking. The blurb — “Who shops with you, and what they are worth.” —
+  drops once a customer is selected: it explains the screen to someone arriving at it, and you are
+  no longer arriving.</p>
+
+  <div class="callout">
+    <b>B or C: what the 86px actually costs</b>
+    <p>C wins 86px more than B by collapsing four per-figure hints into one. Those hints qualify
+    the numbers — “in today: 3” means something different once you know it counts anyone who
+    clocked in at any point rather than who is on the floor now. B keeps all four and still wins
+    65px, mostly by dropping the card’s own title, which is redundant beside labels that already
+    read CUSTOMERS / VIPS / AT RISK. Compare frames 2 and 3 below.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Customers — the three states, at a 1440×900 laptop</h2>
+  <p class="note">Each frame is a real 1180×740 viewport. The dashed red rule is the bottom of the
+  window — everything under it is what you currently scroll to find.</p>
+
+  <div class="switch" role="tablist">
+    <button role="tab" aria-selected="true" data-f="today">Today</button>
+    <button role="tab" aria-selected="false" data-f="smalltiles">B · tiles kept, smaller</button>
+    <button role="tab" aria-selected="false" data-f="prop">C · slim row</button>
+    <button role="tab" aria-selected="false" data-f="nostrip">D · strip removed</button>
+  </div>
+
+  <!-- ============================ TODAY ============================ -->
+  <div class="frameWrap" data-frame="today">
+    <div class="frameHead"><b>Today</b><i>detail pane ≈ 630px for ≈ 900px of content</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Customers</div>
+          <div class="aBlurb">Who shops with you, and what they are worth.</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ New</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill on">Customers</span><span class="pill">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="cardTitle">Customers at a glance</div>
+        <div class="tilesBig">
+          <div class="tileBig"><div class="lb">Customers</div><div class="vl">4</div><div class="ht">3 joined in the last 30 days</div></div>
+          <div class="tileBig"><div class="lb">VIPs</div><div class="vl">1</div><div class="ht">tagged vip</div></div>
+          <div class="tileBig"><div class="lb">At risk</div><div class="vl">0</div><div class="ht">tagged at risk</div></div>
+          <div class="tileBig"><div class="lb">Lifetime spend</div><div class="vl">$153</div><div class="ht">across every store</div></div>
+        </div>
+      </div>
+
+      <div class="searchWide">Search by name, phone, or tag</div>
+      <div class="chips" style="margin-top:12px;">
+        <span class="chip on">All · 4</span><span class="chip">VIP · 1</span><span class="chip">Regular · 0</span>
+        <span class="chip">New · 3</span><span class="chip">At risk · 0</span>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="listCard">
+            <div class="row"><div><div class="rName">Ali Abdi</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Ali Warf</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span></div></div>
+            <div class="row"><div><div class="rName">Hibo Ibraahim</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge vip">VIP</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Jaalala Jaalala</div><div class="rSub">1 order · $153.00 · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+          </div>
+        </div>
+        <div class="detailPane">
+          <div class="stack">
+            <div class="card">
+              <div class="detHeadOld"><span class="detName">Ali Warf</span><span class="badge new">New</span></div>
+              <div class="detActsOld"><span class="btn">Edit</span><span class="btn">Mark VIP</span></div>
+              <div class="tiles4">
+                <div class="tile"><div class="lb">Lifetime spend</div><div class="vl">$0.00</div></div>
+                <div class="tile"><div class="lb">Orders</div><div class="vl">0</div></div>
+                <div class="tile"><div class="lb">Last purchase</div><div class="vl">—</div></div>
+                <div class="tile"><div class="lb">Points</div><div class="vl">0</div></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="cardTitle">Notes</div>
+              <div class="notesBox">Add a note…</div>
+            </div>
+            <div class="cols">
+              <div class="col"><div class="card"><div class="cardTitle">Purchase history<span class="scope">0 orders</span></div><div class="hM">No purchases yet.</div></div></div>
+              <div class="col"><div class="card"><div class="cardTitle">Points history<span class="scope">0 balance</span></div><div class="hM">No points activity yet.</div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">This is the <em>best</em> case — a customer with no
+    history at all, whose two history cards are one line each. Ali Warf still loses them to the
+    fold. Jaalala Jaalala, with an actual order, pushes further.</p>
+  </div>
+
+  <!-- ======================= B: TILES KEPT, SMALLER ======================= -->
+  <div class="frameWrap" data-frame="smalltiles" hidden>
+    <div class="frameHead"><b>B · tiles kept, smaller</b><i>chrome 342px (24%) · all four hints survive</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Customers</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ New</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill on">Customers</span><span class="pill">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <!-- No card title: the tile labels already say what these are. -->
+      <div class="card" style="margin-top:12px;padding:12px;">
+        <div class="tilesSm">
+          <div class="tileSm"><div class="lb">Customers</div><div class="vl">4</div><div class="ht">3 joined in the last 30 days</div></div>
+          <div class="tileSm"><div class="lb">VIPs</div><div class="vl">1</div><div class="ht">tagged vip</div></div>
+          <div class="tileSm"><div class="lb">At risk</div><div class="vl">0</div><div class="ht">tagged at risk</div></div>
+          <div class="tileSm"><div class="lb">Lifetime spend</div><div class="vl">$153</div><div class="ht">across every store</div></div>
+        </div>
+      </div>
+
+      <div class="searchRow">
+        <div class="search">Search by name, phone, or tag</div>
+        <div class="chips">
+          <span class="chip on">All · 4</span><span class="chip">VIP · 1</span><span class="chip">Regular · 0</span>
+          <span class="chip">New · 3</span><span class="chip">At risk · 0</span>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="listCard">
+            <div class="row"><div><div class="rName">Ali Abdi</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Jaalala Jaalala</div><div class="rSub">1 order · $153.00 · 148 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Hibo Ibraahim</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge vip">VIP</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Ali Warf</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span></div></div>
+          </div>
+        </div>
+
+        <div class="detailPane">
+          <div class="cols">
+            <div class="col">
+              <div class="card">
+                <div class="detHeadNew">
+                  <div class="detIdent">
+                    <span class="detName">Jaalala Jaalala</span>
+                    <span class="badge new">New</span>
+                    <span class="detMeta">+252 61 234 5678</span>
+                  </div>
+                  <div class="aActs"><span class="btn">✆</span><span class="btn">Edit</span><span class="btn">Mark VIP</span></div>
+                </div>
+                <div class="tiles4">
+                  <div class="tile"><div class="lb">Lifetime spend</div><div class="vl">$153</div></div>
+                  <div class="tile"><div class="lb">Orders</div><div class="vl">1</div></div>
+                  <div class="tile"><div class="lb">Last purchase</div><div class="vl">2 Aug</div></div>
+                  <div class="tile"><div class="lb">Points</div><div class="vl">148</div></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="cardTitle">Notes</div>
+                <div class="notesBox">Prefers pickup after 6pm. Asked about bulk pricing on rice.</div>
+              </div>
+              <div class="card">
+                <div class="cardTitle">Usually shops at</div>
+                <div class="usual">Bakaara Main</div>
+                <div class="usualMeta">3 of 4 visits</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card hist">
+                <div class="cardTitle">Purchase history<span class="scope">4 orders</span></div>
+                <div class="histBody" style="max-height:170px;">
+                  <div class="hRow"><div><div class="hT">Basmati rice 5kg ×2</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$64.00</div></div>
+                  <div class="hRow"><div><div class="hT">Cooking oil 3L</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$18.50</div></div>
+                  <div class="hRow"><div><div class="hT">Sugar 2kg</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$9.00</div></div>
+                  <div class="hRow"><div><div class="hT">Tea leaves 500g</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$12.00</div></div>
+                  <div class="hRow"><div><div class="hT">Flour 10kg</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$41.00</div></div>
+                </div>
+              </div>
+              <div class="card hist">
+                <div class="cardTitle">Points history<span class="scope">148 balance</span></div>
+                <div class="histBody" style="max-height:170px;">
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">2 Aug 2026</div></div><div class="hA">+82</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">28 Jul 2026</div></div><div class="hA">+21</div></div>
+                  <div class="hRow"><div><div class="hT">Redeemed</div><div class="hM">21 Jul 2026 · free delivery</div></div><div class="hA neg">−40</div></div>
+                  <div class="hRow"><div><div class="hT">Correction</div><div class="hM">20 Jul 2026 · double-scanned receipt</div></div><div class="hA neg">−15</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">19 Jul 2026</div></div><div class="hA">+100</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Still fits, with the four qualifications intact. The
+    cost against C is 86px, which shows up as shorter history bodies — five rows visible instead of
+    six before you scroll inside the card. That is a cheaper thing to give up than three hints.</p>
+  </div>
+
+  <!-- ============================ C: SLIM ROW ============================ -->
+  <div class="frameWrap" data-frame="prop" hidden>
+    <div class="frameHead"><b>C · slim row</b><i>chrome 256px (18%) · three hints dropped</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Customers</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ New</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill on">Customers</span><span class="pill">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <div class="glanceSlim" style="margin-top:12px;">
+        <div class="gItem"><span class="vl">4</span><span class="lb">customers</span></div>
+        <div class="gSep"></div>
+        <div class="gItem"><span class="vl">1</span><span class="lb">VIP</span></div>
+        <div class="gSep"></div>
+        <div class="gItem"><span class="vl">0</span><span class="lb">at risk</span></div>
+        <div class="gSep"></div>
+        <div class="gItem"><span class="vl">$153</span><span class="lb">lifetime spend</span></div>
+        <div class="gSep"></div>
+        <div class="gItem"><span class="lb">3 joined in the last 30 days</span></div>
+      </div>
+
+      <div class="searchRow">
+        <div class="search">Search by name, phone, or tag</div>
+        <div class="chips">
+          <span class="chip on">All · 4</span><span class="chip">VIP · 1</span><span class="chip">Regular · 0</span>
+          <span class="chip">New · 3</span><span class="chip">At risk · 0</span>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="listCard">
+            <div class="row"><div><div class="rName">Ali Abdi</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Ali Warf</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span></div></div>
+            <div class="row"><div><div class="rName">Hibo Ibraahim</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge vip">VIP</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Jaalala Jaalala</div><div class="rSub">1 order · $153.00 · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+          </div>
+        </div>
+
+        <div class="detailPane">
+          <div class="cols">
+            <!-- left: who they are, and what you'd change -->
+            <div class="col">
+              <div class="card">
+                <div class="detHeadNew">
+                  <div class="detIdent">
+                    <span class="detName">Jaalala Jaalala</span>
+                    <span class="badge new">New</span>
+                    <span class="detMeta">+252 61 234 5678</span>
+                  </div>
+                  <div class="aActs"><span class="btn">✆</span><span class="btn">Edit</span><span class="btn">Mark VIP</span></div>
+                </div>
+                <div class="tiles4">
+                  <div class="tile"><div class="lb">Lifetime spend</div><div class="vl">$153</div></div>
+                  <div class="tile"><div class="lb">Orders</div><div class="vl">1</div></div>
+                  <div class="tile"><div class="lb">Last purchase</div><div class="vl">2 Aug</div></div>
+                  <div class="tile"><div class="lb">Points</div><div class="vl">148</div></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="cardTitle">Notes</div>
+                <div class="notesBox">Prefers pickup after 6pm. Asked about bulk pricing on rice.</div>
+              </div>
+
+              <div class="card">
+                <div class="cardTitle">Usually shops at</div>
+                <div class="usual">Bakaara Main</div>
+                <div class="usualMeta">3 of 4 visits</div>
+              </div>
+            </div>
+
+            <!-- right: what they've done -->
+            <div class="col">
+              <div class="card hist">
+                <div class="cardTitle">Purchase history<span class="scope">4 orders</span></div>
+                <div class="histBody">
+                  <div class="hRow"><div><div class="hT">Basmati rice 5kg ×2</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$64.00</div></div>
+                  <div class="hRow"><div><div class="hT">Cooking oil 3L</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$18.50</div></div>
+                  <div class="hRow"><div><div class="hT">Sugar 2kg</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$9.00</div></div>
+                  <div class="hRow"><div><div class="hT">Tea leaves 500g</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$12.00</div></div>
+                  <div class="hRow"><div><div class="hT">Flour 10kg</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$41.00</div></div>
+                  <div class="hRow"><div><div class="hT">Powdered milk 900g</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$8.50</div></div>
+                </div>
+              </div>
+
+              <div class="card hist">
+                <div class="cardTitle">Points history<span class="scope">148 balance</span></div>
+                <div class="histBody">
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">2 Aug 2026</div></div><div class="hA">+82</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">28 Jul 2026</div></div><div class="hA">+21</div></div>
+                  <div class="hRow"><div><div class="hT">Redeemed</div><div class="hM">21 Jul 2026 · free delivery</div></div><div class="hA neg">−40</div></div>
+                  <div class="hRow"><div><div class="hT">Correction</div><div class="hM">20 Jul 2026 · double-scanned receipt</div></div><div class="hA neg">−15</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">19 Jul 2026</div></div><div class="hA">+100</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Shown with a customer who actually has history —
+    four orders and five ledger entries — because the empty case proves nothing. Both history cards
+    have a bounded body: the list scrolls <em>inside</em> a card whose top and bottom you can see,
+    which is a different act from scrolling a page to find a card.</p>
+    <p class="note"><b>What this frame loses:</b> “tagged vip”, “tagged at risk” and “across every
+    store” are gone; only one hint survives. Whether that matters depends on whether the reader
+    already knows what those four figures count — and a new manager on their first week does not.</p>
+  </div>
+
+  <!-- ============================ NO STRIP ============================ -->
+  <div class="frameWrap" data-frame="nostrip" hidden>
+    <div class="frameHead"><b>Proposed, glance strip removed</b><i>chrome 192px · buys 64px more</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Customers</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ New</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill on">Customers</span><span class="pill">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <div class="searchRow" style="margin-top:14px;">
+        <div class="search">Search by name, phone, or tag</div>
+        <div class="chips">
+          <span class="chip on">All · 4</span><span class="chip">VIP · 1</span><span class="chip">Regular · 0</span>
+          <span class="chip">New · 3</span><span class="chip">At risk · 0</span>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="listCard">
+            <div class="row"><div><div class="rName">Ali Abdi</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Ali Warf</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span></div></div>
+            <div class="row"><div><div class="rName">Hibo Ibraahim</div><div class="rSub">No orders yet · 0 pts</div></div><div class="rowTrail"><span class="badge vip">VIP</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Jaalala Jaalala</div><div class="rSub">1 order · $153.00 · 0 pts</div></div><div class="rowTrail"><span class="badge new">New</span><span class="wa">✆</span></div></div>
+          </div>
+        </div>
+
+        <div class="detailPane">
+          <div class="cols">
+            <div class="col">
+              <div class="card">
+                <div class="detHeadNew">
+                  <div class="detIdent">
+                    <span class="detName">Jaalala Jaalala</span>
+                    <span class="badge new">New</span>
+                    <span class="detMeta">+252 61 234 5678</span>
+                  </div>
+                  <div class="aActs"><span class="btn">✆</span><span class="btn">Edit</span><span class="btn">Mark VIP</span></div>
+                </div>
+                <div class="tiles4">
+                  <div class="tile"><div class="lb">Lifetime spend</div><div class="vl">$153</div></div>
+                  <div class="tile"><div class="lb">Orders</div><div class="vl">1</div></div>
+                  <div class="tile"><div class="lb">Last purchase</div><div class="vl">2 Aug</div></div>
+                  <div class="tile"><div class="lb">Points</div><div class="vl">148</div></div>
+                </div>
+              </div>
+              <div class="card">
+                <div class="cardTitle">Notes</div>
+                <div class="notesBox">Prefers pickup after 6pm. Asked about bulk pricing on rice.</div>
+              </div>
+              <div class="card">
+                <div class="cardTitle">Usually shops at</div>
+                <div class="usual">Bakaara Main</div>
+                <div class="usualMeta">3 of 4 visits</div>
+              </div>
+            </div>
+            <div class="col">
+              <div class="card hist">
+                <div class="cardTitle">Purchase history<span class="scope">4 orders</span></div>
+                <div class="histBody" style="max-height:250px;">
+                  <div class="hRow"><div><div class="hT">Basmati rice 5kg ×2</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$64.00</div></div>
+                  <div class="hRow"><div><div class="hT">Cooking oil 3L</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$18.50</div></div>
+                  <div class="hRow"><div><div class="hT">Sugar 2kg</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$9.00</div></div>
+                  <div class="hRow"><div><div class="hT">Tea leaves 500g</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$12.00</div></div>
+                  <div class="hRow"><div><div class="hT">Flour 10kg</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$41.00</div></div>
+                  <div class="hRow"><div><div class="hT">Powdered milk 900g</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$8.50</div></div>
+                </div>
+              </div>
+              <div class="card hist">
+                <div class="cardTitle">Points history<span class="scope">148 balance</span></div>
+                <div class="histBody" style="max-height:250px;">
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">2 Aug 2026</div></div><div class="hA">+82</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">28 Jul 2026</div></div><div class="hA">+21</div></div>
+                  <div class="hRow"><div><div class="hT">Redeemed</div><div class="hM">21 Jul 2026 · free delivery</div></div><div class="hA neg">−40</div></div>
+                  <div class="hRow"><div><div class="hT">Correction</div><div class="hM">20 Jul 2026 · double-scanned receipt</div></div><div class="hA neg">−15</div></div>
+                  <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">19 Jul 2026</div></div><div class="hA">+100</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Removing the strip buys 64px and gives the history
+    cards room to breathe. The cost: the four shop-level figures leave the screen entirely, and
+    Customers becomes the only People tab with no summary of its own.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Team — the same two moves</h2>
+  <p class="note">Team’s chrome is <em>lighter</em> than Customers’ — 336 CSS px against 446. It
+  has no segment chips, and its search field sits <em>inside</em> the list pane
+  (<code>people.tsx:747</code>) rather than in the fixed chrome, so it costs the detail pane
+  nothing. That is not a virtue: it means the search scrolls away as you go down the roster, the
+  opposite of Customers, where it stays put. The glance strip can also carry a <code>Caveat</code>
+  (“Hours are hidden — you don’t have timesheet access”) which adds 62px when shown.</p>
+
+  <p class="note">So Team’s detail pane gets ~450px for ~700px of content. Less starved than
+  Customers, still short by a third.</p>
+
+  <div class="tblScroll">
+  <table class="budget">
+    <tr><th>Band</th><th class="n">Today</th><th class="n">Proposed</th><th class="n">Saved</th></tr>
+    <tr><td>Body padding, top</td><td class="n">18</td><td class="n">18</td><td class="n">0</td></tr>
+    <tr><td>Eyebrow, title, blurb</td><td class="n">88</td><td class="n">67</td><td class="n cut">−21</td></tr>
+    <tr><td>Tab pills</td><td class="n">56</td><td class="n">56</td><td class="n">0</td></tr>
+    <tr><td>“The team at a glance”</td><td class="n">174</td><td class="n cut">118</td><td class="n cut">−56</td></tr>
+    <tr><td>Search (moves up from the list pane)</td><td class="n">0</td><td class="n">54</td><td class="n">+54</td></tr>
+    <tr class="tot"><td>Chrome</td><td class="n">336</td><td class="n">313</td><td class="n cut">−23</td></tr>
+    <tr><td>Timesheet-access caveat, when shown</td><td class="n">+62</td><td class="n">+62</td><td class="n">0</td></tr>
+    <tr class="tot"><td>Detail pane at a 900px window</td><td class="n">450</td><td class="n cut">473</td><td class="n cut">+23</td></tr>
+  </table>
+  </div>
+
+  <p class="note">The caveat keeps its height deliberately — it explains why two of the four
+  figures are blank, and shrinking an explanation to win pixels is how you get numbers nobody
+  trusts. It is dismissible already, so it costs that height once.</p>
+
+  <div class="switch" role="tablist">
+    <button role="tab" aria-selected="true" data-f="t-today">Today</button>
+    <button role="tab" aria-selected="false" data-f="t-prop">Proposed</button>
+  </div>
+
+  <!-- ============================ TEAM TODAY ============================ -->
+  <div class="frameWrap" data-frame="t-today">
+    <div class="frameHead"><b>Team, today</b><i>detail pane ≈ 470px for ≈ 750px of content</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Team</div>
+          <div class="aBlurb">Who works for you, and what they can do.</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ Add staff</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill">Customers</span><span class="pill on">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <div class="card" style="margin-top:14px;">
+        <div class="cardTitle">The team at a glance</div>
+        <div class="tilesBig">
+          <div class="tileBig"><div class="lb">On the team</div><div class="vl">6</div><div class="ht">5 active · 1 disabled</div></div>
+          <div class="tileBig"><div class="lb">In today</div><div class="vl">3</div><div class="ht">clocked in at some point</div></div>
+          <div class="tileBig"><div class="lb">On leave</div><div class="vl">1</div><div class="ht">approved time off</div></div>
+          <div class="tileBig"><div class="lb">Hours this period</div><div class="vl">184h</div><div class="ht">since the 1st</div></div>
+        </div>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="searchWide" style="margin-top:0;">Search by name, role, or phone</div>
+          <div class="listCard" style="margin-top:12px;">
+            <div class="row"><div><div class="rName">Amina Yusuf</div><div class="rSub">Manager · Bakaara Main</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Cabdi Nuur</div><div class="rSub">Cashier · Bakaara Main</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Faadumo Cali</div><div class="rSub">Cashier · Hodan Branch</div></div><div class="rowTrail"><span class="badge new">On leave</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Maxamed Xasan</div><div class="rSub">Stock clerk · All stores</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+          </div>
+        </div>
+        <div class="detailPane">
+          <div class="stack">
+            <div class="card">
+              <div class="detHeadOld"><span class="detName">Cabdi Nuur</span><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span></div>
+              <div class="detMeta" style="margin-top:4px;">Cashier · Bakaara Main · +252 61 555 0132 · joined 14/03/2025</div>
+              <div class="detActsOld"><span class="btn">✆ WhatsApp</span><span class="btn">Edit member</span></div>
+              <div class="tiles4">
+                <div class="tile"><div class="lb">Hire date</div><div class="vl">14/03/25</div></div>
+                <div class="tile"><div class="lb">Pay type</div><div class="vl">Hourly</div></div>
+                <div class="tile"><div class="lb">Hours this period</div><div class="vl">38.5h</div></div>
+              </div>
+            </div>
+            <div class="cols">
+              <div class="col"><div class="card"><div class="cardTitle">Payroll</div><div class="detName" style="font-size:18px;">$2.50 / hour</div></div></div>
+              <div class="col"><div class="card"><div class="cardTitle">Access &amp; permissions</div><div class="hM">Sales ✓ · Inventory 🔒 · People 🔒 · Accounting 🔒</div></div></div>
+            </div>
+            <div class="card">
+              <div class="cardTitle">Recent shifts<span class="scope">This period</span></div>
+              <div class="hRow"><div class="hT">04/08/2026 · 8:00 AM–4:30 PM</div><div class="hA">8.5h</div></div>
+              <div class="hRow"><div class="hT">03/08/2026 · 8:05 AM–4:00 PM</div><div class="hA">7.9h</div></div>
+              <div class="hRow"><div class="hT">02/08/2026 · 8:00 AM–5:00 PM</div><div class="hA">9.0h</div></div>
+              <div class="hRow"><div class="hT">01/08/2026 · 9:00 AM–4:00 PM</div><div class="hA">7.0h</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Payroll and permissions are already below the fold.
+    Recent shifts — the card you open a team member to read — is nowhere near it. And because the
+    search sits in the scrolling list pane, finding someone on a long roster scrolls the search box
+    off the top.</p>
+  </div>
+
+  <!-- ============================ TEAM PROPOSED ============================ -->
+  <div class="frameWrap" data-frame="t-prop" hidden>
+    <div class="frameHead"><b>Team, proposed</b><i>chrome 204px · detail in two columns · search pinned</i></div>
+    <div class="scroller"><div class="frame">
+      <div class="appHead">
+        <div>
+          <div class="aEyebrow">People</div>
+          <div class="aTitle">Team</div>
+        </div>
+        <div class="aActs">
+          <span class="btn">Export CSV</span><span class="btn">Export PDF</span>
+          <span class="btn">Import</span><span class="btn solid">+ Add staff</span>
+        </div>
+      </div>
+
+      <div class="pills">
+        <span class="pill">Customers</span><span class="pill on">Team</span><span class="pill">Schedule</span>
+      </div>
+
+      <!-- Option B: same tiles, smaller, card title dropped. Team is the tab
+           where the hints earn their keep -- "clocked in at some point" is the
+           difference between a headcount and a floor count. -->
+      <div class="card" style="margin-top:12px;padding:12px;">
+        <div class="tilesSm">
+          <div class="tileSm"><div class="lb">On the team</div><div class="vl">6</div><div class="ht">5 active · 1 disabled</div></div>
+          <div class="tileSm"><div class="lb">In today</div><div class="vl">3</div><div class="ht">clocked in at some point</div></div>
+          <div class="tileSm"><div class="lb">On leave</div><div class="vl">1</div><div class="ht">approved time off</div></div>
+          <div class="tileSm"><div class="lb">Hours this period</div><div class="vl">184h</div><div class="ht">since the 1st</div></div>
+        </div>
+      </div>
+
+      <div class="searchRow">
+        <div class="search">Search by name, role, or phone</div>
+      </div>
+
+      <div class="panes">
+        <div class="listPane">
+          <div class="listCard">
+            <div class="row"><div><div class="rName">Amina Yusuf</div><div class="rSub">Manager · Bakaara Main</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+            <div class="row sel"><div><div class="rName">Cabdi Nuur</div><div class="rSub">Cashier · Bakaara Main</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Faadumo Cali</div><div class="rSub">Cashier · Hodan Branch</div></div><div class="rowTrail"><span class="badge new">On leave</span><span class="wa">✆</span></div></div>
+            <div class="row"><div><div class="rName">Maxamed Xasan</div><div class="rSub">Stock clerk · All stores</div></div><div class="rowTrail"><span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span><span class="wa">✆</span></div></div>
+          </div>
+        </div>
+
+        <div class="detailPane">
+          <div class="cols">
+            <!-- left: who they are, what they're paid -->
+            <div class="col">
+              <div class="card">
+                <div class="detHeadNew">
+                  <div class="detIdent">
+                    <span class="detName">Cabdi Nuur</span>
+                    <span class="badge" style="background:#e4f5e9;color:#1a7f42;">Active</span>
+                    <span class="detMeta">Cashier · Bakaara Main · +252 61 555 0132</span>
+                  </div>
+                  <div class="aActs"><span class="btn">✆</span><span class="btn">Edit member</span></div>
+                </div>
+                <div class="tiles4">
+                  <div class="tile"><div class="lb">Hire date</div><div class="vl">14/03/25</div></div>
+                  <div class="tile"><div class="lb">Pay type</div><div class="vl">Hourly</div></div>
+                  <div class="tile"><div class="lb">Hours this period</div><div class="vl">38.5h</div></div>
+                </div>
+              </div>
+
+              <div class="card">
+                <div class="cardTitle">Payroll</div>
+                <div class="detName" style="font-size:18px;">$2.50 / hour</div>
+              </div>
+
+              <div class="card">
+                <div class="cardTitle">Access &amp; permissions</div>
+                <div class="hM" style="line-height:2;">
+                  ✓ Sales &nbsp; ✓ Timesheets &nbsp; 🔒 Inventory<br>
+                  🔒 People &nbsp; 🔒 Accounting &nbsp; 🔒 Settings
+                </div>
+              </div>
+            </div>
+
+            <!-- right: what they've actually worked -->
+            <div class="col">
+              <div class="card hist">
+                <div class="cardTitle">Recent shifts<span class="scope">This period</span></div>
+                <div class="histBody" style="max-height:400px;">
+                  <div class="hRow"><div class="hT">04/08/2026 · 8:00 AM–4:30 PM</div><div class="hA">8.5h</div></div>
+                  <div class="hRow"><div class="hT">03/08/2026 · 8:05 AM–4:00 PM</div><div class="hA">7.9h</div></div>
+                  <div class="hRow"><div class="hT">02/08/2026 · 8:00 AM–5:00 PM</div><div class="hA">9.0h</div></div>
+                  <div class="hRow"><div class="hT">01/08/2026 · 9:00 AM–4:00 PM</div><div class="hA">7.0h</div></div>
+                  <div class="hRow"><div class="hT">31/07/2026 · 8:00 AM–4:00 PM</div><div class="hA">8.0h</div></div>
+                  <div class="hRow"><div class="hT">30/07/2026 · 8:00 AM–3:30 PM</div><div class="hA">7.5h</div></div>
+                  <div class="hRow"><div class="hT">29/07/2026 · 8:00 AM–4:00 PM</div><div class="hA">8.0h</div></div>
+                  <div class="hRow"><div class="hT">28/07/2026 · 8:10 AM (on shift)</div><div class="hA">—</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="fold"></div><div class="foldTag">bottom of window</div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Permissions get room to render as a real grid rather
+    than a squeezed half-cell, Payroll sits under the identity it belongs to, and Recent shifts —
+    the reason you opened this person — is finally above the fold with its own bounded scroll.
+    The search moves into the fixed chrome so it matches Customers and stops sliding away.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What changes, concretely</h2>
+  <p class="note"><b>Shared — both tabs, one implementation each:</b></p>
+  <ul class="tight">
+    <li><b>Glance strip keeps its tiles, at reduced scale.</b> Value 30px → 21px, tile padding
+    16 → 9, and the card’s own title drops — it is redundant beside labels that already read
+    CUSTOMERS / VIPS / ON THE TEAM. 215px → 150px, and <em>all four hints survive</em>, which is
+    the point: “in today: 3” without “clocked in at some point” is a floor count that isn’t one.
+    Both tabs render the identical shape, so this is one shared component, not two.</li>
+    <li><b>The blurb hides once someone is selected.</b> It orients a reader arriving at the
+    screen; it has nothing to say to a reader looking at a person.</li>
+    <li><b>Detail identity collapses to one row.</b> Name, status badge, the meta line, and the
+    action buttons share a single line instead of three or four stacked bands.</li>
+    <li><b>The detail becomes two columns</b>, falling back to one below the two-pane breakpoint,
+    where the detail is already a full-height sheet and has the room.</li>
+    <li><b>Long lists get a bounded body.</b> <code>max-height</code> with internal scroll rather
+    than a “See all” modal — no click to reach a row, and no card that grows without limit for
+    someone with 200 orders or 60 shifts.</li>
+  </ul>
+
+  <p class="note" style="margin-top:18px;"><b>Customers only:</b></p>
+  <ul class="tight">
+    <li><b>Search and segment chips share a row.</b> The field flexes, the chips sit beside it and
+    keep their horizontal scroll for narrow windows.</li>
+    <li><b>Two columns:</b> left is identity + tiles, Notes, Usually shops at; right is Purchase
+    history and Points history, both bounded.</li>
+  </ul>
+
+  <p class="note" style="margin-top:18px;"><b>Team only:</b></p>
+  <ul class="tight">
+    <li><b>Search moves out of the list pane into the fixed chrome</b>, matching Customers. Today
+    it scrolls away with the roster (<code>people.tsx:747</code>). The time-off requests panel
+    stays in the list pane — it is a queue you work through, not a control.</li>
+    <li><b>Two columns:</b> left is identity + tiles, Payroll, Access &amp; permissions; right is
+    Recent shifts, bounded. Permissions gains room to render as a proper grid instead of a
+    squeezed <code>span={6}</code> half-cell, and the shift list stops being the thing you never
+    see.</li>
+    <li><b>The timesheet-access caveat keeps its full height.</b> It explains why two of the four
+    figures are blank; shrinking an explanation to win pixels is how you end up with numbers
+    nobody trusts.</li>
+  </ul>
+
+  <div class="callout good">
+    <b>Net, with option B</b>
+    <p>Customers: chrome 40% → 24% of the window, panes ~630 → ~845 units for a tallest detail
+    column of ~680. Team: chrome 30–35% → 21–25%, panes ~470 → ~615 for a tallest column of ~470.
+    Both fit, with headroom for a long name wrapping the identity row. Option C would add another
+    86 units of slack on top — slack that buys nothing once it already fits.</p>
+  </div>
+
+  <div class="callout warn">
+    <b>The open question</b>
+    <p>Whether two columns hold up at the narrow end of “wide”: at a 1024px window the detail pane
+    is ~660px, so each column is ~320px and the stat tiles want to wrap 2×2. Below the two-pane
+    breakpoint the fallback is one column, unchanged. Whatever the glance strip ends up as, it
+    applies to both tabs — two People tabs with different strip treatments is worse than either
+    choice on its own.</p>
+  </div>
+
+  <div class="callout">
+    <b>Not in this change</b>
+    <p>The Customers Notes field still only saves on blur, loses an in-progress edit when you
+    switch customer, and renders for staff who cannot edit. Separate fix, tracked apart from this
+    layout work. Nothing here touches the Schedule or Me tabs.</p>
+  </div>
+</section>
+
+</div>
+
+<script>
+  // Scoped per section: Customers and Team each own their own switch.
+  document.querySelectorAll('.switch').forEach(sw => {
+    const scope = sw.closest('section');
+    const buttons = sw.querySelectorAll('button');
+    buttons.forEach(b => b.addEventListener('click', () => {
+      buttons.forEach(x => x.setAttribute('aria-selected', String(x === b)));
+      scope.querySelectorAll('.frameWrap').forEach(w => {
+        w.hidden = w.dataset.frame !== b.dataset.f;
+      });
+    }));
+  });
+</script>
