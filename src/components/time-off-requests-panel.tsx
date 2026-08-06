@@ -88,6 +88,14 @@ export function TimeOffRequestsPanel({
   const nameFor = (shopMemberId: string) => staff.find((m) => m.id === shopMemberId)?.fullName ?? 'Staff member';
   const pending = requests.filter((r) => r.status === 'pending');
 
+  // ListCard only previews the first two rows in list order. For a queue you
+  // work through, those two should be the ones still awaiting a decision, not
+  // whichever happen to be newest — an all-clear preview of two long-settled
+  // requests buries the only rows that need action. Sort is stable, so the
+  // existing requested_at-desc order survives within each group; copy the
+  // array first since `requests` is a prop, not this component's to mutate.
+  const orderedRequests = [...requests].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'));
+
   const decide = async (id: string, decision: 'approved' | 'denied') => {
     setError(null);
     try {
@@ -106,7 +114,7 @@ export function TimeOffRequestsPanel({
         actions={
           <Badge variant="bento" label={pending.length > 0 ? `${pending.length} pending` : 'All clear'} tone={pending.length > 0 ? 'warning' : 'default'} />
         }
-        rows={requests}
+        rows={orderedRequests}
         keyExtractor={(request) => request.id}
         emptyLabel="No time off requests yet."
         renderRow={(request) => <TimeOffRequestRow request={request} name={nameFor(request.shopMemberId)} onDecide={decide} />}
