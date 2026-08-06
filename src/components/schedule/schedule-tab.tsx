@@ -64,7 +64,14 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [selectedDay, setSelectedDay] = useState(() => toDateColumn(new Date()));
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ date: string; shift: Shift | null; memberId: string | null } | null>(null);
   // Phone only. The occasional actions live behind one pill on the title row
@@ -79,7 +86,6 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       const [weekShifts, staff, requests] = await Promise.all([
         listShiftsForWeek(shop.id, monday),
@@ -93,7 +99,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load the schedule.');
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, monday]);
 
@@ -312,7 +318,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
       {error && <Text style={styles.error}>{error}</Text>}
       {copyNotice && <Text style={styles.notice}>{copyNotice}</Text>}
 
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visibleMembers.length === 0 ? (
         <Text style={styles.empty}>

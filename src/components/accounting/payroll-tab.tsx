@@ -84,7 +84,14 @@ export function PayrollTab({
   const [cadence, setCadence] = useState<PayCadence | null>('monthly');
   const [periodStart, setPeriodStart] = useState(thisMonth.start);
   const [periodEnd, setPeriodEnd] = useState(thisMonth.end);
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bumped each time openCreate runs so a slow, superseded listStaff response
@@ -105,17 +112,16 @@ export function PayrollTab({
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
-      setLoading(false);
+      setLoaded(true);
       return;
     }
-    setLoading(true);
     try {
       setRuns(await listPayrollRuns(shop.id));
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, allowed]);
 
@@ -296,7 +302,7 @@ export function PayrollTab({
           tab with no pay runs yet should read as an empty card, not as a line
           of grey text floating on the page. */}
       <BentoCard title="Pay runs" scope="All time">
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : runs.length === 0 ? (
         <Text style={styles.empty}>No pay runs yet.</Text>

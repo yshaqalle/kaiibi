@@ -63,12 +63,18 @@ export function InvoicesTab({
   const [rangeInvoices, setRangeInvoices] = useState<Invoice[]>([]);
   const [editing, setEditing] = useState<Invoice | 'new' | null>(null);
   const [paying, setPaying] = useState<Invoice | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       const [open, inRange] = await Promise.all([
         listOpenInvoices(shop.id),
@@ -80,7 +86,7 @@ export function InvoicesTab({
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, dateRange]);
 
@@ -159,7 +165,7 @@ export function InvoicesTab({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <BentoCard title="Bills" scope="Selected range">
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visible.length === 0 ? (
         <Text style={styles.empty}>

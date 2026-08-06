@@ -72,6 +72,13 @@ export default function AdminTabs() {
   // layout instead of a phone-shaped bottom bar. Phones keep NativeTabs below,
   // in BOTH orientations — every device rotates freely (see use-orientation).
   //
+  // Rotating freely takes more than this navigator being stable, though: every
+  // modal has to permit landscape too, which is what AppModal
+  // (@/components/ui/app-modal) is for. React Native's own Modal defaults to
+  // portrait-only and force-rotates the scene when opened sideways, and enough
+  // of those in a row froze the POS outright. So a phone in landscape stays
+  // usable because of both things, not this one alone.
+  //
   // Keyed on the DEVICE, deliberately, not on `useWindowDimensions().width`:
   // the two branches are different navigators, so a width-based test tore
   // down NativeTabs (a native UITabBarController via react-native-screens)

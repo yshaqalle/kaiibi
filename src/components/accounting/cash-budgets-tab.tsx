@@ -82,7 +82,14 @@ export function CashBudgetsTab({
   // range the screen happens to be showing.
   const [expensesSinceBalances, setExpensesSinceBalances] = useState<Expense[]>([]);
   const [accruedWagesCents, setAccruedWagesCents] = useState(0);
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { since, until } = dateRange;
@@ -92,10 +99,9 @@ export function CashBudgetsTab({
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
-      setLoading(false);
+      setLoaded(true);
       return;
     }
-    setLoading(true);
     try {
       const [accountRows, billRows, budgetRowsData, expenseRows] = await Promise.all([
         listCashAccounts(shop.id),
@@ -133,7 +139,7 @@ export function CashBudgetsTab({
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, allowed, since, until, canSeeWagesOwed]);
 
@@ -202,7 +208,7 @@ export function CashBudgetsTab({
           </BentoCard>
         </BentoCell>
 
-      {loading ? (
+      {!loaded ? (
         <BentoCell span={12}>
           {/* In a card, like every other state on this screen. Bare grey text
               on the page reads as the screen having failed rather than as it

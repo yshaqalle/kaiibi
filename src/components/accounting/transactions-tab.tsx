@@ -106,7 +106,14 @@ export function TransactionsTab({
   const [sortField, setSortField] = useState<SaleSortField>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -122,7 +129,6 @@ export function TransactionsTab({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       const [salesRows, productRows] = await Promise.all([
         listSalesInRange(shop.id, sinceDate, untilDate, undefined, locationFilter),
@@ -133,7 +139,7 @@ export function TransactionsTab({
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, sinceDate, untilDate, locationFilter]);
 
@@ -254,7 +260,7 @@ export function TransactionsTab({
         </View>
       )}
 
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={styles.empty}>{search ? 'No sales match your search.' : 'No sales in this range.'}</Text>
