@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { hasMultipleLocations } from '@/lib/location-selection';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Which branch this device is operating at. Rendered in all three admin shells
 // (sidebar, native tabs, mobile web tabs), which is why it reads the auth
@@ -30,7 +31,7 @@ export function LocationSwitcher({ tone = 'light' }: { tone?: 'light' | 'dark' }
         <Text style={[styles.chevron, dark && styles.triggerTextDark]}>▾</Text>
       </Pressable>
 
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+      <AppModal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Location</Text>
@@ -63,7 +64,7 @@ export function LocationSwitcher({ tone = 'light' }: { tone?: 'light' | 'dark' }
             })}
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
     </>
   );
 }

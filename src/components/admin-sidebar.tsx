@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { Link, usePathname, useRouter } from 'expo-router';
 import { ReactNode, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
@@ -10,6 +10,7 @@ import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Shared between admin-tabs.tsx (native, tablet width) and
 // admin-tabs.web.tsx (web, desktop width) so the wide-layout nav only has
@@ -122,7 +123,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
         </View>
         {children}
       </View>
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menuSheet, { top: insets.top + 50 }]}>
             {canEditShop && (
@@ -151,7 +152,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
             </Pressable>
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
     </View>
   );
 }

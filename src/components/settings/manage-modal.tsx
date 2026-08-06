@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { taxonomyPalette } from '@/lib/colors';
+import { AppModal } from '@/components/ui/app-modal';
 
 const emptyColors = new Map<string, string | null>();
 
@@ -68,7 +69,7 @@ export function ManageModal({
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
         <View style={styles.modalCard}>
           <View style={styles.modalHeader}>
@@ -169,7 +170,7 @@ export function ManageModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

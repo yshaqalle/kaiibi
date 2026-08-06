@@ -5,6 +5,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 
 import { taxonomyPalette } from '@/lib/colors';
 import { deleteImageByPublicUrl } from '@/lib/storage';
+import { AppModal } from '@/components/ui/app-modal';
 
 export type TaxonomyRow = {
   id: string;
@@ -25,7 +26,7 @@ export type TaxonomyInput = {
 
 // Add/edit form for a brand or category — mirrors ProductForm's photo +
 // text-field pattern, but embedded directly inside TaxonomyManageModal's
-// card rather than owning its own `<Modal>` (see file-level note in the
+// card rather than owning its own `<AppModal>` (see file-level note in the
 // implementation plan for why).
 export function TaxonomyEditModal({
   onClose,

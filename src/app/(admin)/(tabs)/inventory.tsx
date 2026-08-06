@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -33,6 +33,9 @@ import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
 const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Name', value: (p) => p.name },
@@ -76,7 +79,13 @@ export default function InventoryScreen() {
   const atProductLimit = productLimit != null && usageOf('products') >= productLimit;
   const [products, setProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // stock adjustment, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps the
+  // scroll offset to fit, so the list came back at the top and the cashier lost
+  // their place after every single +/-. Same flag, same reason, as the
+  // accounting tabs and people.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -107,12 +116,22 @@ export default function InventoryScreen() {
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
-    setProducts(await listProducts(shop.id, locationFilter));
-    setLoading(false);
+    try {
+      setProducts(await listProducts(shop.id, locationFilter));
+    } finally {
+      // In a `finally` so a failed fetch still clears the placeholder rather
+      // than leaving the screen reading "Loading…" for the rest of the session.
+      setLoaded(true);
+    }
   }, [shop, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // The manual counterpart: the only way to pick up another till's sale,
+  // since nothing is pushed to this device.
+  const pullToRefresh = usePullToRefresh(reload);
 
   // Stock changes go through product_location_stock, never products.stock --
   // that column is derived by trigger now, so `updateProduct({ stock })` would
@@ -368,7 +387,7 @@ export default function InventoryScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
         <View style={styles.header}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>INVENTORY</Text>
@@ -564,7 +583,7 @@ export default function InventoryScreen() {
           />
         )}
         {stockError && <Text style={styles.stockError}>{stockError}</Text>}
-        {loading ? (
+        {!loaded ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
           // Boxed rather than floating on the page: an empty list is still an
@@ -628,7 +647,7 @@ export default function InventoryScreen() {
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
           wherever the app opens one. */}
-      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -680,7 +699,7 @@ export default function InventoryScreen() {
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
 
       {shop && canEdit && (
         <ProductModal

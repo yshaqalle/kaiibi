@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 
 // Lets a tab put its own buttons on the screen's title row, which sits above
 // the tab bar in the shell (matching People, where the title and its primary
@@ -19,6 +19,27 @@ export function useHeaderActions(setActions: HeaderActionsSetter, node: ReactNod
     return () => setActions(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setActions, ...deps]);
+}
+
+export type TabRefresh = () => Promise<void> | void;
+// A `useState` dispatch rather than a plain setter, because storing a function
+// in state REQUIRES the updater form -- see the wrapping in useTabRefresh below.
+export type RefreshSetter = Dispatch<SetStateAction<TabRefresh | null>>;
+
+// A tab's `reload`, published to the shell so the shell's ScrollView can offer
+// pull-to-refresh on its behalf. Upward for the same reason the header actions
+// are: the scroller belongs to the shell, the data belongs to the tab, and only
+// one tab is mounted at a time.
+//
+// Note the wrapping in the setter. `setRefresh(refresh)` would have React treat
+// the function as a state UPDATER and call it -- firing the fetch on every
+// publish, which is once per tab switch. `() => refresh` stores it instead.
+export function useTabRefresh(setRefresh: RefreshSetter, refresh: TabRefresh): void {
+  useEffect(() => {
+    setRefresh(() => refresh);
+    // Cleared on unmount so the shell never pulls against a tab that has gone.
+    return () => setRefresh(null);
+  }, [setRefresh, refresh]);
 }
 
 export type DetailSelectionSetter = (selected: boolean) => void;

@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
@@ -12,6 +12,7 @@ import { isValidRateInput } from '@/lib/pay-rate';
 import { updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import { deleteImageByPublicUrl } from '@/lib/storage';
 import type { Role, ShopLocation, StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 const theme = Colors.light;
 
@@ -140,7 +141,7 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
   if (!visible) return null;
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -230,7 +231,7 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

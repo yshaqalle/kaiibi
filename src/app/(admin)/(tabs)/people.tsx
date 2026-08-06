@@ -46,6 +46,8 @@ import { membersActiveToday, onLeaveMemberIds as onLeaveMembers } from '@/lib/sh
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -231,7 +233,14 @@ function CustomersTab({
   const [rowStats, setRowStats] = useState<Map<string, { totalSpentCents: number; visitCount: number }>>(new Map());
   const [search, setSearch] = useState('');
   const [segment, setSegment] = useState<CustomerSegment | 'all'>('all');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
@@ -243,7 +252,6 @@ function CustomersTab({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     setError(null);
     try {
       const [list, stats] = await Promise.all([listCustomers(shop.id), getCustomersStatsBatch(shop.id)]);
@@ -252,13 +260,18 @@ function CustomersTab({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // The manual counterpart, on the list pane only (see TwoPaneListDetail).
+  const pullToRefresh = usePullToRefresh(reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -320,7 +333,7 @@ function CustomersTab({
 
   const list = (
     <>
-      {loading ? (
+      {!loaded ? (
         <Text style={tabStyles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={tabStyles.empty}>No customers match.</Text>
@@ -410,6 +423,7 @@ function CustomersTab({
         </ScrollView>
       </View>
       <TwoPaneListDetail
+        listRefreshControl={pullToRefresh}
         compact={compact}
         list={list}
         detail={detail}
@@ -667,7 +681,14 @@ function TeamManagementTab({
   const [timeOff, setTimeOff] = useState<TimeOffRequest[]>([]);
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
@@ -677,7 +698,6 @@ function TeamManagementTab({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     setError(null);
     try {
       const since = new Date();
@@ -699,13 +719,18 @@ function TeamManagementTab({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, canApproveTimeOff, canViewHours]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // The manual counterpart, on the list pane only (see TwoPaneListDetail).
+  const pullToRefresh = usePullToRefresh(reload);
 
   // Shared with the Dashboard so the two surfaces can't disagree about who's
   // off; also honours non-contiguous date ranges, which the previous inline
@@ -794,7 +819,7 @@ function TeamManagementTab({
     <>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
       {canApproveTimeOff && <TimeOffRequestsPanel requests={timeOff} staff={staff} onChange={reload} />}
-      {loading ? (
+      {!loaded ? (
         <Text style={tabStyles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={tabStyles.empty}>No team members match.</Text>
@@ -900,6 +925,7 @@ function TeamManagementTab({
       </View>
 
       <TwoPaneListDetail
+        listRefreshControl={pullToRefresh}
         compact={compact}
         list={list}
         detail={detail}

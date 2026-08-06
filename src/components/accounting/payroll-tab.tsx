@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PayrollRunEditor } from '@/components/accounting/payroll-run-editor';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput, parseDateInput } from '@/components/date-input';
@@ -26,6 +26,7 @@ import { toDateColumn } from '@/lib/period';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { PayrollRun, StaffMember } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -57,9 +58,11 @@ const CADENCE_ADJECTIVES: Record<PayCadence, string> = {
 export function PayrollTab({
   dateRange,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can } = useAuth();
   // Both are required: pay rates are sensitive, and posting writes a real
@@ -84,7 +87,14 @@ export function PayrollTab({
   const [cadence, setCadence] = useState<PayCadence | null>('monthly');
   const [periodStart, setPeriodStart] = useState(thisMonth.start);
   const [periodEnd, setPeriodEnd] = useState(thisMonth.end);
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Bumped each time openCreate runs so a slow, superseded listStaff response
@@ -105,21 +115,25 @@ export function PayrollTab({
 
   const reload = useCallback(async () => {
     if (!shop || !allowed) {
-      setLoading(false);
+      setLoaded(true);
       return;
     }
-    setLoading(true);
     try {
       setRuns(await listPayrollRuns(shop.id));
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, allowed]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // Pay data is RLS-protected, so a role without both permissions can't read
   // any of this. Say so rather than rendering an empty screen that looks broken.
@@ -296,7 +310,7 @@ export function PayrollTab({
           tab with no pay runs yet should read as an empty card, not as a line
           of grey text floating on the page. */}
       <BentoCard title="Pay runs" scope="All time">
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : runs.length === 0 ? (
         <Text style={styles.empty}>No pay runs yet.</Text>

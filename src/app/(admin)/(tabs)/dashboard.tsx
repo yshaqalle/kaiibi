@@ -44,6 +44,8 @@ import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import type { Customer, Expense, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
 // The Dashboard answers one question: what needs attention right now. The
 // deeper analysis it used to carry -- rankings, category mix, payment split --
@@ -282,6 +284,12 @@ export default function DashboardScreen() {
   }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // The manual counterpart: the only way to pick up another till's sale,
+  // since nothing is pushed to this device.
+  const pullToRefresh = usePullToRefresh(reload);
 
   // The goal is a calendar-month commitment, so it stays independent of
   // whatever range is selected above.
@@ -456,7 +464,7 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} refreshControl={pullToRefresh}>
         <DashboardPageHeader onSelectResult={openSearchResult} />
 
         <GreetingBand

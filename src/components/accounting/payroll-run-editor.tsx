@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Badge } from '@/components/badge';
 import { formatAccountingCents, toCents } from '@/lib/currency';
 import { formatPayRate } from '@/lib/pay-rate';
 import { draftTotalCents } from '@/lib/payroll-reporting';
 import type { PayrollRun, PayrollRunLine } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Review-and-commit screen for one pay run. Every line's amount stays editable
 // until the run is posted -- that's what makes proration, bonuses, deductions
@@ -52,7 +53,7 @@ export function PayrollRunEditor({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -141,7 +142,7 @@ export function PayrollRunEditor({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

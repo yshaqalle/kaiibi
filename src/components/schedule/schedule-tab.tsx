@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -29,6 +29,8 @@ import { listShopApprovedTimeOff } from '@/lib/time-off';
 import { listStaff } from '@/lib/staff';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -63,7 +65,14 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [members, setMembers] = useState<StaffMember[]>([]);
   const [selectedDay, setSelectedDay] = useState(() => toDateColumn(new Date()));
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ date: string; shift: Shift | null; memberId: string | null } | null>(null);
   // Phone only. The occasional actions live behind one pill on the title row
@@ -78,7 +87,6 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       const [weekShifts, staff, requests] = await Promise.all([
         listShiftsForWeek(shop.id, monday),
@@ -92,11 +100,14 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load the schedule.');
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, monday]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // One draft edits in place; two or more are a split day, which is several
   // rows -- the schema has no "split shift", only shifts that share a date.
@@ -311,7 +322,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
       {error && <Text style={styles.error}>{error}</Text>}
       {copyNotice && <Text style={styles.notice}>{copyNotice}</Text>}
 
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : visibleMembers.length === 0 ? (
         <Text style={styles.empty}>
@@ -434,7 +445,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
         </BentoCard>
       )}
 
-      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -478,7 +489,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
             </View>
           </Pressable>
         </Pressable>
-      </Modal>
+      </AppModal>
 
       {showBulkModal && (
         <BulkShiftModal

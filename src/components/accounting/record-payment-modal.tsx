@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { formatAccountingCents, toCents } from '@/lib/currency';
@@ -7,6 +7,7 @@ import { balanceCents } from '@/lib/invoice-reporting';
 import { methodLabel, paymentMethods } from '@/lib/payment-methods';
 import { toDateColumn } from '@/lib/period';
 import type { Invoice, PaymentMethod } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 export function RecordPaymentModal({
   invoice,
@@ -60,7 +61,7 @@ export function RecordPaymentModal({
   const payments = invoice.payments ?? [];
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -159,7 +160,7 @@ export function RecordPaymentModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

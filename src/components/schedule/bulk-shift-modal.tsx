@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
 import { buildBulkShifts, type ShiftBlock, type ShiftDraft } from '@/lib/scheduling';
 import { isValidTime } from '@/lib/store-hours';
 import type { ShopLocation, StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Rostering several people across several days in one pass. Doing it through
 // the single-shift editor is one modal per person per day -- thirty of them for
@@ -83,7 +84,7 @@ export function BulkShiftModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -178,7 +179,7 @@ export function BulkShiftModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

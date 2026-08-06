@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { StorePicker } from '@/components/store-picker';
@@ -9,6 +9,7 @@ import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
 import { paymentMethods } from '@/lib/payment-methods';
 import { toDateColumn } from '@/lib/period';
 import type { Expense, ExpenseCategory, NewExpenseInput, PaymentMethod } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // One modal for both add and edit. The parent mounts it only while editing and
 // keys it by expense id, so these fields initialise from props and never need
@@ -78,7 +79,7 @@ export function ExpenseEditorModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -191,7 +192,7 @@ export function ExpenseEditorModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import type { ReactElement, ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, type RefreshControlProps } from 'react-native';
 
 import { Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Only the
 // People screen renders this, and People is a bento screen.
@@ -25,6 +26,7 @@ export function TwoPaneListDetail({
   detailOpen,
   onCloseDetail,
   detailTitle,
+  listRefreshControl,
 }: {
   compact: boolean;
   list: ReactNode;
@@ -32,12 +34,18 @@ export function TwoPaneListDetail({
   detailOpen: boolean;
   onCloseDetail: () => void;
   detailTitle?: string;
+  // Pull-to-refresh for the LIST only, in both layouts. The detail pane is
+  // deliberately excluded: it shows one selected record, so a pull there reads
+  // as "refresh this person" while actually refetching the whole list. The
+  // compact detail is a modal sheet, where a downward drag already means
+  // dismiss.
+  listRefreshControl?: ReactElement<RefreshControlProps>;
 }) {
   if (compact) {
     return (
       <View style={styles.compact}>
-        <ScrollView contentContainerStyle={styles.compactContent}>{list}</ScrollView>
-        <Modal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
+        <ScrollView contentContainerStyle={styles.compactContent} refreshControl={listRefreshControl}>{list}</ScrollView>
+        <AppModal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
           <View style={styles.overlay}>
             <View style={styles.sheet}>
               <View style={styles.sheetHeader}>
@@ -51,14 +59,19 @@ export function TwoPaneListDetail({
               </ScrollView>
             </View>
           </View>
-        </Modal>
+        </AppModal>
       </View>
     );
   }
   return (
     <View style={styles.split}>
       <View style={styles.listPane}>
-        <ScrollView style={styles.paneScroll} contentContainerStyle={styles.paneContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={styles.paneScroll}
+          contentContainerStyle={styles.paneContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={listRefreshControl}
+        >
           {list}
         </ScrollView>
       </View>

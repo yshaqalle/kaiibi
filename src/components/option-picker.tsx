@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { Colors } from '@/constants/theme';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Picking one of a list, presented as chips while the list is short and as a
 // dropdown once it isn't.
@@ -184,7 +185,7 @@ function PickerSheet({
   keepOpen?: boolean;
 }) {
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <View style={styles.sheet}>
           <View style={styles.sheetHeader}>
@@ -211,7 +212,7 @@ function PickerSheet({
           </ScrollView>
         </View>
       </Pressable>
-    </Modal>
+    </AppModal>
   );
 }
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { ExportMenu } from '@/components/export-menu';
@@ -25,6 +25,7 @@ import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_C
 import { saleProfit } from '@/lib/sales-reporting';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // The former Sales screen, now Accounting's Transactions tab. Behaviour is
 // unchanged except that the date range comes from the Accounting shell (shared
@@ -86,9 +87,11 @@ export function formatRangeLabel(range: DateRange): string {
 export function TransactionsTab({
   dateRange,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can, locations } = useAuth();
   const { width } = useWindowDimensions();
@@ -106,7 +109,14 @@ export function TransactionsTab({
   const [sortField, setSortField] = useState<SaleSortField>('date');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -122,7 +132,6 @@ export function TransactionsTab({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       const [salesRows, productRows] = await Promise.all([
         listSalesInRange(shop.id, sinceDate, untilDate, undefined, locationFilter),
@@ -133,11 +142,16 @@ export function TransactionsTab({
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, sinceDate, untilDate, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -254,7 +268,7 @@ export function TransactionsTab({
         </View>
       )}
 
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={styles.empty}>{search ? 'No sales match your search.' : 'No sales in this range.'}</Text>

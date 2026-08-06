@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
@@ -37,6 +37,7 @@ import {
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Expense } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 type LaborPicture = {
   accruedCents: number;
@@ -73,11 +74,13 @@ export function ReportsTab({
   dateRange,
   locationFilter,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const router = useRouter();
   const { shop, can } = useAuth();
@@ -162,6 +165,11 @@ export function ReportsTab({
   }, [shop, since, until, locationFilter, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // Above the early return, because hooks are. The explanations carry a
   // constant signature — the sentence never changes, so "I've read it" means

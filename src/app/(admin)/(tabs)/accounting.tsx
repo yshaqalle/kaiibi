@@ -14,6 +14,8 @@ import { PayrollTab } from '@/components/accounting/payroll-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
 import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
+import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
+import type { TabRefresh } from '@/components/accounting/use-header-actions';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -84,6 +86,15 @@ export default function AccountingScreen() {
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);
+  // Whichever tab is showing publishes its `reload` here, so the pull gesture
+  // on the scroller below refreshes that tab rather than nothing. The scroller
+  // belongs to this shell; the data belongs to the tab.
+  const [tabRefresh, setTabRefresh] = useState<TabRefresh | null>(null);
+  const pullToRefresh = usePullToRefresh(
+    useCallback(async () => {
+      await tabRefresh?.();
+    }, [tabRefresh])
+  );
   // Hoisted here for the same reason the range is: four tabs each kept their
   // own copy, so switching from Bills to Reports silently reset the store and
   // the reader was quietly shown a different scope than the one they picked.
@@ -92,7 +103,7 @@ export default function AccountingScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} refreshControl={pullToRefresh}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>ACCOUNTING</Text>
@@ -134,13 +145,13 @@ export default function AccountingScreen() {
             queries) in memory at once. */}
         {dateRange ? (
           <>
-            {tab === 'overview' && <OverviewTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
-            {tab === 'transactions' && <TransactionsTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
-            {tab === 'invoices' && <InvoicesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
-            {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
-            {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} />}
-            {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
-            {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} />}
+            {tab === 'overview' && <OverviewTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'transactions' && <TransactionsTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'invoices' && <InvoicesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
       </ScrollView>

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, PERMISSIONS, type Permission } from '@/lib/permissions';
 import { createRole, deleteRole, updateRole } from '@/lib/staff';
 import type { Role } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // Role *definitions* only (what a role can do) -- roster management
 // (adding/removing staff, assigning a role to someone) moved to the Team
@@ -154,7 +155,7 @@ function RoleEditorModal({
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -195,7 +196,7 @@ function RoleEditorModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

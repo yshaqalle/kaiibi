@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 
 import { ExpenseEditorModal } from '@/components/accounting/expense-editor-modal';
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
-import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
+import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -23,6 +23,7 @@ import {
 import { createExpense, deleteExpense, listExpensesInRange, updateExpense } from '@/lib/expenses';
 import { methodLabel } from '@/lib/payment-methods';
 import type { Expense, ExpenseCategory } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 const EXPENSE_EXPORT_COLUMNS: CsvColumn<Expense>[] = [
   { header: 'Date', value: (e) => e.occurredOn },
@@ -66,11 +67,13 @@ export function ExpensesTab({
   dateRange,
   locationFilter,
   setHeaderActions,
+  setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
   setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
 }) {
   const { shop, can } = useAuth();
   const { width } = useWindowDimensions();
@@ -80,7 +83,14 @@ export function ExpensesTab({
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | 'all'>('all');
   const [editing, setEditing] = useState<Expense | 'new' | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
+  // edit here, and swapping the rendered rows for a placeholder on those
+  // collapsed the scroll content to a few pixels -- the platform then clamps
+  // the scroll offset to fit, so the list came back at the top and whoever was
+  // reading it lost their place after every change. Gating on "has anything
+  // arrived yet" keeps the rows mounted, so they keep their height and their
+  // position, and the values update underneath. First found in inventory.tsx.
+  const [loaded, setLoaded] = useState(false);
   // null = the combined business view, which includes costs belonging to no
   // single store. Picking a store excludes those — see lib/location-reporting.
   const [error, setError] = useState<string | null>(null);
@@ -89,18 +99,22 @@ export function ExpensesTab({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    setLoading(true);
     try {
       setExpenses(await listExpensesInRange(shop.id, since, until));
       setError(null);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
-      setLoading(false);
+      setLoaded(true);
     }
   }, [shop, since, until]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
+  // Published to the shell, which owns the scroller the pull happens on.
+  useTabRefresh(setRefresh, reload);
 
   // The store filter applies BEFORE the category one and, unlike category, it
   // does move the headline totals: "what did this store spend" is a different
@@ -174,7 +188,7 @@ export function ExpensesTab({
         </View>
       )}
 
-      {loading ? (
+      {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={styles.empty}>

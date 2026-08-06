@@ -1,11 +1,12 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { signOutEverywhere, updatePassword } from '@/lib/auth';
 import { markPasswordChanged } from '@/lib/profile';
 import type { Profile } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 function timeAgo(iso: string): string {
   const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
@@ -114,7 +115,7 @@ function ChangePasswordModal({
   };
 
   return (
-    <Modal visible={visible} animationType="fade" transparent onRequestClose={close}>
+    <AppModal visible={visible} animationType="fade" transparent onRequestClose={close}>
       <View style={modalStyles.overlay}>
         <View style={modalStyles.card}>
           <View style={modalStyles.header}>
@@ -158,7 +159,7 @@ function ChangePasswordModal({
           )}
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

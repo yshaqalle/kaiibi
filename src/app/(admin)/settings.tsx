@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/screen-header';
@@ -32,6 +32,7 @@ import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib
 import { listLocations } from '@/lib/locations';
 import { listVendors } from '@/lib/vendors';
 import type { Brand, Category, Currency, Product, Promotion, Role, ShopLocation, Vendor } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 export default function SettingsScreen() {
   // Managing stores needs ALL of them, which is wider than `useAuth().locations`
@@ -325,7 +326,7 @@ export default function SettingsScreen() {
             <Ionicons name="chevron-down" size={16} color="#9CA3AF" />
           </Pressable>
           <ScrollView contentContainerStyle={styles.content}>{panel}</ScrollView>
-          <Modal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
+          <AppModal visible={menuOpen} transparent animationType="slide" onRequestClose={() => setMenuOpen(false)}>
             <View style={styles.sheetContainer}>
               <Pressable style={StyleSheet.absoluteFill} onPress={() => setMenuOpen(false)} />
               <View style={styles.sheet}>
@@ -338,7 +339,7 @@ export default function SettingsScreen() {
                 <SettingsNavList onSelect={handleSelectNav} />
               </View>
             </View>
-          </Modal>
+          </AppModal>
         </View>
       )}
     </SafeAreaView>

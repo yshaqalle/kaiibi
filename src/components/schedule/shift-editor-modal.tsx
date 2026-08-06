@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { OptionPicker } from '@/components/option-picker';
 import {
@@ -13,6 +13,7 @@ import {
 } from '@/lib/scheduling';
 import { isValidTime } from '@/lib/store-hours';
 import type { ShopLocation, StaffMember } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // The editor is deliberately thin: every rule it enforces comes from
 // validateShift in scheduling.ts, which is unit-tested. There is no React
@@ -120,7 +121,7 @@ export function ShiftEditorModal({
   };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <AppModal visible transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -211,7 +212,7 @@ export function ShiftEditorModal({
           </View>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

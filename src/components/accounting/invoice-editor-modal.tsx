@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DateInput, parseDateInput } from '@/components/date-input';
 import { StorePicker } from '@/components/store-picker';
@@ -8,6 +8,7 @@ import { toCents } from '@/lib/currency';
 import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
 import { toDateColumn } from '@/lib/period';
 import type { ExpenseCategory, Invoice, NewInvoiceInput } from '@/types/models';
+import { AppModal } from '@/components/ui/app-modal';
 
 // One modal for raising and editing a vendor bill. Mounted only while editing
 // and keyed by id, so fields initialise from props without an effect.
@@ -87,7 +88,7 @@ export function InvoiceEditorModal({
   };
 
   return (
-    <Modal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -207,7 +208,7 @@ export function InvoiceEditorModal({
           </ScrollView>
         </View>
       </View>
-    </Modal>
+    </AppModal>
   );
 }
 

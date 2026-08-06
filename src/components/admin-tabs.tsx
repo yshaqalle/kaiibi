@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Slot, useRouter } from 'expo-router';
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AdminSidebar } from '@/components/admin-sidebar';
@@ -14,6 +14,7 @@ import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
 import { deleteImageByPublicUrl } from '@/lib/storage';
+import { AppModal } from '@/components/ui/app-modal';
 
 // The top header is deliberately always dark — matching the marketing site's
 // black header brand treatment — regardless of the device's system color
@@ -71,6 +72,13 @@ export default function AdminTabs() {
   // layout instead of a phone-shaped bottom bar. Phones keep NativeTabs below,
   // in BOTH orientations — every device rotates freely (see use-orientation).
   //
+  // Rotating freely takes more than this navigator being stable, though: every
+  // modal has to permit landscape too, which is what AppModal
+  // (@/components/ui/app-modal) is for. React Native's own Modal defaults to
+  // portrait-only and force-rotates the scene when opened sideways, and enough
+  // of those in a row froze the POS outright. So a phone in landscape stays
+  // usable because of both things, not this one alone.
+  //
   // Keyed on the DEVICE, deliberately, not on `useWindowDimensions().width`:
   // the two branches are different navigators, so a width-based test tore
   // down NativeTabs (a native UITabBarController via react-native-screens)
@@ -109,7 +117,7 @@ export default function AdminTabs() {
           </Pressable>
         </View>
       </View>
-      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+      <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
           <View style={[styles.menuSheet, { top: insets.top + 54, backgroundColor: colors.background, borderColor: colors.backgroundElement }]}>
             {canEditShop && (
@@ -138,7 +146,7 @@ export default function AdminTabs() {
             </Pressable>
           </View>
         </Pressable>
-      </Modal>
+      </AppModal>
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting
