@@ -19,7 +19,6 @@ import { TeamAddModal } from '@/components/team-add-modal';
 import { TeamMemberEditModal } from '@/components/team-member-edit-modal';
 import { TimeOffRequestsPanel } from '@/components/time-off-requests-panel';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { DetailColumns } from '@/components/ui/detail-columns';
@@ -763,15 +762,6 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
   const list = (
     <>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
-      <View style={tabStyles.search}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by name, role, or phone"
-          placeholderTextColor={theme.bentoMuted2}
-          style={tabStyles.searchInput}
-        />
-      </View>
       {canApproveTimeOff && <TimeOffRequestsPanel requests={timeOff} staff={staff} onChange={reload} />}
       {loading ? (
         <Text style={tabStyles.empty}>Loading…</Text>
@@ -829,35 +819,53 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
 
   return (
     <View style={{ flex: 1 }}>
-      <BentoCard title="The team at a glance" style={tabStyles.strip}>
-        <View style={tabStyles.metricRow}>
-          <StatTile
-            variant="bento"
-            value={String(staff.length)}
-            label="On the team"
-            hint={disabledCount > 0 ? `${staff.length - disabledCount} active · ${disabledCount} disabled` : 'all active'}
-          />
-          <StatTile
-            variant="bento"
-            value={canViewHours ? String(activeTodayCount) : '—'}
-            label="In today"
-            hint={canViewHours ? 'clocked in at some point' : 'needs timesheet access'}
-          />
-          <StatTile variant="bento" value={String(onLeaveMemberIds.size)} label="On leave" hint="approved time off" />
-          <StatTile
-            variant="bento"
-            value={canViewHours ? `${hoursThisPeriod.toFixed(0)}h` : '—'}
-            label="Hours this period"
-            hint={canViewHours ? 'since the 1st' : 'needs timesheet access'}
-          />
-        </View>
-        {!canViewHours && !noHoursNote.dismissed && (
-          <Caveat tone="partial" onDismiss={noHoursNote.dismiss}>
-            Hours are hidden — you don&apos;t have timesheet access, so the two figures that come from clock-ins are
-            left blank rather than shown as zero.
-          </Caveat>
-        )}
-      </BentoCard>
+      <GlanceStrip
+        style={tabStyles.strip}
+        caveat={
+          !canViewHours && !noHoursNote.dismissed ? (
+            <Caveat tone="partial" onDismiss={noHoursNote.dismiss}>
+              Hours are hidden — you don&apos;t have timesheet access, so the two figures that come from clock-ins are
+              left blank rather than shown as zero.
+            </Caveat>
+          ) : undefined
+        }
+      >
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={String(staff.length)}
+          label="On the team"
+          hint={disabledCount > 0 ? `${staff.length - disabledCount} active · ${disabledCount} disabled` : 'all active'}
+        />
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={canViewHours ? String(activeTodayCount) : '—'}
+          label="In today"
+          hint={canViewHours ? 'clocked in at some point' : 'needs timesheet access'}
+        />
+        <StatTile variant="bento" density="dense" value={String(onLeaveMemberIds.size)} label="On leave" hint="approved time off" />
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={canViewHours ? `${hoursThisPeriod.toFixed(0)}h` : '—'}
+          label="Hours this period"
+          hint={canViewHours ? 'since the 1st' : 'needs timesheet access'}
+        />
+      </GlanceStrip>
+
+      {/* Above the panes, not inside the list, so it does not slide off the top
+          of a long roster. Matches Customers. TimeOffRequestsPanel stays in the
+          pane -- it is a queue you work through, not a control you reach for. */}
+      <View style={tabStyles.search}>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by name, role, or phone"
+          placeholderTextColor={theme.bentoMuted2}
+          style={tabStyles.searchInput}
+        />
+      </View>
 
       <TwoPaneListDetail
         compact={compact}
@@ -943,27 +951,28 @@ function TeamDetailPane({
   return (
     <View style={tabStyles.detailStack}>
       <BentoCard>
-        <View style={tabStyles.detHead}>
-          <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
-          <Badge variant="bento" label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
-        </View>
-        <Text style={tabStyles.detMeta}>
-          {member.roleName}
-          {memberStores ? ` · ${memberStores}` : ''}
-          {member.phone ? ` · ${member.phone}` : ''}
-          {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
-        </Text>
-
-        {/* Messaging isn't editing: a scheduler who can see the roster but not
-            change it still needs to reach the person, so the WhatsApp button is
-            outside the canManageRoster gate. */}
-        <View style={tabStyles.actions}>
-          <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} variant="pill" />
-          {canManageRoster && (
-            <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>Edit member</Text>
-            </Pressable>
-          )}
+        <View style={tabStyles.detHeadRow}>
+          <View style={tabStyles.detIdent}>
+            <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
+            <Badge variant="bento" label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
+            <Text style={tabStyles.detMeta}>
+              {member.roleName}
+              {memberStores ? ` · ${memberStores}` : ''}
+              {member.phone ? ` · ${member.phone}` : ''}
+              {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
+            </Text>
+          </View>
+          {/* Messaging isn't editing: a scheduler who can see the roster but not
+              change it still needs to reach the person, so the WhatsApp button is
+              outside the canManageRoster gate. */}
+          <View style={tabStyles.detActions}>
+            <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} variant="pill" />
+            {canManageRoster && (
+              <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>Edit member</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={tabStyles.metricRow}>
@@ -986,69 +995,72 @@ function TeamDetailPane({
         )}
       </BentoCard>
 
-      <BentoGrid>
-        <BentoCell span={6}>
-          <BentoCard
-            title="Payroll"
-            actions={
-              canManagePayroll && !canManageRoster ? (
-                <Pressable onPress={() => setEditingPay(true)} style={tabStyles.actionButton}>
-                  <Text style={tabStyles.actionButtonText}>Edit</Text>
-                </Pressable>
-              ) : undefined
-            }
-          >
-            <Text style={tabStyles.payrollValue}>
-              {!canManagePayroll
-                ? 'Hidden'
-                : member.payType == null || member.payRateCents == null
-                  ? 'Not set'
-                  : formatPayRateLong(member.payType, member.payRateCents)}
-            </Text>
-            {!canManagePayroll && !noPayrollNote.dismissed && (
-              <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
-                You don&apos;t have payroll access, so this member&apos;s rate is hidden.
-              </Caveat>
-            )}
-          </BentoCard>
-        </BentoCell>
+      <DetailColumns
+        left={
+          <>
+            <BentoCard
+              title="Payroll"
+              actions={
+                canManagePayroll && !canManageRoster ? (
+                  <Pressable onPress={() => setEditingPay(true)} style={tabStyles.actionButton}>
+                    <Text style={tabStyles.actionButtonText}>Edit</Text>
+                  </Pressable>
+                ) : undefined
+              }
+            >
+              <Text style={tabStyles.payrollValue}>
+                {!canManagePayroll
+                  ? 'Hidden'
+                  : member.payType == null || member.payRateCents == null
+                    ? 'Not set'
+                    : formatPayRateLong(member.payType, member.payRateCents)}
+              </Text>
+              {!canManagePayroll && !noPayrollNote.dismissed && (
+                <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
+                  You don&apos;t have payroll access, so this member&apos;s rate is hidden.
+                </Caveat>
+              )}
+            </BentoCard>
 
-        <BentoCell span={6}>
-          <BentoCard title="Access &amp; permissions">
-            <View style={tabStyles.permGrid}>
-              {PERMISSION_GROUPS.map((group) => {
-                const granted = groupHasAny(permissions, group);
-                return (
-                  <View key={group.label} style={tabStyles.permTile}>
-                    <View style={[tabStyles.permIcon, granted ? tabStyles.permIconOn : tabStyles.permIconOff]}>
-                      <Text style={tabStyles.permIconText}>{granted ? '✓' : '🔒'}</Text>
+            <BentoCard title="Access &amp; permissions">
+              <View style={tabStyles.permGrid}>
+                {PERMISSION_GROUPS.map((group) => {
+                  const granted = groupHasAny(permissions, group);
+                  return (
+                    <View key={group.label} style={tabStyles.permTile}>
+                      <View style={[tabStyles.permIcon, granted ? tabStyles.permIconOn : tabStyles.permIconOff]}>
+                        <Text style={tabStyles.permIconText}>{granted ? '✓' : '🔒'}</Text>
+                      </View>
+                      <Text style={tabStyles.permLabel}>{group.label}</Text>
                     </View>
-                    <Text style={tabStyles.permLabel}>{group.label}</Text>
-                  </View>
-                );
-              })}
-            </View>
-          </BentoCard>
-        </BentoCell>
-      </BentoGrid>
-
-      {canViewHours && (
-        <BentoCard title="Recent shifts" scope="This period">
-          {entries.length === 0 ? (
-            <Text style={tabStyles.empty}>No shifts logged this period.</Text>
-          ) : (
-            entries.slice(0, 8).map((e) => (
-              <View key={e.id} style={tabStyles.shiftRow}>
-                <Text style={tabStyles.shiftDate}>
-                  {new Date(e.clockIn).toLocaleDateString()} · {new Date(e.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  {e.clockOut ? `–${new Date(e.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}
-                </Text>
-                <Text style={tabStyles.shiftDuration}>{e.clockOut ? `${sumDurationHours([e]).toFixed(1)}h` : '—'}</Text>
+                  );
+                })}
               </View>
-            ))
-          )}
-        </BentoCard>
-      )}
+            </BentoCard>
+          </>
+        }
+        right={
+          canViewHours ? (
+            <ListCard
+              title="Recent shifts"
+              scope="This period"
+              subtitle={member.fullName ?? member.email ?? 'Staff member'}
+              rows={entries}
+              keyExtractor={(e) => e.id}
+              emptyLabel="No shifts logged this period."
+              renderRow={(e) => (
+                <View style={tabStyles.shiftRow}>
+                  <Text style={tabStyles.shiftDate}>
+                    {new Date(e.clockIn).toLocaleDateString()} · {new Date(e.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {e.clockOut ? `–${new Date(e.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}
+                  </Text>
+                  <Text style={tabStyles.shiftDuration}>{e.clockOut ? `${sumDurationHours([e]).toFixed(1)}h` : '—'}</Text>
+                </View>
+              )}
+            />
+          ) : null
+        }
+      />
 
       <EditPayModal
         visible={editingPay}
