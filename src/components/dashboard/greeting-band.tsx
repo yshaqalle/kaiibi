@@ -16,11 +16,19 @@ const theme = Colors.light;
 export function summarySentence({
   netProfitCents,
   revenueCents,
+  cogsCents,
   operatingExpenseCents: expensesCents,
   uncostedItemCount,
 }: {
   netProfitCents: number;
   revenueCents: number;
+  /**
+   * Counted in the loss sentence alongside operating expenses. Without it the
+   * band could state that $200 of expenses were "outpacing" $1,000 of revenue
+   * while the $900 of stock that actually caused the loss went unmentioned --
+   * the one claim on the screen that didn't reconcile to the cards below it.
+   */
+  cogsCents: number;
   operatingExpenseCents: number;
   uncostedItemCount: number;
 }): string {
@@ -30,7 +38,7 @@ export function summarySentence({
     parts.push('No sales recorded for this period yet.');
   } else if (netProfitCents < 0) {
     parts.push(
-      `You're running at a loss of ${formatAccountingCents(Math.abs(netProfitCents))} this period — expenses of ${formatAccountingCents(expensesCents)} are outpacing ${formatAccountingCents(revenueCents)} of revenue.`
+      `You're running at a loss of ${formatAccountingCents(Math.abs(netProfitCents))} this period — ${formatAccountingCents(cogsCents + expensesCents)} of stock and running costs against ${formatAccountingCents(revenueCents)} of revenue.`
     );
   } else {
     parts.push(

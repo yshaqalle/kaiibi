@@ -92,6 +92,12 @@ export function GlobalSearch({ onSelect }: { onSelect: (result: SearchResult) =>
           value={query}
           onChangeText={setQuery}
           onFocus={() => setOpen(true)}
+          // Closing on blur is what gives the panel a way OUT. Without it the
+          // only exits were picking a result or emptying the field, so tapping
+          // anywhere else left an absolutely-positioned list sitting over the
+          // cards. The rows below fire on press-IN precisely so they still beat
+          // this -- see the note there.
+          onBlur={() => setOpen(false)}
           placeholder="Search products, people, bills…"
           placeholderTextColor={theme.bentoMuted2}
           style={styles.input}
@@ -118,7 +124,12 @@ export function GlobalSearch({ onSelect }: { onSelect: (result: SearchResult) =>
               {results.map((result) => (
                 <Pressable
                   key={`${result.kind}-${result.id}`}
-                  onPress={() => {
+                  // onPressIn, not onPress: it fires on touch-down/mouse-down,
+                  // which lands BEFORE the field's onBlur above. With onPress
+                  // the blur would unmount this row first and the tap would
+                  // select nothing. A timer on the blur would do the same job
+                  // less predictably.
+                  onPressIn={() => {
                     setOpen(false);
                     setQuery('');
                     onSelect(result);

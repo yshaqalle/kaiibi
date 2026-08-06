@@ -463,6 +463,7 @@ export default function DashboardScreen() {
           summary={summarySentence({
             netProfitCents: pnl.netProfitCents,
             revenueCents,
+            cogsCents: pnl.cogsCents,
             operatingExpenseCents: pnl.operatingCents,
             uncostedItemCount: cogs?.uncostedItemCount ?? 0,
           })}

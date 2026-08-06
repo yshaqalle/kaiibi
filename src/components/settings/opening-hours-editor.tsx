@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   DAY_LABELS,
-  DEFAULT_RANGE,
   WEEK_ORDER,
   findDayProblem,
   formatDayHours,
@@ -140,7 +139,12 @@ function DaySheet({
         </Text>
       ))}
 
-      {ranges.length === 0 ? <Text style={styles.gap}>Closed all day.</Text> : null}
+      {/* "Never touched" and "shut" are different answers and the sheet says
+          which, the same way the collapsed row does. Opening a day must not be
+          what decides between them -- see the note in the parent's `open`. */}
+      {ranges.length === 0 ? (
+        <Text style={styles.gap}>{hours[day] === undefined ? 'No hours set yet.' : 'Closed all day.'}</Text>
+      ) : null}
 
       <View style={styles.sheetActions}>
         <Pressable onPress={() => onChange(setDay(hours, day, [...ranges, suggestNextRange(ranges)]))}>
@@ -164,10 +168,22 @@ function DaySheet({
 export function OpeningHoursEditor({ value, onChange }: { value: OpeningHours; onChange: (next: OpeningHours) => void }) {
   const [openDay, setOpenDay] = useState<WeekdayKey | null>(null);
 
-  // Both state changes a tap can cause, resolved into ONE onChange: collapsing
-  // the day being left, and seeding the day being opened. Two calls would have
-  // the second built from a `value` prop the first has not re-rendered yet, and
-  // the seed would silently win over the normalisation.
+  // Opening a day is a READ. It writes nothing.
+  //
+  // This used to seed a never-configured day with the default block on the way
+  // in, so an owner who tapped Sunday just to look at it, collapsed it, and
+  // then saved anything else on the store had silently committed Sunday to
+  // 09:00-18:00. That erases the absent-vs-[] distinction the whole file is
+  // built to preserve -- isConfigured and the shift scheduler both read it --
+  // and it did so on a gesture that means "show me", not "set this".
+  //
+  // The default is one tap away instead: suggestNextRange([]) returns
+  // DEFAULT_RANGE, so "+ Add hours" on an untouched day gives exactly the block
+  // the seed used to, at the point the owner asks for it.
+  //
+  // The one write left is collapsing the day being left, which is why this is
+  // still a single onChange: a second call would be built from a `value` prop
+  // the first has not re-rendered yet.
   const open = (day: WeekdayKey | null) => {
     let next = value;
 
@@ -178,12 +194,6 @@ export function OpeningHoursEditor({ value, onChange }: { value: OpeningHours; o
     if (openDay && openDay !== day && next[openDay]) {
       next = setDay(next, openDay, normalizeDay(next[openDay]));
     }
-
-    // A day that has never been configured opens showing a default block rather
-    // than an empty sheet. It is on screen and editable before it counts for
-    // anything -- nothing reaches the database until the modal is saved, and
-    // "Mark closed" is right there for a day that should stay shut.
-    if (day && next[day] === undefined) next = setDay(next, day, [{ ...DEFAULT_RANGE }]);
 
     if (next !== value) onChange(next);
     setOpenDay(day);

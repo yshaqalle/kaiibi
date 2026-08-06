@@ -1,5 +1,5 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
-import { containsPattern } from '@/lib/like-pattern';
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { endOfDay, startOfDay } from '@/lib/period';
 import { bucketDailyTotals, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
@@ -244,7 +244,9 @@ export async function listSales(shopId: string, limit = 50, locationId?: string 
 export async function searchSales(shopId: string, query: string, locationId?: string | null): Promise<Sale[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  const pattern = containsPattern(q);
+  // Quoted for the `or` list -- a customer name with a comma in it would
+  // otherwise break the filter rather than match. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
   let request = supabase
     .from('sales')
     .select('*, sale_items(*), sale_payments(*)')

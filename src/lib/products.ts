@@ -1,4 +1,4 @@
-import { containsPattern } from '@/lib/like-pattern';
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
@@ -244,15 +244,14 @@ export async function findProductsByCode(shopId: string, codes: readonly string[
 export async function searchProducts(shopId: string, query: string): Promise<Product[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  const pattern = containsPattern(q);
+  // Quoted, not bare: `or` takes a comma-separated filter list, so a product
+  // searched for as "rice, basmati" would otherwise end the filter mid-value
+  // and fail the request. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
   const { data, error } = await supabase
     .from('products')
     .select('*')
     .eq('shop_id', shopId)
-    // PostgREST `or` takes a comma-separated filter list. `pattern` is already
-    // wildcard-escaped; the values here can't contain a comma that would break
-    // the list because the caller's query is trimmed user text and any comma
-    // in it is a literal inside the pattern, which PostgREST accepts.
     .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
     .order('name', { ascending: true })
     .limit(8);

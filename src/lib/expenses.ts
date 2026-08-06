@@ -1,4 +1,4 @@
-import { containsPattern } from '@/lib/like-pattern';
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { toDateColumn } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import type { Expense, NewExpenseInput } from '@/types/models';
@@ -67,7 +67,9 @@ export async function listExpensesInRange(shopId: string, since: Date, until?: D
 export async function searchExpenses(shopId: string, query: string): Promise<Expense[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  const pattern = containsPattern(q);
+  // Quoted for the `or` list -- a note with a comma in it would otherwise
+  // break the filter rather than match. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
   const { data, error } = await supabase
     .from('expenses')
     .select(SELECT_WITH_VENDOR)

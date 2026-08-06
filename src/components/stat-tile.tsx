@@ -114,7 +114,12 @@ const TONE = StyleSheet.create({
 // itself — the colour reinforces the number, it never replaces it.
 const TONE_BENTO = StyleSheet.create({
   default: { color: theme.bentoInk },
-  warning: { color: theme.bentoLoss },
+  // bentoSeries3, not bentoLoss: red is reserved for a figure that IS negative,
+  // and a signed number is always beside it. `warning` means "look at this" --
+  // "Customers to check on: 4" is not a loss, and dressing it in the same red
+  // as one spends the colour the screen needs for actual losses. Series 3 is an
+  // already-validated amber, so this adds no unchecked hue.
+  warning: { color: theme.bentoSeries3 },
   positive: { color: theme.bentoProfit },
 });
 

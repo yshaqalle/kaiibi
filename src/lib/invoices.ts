@@ -1,4 +1,4 @@
-import { containsPattern } from '@/lib/like-pattern';
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { toDateColumn } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import type { Invoice, InvoicePayment, NewInvoiceInput } from '@/types/models';
@@ -103,7 +103,9 @@ export async function listInvoicesInRange(shopId: string, since: Date, until?: D
 export async function searchInvoices(shopId: string, query: string): Promise<Invoice[]> {
   const q = query.trim();
   if (q.length < 2) return [];
-  const pattern = containsPattern(q);
+  // Quoted for the `or` list -- a vendor name with a comma in it ("Ahmed, Ltd")
+  // would otherwise break the filter rather than match. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
   const { data, error } = await supabase
     .from('invoices')
     .select(SELECT_LIST)

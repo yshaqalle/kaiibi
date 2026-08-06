@@ -118,7 +118,9 @@ export async function searchEverything(
           id: sale.id,
           title: sale.customerName || 'Walk-in sale',
           subtitle: `${new Date(sale.createdAt).toLocaleDateString()} · ${formatAccountingCents(sale.totalCents)}`,
-          rank: score('sale', sale.customerName ?? 'Walk-in sale', q),
+          // `||`, matching `title` above: a sale with an empty-string name is
+          // scored on the fallback it actually displays, not on ''.
+          rank: score('sale', sale.customerName || 'Walk-in sale', q),
         }))
       )
     );
@@ -153,7 +155,9 @@ export async function searchEverything(
           id: expense.id,
           title: expense.note || expenseCategoryLabel(expense.category),
           subtitle: `${expense.occurredOn} · ${formatAccountingCents(expense.amountCents)}`,
-          rank: score('expense', expense.note ?? expenseCategoryLabel(expense.category), q),
+          // `||`, matching `title` above -- an empty note falls through to the
+          // category for both, so the row is ranked on what it shows.
+          rank: score('expense', expense.note || expenseCategoryLabel(expense.category), q),
         }))
       )
     );
