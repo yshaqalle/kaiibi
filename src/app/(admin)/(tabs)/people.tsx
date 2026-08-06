@@ -551,6 +551,7 @@ function CustomerDetailPane({
         right={
           <>
             <ListCard
+              key={customer.id}
               title="Purchase history"
               scope={stats ? `${stats.visitCount} orders` : undefined}
               subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
@@ -579,6 +580,7 @@ function CustomerDetailPane({
                 quietly changing an old one. */}
             {loyaltyOn && (
               <ListCard
+                key={customer.id}
                 title="Points history"
                 scope={`${customer.pointsBalance.toLocaleString()} balance`}
                 subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
@@ -600,7 +602,7 @@ function CustomerDetailPane({
                     </Text>
                   </View>
                 )}
-                footer={
+                note={
                   pointsHistory.length > 0 && !ledgerNote.dismissed ? (
                     <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
                       The ledger is append-only — a correction arrives as its own row rather than quietly changing an old

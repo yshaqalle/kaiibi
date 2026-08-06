@@ -28,6 +28,7 @@ export function ListCard<T>({
   previewCount = 2,
   actions,
   footer,
+  note,
 }: {
   title: string;
   /** The pill in the card head -- "4 orders", "148 balance". */
@@ -43,6 +44,15 @@ export function ListCard<T>({
   actions?: ReactNode;
   /** Rendered inside the modal, below the list. For a caveat about the list. */
   footer?: ReactNode;
+  /**
+   * Rendered on the CARD itself, below the preview rows and the "View all"
+   * control if there is one -- visible whether or not the modal has ever been
+   * opened. For a caveat that qualifies the figure the card is showing (a
+   * balance, a total), not the long list behind it: the common case is a
+   * customer whose whole history fits in the preview and never sees the modal
+   * at all, and the caveat still has to reach them.
+   */
+  note?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const preview = rows.slice(0, previewCount);
@@ -72,6 +82,7 @@ export function ListCard<T>({
           )}
         </>
       )}
+      {note}
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
         <View style={styles.overlay}>

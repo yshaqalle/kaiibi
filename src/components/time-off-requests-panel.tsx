@@ -106,9 +106,17 @@ export function TimeOffRequestsPanel({
     }
   };
 
+  // The Approve/Deny buttons live in `renderRow`, which is called both in the
+  // card's own preview AND inside the modal's row list -- so wherever the tap
+  // that failed actually happened, a copy of the error needs to land there
+  // too. Passing the same node as both `note` (rendered on the card) and
+  // `footer` (rendered in the modal) covers both without touching renderRow
+  // itself, which would otherwise have to guard against printing the same
+  // banner once per row.
+  const errorBanner = error ? <Text style={styles.error}>{error}</Text> : undefined;
+
   return (
     <View style={styles.wrap}>
-      {error && <Text style={styles.error}>{error}</Text>}
       <ListCard
         title="Time off requests"
         actions={
@@ -118,6 +126,8 @@ export function TimeOffRequestsPanel({
         keyExtractor={(request) => request.id}
         emptyLabel="No time off requests yet."
         renderRow={(request) => <TimeOffRequestRow request={request} name={nameFor(request.shopMemberId)} onDecide={decide} />}
+        note={errorBanner}
+        footer={errorBanner}
       />
     </View>
   );
@@ -138,5 +148,7 @@ const styles = StyleSheet.create({
   // the signal, so the green/red pair never has to carry the meaning by itself.
   approve: { fontSize: 12.5, fontWeight: '700', color: '#0B6B3C' },
   deny: { fontSize: 12.5, fontWeight: '700', color: '#B23B4E' },
-  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 8 },
+  // Below the rows now (rendered via ListCard's `note`/`footer`, not above
+  // the card), so the gap goes on top instead of underneath.
+  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginTop: 8 },
 });

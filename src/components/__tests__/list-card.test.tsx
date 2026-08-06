@@ -96,4 +96,33 @@ describe('ListCard preview', () => {
     expect(texts).toContain('Jaalala Jaalala');
     expect(texts).toContain('Close');
   });
+
+  // `note` qualifies the figure the card is showing (a balance, a total), so
+  // it has to reach the common case: a short list that never triggers the
+  // modal at all. Below previewCount AND the modal never opened is exactly
+  // that case.
+  it('renders note on the card when rows are below previewCount and the modal has never opened', () => {
+    const rows = Array.from({ length: 2 }, (_, i) => ({ id: String(i), label: `row-${i}` }));
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <ListCard
+          title="Points history"
+          rows={rows}
+          keyExtractor={(r) => r.id}
+          renderRow={(r) => <Text>{r.label}</Text>}
+          emptyLabel="No points activity yet."
+          note={<Text>Ledger caveat</Text>}
+        />
+      );
+    });
+
+    const texts = textsIn(tree!.toJSON() as ReactTestRendererJSON);
+    expect(texts).toContain('row-0');
+    expect(texts).toContain('row-1');
+    // No "View all" -- two rows exactly fill the default previewCount of 2,
+    // so the modal is never reachable, and note still has to show up.
+    expect(texts.some((t) => t.startsWith('View all'))).toBe(false);
+    expect(texts).toContain('Ledger caveat');
+  });
 });
