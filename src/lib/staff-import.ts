@@ -103,6 +103,7 @@ export async function runStaffImport(
         fullName,
         email: created.email,
         phone: phone ?? null,
+        photoUrl: null,
         createdAt: new Date().toISOString(),
         hireDate: null,
         payType: pay.kind === 'ok' ? pay.patch.payType : null,

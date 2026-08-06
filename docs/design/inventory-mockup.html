@@ -1,0 +1,564 @@
+<title>Kaiibi Inventory — the bento language, table intact</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  /* The desktop frame is a fixed 1280px so it shows the real desktop layout.
+     In a window narrower than that the right-hand columns used to sit behind a
+     scrollbar, which is no way to judge a seven-column table -- so it is scaled
+     down to fit instead. At >=1280px the scale is 1 and nothing happens. */
+  .scroller{padding-bottom:8px;border-radius:16px;overflow:hidden;}
+  .scroller.raw{overflow-x:auto;}
+  .fitBtn{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;margin-left:auto;}
+  .fitBtn[aria-pressed="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- app chrome ---- */
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.038em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .headActs{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .w380 .filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  /* 44px tall with the button inset 6px from the right — the same geometry the
+     app uses, so the glyph sits on the field's real centre line. */
+  .search{background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;height:44px;
+    padding:0 6px 0 14px;font-size:13px;color:var(--d-mut2);margin-bottom:14px;display:flex;
+    justify-content:space-between;align-items:center;gap:10px;}
+  .scanBtn{background:var(--d-ink);color:#fff;border:none;border-radius:16px;width:32px;height:32px;
+    display:flex;align-items:center;justify-content:center;font-size:15px;line-height:1;flex:none;}
+
+  /* ---- cards ---- */
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx.table{padding:14px 10px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;padding:0 8px;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;padding:0 8px;}
+  .strip{margin-bottom:14px;}
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* caveats */
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;
+    line-height:1.5;margin-bottom:14px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav a{color:inherit;font-weight:700;}
+
+  /* ---- product table ---- */
+  .tbl{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;min-width:880px;}
+  th{font-size:10px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);
+    text-align:left;padding:0 10px 10px;border-bottom:1px solid var(--d-rule);white-space:nowrap;}
+  th.r,td.r{text-align:right;}
+  td{padding:12px 10px;border-bottom:1px solid var(--d-rule);font-size:13px;vertical-align:middle;}
+  tr:last-child td{border-bottom:none;}
+  .pname{font-weight:700;color:var(--d-ink);}
+  .pmeta{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  .muted{color:var(--d-mut);}
+  .tag{display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;border-radius:999px;
+    background:var(--d-soft);color:var(--d-ink2);margin-right:4px;}
+  .price{font-weight:800;font-variant-numeric:tabular-nums;}
+  .stepper{display:inline-flex;align-items:center;gap:8px;background:var(--d-soft);border-radius:999px;
+    padding:4px 6px;}
+  .stepper b{min-width:26px;text-align:center;font-variant-numeric:tabular-nums;font-size:13px;}
+  .stepper i{font-style:normal;width:20px;height:20px;border-radius:10px;background:#fff;border:1px solid var(--d-ln);display:flex;
+    align-items:center;justify-content:center;font-size:13px;color:var(--d-ink2);}
+  .chip{font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;white-space:nowrap;}
+  .chip.low{background:#fdf1e3;color:#8a530f;} .chip.out{background:#fce9eb;color:#b0293a;}
+  .chip.ok{background:#e7f5ed;color:#0b6b3c;} .chip.none{background:var(--d-soft);color:var(--d-mut);}
+
+  /* ---- phone tiles ---- */
+  .tiles{display:grid;gap:0;}
+  .tile{display:flex;gap:12px;align-items:center;padding:13px 14px;border-bottom:1px solid var(--d-rule);}
+  .tile:last-child{border-bottom:none;}
+  .tile .bd{flex:1;min-width:0;}
+  .tile .t1{font-size:13.5px;font-weight:700;}
+  .tile .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .tile .rt{text-align:right;}
+  .tile .rt .p{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
+
+  .emptyState{text-align:center;color:var(--d-mut);font-size:13px;padding:34px 22px;line-height:1.6;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Inventory</p>
+  <h1>Inventory, table intact</h1>
+  <p class="lede">Dashboard, Accounting and People are converted; <code>theme.ts</code> lists
+  Inventory as still cream. Inventory is the purest case of the rule the other three arrived at:
+  it is <strong>one long table you read down</strong>, so it takes the palette and the chrome and
+  keeps its layout exactly. The grid appears once, in the strip at the top. Flip through the
+  filter states below — that is where the real decisions are.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · full-bleed table</i>
+        <button class="fitBtn" id="fitBtn" type="button" aria-pressed="true">Scaled to fit</button>
+      </div>
+      <div class="scroller" id="wideScroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · tiles, one primary action</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>What is actually being proposed</h2>
+
+    <div class="verdict">
+      <div class="vx good"><b>New: a stat strip that replaces a sentence</b>
+        <p>Today the screen says "148 products · 12 need attention" as grey subtitle text under the
+        title, and what the stock is worth is nowhere at all. Four tiles from data the screen
+        already loads — the product list is in memory, so both value figures are sums, not
+        queries.</p></div>
+
+      <div class="vx good"><b>New: cost and retail, as a pair</b>
+        <p><b>Stock at cost</b> is what you paid for what's on the shelf. <b>Stock at retail</b> is
+        what it would bring in at current prices. They only mean something together — one alone
+        invites the reader to supply the other from imagination. The gap between them is the
+        margin sitting in the stockroom.</p>
+        <p style="margin-top:8px">The standard retail-accounting names, deliberately: "stock value"
+        is ambiguous about which of the two it is, and that ambiguity is exactly what gets a
+        shop's stock figure argued about.</p></div>
+
+      <div class="vx good"><b>New: the uncosted warning becomes a caveat — and now it bites</b>
+        <p>The Dashboard already carries a <code>Caveat</code> about products with no cost and
+        deep-links here with <code>?filter=nocost</code>, but Inventory itself says nothing. It
+        matters more now: those 6 count as $0 in <b>stock at cost</b>, so a figure on this very
+        screen is wrong until they're fixed. That is a textbook <code>wrong</code> caveat — a
+        number with a cause the reader can remove.</p></div>
+
+      <div class="vx mid"><b>Unchanged: the table</b>
+        <p>Seven columns, sortable headers, the stock stepper, the phone's tile fallback. It goes
+        in one full-width card with reduced side padding and nothing else changes. Third screen
+        running, same conclusion: a table in a bento cell spans all twelve columns anyway.</p></div>
+
+      <div class="vx bad"><b>The one real problem: six header actions</b>
+        <p>Store dropdown, Export CSV, Export PDF, Move stock, Import, + Add product. On desktop
+        it fits. On a phone that is two full rows of pills — the exact clutter the Schedule tab
+        just had. The phone frame above shows the fix: <strong>+ Add</strong> and <strong>More</strong>,
+        with the rest behind a sheet, matching what Schedule now does.</p></div>
+    </div>
+
+    <p class="note" style="margin-top:20px"><strong>Empty states are kept verbatim.</strong> This
+    screen already writes the best empty copy in the app — it names <em>which</em> filter emptied
+    the list, and a store that carries nothing gets told how to change that. The mockup's
+    "No cost" state shows one. None of that wording changes; it just moves onto a card.</p>
+
+    <p class="note"><strong>Why "No cost" lost its tile.</strong> The count already appears twice —
+    in the caveat and on the filter chip. A third copy as a tile was the weakest of the three,
+    and it was occupying the slot that <b>stock at retail</b> needed. Nothing is lost: the caveat
+    states it in a sentence that says what it breaks, which the bare number never did.</p>
+
+    <p class="note"><strong>What this needs that People didn't:</strong> nothing new in the UI. It
+    reuses <code>StatTile variant="bento"</code>, <code>Caveat</code>,
+    <code>CategoryChip variant="bento"</code> and the existing pill buttons. The only new work is
+    two sums over the product list — one at <code>costCents</code>, one at <code>priceCents</code>,
+    both multiplied by stock on hand. Neither needs a query.</p>
+
+    <p class="note"><strong>Pagination: there isn't any, anywhere.</strong>
+    <code>inventory.tsx</code> maps every filtered product into a plain <code>ScrollView</code> —
+    no pages, no <code>FlatList</code>, no virtualisation, so all 148 rows mount at once. The same
+    is true of Accounting's Transactions list. It holds up at a few hundred rows and stops holding
+    up somewhere after that, on the phones this app is actually used on.</p>
+
+    <p class="note">This conversion does not change that either way, and it shouldn't — it is a
+    performance decision, not a styling one. But it is worth deciding separately, and my
+    recommendation is <strong>virtualise, don't paginate</strong>: a shopkeeper finds a product by
+    searching or scanning, not by walking through pages, and the filter chips already do the
+    narrowing that pages would. The catch is that a <code>FlatList</code> inside the screen's
+    outer <code>ScrollView</code> nests two scrollers, so the strip and filters would have to
+    become the list's header rather than siblings above it.</p>
+
+    <p class="note"><strong>The open question for you:</strong> the stock stepper. It is the one
+    control here that is genuinely interactive, and on a white card the current grey pill is
+    quiet to the point of looking disabled. The mockup keeps it as-is so you can judge it — if it
+    reads as too quiet, it is a one-line change to give it a border.</p>
+  </section>
+</div>
+
+<!-- ═════════════ ALL PRODUCTS ═════════════ -->
+<template data-tab="all" data-label="All products" data-blurb="What you carry, what it costs, and what is left.">
+  <div class="cardx strip">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products</div><div class="n">148</div><div class="h">carried across 2 stores</div></div>
+      <div class="kpi"><div class="l">Low stock</div><div class="n">12</div><div class="h">at or below reorder level</div></div>
+      <div class="kpi"><div class="l">Stock at cost</div><div class="n">$8,420</div><div class="h">what you paid for it</div></div>
+      <div class="kpi"><div class="l">Stock at retail</div><div class="n">$14,030</div><div class="h">if it all sold at list price</div></div>
+    </div>
+  </div>
+
+  <div class="cav wrong"><span>⚠</span><div><b>6 products have no purchase cost recorded.</b>
+    They count as $0 in <b>stock at cost</b>, so that figure is understated — and anything sold
+    from them counts as pure profit, so gross profit reads higher than it is.
+    <a href="#">Show the 6 →</a></div></div>
+
+  <div class="cav context"><span>ⓘ</span><div><b>Stock at retail</b> is what the shelf would bring
+    in if every unit sold at its current price. No discounts, no expiry, no shrinkage — a ceiling,
+    not a forecast. The gap between the two figures is your margin before any of that.</div></div>
+
+  <div class="filters">
+    <span class="on">All</span><span>Low stock 12</span><span>Has expiry</span><span>No cost 6</span>
+  </div>
+
+  <div class="search"><span>Search or scan — name, brand, SKU, barcode, category, or tag</span>
+    <span class="scanBtn">⛶</span></div>
+
+  <div class="cardx table">
+    <div class="crow"><h4 class="ctitle">Products</h4><div class="pill">148 products</div></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Product ↓</th><th>Location</th><th>Brand</th><th>Category</th><th>Tags</th>
+        <th class="r">Price</th><th class="r">Stock</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pname">Shea Butter Cream 200ml</span><span class="pmeta">SKU JS-1042</span></td>
+          <td class="muted">2 stores</td><td>Nuura</td><td>Moisturisers</td>
+          <td><span class="tag">bestseller</span></td>
+          <td class="r"><span class="price">$14.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>42</b><i>+</i></span></td></tr>
+
+        <tr><td><span class="pname">Rose Water Toner 250ml</span><span class="pmeta">SKU JS-1088</span></td>
+          <td class="muted">Jaalala Skincare</td><td>Nuura</td><td>Toners</td>
+          <td></td>
+          <td class="r"><span class="price">$9.50</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>4</b><i>+</i></span> <span class="chip low">Low</span></td></tr>
+
+        <tr><td><span class="pname">Black Seed Oil 100ml</span><span class="pmeta">SKU JS-2010</span></td>
+          <td class="muted">2 stores</td><td>Barwaaqo</td><td>Oils</td>
+          <td><span class="tag">imported</span></td>
+          <td class="r"><span class="price">$18.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>27</b><i>+</i></span></td></tr>
+
+        <tr><td><span class="pname">Aloe Gel 150ml</span><span class="pmeta">SKU JS-2044 · no cost set</span></td>
+          <td class="muted">Jaalala 2</td><td>Nuura</td><td>Treatments</td>
+          <td></td>
+          <td class="r"><span class="price">$11.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>0</b><i>+</i></span> <span class="chip out">Out</span></td></tr>
+
+        <tr><td><span class="pname">Turmeric Soap Bar</span><span class="pmeta">SKU JS-3001</span></td>
+          <td class="muted">2 stores</td><td>Hodan</td><td>Cleansers</td>
+          <td><span class="tag">handmade</span></td>
+          <td class="r"><span class="price">$4.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>96</b><i>+</i></span></td></tr>
+
+        <tr><td><span class="pname">Vitamin C Serum 30ml</span><span class="pmeta">SKU JS-3120 · expires 12 Nov</span></td>
+          <td class="muted">Jaalala Skincare</td><td>Nuura</td><td>Serums</td>
+          <td><span class="tag">expiry</span></td>
+          <td class="r"><span class="price">$26.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>9</b><i>+</i></span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">Sortable by product, brand, category, price and stock. Six rows are drawn here;
+    the real screen renders <b>all 148</b> — there is no pagination and no virtualisation today.
+    See the note at the foot of this page.</p>
+  </div>
+</template>
+
+<!-- ═════════════ LOW STOCK ═════════════ -->
+<template data-tab="low" data-label="Low stock" data-blurb="What you carry, what it costs, and what is left.">
+  <div class="cardx strip">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products</div><div class="n">148</div><div class="h">carried across 2 stores</div></div>
+      <div class="kpi"><div class="l">Low stock</div><div class="n">12</div><div class="h">at or below reorder level</div></div>
+      <div class="kpi"><div class="l">Stock at cost</div><div class="n">$8,420</div><div class="h">what you paid for it</div></div>
+      <div class="kpi"><div class="l">Stock at retail</div><div class="n">$14,030</div><div class="h">if it all sold at list price</div></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <span>All</span><span class="on">Low stock 12</span><span>Has expiry</span><span>No cost 6</span>
+  </div>
+
+  <div class="search"><span>Search or scan — name, brand, SKU, barcode, category, or tag</span>
+    <span class="scanBtn">⛶</span></div>
+
+  <div class="cardx table">
+    <div class="crow"><h4 class="ctitle">Low stock</h4><div class="pill">12 of 148</div></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Product</th><th>Location</th><th>Brand</th><th>Category</th><th>Tags</th>
+        <th class="r">Price</th><th class="r">Stock ↑</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pname">Aloe Gel 150ml</span><span class="pmeta">reorder at 5</span></td>
+          <td class="muted">Jaalala 2</td><td>Nuura</td><td>Treatments</td><td></td>
+          <td class="r"><span class="price">$11.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>0</b><i>+</i></span> <span class="chip out">Out</span></td></tr>
+
+        <tr><td><span class="pname">Argan Hair Oil 60ml</span><span class="pmeta">reorder at 6</span></td>
+          <td class="muted">Jaalala Skincare</td><td>Barwaaqo</td><td>Oils</td><td></td>
+          <td class="r"><span class="price">$16.50</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>2</b><i>+</i></span> <span class="chip low">Low</span></td></tr>
+
+        <tr><td><span class="pname">Rose Water Toner 250ml</span><span class="pmeta">reorder at 8</span></td>
+          <td class="muted">Jaalala Skincare</td><td>Nuura</td><td>Toners</td><td></td>
+          <td class="r"><span class="price">$9.50</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>4</b><i>+</i></span> <span class="chip low">Low</span></td></tr>
+
+        <tr><td><span class="pname">Clay Mask 100g</span><span class="pmeta">reorder at 10</span></td>
+          <td class="muted">2 stores</td><td>Hodan</td><td>Masks</td><td></td>
+          <td class="r"><span class="price">$12.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>7</b><i>+</i></span> <span class="chip low">Low</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">Sorted by stock, lowest first — the order you would actually reorder in.</p>
+  </div>
+</template>
+
+<!-- ═════════════ NO COST ═════════════ -->
+<template data-tab="nocost" data-label="No cost" data-blurb="What you carry, what it costs, and what is left.">
+  <div class="cardx strip">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products</div><div class="n">148</div><div class="h">carried across 2 stores</div></div>
+      <div class="kpi"><div class="l">Low stock</div><div class="n">12</div><div class="h">at or below reorder level</div></div>
+      <div class="kpi"><div class="l">Stock at cost</div><div class="n">$8,420</div><div class="h">what you paid for it</div></div>
+      <div class="kpi"><div class="l">Stock at retail</div><div class="n">$14,030</div><div class="h">if it all sold at list price</div></div>
+    </div>
+  </div>
+
+  <div class="cav wrong"><span>⚠</span><div><b>These 6 have no purchase cost.</b> Set one on each and
+    both <b>stock at cost</b> here and gross profit on the Dashboard correct themselves — nothing
+    else needs doing.</div></div>
+
+  <div class="filters">
+    <span>All</span><span>Low stock 12</span><span>Has expiry</span><span class="on">No cost 6</span>
+  </div>
+
+  <div class="search"><span>Search or scan — name, brand, SKU, barcode, category, or tag</span>
+    <span class="scanBtn">⛶</span></div>
+
+  <div class="cardx table">
+    <div class="crow"><h4 class="ctitle">No cost recorded</h4><div class="pill">6 of 148</div></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Product</th><th>Location</th><th>Brand</th><th>Category</th><th>Tags</th>
+        <th class="r">Price</th><th class="r">Stock</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pname">Aloe Gel 150ml</span><span class="pmeta">SKU JS-2044</span></td>
+          <td class="muted">Jaalala 2</td><td>Nuura</td><td>Treatments</td>
+          <td><span class="chip none">Cost not set</span></td>
+          <td class="r"><span class="price">$11.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>0</b><i>+</i></span></td></tr>
+
+        <tr><td><span class="pname">Cotton Rounds 80pk</span><span class="pmeta">SKU JS-4001</span></td>
+          <td class="muted">2 stores</td><td class="muted">—</td><td>Accessories</td>
+          <td><span class="chip none">Cost not set</span></td>
+          <td class="r"><span class="price">$2.50</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>140</b><i>+</i></span></td></tr>
+
+        <tr><td><span class="pname">Gift Box (empty)</span><span class="pmeta">SKU JS-4020</span></td>
+          <td class="muted">Jaalala Skincare</td><td class="muted">—</td><td>Accessories</td>
+          <td><span class="chip none">Cost not set</span></td>
+          <td class="r"><span class="price">$3.00</span></td>
+          <td class="r"><span class="stepper"><i>−</i><b>36</b><i>+</i></span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">Showing 3 of 6. When the list empties, the screen already says so properly —
+    "Every product has a purchase cost recorded." That copy is unchanged.</p>
+  </div>
+</template>
+
+<!-- ═════════════ EMPTY ═════════════ -->
+<template data-tab="empty" data-label="Filtered to nothing" data-blurb="What you carry, what it costs, and what is left.">
+  <div class="cardx strip">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products</div><div class="n">148</div><div class="h">carried across 2 stores</div></div>
+      <div class="kpi"><div class="l">Low stock</div><div class="n">0</div><div class="h">at or below reorder level</div></div>
+      <div class="kpi"><div class="l">Stock at cost</div><div class="n">$8,730</div><div class="h">every product costed</div></div>
+      <div class="kpi"><div class="l">Stock at retail</div><div class="n">$14,030</div><div class="h">if it all sold at list price</div></div>
+    </div>
+  </div>
+
+  <div class="filters">
+    <span>All</span><span class="on">Low stock 0</span><span>Has expiry</span><span>No cost 0</span>
+  </div>
+
+  <div class="search"><span>Search or scan — name, brand, SKU, barcode, category, or tag</span>
+    <span class="scanBtn">⛶</span></div>
+
+  <div class="cardx">
+    <p class="emptyState">Nothing is low on stock right now.</p>
+  </div>
+
+  <p class="foot" style="padding:0">The chip keeps its count at zero and stays visible, so a deep
+  link into an empty filter can still be got out of. That rule is already in the code — the card
+  just gives the sentence somewhere to sit instead of floating on the page.</p>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  let active = 'all';
+
+  // Desktop carries all six actions; the phone carries one plus More. That is
+  // the same split the Schedule tab landed on.
+  const shell = (tpl, compact) => `
+    <div class="head">
+      <div>
+        <p class="eyebrow">Inventory</p>
+        <h3>Inventory</h3>
+        <p>${tpl.dataset.blurb}</p>
+      </div>
+      <div class="headActs">${compact
+        ? '<button class="btn" type="button">More</button>' +
+          '<button class="btn solid" type="button">+ Add</button>'
+        : '<button class="btn" type="button">All stores ⌄</button>' +
+          '<button class="btn" type="button">Export CSV</button>' +
+          '<button class="btn" type="button">Export PDF</button>' +
+          '<button class="btn" type="button">Move stock</button>' +
+          '<button class="btn" type="button">Import</button>' +
+          '<button class="btn solid" type="button">+ Add product</button>'}</div>
+    </div>`;
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [[wide, false], [narrow, true]].forEach(([host, compact]) => {
+      host.innerHTML = shell(tpl, compact);
+      host.appendChild(tpl.content.cloneNode(true));
+      // The phone shows tiles, not a seven-column table -- ProductTile is what
+      // the real screen already falls back to below the tablet breakpoint.
+      if (compact) {
+        host.querySelectorAll('.tbl').forEach((box) => {
+          const rows = Array.from(box.querySelectorAll('tbody tr'));
+          const tiles = document.createElement('div');
+          tiles.className = 'tiles';
+          rows.forEach((tr) => {
+            const cells = tr.querySelectorAll('td');
+            const name = cells[0].querySelector('.pname')?.textContent ?? '';
+            const meta = cells[0].querySelector('.pmeta')?.textContent ?? '';
+            const price = cells[5].textContent.trim();
+            const stepper = cells[6].querySelector('.stepper')?.outerHTML ?? '';
+            const flag = cells[6].querySelector('.chip')?.outerHTML ?? '';
+            tiles.insertAdjacentHTML('beforeend',
+              `<div class="tile"><div class="bd"><div class="t1">${name}</div>` +
+              `<div class="t2">${meta || cells[3].textContent} · ${cells[1].textContent}</div></div>` +
+              `<div class="rt"><div class="p">${price}</div><div style="margin-top:6px">${stepper} ${flag}</div></div></div>`);
+          });
+          box.replaceWith(tiles);
+        });
+      }
+    });
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  // ---- fit the 1280px frame into whatever window is reading it ----
+  const scroller = document.getElementById('wideScroller');
+  const fitBtn = document.getElementById('fitBtn');
+  let fit = true;
+
+  function applyFit() {
+    if (!fit) {
+      wide.style.transform = '';
+      scroller.style.height = '';
+      scroller.classList.add('raw');
+      return;
+    }
+    scroller.classList.remove('raw');
+    // Never scale UP: at a wide window this is exactly 1 and the frame is
+    // untouched, so nobody with the room is shown a resampled page.
+    const k = Math.min(1, scroller.clientWidth / 1280);
+    wide.style.transformOrigin = 'top left';
+    wide.style.transform = `scale(${k})`;
+    // The wrapper has to be told the visual height; a scaled element keeps its
+    // layout height, so without this the page reserves 1280px-worth of room.
+    scroller.style.height = `${Math.ceil(wide.offsetHeight * k)}px`;
+  }
+
+  fitBtn.addEventListener('click', () => {
+    fit = !fit;
+    fitBtn.setAttribute('aria-pressed', String(fit));
+    fitBtn.textContent = fit ? 'Scaled to fit' : 'Actual size (1280px)';
+    applyFit();
+  });
+  addEventListener('resize', applyFit);
+
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.role = 'tab';
+    b.dataset.go = t.dataset.tab;
+    b.textContent = t.dataset.label;
+    b.addEventListener('click', () => { active = t.dataset.tab; render(); applyFit(); });
+    sw.appendChild(b);
+  });
+  render();
+  applyFit();
+</script>

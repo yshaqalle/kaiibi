@@ -1,3 +1,4 @@
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
@@ -232,6 +233,30 @@ export async function findProductsByCode(shopId: string, codes: readonly string[
     if (!seen.has(product.id)) seen.set(product.id, product);
   }
   return [...seen.values()];
+}
+
+// Type-ahead for global search. Deliberately separate from findProductsByCode
+// above, which is an EXACT lookup serving the scanner and must stay index-only.
+//
+// This one does scan, which is why it is bounded: two characters minimum and
+// 8 rows out. Matching name, SKU and brand covers how a shopkeeper actually
+// refers to stock -- by what it is, what it's labelled, or who makes it.
+export async function searchProducts(shopId: string, query: string): Promise<Product[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  // Quoted, not bare: `or` takes a comma-separated filter list, so a product
+  // searched for as "rice, basmati" would otherwise end the filter mid-value
+  // and fail the request. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('shop_id', shopId)
+    .or(`name.ilike.${pattern},sku.ilike.${pattern},brand.ilike.${pattern}`)
+    .order('name', { ascending: true })
+    .limit(8);
+  if (error) throw error;
+  return (data ?? []).map(mapProductRow);
 }
 
 export async function getProduct(id: string): Promise<Product> {

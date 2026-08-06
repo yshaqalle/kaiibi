@@ -738,6 +738,9 @@ export type StaffMember = {
   // built (see whatsappLink). Optional: a staff login needs an email, not a
   // phone.
   phone: string | null;
+  // Optional. Falls back to initials on the roster; a shop that never uploads
+  // one is not incomplete.
+  photoUrl: string | null;
   createdAt: string;
   hireDate: string | null;
   payType: 'hourly' | 'salary' | 'fixed' | null;

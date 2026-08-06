@@ -3,11 +3,26 @@ import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 
-// Shared by anything that uploads into the `product-images` bucket (product
-// photos, shop logos) — its RLS is keyed off the first path segment being
-// the shop id (see migration 0002), not the kind of image, so one bucket
-// serves both. `path` should not include an extension; it's derived from
-// the source and appended here.
+// Shared by anything that uploads into the `product-images` bucket — product
+// photos, shop logos, staff photos. One bucket serves them all, and the first
+// path segment must be the shop id.
+//
+// That segment is NOT the whole story, and an earlier version of this comment
+// claiming it was is what shipped staff photos broken. Migration 0002 did gate
+// on the shop id alone, but 0024_permission_gates.sql replaced that policy: an
+// insert now also requires one of `inventory.edit`, `settings.access` or
+// `staff.manage` on that shop (20260820000300_staff_photo.sql added the third).
+// So a role holding none of them gets a 403 here no matter how correct its
+// path is. Before reusing this for a new kind of image, check whether the
+// uploading role holds one of those — and if not, amend the policy rather than
+// working around it.
+//
+// Reads need no permission: the bucket is public (migration 0002).
+//
+// `path` should not include an extension; it's derived from the source and
+// appended here. It also needs to be unique per upload — this call passes
+// `upsert: false`, so re-uploading to a path that already exists fails. Every
+// caller suffixes a timestamp.
 export async function uploadImage(path: string, localUri: string): Promise<string> {
   // `fetch(localUri).blob()` looks cross-platform but isn't: on native,
   // that Blob is RN's own polyfill (react-native/Libraries/Blob/Blob.js),
@@ -39,4 +54,40 @@ export async function uploadImage(path: string, localUri: string): Promise<strin
 
   const { data } = supabase.storage.from('product-images').getPublicUrl(fullPath);
   return data.publicUrl;
+}
+
+const BUCKET = 'product-images';
+
+// Companion to uploadImage for the REPLACE case -- every upload above writes
+// to a new timestamped path and never touches whatever used to be there, so
+// callers that persist a new image over an old one need this to reclaim the
+// object the new one supersedes.
+//
+// The path is recovered by asking getPublicUrl itself what prefix it would
+// produce for an empty path, rather than assuming the shape of a Supabase
+// storage URL -- that stays correct however getPublicUrl happens to build it
+// (project ref, custom domain, a future SDK change) instead of hardcoding a
+// guess. Comparing the given URL against that prefix also doubles as the
+// "does this even look like ours" check: anything that doesn't start with it
+// -- a different bucket, a foreign URL, garbage -- is left alone rather than
+// having a path guessed at.
+//
+// NEVER throws. This runs after the operation it's cleaning up for has
+// already succeeded (new image uploaded, new URL persisted); a failed
+// cleanup here -- object already gone, a network blip, no permission -- must
+// not turn that success into a reported failure. Losing a few KB of orphaned
+// storage is an acceptable cost; losing confidence in a save that actually
+// worked is not.
+export async function deleteImageByPublicUrl(publicUrl: string | null | undefined): Promise<void> {
+  if (!publicUrl) return;
+  try {
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl('');
+    const prefix = data.publicUrl;
+    if (!publicUrl.startsWith(prefix)) return;
+    const path = decodeURIComponent(publicUrl.slice(prefix.length));
+    if (!path) return;
+    await supabase.storage.from(BUCKET).remove([path]);
+  } catch {
+    // Deliberately swallowed -- see comment above.
+  }
 }

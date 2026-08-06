@@ -1,0 +1,704 @@
+<title>Kaiibi Accounting — Bento Everywhere (Option B)</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  /* verdict list */
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  /* mockup tab switcher */
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  /* Stacked, not side by side: at 1280 + 380 the pair overflowed and the
+     desktop frame lost its right-hand columns behind a scroll. */
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- app chrome ---- */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 2px;color:var(--d-mut);}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .headActs{display:flex;gap:8px;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---- bento ---- */
+  .grid{display:grid;gap:14px;}
+  .grid.wide{grid-template-columns:repeat(12,1fr);}
+  .grid.narrow{grid-template-columns:1fr;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* caveats */
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fff8e6;border:1px solid #f0d99a;color:#7a6320;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#31507f;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+  .cav a{color:inherit;font-weight:700;}
+
+  /* statement rows */
+  .pl{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .pl:last-child{border-bottom:none;}
+  .pl .nm{font-size:13.5px;font-weight:600;}
+  .pl .hint{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .pl .amt{font-size:15px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .pl.emph{border-top:1px solid var(--d-ln);} .pl.emph .nm{font-weight:800;}
+  .pl.sub{padding-left:16px;} .pl.sub .nm{color:var(--d-mut);font-weight:500;}
+  .pl.tot{background:var(--d-soft);border-radius:14px;border-bottom:none;margin-top:8px;padding:13px 16px;}
+  .pl.tot .nm{font-size:14.5px;font-weight:800;} .pl.tot .amt{font-size:19px;}
+  .loss{color:var(--loss);} .profit{color:var(--profit);}
+
+  /* generic rows */
+  .rw{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--d-ln);}
+  .rw:last-child{border-bottom:none;}
+  .rw .ic{width:32px;height:32px;border-radius:10px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+  .rw .bd{flex:1;min-width:0;}
+  .rw .t1{font-size:13.5px;font-weight:700;}
+  .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .bar{height:6px;border-radius:3px;background:var(--d-ln);margin-top:6px;overflow:hidden;}
+  .bar i{display:block;height:100%;border-radius:3px;}
+  .bar.tall{height:9px;}
+  .chip{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;}
+  .chip.hot{background:var(--loss);color:#fff;} .chip.ok{background:#e7f5ed;color:#0b6b3c;}
+  .chip.warn{background:#fdf0e0;color:#8a530f;}
+
+  /* tables */
+  .tbl{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;min-width:520px;}
+  th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);
+    text-align:left;padding:0 10px 9px 0;border-bottom:1px solid var(--d-ln);white-space:nowrap;}
+  th.r,td.r{text-align:right;padding-right:0;}
+  td{padding:11px 10px 11px 0;border-bottom:1px solid var(--d-ln);font-size:13px;vertical-align:top;}
+  tr:last-child td{border-bottom:none;}
+  td .p{font-weight:700;} td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  td.r .p{font-variant-numeric:tabular-nums;}
+  .muted{color:var(--d-mut);font-variant-numeric:tabular-nums;}
+
+  .legend{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--d-mut);flex-wrap:wrap;}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px;}
+
+  .w380 .chart text{font-size:16px;}
+  .w380 .chart .sub{display:none;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Option B</p>
+  <h1>Accounting, bento everywhere</h1>
+  <p class="lede">All seven Accounting tabs rendered as card grids — ledgers included, which is
+  the part worth judging. Flip between the tabs below; each shows at desktop and phone width.
+  My read is at the foot of the page, but look first.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · 12 columns</i></div>
+      <div class="scroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · single column</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>What the tabs are doing differently</h2>
+    <p class="note">Four of the seven are <strong>ledgers</strong> — Transactions, Bills,
+    Expenses, Payroll. Their job is scanning a long list and reconciling it against something
+    else. Three are <strong>analytical</strong> — Overview, Cash&nbsp;&amp;&nbsp;Budgets,
+    Reports. Their job is glancing. Bento was designed for the second job.</p>
+
+    <div class="verdict">
+      <div class="vx good"><b>Works: Overview, Cash &amp; Budgets, Reports</b>
+        <p>These genuinely gain. Reports in particular stops being a 466-line vertical scroll
+        and becomes something you can take in — P&amp;L, labour and tax sit side by side instead
+        of one under the other.</p></div>
+      <div class="vx mid"><b>Neutral: Bills, Payroll</b>
+        <p>Short lists with a stat row above them. Bento neither helps nor hurts — they look
+        tidier and read the same.</p></div>
+      <div class="vx bad"><b>Fights back: Transactions, Expenses</b>
+        <p>Look at Transactions above. The table wants every pixel of width and a single
+        uninterrupted column of dates and totals. In a bento cell it gets 26px of rounding and
+        18px of padding on each side, then still spans all 12 columns — so the grid buys nothing
+        and costs horizontal room. On the phone frame the table scrolls sideways inside a card
+        that is itself inside a scrolling page, which is two nested scrolls in the same
+        direction.</p></div>
+    </div>
+
+    <p class="note" style="margin-top:20px">That last one is the real cost of B, and it is not a
+    styling problem — it is the card fighting the content. Your own code already makes this
+    argument: <code>StatementRow</code>'s comment says money that reconciles is
+    <em>"READ DOWN A COLUMN, not scanned as cards."</em></p>
+
+    <p class="note"><strong>What I'd do instead:</strong> keep bento for the three analytical
+    tabs, and give the four ledgers the same visual language — new palette, type scale, 26px
+    outer card, restyled table headers and status chips — in a full-bleed table layout with no
+    inner grid. Same design, two layouts, each matched to its job. That is option A from
+    earlier, and seeing B is what makes the case for it.</p>
+
+    <p class="note">If you still want B everywhere after looking, say so and I'll plan it — it
+    is entirely buildable, and the cost is the horizontal room and the nested scroll above, not
+    correctness.</p>
+  </section>
+</div>
+
+<!-- ═════════════ OVERVIEW ═════════════ -->
+<template data-tab="overview" data-label="Overview" data-blurb="Where the money came from and where it went.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Revenue</div><div class="n">$3,847.20</div><div class="h">net of sales tax &amp; refunds</div></div>
+      <div class="kpi"><div class="l">Expenses</div><div class="n">$890.00</div><div class="h">operating</div></div>
+      <div class="kpi"><div class="l">Gross profit</div><div class="n profit">$1,434.60</div><div class="h">37% margin · before expenses</div></div>
+      <div class="kpi"><div class="l">Sales tax collected</div><div class="n">$384.72</div><div class="h">held for the tax authority</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12" style="padding:0;background:transparent">
+    <div class="cav context"><span>ℹ️</span><div>Revenue is what you earned — sales tax collected is held for the
+      tax authority and is not counted as income. $118.40 of refunds is already deducted.</div></div>
+    <div class="cav wrong"><span>⚠️</span><div><b>6 sold items have no cost recorded</b> ($312.40 of revenue), so cost of
+      goods is understated and gross profit looks higher than it is. <a href="#">Set costs in Inventory →</a></div></div>
+  </div>
+
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Revenue</h4><div class="pill">7 days</div></div>
+    <svg class="chart" viewBox="0 0 600 200" style="width:100%;height:auto;display:block" role="img"
+         aria-label="Daily revenue over seven days, peaking at $721.50 on Friday.">
+      <defs><linearGradient id="ov" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#2f6bff" stop-opacity="0.20"/>
+        <stop offset="100%" stop-color="#2f6bff" stop-opacity="0"/></linearGradient></defs>
+      <g stroke="#ececf0"><line x1="44" y1="174" x2="588" y2="174"/><line x1="44" y1="93" x2="588" y2="93"/><line x1="44" y1="12" x2="588" y2="12"/></g>
+      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7 L588 174 L44 174 Z" fill="url(#ov)"/>
+      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7"
+            fill="none" stroke="#2f6bff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+      <g fill="#fff" stroke="#2f6bff" stroke-width="2">
+        <circle cx="44" cy="75.5" r="3"/><circle cx="134.7" cy="70.2" r="3"/><circle cx="225.3" cy="83.3" r="3"/>
+        <circle cx="316" cy="52.8" r="3"/><circle cx="497.3" cy="39.5" r="3"/><circle cx="588" cy="89.7" r="3"/></g>
+      <circle cx="406.7" cy="27.9" r="4.6" fill="#2f6bff" stroke="#fff" stroke-width="2"/>
+      <text x="406.7" y="18" text-anchor="middle" font-size="11" font-weight="800" fill="#0b0b0d">$721.50</text>
+      <g font-size="10" fill="#a8a8b0" text-anchor="end"><text x="36" y="178">0</text><text x="36" y="97">400</text><text x="36" y="16">800</text></g>
+      <g font-size="10" fill="#a8a8b0" text-anchor="middle">
+        <text x="44" y="192">Mon</text><text x="134.7" y="192">Tue</text><text x="225.3" y="192">Wed</text>
+        <text x="316" y="192">Thu</text><text x="406.7" y="192">Fri</text><text x="497.3" y="192">Sat</text><text x="588" y="192">Sun</text></g>
+    </svg>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">Payment methods</h4>
+    <div class="rw"><div class="ic">💵</div><div class="bd">
+      <div style="display:flex;justify-content:space-between"><span class="t1">Cash</span><span class="amt">$2,118.00</span></div>
+      <div class="bar"><i style="width:55.1%;background:#2f6bff"></i></div><div class="t2">55% of takings</div></div></div>
+    <div class="rw"><div class="ic">📱</div><div class="bd">
+      <div style="display:flex;justify-content:space-between"><span class="t1">ZAAD</span><span class="amt">$1,244.20</span></div>
+      <div class="bar"><i style="width:32.3%;background:#00a396"></i></div><div class="t2">32% of takings</div></div></div>
+    <div class="rw"><div class="ic">📱</div><div class="bd">
+      <div style="display:flex;justify-content:space-between"><span class="t1">e-Dahab</span><span class="amt">$431.00</span></div>
+      <div class="bar"><i style="width:11.2%;background:#c8791a"></i></div><div class="t2">11% of takings</div></div></div>
+    <div class="rw"><div class="ic">•</div><div class="bd">
+      <div style="display:flex;justify-content:space-between"><span class="t1">Other</span><span class="amt">$54.00</span></div>
+      <div class="bar"><i style="width:1.4%;background:#d4457e"></i></div><div class="t2">1% of takings</div></div></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Top products</h4>
+    <div class="rw"><div class="ic">1</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Basmati Rice 5kg</span><span class="amt">$612.40</span></div>
+      <div class="bar"><i style="width:100%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="ic">2</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Cooking Oil 3L</span><span class="amt">$498.20</span></div>
+      <div class="bar"><i style="width:81%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="ic">3</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Powdered Milk 900g</span><span class="amt">$421.60</span></div>
+      <div class="bar"><i style="width:69%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="ic">4</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Sugar 2kg</span><span class="amt">$388.90</span></div>
+      <div class="bar"><i style="width:63%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="ic">5</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Tea Leaves 500g</span><span class="amt">$274.30</span></div>
+      <div class="bar"><i style="width:45%;background:#2f6bff"></i></div></div></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Who rang it up</h4>
+    <div class="rw"><div class="ic">1</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Faduma Ali</span><span class="amt">$1,842.60</span></div>
+      <div class="bar"><i style="width:100%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="ic">2</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Abdi M.</span><span class="amt">$1,204.40</span></div>
+      <div class="bar"><i style="width:65%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="ic">3</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Sagal H.</span><span class="amt">$800.20</span></div>
+      <div class="bar"><i style="width:43%;background:#00a396"></i></div></div></div>
+    <div class="cav context" style="margin-top:12px"><span>ℹ️</span><div>Gross takings, not net — this ranks who
+      served the most, so it reconciles against a till.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════ TRANSACTIONS ═════════════ -->
+<template data-tab="transactions" data-label="Transactions" data-blurb="Every sale and refund, line by line.">
+  <div class="cardx" data-w="4">
+    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="l">Last 7 days</div><div class="n">$3,847.20</div></div>
+      <div class="kpi"><div class="l">Orders</div><div class="n">214</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="8">
+    <div class="filters" style="margin:0">
+      <span class="on">All</span><span>Cash</span><span>ZAAD</span><span>e-Dahab</span>
+      <span>Refunds only</span><span>Hodan Store</span>
+    </div>
+    <p class="foot">Sorted by date, newest first. Tap a column head to re-sort.</p>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Transactions</h4><div class="pill">214 orders</div></div>
+    <div class="tbl"><table>
+      <thead><tr><th>Date</th><th>Items</th><th>Customer</th><th>Payment</th><th>Cashier</th>
+        <th class="r">Discount</th><th class="r">Tax</th><th class="r">Total</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">12 Sep</span><span class="m">14:22</span></td>
+          <td>2× Basmati Rice 5kg<span class="m">1× Sugar 2kg</span></td><td>Khadra Yusuf</td>
+          <td><span class="chip">Cash</span></td><td>Faduma Ali</td>
+          <td class="r muted">—</td><td class="r muted">4.20</td><td class="r"><span class="p">$46.20</span></td></tr>
+        <tr><td><span class="p">12 Sep</span><span class="m">13:58</span></td>
+          <td>1× Cooking Oil 3L</td><td class="muted">Walk-in</td>
+          <td><span class="chip">ZAAD</span></td><td>Faduma Ali</td>
+          <td class="r muted">1.00</td><td class="r muted">1.85</td><td class="r"><span class="p">$20.35</span></td></tr>
+        <tr><td><span class="p">12 Sep</span><span class="m">13:31</span></td>
+          <td>3× Powdered Milk 900g</td><td>Hodan Aden</td>
+          <td><span class="chip">Cash</span></td><td>Abdi M.</td>
+          <td class="r muted">—</td><td class="r muted">3.30</td><td class="r"><span class="p">$36.30</span></td></tr>
+        <tr><td><span class="p">12 Sep</span><span class="m">12:47</span></td>
+          <td>1× Tea Leaves 500g<span class="m">refunded</span></td><td>Khadra Yusuf</td>
+          <td><span class="chip warn">Refund</span></td><td>Abdi M.</td>
+          <td class="r muted">—</td><td class="r muted">−0.75</td><td class="r"><span class="p loss">−$8.25</span></td></tr>
+        <tr><td><span class="p">12 Sep</span><span class="m">11:52</span></td>
+          <td>2× Sugar 2kg<span class="m">1× Tea Leaves 500g</span></td><td class="muted">Walk-in</td>
+          <td><span class="chip">e-Dahab</span></td><td>Sagal H.</td>
+          <td class="r muted">—</td><td class="r muted">2.60</td><td class="r"><span class="p">$28.60</span></td></tr>
+        <tr><td><span class="p">12 Sep</span><span class="m">10:19</span></td>
+          <td>1× Basmati Rice 5kg</td><td>Nasra Omar</td>
+          <td><span class="chip">Cash</span></td><td>Sagal H.</td>
+          <td class="r muted">2.50</td><td class="r muted">1.55</td><td class="r"><span class="p">$17.05</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">Showing 6 of 214 · the real tab paginates and exports to CSV or PDF.</p>
+  </div>
+</template>
+
+<!-- ═════════════ BILLS ═════════════ -->
+<template data-tab="invoices" data-label="Bills" data-blurb="What you owe suppliers, and when it is due.">
+  <div class="cardx" data-w="12">
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="l">Still owed</div><div class="n">$1,240.00</div><div class="h">4 open bills</div></div>
+      <div class="kpi"><div class="l">Overdue</div><div class="n loss">$680.00</div><div class="h">2 bills past due</div></div>
+      <div class="kpi"><div class="l">Unpaid bills</div><div class="n">4</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="12" style="padding:0;background:transparent">
+    <div class="cav context"><span>ℹ️</span><div>Outstanding is as of today, not for the selected date range — a bill
+      raised four months ago and never paid is exactly the one worth surfacing.</div></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Open bills</h4><button class="btn solid" type="button">+ New bill</button></div>
+    <div class="rw"><div class="ic">🧾</div><div class="bd">
+      <div class="t1">Barwaaqo Wholesale</div><div class="t2">Rice &amp; sugar · due 25 Aug · 18 days late</div></div>
+      <span class="chip hot">Overdue</span><span class="amt">$420.00</span></div>
+    <div class="rw"><div class="ic">🧾</div><div class="bd">
+      <div class="t1">Jubba Traders</div><div class="t2">Cooking oil · due 2 Sep · 10 days late</div></div>
+      <span class="chip hot">Overdue</span><span class="amt">$260.00</span></div>
+    <div class="rw"><div class="ic">🧾</div><div class="bd">
+      <div class="t1">Somtel</div><div class="t2">Internet &amp; airtime · due 18 Sep</div></div>
+      <span class="chip warn">Due soon</span><span class="amt">$140.00</span></div>
+    <div class="rw"><div class="ic">🧾</div><div class="bd">
+      <div class="t1">Berbera Dairy</div><div class="t2">Powdered milk · due 30 Sep</div></div>
+      <span class="chip">Open</span><span class="amt">$420.00</span></div>
+  </div>
+</template>
+
+<!-- ═════════════ EXPENSES ═════════════ -->
+<template data-tab="expenses" data-label="Expenses" data-blurb="What the shop spent, by category.">
+  <div class="cardx" data-w="12">
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="l">Spent · 7 days</div><div class="n">$1,412.00</div></div>
+      <div class="kpi"><div class="l">Operating expenses</div><div class="n">$890.00</div><div class="h">feeds net profit</div></div>
+      <div class="kpi"><div class="l">Stock &amp; owner draws</div><div class="n">$522.00</div><div class="h">excluded from profit</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">Where it went</h4>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Payroll</span><span class="amt">$520.00</span></div>
+      <div class="bar"><i style="width:58.4%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Rent</span><span class="amt">$200.00</span></div>
+      <div class="bar"><i style="width:22.5%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Utilities</span><span class="amt">$96.00</span></div>
+      <div class="bar"><i style="width:10.8%;background:#c8791a"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Supplies</span><span class="amt">$74.00</span></div>
+      <div class="bar"><i style="width:8.3%;background:#d4457e"></i></div></div></div>
+    <div class="pl emph" style="margin-top:8px"><div class="nm">Operating total</div><div class="amt num">$890.00</div></div>
+  </div>
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Logged expenses</h4><button class="btn solid" type="button">+ Log expense</button></div>
+    <div class="tbl"><table style="min-width:440px">
+      <thead><tr><th>Date</th><th>Category</th><th>Vendor</th><th>Method</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">11 Sep</td><td><span class="p">Payroll</span><span class="m">weekly wages</span></td>
+          <td>—</td><td><span class="chip">Cash</span></td><td class="r"><span class="p">$520.00</span></td></tr>
+        <tr><td class="muted">10 Sep</td><td><span class="p">Stock purchase</span><span class="m">excluded from profit</span></td>
+          <td>Barwaaqo Wholesale</td><td><span class="chip">ZAAD</span></td><td class="r"><span class="p">$422.00</span></td></tr>
+        <tr><td class="muted">8 Sep</td><td><span class="p">Rent</span></td>
+          <td>Hodan Properties</td><td><span class="chip">Cash</span></td><td class="r"><span class="p">$200.00</span></td></tr>
+        <tr><td class="muted">7 Sep</td><td><span class="p">Utilities</span><span class="m">power &amp; water</span></td>
+          <td>NEC</td><td><span class="chip">e-Dahab</span></td><td class="r"><span class="p">$96.00</span></td></tr>
+        <tr><td class="muted">6 Sep</td><td><span class="p">Owner draw</span><span class="m">excluded from profit</span></td>
+          <td>—</td><td><span class="chip">Cash</span></td><td class="r"><span class="p">$100.00</span></td></tr>
+        <tr><td class="muted">6 Sep</td><td><span class="p">Supplies</span><span class="m">bags, receipt roll</span></td>
+          <td>Jubba Traders</td><td><span class="chip">Cash</span></td><td class="r"><span class="p">$74.00</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════ PAYROLL ═════════════ -->
+<template data-tab="payroll" data-label="Payroll" data-blurb="Pay runs and what each one cost.">
+  <div class="cardx" data-w="12">
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="l">Last run</div><div class="n">$520.00</div><div class="h">posted 11 Sep · 3 people</div></div>
+      <div class="kpi"><div class="l">Wages owed</div><div class="n">$0.00</div><div class="h">nothing accrued since</div></div>
+      <div class="kpi"><div class="l">Hours this period</div><div class="n">96h</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="12" style="padding:0;background:transparent">
+    <div class="filters" style="margin:0"><span class="on">Weekly</span><span>Fortnightly</span>
+      <span>Monthly</span><span>Custom dates</span></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Pay runs</h4><button class="btn solid" type="button">+ New pay run</button></div>
+    <div class="tbl"><table style="min-width:460px">
+      <thead><tr><th>Period</th><th>People</th><th>Hours</th><th>Status</th><th class="r">Cost</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">5–11 Sep</span></td><td>3</td><td class="muted">96h</td>
+          <td><span class="chip ok">Posted</span></td><td class="r"><span class="p">$520.00</span></td></tr>
+        <tr><td><span class="p">29 Aug–4 Sep</span></td><td>3</td><td class="muted">92h</td>
+          <td><span class="chip ok">Posted</span></td><td class="r"><span class="p">$498.00</span></td></tr>
+        <tr><td><span class="p">22–28 Aug</span></td><td>2</td><td class="muted">74h</td>
+          <td><span class="chip ok">Posted</span></td><td class="r"><span class="p">$402.00</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">A posted run moves its wages out of "earned, not yet paid" and into operating
+    expenses on Reports. The total does not change.</p>
+  </div>
+</template>
+
+<!-- ═════════════ CASH & BUDGETS ═════════════ -->
+<template data-tab="cash" data-label="Cash &amp; Budgets" data-blurb="Cash on hand, recurring bills and category limits.">
+  <div class="cardx" data-w="12">
+    <div class="kpis" style="grid-template-columns:repeat(3,1fr)">
+      <div class="kpi"><div class="l">Cash on hand</div><div class="n">$2,940.00</div><div class="h">across 3 accounts</div></div>
+      <div class="kpi"><div class="l">Committed each month</div><div class="n">$1,150.00</div><div class="h">active recurring bills</div></div>
+      <div class="kpi"><div class="l">Wages owed</div><div class="n">$0.00</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="5">
+    <div class="crow"><h4 class="ctitle">Cash on hand</h4><button class="btn" type="button">+ Account</button></div>
+    <div class="rw"><div class="ic">💵</div><div class="bd"><div class="t1">Till drawer</div>
+      <div class="t2">counted at close</div></div><span class="amt">$640.00</span></div>
+    <div class="rw"><div class="ic">🏦</div><div class="bd"><div class="t1">Dahabshiil current</div>
+      <div class="t2">bank</div></div><span class="amt">$1,820.00</span></div>
+    <div class="rw"><div class="ic">📱</div><div class="bd"><div class="t1">ZAAD wallet</div>
+      <div class="t2">mobile money</div></div><span class="amt">$480.00</span></div>
+    <div class="pl emph" style="margin-top:8px"><div class="nm">Total</div><div class="amt num">$2,940.00</div></div>
+  </div>
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Budget vs. actual</h4><div class="pill">This month</div></div>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700">
+        <span>Payroll</span><span class="num">$2,080.00 / $2,200.00</span></div>
+      <div class="bar tall"><i style="width:94.5%;background:#00a396"></i></div></div>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700">
+        <span>Rent</span><span class="num">$200.00 / $200.00</span></div>
+      <div class="bar tall"><i style="width:100%;background:#00a396"></i></div></div>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700">
+        <span>Utilities</span><span class="num loss">$312.00 / $250.00</span></div>
+      <div class="bar tall"><i style="width:100%;background:#d92d3f"></i></div>
+      <div class="t2" style="margin-top:4px">$62.00 over — 125% of the limit</div></div>
+    <div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700">
+        <span>Supplies</span><span class="num">$118.00 / $300.00</span></div>
+      <div class="bar tall"><i style="width:39.3%;background:#00a396"></i></div></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Recurring bills</h4><button class="btn solid" type="button">+ Add bill</button></div>
+    <div class="rw"><div class="ic">🏠</div><div class="bd"><div class="t1">Shop rent</div>
+      <div class="t2">every month on the 15th · due in 3 days</div></div>
+      <span class="chip warn">Due soon</span><span class="amt">$450.00</span></div>
+    <div class="rw"><div class="ic">⚡</div><div class="bd"><div class="t1">Power (NEC)</div>
+      <div class="t2">every month on the 1st</div></div><span class="chip">Scheduled</span><span class="amt">$180.00</span></div>
+    <div class="rw"><div class="ic">📶</div><div class="bd"><div class="t1">Somtel internet</div>
+      <div class="t2">every month on the 18th</div></div><span class="chip">Scheduled</span><span class="amt">$40.00</span></div>
+    <div class="rw"><div class="ic">👥</div><div class="bd"><div class="t1">Weekly wages</div>
+      <div class="t2">every week on Friday</div></div><span class="chip">Scheduled</span><span class="amt">$480.00</span></div>
+  </div>
+</template>
+
+<!-- ═════════════ REPORTS ═════════════ -->
+<template data-tab="reports" data-label="Reports" data-blurb="Profit and loss, tax, labour and category breakdowns.">
+  <div class="cardx" data-w="5">
+    <div class="crow"><h4 class="ctitle">Profit &amp; loss</h4><div class="pill">7 days</div></div>
+    <div class="pl"><div class="nm">Revenue<span class="hint">net of sales tax and refunds</span></div><div class="amt num">$3,847.20</div></div>
+    <div class="pl"><div class="nm">Cost of goods sold<span class="hint">what the items sold cost you</span></div><div class="amt num loss">−$2,412.60</div></div>
+    <div class="pl emph"><div class="nm">Gross profit</div><div class="amt num">$1,434.60</div></div>
+    <div class="pl"><div class="nm">Operating expenses<span class="hint">excludes stock purchases and owner draws</span></div><div class="amt num loss">−$890.00</div></div>
+    <div class="pl tot"><div class="nm">Net profit</div><div class="amt num profit">$544.60</div></div>
+    <div class="cav wrong" style="margin-top:12px"><span>⚠️</span><div>6 sold items had no cost recorded ($312.40 of
+      revenue), so cost of goods sold is understated and profit looks higher than it is.
+      <a href="#">Set costs in Inventory →</a></div></div>
+    <div class="cav context"><span>ℹ️</span><div>$522.00 of stock purchases and owner draws is excluded above — stock
+      becomes a cost when it sells, and an owner draw isn't a business cost. Both still leave the bank account.</div></div>
+  </div>
+
+  <div class="cardx" data-w="4">
+    <h4 class="ctitle">Labour</h4>
+    <div class="pl"><div class="nm">Wages posted<span class="hint">pay runs in this range</span></div><div class="amt num">$520.00</div></div>
+    <div class="pl"><div class="nm">Earned, not yet paid<span class="hint">no pay run posted yet</span></div><div class="amt num">$0.00</div></div>
+    <div class="pl emph"><div class="nm">Total labour</div><div class="amt num">$520.00</div></div>
+    <div class="pl sub"><div class="nm">as a share of revenue</div><div class="amt num">13.5%</div></div>
+    <div class="pl sub"><div class="nm">hours worked</div><div class="amt num">96h</div></div>
+    <p class="foot">When wages are earned but no run is posted, an extra line appears here
+    <em>and</em> in the P&amp;L above — so the two never disagree.</p>
+  </div>
+
+  <div class="cardx" data-w="3">
+    <h4 class="ctitle">Sales tax collected</h4>
+    <div style="font-size:26px;font-weight:800;letter-spacing:-.02em" class="num">$384.72</div>
+    <p class="t2" style="margin-top:6px">Held for the tax authority — not yours to spend.</p>
+    <div class="pl" style="margin-top:12px"><div class="nm">Gross takings</div><div class="amt num">$4,231.92</div></div>
+    <div class="pl"><div class="nm">Less tax collected</div><div class="amt num loss">−$384.72</div></div>
+    <div class="pl emph"><div class="nm">Revenue</div><div class="amt num">$3,847.20</div></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Where the money went</h4>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Cost of goods sold</span><span class="amt">$2,412.60</span></div>
+      <div class="bar"><i style="width:100%;background:#2f6bff"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Payroll</span><span class="amt">$520.00</span></div>
+      <div class="bar"><i style="width:21.6%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Rent</span><span class="amt">$200.00</span></div>
+      <div class="bar"><i style="width:8.3%;background:#c8791a"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Utilities</span><span class="amt">$96.00</span></div>
+      <div class="bar"><i style="width:4%;background:#d4457e"></i></div></div></div>
+    <div class="rw"><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Supplies</span><span class="amt">$74.00</span></div>
+      <div class="bar"><i style="width:3.1%;background:#8b8b93"></i></div></div></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Sales by product category</h4>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <div style="width:132px;height:132px;flex-shrink:0">
+        <svg viewBox="0 0 132 132" style="width:100%;height:100%" role="img"
+             aria-label="Grains 39%, Pantry 31%, Dairy 19%, Drinks 11% of sales.">
+          <circle cx="66" cy="66" r="47.5" fill="none" stroke="#2f6bff" stroke-width="19.8"
+                  stroke-dasharray="116.4 182.1" transform="rotate(-90 66 66)"/>
+          <circle cx="66" cy="66" r="47.5" fill="none" stroke="#00a396" stroke-width="19.8"
+                  stroke-dasharray="92.5 206.0" transform="rotate(50.4 66 66)"/>
+          <circle cx="66" cy="66" r="47.5" fill="none" stroke="#c8791a" stroke-width="19.8"
+                  stroke-dasharray="56.7 241.8" transform="rotate(162 66 66)"/>
+          <circle cx="66" cy="66" r="47.5" fill="none" stroke="#d4457e" stroke-width="19.8"
+                  stroke-dasharray="32.8 265.7" transform="rotate(230.4 66 66)"/>
+        </svg>
+      </div>
+      <div style="flex:1;min-width:150px">
+        <div class="pl"><div class="nm"><span class="dot" style="background:#2f6bff"></span>Grains</div><div class="amt num">$1,500.40</div></div>
+        <div class="pl"><div class="nm"><span class="dot" style="background:#00a396"></span>Pantry</div><div class="amt num">$1,192.60</div></div>
+        <div class="pl"><div class="nm"><span class="dot" style="background:#c8791a"></span>Dairy</div><div class="amt num">$730.90</div></div>
+        <div class="pl"><div class="nm"><span class="dot" style="background:#d4457e"></span>Drinks</div><div class="amt num">$423.30</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Revenue by category over time</h4><div class="pill">7 days</div></div>
+    <svg class="chart" viewBox="0 0 600 190" style="width:100%;height:auto;display:block" role="img"
+         aria-label="Revenue by category across seven days: Grains highest throughout, then Pantry, Dairy and Drinks.">
+      <g stroke="#ececf0"><line x1="44" y1="164" x2="588" y2="164"/><line x1="44" y1="88" x2="588" y2="88"/><line x1="44" y1="12" x2="588" y2="12"/></g>
+      <path d="M44 96 L134.7 88 L225.3 100 L316 74 L406.7 54 L497.3 64 L588 106" fill="none" stroke="#2f6bff" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M44 118 L134.7 112 L225.3 122 L316 100 L406.7 84 L497.3 92 L588 126" fill="none" stroke="#00a396" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M44 138 L134.7 134 L225.3 140 L316 126 L406.7 116 L497.3 122 L588 144" fill="none" stroke="#c8791a" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M44 152 L134.7 149 L225.3 154 L316 144 L406.7 138 L497.3 142 L588 156" fill="none" stroke="#d4457e" stroke-width="2.5" stroke-linejoin="round"/>
+      <g font-size="10" fill="#a8a8b0" text-anchor="end"><text x="36" y="168">0</text><text x="36" y="92">150</text><text x="36" y="16">300</text></g>
+      <g font-size="10" fill="#a8a8b0" text-anchor="middle">
+        <text x="44" y="182">Mon</text><text x="134.7" y="182">Tue</text><text x="225.3" y="182">Wed</text>
+        <text x="316" y="182">Thu</text><text x="406.7" y="182">Fri</text><text x="497.3" y="182">Sat</text><text x="588" y="182">Sun</text></g>
+    </svg>
+    <div class="legend"><span><i class="dot" style="background:#2f6bff"></i>Grains</span>
+      <span><i class="dot" style="background:#00a396"></i>Pantry</span>
+      <span><i class="dot" style="background:#c8791a"></i>Dairy</span>
+      <span><i class="dot" style="background:#d4457e"></i>Drinks</span></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">Cashier performance</h4>
+    <div class="rw"><div class="ic">1</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Faduma Ali</span><span class="amt">$1,842.60</span></div>
+      <div class="bar"><i style="width:100%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="ic">2</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Abdi M.</span><span class="amt">$1,204.40</span></div>
+      <div class="bar"><i style="width:65%;background:#00a396"></i></div></div></div>
+    <div class="rw"><div class="ic">3</div><div class="bd"><div style="display:flex;justify-content:space-between">
+      <span class="t1">Sagal H.</span><span class="amt">$800.20</span></div>
+      <div class="bar"><i style="width:43%;background:#00a396"></i></div></div></div>
+    <div class="cav context" style="margin-top:12px"><span>ℹ️</span><div>Gross takings, not net — this reconciles
+      against a till.</div></div>
+  </div>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  let active = 'overview';
+
+  const shell = (tpl, compact) => {
+    const tabPills = tabs.map((t) =>
+      `<span class="${t.dataset.tab === tpl.dataset.tab ? 'on' : ''}">${t.dataset.label}</span>`).join('');
+    return `
+      <div class="head">
+        <div>
+          <p class="eyebrow">Accounting</p>
+          <h3>${tpl.dataset.label}</h3>
+          <p>${tpl.dataset.blurb}</p>
+        </div>
+        ${compact ? '' : '<div class="headActs"><button class="btn" type="button">Export</button>' +
+          '<button class="btn" type="button">7 days ⌄</button>' +
+          '<button class="btn" type="button">Hodan Store ⌄</button></div>'}
+      </div>
+      <div class="tabrow">${tabPills}</div>
+      ${compact ? '<div class="filters"><span class="on">7 days</span><span>Hodan Store</span><span>Export</span></div>' : ''}`;
+  };
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [[wide, 'wide', false], [narrow, 'narrow', true]].forEach(([host, mode, compact]) => {
+      host.innerHTML = shell(tpl, compact);
+      const grid = document.createElement('div');
+      grid.className = 'grid ' + mode;
+      tpl.content.querySelectorAll('.cardx').forEach((card) => {
+        const el = card.cloneNode(true);
+        if (mode === 'wide') el.style.gridColumn = 'span ' + el.dataset.w;
+        grid.appendChild(el);
+      });
+      host.appendChild(grid);
+    });
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.role = 'tab';
+    b.dataset.go = t.dataset.tab;
+    b.innerHTML = t.dataset.label;
+    b.addEventListener('click', () => { active = t.dataset.tab; render(); });
+    sw.appendChild(b);
+  });
+  render();
+</script>

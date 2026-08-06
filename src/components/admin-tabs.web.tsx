@@ -12,6 +12,7 @@ import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 
 // Bottom nav for narrow/mobile-web only — the wide layout uses the shared
 // `AdminSidebar` (see admin-sidebar.tsx), which has its own icon set.
@@ -62,10 +63,13 @@ export default function AdminTabs() {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
     if (result.canceled) return;
     setUploadingLogo(true);
+    const oldLogoUrl = shop.logoUrl;
     try {
       const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
       await updateShop(shop.id, { logoUrl });
       await refreshShop();
+      // Only after the new URL is safely persisted -- see storage.ts.
+      await deleteImageByPublicUrl(oldLogoUrl);
     } finally {
       setUploadingLogo(false);
     }

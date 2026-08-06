@@ -1,0 +1,344 @@
+<title>Location switcher → top bar (desktop web) — Mockup</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff;
+    --blue:#2f6bff; --keep:#0f9d58; --move:#c8791a;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; --keep:#4bbd84; --move:#e0a44e; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; --keep:#4bbd84; --move:#e0a44e; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+           --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; --keep:#0f9d58; --move:#c8791a; }
+
+  /* The app is pinned to the light palette (theme.ts), so every device frame
+     below stays light in both themes on purpose — same rule the other
+     mockups in this folder follow. Only the page chrome tracks the viewer.
+     Hexes inside .frame are the REAL values from admin-sidebar.tsx /
+     admin-tabs.web.tsx, not redesign tokens: this mockup is about where a
+     control sits, not how it's styled. */
+  .frame{
+    --a-sf:#FFFFFF; --a-ln:#ECECEC; --a-ink:#111111; --a-mut:#777777;
+    --a-mut2:#999999; --a-soft:#F5F5F2; --a-pill:#F2F2F2; --a-focus:#F2F2F2;
+    --a-body:#F7F7F5;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1200px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(26px,4.2vw,38px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:64ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:70ch;}
+  section{margin-top:52px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px;}
+  .meta span{font-size:12px;font-weight:600;color:var(--ink2);background:var(--pg2);
+    border:1px solid var(--ln);border-radius:999px;padding:5px 12px;}
+
+  /* ---- device frame ---- */
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
+  .frameHead b{font-size:14.5px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .tag{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+    border-radius:999px;padding:3px 9px;border:1px solid currentColor;}
+  .tag.now{color:var(--mut);}
+  .tag.new{color:var(--move);}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+  .frame{border:1px solid var(--ln);border-radius:16px;overflow:hidden;
+    background:var(--a-body);color:var(--a-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+
+  /* ---- app shell ---- */
+  .shell{display:flex;min-height:430px;}
+  .side{width:220px;flex-shrink:0;background:var(--a-sf);border-right:1px solid var(--a-ln);
+    padding:20px 0;display:flex;flex-direction:column;}
+  .sHead{display:flex;align-items:center;gap:10px;padding:0 20px 24px;}
+  .avatar{width:34px;height:34px;border-radius:9px;background:var(--a-ink);color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
+  .sHeadT{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:4px;}
+  .shopName{font-size:15px;font-weight:800;line-height:1.2;}
+  .shopSub{font-size:11px;color:var(--a-mut2);line-height:1.2;}
+
+  .nav{padding:0 10px;display:flex;flex-direction:column;gap:4px;}
+  .navItem{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;
+    border-left:3px solid transparent;font-size:14.5px;font-weight:700;color:#555555;}
+  .navItem.on{background:var(--a-focus);border-left-color:var(--a-ink);color:var(--a-ink);font-weight:800;}
+  .navItem em{font-style:normal;width:19px;text-align:center;font-size:15px;filter:grayscale(1);opacity:.8;}
+  .navItem.on em{opacity:1;}
+  .sFoot{margin-top:auto;padding:14px 20px 0;border-top:1px solid var(--a-ln);
+    font-size:10px;font-weight:700;color:#BBBBBB;}
+
+  .slot{flex:1;min-width:0;display:flex;flex-direction:column;}
+  .topbar{display:flex;align-items:center;gap:12px;padding:14px 16px;
+    background:var(--a-sf);border-bottom:1px solid var(--a-ln);}
+  .topbar .spacer{flex:1;}
+  .burger{padding:7px 10px;border-radius:8px;background:var(--a-soft);font-size:16px;line-height:1;}
+
+  /* the control in question — real LocationSwitcher trigger styling */
+  .switcher{display:inline-flex;align-items:center;gap:4px;background:var(--a-pill);
+    border-radius:8px;padding:6px 10px;max-width:180px;}
+  .switcher b{font-size:12px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .switcher i{font-style:normal;font-size:10px;}
+
+  /* call-out ring, doc-only */
+  .ring{position:relative;}
+  .ring::after{content:"";position:absolute;inset:-7px;border-radius:13px;
+    border:2px dashed var(--move);pointer-events:none;}
+  .ring.dim::after{border-color:var(--mut);opacity:.65;}
+  .ringLbl{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--move);margin-left:14px;white-space:nowrap;}
+  .ringLbl.dim{color:var(--mut);}
+
+  /* page body filler so the frames read as a real screen */
+  .body{flex:1;padding:20px;display:flex;flex-direction:column;gap:14px;background:var(--a-body);}
+  .pageTitle{font-size:22px;font-weight:800;letter-spacing:-.02em;}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  .w380 .cards{grid-template-columns:repeat(2,1fr);}
+  .card{background:var(--a-sf);border-radius:20px;padding:14px;min-height:78px;}
+  .card .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--a-mut2);}
+  .card .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .band{background:var(--a-sf);border-radius:20px;flex:1;min-height:120px;}
+
+  /* ---- mobile web frame ---- */
+  .mHead{display:flex;align-items:center;justify-content:space-between;gap:12px;height:52px;
+    padding:0 16px;background:var(--a-sf);border-bottom:1px solid var(--a-ln);}
+  .mLeft{display:flex;align-items:center;gap:8px;min-width:0;}
+  .avatarSm{width:26px;height:26px;border-radius:7px;background:var(--a-ink);color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;}
+  .mName{font-size:14px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .mRight{display:flex;align-items:center;gap:14px;}
+  .btmNav{display:flex;background:var(--a-sf);border-top:1px solid var(--a-ln);padding:10px 0 12px;}
+  .btmItem{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;}
+  .btmIc{width:46px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;
+    font-size:17px;filter:grayscale(1);opacity:.55;}
+  .btmItem.on .btmIc{background:var(--a-ink);opacity:1;filter:none;}
+  .btmLbl{font-size:11.5px;font-weight:700;color:var(--a-mut2);}
+  .btmItem.on .btmLbl{color:var(--a-ink);font-weight:800;}
+
+  /* ---- notes ---- */
+  .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-top:20px;}
+  .note{background:var(--sf);border:1px solid var(--ln);border-radius:14px;padding:16px 18px;}
+  .note h3{margin:0 0 6px;font-size:13.5px;font-weight:800;letter-spacing:-.01em;}
+  .note p{margin:0;font-size:13px;color:var(--ink2);line-height:1.55;}
+  .note.flag{border-color:color-mix(in srgb,var(--move) 45%,var(--ln));}
+  .note.flag h3{color:var(--move);}
+
+  .diff{border:1px solid var(--ln);border-radius:14px;overflow:hidden;margin-top:18px;}
+  .diff table{border-collapse:collapse;width:100%;}
+  .diff th,.diff td{text-align:left;padding:11px 16px;font-size:13px;border-bottom:1px solid var(--ln);}
+  .diff th{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--mut);background:var(--pg2);}
+  .diff tr:last-child td{border-bottom:none;}
+  .diff td:first-child{font-weight:700;white-space:nowrap;}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Kaiibi · admin shell</p>
+  <h1>Move the location switcher into the top bar</h1>
+  <p class="lede">
+    On desktop web the branch picker sits inside the sidebar header, three lines below the shop
+    logo. On mobile it sits in the header next to the hamburger, where it reads as a control you
+    operate rather than a label. This is the desktop shell adopting the mobile placement.
+  </p>
+  <div class="meta">
+    <span>src/components/admin-sidebar.tsx</span>
+    <span>Desktop web + tablet</span>
+    <span>Only renders with 2+ locations</span>
+  </div>
+
+  <section>
+    <div class="frameHead">
+      <b>Today</b><span class="tag now">Current</span>
+      <i>≥ 900px · AdminSidebar</i>
+    </div>
+    <p class="h2sub">
+      The top bar carries a single ☰ on an otherwise empty rule. The switcher is stacked under the
+      shop name and subtitle, competing with them for the same reading.
+    </p>
+    <div class="scroller">
+      <div class="frame w1180">
+        <div class="shell">
+          <div class="side">
+            <div class="sHead">
+              <div class="avatar">J</div>
+              <div class="sHeadT">
+                <div class="shopName">Jaalala Skincare</div>
+                <div class="shopSub">Beauty &amp; skincare</div>
+                <div class="ring dim switcher"><b>Jaalala Skincare</b><i>▾</i></div>
+              </div>
+            </div>
+            <div class="nav">
+              <div class="navItem on"><em>🏠</em>Dashboard</div>
+              <div class="navItem"><em>🛒</em>POS</div>
+              <div class="navItem"><em>▦</em>Inventory</div>
+              <div class="navItem"><em>👥</em>People</div>
+              <div class="navItem"><em>🧮</em>Accounting</div>
+            </div>
+            <div class="sFoot">Powered by Ka Iibi</div>
+          </div>
+          <div class="slot">
+            <div class="topbar">
+              <div class="spacer"></div>
+              <div class="burger">☰</div>
+            </div>
+            <div class="body">
+              <div class="pageTitle">Dashboard</div>
+              <div class="cards">
+                <div class="card"><div class="l">Sales today</div><div class="n">$1,284</div></div>
+                <div class="card"><div class="l">Orders</div><div class="n">37</div></div>
+                <div class="card"><div class="l">Avg basket</div><div class="n">$34.70</div></div>
+                <div class="card"><div class="l">Low stock</div><div class="n">6</div></div>
+              </div>
+              <div class="band"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="frameHead">
+      <b>Proposed</b><span class="tag new">Change</span>
+      <i>switcher moves to the top bar, left of ☰</i>
+    </div>
+    <p class="h2sub">
+      The sidebar header collapses back to logo + name + category. The switcher pairs with the ☰ in
+      the top bar — the two controls that act on the whole session, in one place, on every screen
+      width.
+    </p>
+    <div class="scroller">
+      <div class="frame w1180">
+        <div class="shell">
+          <div class="side">
+            <div class="sHead">
+              <div class="avatar">J</div>
+              <div class="sHeadT">
+                <div class="shopName">Jaalala Skincare</div>
+                <div class="shopSub">Beauty &amp; skincare</div>
+              </div>
+            </div>
+            <div class="nav">
+              <div class="navItem on"><em>🏠</em>Dashboard</div>
+              <div class="navItem"><em>🛒</em>POS</div>
+              <div class="navItem"><em>▦</em>Inventory</div>
+              <div class="navItem"><em>👥</em>People</div>
+              <div class="navItem"><em>🧮</em>Accounting</div>
+            </div>
+            <div class="sFoot">Powered by Ka Iibi</div>
+          </div>
+          <div class="slot">
+            <div class="topbar">
+              <div class="spacer"></div>
+              <div class="ring switcher"><b>Jaalala Skincare</b><i>▾</i></div>
+              <div class="burger">☰</div>
+            </div>
+            <div class="body">
+              <div class="pageTitle">Dashboard</div>
+              <div class="cards">
+                <div class="card"><div class="l">Sales today</div><div class="n">$1,284</div></div>
+                <div class="card"><div class="l">Orders</div><div class="n">37</div></div>
+                <div class="card"><div class="l">Avg basket</div><div class="n">$34.70</div></div>
+                <div class="card"><div class="l">Low stock</div><div class="n">6</div></div>
+              </div>
+              <div class="band"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="frameHead">
+      <b>Mobile web</b><span class="tag now">Unchanged</span>
+      <i>&lt; 900px · admin-tabs.web.tsx</i>
+    </div>
+    <p class="h2sub">The placement being copied. Native phone already does the same thing.</p>
+    <div class="scroller">
+      <div class="frame w380">
+        <div style="display:flex;flex-direction:column;min-height:430px;">
+          <div class="mHead">
+            <div class="mLeft">
+              <div class="avatarSm">J</div>
+              <div class="mName">Jaalala Skincare</div>
+            </div>
+            <div class="mRight">
+              <div class="ring switcher"><b>Jaalala Skincare</b><i>▾</i></div>
+              <div class="burger">☰</div>
+            </div>
+          </div>
+          <div class="body">
+            <div class="pageTitle">Dashboard</div>
+            <div class="cards">
+              <div class="card"><div class="l">Sales today</div><div class="n">$1,284</div></div>
+              <div class="card"><div class="l">Orders</div><div class="n">37</div></div>
+            </div>
+            <div class="band"></div>
+          </div>
+          <div class="btmNav">
+            <div class="btmItem on"><div class="btmIc">🏠</div><div class="btmLbl">Dashboard</div></div>
+            <div class="btmItem"><div class="btmIc">🛒</div><div class="btmLbl">POS</div></div>
+            <div class="btmItem"><div class="btmIc">▦</div><div class="btmLbl">Inventory</div></div>
+            <div class="btmItem"><div class="btmIc">👥</div><div class="btmLbl">People</div></div>
+            <div class="btmItem"><div class="btmIc">🧮</div><div class="btmLbl">Accounting</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What actually changes</h2>
+    <p class="h2sub">One element moves between two JSX parents in the same file. No new component, no styling change to the switcher itself.</p>
+
+    <div class="diff">
+      <table>
+        <thead>
+          <tr><th>Where</th><th>Change</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>admin-sidebar.tsx · header</td>
+            <td>Remove <code>&lt;LocationSwitcher /&gt;</code> from <code>styles.headerText</code>. That column drops back to name + subtitle, and its <code>gap: 4</code> / <code>alignItems: 'flex-start'</code> comment stops applying — worth updating.</td>
+          </tr>
+          <tr>
+            <td>admin-sidebar.tsx · topBar</td>
+            <td>Render <code>&lt;LocationSwitcher /&gt;</code> before the ☰ <code>Pressable</code>. <code>topBar</code> already has <code>justifyContent: 'flex-end'</code>; add <code>gap: 14</code> to match the mobile header's spacing.</td>
+          </tr>
+          <tr>
+            <td>location-switcher.tsx</td>
+            <td>Untouched. Light tone is already correct against the white top bar.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>Single-location shops see nothing</h3>
+        <p>The switcher returns <code>null</code> unless the shop has 2+ locations, so for most shops the top bar keeps just the ☰ and the sidebar header loses nothing. The move is invisible to them.</p>
+      </div>
+      <div class="note flag">
+        <h3>This also changes tablet</h3>
+        <p><code>AdminSidebar</code> is shared: desktop web renders it above 900px, and native iPad/Android tablets render it too. Editing it moves the switcher on tablet as well. That lands all four shells on the same placement, but it is not a web-only edit — say the word if tablet should keep the sidebar position.</p>
+      </div>
+      <div class="note">
+        <h3>Vertical rhythm</h3>
+        <p>The sidebar header is currently 34px avatar against a three-line text column, so the avatar floats. Removing the third line leaves two lines against the avatar — closer to balanced, and the same shape the mobile header already has.</p>
+      </div>
+    </div>
+  </section>
+</div>

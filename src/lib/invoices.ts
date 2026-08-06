@@ -1,3 +1,4 @@
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { toDateColumn } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import type { Invoice, InvoicePayment, NewInvoiceInput } from '@/types/models';
@@ -92,6 +93,26 @@ export async function listInvoicesInRange(shopId: string, since: Date, until?: D
     .limit(limit);
   if (until) query = query.lte('issued_on', toDateColumn(until));
   const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(mapInvoiceRow);
+}
+
+// Type-ahead for global search. Not date-scoped, for the same reason
+// listOpenInvoices isn't: someone searching a supplier's name wants the bill
+// they are arguing about, and it is usually the old unpaid one.
+export async function searchInvoices(shopId: string, query: string): Promise<Invoice[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  // Quoted for the `or` list -- a vendor name with a comma in it ("Ahmed, Ltd")
+  // would otherwise break the filter rather than match. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(SELECT_LIST)
+    .eq('shop_id', shopId)
+    .or(`vendor_name.ilike.${pattern},invoice_number.ilike.${pattern},description.ilike.${pattern}`)
+    .order('due_on', { ascending: true })
+    .limit(6);
   if (error) throw error;
   return (data ?? []).map(mapInvoiceRow);
 }

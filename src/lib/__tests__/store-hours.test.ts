@@ -1,11 +1,16 @@
 import {
+  findDayProblem,
   formatDayHours,
+  gapsBetween,
   isConfigured,
   isOpenAt,
   isRangeWithinHours,
   isValidRange,
   isValidTime,
+  normalizeDay,
+  normalizeHours,
   rangesFor,
+  suggestNextRange,
   weekdayKeyFor,
   type OpeningHours,
 } from '@/lib/store-hours';
@@ -198,5 +203,234 @@ describe('formatDayHours', () => {
 
   it('says Closed when every range is invalid', () => {
     expect(formatDayHours([{ open: '18:00', close: '09:00' }])).toBe('Closed');
+  });
+
+  // A split day with a third block -- a shop that shuts for lunch AND for
+  // evening prayer. Nothing caps how many blocks a day may carry.
+  it('joins three ranges', () => {
+    expect(
+      formatDayHours([
+        { open: '08:00', close: '12:00' },
+        { open: '14:00', close: '18:00' },
+        { open: '20:00', close: '23:00' },
+      ])
+    ).toBe('08:00 – 12:00, 14:00 – 18:00, 20:00 – 23:00');
+  });
+});
+
+describe('findDayProblem', () => {
+  it('finds nothing wrong with a single valid range', () => {
+    expect(findDayProblem([{ open: '09:00', close: '18:00' }])).toBeNull();
+  });
+
+  it('finds nothing wrong with a closed day', () => {
+    expect(findDayProblem([])).toBeNull();
+  });
+
+  it('finds nothing wrong with a split day', () => {
+    expect(
+      findDayProblem([{ open: '09:00', close: '13:00' }, { open: '17:00', close: '21:00' }])
+    ).toBeNull();
+  });
+
+  // Blocks that touch are legal input -- normalizeDay merges them rather than
+  // the editor refusing them, because there is no closure between them to
+  // describe and rejecting it would be pedantic.
+  it('finds nothing wrong with two blocks that touch', () => {
+    expect(
+      findDayProblem([{ open: '13:00', close: '17:00' }, { open: '17:00', close: '21:00' }])
+    ).toBeNull();
+  });
+
+  // The index is what lets the editor put its message under the offending
+  // block rather than at the top of the day.
+  it('reports an invalid range with its index', () => {
+    const problem = findDayProblem([{ open: '09:00', close: '13:00' }, { open: '18:00', close: '15:00' }]);
+    expect(problem?.index).toBe(1);
+    expect(problem?.message).toContain('24-hour');
+  });
+
+  it('reports an unparseable time as invalid rather than as an overlap', () => {
+    const problem = findDayProblem([{ open: '9:00', close: '18:00' }]);
+    expect(problem?.index).toBe(0);
+    expect(problem?.message).toContain('24-hour');
+  });
+
+  // Named against the block it collides with, and against the time to type,
+  // because "invalid" alone leaves the owner guessing which end to move.
+  it('reports an overlap naming the earlier block and the fix', () => {
+    const problem = findDayProblem([{ open: '09:00', close: '13:00' }, { open: '12:00', close: '17:00' }]);
+    expect(problem?.index).toBe(1);
+    expect(problem?.message).toBe('This overlaps 09:00 – 13:00. Start at 13:00 or later.');
+  });
+
+  // Order in the array is the order typed, not the order in time. A block
+  // typed first but starting later must still be caught.
+  it('finds an overlap regardless of the order the blocks were entered', () => {
+    const problem = findDayProblem([{ open: '12:00', close: '17:00' }, { open: '09:00', close: '13:00' }]);
+    expect(problem).not.toBeNull();
+    expect(problem?.message).toContain('overlaps');
+  });
+
+  it('reports a block fully inside another', () => {
+    const problem = findDayProblem([{ open: '09:00', close: '18:00' }, { open: '10:00', close: '11:00' }]);
+    expect(problem?.index).toBe(1);
+  });
+
+  // An invalid block cannot be meaningfully compared against anything, so it
+  // is reported first and the overlap check waits its turn.
+  it('reports the invalid block before any overlap', () => {
+    const problem = findDayProblem([{ open: '18:00', close: '09:00' }, { open: '10:00', close: '11:00' }]);
+    expect(problem?.index).toBe(0);
+    expect(problem?.message).toContain('24-hour');
+  });
+});
+
+describe('normalizeDay', () => {
+  it('leaves a single valid range alone', () => {
+    expect(normalizeDay([{ open: '09:00', close: '18:00' }])).toEqual([{ open: '09:00', close: '18:00' }]);
+  });
+
+  it('leaves an empty day alone', () => {
+    expect(normalizeDay([])).toEqual([]);
+  });
+
+  it('sorts blocks by opening time', () => {
+    expect(normalizeDay([{ open: '17:00', close: '21:00' }, { open: '09:00', close: '13:00' }])).toEqual([
+      { open: '09:00', close: '13:00' },
+      { open: '17:00', close: '21:00' },
+    ]);
+  });
+
+  // Two blocks that touch describe no closure at all, so storing both would
+  // print "13:00 – 17:00, 17:00 – 21:00" on a receipt -- a lie about a break
+  // that does not exist.
+  it('merges two blocks that touch into one', () => {
+    expect(normalizeDay([{ open: '13:00', close: '17:00' }, { open: '17:00', close: '21:00' }])).toEqual([
+      { open: '13:00', close: '21:00' },
+    ]);
+  });
+
+  it('merges a chain of touching blocks', () => {
+    expect(
+      normalizeDay([
+        { open: '09:00', close: '12:00' },
+        { open: '12:00', close: '15:00' },
+        { open: '15:00', close: '18:00' },
+      ])
+    ).toEqual([{ open: '09:00', close: '18:00' }]);
+  });
+
+  it('keeps a real closure between two blocks', () => {
+    expect(normalizeDay([{ open: '09:00', close: '13:00' }, { open: '17:00', close: '21:00' }])).toEqual([
+      { open: '09:00', close: '13:00' },
+      { open: '17:00', close: '21:00' },
+    ]);
+  });
+
+  // Reached only if a caller skips findDayProblem. Merging to the later close
+  // is the safe reading: it never invents opening time the owner did not type.
+  it('merges overlapping blocks to the later close', () => {
+    expect(normalizeDay([{ open: '09:00', close: '13:00' }, { open: '12:00', close: '17:00' }])).toEqual([
+      { open: '09:00', close: '17:00' },
+    ]);
+  });
+
+  // Sorting and merging garbage produces different garbage. The editor gates
+  // Save on findDayProblem, so this path means a bug upstream -- returning the
+  // input untouched keeps what the owner typed visible so they can fix it.
+  it('returns the day untouched when any block is invalid', () => {
+    const bad = [{ open: '18:00', close: '09:00' }, { open: '09:00', close: '13:00' }];
+    expect(normalizeDay(bad)).toEqual(bad);
+  });
+});
+
+describe('normalizeHours', () => {
+  it('normalizes every day it holds', () => {
+    expect(
+      normalizeHours({
+        mon: [{ open: '17:00', close: '21:00' }, { open: '09:00', close: '13:00' }],
+        tue: [{ open: '13:00', close: '17:00' }, { open: '17:00', close: '21:00' }],
+      })
+    ).toEqual({
+      mon: [{ open: '09:00', close: '13:00' }, { open: '17:00', close: '21:00' }],
+      tue: [{ open: '13:00', close: '21:00' }],
+    });
+  });
+
+  // The distinction isConfigured and the scheduler depend on: a day set to []
+  // is "closed", a day absent is "never configured". Normalising must not
+  // quietly turn one into the other.
+  it('keeps an explicitly closed day and does not invent absent ones', () => {
+    expect(normalizeHours({ mon: [] })).toEqual({ mon: [] });
+    expect(Object.keys(normalizeHours({ mon: [] }))).toEqual(['mon']);
+  });
+
+  it('leaves a never-configured week empty', () => {
+    expect(normalizeHours({})).toEqual({});
+  });
+});
+
+describe('suggestNextRange', () => {
+  it('suggests the default for a day with no hours yet', () => {
+    expect(suggestNextRange([])).toEqual({ open: '09:00', close: '18:00' });
+  });
+
+  // The block must not touch the one before it: normalizeDay would merge it
+  // away on Done and the owner would see their tap do nothing.
+  it('leaves a closure after the last block', () => {
+    expect(suggestNextRange([{ open: '09:00', close: '13:00' }])).toEqual({ open: '14:00', close: '18:00' });
+  });
+
+  it('follows the latest block, not the last one in the list', () => {
+    expect(
+      suggestNextRange([{ open: '17:00', close: '21:00' }, { open: '09:00', close: '13:00' }])
+    ).toEqual({ open: '22:00', close: '23:59' });
+  });
+
+  it('clamps the close to the end of the day', () => {
+    expect(suggestNextRange([{ open: '09:00', close: '20:30' }])).toEqual({ open: '21:30', close: '23:59' });
+  });
+
+  // A visible overlap that findDayProblem explains beats Add doing nothing.
+  it('falls back to the default when the day has no room left', () => {
+    expect(suggestNextRange([{ open: '09:00', close: '23:00' }])).toEqual({ open: '09:00', close: '18:00' });
+  });
+
+  it('ignores invalid blocks when deciding where to start', () => {
+    expect(suggestNextRange([{ open: '18:00', close: '09:00' }])).toEqual({ open: '09:00', close: '18:00' });
+  });
+});
+
+describe('gapsBetween', () => {
+  it('reports the closure between two blocks', () => {
+    expect(gapsBetween([{ open: '09:00', close: '13:00' }, { open: '17:00', close: '21:00' }])).toEqual([
+      { open: '13:00', close: '17:00' },
+    ]);
+  });
+
+  it('reports both closures on a three-block day', () => {
+    expect(
+      gapsBetween([
+        { open: '08:00', close: '12:00' },
+        { open: '14:00', close: '18:00' },
+        { open: '20:00', close: '23:00' },
+      ])
+    ).toEqual([{ open: '12:00', close: '14:00' }, { open: '18:00', close: '20:00' }]);
+  });
+
+  it('reports nothing for a single block or a closed day', () => {
+    expect(gapsBetween([{ open: '09:00', close: '18:00' }])).toEqual([]);
+    expect(gapsBetween([])).toEqual([]);
+  });
+
+  // Touching blocks have no closure to describe -- they are one block that
+  // normalizeDay has not merged yet.
+  it('reports nothing between two touching blocks', () => {
+    expect(gapsBetween([{ open: '13:00', close: '17:00' }, { open: '17:00', close: '21:00' }])).toEqual([]);
+  });
+
+  it('reports nothing when a block is invalid', () => {
+    expect(gapsBetween([{ open: '18:00', close: '09:00' }, { open: '10:00', close: '11:00' }])).toEqual([]);
   });
 });

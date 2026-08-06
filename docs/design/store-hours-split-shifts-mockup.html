@@ -1,0 +1,337 @@
+<title>Kaiibi — split opening hours</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes. Settings is NOT a bento screen -- these
+     are the literal values in locations-panel.tsx / opening-hours-editor.tsx. */
+  .doc{
+    --d-sf:#ffffff; --d-ink:#111111; --d-soft:#f2f2f2; --d-ln:#f2f2f2;
+    --d-mut:#999999; --d-hint:#9ca3af; --d-bad:#c0392b;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  table.cmp{width:100%;border-collapse:collapse;margin-top:16px;font-size:13.5px;}
+  table.cmp th,table.cmp td{border-bottom:1px solid var(--ln);padding:10px 12px;text-align:left;vertical-align:top;}
+  table.cmp th{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:700;}
+  table.cmp td:first-child{font-weight:700;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .pair{display:grid;gap:26px;grid-template-columns:1fr;align-items:start;}
+  @media (min-width:940px){ .pair{grid-template-columns:1fr 400px;} }
+  .pair > div{min-width:0;}
+  .trio{display:grid;gap:22px;grid-template-columns:1fr;align-items:start;margin-top:18px;}
+  @media (min-width:820px){ .trio{grid-template-columns:repeat(3,1fr);} }
+
+  /* ---- the Edit store modal ---- */
+  .modal{background:var(--d-sf);border-radius:18px;padding:20px;color:var(--d-ink);
+    border:1px solid var(--ln);font-size:14px;line-height:1.5;max-width:560px;}
+  .modal.narrow{max-width:360px;}
+  .mHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .mHead b{font-size:16px;font-weight:800;}
+  .mHead span{background:var(--d-ink);color:#fff;border-radius:10px;padding:9px 16px;font-size:12px;font-weight:800;}
+  .fieldLabel{font-size:10px;letter-spacing:.06em;font-weight:800;color:var(--d-mut);margin:16px 0 6px;}
+  .fieldHint{font-size:12px;color:var(--d-hint);line-height:1.42;margin-top:8px;}
+
+  /* day rows */
+  .day{border-bottom:1px solid var(--d-ln);padding:9px 0;}
+  .day.open{background:#fafafa;border-radius:12px;padding:9px 10px;margin:0 -10px;border-bottom-color:transparent;}
+  .dLine{display:flex;align-items:center;gap:8px;}
+  .dName{font-size:13px;font-weight:700;width:92px;flex:none;}
+  .narrow .dName{width:52px;}
+  .t{background:var(--d-soft);border-radius:8px;padding:8px 10px;font-size:13px;width:72px;text-align:center;flex:none;
+    font-variant-numeric:tabular-nums;}
+  .t.bad{background:#fff;border:1px solid var(--d-bad);color:var(--d-bad);}
+  .dash{font-size:13px;color:var(--d-mut);}
+  .act{font-size:12px;font-weight:700;color:var(--d-ink);margin-left:auto;white-space:nowrap;}
+  .act.mut{color:var(--d-mut);}
+  .caret{font-size:12px;color:var(--d-mut);margin-left:auto;}
+  .summary{font-size:13px;color:var(--d-ink);flex:1;font-variant-numeric:tabular-nums;}
+  .summary.off{color:var(--d-mut);}
+  .x{width:24px;height:24px;border-radius:12px;background:#fff;color:var(--d-mut);
+    font-size:13px;display:flex;align-items:center;justify-content:center;flex:none;}
+  .addBlock{font-size:12px;font-weight:700;color:var(--d-ink);margin-top:9px;display:inline-block;}
+  .gap{font-size:11px;color:var(--d-hint);margin-top:6px;}
+  .err{font-size:11.5px;color:var(--d-bad);font-weight:600;margin-top:6px;}
+  .sheet{background:var(--d-soft);border-radius:12px;padding:12px 14px;margin-top:9px;}
+  .sheet .day{border-bottom:none;padding:4px 0;}
+  .sheet .t{background:#fff;}
+  .copyRow{display:flex;gap:7px;flex-wrap:wrap;margin-top:13px;padding-top:11px;border-top:1px solid #e6e6e6;}
+  .ghost{border:1px solid #e0e0e0;background:#fff;border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Settings › Stores › Edit store</p>
+<h1>Split opening hours</h1>
+<p class="lede">A store that opens in the morning, shuts for lunch or prayer, and reopens in the
+afternoon — any number of blocks a day, set by the owner. The week stays seven readable rows; the
+day you are editing opens in place.</p>
+
+<section>
+  <h2>What already works</h2>
+  <p class="note">This is a UI change and nothing else. The column, the type and every reader were
+  built for a list of blocks from day one — the editor is the only thing that caps it at one.</p>
+  <div class="verdict">
+    <div class="vx good"><b>Storage — no migration</b><p><code>shop_locations.opening_hours</code> is
+    <code>{"mon":[{"open":"09:00","close":"13:00"},{"open":"17:00","close":"21:00"}]}</code> today.
+    The migration comment says so out loud: “Each day is a LIST so a lunch or prayer closure can be
+    added later as a UI change alone.” There is deliberately no CHECK constraint to rewrite.</p></div>
+    <div class="vx good"><b>Open/closed, receipts, formatting</b><p><code>isOpenAt</code> already
+    tests every block. <code>formatDayHours</code> already joins them, so a receipt prints
+    “Open today 09:00 – 13:00, 17:00 – 21:00” with no change at all.</p></div>
+    <div class="vx good"><b>Shift validation</b><p><code>isRangeWithinHours</code> requires a
+    <em>single</em> block to contain the shift, so a 12:00–18:00 shift across the lunch closure
+    warns — and that warning is right. It is non-blocking, so a manager who means it can still
+    save. Already unit-tested.</p></div>
+    <div class="vx mid"><b>New rules the editor must carry</b><p>Blocks on one day must not overlap
+    each other, must be kept in time order, and two blocks that touch (13:00–17:00 &amp;
+    17:00–21:00) are really one block. None of that exists yet — it belongs in
+    <code>store-hours.ts</code> where Jest can reach it, not in the component.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>The design</h2>
+  <p class="note">Seven fixed rows, each reading as the sentence it will print on the receipt.
+  Tapping a row opens its block editor inline, underneath. However complicated the week gets, the
+  list never gets longer than seven rows plus the one day you are working on.</p>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Modal, 560pt</b> <i>Monday open</i></div>
+      <div class="modal">
+        <div class="mHead"><b>Edit store</b><span>Save</span></div>
+        <div class="fieldLabel">OPENING HOURS</div>
+
+        <div class="day open">
+          <div class="dLine">
+            <span class="dName">Monday</span>
+            <span class="summary">09:00 – 13:00, 17:00 – 21:00</span>
+            <span class="act mut">Done</span>
+          </div>
+          <div class="sheet">
+            <div class="day">
+              <div class="dLine">
+                <span class="t">09:00</span><span class="dash">–</span><span class="t">13:00</span>
+                <span class="x">×</span>
+              </div>
+            </div>
+            <div class="day">
+              <div class="dLine">
+                <span class="t">17:00</span><span class="dash">–</span><span class="t">21:00</span>
+                <span class="x">×</span>
+              </div>
+            </div>
+            <div class="gap">Closed 13:00 – 17:00</div>
+            <div class="addBlock">+ Add hours</div>
+            <div class="copyRow">
+              <span class="ghost">Copy to every day</span>
+              <span class="ghost">Mark closed</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="day">
+          <div class="dLine"><span class="dName">Tuesday</span>
+            <span class="summary">09:00 – 13:00, 17:00 – 21:00</span><span class="caret">›</span></div>
+        </div>
+        <div class="day">
+          <div class="dLine"><span class="dName">Wednesday</span>
+            <span class="summary">09:00 – 13:00, 17:00 – 21:00</span><span class="caret">›</span></div>
+        </div>
+        <div class="day">
+          <div class="dLine"><span class="dName">Thursday</span>
+            <span class="summary">16:00 – 22:00</span><span class="caret">›</span></div>
+        </div>
+        <div class="day">
+          <div class="dLine"><span class="dName">Friday</span>
+            <span class="summary off">Closed</span><span class="caret">›</span></div>
+        </div>
+        <div class="day">
+          <div class="dLine"><span class="dName">Saturday</span>
+            <span class="summary">08:00 – 12:00, 14:00 – 18:00, 20:00 – 23:00</span><span class="caret">›</span></div>
+        </div>
+        <div class="day">
+          <div class="dLine"><span class="dName">Sunday</span>
+            <span class="summary off">Not set</span><span class="caret">›</span></div>
+        </div>
+        <p class="fieldHint">This is what prints on the receipt. Tap a day to change it.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="frameHead"><b>Phone, 360pt</b> <i>collapsed</i></div>
+      <div class="modal narrow">
+        <div class="mHead"><b>Edit store</b><span>Save</span></div>
+        <div class="fieldLabel">OPENING HOURS</div>
+        <div class="day"><div class="dLine"><span class="dName">Mon</span>
+          <span class="summary">09:00 – 13:00,<br>17:00 – 21:00</span><span class="caret">›</span></div></div>
+        <div class="day"><div class="dLine"><span class="dName">Tue</span>
+          <span class="summary">09:00 – 13:00,<br>17:00 – 21:00</span><span class="caret">›</span></div></div>
+        <div class="day"><div class="dLine"><span class="dName">Wed</span>
+          <span class="summary">16:00 – 22:00</span><span class="caret">›</span></div></div>
+        <div class="day"><div class="dLine"><span class="dName">Thu</span>
+          <span class="summary off">Closed</span><span class="caret">›</span></div></div>
+        <div class="day"><div class="dLine"><span class="dName">Fri</span>
+          <span class="summary off">Not set</span><span class="caret">›</span></div></div>
+      </div>
+      <p class="note" style="margin-top:12px">The reason this direction wins on a phone: the
+      summary wraps instead of overflowing, and three blocks on a Saturday cost one extra line
+      rather than three extra rows of input fields.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Three calls this direction forces</h2>
+  <div class="verdict">
+    <div class="vx good"><b>Inline accordion, never a modal on a modal</b><p>The editor expands
+    <em>inside</em> the row. A second React Native <code>Modal</code> stacked on the Edit store
+    modal misbehaves on iOS and would bury Save. It also means the whole row is the tap target
+    rather than a small “Edit” link — one tap to open, edit in place, tap the next day.</p></div>
+    <div class="vx good"><b>One day open at a time</b><p>Opening Tuesday collapses Monday. Keeps
+    the list short, and keeps “Copy to every day” unambiguous about which day is being
+    copied.</p></div>
+    <div class="vx good"><b>“Not set” opens with a block already in it</b><p>Tapping an unset day
+    opens the editor showing one 09:00 – 18:00 block, rather than silently writing hours you then
+    have to open the day to see. The default is visible and editable before it counts — and
+    nothing is stored until Save.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Every row state</h2>
+  <div class="trio">
+    <div>
+      <div class="frameHead"><b>Split day</b></div>
+      <div class="modal narrow">
+        <div class="day open">
+          <div class="dLine"><span class="dName">Mon</span>
+            <span class="summary">09:00 – 13:00, 17:00 – 21:00</span><span class="act mut">Done</span></div>
+          <div class="sheet">
+            <div class="day"><div class="dLine">
+              <span class="t">09:00</span><span class="dash">–</span><span class="t">13:00</span>
+              <span class="x">×</span></div></div>
+            <div class="day"><div class="dLine">
+              <span class="t">17:00</span><span class="dash">–</span><span class="t">21:00</span>
+              <span class="x">×</span></div></div>
+            <div class="gap">Closed 13:00 – 17:00</div>
+            <div class="addBlock">+ Add hours</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Overlap — blocked</b></div>
+      <div class="modal narrow">
+        <div class="day open">
+          <div class="dLine"><span class="dName">Tue</span>
+            <span class="summary">09:00 – 13:00</span><span class="act mut">Done</span></div>
+          <div class="sheet">
+            <div class="day"><div class="dLine">
+              <span class="t">09:00</span><span class="dash">–</span><span class="t">13:00</span>
+              <span class="x">×</span></div></div>
+            <div class="day"><div class="dLine">
+              <span class="t bad">12:00</span><span class="dash">–</span><span class="t">17:00</span>
+              <span class="x">×</span></div></div>
+            <div class="err">This overlaps 09:00 – 13:00. Start at 13:00 or later.</div>
+            <div class="addBlock">+ Add hours</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Not set — default shown</b></div>
+      <div class="modal narrow">
+        <div class="day open">
+          <div class="dLine"><span class="dName">Sun</span>
+            <span class="summary off">Not set</span><span class="act mut">Done</span></div>
+          <div class="sheet">
+            <div class="day"><div class="dLine">
+              <span class="t">09:00</span><span class="dash">–</span><span class="t">18:00</span>
+              <span class="x">×</span></div></div>
+            <div class="addBlock">+ Add hours</div>
+            <div class="copyRow"><span class="ghost">Mark closed</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:18px">A backwards block (16:00 – 15:00) keeps today's
+  treatment: the offending field goes red, exactly as <code>isValidRange</code> already drives
+  it. Removing the last block leaves the day <code>[]</code> — “Closed” — which stays distinct
+  from an absent key, “Not set”.</p>
+</section>
+
+<section>
+  <h2>Rules and edge cases</h2>
+  <p class="note">All of these belong in <code>src/lib/store-hours.ts</code> next to
+  <code>isValidRange</code>, where Jest can reach them — the editor stays a thin consumer, as its
+  header comment insists.</p>
+  <table class="cmp">
+    <tr><th>Case</th><th>Behaviour</th></tr>
+    <tr><td>Overlapping blocks</td><td>Blocked, with the inline message shown above. Two blocks
+      claiming the same minute make “is the shop open” ambiguous and would double-count in any
+      future hours total.</td></tr>
+    <tr><td>Touching blocks<br>13:00–17:00 &amp; 17:00–21:00</td><td>Merged on save into one
+      13:00–21:00 block. There is no closure between them, so storing two is a lie the receipt
+      would print.</td></tr>
+    <tr><td>Order</td><td>Sorted by start time on save. Blocks are shown in stored order, so one
+      typed out of sequence jumps into place once — better than refusing it.</td></tr>
+    <tr><td>Zero-length or backwards</td><td>Unchanged: <code>isValidRange</code> already requires
+      close &gt; open, and the field goes red.</td></tr>
+    <tr><td>Overnight (22:00 – 02:00)</td><td>Still out of scope, unchanged. A late bar splits as
+      22:00–23:59 today and 00:00–02:00 tomorrow, which the current type already forces.</td></tr>
+    <tr><td>Last block removed</td><td>Day becomes <code>[]</code> — “Closed”. Distinct from absent
+      (“Not set”), which is the distinction <code>isConfigured</code> and the scheduler depend
+      on.</td></tr>
+    <tr><td>How many blocks</td><td>No hard cap. Nothing downstream cares, and a cap is a rule
+      someone would have to justify. The Saturday row above shows three.</td></tr>
+    <tr><td>Copy to every day</td><td>Copies the open day's blocks over all seven, including days
+      currently “Not set”. Most shops keep one pattern all week — set it once, then fix the days
+      that differ.</td></tr>
+    <tr><td>A shift across the closure</td><td>Warns “outside opening hours”, non-blocking — the
+      existing behaviour and the correct one. A 12:00–18:00 shift at a shop shut 13:00–17:00 is
+      worth a second look, not a refusal.</td></tr>
+    <tr><td>Receipt</td><td>“Open today 09:00 – 13:00, 17:00 – 21:00”. Already exactly what
+      <code>formatDayHours</code> produces.</td></tr>
+  </table>
+</section>
+
+</div>

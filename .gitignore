@@ -27,6 +27,7 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 graphify-out/
+.ua/
 
 # macOS
 .DS_Store

@@ -7,6 +7,9 @@ import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import {
@@ -40,6 +43,9 @@ import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -148,9 +154,15 @@ export function CashBudgetsTab({
 
   if (!allowed) {
     return (
-      <Text style={styles.empty}>
-        Cash and budgets need the budgets permission. Ask an owner to grant it in Settings → Roles.
-      </Text>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard title="Cash & Budgets">
+            <Text style={styles.empty}>
+              Cash and budgets need the budgets permission. Ask an owner to grant it in Settings → Roles.
+            </Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
     );
   }
 
@@ -167,37 +179,51 @@ export function CashBudgetsTab({
 
       {error && <Text style={styles.error}>{error}</Text>}
 
-      <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(cashTotal)} label="Cash on hand" />
-        <StatTile value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
-        {canSeeWagesOwed && accruedWagesCents > 0 && (
-          <StatTile value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
-        )}
-      </View>
-
-      {/* Worth saying out loud: this is the number that catches shops out.
-          Stock purchases drain the bank without being an expense, so profit
-          and cash routinely disagree. */}
-      <Text style={styles.caption}>
-        Cash on hand is what you last counted, not a calculated figure — update it when you check. Profit and cash aren&apos;t
-        the same thing: buying stock takes money out now but only becomes a cost when it sells.
-        {canSeeWagesOwed && accruedWagesCents > 0
-          ? ' Wages owed covers hours already worked that no pay run has settled — that money is still to go out.'
-          : ''}
-      </Text>
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard title="Cash position" scope="As of today">
+            <View style={styles.metricRow}>
+              <StatTile variant="bento" value={formatCompactCents(cashTotal)} label="Cash on hand" />
+              <StatTile variant="bento" value={formatCompactCents(monthlyCommitment)} label="Committed each month" />
+              {canSeeWagesOwed && accruedWagesCents > 0 && (
+                <StatTile variant="bento" value={formatCompactCents(accruedWagesCents)} label="Wages owed" tone="warning" />
+              )}
+            </View>
+            {/* Worth saying out loud: this is the number that catches shops
+                out. Stock purchases drain the bank without being an expense,
+                so profit and cash routinely disagree. */}
+            <Text style={styles.caption}>
+              Cash on hand is what you last counted, not a calculated figure — update it when you check. Profit and cash aren&apos;t
+              the same thing: buying stock takes money out now but only becomes a cost when it sells.
+              {canSeeWagesOwed && accruedWagesCents > 0
+                ? ' Wages owed covers hours already worked that no pay run has settled — that money is still to go out.'
+                : ''}
+            </Text>
+          </BentoCard>
+        </BentoCell>
 
       {loading ? (
-        <Text style={styles.empty}>Loading…</Text>
+        <BentoCell span={12}>
+          {/* In a card, like every other state on this screen. Bare grey text
+              on the page reads as the screen having failed rather than as it
+              still working. */}
+          <BentoCard>
+            <Text style={styles.empty}>Loading…</Text>
+          </BentoCard>
+        </BentoCell>
       ) : (
         <>
           {/* --- Cash on hand: a snapshot, not driven by the date range --- */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Cash on hand</Text>
-            <Pressable onPress={() => setAddingAccount(true)} style={styles.smallButton}>
-              <Text style={styles.smallButtonText}>+ Account</Text>
-            </Pressable>
-          </View>
-          <View style={styles.card}>
+          <BentoCell span={5}>
+          <BentoCard
+            title="Cash on hand"
+            scope="As of today"
+            actions={
+              <Pressable onPress={() => setAddingAccount(true)} style={styles.smallButton}>
+                <Text style={styles.smallButtonText}>+ Account</Text>
+              </Pressable>
+            }
+          >
             {accountsInScope.length === 0 && !addingAccount ? (
               <Text style={styles.sectionEmpty}>No accounts yet — add your cash drawer, bank, or a mobile wallet.</Text>
             ) : (
@@ -262,13 +288,12 @@ export function CashBudgetsTab({
                 }}
               />
             )}
-          </View>
+          </BentoCard>
+          </BentoCell>
 
           {/* --- Recurring bills: forward-looking, also range-independent --- */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recurring bills</Text>
-          </View>
-          <View style={styles.card}>
+          <BentoCell span={7}>
+          <BentoCard title="Recurring bills" scope="As of today">
             {billsInScope.length === 0 ? (
               <Text style={styles.sectionEmpty}>No recurring bills set up yet.</Text>
             ) : (
@@ -284,7 +309,7 @@ export function CashBudgetsTab({
                     </View>
                     <View style={styles.rowRight}>
                       {state !== 'upcoming' && (
-                        <Badge
+                        <Badge variant="bento"
                           label={state === 'overdue' ? 'Overdue' : 'Due soon'}
                           tone={state === 'overdue' ? 'danger' : 'warning'}
                         />
@@ -319,13 +344,13 @@ export function CashBudgetsTab({
                 &ldquo;Log&rdquo; records the bill as an expense dated its due date and moves the next due date forward.
               </Text>
             )}
-          </View>
+          </BentoCard>
+          </BentoCell>
 
-          {/* --- Budget vs actual: the one section the date range drives --- */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Budget vs. actual</Text>
-          </View>
-          <View style={styles.card}>
+          {/* --- Budget vs actual: the one section the date range drives, so
+              it is the only card here that doesn't say "as of today". --- */}
+          <BentoCell span={12}>
+          <BentoCard title="Budget vs. actual" scope="Selected range">
             {rows.length === 0 ? (
               <Text style={styles.sectionEmpty}>Nothing spent in this range, and no budgets set yet.</Text>
             ) : (
@@ -341,9 +366,11 @@ export function CashBudgetsTab({
                 />
               ))
             )}
-          </View>
+          </BentoCard>
+          </BentoCell>
         </>
       )}
+      </BentoGrid>
 
       {editingBill !== null && shop && (
         <RecurringBillModal
@@ -569,14 +596,15 @@ function BudgetRowView({ row, onSaveLimit }: { row: BudgetRow; onSaveLimit: (lim
 }
 
 const styles = StyleSheet.create({
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
-  caption: { fontSize: 11.5, color: '#999999', lineHeight: 17, marginBottom: 20 },
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  caption: { fontSize: 11.5, color: theme.bentoMuted, lineHeight: 17, marginTop: 12 },
 
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, marginBottom: 10 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: '#111111' },
-  card: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 14, padding: 14, marginBottom: 12 },
-  sectionEmpty: { fontSize: 12.5, color: '#999999', paddingVertical: 6 },
-  sectionNote: { fontSize: 11, color: '#999999', lineHeight: 16, marginTop: 10 },
+  // `sectionHeader`/`sectionTitle`/`card` are gone: each section is now a
+  // BentoCard, which owns its own heading, padding and white surface. They
+  // used to be a bare bordered block with the title floating outside it,
+  // which read as an unstyled list rather than a card.
+  sectionEmpty: { fontSize: 12.5, color: theme.bentoMuted, paddingVertical: 6 },
+  sectionNote: { fontSize: 11, color: theme.bentoMuted, lineHeight: 16, marginTop: 10 },
 
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: '#F4F4F4', flexWrap: 'wrap' },
   rowMain: { flex: 1, minWidth: 140 },

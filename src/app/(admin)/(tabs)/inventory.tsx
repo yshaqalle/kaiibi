@@ -1,12 +1,17 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { Card } from '@/components/card';
+import { CategoryChip } from '@/components/category-chip';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { ExportMenu } from '@/components/export-menu';
+import { StatTile } from '@/components/stat-tile';
+import { BentoCard } from '@/components/ui/bento-card';
+import { Caveat } from '@/components/ui/caveat';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
@@ -16,10 +21,12 @@ import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField
 import { ProductTile } from '@/components/product-tile';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { ScanResultBar } from '@/components/scan-result-bar';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
+import { formatCompactCents } from '@/lib/currency';
 import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { isUncosted } from '@/lib/product-costing';
@@ -50,6 +57,9 @@ const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
 // here is how the two screens start disagreeing.
 type StockFilter = 'all' | 'low' | 'expiring' | 'nocost';
 
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
+
 export default function InventoryScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
   const { width } = useWindowDimensions();
@@ -78,6 +88,9 @@ export default function InventoryScreen() {
   const showLocationFilter = hasMultipleLocations(locations);
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
+  // Phone only. The store filter, Export, Import and Move stock live behind one
+  // pill on the title row rather than wrapping to a second and third row.
+  const [showMore, setShowMore] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
   // Set by a link that already knows what it wants -- the Dashboard's
   // "5 products low on stock" row lands here rather than on the full list,
@@ -323,44 +336,147 @@ export default function InventoryScreen() {
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
   const uncostedCount = products.filter(isUncosted).length;
 
+  // Which uncosted count has been acknowledged. Holding the NUMBER rather than
+  // a boolean is what lets the warning come back when the number changes --
+  // dismissing it at 2 should not silence it at 9. That is exactly the shape
+  // useCaveatDismissal stores, so these now survive leaving the tab instead of
+  // resetting on the next mount.
+  const uncostedNote = useCaveatDismissal('inventory.uncosted-products', String(uncostedCount));
+  const retailNote = useCaveatDismissal('inventory.stock-at-retail', 'v1');
+
+  // What the shelf is worth, twice: at what it cost and at what it would sell
+  // for. Reported as a PAIR because either alone invites the reader to supply
+  // the other from imagination, and the gap between them is the margin sitting
+  // in the stockroom.
+  //
+  // Summed over the list already in memory -- no query. Negative stock is
+  // clamped: a miscount that has driven a count below zero shouldn't quietly
+  // subtract from what the shop is holding.
+  const stockValue = useMemo(() => {
+    let costCents = 0;
+    let retailCents = 0;
+    for (const product of products) {
+      const units = Math.max(0, product.stock);
+      // An uncosted product contributes 0 here, which is exactly why the
+      // caveat below has to say so -- the figure is understated, not merely
+      // approximate.
+      costCents += (product.costCents ?? 0) * units;
+      retailCents += product.priceCents * units;
+    }
+    return { costCents, retailCents };
+  }, [products]);
+
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerTitles}>
+            <Text style={styles.eyebrow}>INVENTORY</Text>
             <Text style={styles.title}>Inventory</Text>
             <Text style={styles.subtitle}>
               {stockFilter === 'all'
-                ? `${products.length} products · ${needsAttention} need attention`
+                ? 'What you carry, what it cost, and what is left.'
                 : `${filtered.length} of ${products.length} products`}
             </Text>
           </View>
+          {/* Six controls fit at desktop width and are two full rows of pills on
+              a phone. Compact keeps the one primary action and folds the rest
+              into a sheet — same split the Schedule tab landed on. */}
           <View style={styles.headerActions}>
-            <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
-            <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
-            {/* Only with somewhere to move stock TO — a one-store shop has no
-                transfer to make, and the button would be a dead end. */}
-            {canEdit && showLocationFilter && (
-              <Pressable onPress={() => setShowTransfer(true)} style={styles.importButton}>
-                <Text style={styles.importButtonText}>Move stock</Text>
-              </Pressable>
-            )}
-            {canEdit && (
-              <Pressable onPress={() => setShowImportModal(true)} style={styles.importButton}>
-                <Text style={styles.importButtonText}>Import</Text>
-              </Pressable>
-            )}
-            {canEdit && (
-              <Pressable
-                onPress={() => setShowAddModal(true)}
-                disabled={atProductLimit}
-                style={[styles.addButton, atProductLimit && styles.addButtonDisabled]}
-              >
-                <Text style={[styles.addButtonText, atProductLimit && styles.addButtonTextDisabled]}>+ Add product</Text>
-              </Pressable>
+            {compact ? (
+              <>
+                <Pressable onPress={() => setShowMore(true)} style={styles.pillButton} accessibilityLabel="More inventory actions">
+                  <Text style={styles.pillButtonText}>More</Text>
+                </Pressable>
+                {canEdit && (
+                  <Pressable
+                    onPress={() => setShowAddModal(true)}
+                    disabled={atProductLimit}
+                    style={[styles.pillButton, styles.pillButtonSolid, atProductLimit && styles.pillButtonDisabled]}
+                  >
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>+ Add</Text>
+                  </Pressable>
+                )}
+              </>
+            ) : (
+              <>
+                <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
+                <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
+                {/* Only with somewhere to move stock TO — a one-store shop has no
+                    transfer to make, and the button would be a dead end. */}
+                {canEdit && showLocationFilter && (
+                  <Pressable onPress={() => setShowTransfer(true)} style={styles.pillButton}>
+                    <Text style={styles.pillButtonText}>Move stock</Text>
+                  </Pressable>
+                )}
+                {canEdit && (
+                  <Pressable onPress={() => setShowImportModal(true)} style={styles.pillButton}>
+                    <Text style={styles.pillButtonText}>Import</Text>
+                  </Pressable>
+                )}
+                {canEdit && (
+                  <Pressable
+                    onPress={() => setShowAddModal(true)}
+                    disabled={atProductLimit}
+                    style={[styles.pillButton, styles.pillButtonSolid, atProductLimit && styles.pillButtonDisabled]}
+                  >
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>+ Add product</Text>
+                  </Pressable>
+                )}
+              </>
             )}
           </View>
         </View>
+
+        {/* One card, not a grid: four figures read as a single glance. */}
+        <BentoCard title="Stock at a glance" style={styles.strip}>
+          <View style={styles.metricRow}>
+            <StatTile
+              variant="bento"
+              value={String(products.length)}
+              label="Products"
+              hint={showLocationFilter ? 'carried across your stores' : undefined}
+            />
+            <StatTile variant="bento" value={String(needsAttention)} label="Low stock" hint="at or below reorder level" />
+            <StatTile variant="bento" value={formatCompactCents(stockValue.costCents)} label="Stock at cost" hint="what you paid for it" />
+            <StatTile
+              variant="bento"
+              value={formatCompactCents(stockValue.retailCents)}
+              label="Stock at retail"
+              hint="if it all sold at list price"
+            />
+          </View>
+        </BentoCard>
+
+        {/* A number with a cause the reader can remove, so 'wrong' with an
+            action — and the action is the filter chip already below.
+
+            Dismissal is keyed to the COUNT, not to a boolean: closing it says
+            "I know about these 2", not "never tell me about uncosted products
+            again". A third one appearing is a new fact and says so. */}
+        {uncostedCount > 0 && !uncostedNote.dismissed && (
+          <Caveat
+            tone="wrong"
+            action={{ label: `Show the ${uncostedCount}`, onPress: () => setStockFilter('nocost') }}
+            onDismiss={uncostedNote.dismiss}
+          >
+            {`${uncostedCount} product${uncostedCount === 1 ? ' has' : 's have'} no purchase cost recorded. ${
+              uncostedCount === 1 ? 'It counts' : 'They count'
+            } as nothing in stock at cost, so that figure is understated — and anything sold from ${
+              uncostedCount === 1 ? 'it' : 'them'
+            } counts as pure profit, so gross profit reads higher than it is.`}
+          </Caveat>
+        )}
+
+        {/* The number is right; it just invites a wrong reading. 'context', and
+            deliberately no action — there is nothing to fix. A plain "I've read
+            it" is enough to dismiss an explanation. */}
+        {products.length > 0 && !retailNote.dismissed && (
+          <Caveat tone="context" onDismiss={retailNote.dismiss}>
+            Stock at retail is what the shelf would bring in if every unit sold at its current price — no discounts, no
+            expiry, no shrinkage. A ceiling, not a forecast.
+          </Caveat>
+        )}
         {/* Stated where the button is, not after a failed save: the shop needs
             to know the cap exists before deciding what to do about it. The
             database trigger remains the real gate. */}
@@ -383,26 +499,26 @@ export default function InventoryScreen() {
           {(['all', 'low', 'expiring', 'nocost'] as StockFilter[])
             .filter((key) => key !== 'expiring' || shop?.expiryTrackingEnabled)
             .map((key) => (
-              <Pressable
+              <CategoryChip
                 key={key}
+                variant="bento"
+                active={stockFilter === key}
                 onPress={() => setStockFilter(key)}
-                style={[styles.stockChip, stockFilter === key && styles.stockChipActive]}
-              >
-                <Text style={[styles.stockChipText, stockFilter === key && styles.stockChipTextActive]}>
-                  {/* Shown with its count even at zero, like Low stock. The comment
-                      above this row argues a narrowed list that looks unnarrowed is
-                      worse than no link at all -- a chip that hid itself when the
-                      count was zero could neither be got out of on a deep link, nor
-                      report the genuinely useful news that the count IS zero. */}
-                  {key === 'all'
+                // Shown with its count even at zero, like Low stock. The comment
+                // above this row argues a narrowed list that looks unnarrowed is
+                // worse than no link at all -- a chip that hid itself when the
+                // count was zero could neither be got out of on a deep link, nor
+                // report the genuinely useful news that the count IS zero.
+                label={
+                  key === 'all'
                     ? 'All'
                     : key === 'low'
                       ? `Low stock ${needsAttention}`
                       : key === 'expiring'
                         ? 'Has expiry'
-                        : `No cost ${uncostedCount}`}
-                </Text>
-              </Pressable>
+                        : `No cost ${uncostedCount}`
+                }
+              />
             ))}
         </View>
 
@@ -451,7 +567,10 @@ export default function InventoryScreen() {
         {loading ? (
           <Text style={styles.empty}>Loading…</Text>
         ) : filtered.length === 0 ? (
-          <Text style={styles.empty}>
+          // Boxed rather than floating on the page: an empty list is still an
+          // answer, and it reads as one when it sits where the list would.
+          <BentoCard>
+            <Text style={styles.empty}>
             {// A filtered-to-zero list must say WHICH filter emptied it --
             // otherwise it reads as an empty shop rather than a shop that
             // happens to have nothing matching the chip it's on. Checked
@@ -470,9 +589,10 @@ export default function InventoryScreen() {
                       // all somewhere else.
                       `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
                     : 'No products yet. Add your first one above.'}
-          </Text>
+            </Text>
+          </BentoCard>
         ) : (
-          <Card style={styles.list}>
+          <Card variant="bento" style={styles.list}>
             {compact ? (
               filtered.map((product) => (
                 <ProductTile
@@ -505,6 +625,62 @@ export default function InventoryScreen() {
           </Card>
         )}
       </ScrollView>
+
+      {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
+          wherever the app opens one. */}
+      <Modal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+        <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
+          {/* Stops a tap inside the sheet from closing it. */}
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHead}>
+              <Text style={styles.sheetTitle}>Inventory actions</Text>
+              <Pressable onPress={() => setShowMore(false)} style={styles.pillButton}>
+                <Text style={styles.pillButtonText}>Close</Text>
+              </Pressable>
+            </View>
+
+            {showLocationFilter && (
+              <View style={styles.sheetRow}>
+                <Text style={styles.sheetRowLabel}>Store</Text>
+                <Text style={styles.sheetRowHint}>Which store&apos;s stock the list shows</Text>
+                <View style={styles.sheetControl}>
+                  <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
+                </View>
+              </View>
+            )}
+
+            {canEdit && showLocationFilter && (
+              <Pressable onPress={() => { setShowMore(false); setShowTransfer(true); }} style={styles.sheetRow}>
+                <Text style={styles.sheetRowLabel}>Move stock</Text>
+                <Text style={styles.sheetRowHint}>Send units from one store to another</Text>
+              </Pressable>
+            )}
+
+            {canEdit && (
+              <Pressable onPress={() => { setShowMore(false); setShowImportModal(true); }} style={styles.sheetRow}>
+                <Text style={styles.sheetRowLabel}>Import products</Text>
+                <Text style={styles.sheetRowHint}>From a CSV file</Text>
+              </Pressable>
+            )}
+
+            <View style={styles.sheetRow}>
+              <Text style={styles.sheetRowLabel}>Export</Text>
+              <Text style={styles.sheetRowHint}>
+                {`${filtered.length} product${filtered.length === 1 ? '' : 's'} — whatever the list is showing now`}
+              </Text>
+              <View style={styles.sheetControl}>
+                <ExportMenu
+                  rows={filtered}
+                  columns={PRODUCT_EXPORT_COLUMNS}
+                  title="Inventory"
+                  subtitle={`${filtered.length} products`}
+                  filenamePrefix="inventory"
+                />
+              </View>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {shop && canEdit && (
         <ProductModal
@@ -573,34 +749,84 @@ export default function InventoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  stockFilterRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap', marginBottom: 10 },
-  stockChip: { borderWidth: 1, borderColor: '#ECECEC', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
-  stockChipActive: { backgroundColor: '#111111', borderColor: '#111111' },
-  stockChipText: { fontSize: 12, fontWeight: '700', color: '#666666' },
-  stockChipTextActive: { color: '#FFFFFF' },
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  content: { padding: 24, paddingBottom: 42 },
-  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  title: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: '#999999', fontSize: 12, marginTop: 3 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
-  addButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  addButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  addButtonDisabled: { backgroundColor: '#E5E5E5' },
-  addButtonTextDisabled: { color: '#999999' },
+  stockFilterRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 10 },
+  // The grey page the bento cards float on, matching Dashboard, Accounting and
+  // People.
+  safeArea: { flex: 1, backgroundColor: theme.bentoPage },
+  content: { padding: 18, paddingBottom: 60 },
+  header: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 16 },
+  headerTitles: { flexShrink: 1 },
+  eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: theme.bentoMuted, marginBottom: 3 },
+  title: { color: theme.bentoInk, fontSize: 26, fontWeight: '800', letterSpacing: -1 },
+  subtitle: { color: theme.bentoMuted, fontSize: 13, marginTop: 3 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center', justifyContent: 'flex-end' },
+  pillButton: {
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    backgroundColor: theme.bentoSurface,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  pillButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  pillButtonDisabled: { opacity: 0.5 },
+  pillButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
+  pillButtonTextSolid: { color: theme.bentoSurface },
+  strip: { marginBottom: 14 },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  searchWrap: { position: 'relative', justifyContent: 'center' },
-  search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginTop: 18, marginBottom: 18, color: '#111111' },
+  // The gap below the field lives HERE, not on the input. The scan button is
+  // absolutely positioned and centred by this wrapper, so a margin on the input
+  // made the wrapper 58px tall around a 44px field and pushed the button ~7px
+  // below the field's real centre.
+  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 14 },
+  // White on the grey page, like every card here — NOT bentoSoft, which is two
+  // points off bentoPage and made the field dissolve into the background. An
+  // input is a surface you act on, so it belongs in the same layer as the
+  // cards, with the same firmer edge the table rows use.
+  search: {
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoRule,
+    borderRadius: 14,
+    height: 44,
+    paddingHorizontal: 14,
+    color: theme.bentoInk,
+  },
   // Only when the button is actually there, so a store without scanning keeps
   // the full-width field.
-  searchWithScan: { paddingRight: 44 },
-  scanInSearch: { position: 'absolute', right: 5, height: 32, width: 32, borderRadius: 8, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF' },
-  scanInSearchText: { fontSize: 15, color: '#111111' },
-  stockError: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginBottom: 12 },
-  addFromScan: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 13, paddingVertical: 11, marginBottom: 14 },
-  addFromScanText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  searchWithScan: { paddingRight: 46 },
+  // Solid black: scanning is the fastest way to find a product on this screen,
+  // and black is what the rest of the app already means by "the primary action
+  // here". A grey circle on a white field read as decoration.
+  scanInSearch: {
+    position: 'absolute',
+    right: 6,
+    height: 32,
+    width: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.bentoInk,
+  },
+  // lineHeight pinned to the glyph size and no larger: ⛶ carries generous font
+  // metrics, and letting the line box grow drops it off centre inside the
+  // circle no matter what the flex centring says.
+  scanInSearchText: { fontSize: 15, lineHeight: 15, color: theme.bentoSurface, includeFontPadding: false, textAlignVertical: 'center' },
+  stockError: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginBottom: 12 },
+  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
+  addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
+  // Zero padding and clipped, so rows run to the card's edges and the first and
+  // last take the 26px corner.
   list: { overflow: 'hidden' },
-  empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
+  empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', paddingVertical: 10, lineHeight: 20 },
+  // Same sheet treatment People and Schedule use.
+  sheetOverlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 28 },
+  sheetHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  sheetTitle: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  sheetRow: { backgroundColor: theme.bentoSurface, borderRadius: 16, paddingHorizontal: 15, paddingVertical: 13, marginBottom: 8 },
+  sheetRowLabel: { fontSize: 14, fontWeight: '700', color: theme.bentoInk },
+  sheetRowHint: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
+  sheetControl: { marginTop: 10, flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
 });

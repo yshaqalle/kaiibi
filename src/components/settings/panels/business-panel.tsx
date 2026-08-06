@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Btn, EditableTextRow, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { updateShop, uploadShopLogo } from '@/lib/shops';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 import type { Shop } from '@/types/models';
 
 function LogoRow({ logoUri, onPick, onRemove }: { logoUri: string | null; onPick: () => void; onRemove: () => void }) {
@@ -61,10 +62,15 @@ export function BusinessPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pr
     setError(null);
     try {
       let logoUrl = shop.logoUrl;
+      // Only set when this save is actually replacing an uploaded photo --
+      // gates the cleanup below so a plain-fields save or a "remove logo"
+      // (logoUrl set to null, no new upload) never tries to delete anything.
+      let replacedLogoUrl: string | null = null;
       if (logoUri && !/^https?:\/\//.test(logoUri)) {
         setUploadingLogo(true);
         logoUrl = await uploadShopLogo(shop.id, logoUri);
         setUploadingLogo(false);
+        replacedLogoUrl = shop.logoUrl;
       } else if (logoUri === null) {
         logoUrl = null;
       }
@@ -75,6 +81,8 @@ export function BusinessPanel({ shop, onSaved }: { shop: Shop; onSaved: () => Pr
         logoUrl,
         payPeriodAnchor: payPeriodAnchor.trim() || null,
       });
+      // Only after the new URL is safely persisted -- see storage.ts.
+      if (replacedLogoUrl) await deleteImageByPublicUrl(replacedLogoUrl);
       await onSaved();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

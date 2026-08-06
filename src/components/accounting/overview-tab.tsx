@@ -1,10 +1,12 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { useHeaderActions, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { ExportMenu } from '@/components/export-menu';
-import { Card } from '@/components/card';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import type { DateRange } from '@/components/range-selector';
 import { RankingChart, type RankingItem } from '@/components/ranking-chart';
@@ -13,6 +15,7 @@ import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
@@ -57,9 +60,10 @@ export function OverviewTab({
   setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop } = useAuth();
-  const { width } = useWindowDimensions();
-  // Matches the admin sidebar's own desktop breakpoint.
-  const wide = width >= 1000;
+  const router = useRouter();
+  // The local `wide = width >= 1000` check is gone: BentoGrid owns the
+  // breakpoints now, so this tab no longer has an opinion about them that
+  // could drift from the one the rest of the screen uses.
   const { since, until } = dateRange;
 
   const [daily, setDaily] = useState<DailyBucket[]>([]);
@@ -156,6 +160,20 @@ export function OverviewTab({
 
   const rangeLabel = formatRangeLabel(dateRange);
 
+  // The two explainers are the same sentence every time, so closing one closes
+  // it for good. The uncosted-cost note is keyed to the shortfall it describes:
+  // let more items sell without a cost price and it is a different, larger
+  // problem, so it comes back rather than staying hidden.
+  const revenueNote = useCaveatDismissal('accounting.overview.revenue-vs-tax', 'v1');
+  const grossProfitNote = useCaveatDismissal('accounting.overview.gross-profit-scope', 'v1');
+  const uncostedNote = useCaveatDismissal(
+    'accounting.overview.uncosted-cogs',
+    `${uncostedItemCount}:${uncostedRevenueCents}`
+  );
+  const cashierNote = useCaveatDismissal('accounting.overview.cashier-gross-takings', 'v1');
+  const showUncostedNote = uncostedItemCount > 0 && !uncostedNote.dismissed;
+  const showAnyCaveat = !revenueNote.dismissed || !grossProfitNote.dismissed || showUncostedNote;
+
   // The daily figures rather than the raw sales: this tab is a summary, so its
   // export is the summary. Someone wanting every line has Transactions.
   useHeaderActions(
@@ -170,112 +188,136 @@ export function OverviewTab({
     [daily, rangeLabel]
   );
 
-  if (loading) return <Text style={styles.empty}>Loading…</Text>;
+  if (loading) {
+    return (
+      <BentoGrid>
+        <BentoCell span={12}>
+          <BentoCard>
+            <Text style={styles.empty}>Loading…</Text>
+          </BentoCard>
+        </BentoCell>
+      </BentoGrid>
+    );
+  }
 
   return (
-    <View>
-      {error && <Text style={styles.error}>{error}</Text>}
-
-      <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
-        <StatTile value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
-        <StatTile
-          value={formatCompactCents(grossProfitCents)}
-          label="Gross profit"
-          hint={
-            marginPct !== null
-              ? `${marginPct}% margin · before expenses`
-              : noCostsRecorded
-                ? 'no cost prices recorded'
-                : 'before operating expenses'
-          }
-          tone={noCostsRecorded ? 'default' : 'positive'}
-        />
-        <StatTile value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
-      </View>
-
-      {/* Promoted from grey body text. Revenue excludes tax the shop is only
-          holding, so the two figures above never double-count — said plainly
-          because an owner checking against the till will otherwise wonder
-          where the difference went. */}
-      <Caveat tone="context">
-        {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
-          refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
-        }`}
-      </Caveat>
-
-      <Caveat tone="context">
-        Gross profit is revenue less what the goods cost. Operating expenses and wages come off on Reports, which is
-        where the bottom line lives.
-      </Caveat>
-
-      {uncostedItemCount > 0 ? (
-        <Caveat tone="wrong">
-          {`${uncostedItemCount} sold ${uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(uncostedRevenueCents)} of revenue), so cost of goods is understated and gross profit looks higher than it is.`}
-        </Caveat>
+    <BentoGrid>
+      {error ? (
+        <BentoCell span={12}>
+          <Text style={styles.error}>{error}</Text>
+        </BentoCell>
       ) : null}
 
-      {/* Paired on a wide screen so the revenue shape and the payment split
-          are read together — they answer "how much" and "how" about the same
-          money. Stacks below the breakpoint, where side-by-side would crush
-          both. */}
-      <View style={[styles.row, wide && styles.rowWide]}>
-        <View style={styles.col}>
-          <Text style={styles.sectionTitle}>Revenue · {rangeLabel}</Text>
-          <Card style={styles.chartCard}>
-            <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
-          </Card>
-        </View>
-        <View style={styles.col}>
-          <Text style={styles.sectionTitle}>Payment methods</Text>
-          <Card style={styles.chartCard}>
-            <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
-          </Card>
-        </View>
-      </View>
-
-      <View style={[styles.row, wide && styles.rowWide]}>
-        <View style={styles.col}>
-          <Text style={styles.sectionTitle}>Top products</Text>
-          <Card style={styles.chartCard}>
-            <RankingChart
-              items={rankItems}
-              formatValue={formatAccountingCents}
-              emptyLabel="No sales yet in this range."
-              showRank
+      <BentoCell span={12}>
+        <BentoCard title="This period at a glance" scope={rangeLabel}>
+          <View style={styles.metricRow}>
+            <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
+            <StatTile variant="bento" value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
+            <StatTile variant="bento"
+              value={formatCompactCents(grossProfitCents)}
+              label="Gross profit"
+              hint={
+                marginPct !== null
+                  ? `${marginPct}% margin · before expenses`
+                  : noCostsRecorded
+                    ? 'no cost prices recorded'
+                    : 'before operating expenses'
+              }
+              tone={noCostsRecorded ? 'default' : 'positive'}
             />
-          </Card>
-        </View>
-        <View style={styles.col}>
+            <StatTile variant="bento" value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
+          </View>
+        </BentoCard>
+      </BentoCell>
 
-          {/* Moved here from Reports: who served the most is a pulse question,
-              not an analysis one, and it comes free from the sales set already
-              loaded above. */}
-          <Text style={styles.sectionTitle}>Who rang it up</Text>
-          <Card style={styles.chartCard}>
-            <RankingChart
-              items={cashierItems}
-              formatValue={formatAccountingCents}
-              emptyLabel="No cashier activity in this range."
-              showRank
-            />
-            <Caveat tone="context">
+      {/* Kept outside a card: these explain the figures above rather than
+          being a figure of their own, and boxing each one turned three
+          sentences into three competing panels.
+
+          The cell goes with them once all three are closed — an empty
+          BentoCell still spends a row gap, leaving a hole where the reader
+          just tidied up. */}
+      {showAnyCaveat ? (
+        <BentoCell span={12}>
+          {revenueNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={revenueNote.dismiss}>
+              {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
+                refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
+              }`}
+            </Caveat>
+          )}
+          {grossProfitNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={grossProfitNote.dismiss}>
+              Gross profit is revenue less what the goods cost. Operating expenses and wages come off on Reports, which
+              is where the bottom line lives.
+            </Caveat>
+          )}
+          {showUncostedNote ? (
+            <Caveat
+              tone="wrong"
+              action={{
+                label: 'Set costs in Inventory',
+                onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }),
+              }}
+              onDismiss={uncostedNote.dismiss}
+            >
+              {`${uncostedItemCount} sold ${uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(uncostedRevenueCents)} of revenue), so cost of goods is understated and gross profit looks higher than it is.`}
+            </Caveat>
+          ) : null}
+        </BentoCell>
+      ) : null}
+
+      {/* Paired so the revenue shape and the payment split are read together —
+          they answer "how much" and "how" about the same money. The grid
+          stacks them below its own breakpoints, which is why this no longer
+          needs the local `wide` check it used to carry. */}
+      <BentoCell span={7}>
+        <BentoCard title="Revenue" scope={rangeLabel}>
+          <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
+        </BentoCard>
+      </BentoCell>
+
+      <BentoCell span={5}>
+        <BentoCard title="Payment methods" scope={rangeLabel}>
+          <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
+        </BentoCard>
+      </BentoCell>
+
+      <BentoCell span={6}>
+        <BentoCard title="Top products" scope={rangeLabel}>
+          <RankingChart
+            items={rankItems}
+            formatValue={formatAccountingCents}
+            emptyLabel="No sales yet in this range."
+            showRank
+          />
+        </BentoCard>
+      </BentoCell>
+
+      {/* Moved here from Reports: who served the most is a pulse question,
+          not an analysis one, and it comes free from the sales set already
+          loaded above. */}
+      <BentoCell span={6}>
+        <BentoCard title="Who rang it up" scope={rangeLabel}>
+          <RankingChart
+            items={cashierItems}
+            formatValue={formatAccountingCents}
+            emptyLabel="No cashier activity in this range."
+            showRank
+          />
+          {cashierNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={cashierNote.dismiss}>
               Gross takings, not net — this ranks who served the most, so it reconciles against a till.
             </Caveat>
-          </Card>
-        </View>
-      </View>
-    </View>
+          )}
+        </BentoCard>
+      </BentoCell>
+    </BentoGrid>
   );
 }
 
 const styles = StyleSheet.create({
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 12, flexWrap: 'wrap' },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 18, marginBottom: 12 },
-  chartCard: { padding: 16, marginBottom: 8 },
-  row: { gap: 0 },
-  rowWide: { flexDirection: 'row', gap: 14 },
-  col: { flex: 1, minWidth: 0 },
-  empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
-  error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  empty: { color: theme.bentoMuted, fontSize: 13, marginTop: 20, textAlign: 'center' },
+  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700' },
 });

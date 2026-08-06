@@ -1,0 +1,735 @@
+<title>Kaiibi People — the bento language, layout kept</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- app chrome: matches accounting.tsx's shell exactly ---- */
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.038em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .headActs{display:flex;gap:6px;flex-wrap:wrap;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:16px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---- the analytical strip: the one place the grid is used ---- */
+  .strip{display:grid;gap:12px;margin-bottom:14px;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* ---- controls ---- */
+  .controls{display:grid;gap:10px;margin-bottom:14px;}
+  .search{background:var(--d-soft);border:1px solid var(--d-ln);border-radius:14px;padding:11px 14px;
+    font-size:13px;color:var(--d-mut2);}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .w380 .filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---- list + detail: the layout that is NOT a bento grid ---- */
+  .panes{display:flex;gap:18px;align-items:flex-start;}
+  .listPane{width:34%;min-width:280px;max-width:520px;flex-shrink:0;display:grid;gap:12px;}
+  .detailPane{flex:1;min-width:0;display:grid;gap:14px;}
+  /* Phone: the list owns the screen and the detail arrives as a sheet over it
+     — TwoPaneListDetail's real compact behaviour, drawn rather than described. */
+  .w380 .panes{display:block;}
+  .w380 .listPane{width:auto;min-width:0;max-width:none;}
+  .w380 .detailPane{margin:14px -18px -18px;padding:14px 14px 18px;background:var(--d-pg);
+    border-radius:24px 24px 0 0;box-shadow:0 -14px 32px rgba(11,11,13,.14);}
+  .sheetHead{display:none;}
+  .w380 .sheetHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+  .sheetHead b{font-size:16px;font-weight:800;}
+  .grab{display:block;width:38px;height:4px;border-radius:2px;background:var(--d-ln);margin:0 auto 10px;}
+  .w380 .dimHint{display:block;}
+  .dimHint{display:none;font-size:11px;color:var(--d-mut2);text-align:center;margin:10px 0 0;}
+
+  /* ---- list rows ---- */
+  .rw{display:flex;align-items:center;gap:11px;padding:11px 13px;border-bottom:1px solid var(--d-ln);}
+  .rw:last-child{border-bottom:none;}
+  .rw.sel{background:var(--d-soft);}
+  .rw .bd{flex:1;min-width:0;}
+  .rw .t1{font-size:13.5px;font-weight:700;}
+  .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .rw .ic{width:32px;height:32px;border-radius:11px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--d-mut);flex-shrink:0;}
+  .rw.sel .ic{background:#fff;}
+  .listCard{padding:0;overflow:hidden;}
+  .wa{width:30px;height:30px;border-radius:15px;background:#e7f5ed;display:flex;align-items:center;
+    justify-content:center;font-size:13px;flex-shrink:0;}
+
+  .chip{font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;letter-spacing:.02em;}
+  .chip.hot{background:#f7e1e2;color:#b23b4e;}
+  .chip.ok{background:#e7f5ed;color:#0b6b3c;}
+  .chip.warn{background:#fdf0e0;color:#8a530f;}
+  .chip.off{background:#eaeaea;color:#555;}
+
+  /* ---- detail pane pieces ---- */
+  .detHead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .detName{font-size:19px;font-weight:800;letter-spacing:-.025em;}
+  .detMeta{font-size:12.5px;color:var(--d-mut);margin-top:3px;}
+  .acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px;}
+  .tiles{display:grid;gap:10px;margin-top:14px;}
+  .w1280 .tiles{grid-template-columns:repeat(4,1fr);}
+  .w380 .tiles{grid-template-columns:repeat(2,1fr);}
+  .detGrid{display:grid;gap:14px;}
+  .w1280 .detGrid.two{grid-template-columns:1fr 1fr;}
+
+  .notes{background:var(--d-soft);border-radius:16px;padding:13px 15px;font-size:13px;color:var(--d-ink2);}
+  .kv{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .kv:last-child{border-bottom:none;}
+  .kv .k{font-size:13px;font-weight:600;}
+  .kv .k span{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .kv .v{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .kv .v.pos{color:var(--profit);} .kv .v.neg{color:var(--loss);}
+  .big{font-size:17px;font-weight:800;letter-spacing:-.02em;}
+
+  /* caveats: Caveat's three tones, unchanged from the accounting mockup */
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+
+  /* permission grid */
+  .perms{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .perm{background:var(--d-soft);border-radius:14px;padding:12px 6px;text-align:center;}
+  .perm .g{width:26px;height:26px;border-radius:9px;margin:0 auto 6px;display:flex;align-items:center;
+    justify-content:center;font-size:12px;background:#eaeaea;}
+  .perm.on .g{background:#e1f0e4;}
+  .perm .pl{font-size:10.5px;font-weight:700;color:var(--d-mut);}
+
+  /* schedule week grid */
+  .schedScroll{overflow-x:auto;}
+  .sched{min-width:620px;display:grid;grid-template-columns:120px repeat(7,1fr);gap:6px;}
+  .sched .hd{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--d-mut);padding-bottom:4px;}
+  .sched .who{font-size:12.5px;font-weight:700;display:flex;align-items:center;}
+  .cellx{background:var(--d-soft);border-radius:11px;min-height:44px;padding:6px 7px;font-size:10.5px;
+    font-weight:700;color:var(--d-mut2);}
+  .cellx.s1{background:#e8efff;color:#1e4bcc;} .cellx.s2{background:#e0f4f1;color:#00655d;}
+  .cellx.s3{background:#fdf0e0;color:#8a530f;} .cellx.gap{background:transparent;}
+  .cellx b{display:block;font-size:11px;font-weight:800;}
+
+  .meWrap{max-width:640px;margin:0 auto;display:grid;gap:14px;}
+  .clock{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+  /* ---- anatomy section ---- */
+  .anat{display:grid;gap:26px;margin-top:20px;align-items:start;}
+  @media (min-width:900px){ .anat{grid-template-columns:400px 1fr;} }
+  .anatStage{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:26px;}
+  .spec{display:grid;gap:0;border-top:1px solid var(--ln);}
+  .spec div{display:grid;grid-template-columns:150px 1fr;gap:14px;padding:11px 0;
+    border-bottom:1px solid var(--ln);font-size:13px;align-items:baseline;}
+  @media (max-width:560px){ .spec div{grid-template-columns:1fr;gap:3px;} }
+  .spec dt,.spec b{font-weight:800;color:var(--ink);}
+  .spec span{color:var(--ink2);}
+  .spec code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  .variants{display:grid;gap:16px;margin-top:22px;}
+  @media (min-width:760px){ .variants{grid-template-columns:repeat(2,1fr);} }
+  .vlabel{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--mut);margin:0 0 8px;}
+  .vstage{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · People</p>
+  <h1>People, in the bento language</h1>
+  <p class="lede">Dashboard and Accounting are converted; <code>theme.ts</code> names People as
+  still-cream "until converted on purpose." This is that proposal — the bento palette, chrome,
+  card shape and controls, with the list-and-detail layout <em>kept</em>. The grid appears only
+  where People actually glances. Flip through the four tabs; my read is at the foot.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · list 34% / detail fills</i></div>
+      <div class="scroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · list, detail as a sheet</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Where the grid stops, and why</h2>
+    <p class="note">The Accounting mockup found that bento serves <strong>glancing</strong> and
+    fights <strong>scanning</strong>: a table in a bento cell spans all twelve columns anyway,
+    loses 36px of padding for nothing, and on a phone puts a sideways scroll inside a vertical
+    one. People is mostly scanning — two of its four tabs are a roster you read down.</p>
+
+    <p class="note">So the grid is used in exactly two places here: the <strong>stat strip</strong>
+    at the top of Customers and Team, and the <strong>tile row</strong> in a detail pane. Both are
+    glancing. Everything else keeps the shape it already has and simply changes what it is made
+    of.</p>
+
+    <div class="verdict">
+      <div class="vx good"><b>Real gains: the detail panes</b>
+        <p>Today one 400-line card holds every section, separated by grey uppercase labels. Split
+        into bento cards, purchase history and points history sit side by side on desktop instead
+        of a metre apart, and the tiles stop being cream-bordered boxes floating on white.</p></div>
+      <div class="vx good"><b>Real gain: the stat strips are new</b>
+        <p>Customers and Team currently open with no summary at all — you land on a list and count.
+        The four figures on each strip come from data both tabs already fetch (<code>segmentCounts</code>,
+        <code>getCustomersStatsBatch</code>, <code>onLeaveMemberIds</code>), so this is layout, not
+        new queries.</p></div>
+      <div class="vx mid"><b>Neutral: Schedule and Me</b>
+        <p>A week grid and a self-service form. Both take the palette and the 26px card and look
+        like they belong; neither is any easier to use than before. That is the correct outcome —
+        consistency is the whole reason to convert them.</p></div>
+      <div class="vx bad"><b>The cost, named: the phone sheet</b>
+        <p>Look at the phone frame. The detail arrives as a sheet over the list, so a long
+        customer record scrolls inside the sheet while the list scrolls behind it. That is the
+        app's <em>existing</em> behaviour, not something bento introduces — but bento's taller
+        cards make each record longer, so it gets slightly worse. Schedule keeps one genuine
+        sideways scroll at 380px, because a seven-day grid cannot be anything else.</p></div>
+    </div>
+
+    <p class="note" style="margin-top:20px"><strong>What this needs from the shared components:</strong>
+    <code>StatTile</code>, <code>Badge</code> and <code>CategoryChip</code> each need a
+    <code>bento</code> variant — they currently hardcode the cream palette, which is why
+    Dashboard and Accounting already show cream-bordered tiles on white bento cards. Fixing them
+    for People fixes those two as a side effect.</p>
+
+    <p class="note"><strong>The alternative, so it is a choice:</strong> push the full card grid
+    onto the roster too — list and detail as sibling bento cells rather than panes. It reads fine
+    at 1280px and collapses to the same stack below, but it costs the list its sticky, always-there
+    column and gives the detail a lid. Say the word and I will mock that instead.</p>
+  </section>
+
+  <section>
+    <h2>Anatomy of a card</h2>
+    <p class="note">Every panel in the frames above is one component —
+    <code>BentoCard</code>, wrapping <code>Card variant="bento"</code>. It already exists and is
+    unchanged by this proposal; this is what People inherits.</p>
+
+    <div class="anat">
+      <div class="anatStage">
+        <div class="cardx">
+          <div class="crow"><h4 class="ctitle">Purchase history</h4><div class="pill">12 orders</div></div>
+          <div class="kv"><div class="k">Basmati Rice 5kg ×2<span>8 Sep · Cash · Hodan Store</span></div><div class="v">$46.20</div></div>
+          <div class="kv"><div class="k">Cooking Oil 3L<span>2 Sep · ZAAD · Hodan Store</span></div><div class="v">$20.35</div></div>
+          <div class="kv"><div class="k">Tea Leaves 500g<span>28 Aug · Cash · refunded</span></div><div class="v neg">−$8.25</div></div>
+        </div>
+      </div>
+
+      <div class="spec">
+        <div><b>Radius</b><span><code>BENTO_RADIUS</code> — 26px. The stock <code>Card</code> stays at 12.</span></div>
+        <div><b>Border</b><span><b>None.</b> The bento reads as cards floating on a grey page, and a
+          hairline on white-over-<code>#f4f4f5</code> muddies that separation rather than sharpening it.</span></div>
+        <div><b>Fill / ground</b><span><code>bentoSurface #ffffff</code> on <code>bentoPage #f4f4f5</code>.</span></div>
+        <div><b>Padding</b><span>18px. Drops to <code>paddingHorizontal: 10</code> when the body is a
+          table — <code>DataTable</code> manages its own gutters, and doubling them squeezes the columns.</span></div>
+        <div><b>Title</b><span>15px / 800 / −0.2 tracking, <code>bentoInk</code>, wraps to two lines
+          before it truncates.</span></div>
+        <div><b>Scope pill</b><span>12px / 700, <code>bentoLine</code> hairline, radius 999. Says what
+          window the figures cover. Not decoration — a card that ignores the date range has to say so
+          <em>where the number is</em>, not in a footnote at the bottom of the screen.</span></div>
+        <div><b>Row rule</b><span><code>bentoLine #ececf0</code>, and never on the last row.</span></div>
+        <div><b>Gap between cards</b><span>14px, from <code>BentoGrid</code>'s half-gutter margins.</span></div>
+      </div>
+    </div>
+
+    <div class="variants">
+      <div>
+        <p class="vlabel">Head with an action, not a pill</p>
+        <div class="vstage"><div class="cardx">
+          <div class="crow"><h4 class="ctitle">Payroll</h4><button class="btn" type="button">Edit</button></div>
+          <div class="big">$3.50 an hour</div>
+          <p class="foot" style="margin-top:4px">Paid weekly.</p>
+        </div></div>
+      </div>
+      <div>
+        <p class="vlabel">No head at all</p>
+        <div class="vstage"><div class="cardx">
+          <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+            <div class="kpi"><div class="l">On the team</div><div class="n">9</div><div class="h">8 active · 1 disabled</div></div>
+            <div class="kpi"><div class="l">On leave</div><div class="n">1</div><div class="h">approved time off</div></div>
+          </div>
+        </div></div>
+      </div>
+      <div>
+        <p class="vlabel">Carrying a caveat</p>
+        <div class="vstage"><div class="cardx">
+          <h4 class="ctitle">Points history</h4>
+          <div class="kv"><div class="k">Earned on a sale<span>8 Sep</span></div><div class="v pos">+46</div></div>
+          <div class="cav context" style="margin-top:12px"><span>ⓘ</span><div>The ledger is append-only —
+            a correction arrives as its own row.</div></div>
+        </div></div>
+      </div>
+      <div>
+        <p class="vlabel">List body — no card padding</p>
+        <div class="vstage"><div class="cardx listCard">
+          <div class="rw sel"><div class="ic">KY</div><div class="bd">
+            <div class="t1">Khadra Yusuf</div><div class="t2">12 orders · $842.20</div></div>
+            <span class="chip hot">VIP</span></div>
+          <div class="rw"><div class="ic">NO</div><div class="bd">
+            <div class="t1">Nasra Omar</div><div class="t2">6 orders · $218.40</div></div>
+            <span class="chip">Regular</span></div>
+        </div></div>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:22px">The fourth is the one to watch. A list body sets the
+    card's padding to zero and lets the rows run to its edges, so the selected row can be a full-width
+    <code>bentoSoft</code> band rather than a floating stripe. That is also the shape that makes the
+    26px radius earn itself — the first and last row clip to the curve.</p>
+  </section>
+</div>
+
+<!-- ═════════════ CUSTOMERS ═════════════ -->
+<template data-tab="customers" data-label="Customers" data-blurb="Who shops with you, and what they are worth."
+          data-acts="Export|Import|+ New" data-sheet="Customer">
+  <div class="strip">
+    <div class="cardx">
+      <div class="kpis">
+        <div class="kpi"><div class="l">Customers</div><div class="n">284</div><div class="h">36 added this month</div></div>
+        <div class="kpi"><div class="l">VIPs</div><div class="n">18</div><div class="h">tagged vip</div></div>
+        <div class="kpi"><div class="l">At risk</div><div class="n">41</div><div class="h">no visit in 60 days</div></div>
+        <div class="kpi"><div class="l">Lifetime spend</div><div class="n">$42,180</div><div class="h">across every store</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="search">Search by name, phone, or tag</div>
+    <div class="filters">
+      <span class="on">All · 284</span><span>VIP · 18</span><span>Regular · 189</span>
+      <span>New · 36</span><span>At risk · 41</span>
+    </div>
+  </div>
+
+  <div class="panes">
+    <div class="listPane">
+      <div class="cardx listCard">
+        <div class="rw sel"><div class="ic">KY</div><div class="bd">
+          <div class="t1">Khadra Yusuf</div><div class="t2">12 orders · $842.20 · 340 pts</div></div>
+          <span class="chip hot">VIP</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">HA</div><div class="bd">
+          <div class="t1">Hodan Aden</div><div class="t2">31 orders · $1,204.60 · 512 pts</div></div>
+          <span class="chip hot">VIP</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">NO</div><div class="bd">
+          <div class="t1">Nasra Omar</div><div class="t2">6 orders · $218.40 · 88 pts</div></div>
+          <span class="chip">Regular</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">AJ</div><div class="bd">
+          <div class="t1">Amina Jama</div><div class="t2">1 order · $46.20 · 12 pts</div></div>
+          <span class="chip warn">New</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">SM</div><div class="bd">
+          <div class="t1">Sahra Mohamed</div><div class="t2">9 orders · $394.00 · last visit 4 Jul</div></div>
+          <span class="chip warn">At risk</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">IF</div><div class="bd">
+          <div class="t1">Ismail Farah</div><div class="t2">No orders yet</div></div>
+          <span class="chip warn">New</span><span class="wa">✆</span></div>
+      </div>
+      <p class="foot">6 of 284 · the roster scrolls, the detail beside it does not move.</p>
+    </div>
+
+    <div class="detailPane">
+      <div class="sheetHead"><b>Customer</b><button class="btn" type="button">Close</button></div>
+
+      <div class="cardx">
+        <div class="detHead">
+          <span class="detName">Khadra Yusuf</span><span class="chip hot">VIP</span>
+        </div>
+        <div class="detMeta">+252 63 445 1180 · Hodan Store · customer since Mar 2024</div>
+        <div class="acts">
+          <button class="btn solid" type="button">✆ WhatsApp</button>
+          <button class="btn" type="button">Edit</button>
+          <button class="btn" type="button">Remove VIP</button>
+        </div>
+        <div class="tiles">
+          <div class="kpi"><div class="l">Lifetime spend</div><div class="n">$842.20</div></div>
+          <div class="kpi"><div class="l">Orders</div><div class="n">12</div></div>
+          <div class="kpi"><div class="l">Last purchase</div><div class="n">8 Sep</div></div>
+          <div class="kpi"><div class="l">Points</div><div class="n">340</div></div>
+        </div>
+      </div>
+
+      <div class="detGrid two">
+        <div class="cardx">
+          <h4 class="ctitle">Notes</h4>
+          <div class="notes">Buys rice by the sack at the start of the month. Prefers a call before
+          the shipment lands.</div>
+        </div>
+        <div class="cardx">
+          <h4 class="ctitle">Usually shops at</h4>
+          <div class="big">Hodan Store</div>
+          <p class="foot" style="margin-top:4px">9 of 12 visits. Hidden for a single-store shop, and
+          when the split is tied — a 6-6 record is a coin flip, not a fact.</p>
+        </div>
+      </div>
+
+      <div class="detGrid two">
+        <div class="cardx">
+          <div class="crow"><h4 class="ctitle">Purchase history</h4><div class="pill">12 orders</div></div>
+          <div class="kv"><div class="k">Basmati Rice 5kg ×2<span>8 Sep · Cash · Hodan Store</span></div><div class="v">$46.20</div></div>
+          <div class="kv"><div class="k">Cooking Oil 3L<span>2 Sep · ZAAD · Hodan Store</span></div><div class="v">$20.35</div></div>
+          <div class="kv"><div class="k">Tea Leaves 500g<span>28 Aug · Cash · refunded</span></div><div class="v neg">−$8.25</div></div>
+          <div class="kv"><div class="k">Powdered Milk 900g ×3<span>21 Aug · Cash · Berbera Road</span></div><div class="v">$36.30</div></div>
+        </div>
+
+        <div class="cardx">
+          <div class="crow"><h4 class="ctitle">Points history</h4><div class="pill">340 balance</div></div>
+          <div class="kv"><div class="k">Earned on a sale<span>8 Sep</span></div><div class="v pos">+46</div></div>
+          <div class="kv"><div class="k">Spent at checkout<span>2 Sep</span></div><div class="v neg">−100</div></div>
+          <div class="kv"><div class="k">Taken back on a refund<span>28 Aug</span></div><div class="v neg">−8</div></div>
+          <div class="kv"><div class="k">Earned on a sale<span>21 Aug</span></div><div class="v pos">+36</div></div>
+          <div class="cav context" style="margin-top:12px"><span>ⓘ</span><div>The ledger is append-only —
+            a correction arrives as its own row rather than quietly changing an old one. That is what
+            answers "why is my balance 340" at the counter.</div></div>
+        </div>
+      </div>
+      <p class="dimHint">The list is still there, behind the sheet.</p>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ TEAM ═════════════ -->
+<template data-tab="team" data-label="Team" data-blurb="Who works here, what they cost, and who is in today."
+          data-acts="Export|Import|+ Add staff" data-sheet="Team member">
+  <div class="strip">
+    <div class="cardx">
+      <div class="kpis">
+        <div class="kpi"><div class="l">On the team</div><div class="n">9</div><div class="h">8 active · 1 disabled</div></div>
+        <div class="kpi"><div class="l">In today</div><div class="n">5</div><div class="h">clocked in or scheduled</div></div>
+        <div class="kpi"><div class="l">On leave</div><div class="n">1</div><div class="h">approved time off</div></div>
+        <div class="kpi"><div class="l">Hours this period</div><div class="n">312h</div><div class="h">since 1 Sep</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="search">Search by name, role, or phone</div>
+  </div>
+
+  <div class="panes">
+    <div class="listPane">
+      <div class="cardx">
+        <div class="crow"><h4 class="ctitle">Time off to approve</h4><div class="pill">2 waiting</div></div>
+        <div class="kv"><div class="k">Abdi M. · 22–24 Sep<span>Eid travel</span></div>
+          <div class="v"><span class="chip ok">Approve</span> <span class="chip off">Deny</span></div></div>
+        <div class="kv"><div class="k">Nasra O. · 1 Oct<span>Medical</span></div>
+          <div class="v"><span class="chip ok">Approve</span> <span class="chip off">Deny</span></div></div>
+      </div>
+
+      <div class="cardx listCard">
+        <div class="rw"><div class="ic">FA</div><div class="bd">
+          <div class="t1">Faduma Ali</div><div class="t2">Manager · All stores</div></div>
+          <span class="chip ok">Active</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">AM</div><div class="bd">
+          <div class="t1">Abdi Mohamud</div><div class="t2">Cashier · Hodan Store</div></div>
+          <span class="chip ok">Active</span><span class="wa">✆</span></div>
+        <div class="rw sel"><div class="ic">SH</div><div class="bd">
+          <div class="t1">Sagal Hassan</div><div class="t2">Cashier · Hodan Store +1</div></div>
+          <span class="chip warn">On leave</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">NO</div><div class="bd">
+          <div class="t1">Nasra Osman</div><div class="t2">Stock keeper · Berbera Road</div></div>
+          <span class="chip ok">Active</span><span class="wa">✆</span></div>
+        <div class="rw"><div class="ic">YD</div><div class="bd">
+          <div class="t1">Yusuf Diriye</div><div class="t2">Cashier · Berbera Road</div></div>
+          <span class="chip off">Disabled</span><span class="wa">✆</span></div>
+      </div>
+    </div>
+
+    <div class="detailPane">
+      <div class="sheetHead"><b>Team member</b><button class="btn" type="button">Close</button></div>
+
+      <div class="cardx">
+        <div class="detHead">
+          <span class="detName">Sagal Hassan</span><span class="chip warn">On leave</span>
+        </div>
+        <div class="detMeta">Cashier · Hodan Store +1 · +252 63 220 4471 · joined 14 Feb 2025</div>
+        <div class="acts">
+          <button class="btn solid" type="button">✆ WhatsApp</button>
+          <button class="btn" type="button">Edit member</button>
+        </div>
+        <div class="tiles">
+          <div class="kpi"><div class="l">Hire date</div><div class="n">14 Feb 25</div></div>
+          <div class="kpi"><div class="l">Pay type</div><div class="n">Hourly</div></div>
+          <div class="kpi"><div class="l">Hours this period</div><div class="n">62.5h</div></div>
+          <div class="kpi"><div class="l">Stores</div><div class="n">2</div></div>
+        </div>
+        <div class="cav context" style="margin-top:14px"><span>ⓘ</span><div><b>On leave — back Thursday
+          18 Sep.</b> 12–17 Sep, family travel. Requested 2 Sep and approved by Faduma Ali. Two
+          separate ranges are shown as two ranges, not flattened to their outer bounds.</div></div>
+      </div>
+
+      <div class="detGrid two">
+        <div class="cardx">
+          <div class="crow"><h4 class="ctitle">Payroll</h4><button class="btn" type="button">Edit</button></div>
+          <div class="big">$3.50 an hour</div>
+          <p class="foot" style="margin-top:4px">Paid weekly. Reads "Hidden" for anyone without
+          payroll access, rather than showing a blank that looks like "not set".</p>
+        </div>
+        <div class="cardx">
+          <h4 class="ctitle">Access &amp; permissions</h4>
+          <div class="perms">
+            <div class="perm on"><div class="g">✓</div><div class="pl">POS</div></div>
+            <div class="perm on"><div class="g">✓</div><div class="pl">Inventory</div></div>
+            <div class="perm"><div class="g">🔒</div><div class="pl">People</div></div>
+            <div class="perm"><div class="g">🔒</div><div class="pl">Accounting</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cardx">
+        <div class="crow"><h4 class="ctitle">Recent shifts</h4><div class="pill">This month</div></div>
+        <div class="kv"><div class="k">11 Sep · 8:00–16:30<span>Hodan Store</span></div><div class="v">8.5h</div></div>
+        <div class="kv"><div class="k">10 Sep · 8:00–16:00<span>Hodan Store</span></div><div class="v">8.0h</div></div>
+        <div class="kv"><div class="k">9 Sep · 12:00–20:00<span>Berbera Road</span></div><div class="v">8.0h</div></div>
+        <div class="kv"><div class="k">8 Sep · 8:00 —<span>still on shift when the day closed</span></div><div class="v">—</div></div>
+      </div>
+      <p class="dimHint">The roster is still there, behind the sheet.</p>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ SCHEDULE ═════════════ -->
+<template data-tab="schedule" data-label="Schedule" data-blurb="Who is on, which day, at which store."
+          data-acts="Export|Bulk shifts|+ Shift" data-sheet="Shift">
+  <div class="strip">
+    <div class="cardx">
+      <div class="kpis">
+        <div class="kpi"><div class="l">Shifts this week</div><div class="n">34</div></div>
+        <div class="kpi"><div class="l">Scheduled hours</div><div class="n">268h</div></div>
+        <div class="kpi"><div class="l">Unfilled</div><div class="n">2</div><div class="h">Sat evening, Sun open</div></div>
+        <div class="kpi"><div class="l">Wage cost</div><div class="n">$938.00</div><div class="h">at current rates</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="filters">
+      <span class="on">Week of 8 Sep</span><span>All stores</span><span>Everyone</span>
+    </div>
+  </div>
+
+  <div class="cardx">
+    <div class="crow"><h4 class="ctitle">Week of 8 September</h4><div class="pill">34 shifts</div></div>
+    <!-- One card, deliberately not subdivided: a week is a single continuous
+         object and cutting it into cells per day would break the one thing
+         the reader is here to do, which is compare across the row. -->
+    <div class="schedScroll">
+      <div class="sched">
+        <div class="hd"></div><div class="hd">Mon</div><div class="hd">Tue</div><div class="hd">Wed</div>
+        <div class="hd">Thu</div><div class="hd">Fri</div><div class="hd">Sat</div><div class="hd">Sun</div>
+
+        <div class="who">Faduma Ali</div>
+        <div class="cellx s1"><b>8–16</b>Hodan</div><div class="cellx s1"><b>8–16</b>Hodan</div>
+        <div class="cellx s1"><b>8–16</b>Hodan</div><div class="cellx gap"></div>
+        <div class="cellx s1"><b>8–16</b>Hodan</div><div class="cellx s1"><b>8–14</b>Hodan</div>
+        <div class="cellx gap"></div>
+
+        <div class="who">Abdi Mohamud</div>
+        <div class="cellx s2"><b>12–20</b>Hodan</div><div class="cellx s2"><b>12–20</b>Hodan</div>
+        <div class="cellx gap"></div><div class="cellx s2"><b>12–20</b>Hodan</div>
+        <div class="cellx s2"><b>12–20</b>Hodan</div><div class="cellx s2"><b>14–20</b>Hodan</div>
+        <div class="cellx s2"><b>10–16</b>Hodan</div>
+
+        <div class="who">Sagal Hassan</div>
+        <div class="cellx gap" style="grid-column:span 7;background:#fdf0e0;color:#8a530f;
+          border-radius:11px;padding:12px;font-size:11px;font-weight:700">On leave · 12–17 Sep</div>
+
+        <div class="who">Nasra Osman</div>
+        <div class="cellx s3"><b>7–15</b>Berbera</div><div class="cellx gap"></div>
+        <div class="cellx s3"><b>7–15</b>Berbera</div><div class="cellx s3"><b>7–15</b>Berbera</div>
+        <div class="cellx gap"></div><div class="cellx s3"><b>7–13</b>Berbera</div>
+        <div class="cellx gap"></div>
+
+        <div class="who" style="color:var(--d-mut)">Unfilled</div>
+        <div class="cellx gap"></div><div class="cellx gap"></div><div class="cellx gap"></div>
+        <div class="cellx gap"></div><div class="cellx gap"></div>
+        <div class="cellx" style="border:1px dashed #d92d3f;background:#fff;color:#d92d3f"><b>16–21</b>Needs someone</div>
+        <div class="cellx" style="border:1px dashed #d92d3f;background:#fff;color:#d92d3f"><b>8–12</b>Needs someone</div>
+      </div>
+    </div>
+    <p class="foot">The only sideways scroll left at phone width. Seven days across is what the tab
+    is for — splitting it into day cards would lose the comparison that makes it useful.</p>
+  </div>
+</template>
+
+<!-- ═════════════ ME ═════════════ -->
+<template data-tab="me" data-label="Me (self-service)" data-blurb="Your shifts, your hours, your time off."
+          data-acts="" data-sheet="Me">
+  <div class="meWrap">
+    <div class="cardx">
+      <div class="clock">
+        <div>
+          <div class="detName">Faduma Ali</div>
+          <div class="detMeta">Manager · All stores · joined 3 Jan 2024</div>
+        </div>
+        <button class="btn solid" type="button">Clock out</button>
+      </div>
+      <div class="tiles">
+        <div class="kpi"><div class="l">On shift since</div><div class="n">8:02</div><div class="h">6h 14m so far</div></div>
+        <div class="kpi"><div class="l">This week</div><div class="n">38.5h</div></div>
+        <div class="kpi"><div class="l">This period</div><div class="n">96h</div></div>
+        <div class="kpi"><div class="l">Leave taken</div><div class="n">4 days</div><div class="h">this year</div></div>
+      </div>
+    </div>
+
+    <div class="cardx">
+      <div class="crow"><h4 class="ctitle">Your next shifts</h4><div class="pill">Week of 8 Sep</div></div>
+      <div class="kv"><div class="k">Thursday 11 Sep<span>Hodan Store</span></div><div class="v">8:00–16:00</div></div>
+      <div class="kv"><div class="k">Friday 12 Sep<span>Hodan Store</span></div><div class="v">8:00–16:00</div></div>
+      <div class="kv"><div class="k">Saturday 13 Sep<span>Hodan Store · short day</span></div><div class="v">8:00–14:00</div></div>
+    </div>
+
+    <div class="cardx">
+      <div class="crow"><h4 class="ctitle">Time off</h4><button class="btn" type="button">Request time off</button></div>
+      <div class="kv"><div class="k">22–24 Sep<span>Eid travel</span></div><div class="v"><span class="chip warn">Waiting</span></div></div>
+      <div class="kv"><div class="k">3–4 Jul<span>Family</span></div><div class="v"><span class="chip ok">Approved</span></div></div>
+      <div class="cav partial" style="margin-top:12px"><span>◔</span><div>Pay is not shown here —
+        self-service covers your time, not your rate. Ask a manager for a payslip.</div></div>
+    </div>
+    <p class="foot" style="text-align:center">One narrow column, centred. Bento buys nothing here
+    except that it stops looking like a different app.</p>
+  </div>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  let active = 'customers';
+
+  // The screen shell: eyebrow, tab title, blurb and actions on one row, then
+  // the pill tab bar -- the same order accounting.tsx renders today.
+  const shell = (tpl, compact) => {
+    const pills = tabs.map((t) =>
+      `<span class="${t.dataset.tab === tpl.dataset.tab ? 'on' : ''}">${t.dataset.label}</span>`).join('');
+    const acts = (tpl.dataset.acts || '').split('|').filter(Boolean);
+    const actHtml = acts.length
+      ? `<div class="headActs">${acts.map((a, i) =>
+          `<button class="btn${i === acts.length - 1 ? ' solid' : ''}" type="button">${a}</button>`).join('')}</div>`
+      : '';
+    return `
+      <div class="head">
+        <div>
+          <p class="eyebrow">People</p>
+          <h3>${tpl.dataset.label}</h3>
+          <p>${tpl.dataset.blurb}</p>
+        </div>
+        ${compact ? '' : actHtml}
+      </div>
+      <div class="tabrow">${pills}</div>
+      ${compact && acts.length ? `<div class="filters" style="margin-bottom:14px">${
+        acts.map((a) => `<span>${a}</span>`).join('')}</div>` : ''}`;
+  };
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [[wide, false], [narrow, true]].forEach(([host, compact]) => {
+      host.innerHTML = shell(tpl, compact);
+      // Cloned wholesale: unlike the accounting mockup, the layout differences
+      // between the two widths are pure CSS (.w1280 / .w380), so there is no
+      // per-cell span to rewrite here.
+      host.appendChild(tpl.content.cloneNode(true));
+      const sheet = host.querySelector('.sheetHead b');
+      if (sheet) sheet.textContent = tpl.dataset.sheet;
+    });
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.role = 'tab';
+    b.dataset.go = t.dataset.tab;
+    b.textContent = t.dataset.label;
+    b.addEventListener('click', () => { active = t.dataset.tab; render(); });
+    sw.appendChild(b);
+  });
+  render();
+</script>

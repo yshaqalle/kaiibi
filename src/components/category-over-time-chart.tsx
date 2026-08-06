@@ -30,9 +30,11 @@ export function CategoryOverTimeChart({ months }: { months: MonthlyCategoryBucke
   const categoryOrder = totalsByCategory.has('Other') ? [...namedCategories, 'Other'] : namedCategories;
   // Shared with the donut above it, so a category is one colour on the whole
   // screen. Indexing into slots gave "Starter Kit" and "Esssence" the same
-  // amber in two adjacent charts, purely for both ranking third.
-  const palette = categoryColors(categoryOrder);
-  const colorFor = (category: string) => palette.get(category) ?? theme.textSecondary;
+  // amber in two adjacent charts, purely for both ranking third. The `bento`
+  // ramp because both charts render on Accounting → Reports; a category keeps
+  // its slot across ramps, so this is a restep, not a reassignment.
+  const palette = categoryColors(categoryOrder, 'bento');
+  const colorFor = (category: string) => palette.get(category) ?? theme.bentoMuted;
 
   const monthTotal = (month: MonthlyCategoryBucket) => month.segments.reduce((sum, s) => sum + s.revenueCents, 0);
   const maxTotal = Math.max(1, ...months.map(monthTotal));
@@ -87,13 +89,13 @@ const styles = StyleSheet.create({
   // saying anything about the months. Capped, two months look like two bars
   // and six fill the card as intended.
   column: { flex: 1, maxWidth: 140, alignItems: 'center' },
-  totalLabel: { fontSize: 9.5, fontWeight: '700', color: theme.textSecondary, marginBottom: 4 },
+  totalLabel: { fontSize: 9.5, fontWeight: '700', color: theme.bentoMuted, marginBottom: 4 },
   bar: { width: '100%', height: BAR_HEIGHT, justifyContent: 'flex-end', gap: 2 },
   segment: { width: '100%' },
-  monthLabel: { fontSize: 10, fontWeight: '700', color: theme.textSecondary, marginTop: 6 },
+  monthLabel: { fontSize: 10, fontWeight: '700', color: theme.bentoMuted, marginTop: 6 },
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 14 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   swatch: { width: 9, height: 9, borderRadius: 3 },
-  legendName: { fontSize: 11, fontWeight: '700', color: theme.text },
-  empty: { fontSize: 13, color: theme.textSecondary, paddingVertical: 4 },
+  legendName: { fontSize: 11, fontWeight: '700', color: theme.bentoInk },
+  empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 4 },
 });

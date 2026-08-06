@@ -23,8 +23,31 @@ const SERIES = [
   Colors.light.chartSeries4,
 ] as const;
 
+// The same four slots stepped for the bento surfaces. A category keeps its
+// SLOT across both — the hash below is unchanged — so Pantry is slot 2 on POS
+// and slot 2 on Reports, just in that screen's ramp. Without this, a donut on
+// a cool-grey card rendered in the cream palette, and its residual grey
+// (a warm green) read as a smudge rather than as "not counted".
+const SERIES_BENTO = [
+  Colors.light.bentoSeries1,
+  Colors.light.bentoSeries2,
+  Colors.light.bentoSeries3,
+  Colors.light.bentoSeries4,
+] as const;
+
+export type CategoryPalette = 'default' | 'bento';
+
 /** The residual. Never assigned to a named category. */
 export const RESIDUAL_COLOR = Colors.light.textSecondary;
+export const RESIDUAL_COLOR_BENTO = Colors.light.bentoMuted;
+
+function ramp(variant: CategoryPalette) {
+  return variant === 'bento' ? SERIES_BENTO : SERIES;
+}
+
+function residual(variant: CategoryPalette) {
+  return variant === 'bento' ? RESIDUAL_COLOR_BENTO : RESIDUAL_COLOR;
+}
 
 // Stable hashing rather than "index in whatever order this chart received
 // them": a category's colour must not change because a quiet week reordered
@@ -42,12 +65,13 @@ function hash(value: string): number {
  * The colour for a category name. Case- and space-insensitive, so "Cold Brew"
  * and "cold brew" don't end up as two different colours in two places.
  */
-export function categoryColor(category: string | null | undefined): string {
+export function categoryColor(category: string | null | undefined, variant: CategoryPalette = 'default'): string {
   const key = (category ?? '').trim().toLowerCase();
   if (!key || key === 'other' || key === 'uncategorised' || key === 'uncategorized') {
-    return RESIDUAL_COLOR;
+    return residual(variant);
   }
-  return SERIES[hash(key) % SERIES.length];
+  const series = ramp(variant);
+  return series[hash(key) % series.length];
 }
 
 /**
@@ -60,18 +84,23 @@ export function categoryColor(category: string | null | undefined): string {
  * Beyond four named categories a repeat is unavoidable; that is the signal to
  * group the tail into the residual rather than to add a fifth hue.
  */
-export function categoryColors(categories: readonly string[]): Map<string, string> {
+export function categoryColors(
+  categories: readonly string[],
+  variant: CategoryPalette = 'default'
+): Map<string, string> {
   const taken = new Set<string>();
   const result = new Map<string, string>();
+  const series = ramp(variant);
+  const residualColor = residual(variant);
 
   for (const category of categories) {
-    const preferred = categoryColor(category);
-    if (preferred === RESIDUAL_COLOR || !taken.has(preferred)) {
+    const preferred = categoryColor(category, variant);
+    if (preferred === residualColor || !taken.has(preferred)) {
       result.set(category, preferred);
-      if (preferred !== RESIDUAL_COLOR) taken.add(preferred);
+      if (preferred !== residualColor) taken.add(preferred);
       continue;
     }
-    const free = SERIES.find((color) => !taken.has(color));
+    const free = series.find((color) => !taken.has(color));
     const chosen = free ?? preferred;
     result.set(category, chosen);
     taken.add(chosen);

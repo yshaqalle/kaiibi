@@ -32,6 +32,59 @@ export const Colors = {
     chartSeries2: '#1baf7a',
     chartSeries3: '#eda100',
     chartSeries4: '#e87ba4',
+    // ---- Bento surfaces (see docs/design/dashboard-mockup.html) ----
+    //
+    // The cool-grey/white world every main screen now uses — Dashboard,
+    // Accounting, People, Inventory, POS and the Platform operator console.
+    // Deliberately NOT a replacement for
+    // `background` / `surface` / `border` above: Settings still reads those, as
+    // do the modals across the app, and both stay cream until converted on
+    // purpose. Two palettes coexist during the conversion; that is the agreed
+    // interim state, not an oversight.
+    //
+    // Modals are a third case, not yet decided: every one in the app still
+    // wears the stock white-card treatment, including the ones People opens.
+    bentoPage: '#f4f4f5',
+    bentoSurface: '#ffffff',
+    bentoInk: '#0b0b0d',
+    bentoInk2: '#1a1a1e',
+    bentoMuted: '#8b8b93',
+    bentoMuted2: '#a8a8b0',
+    bentoLine: '#ececf0',
+    // The line BETWEEN rows, deliberately firmer than `bentoLine`.
+    //
+    // One weight could not serve both jobs. A pill or chip is a small closed
+    // shape and its hairline only has to hint at an edge, so `bentoLine` is
+    // nearly invisible on purpose. A divider in a table has to separate two
+    // 100px-tall rows across the full width of a card, and at that length the
+    // same value disappears and the rows read as one block.
+    bentoRule: '#dcdce4',
+    bentoSoft: '#f6f6f7',
+    // Categorical series for bento charts. The source mockup's own hues
+    // could not ship: its blue and purple sit at ΔE 0.1 for deutan viewers
+    // and ΔE 10.2 for normal vision, under the floor of 15. These are the
+    // same blue-led family re-stepped until all six checks pass, verified
+    // with the dataviz validator against BOTH #ffffff and the dark surface
+    // below -- so one set serves either ground.
+    bentoSeries1: '#2f6bff',
+    bentoSeries2: '#00a396',
+    bentoSeries3: '#c8791a',
+    bentoSeries4: '#d4457e',
+    // Status, not series. Green/red is ΔE 4.0 for deutan viewers -- the
+    // classic red/green trap -- so anything wearing these MUST also carry a
+    // signed figure or a direction glyph. The waterfall labels every bar and
+    // StatementRow prints the minus sign; that labelling is load-bearing.
+    bentoProfit: '#0f9d58',
+    bentoLoss: '#d92d3f',
+    // The third status: needs noticing, but is not broken.
+    //
+    // Profit/loss is a two-state world, and some states are neither. A shop in
+    // `grace` has paid and is fully usable -- somebody just has to record it.
+    // Painting that green hides the task; painting it red says the shop is cut
+    // off, which is the opposite of true. Also what `Caveat`'s `wrong` tone
+    // wants: it currently hardcodes #8A5A05 beside a `warning` that belongs to
+    // the cream palette.
+    bentoWarn: '#b07206',
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series
@@ -63,8 +116,49 @@ export const Colors = {
     chartSeries3: '#c98500',
     chartSeries4: '#d55181',
     chartAccent: '#3987e5',
+    // Mirrors of the bento tokens above. Nothing reads these yet -- the app
+    // pins Colors.light everywhere -- but ThemeColor is the INTERSECTION of
+    // the two key sets, so a token missing here silently drops out of the
+    // type. Kept in step so that stays honest.
+    //
+    // Chosen against the dark surface, not flipped from light: the series
+    // hues are unchanged because they already pass all six checks on
+    // #17171c, and re-stepping them would have cost separation for nothing.
+    bentoPage: '#0e0e11',
+    bentoSurface: '#17171c',
+    bentoInk: '#f2f2f5',
+    bentoInk2: '#c9c9d2',
+    bentoMuted: '#8a8a94',
+    bentoMuted2: '#6f6f78',
+    bentoLine: '#26262e',
+    // Lighter than bentoLine here, not darker: on a dark surface a divider
+    // separates by being brighter than its ground, which is the mirror of what
+    // it does on white.
+    bentoRule: '#33333d',
+    bentoSoft: '#1e1e24',
+    bentoSeries1: '#2f6bff',
+    bentoSeries2: '#00a396',
+    bentoSeries3: '#c8791a',
+    bentoSeries4: '#d4457e',
+    bentoProfit: '#2eb872',
+    bentoLoss: '#e8515f',
+    bentoWarn: '#e0a244',
   },
 } as const;
+
+/** Card radius for the bento surfaces. The stock `Card` stays at 12. */
+export const BENTO_RADIUS = 26;
+
+/**
+ * Radius for a small repeated TILE, not a panel — a POS product tile, a stat
+ * inset, anything roughly 150px or under.
+ *
+ * 26 is tuned for a card that holds a heading and a list. On a tile it eats the
+ * corners until the shape reads as a pill rather than a card, and a grid of
+ * pills loses the sense of a grid. Two radii, chosen by the size of the thing,
+ * rather than one radius misapplied.
+ */
+export const BENTO_RADIUS_TILE = 18;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 

@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { Link, usePathname, useRouter } from 'expo-router';
 import { ReactNode, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -7,10 +6,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
 import { useAuth } from '@/hooks/use-auth';
+import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
 import type { Permission } from '@/lib/permissions';
-import { updateShop, uploadShopLogo } from '@/lib/shops';
 
 // Shared between admin-tabs.tsx (native, tablet width) and
 // admin-tabs.web.tsx (web, desktop width) so the wide-layout nav only has
@@ -68,33 +67,17 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
+  const { shop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
-  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
 
-  // Lets the shop logo be changed straight from the sidebar avatar, not
-  // just from Settings — a quick "click your logo to change it" affordance.
-  // Same permission as Settings itself, since that's the screen this is a
-  // shortcut for (and what the shops/storage policies check).
-  const canEditShop = can('settings.access');
-  const editLogo = async () => {
-    if (!shop || uploadingLogo || !canEditShop) return;
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (result.canceled) return;
-    setUploadingLogo(true);
-    try {
-      const logoUrl = await uploadShopLogo(shop.id, result.assets[0].uri);
-      await updateShop(shop.id, { logoUrl });
-      await refreshShop();
-    } finally {
-      setUploadingLogo(false);
-    }
-  };
+  // Lets the shop logo be changed straight from the sidebar avatar, not just
+  // from Settings — a quick "click your logo to change it" affordance. The
+  // flow itself lives in useShopLogo(), shared with the mobile header and the
+  // Dashboard's header band so all three crop and upload identically.
+  const { editLogo, canEditLogo: canEditShop } = useShopLogo();
 
   return (
     <View style={styles.tabs}>
@@ -106,7 +89,6 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
           <View style={styles.headerText}>
             <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
             {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
-            <LocationSwitcher />
           </View>
         </View>
         <View style={styles.nav}>
@@ -128,6 +110,12 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
       </View>
       <View style={styles.slot}>
         <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+          {/* Sits next to the ☰ rather than in the sidebar header, matching the
+              mobile-web and native headers: the two controls that act on the
+              whole session belong together, and buried under the shop name the
+              switcher read as a label rather than something you operate.
+              Renders nothing for a one-location shop, which is most of them. */}
+          <LocationSwitcher />
           <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
             <Text style={styles.menuIcon}>☰</Text>
           </Pressable>
@@ -172,9 +160,8 @@ const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
-  // alignItems, not stretch: the switcher sizes to its label rather than
-  // filling the sidebar width, and renders nothing at all for a one-branch shop
-  // (so this column collapses back to name + subtitle).
+  // Name + category only; the location switcher moved to the top bar (see the
+  // comment on it there).
   headerText: { flex: 1, alignItems: 'flex-start', gap: 4 },
   avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   // A shop's uploaded logo is usually dark ink on a transparent background
@@ -209,7 +196,9 @@ const styles = StyleSheet.create({
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
   slot: { flex: 1 },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  // gap matches admin-tabs.web.tsx's mobileHeaderRight, so the switcher/☰ pair
+  // is spaced identically either side of the breakpoint.
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 14, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
   menuIcon: { fontSize: 16, color: '#111111' },
   menuBackdrop: { flex: 1 },

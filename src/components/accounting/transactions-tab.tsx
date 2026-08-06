@@ -11,6 +11,9 @@ import type { DateRange } from '@/components/range-selector';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { RefundModal, refundedQtyFor } from '@/components/refund-modal';
 import { StatTile } from '@/components/stat-tile';
+import { BentoFlow } from '@/components/ui/bento';
+import { formatRangeLabel as baseFormatRangeLabel, type LabelPreset } from '@/lib/range-label';
+import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
 import { formatCents, formatCompactCents } from '@/lib/currency';
@@ -61,8 +64,23 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+// Re-exported so the three tabs that already import it from here keep working.
+// The rule itself moved to lib/range-label.ts — it is preset-aware now, and a
+// pure function in lib/ can be tested, which one living in a component file
+// could not be.
+//
+// `SHARED_PRESETS` is duplicated from the Accounting shell rather than
+// threaded through every tab's props: it is the same fixed list, and passing
+// it down four levels to name a pill is not worth the churn. If the shell's
+// presets change, change these together.
+const SHELL_PRESETS: LabelPreset[] = [
+  { label: 'Today', days: 1 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+];
+
 export function formatRangeLabel(range: DateRange): string {
-  return `${range.since.toLocaleDateString()} – ${range.until ? range.until.toLocaleDateString() : 'today'}`;
+  return baseFormatRangeLabel(range, SHELL_PRESETS);
 }
 
 export function TransactionsTab({
@@ -193,13 +211,21 @@ export function TransactionsTab({
     [filtered, rangeLabel, canEdit]
   );
 
+  // Flow, not a grid: this is a ledger. See BentoFlow's own note — a table in
+  // a cell spans all twelve columns anyway and loses the cell's padding for
+  // nothing, and on a phone it nests two horizontal scrollers.
   return (
-    <View>
-      <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
-        <StatTile value={String(filtered.length)} label="Orders" />
-      </View>
+    <BentoFlow>
+      <BentoCard title="Sales in this range" scope={rangeLabel}>
+        <View style={styles.metricRow}>
+          <StatTile variant="bento" value={formatCompactCents(rangeTotalCents)} label={rangeLabel} />
+          <StatTile variant="bento" value={String(filtered.length)} label="Orders" />
+        </View>
+      </BentoCard>
 
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <BentoCard title="Transactions" scope={rangeLabel}>
       <TextInput
         value={search}
         onChangeText={setSearch}
@@ -227,8 +253,6 @@ export function TransactionsTab({
           ))}
         </View>
       )}
-
-      {error && <Text style={styles.error}>{error}</Text>}
 
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
@@ -260,10 +284,12 @@ export function TransactionsTab({
           ))}
         </View>
       )}
+      </BentoCard>
+
       {importConfig && (
         <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
       )}
-    </View>
+    </BentoFlow>
   );
 }
 
@@ -683,7 +709,9 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
 const styles = StyleSheet.create({
   importButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   importButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20 },
+  // No bottom margin: the card around this owns its padding now, and keeping
+  // one here left a dead band under the tiles.
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
   search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 13, marginBottom: 14, color: '#111111' },
   locationFilterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 14 },
   locationChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },

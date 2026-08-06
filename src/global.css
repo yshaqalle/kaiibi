@@ -51,3 +51,14 @@ html {
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
 }
+
+/* Focus rings that only a keyboard should see.
+   react-native-web draws the browser's default outline on :focus, which fires
+   on a mouse click too — so selecting a nav item leaves a blue box round it.
+   :focus-visible is the distinction RNW gives no way to express in a style
+   object, so it is drawn here: keyboard focus keeps its ring, pointer focus
+   loses it. Applied per-element via `dataSet`, not globally, because removing
+   an outline is the sort of thing that should be opted into deliberately. */
+[data-kaiibi='pointer-focus-quiet']:focus:not(:focus-visible) {
+  outline: none;
+}

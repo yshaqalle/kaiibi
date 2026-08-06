@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { taxonomyPalette } from '@/lib/colors';
+import { deleteImageByPublicUrl } from '@/lib/storage';
 
 export type TaxonomyRow = {
   id: string;
@@ -67,16 +68,25 @@ export function TaxonomyEditModal({
     setError(null);
     try {
       let resolvedImageUrl = initial?.imageUrl ?? null;
+      // Set only when this submit actually replaces an already-uploaded
+      // photo -- gates the cleanup below so a save that doesn't touch the
+      // photo, or a "remove photo" (imageUri null, no new upload), never
+      // tries to delete anything.
+      let replacedImageUrl: string | null = null;
       // A freshly picked photo is a local URI, not the http(s) URL of an
       // already-uploaded one — same check as product-form.tsx/ShopSection.
       if (imageUri && !/^https?:\/\//.test(imageUri)) {
         setUploading(true);
         resolvedImageUrl = await uploadImage(imageUri);
         setUploading(false);
+        replacedImageUrl = initial?.imageUrl ?? null;
       } else if (imageUri === null) {
         resolvedImageUrl = null;
       }
       await onSubmit({ name: name.trim(), color, description: description.trim() || null, imageUrl: resolvedImageUrl });
+      // Only after the new URL is safely persisted (onSubmit above has
+      // resolved) -- see storage.ts.
+      if (replacedImageUrl) await deleteImageByPublicUrl(replacedImageUrl);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : `Could not save this ${itemLabel}.`);

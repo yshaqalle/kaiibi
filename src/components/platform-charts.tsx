@@ -1,31 +1,45 @@
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, G } from 'react-native-svg';
 
-// Charts for the platform dashboard. Purpose-built rather than reusing the
+import { Colors } from '@/constants/theme';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
+
+// Charts for the platform console. Purpose-built rather than reusing the
 // shop-side ones, which are typed to shop domain shapes (CategorySlice,
 // TrendPoint) and fold to a top three that would hide a plan.
 //
-// One palette, used consistently: a series keeps its colour wherever it
-// appears, so "violet" always means signups and "green" always means money.
+// These used to carry their own seven hues — violet signups, green revenue,
+// amber Pro — a palette that predated bento and collided with it twice. Its
+// green sat a hair off `bentoProfit`, so a green bar and a green figure on the
+// same screen disagreed by an amount you could see but not name; and "green
+// always means money" is exactly the overload the series tokens exist to
+// prevent, since green is status here and money is the subject of the whole
+// screen.
+//
+// The property that comment actually cared about survives: a series keeps its
+// colour wherever it appears.
 export const CHART_COLORS = {
-  signups: '#7C5CFC',
-  revenue: '#1E9E5A',
-  trial: '#7C5CFC',
-  free: '#94A3B8',
-  standard: '#2563EB',
-  pro: '#F59E0B',
-  danger: '#DC2626',
+  signups: theme.bentoSeries1,
+  revenue: theme.bentoSeries2,
 } as const;
 
+// Plans keep a stable colour across the donut, the tier cards and the
+// revenue-by-plan bars, so a tier is recognisable by colour in all three. Keyed
+// where we know the key, by position otherwise — a plan added in SQL still gets
+// a colour rather than falling through to undefined.
+const SERIES = [theme.bentoSeries1, theme.bentoSeries2, theme.bentoSeries3, theme.bentoSeries4];
+
 const PLAN_COLORS: Record<string, string> = {
-  trial: CHART_COLORS.trial,
-  free: CHART_COLORS.free,
-  standard: CHART_COLORS.standard,
-  pro: CHART_COLORS.pro,
+  trial: theme.bentoSeries1,
+  free: theme.bentoMuted2,
+  standard: theme.bentoSeries2,
+  pro: theme.bentoSeries3,
 };
 
 export function planColor(key: string, index: number): string {
-  return PLAN_COLORS[key] ?? [CHART_COLORS.standard, CHART_COLORS.pro, CHART_COLORS.signups, CHART_COLORS.free][index % 4];
+  return PLAN_COLORS[key] ?? SERIES[index % SERIES.length];
 }
 
 export type Bar = { label: string; value: number };
@@ -61,7 +75,7 @@ export function BarChart({
                   {formatValue ? formatValue(bar.value) : bar.value}
                 </Text>
               )}
-              <View style={[styles.bar, { height: h, backgroundColor: bar.value > 0 ? color : '#E8E8EF' }]} />
+              <View style={[styles.bar, { height: h, backgroundColor: bar.value > 0 ? color : theme.bentoLine }]} />
             </View>
           );
         })}
@@ -109,7 +123,7 @@ export function DonutChart({ slices, centerValue, centerLabel }: { slices: Slice
               property"). The rotate() form is understood by both renderers.
               -90° puts the first arc at 12 o'clock instead of 3. */}
           <G transform={`rotate(-90 ${size / 2} ${size / 2})`}>
-            <Circle cx={size / 2} cy={size / 2} r={radius} stroke="#F1F1F5" strokeWidth={stroke} fill="none" />
+            <Circle cx={size / 2} cy={size / 2} r={radius} stroke={theme.bentoSoft} strokeWidth={stroke} fill="none" />
             {arcs.map((arc) => (
               <Circle
                 key={arc.key}
@@ -150,14 +164,14 @@ const styles = StyleSheet.create({
   bar: { width: '100%', maxWidth: 46, borderRadius: 5 },
   barValue: { fontSize: 10.5, fontWeight: '800' },
   axis: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  axisLabel: { flex: 1, textAlign: 'center', fontSize: 10, color: '#AAAAAA' },
+  axisLabel: { flex: 1, textAlign: 'center', fontSize: 10, color: theme.bentoMuted2 },
   donutRow: { flexDirection: 'row', alignItems: 'center', gap: 24, flexWrap: 'wrap' },
   donutCenter: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  donutValue: { fontSize: 22, fontWeight: '800', color: '#111111' },
-  donutLabel: { fontSize: 10, color: '#999999', marginTop: 1 },
+  donutValue: { fontSize: 22, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.6 },
+  donutLabel: { fontSize: 10, color: theme.bentoMuted, marginTop: 1 },
   legend: { gap: 8, minWidth: 150 },
   legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   swatch: { width: 10, height: 10, borderRadius: 3 },
-  legendLabel: { fontSize: 12.5, color: '#555555', flex: 1 },
-  legendValue: { fontSize: 12.5, fontWeight: '800', color: '#111111' },
+  legendLabel: { fontSize: 12.5, color: theme.bentoInk2, flex: 1 },
+  legendValue: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
 });

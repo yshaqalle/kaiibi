@@ -1,39 +1,49 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { LocationFilterRow } from '@/components/accounting/location-filter-row';
 import { AttentionList } from '@/components/attention-list';
 import { Card } from '@/components/card';
+import { GreetingBand, summarySentence } from '@/components/dashboard/greeting-band';
+import { DashboardPageHeader } from '@/components/dashboard/page-header';
 import { GoalMeter } from '@/components/goal-meter';
-import { RangeSelector, type DateRange, type RangePreset } from '@/components/range-selector';
+import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
+import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
+import { WaterfallChart } from '@/components/waterfall-chart';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { buildAttentionItems, type AttentionItem } from '@/lib/attention';
 import { budgetRows, monthlyBillCommitmentCents, type BudgetRow } from '@/lib/cash-budget-reporting';
 import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
-import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { invoiceTotals } from '@/lib/invoice-reporting';
 import { listOpenInvoices } from '@/lib/invoices';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { hasMultipleLocations } from '@/lib/location-selection';
+import { listPayrollRuns } from '@/lib/payroll';
+import { accruedLaborCents } from '@/lib/payroll-reporting';
+import { profitAndLoss } from '@/lib/pnl';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
+import { formatRangeLabel } from '@/lib/range-label';
+import type { SearchResult } from '@/lib/search';
 import { getDailyTotalsCents, getMonthToDateRevenueCents, getSalesAndRefundsInRange, listSales } from '@/lib/sales';
-import { costOfGoodsSold, type CogsResult, type DailyBucket } from '@/lib/sales-reporting';
+import { costOfGoodsSold, paymentMethodMix, type CogsResult, type DailyBucket } from '@/lib/sales-reporting';
 import { membersActiveToday, onLeaveMemberIds, staleOpenShifts } from '@/lib/shift-hours';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Expense, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // The Dashboard answers one question: what needs attention right now. The
 // deeper analysis it used to carry -- rankings, category mix, payment split --
@@ -107,6 +117,11 @@ export default function DashboardScreen() {
   const canApproveTimeOff = can('people.timeoff.approve');
   const canSeeExpenses = can('expenses.view');
   const canSeeCustomers = can('customers.view');
+  // Gates the accrued-wages line on the P&L card. Same permission Reports
+  // uses, so the two screens include or exclude labour together -- a reader
+  // who sees the accrual there must see it here, or the same shop shows two
+  // net profits.
+  const canSeeLabor = can('people.payroll.manage');
 
   // Which store the FIGURES are for. Deliberately separate from
   // `activeLocation`, which is where this DEVICE is operating -- a till at
@@ -119,7 +134,14 @@ export default function DashboardScreen() {
   const [locationFilter, setLocationFilter] = useState<string | null>(activeLocation?.id ?? null);
   const [dateRange, setDateRange] = useState<DateRange | null>(null);
   const [daily, setDaily] = useState<DailyBucket[]>([]);
-  const [expenseCents, setExpenseCents] = useState(0);
+  // The rows, not just their total: the P&L card splits operating from
+  // stock-and-draws, which a single summed figure cannot do.
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [paymentMix, setPaymentMix] = useState<PaymentMixItem[]>([]);
+  // Named for the figure, not the function that computes it: `accruedLaborCents`
+  // is imported from payroll-reporting and a state variable of that name
+  // shadows it.
+  const [accruedWagesCents, setAccruedWagesCents] = useState(0);
   const [lowStock, setLowStock] = useState<Product[]>([]);
   const [expiringSoon, setExpiringSoon] = useState<Product[]>([]);
   const [monthToDateCents, setMonthToDateCents] = useState(0);
@@ -129,6 +151,9 @@ export default function DashboardScreen() {
   const [money, setMoney] = useState<MoneySnapshot | null>(null);
   const [cogs, setCogs] = useState<CogsResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const gridOffset = useRef<number | null>(null);
+  const attentionOffset = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop || !dateRange) return;
@@ -166,13 +191,32 @@ export default function DashboardScreen() {
       setExpiringSoon(expiring);
       setRecentSales(recent);
       setCogs(costOfGoodsSold(salesAndRefunds.sales, salesAndRefunds.refunds));
+      // Free: the same sales set that costOfGoodsSold just consumed. This is
+      // why the payment card costs no extra round trip.
+      setPaymentMix(paymentMethodMix(salesAndRefunds.sales));
     });
 
     if (canSeeExpenses) {
       await attempt('expenses', async () => {
         const rows = await listExpensesInRange(shop.id, since, until);
-        setExpenseCents(totalExpenseCents(scopeToLocation(rows, locationFilter)));
+        setExpenses(scopeToLocation(rows, locationFilter));
       });
+
+      // Wages worked but not yet settled by a pay run. Its own attempt()
+      // because it needs three more queries and a separate permission -- a
+      // shop without payroll access still gets its P&L, with the accrual
+      // line absent rather than the card missing.
+      if (canSeeLabor) {
+        await attempt('wages', async () => {
+          const rangeEnd = until ?? new Date();
+          const [members, entries, runs] = await Promise.all([
+            listStaff(shop.id),
+            listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }),
+            listPayrollRuns(shop.id),
+          ]);
+          setAccruedWagesCents(accruedLaborCents(members, entries, since, rangeEnd, runs).accruedCents);
+        });
+      }
 
       // Same permission -- bills, budgets and what is owed to suppliers are
       // the same kind of secret -- but its own attempt(), so a shop with no
@@ -235,7 +279,7 @@ export default function DashboardScreen() {
     // locationFilter is a dependency because every figure above is scoped to
   // it -- switching store must re-fetch, not leave the previous store's
   // numbers on screen under a new label.
-  }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff]);
+  }, [shop, dateRange, locationFilter, canSeeExpenses, canSeeCustomers, canSeeTeam, canApproveTimeOff, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -267,7 +311,32 @@ export default function DashboardScreen() {
     return active.find((location) => location.id === locationFilter)?.monthlyRevenueGoalCents ?? 0;
   }, [locations, locationFilter]);
 
-  const grossProfitCents = revenueCents - (cogs?.cogsCents ?? 0);
+  // Shared with Accounting → Reports rather than recomputed. The two screens
+  // disagreed before this existed: the Expenses tile here summed EVERY expense
+  // row, stock purchases and owner draws included, while Reports took only the
+  // operating ones -- so the same shop, in the same range, was told two
+  // different things about what it had spent. See lib/pnl.ts.
+  const pnl = useMemo(
+    () =>
+      profitAndLoss({
+        revenueCents,
+        cogsCents: cogs?.cogsCents ?? 0,
+        expenses,
+        accruedLaborCents: accruedWagesCents,
+      }),
+    [revenueCents, cogs, expenses, accruedWagesCents]
+  );
+  const grossProfitCents = pnl.grossProfitCents;
+
+  // Keyed to the shortfall, not to a boolean: closing this says "I've seen
+  // that these two items cost me nothing on paper", not "never warn me about
+  // uncosted stock again". Sell a third uncosted item and the figure is wrong
+  // by a new amount, so the note earns its place back.
+  const uncostedNote = useCaveatDismissal(
+    'dashboard.uncosted-cogs',
+    `${cogs?.uncostedItemCount ?? 0}:${cogs?.uncostedRevenueCents ?? 0}`
+  );
+  const noPayrollNote = useCaveatDismissal('dashboard.no-payroll-access', 'v1');
 
   const owed = useMemo(() => invoiceTotals(money?.openInvoices ?? []), [money]);
   const monthlyCommitmentCents = useMemo(
@@ -279,6 +348,28 @@ export default function DashboardScreen() {
     if (locationFilter === null) return 'All stores';
     return locations.find((location) => location.id === locationFilter)?.name ?? 'This store';
   }, [locations, locationFilter]);
+
+  // "Show my tasks" jumps to the Needs attention card. The offset is captured
+  // from the cell's own onLayout rather than measured on demand: measure() is
+  // asynchronous and inconsistent across native and web, while the layout
+  // event is already fired for us and is exact.
+  const scrollToAttention = () => {
+    if (attentionOffset.current === null || gridOffset.current === null) return;
+    // Two offsets summed: the cell reports its position inside the grid, and
+    // the grid reports its own inside the scroll content. Either alone lands
+    // in the wrong place.
+    const target = gridOffset.current + attentionOffset.current;
+    // A little above the card, so its heading isn't flush against the top.
+    scrollRef.current?.scrollTo({ y: Math.max(0, target - 16), animated: true });
+  };
+
+  // Shared with Accounting via lib/range-label.ts, so the same range is named
+  // the same thing on both screens — this used to say "7 days" here while
+  // Accounting spelled out "7/30/2026 – today" for the identical window.
+  const rangeLabel = useMemo(
+    () => (dateRange ? formatRangeLabel(dateRange, DASHBOARD_PRESETS) : ''),
+    [dateRange]
+  );
 
   const trendData: TrendPoint[] = useMemo(
     () =>
@@ -303,6 +394,34 @@ export default function DashboardScreen() {
     expiringSoon,
     dormant,
   });
+
+  // Where a global-search hit goes. Each kind lands on the screen that owns
+  // it, so a result is a shortcut rather than a hint that something exists.
+  // The destinations mirror openAttention's below, and both rely on the same
+  // guarantee: every target validates permissions on arrival, so a link can't
+  // strand someone on a screen they may not read.
+  const openSearchResult = (result: SearchResult) => {
+    switch (result.kind) {
+      case 'product':
+        router.push(`/product/${result.id}`);
+        return;
+      case 'customer':
+        router.push({ pathname: '/people', params: { tab: 'customers' } });
+        return;
+      case 'staff':
+        router.push({ pathname: '/people', params: { tab: 'team' } });
+        return;
+      case 'sale':
+        router.push({ pathname: '/accounting', params: { tab: 'transactions' } });
+        return;
+      case 'invoice':
+        router.push({ pathname: '/accounting', params: { tab: 'invoices' } });
+        return;
+      case 'expense':
+        router.push({ pathname: '/accounting', params: { tab: 'expenses' } });
+        return;
+    }
+  };
 
   // Where each row goes, down to the tab and the filter. The item's own key is
   // what decides -- an overdue invoice belongs on Bills, a budget on
@@ -336,101 +455,221 @@ export default function DashboardScreen() {
   };
 
   return (
-    <SafeAreaView edges={['left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.surface }]}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={[styles.title, { color: theme.text }]}>Dashboard</Text>
+    <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content}>
+        <DashboardPageHeader onSelectResult={openSearchResult} />
+
+        <GreetingBand
+          summary={summarySentence({
+            netProfitCents: pnl.netProfitCents,
+            revenueCents,
+            cogsCents: pnl.cogsCents,
+            operatingExpenseCents: pnl.operatingCents,
+            uncostedItemCount: cogs?.uncostedItemCount ?? 0,
+          })}
+          attentionCount={attention.length}
+          onShowTasks={scrollToAttention}
+        />
+
+        {/* Date and store, as a matched pair of pills. Shared with Accounting
+            so the two screens can't drift apart again. */}
+        <View style={styles.controlRow}>
+          <BentoControlBar
+            presets={DASHBOARD_PRESETS}
+            initialDays={7}
+            onRangeChange={setDateRange}
+            locationFilter={locationFilter}
+            onLocationChange={setLocationFilter}
+          />
+        </View>
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <View style={styles.rangeRow}>
-          <RangeSelector onChange={setDateRange} presets={DASHBOARD_PRESETS} initialDays={7} />
-        </View>
+        <BentoGrid onLayout={(event) => { gridOffset.current = event.nativeEvent.layout.y; }}>
+          {/* Travels with the figure rather than sitting in a footnote:
+              without it, gross profit reads as precise when it is knowably
+              overstated. */}
+          {cogs && cogs.uncostedItemCount > 0 && !uncostedNote.dismissed ? (
+            <BentoCell span={12}>
+              <Caveat
+                tone="wrong"
+                action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}
+                onDismiss={uncostedNote.dismiss}
+              >
+                {`${cogs.uncostedItemCount} sold ${cogs.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(cogs.uncostedRevenueCents)} of revenue), so gross profit looks higher than it is.`}
+              </Caveat>
+            </BentoCell>
+          ) : null}
 
-        {/* Renders nothing for a single-store shop, and switches from chips to
-            a dropdown past three entries — see components/option-picker.tsx,
-            which argues against tuning that threshold per screen. */}
-        <View style={styles.scopeRow}>
-          <LocationFilterRow value={locationFilter} onChange={setLocationFilter} />
-        </View>
+          {/* The P&L and the waterfall pair deliberately: the statement
+              reconciles to the cent, the chart shows what ate the revenue.
+              Neither answers the other's question. */}
+          {canSeeExpenses ? (
+            <BentoCell span={5}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Profit &amp; loss</Text>
+                  <Text style={styles.scopePill}>{rangeLabel}</Text>
+                </View>
+                <StatementRow label="Revenue" hint="net of sales tax and refunds" amountCents={pnl.revenueCents} />
+                <StatementRow label="Cost of goods sold" hint="what the items sold cost you" amountCents={-pnl.cogsCents} />
+                <StatementRow label="Gross profit" amountCents={pnl.grossProfitCents} variant="emphasis" />
+                <StatementRow
+                  label="Operating expenses"
+                  hint="excludes stock purchases and owner draws"
+                  amountCents={-pnl.postedOperatingCents}
+                />
+                {pnl.accruedLaborCents > 0 && (
+                  <StatementRow label="Wages earned, not yet paid" hint="no pay run posted yet" amountCents={-pnl.accruedLaborCents} />
+                )}
+                <StatementRow label="Net profit" amountCents={pnl.netProfitCents} variant="total" />
+                {!canSeeLabor && !noPayrollNote.dismissed && (
+                  <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
+                    Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
+                  </Caveat>
+                )}
+              </Card>
+            </BentoCell>
+          ) : null}
 
-        <View style={styles.metricRow}>
-          {/* Net of sales tax and refunds — tax collected is the government's
-              money, so it was never revenue. Reads lower than the old figure
-              for tax-enabled shops; that's the correction, not a regression. */}
-          <StatTile value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
-          {/* Gross, not net: this is revenue less what the goods cost, before
-              operating expenses. Named precisely so it cannot be mistaken for
-              the bottom line, which lives on Accounting → Reports. */}
-          {cogs && <StatTile value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
-          {canSeeExpenses && <StatTile value={formatCompactCents(expenseCents)} label="Expenses" />}
-          <StatTile value={String(orderCount)} label="Orders" />
-          {canSeeCustomers && (
-            <StatTile
-              value={String(dormant.length)}
-              label="Customers to check on"
-              tone={dormant.length > 0 ? 'warning' : 'default'}
-            />
-          )}
-          {canSeeTeam && hr && <StatTile value={String(hr.activeToday)} label="Team active today" />}
-        </View>
+          {canSeeExpenses ? (
+            <BentoCell span={7}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>How revenue becomes profit</Text>
+                  <Text style={styles.scopePill}>{rangeLabel}</Text>
+                </View>
+                <WaterfallChart
+                  formatValue={formatCompactCents}
+                  steps={[
+                    { label: 'Revenue', value: pnl.revenueCents, total: true },
+                    { label: 'Cost of goods', sub: 'what stock cost', value: -pnl.cogsCents },
+                    { label: 'Gross profit', value: pnl.grossProfitCents, total: true },
+                    { label: 'Operating exp.', sub: 'wages, rent, power', value: -pnl.operatingCents },
+                    { label: 'Net profit', value: pnl.netProfitCents, total: true },
+                  ]}
+                />
+              </Card>
+            </BentoCell>
+          ) : null}
 
-        {/* Travels with the figure rather than sitting in a footnote: without
-            it, gross profit reads as precise when it is knowably overstated. */}
-        {cogs && cogs.uncostedItemCount > 0 ? (
-          <Caveat
-            tone="wrong"
-            action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}
+          <BentoCell span={canSeeExpenses ? 8 : 12}>
+            <Card variant="bento" style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>This period at a glance</Text>
+                <Text style={styles.scopePill}>{rangeLabel}</Text>
+              </View>
+              <View style={styles.metricRow}>
+                {/* Net of sales tax and refunds — tax collected is the
+                    government's money, so it was never revenue. */}
+                <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
+                {cogs && <StatTile variant="bento" value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
+                {canSeeExpenses && <StatTile variant="bento" value={formatCompactCents(pnl.operatingCents)} label="Expenses" hint="operating" />}
+                {canSeeExpenses && (
+                  <StatTile variant="bento"
+                    value={formatCompactCents(pnl.netProfitCents)}
+                    label="Net profit"
+                    tone={pnl.netProfitCents < 0 ? 'warning' : 'positive'}
+                  />
+                )}
+                <StatTile variant="bento" value={String(orderCount)} label="Orders" />
+                {canSeeCustomers && (
+                  <StatTile variant="bento"
+                    value={String(dormant.length)}
+                    label="Customers to check on"
+                    tone={dormant.length > 0 ? 'warning' : 'default'}
+                  />
+                )}
+                {canSeeTeam && hr && <StatTile variant="bento" value={String(hr.activeToday)} label="Team active today" />}
+              </View>
+            </Card>
+          </BentoCell>
+
+          {goalCents ? (
+            <BentoCell span={4}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  {/* Named whenever there is a choice to have made, because
+                      the goal and the revenue behind it are BOTH the selected
+                      store's — an unlabelled meter reads as the whole
+                      business's. */}
+                  <Text style={styles.cardTitle}>
+                    {showLocationName ? `Revenue goal · ${scopeName}` : 'Revenue goal'}
+                  </Text>
+                  {/* NOT the range pill. The goal is a calendar-month
+                      commitment and getMonthToDateRevenueCents ignores the
+                      selector entirely, so saying "7 days" here would be a
+                      lie about the figure beside it. */}
+                  <Text style={styles.scopePill}>This month</Text>
+                </View>
+                <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
+              </Card>
+            </BentoCell>
+          ) : null}
+
+          <BentoCell span={7}>
+            <Card variant="bento" style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>Revenue</Text>
+                <Text style={styles.scopePill}>{rangeLabel}</Text>
+              </View>
+              <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
+            </Card>
+          </BentoCell>
+
+          <BentoCell span={5}>
+            <Card variant="bento" style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>Payment methods</Text>
+                <Text style={styles.scopePill}>{rangeLabel}</Text>
+              </View>
+              <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
+            </Card>
+          </BentoCell>
+
+          {money && (money.openInvoices.length > 0 || money.recurringBills.length > 0) ? (
+            <BentoCell span={6}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Money going out</Text>
+                  {/* These figures deliberately ignore the range — what you
+                      owe is a fact about now, which invoice-reporting.ts
+                      already insists on. */}
+                  <Text style={styles.scopePill}>As of today</Text>
+                </View>
+                <StatementRow label="Owed to suppliers" hint={`${owed.openCount} open ${owed.openCount === 1 ? 'bill' : 'bills'}`} amountCents={owed.outstandingCents} />
+                {owed.overdueCents > 0 && <StatementRow label="of that, overdue" variant="sub" amountCents={owed.overdueCents} />}
+                <StatementRow label="Committed every month" hint="active recurring bills" amountCents={monthlyCommitmentCents} variant="emphasis" />
+              </Card>
+            </BentoCell>
+          ) : null}
+
+          <BentoCell
+            span={6}
+            onLayout={(event) => { attentionOffset.current = event.nativeEvent.layout.y; }}
           >
-            {`${cogs.uncostedItemCount} sold ${cogs.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(cogs.uncostedRevenueCents)} of revenue), so gross profit looks higher than it is.`}
-          </Caveat>
-        ) : null}
-
-        {money && (money.openInvoices.length > 0 || money.recurringBills.length > 0) ? (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Money going out</Text>
-            <Card style={styles.chartCard}>
-              <StatementRow label="Owed to suppliers" hint={`${owed.openCount} open ${owed.openCount === 1 ? 'bill' : 'bills'}`} amountCents={owed.outstandingCents} />
-              {owed.overdueCents > 0 && <StatementRow label="of that, overdue" variant="sub" amountCents={owed.overdueCents} />}
-              <StatementRow label="Committed every month" hint="active recurring bills" amountCents={monthlyCommitmentCents} variant="emphasis" />
+            <Card variant="bento" style={styles.card}>
+              <View style={styles.cardHead}>
+                <Text style={styles.cardTitle}>Needs attention</Text>
+                <Text style={styles.scopePill}>As of today</Text>
+              </View>
+              <AttentionList items={attention} onSelect={openAttention} />
             </Card>
-            {/* These four figures deliberately ignore the range above — what
-                you owe is a fact about now, which invoice-reporting.ts already
-                insists on. Saying so stops it reading as a bug. */}
-            <Caveat tone="context">
-              Outstanding and committed are as of today, not for the selected date range.
-            </Caveat>
-          </>
-        ) : null}
+          </BentoCell>
 
-        {goalCents ? (
-          <>
-            {/* Named whenever there is a choice to have made, because the goal
-                and the revenue behind it are BOTH the selected store's — an
-                unlabelled meter reads as the whole business's. */}
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>
-              {showLocationName ? `Revenue goal this month · ${scopeName}` : 'Revenue goal this month'}
-            </Text>
-            <Card style={styles.chartCard}>
-              <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
-            </Card>
-          </>
-        ) : null}
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Revenue</Text>
-        <Card style={styles.chartCard}>
-          <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
-        </Card>
-
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>Needs attention</Text>
-        <AttentionList items={attention} onSelect={openAttention} />
-
-        {lowStock.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Low stock</Text>
+          {/* Span 12, not 6: DataTable manages its own horizontal scroll and
+              gutters, and a half-width cell squeezed three columns into ~360px
+              on a laptop. A table wants the width. */}
+          {lowStock.length > 0 && (
+            <BentoCell span={12}>
             {/* A table, not tiles. The question here is comparative -- units
                 left against the level that triggers a reorder -- and tiles
                 force each product to be read on its own. */}
-            <Card style={styles.tableCard}>
+            <Card variant="bento" style={styles.tableCard}>
+              <View style={[styles.cardHead, styles.tableHead]}>
+                <Text style={styles.cardTitle}>Low stock</Text>
+                <Text style={styles.scopePill}>As of today</Text>
+              </View>
               <DataTable
                 rows={lowStock.slice(0, 5)}
                 keyExtractor={(product) => product.id}
@@ -470,31 +709,35 @@ export default function DashboardScreen() {
                 ]}
               />
             </Card>
-          </>
-        )}
+            </BentoCell>
+          )}
 
-        {recentSales.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Recent transactions</Text>
-            <Card style={styles.list}>
-              {recentSales.map((sale) => (
-                <View key={sale.id} style={[styles.recentRow, { borderBottomColor: theme.border }]}>
-                  <Text style={[styles.recentName, { color: theme.text }]} numberOfLines={1}>
-                    {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
-                  </Text>
-                  <Text style={[styles.recentMeta, { color: theme.textSecondary }]}>
-                    {formatAccountingCents(sale.totalCents)}
-                  </Text>
+          {recentSales.length > 0 && (
+            <BentoCell span={6}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Recent transactions</Text>
+                  <Text style={styles.scopePill}>Latest {recentSales.length}</Text>
                 </View>
-              ))}
-            </Card>
-          </>
-        )}
+                {recentSales.map((sale) => (
+                  <View key={sale.id} style={styles.recentRow}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
+                    </Text>
+                    <Text style={styles.recentMeta}>{formatAccountingCents(sale.totalCents)}</Text>
+                  </View>
+                ))}
+              </Card>
+            </BentoCell>
+          )}
 
-        {expiringSoon.length > 0 && (
-          <>
-            <Text style={[styles.sectionTitle, { color: theme.text }]}>Expiring soon</Text>
-            <Card style={styles.tableCard}>
+          {expiringSoon.length > 0 && (
+            <BentoCell span={12}>
+            <Card variant="bento" style={styles.tableCard}>
+              <View style={[styles.cardHead, styles.tableHead]}>
+                <Text style={styles.cardTitle}>Expiring soon</Text>
+                <Text style={styles.scopePill}>As of today</Text>
+              </View>
               <DataTable
                 rows={expiringSoon.slice(0, 5)}
                 keyExtractor={(product) => product.id}
@@ -524,26 +767,45 @@ export default function DashboardScreen() {
                 ]}
               />
             </Card>
-          </>
-        )}
+            </BentoCell>
+          )}
+        </BentoGrid>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
-  content: { padding: 24, paddingBottom: 42 },
-  title: { fontSize: 26, fontWeight: '800', letterSpacing: -1, marginBottom: 16 },
-  rangeRow: { marginBottom: 12 },
-  scopeRow: { marginBottom: 14 },
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 20, flexWrap: 'wrap' },
-  sectionTitle: { fontSize: 15, fontWeight: '800', marginTop: 10, marginBottom: 12 },
-  chartCard: { padding: 16, marginBottom: 8 },
-  list: { overflow: 'hidden', marginBottom: 8 },
-  tableCard: { paddingHorizontal: 8, paddingVertical: 12, marginBottom: 8 },
-  recentRow: { padding: 13, borderBottomWidth: 1 },
-  recentName: { fontSize: 13, fontWeight: '700' },
-  recentMeta: { fontSize: 11, marginTop: 3 },
-  error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
+  // The grey page the cards float on — the one place the bento palette
+  // replaces the cream `background` the rest of the app still uses.
+  safeArea: { flex: 1, backgroundColor: theme.bentoPage },
+  content: { padding: 18, paddingBottom: 42 },
+  controlRow: { marginBottom: 16 },
+  card: { padding: 18 },
+  // Less horizontal padding: DataTable manages its own gutters, and doubling
+  // them squeezes the columns.
+  tableCard: { paddingHorizontal: 10, paddingVertical: 14 },
+  cardHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
+  tableHead: { paddingHorizontal: 8 },
+  cardTitle: { fontSize: 15, fontWeight: '800', letterSpacing: -0.2, color: theme.bentoInk, flexShrink: 1 },
+  // Says what window the figures beside it cover. Not decoration: the goal
+  // meter is a calendar month and the attention list is "right now", while
+  // everything else follows the range picker — without this the reader has to
+  // assume, and would assume wrong.
+  scopePill: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: theme.bentoInk2,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    overflow: 'hidden',
+  },
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  recentRow: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  recentName: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  recentMeta: { fontSize: 11, marginTop: 3, color: theme.bentoMuted },
+  error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

@@ -1,9 +1,14 @@
 import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { isExpiringSoon } from '@/lib/products';
 import type { Product } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet. Only the
+// Inventory screen renders this, and Inventory is a bento screen.
+const theme = Colors.light;
 
 export type SortField = 'name' | 'brand' | 'category' | 'price' | 'stock';
 export type SortDirection = 'asc' | 'desc';
@@ -183,12 +188,12 @@ export function ProductTableRow({
 }
 
 const styles = StyleSheet.create({
-  headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.bentoRule, gap: 10 },
   headerCell: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  headerLabel: { fontSize: 10, fontWeight: '900', color: '#555555', letterSpacing: 0.6 },
-  sortArrow: { fontSize: 8, color: '#555555' },
+  headerLabel: { fontSize: 10, fontWeight: '900', color: theme.bentoMuted, letterSpacing: 0.6 },
+  sortArrow: { fontSize: 8, color: theme.bentoMuted },
 
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: theme.bentoRule, gap: 10 },
   // The six data columns' percentage widths are relative to this flex:1
   // wrapper's own resolved width, not the whole row — so the fixed-width
   // edit button (a sibling, not one of the percentage columns) gets its
@@ -198,28 +203,40 @@ const styles = StyleSheet.create({
   // it rendered past the row's clipped edge and was invisible.
   dataCols: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 0 },
   cell: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 },
-  cellText: { fontSize: 13, color: '#111111' },
-  muted: { color: '#999999' },
-  price: { fontWeight: '800' },
+  cellText: { fontSize: 13, color: theme.bentoInk },
+  muted: { color: theme.bentoMuted },
+  price: { fontWeight: '800', fontVariant: ['tabular-nums'] },
 
   colEdit: { width: 28, alignItems: 'flex-end' },
 
-  thumb: { width: 40, height: 40, borderRadius: 9, marginRight: 12 },
-  thumbPlaceholder: { backgroundColor: '#F2F2F2' },
-  name: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: '#111111' },
+  thumb: { width: 40, height: 40, borderRadius: 11, marginRight: 12 },
+  thumbPlaceholder: { backgroundColor: theme.bentoSoft },
+  name: { flexShrink: 1, fontSize: 14, fontWeight: '700', color: theme.bentoInk },
 
-  tagChip: { backgroundColor: '#F2F2F2', borderRadius: 8, paddingVertical: 3, paddingHorizontal: 8, maxWidth: '100%' },
-  tagChipText: { fontSize: 11, fontWeight: '600', color: '#555555' },
+  tagChip: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 9, maxWidth: '100%' },
+  tagChipText: { fontSize: 11, fontWeight: '600', color: theme.bentoInk2 },
 
-  locationLink: { fontSize: 12, fontWeight: '700', color: '#111111', textDecorationLine: 'underline' },
-  breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F2F2F2', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
-  breakdownCount: { fontSize: 14, fontWeight: '800', color: '#111111' },
-  breakdownHint: { fontSize: 11, fontWeight: '700', color: '#999999' },
-  stepperButton: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
-  stepperButtonText: { color: '#111111', fontSize: 14, fontWeight: '800' },
+  locationLink: { fontSize: 12, fontWeight: '700', color: theme.bentoInk, textDecorationLine: 'underline' },
+  breakdownButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: theme.bentoSoft, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6 },
+  breakdownCount: { fontSize: 14, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  breakdownHint: { fontSize: 11, fontWeight: '700', color: theme.bentoMuted },
+  // A visible border, not just a fill: this is the one genuinely interactive
+  // control in the table, and a bare grey circle on a white card reads as
+  // disabled rather than as a button.
+  stepperButton: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperButtonText: { color: theme.bentoInk, fontSize: 14, fontWeight: '800' },
   stockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 10 },
-  stockCount: { fontSize: 13, color: '#111111' },
-  stockPill: { fontSize: 11, fontWeight: '700', color: '#555555', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#D8D8D8', paddingVertical: 5, paddingHorizontal: 10, borderRadius: 12 },
+  stockCount: { fontSize: 13, color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  stockPill: { fontSize: 11, fontWeight: '700', color: theme.bentoInk2, backgroundColor: theme.bentoSoft, paddingVertical: 5, paddingHorizontal: 10, borderRadius: 999, overflow: 'hidden' },
 
-  editIcon: { color: '#111111', fontSize: 20 },
+  editIcon: { color: theme.bentoInk2, fontSize: 20 },
 });

@@ -1,4 +1,5 @@
 import { ALL_PERMISSIONS, expandPermissions, type Permission } from '@/lib/permissions';
+import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
 import type { Role, Shop, StaffMember } from '@/types/models';
 
@@ -75,6 +76,7 @@ function mapStaffRow(row: any): StaffMember {
     fullName: row.full_name,
     email: row.email,
     phone: row.phone ?? null,
+    photoUrl: row.photo_url ?? null,
     createdAt: row.created_at,
     hireDate: row.hire_date,
     payType: row.pay_type,
@@ -184,6 +186,37 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
   if (count === 0) {
     throw new Error(`Could not ${active ? 'enable' : 'disable'} this member — you may no longer have permission to edit them.`);
   }
+}
+
+// Shares the `product-images` bucket with product photos and shop logos --
+// `staff` is a sub-folder so the two kinds don't collide by id. Its RLS
+// (migration 0024_permission_gates.sql, amended by 20260820000300_staff_photo
+// to also admit `staff.manage`) checks the first path segment is the shop id
+// AND that the uploader holds `inventory.edit`, `settings.access`, or
+// `staff.manage` -- not, as an earlier comment here claimed, merely the shop
+// id (that was migration 0002's original policy, replaced by 0024 well before
+// this function existed). `uploadImage` uploads with `upsert: false`, so a
+// bare `${memberId}` path would 409 the moment someone replaces their photo
+// -- the timestamp suffix (matching the convention already used for
+// products/brands/categories/logos) makes each upload's path unique so a
+// replacement never collides with the photo it's replacing.
+export async function uploadStaffPhoto(shopId: string, memberId: string, localUri: string): Promise<string> {
+  return uploadImage(`${shopId}/staff/${memberId}-${Date.now()}`, localUri);
+}
+
+// Written separately from updateStaffMember, the same way setStaffLocations
+// is: that goes through the `update-staff` Edge Function, which has no idea
+// this column exists and would silently drop it. The direct write is gated
+// by "write shop_members roster" (staff.manage OR people.payroll.manage,
+// migration 20260802030200_hr_schema.sql), which grants the whole row, not
+// just the columns the function knows about.
+export async function updateStaffPhoto(memberId: string, photoUrl: string | null): Promise<void> {
+  const { error, count } = await supabase
+    .from('shop_members')
+    .update({ photo_url: photoUrl }, { count: 'exact' })
+    .eq('id', memberId);
+  if (error) throw error;
+  if (count === 0) throw new Error('Could not save this photo — you may no longer have permission to edit this member.');
 }
 
 export async function updateStaffMember(input: {

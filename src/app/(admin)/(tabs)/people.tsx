@@ -1,8 +1,9 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useDetailSelection, useHeaderActions, type DetailSelectionSetter, type HeaderActionsSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
@@ -12,18 +13,26 @@ import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
 import { NotesField } from '@/components/notes-field';
 import { ScheduleTab } from '@/components/schedule/schedule-tab';
-import { SegmentedControl } from '@/components/segmented-control';
 import { StaffSelfService } from '@/components/staff-self-service';
 import { StatTile } from '@/components/stat-tile';
 import { TeamAddModal } from '@/components/team-add-modal';
 import { TeamMemberEditModal } from '@/components/team-member-edit-modal';
 import { TimeOffRequestsPanel } from '@/components/time-off-requests-panel';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
+import { Avatar } from '@/components/ui/avatar';
+import { BentoCard } from '@/components/ui/bento-card';
+import { Caveat } from '@/components/ui/caveat';
+import { DetailColumns } from '@/components/ui/detail-columns';
+import { GlanceStrip } from '@/components/ui/glance-strip';
+import { ListCard } from '@/components/ui/list-card';
+import { TabPills } from '@/components/ui/tab-pills';
 import { WhatsAppButton } from '@/components/whatsapp-button';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { Colors } from '@/constants/theme';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useAuth } from '@/hooks/use-auth';
 import type { CsvColumn } from '@/lib/csv';
-import { formatCents } from '@/lib/currency';
+import { formatCents, formatCompactCents } from '@/lib/currency';
 import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer, type CustomerSegment } from '@/lib/customer-segments';
 import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerPointsHistory, listCustomerPurchases, listCustomers, updateCustomer } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
@@ -33,10 +42,13 @@ import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib
 import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
 import { usualStore } from '@/lib/customer-segments';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
+import { membersActiveToday, onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
 
 // Where a member works, for display. An EMPTY set means every store — that is
 // the value, not a missing one (migration 20260814000000) — so it reads as
@@ -62,6 +74,16 @@ function describeMemberStores(
 type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
+
+// The blurb says what the tab is FOR, matching Accounting's shell. Held here
+// rather than inside each tab because the shell renders the title row above
+// the tab bar, before any tab has mounted.
+const TAB_BLURBS: Record<PeopleTab, { label: string; blurb: string }> = {
+  customers: { label: 'Customers', blurb: 'Who shops with you, and what they are worth.' },
+  team: { label: 'Team', blurb: 'Who works here, what they cost, and who is in today.' },
+  schedule: { label: 'Schedule', blurb: 'Who is on, which day, at which store.' },
+  me: { label: 'Me (self-service)', blurb: 'Your shifts, your hours, your time off.' },
+};
 
 // Plain-language names for the ledger's `reason` values -- 'refund_clawback'
 // is what the database calls it, not what a shop owner reading the history
@@ -108,6 +130,7 @@ const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
 
 export default function PeopleScreen() {
   const { can, canAny, myMembership } = useAuth();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
@@ -125,44 +148,83 @@ export default function PeopleScreen() {
     if (candidate === 'me') return 'me';
     return null;
   };
-  const [tab, setTab] = useState<PeopleTab>(
+  // Read from `?tab=` ONCE, as the initial value -- state stays authoritative
+  // while mounted, so a tap never has to wait for the URL to catch up.
+  const [tab, setTabState] = useState<PeopleTab>(
     permittedTab(tabParam) ?? (canSeeCustomers ? 'customers' : canSeeTeam ? 'team' : canSeeSchedule ? 'schedule' : 'me')
   );
+  // ...and mirrored back out on every change, because the URL is what survives
+  // a remount. The web nav shell renders two different trees either side of
+  // TABLET_BREAKPOINT (admin-tabs.web.tsx), so crossing it -- resizing a window,
+  // rotating a tablet -- tears this screen down and builds a new one. The
+  // initializer above then reads the tab back off the URL.
+  //
+  // NOT a fix for the remount itself: search text, filters and the selected
+  // person still reset. That has to be fixed in the shell.
+  const setTab = useCallback(
+    (next: PeopleTab) => {
+      setTabState(next);
+      router.setParams({ tab: next });
+    },
+    [router]
+  );
+  // Published by whichever tab is showing, so its buttons share the title row
+  // rather than each tab rendering a title and an action bar of its own. Same
+  // mechanism Accounting uses; the tabs previously each drew "People" as a
+  // heading, which meant three copies of one string.
+  const [headerActions, setHeaderActions] = useState<ReactNode>(null);
+  // Published by whichever tab has a detail pane, so the blurb can get out of
+  // the way once there is something more specific to look at.
+  const [detailSelected, setDetailSelected] = useState(false);
 
   const options = [
-    ...(canSeeCustomers ? [{ key: 'customers' as const, label: 'Customers' }] : []),
-    ...(canSeeTeam ? [{ key: 'team' as const, label: 'Team' }] : []),
-    ...(canSeeSchedule ? [{ key: 'schedule' as const, label: 'Schedule' }] : []),
-    ...(canUseSelfService ? [{ key: 'me' as const, label: 'Me (self-service)' }] : []),
+    ...(canSeeCustomers ? [{ key: 'customers' as const, label: TAB_BLURBS.customers.label }] : []),
+    ...(canSeeTeam ? [{ key: 'team' as const, label: TAB_BLURBS.team.label }] : []),
+    ...(canSeeSchedule ? [{ key: 'schedule' as const, label: TAB_BLURBS.schedule.label }] : []),
+    ...(canUseSelfService ? [{ key: 'me' as const, label: TAB_BLURBS.me.label }] : []),
   ];
-
-  // The tab switcher renders *below* each tab's own title/actions row rather
-  // than above it, so the screen title and its primary actions share the top
-  // line (matching the design mockup). Each tab owns its own actions, so the
-  // switcher is handed down to be placed after them instead of being rendered
-  // here above the tab body.
-  const tabSwitcher = options.length > 1 ? <SegmentedControl options={options} value={tab} onChange={setTab} /> : null;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
+      {/* Not a ScrollView, unlike Accounting's shell: the two panes below scroll
+          independently and need a bounded height to do it. The header and tab
+          row stay put while the roster moves under them. */}
       <View style={styles.body}>
-        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
-        {tab === 'team' && canSeeTeam ? <TeamTab compact={compact} tabSwitcher={tabSwitcher} /> : null}
-        {tab === 'schedule' && canSeeSchedule ? <ScheduleTab tabSwitcher={tabSwitcher} /> : null}
+        <View style={styles.headerRow}>
+          <View style={styles.headerTitles}>
+            <Text style={styles.eyebrow}>PEOPLE</Text>
+            <Text style={styles.title}>{TAB_BLURBS[tab].label}</Text>
+            {!detailSelected && <Text style={styles.blurb}>{TAB_BLURBS[tab].blurb}</Text>}
+          </View>
+          <View style={styles.headerActions}>{headerActions}</View>
+        </View>
+
+        {options.length > 1 && (
+          <View style={styles.tabBar}>
+            <TabPills options={options} value={tab} onChange={setTab} />
+          </View>
+        )}
+
+        {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
+        {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
+        {tab === 'schedule' && canSeeSchedule ? <ScheduleTab setHeaderActions={setHeaderActions} /> : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
-          <MeTab shopId={myMembership.shopId} member={myMembership} tabSwitcher={tabSwitcher} />
+          <MeTab shopId={myMembership.shopId} member={myMembership} />
         ) : null}
       </View>
     </SafeAreaView>
   );
 }
 
-// Placeholder bodies -- Task 11 replaces CustomersTab (list+detail, filter
-// chips, notes, purchase history) and Task 12 replaces TeamTab (roster
-// list+detail, payroll, shifts, access grid, time-off approvals). Kept as
-// separate named components here so those tasks swap a function body
-// rather than restructuring this shell.
-function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
+function CustomersTab({
+  compact,
+  setHeaderActions,
+  setDetailSelected,
+}: {
+  compact: boolean;
+  setHeaderActions: HeaderActionsSetter;
+  setDetailSelected: DetailSelectionSetter;
+}) {
   const { shop, can } = useAuth();
   const canEdit = can('customers.edit');
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -176,6 +238,8 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
   const [showImportModal, setShowImportModal] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+
+  useDetailSelection(setDetailSelected, selectedId !== null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -218,6 +282,14 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
     return counts;
   }, [customers]);
 
+  // Summed from the same batch the rows already read -- no extra query, and it
+  // cannot disagree with the per-row figures beside it.
+  const lifetimeSpendCents = useMemo(() => {
+    let total = 0;
+    for (const stats of rowStats.values()) total += stats.totalSpentCents;
+    return total;
+  }, [rowStats]);
+
   const importConfig: ImportEntityConfig<Customer> | null = shop
     ? {
         title: 'customers',
@@ -228,6 +300,24 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
       }
     : null;
 
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      <ExportMenu rows={filtered} columns={CUSTOMER_EXPORT_COLUMNS} title="Customers" subtitle={`${filtered.length} customers`} filenamePrefix="customers" />
+      {canEdit && (
+        <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
+          <Text style={tabStyles.actionButtonText}>Import</Text>
+        </Pressable>
+      )}
+      {canEdit && (
+        <Pressable onPress={() => setShowAddModal(true)} style={[tabStyles.actionButton, tabStyles.actionButtonSolid]}>
+          <Text style={[tabStyles.actionButtonText, tabStyles.actionButtonTextSolid]}>+ New</Text>
+        </Pressable>
+      )}
+    </>,
+    [filtered, canEdit]
+  );
+
   const list = (
     <>
       {loading ? (
@@ -235,7 +325,7 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
       ) : filtered.length === 0 ? (
         <Text style={tabStyles.empty}>No customers match.</Text>
       ) : (
-        <Card style={tabStyles.list}>
+        <Card variant="bento" style={tabStyles.list}>
           {filtered.map((customer) => {
             const stats = rowStats.get(customer.id);
             const segmentKey = segmentForCustomer(customer);
@@ -261,7 +351,11 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
                   </Text>
                 </View>
                 <View style={tabStyles.rowTrailing}>
-                  <Badge label={CUSTOMER_SEGMENT_LABELS[segmentKey]} tone={segmentKey === 'vip' ? 'danger' : segmentKey === 'at-risk' || segmentKey === 'new' ? 'warning' : 'default'} />
+                  <Badge
+                    variant="bento"
+                    label={CUSTOMER_SEGMENT_LABELS[segmentKey]}
+                    tone={segmentKey === 'vip' ? 'danger' : segmentKey === 'at-risk' || segmentKey === 'new' ? 'warning' : 'default'}
+                  />
                   <WhatsAppButton phone={customer.phone} name={customer.firstName} />
                 </View>
               </Pressable>
@@ -275,43 +369,46 @@ function CustomersTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher:
   const detail = selected ? (
     <CustomerDetailPane customer={selected} canEdit={canEdit} onEdit={() => setEditingCustomer(selected)} onChanged={reload} />
   ) : (
-    <Card style={tabStyles.emptyDetail}>
+    <BentoCard style={tabStyles.emptyDetail}>
       <Text style={tabStyles.empty}>Select a customer to see their details.</Text>
-    </Card>
+    </BentoCard>
   );
 
   return (
     <View style={{ flex: 1 }}>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
-      <View style={tabStyles.tabHeader}>
-        <View style={tabStyles.headerTitleGroup}>
-          <Text style={tabStyles.screenTitle}>People</Text>
-          <Text style={tabStyles.subtitle}>{customers.length} customers</Text>
+
+      {/* One low card, not a grid: four figures read as a single glance, and
+          splitting them into four cells would put three gutters through one
+          thought. No title -- the tile labels already say what these are, and
+          the heading was 27px this screen could not spare. */}
+      <GlanceStrip style={tabStyles.strip}>
+        <StatTile variant="bento" density="dense" value={String(customers.length)} label="Customers" hint={`${segmentCounts.new} joined in the last 30 days`} />
+        <StatTile variant="bento" density="dense" value={String(segmentCounts.vip)} label="VIPs" hint="tagged vip" />
+        <StatTile variant="bento" density="dense" value={String(segmentCounts['at-risk'])} label="At risk" hint="tagged at risk" />
+        <StatTile variant="bento" density="dense" value={formatCompactCents(lifetimeSpendCents)} label="Lifetime spend" hint="across every store" />
+      </GlanceStrip>
+
+      <View style={tabStyles.controlRow}>
+        <View style={[tabStyles.search, tabStyles.searchInRow]}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by name, phone, or tag"
+            placeholderTextColor={theme.bentoMuted2}
+            style={tabStyles.searchInput}
+          />
         </View>
-        <View style={tabStyles.headerActions}>
-          <ExportMenu rows={filtered} columns={CUSTOMER_EXPORT_COLUMNS} title="Customers" subtitle={`${filtered.length} customers`} filenamePrefix="customers" />
-          {canEdit && (
-            <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>Import</Text>
-            </Pressable>
-          )}
-          {canEdit && (
-            <Pressable onPress={() => setShowAddModal(true)} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>+ New</Text>
-            </Pressable>
-          )}
-        </View>
+        {/* Keeps its horizontal scroll: on a narrow window five chips will not
+            fit beside the field, and wrapping them would put the row's height
+            back where it started. */}
+        <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
+          <CategoryChip variant="bento" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
+          {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
+            <CategoryChip variant="bento" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
+          ))}
+        </ScrollView>
       </View>
-      {tabSwitcher}
-      <View style={tabStyles.search}>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, phone, or tag" placeholderTextColor="#999999" style={tabStyles.searchInput} />
-      </View>
-      <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
-        <CategoryChip variant="filter" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
-        {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
-          <CategoryChip variant="filter" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
-        ))}
-      </ScrollView>
       <TwoPaneListDetail
         compact={compact}
         list={list}
@@ -365,6 +462,7 @@ function CustomerDetailPane({
   const [pointsHistory, setPointsHistory] = useState<CustomerPointsEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { locations, shop } = useAuth();
+  const ledgerNote = useCaveatDismissal('people.customers.append-only-ledger', 'v1');
   const loyaltyOn = shop?.loyaltyEnabled ?? false;
   const multiStore = hasMultipleLocations(locations);
   // Resolved by id from the store list rather than denormalised onto the
@@ -394,131 +492,167 @@ function CustomerDetailPane({
   };
 
   return (
-    <Card style={tabStyles.detailCard}>
-      <View style={tabStyles.detHead}>
-        <Text style={tabStyles.detName}>
-          {customer.firstName} {customer.lastName ?? ''}
-        </Text>
-        <Badge label={CUSTOMER_SEGMENT_LABELS[segment]} tone={segment === 'vip' ? 'danger' : 'default'} />
-      </View>
-      {customer.phone && <Text style={tabStyles.detPhone}>{customer.phone}</Text>}
-      <View style={tabStyles.tiles}>
-        <StatTile value={stats ? formatCents(stats.totalSpentCents) : '—'} label="Lifetime spend" />
-        <StatTile value={stats ? String(stats.visitCount) : '—'} label="Orders" />
-        <StatTile value={stats?.lastPurchaseAt ? new Date(stats.lastPurchaseAt).toLocaleDateString() : '—'} label="Last purchase" />
-        {loyaltyOn && <StatTile value={customer.pointsBalance.toLocaleString()} label="Points" />}
-      </View>
-      <View style={tabStyles.actions}>
-        <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
-        {canEdit && (
-          <Pressable onPress={onEdit} style={tabStyles.actionButtonGhost}>
-            <Text style={tabStyles.actionButtonGhostText}>Edit</Text>
-          </Pressable>
-        )}
-        {canEdit && (
-          <Pressable onPress={toggleVip} style={tabStyles.actionButtonGhost}>
-            <Text style={tabStyles.actionButtonGhostText}>{isVip ? 'Remove VIP' : 'Mark VIP'}</Text>
-          </Pressable>
-        )}
-      </View>
-      {error && <Text style={tabStyles.errorText}>{error}</Text>}
-      <View style={tabStyles.section}>
-        <Text style={tabStyles.sectionTitle}>NOTES</Text>
-        <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
-      </View>
-      {/* Where they actually shop, by visit count. Hidden for a single-store
-          business (nothing to distinguish) and when the history is tied or
-          empty — naming a store on a 2-2 split would present a coin flip as a
-          fact. See usualStore in lib/customer-segments.ts. */}
-      {usual && (
-        <View style={tabStyles.section}>
-          <Text style={tabStyles.sectionTitle}>USUALLY SHOPS AT</Text>
-          <Text style={tabStyles.usualStore}>
-            {storeNameOf(usual.locationId) ?? 'Unknown store'}
-            <Text style={tabStyles.usualStoreMeta}>{`  ${usual.visits} of ${usual.totalVisits} visits`}</Text>
-          </Text>
+    <View style={tabStyles.detailStack}>
+      <BentoCard>
+        {/* Name, badge, phone and the actions on ONE line. Stacked, these were
+            four bands and ~64px of margin before the first figure. The row
+            wraps on a long name rather than clipping, which spends the height
+            back only in the case that needs it. */}
+        <View style={tabStyles.detHeadRow}>
+          <View style={tabStyles.detIdent}>
+            <Text style={tabStyles.detName}>
+              {customer.firstName} {customer.lastName ?? ''}
+            </Text>
+            <Badge variant="bento" label={CUSTOMER_SEGMENT_LABELS[segment]} tone={segment === 'vip' ? 'danger' : 'default'} />
+            {customer.phone && <Text style={tabStyles.detMeta}>{customer.phone}</Text>}
+          </View>
+          <View style={tabStyles.detActions}>
+            <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
+            {canEdit && (
+              <Pressable onPress={onEdit} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>Edit</Text>
+              </Pressable>
+            )}
+            {canEdit && (
+              <Pressable onPress={toggleVip} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>{isVip ? 'Remove VIP' : 'Mark VIP'}</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-      )}
-      <View style={tabStyles.section}>
-        <Text style={tabStyles.sectionTitle}>PURCHASE HISTORY</Text>
-        {purchases.length === 0 ? (
-          <Text style={tabStyles.empty}>No purchases yet.</Text>
-        ) : (
-          purchases.map((p) => (
-            <View key={p.saleItemId} style={tabStyles.histRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={tabStyles.histTitle}>
-                  {p.productName}
-                  {p.quantity > 1 ? ` ×${p.quantity}` : ''}
-                </Text>
-                <Text style={tabStyles.histMeta}>
-                  {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
-                  {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
-                </Text>
-              </View>
-              <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
-            </View>
-          ))
-        )}
-      </View>
-      {/* What answers "why is my balance 148" at the counter. The ledger is
-          append-only, so a correction shows up as its own row rather than
-          quietly changing an old one. */}
-      {loyaltyOn && (
-        <View style={tabStyles.section}>
-          <Text style={tabStyles.sectionTitle}>POINTS HISTORY</Text>
-          {pointsHistory.length === 0 ? (
-            <Text style={tabStyles.empty}>No points activity yet.</Text>
-          ) : (
-            pointsHistory.map((entry) => (
-              <View key={entry.id} style={tabStyles.histRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
-                  <Text style={tabStyles.histMeta}>
-                    {new Date(entry.createdAt).toLocaleDateString()}
-                    {entry.note ? ` · ${entry.note}` : ''}
-                  </Text>
+        <View style={tabStyles.metricRow}>
+          <StatTile variant="bento" value={stats ? formatCents(stats.totalSpentCents) : '—'} label="Lifetime spend" />
+          <StatTile variant="bento" value={stats ? String(stats.visitCount) : '—'} label="Orders" />
+          <StatTile variant="bento" value={stats?.lastPurchaseAt ? new Date(stats.lastPurchaseAt).toLocaleDateString() : '—'} label="Last purchase" />
+          {loyaltyOn && <StatTile variant="bento" value={customer.pointsBalance.toLocaleString()} label="Points" />}
+        </View>
+        {error && <Text style={tabStyles.errorText}>{error}</Text>}
+      </BentoCard>
+
+      <DetailColumns
+        left={
+          <>
+            <BentoCard title="Notes">
+              <NotesField
+                key={customer.id}
+                value={customer.notes}
+                onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }}
+                readOnly={!canEdit}
+              />
+            </BentoCard>
+
+            {/* Where they actually shop, by visit count. Hidden for a single-store
+                business (nothing to distinguish) and when the history is tied or
+                empty — naming a store on a 2-2 split would present a coin flip as a
+                fact. See usualStore in lib/customer-segments.ts. */}
+            {usual && (
+              <BentoCard title="Usually shops at">
+                <Text style={tabStyles.usualStore}>{storeNameOf(usual.locationId) ?? 'Unknown store'}</Text>
+                <Text style={tabStyles.usualStoreMeta}>{`${usual.visits} of ${usual.totalVisits} visits`}</Text>
+              </BentoCard>
+            )}
+          </>
+        }
+        right={
+          <>
+            <ListCard
+              key={customer.id}
+              title="Purchase history"
+              scope={stats ? `${stats.visitCount} orders` : undefined}
+              subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
+              rows={purchases}
+              keyExtractor={(p) => p.saleItemId}
+              emptyLabel="No purchases yet."
+              renderRow={(p) => (
+                <View style={tabStyles.histRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={tabStyles.histTitle}>
+                      {p.productName}
+                      {p.quantity > 1 ? ` ×${p.quantity}` : ''}
+                    </Text>
+                    <Text style={tabStyles.histMeta}>
+                      {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
+                      {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
                 </View>
-                <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
-                  {entry.deltaPoints > 0 ? '+' : ''}
-                  {entry.deltaPoints.toLocaleString()}
-                </Text>
-              </View>
-            ))
-          )}
-        </View>
-      )}
-    </Card>
+              )}
+            />
+
+            {/* What answers "why is my balance 148" at the counter. The ledger is
+                append-only, so a correction shows up as its own row rather than
+                quietly changing an old one. */}
+            {loyaltyOn && (
+              <ListCard
+                key={customer.id}
+                title="Points history"
+                scope={`${customer.pointsBalance.toLocaleString()} balance`}
+                subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
+                rows={pointsHistory}
+                keyExtractor={(entry) => entry.id}
+                emptyLabel="No points activity yet."
+                renderRow={(entry) => (
+                  <View style={tabStyles.histRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
+                      <Text style={tabStyles.histMeta}>
+                        {new Date(entry.createdAt).toLocaleDateString()}
+                        {entry.note ? ` · ${entry.note}` : ''}
+                      </Text>
+                    </View>
+                    <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
+                      {entry.deltaPoints > 0 ? '+' : ''}
+                      {entry.deltaPoints.toLocaleString()}
+                    </Text>
+                  </View>
+                )}
+                note={
+                  pointsHistory.length > 0 && !ledgerNote.dismissed ? (
+                    <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
+                      The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
+                      one, which is what answers &quot;why is my balance what it is&quot; at the counter.
+                    </Caveat>
+                  ) : undefined
+                }
+              />
+            )}
+          </>
+        }
+      />
+    </View>
   );
 }
 
-function TeamTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
-  return <TeamManagementTab compact={compact} tabSwitcher={tabSwitcher} />;
-}
-
-function MeTab({ shopId, member, tabSwitcher }: { shopId: string; member: StaffMember; tabSwitcher: ReactNode }) {
+function MeTab({ shopId, member }: { shopId: string; member: StaffMember }) {
   const { locations } = useAuth();
   const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
   return (
     <ScrollView contentContainerStyle={styles.selfServiceContent}>
-      <Text style={tabStyles.screenTitle}>People</Text>
-      {tabSwitcher}
-      <View style={styles.selfServiceHeader}>
-        <Text style={styles.selfServiceName}>{member.fullName ?? member.email ?? 'Me'}</Text>
-        <Text style={styles.selfServiceMeta}>
-          {member.roleName}
-          {memberStores ? ` · ${memberStores}` : ''}
-          {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
-        </Text>
-      </View>
       <View style={styles.selfServicePanel}>
+        <BentoCard>
+          <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Me'}</Text>
+          <Text style={tabStyles.detMeta}>
+            {member.roleName}
+            {memberStores ? ` · ${memberStores}` : ''}
+            {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
+          </Text>
+        </BentoCard>
         <StaffSelfService shopId={shopId} member={member} />
       </View>
     </ScrollView>
   );
 }
 
-function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwitcher: ReactNode }) {
+function TeamManagementTab({
+  compact,
+  setHeaderActions,
+  setDetailSelected,
+}: {
+  compact: boolean;
+  setHeaderActions: HeaderActionsSetter;
+  setDetailSelected: DetailSelectionSetter;
+}) {
   const { shop, can, canAny, locations } = useAuth();
   const rosterStores = (member: StaffMember) =>
     describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
@@ -526,10 +660,12 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   const canManagePayroll = can('people.payroll.manage');
   const canViewHours = canAny(['people.timesheet.view', 'people.payroll.manage']);
   const canApproveTimeOff = can('people.timeoff.approve');
+  const noHoursNote = useCaveatDismissal('people.team.no-timesheet-access', 'v1');
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [timeOff, setTimeOff] = useState<TimeOffRequest[]>([]);
+  const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -537,25 +673,35 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   const [showImportModal, setShowImportModal] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useDetailSelection(setDetailSelected, selectedId !== null);
+
   const reload = useCallback(async () => {
     if (!shop) return;
     setLoading(true);
     setError(null);
     try {
-      const [staffList, roleList, timeOffList] = await Promise.all([
+      const since = new Date();
+      since.setDate(1);
+      since.setHours(0, 0, 0, 0);
+      const [staffList, roleList, timeOffList, entryList] = await Promise.all([
         listStaff(shop.id),
         listRoles(shop.id),
         canApproveTimeOff ? listShopTimeOffRequests(shop.id) : Promise.resolve([]),
+        // Shop-wide hours for the strip. Gated the same way the per-member
+        // figure is: without timesheet access the tile shows a dash rather
+        // than a number nobody is allowed to see.
+        canViewHours ? listShopTimeEntries(shop.id, { sinceIso: since.toISOString() }) : Promise.resolve([]),
       ]);
       setStaff(staffList);
       setRoles(roleList);
       setTimeOff(timeOffList);
+      setEntries(entryList);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
       setLoading(false);
     }
-  }, [shop, canApproveTimeOff]);
+  }, [shop, canApproveTimeOff, canViewHours]);
 
   useEffect(() => {
     reload();
@@ -565,6 +711,8 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   // off; also honours non-contiguous date ranges, which the previous inline
   // version flattened to their outer bounds.
   const onLeaveMemberIds = useMemo(() => onLeaveMembers(timeOff), [timeOff]);
+  const activeTodayCount = useMemo(() => membersActiveToday(entries), [entries]);
+  const hoursThisPeriod = useMemo(() => sumDurationHours(entries), [entries]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -578,6 +726,7 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
   }, [staff, search]);
 
   const selected = staff.find((m) => m.id === selectedId) ?? null;
+  const disabledCount = useMemo(() => staff.filter((m) => !m.active).length, [staff]);
 
   const importConfig: ImportEntityConfig<StaffMember> | null =
     shop && roles.length > 0
@@ -615,19 +764,42 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
       ]
     : baseColumns;
 
+  useHeaderActions(
+    setHeaderActions,
+    <>
+      {canManageRoster && <ExportMenu rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
+      {canManageRoster && (
+        <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
+          <Text style={tabStyles.actionButtonText}>Import</Text>
+        </Pressable>
+      )}
+      {canManageRoster && (
+        <Pressable
+          onPress={() => setShowAddModal(true)}
+          disabled={roles.length === 0}
+          style={[tabStyles.actionButton, tabStyles.actionButtonSolid, roles.length === 0 && tabStyles.actionButtonDisabled]}
+        >
+          <Text style={[tabStyles.actionButtonText, tabStyles.actionButtonTextSolid]}>+ Add staff</Text>
+        </Pressable>
+      )}
+    </>,
+    // NOT `exportColumns`: it is an array literal rebuilt on every render, so
+    // depending on it would re-publish the actions every render, re-render the
+    // shell that owns them, and loop. Its two real inputs are here instead —
+    // `locations` is useAuth state and so is reference-stable.
+    [filtered, canManageRoster, canManagePayroll, locations, roles.length]
+  );
+
   const list = (
     <>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
-      <View style={tabStyles.search}>
-        <TextInput value={search} onChangeText={setSearch} placeholder="Search by name, role, or phone" placeholderTextColor="#999999" style={tabStyles.searchInput} />
-      </View>
       {canApproveTimeOff && <TimeOffRequestsPanel requests={timeOff} staff={staff} onChange={reload} />}
       {loading ? (
         <Text style={tabStyles.empty}>Loading…</Text>
       ) : filtered.length === 0 ? (
         <Text style={tabStyles.empty}>No team members match.</Text>
       ) : (
-        <Card style={tabStyles.list}>
+        <Card variant="bento" style={tabStyles.list}>
           {filtered.map((member) => {
             const onLeave = onLeaveMemberIds.has(member.id);
             return (
@@ -636,6 +808,7 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
                 onPress={() => setSelectedId(member.id)}
                 style={[tabStyles.row, member.id === selectedId && tabStyles.rowSelected]}
               >
+                <Avatar photoUrl={member.photoUrl} name={member.fullName} size={32} />
                 <View style={tabStyles.rowMain}>
                   <Text style={tabStyles.rowName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
                   <Text style={tabStyles.rowSub}>
@@ -645,6 +818,7 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
                 </View>
                 <View style={tabStyles.rowTrailing}>
                   <Badge
+                    variant="bento"
                     label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'}
                     tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'}
                   />
@@ -670,37 +844,61 @@ function TeamManagementTab({ compact, tabSwitcher }: { compact: boolean; tabSwit
       onChanged={reload}
     />
   ) : (
-    <Card style={tabStyles.emptyDetail}>
+    <BentoCard style={tabStyles.emptyDetail}>
       <Text style={tabStyles.empty}>Select a team member to see their details.</Text>
-    </Card>
+    </BentoCard>
   );
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={tabStyles.tabHeader}>
-        <View style={tabStyles.headerTitleGroup}>
-          <Text style={tabStyles.screenTitle}>People</Text>
-          <Text style={tabStyles.subtitle}>{staff.length} on the team</Text>
-        </View>
-        <View style={tabStyles.headerActions}>
-          {canManageRoster && <ExportMenu rows={filtered} columns={exportColumns} title="Team" subtitle={`${filtered.length} team members`} filenamePrefix="team" />}
-          {canManageRoster && (
-            <Pressable onPress={() => setShowImportModal(true)} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>Import</Text>
-            </Pressable>
-          )}
-          {canManageRoster && (
-            <Pressable
-              onPress={() => setShowAddModal(true)}
-              disabled={roles.length === 0}
-              style={[tabStyles.actionButton, roles.length === 0 && tabStyles.actionButtonDisabled]}
-            >
-              <Text style={tabStyles.actionButtonText}>+ Add staff</Text>
-            </Pressable>
-          )}
-        </View>
+      <GlanceStrip
+        style={tabStyles.strip}
+        caveat={
+          !canViewHours && !noHoursNote.dismissed ? (
+            <Caveat tone="partial" onDismiss={noHoursNote.dismiss}>
+              Hours are hidden — you don&apos;t have timesheet access, so the two figures that come from clock-ins are
+              left blank rather than shown as zero.
+            </Caveat>
+          ) : undefined
+        }
+      >
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={String(staff.length)}
+          label="On the team"
+          hint={disabledCount > 0 ? `${staff.length - disabledCount} active · ${disabledCount} disabled` : 'all active'}
+        />
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={canViewHours ? String(activeTodayCount) : '—'}
+          label="In today"
+          hint={canViewHours ? 'clocked in at some point' : 'needs timesheet access'}
+        />
+        <StatTile variant="bento" density="dense" value={String(onLeaveMemberIds.size)} label="On leave" hint="approved time off" />
+        <StatTile
+          variant="bento"
+          density="dense"
+          value={canViewHours ? `${hoursThisPeriod.toFixed(0)}h` : '—'}
+          label="Hours this period"
+          hint={canViewHours ? 'since the 1st' : 'needs timesheet access'}
+        />
+      </GlanceStrip>
+
+      {/* Above the panes, not inside the list, so it does not slide off the top
+          of a long roster. Matches Customers. TimeOffRequestsPanel stays in the
+          pane -- it is a queue you work through, not a control you reach for. */}
+      <View style={tabStyles.search}>
+        <TextInput
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search by name, role, or phone"
+          placeholderTextColor={theme.bentoMuted2}
+          style={tabStyles.searchInput}
+        />
       </View>
-      {tabSwitcher}
+
       <TwoPaneListDetail
         compact={compact}
         list={list}
@@ -737,9 +935,26 @@ function TeamDetailPane({
   onChanged: () => Promise<void>;
 }) {
   const { shop, locations } = useAuth();
+  // Not keyed to the member: "you don't have payroll access" is one fact about
+  // the viewer, so closing it once shouldn't have to be done again on the next
+  // person in the list.
+  const noPayrollNote = useCaveatDismissal('people.team.no-payroll-access', 'v1');
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
+  // A pay rate is sensitive in a way a hire date is not — someone glancing at
+  // a manager's screen over the counter shouldn't read it incidentally, so it
+  // stays masked until asked for. TeamDetailPane isn't remounted per member
+  // (no `key` at its call site, just a prop swap), so a plain useState would
+  // leave the previous person's rate revealed. Reset it during render (React's
+  // documented "adjusting state when a prop changes" pattern), not in a
+  // useEffect, which would fire a redundant extra render.
+  const [payRevealed, setPayRevealed] = useState(false);
+  const [payRevealedForId, setPayRevealedForId] = useState(member.id);
+  if (payRevealedForId !== member.id) {
+    setPayRevealedForId(member.id);
+    setPayRevealed(false);
+  }
 
   const role = roles.find((r) => r.id === member.roleId);
   const permissions = role?.permissions ?? [];
@@ -761,131 +976,151 @@ function TeamDetailPane({
 
   const activeLeaveRequest = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
-    return timeOff.find(r => 
-      r.shopMemberId === member.id && 
-      r.status === 'approved' && 
+    return timeOff.find(r =>
+      r.shopMemberId === member.id &&
+      r.status === 'approved' &&
       (r.dateRanges?.some(range => range.startDate <= today && range.endDate >= today) ?? (r.startDate <= today && r.endDate >= today))
     );
   }, [timeOff, member.id]);
 
+  // Every range, not just the outer bounds: someone off Monday and Thursday
+  // is not off on Wednesday, and flattening the two says they are.
+  const leaveRanges = activeLeaveRequest
+    ? (activeLeaveRequest.dateRanges?.length
+        ? activeLeaveRequest.dateRanges
+        : [{ startDate: activeLeaveRequest.startDate, endDate: activeLeaveRequest.endDate }])
+    : [];
+
   const memberStores = describeMemberStores(member.locationIds, locations, hasMultipleLocations(locations));
 
   return (
-    <Card style={tabStyles.detailCard}>
-      <View style={tabStyles.detHead}>
-        <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
-        <Badge label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
-      </View>
-      <Text style={tabStyles.detPhone}>
-        {member.roleName}
-        {memberStores ? ` · ${memberStores}` : ''}
-        {member.phone ? ` · ${member.phone}` : ''}
-        {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
-      </Text>
-
-      <View style={tabStyles.tiles}>
-        <StatTile value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
-        <StatTile value={canManagePayroll ? (member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—') : '—'} label="Pay type" />
-        <StatTile value={canViewHours ? `${hoursThisPeriod.toFixed(1)}h` : '—'} label="Hours this period" />
-      </View>
-
-      {activeLeaveRequest && (
-        <View style={[tabStyles.section, { backgroundColor: '#FEF3C7', borderRadius: 10, padding: 16 }]}>
-          <Text style={[tabStyles.sectionTitle, { color: '#92400E' }]}>ON LEAVE</Text>
-          <Text style={{ color: '#92400E', fontSize: 15, fontWeight: '600', marginTop: 8 }}>
-            Returning on {new Date(activeLeaveRequest.endDate).toLocaleDateString()}
-          </Text>
-          {activeLeaveRequest.reason && (
-            <Text style={{ color: '#92400E', fontSize: 13, marginTop: 8, lineHeight: 18 }}>
-              {activeLeaveRequest.reason}
-            </Text>
-          )}
-          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.1)' }}>
-            {activeLeaveRequest.dateRanges && activeLeaveRequest.dateRanges.length > 0 ? (
-              <>
-                <Text style={{ color: '#92400E', fontSize: 12, fontWeight: '600', marginBottom: 8 }}>Date ranges:</Text>
-                {activeLeaveRequest.dateRanges.map((range, idx) => (
-                  <Text key={idx} style={{ color: '#92400E', fontSize: 12, marginBottom: 4 }}>
-                    {new Date(range.startDate).toLocaleDateString()} – {new Date(range.endDate).toLocaleDateString()}
-                  </Text>
-                ))}
-              </>
-            ) : (
-              <Text style={{ color: '#92400E', fontSize: 12 }}>
-                {new Date(activeLeaveRequest.startDate).toLocaleDateString()} – {new Date(activeLeaveRequest.endDate).toLocaleDateString()}
-              </Text>
-            )}
-            <Text style={{ color: '#92400E', fontSize: 11, marginTop: 8, opacity: 0.7 }}>
-              Requested {new Date(activeLeaveRequest.requestedAt).toLocaleDateString()}
+    <View style={tabStyles.detailStack}>
+      <BentoCard>
+        <View style={tabStyles.detHeadRow}>
+          <View style={tabStyles.detIdent}>
+            <Avatar photoUrl={member.photoUrl} name={member.fullName} size={40} />
+            <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
+            <Badge variant="bento" label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
+            <Text style={tabStyles.detMeta}>
+              {member.roleName}
+              {memberStores ? ` · ${memberStores}` : ''}
+              {member.phone ? ` · ${member.phone}` : ''}
+              {member.hireDate ? ` · joined ${new Date(member.hireDate).toLocaleDateString()}` : ''}
             </Text>
           </View>
+          {/* Messaging isn't editing: a scheduler who can see the roster but not
+              change it still needs to reach the person, so the WhatsApp button is
+              outside the canManageRoster gate. */}
+          <View style={tabStyles.detActions}>
+            <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} variant="pill" />
+            {canManageRoster && (
+              <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>Edit member</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
-      )}
 
-      {/* Messaging isn't editing: a scheduler who can see the roster but not
-          change it still needs to reach the person, so the WhatsApp button is
-          outside the canManageRoster gate. */}
-      <View style={tabStyles.actions}>
-        <WhatsAppButton phone={member.phone} name={member.fullName ?? 'this person'} variant="pill" />
-        {canManageRoster && (
-          <Pressable onPress={() => setEditingMember(true)} style={tabStyles.actionButtonGhost}>
-            <Text style={tabStyles.actionButtonGhostText}>Edit member</Text>
-          </Pressable>
+        <View style={tabStyles.metricRow}>
+          <StatTile variant="bento" value={member.hireDate ? new Date(member.hireDate).toLocaleDateString() : '—'} label="Hire date" />
+          <StatTile variant="bento" value={canManagePayroll ? (member.payType ? member.payType[0].toUpperCase() + member.payType.slice(1) : '—') : '—'} label="Pay type" />
+          <StatTile variant="bento" value={canViewHours ? `${hoursThisPeriod.toFixed(1)}h` : '—'} label="Hours this period" />
+        </View>
+
+        {/* A fact about the person, not a fault to fix -- 'context', not
+            'wrong'. Replaces a hand-rolled amber panel that hardcoded its own
+            colours and duplicated Caveat's job. */}
+        {activeLeaveRequest && (
+          <Caveat tone="context">
+            {`On leave — back ${new Date(activeLeaveRequest.endDate).toLocaleDateString()}. ${leaveRanges
+              .map((range) => `${new Date(range.startDate).toLocaleDateString()}–${new Date(range.endDate).toLocaleDateString()}`)
+              .join(', ')}${activeLeaveRequest.reason ? ` · ${activeLeaveRequest.reason}` : ''}. Requested ${new Date(
+              activeLeaveRequest.requestedAt
+            ).toLocaleDateString()}.`}
+          </Caveat>
         )}
-      </View>
-      <View style={tabStyles.section}>
-        <View style={tabStyles.sectionHeadRow}>
-          <Text style={tabStyles.sectionTitle}>PAYROLL</Text>
-          {canManagePayroll && !canManageRoster && (
-            <Pressable onPress={() => setEditingPay(true)}>
-              <Text style={tabStyles.sectionLink}>Edit</Text>
-            </Pressable>
-          )}
-        </View>
-        <Text style={tabStyles.payrollValue}>
-          {!canManagePayroll
-            ? 'Hidden'
-            : member.payType == null || member.payRateCents == null
-              ? 'Not set'
-              : formatPayRateLong(member.payType, member.payRateCents)}
-        </Text>
-      </View>
+      </BentoCard>
 
-      {canViewHours && (
-        <View style={tabStyles.section}>
-          <Text style={tabStyles.sectionTitle}>RECENT SHIFTS</Text>
-          {entries.length === 0 ? (
-            <Text style={tabStyles.empty}>No shifts logged this period.</Text>
-          ) : (
-            entries.slice(0, 8).map((e) => (
-              <View key={e.id} style={tabStyles.shiftRow}>
-                <Text style={tabStyles.shiftDate}>
-                  {new Date(e.clockIn).toLocaleDateString()} · {new Date(e.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                  {e.clockOut ? `–${new Date(e.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}
+      <DetailColumns
+        left={
+          <>
+            <BentoCard
+              title="Payroll"
+              actions={
+                canManagePayroll && !canManageRoster ? (
+                  <Pressable onPress={() => setEditingPay(true)} style={tabStyles.actionButton}>
+                    <Text style={tabStyles.actionButtonText}>Edit</Text>
+                  </Pressable>
+                ) : undefined
+              }
+            >
+              <View style={tabStyles.payrollRow}>
+                <Text style={tabStyles.payrollValue}>
+                  {!canManagePayroll
+                    ? 'Hidden'
+                    : member.payType == null || member.payRateCents == null
+                      ? 'Not set'
+                      : payRevealed
+                        ? formatPayRateLong(member.payType, member.payRateCents)
+                        : '•••••'}
                 </Text>
-                <Text style={tabStyles.shiftDuration}>{e.clockOut ? `${sumDurationHours([e]).toFixed(1)}h` : '—'}</Text>
+                {canManagePayroll && member.payType != null && member.payRateCents != null && (
+                  <Pressable
+                    onPress={() => setPayRevealed((prev) => !prev)}
+                    style={tabStyles.actionButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={payRevealed ? 'Hide pay rate' : 'Show pay rate'}
+                  >
+                    <Text style={tabStyles.actionButtonText}>{payRevealed ? 'Hide' : 'Show'}</Text>
+                  </Pressable>
+                )}
               </View>
-            ))
-          )}
-        </View>
-      )}
+              {!canManagePayroll && !noPayrollNote.dismissed && (
+                <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
+                  You don&apos;t have payroll access, so this member&apos;s rate is hidden.
+                </Caveat>
+              )}
+            </BentoCard>
 
-      <View style={tabStyles.section}>
-        <Text style={tabStyles.sectionTitle}>ACCESS &amp; PERMISSIONS</Text>
-        <View style={tabStyles.permGrid}>
-          {PERMISSION_GROUPS.map((group) => {
-            const granted = groupHasAny(permissions, group);
-            return (
-              <View key={group.label} style={tabStyles.permTile}>
-                <View style={[tabStyles.permIcon, granted ? tabStyles.permIconOn : tabStyles.permIconOff]}>
-                  <Text style={tabStyles.permIconText}>{granted ? '✓' : '🔒'}</Text>
-                </View>
-                <Text style={tabStyles.permLabel}>{group.label}</Text>
+            <BentoCard title="Access &amp; permissions">
+              <View style={tabStyles.permGrid}>
+                {PERMISSION_GROUPS.map((group) => {
+                  const granted = groupHasAny(permissions, group);
+                  return (
+                    <View key={group.label} style={tabStyles.permTile}>
+                      <View style={[tabStyles.permIcon, granted ? tabStyles.permIconOn : tabStyles.permIconOff]}>
+                        <Text style={tabStyles.permIconText}>{granted ? '✓' : '🔒'}</Text>
+                      </View>
+                      <Text style={tabStyles.permLabel}>{group.label}</Text>
+                    </View>
+                  );
+                })}
               </View>
-            );
-          })}
-        </View>
-      </View>
+            </BentoCard>
+          </>
+        }
+        right={
+          canViewHours ? (
+            <ListCard
+              title="Recent shifts"
+              scope="This period"
+              subtitle={member.fullName ?? member.email ?? 'Staff member'}
+              rows={entries}
+              keyExtractor={(e) => e.id}
+              emptyLabel="No shifts logged this period."
+              renderRow={(e) => (
+                <View style={tabStyles.shiftRow}>
+                  <Text style={tabStyles.shiftDate}>
+                    {new Date(e.clockIn).toLocaleDateString()} · {new Date(e.clockIn).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                    {e.clockOut ? `–${new Date(e.clockOut).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ' (on shift)'}
+                  </Text>
+                  <Text style={tabStyles.shiftDuration}>{e.clockOut ? `${sumDurationHours([e]).toFixed(1)}h` : '—'}</Text>
+                </View>
+              )}
+            />
+          ) : null
+        }
+      />
 
       <EditPayModal
         visible={editingPay}
@@ -901,6 +1136,7 @@ function TeamDetailPane({
         <TeamMemberEditModal
           key={`${member.id}-${editingMember}`}
           visible={editingMember}
+          shopId={shop.id}
           member={member}
           roles={roles}
           locations={locations}
@@ -917,80 +1153,104 @@ function TeamDetailPane({
           }}
         />
       )}
-    </Card>
+    </View>
   );
 }
 
 const tabStyles = StyleSheet.create({
-  tabHeader: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 14 },
-  headerTitleGroup: { gap: 3 },
-  screenTitle: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { color: '#999999', fontSize: 12 },
-  headerActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' },
-  actionButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  actionButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  actionButtonGhost: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
-  actionButtonGhostText: { color: '#111111', fontWeight: '800', fontSize: 11 },
-  search: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 40, paddingHorizontal: 13, marginBottom: 10 },
-  searchInput: { flex: 1, height: '100%', color: '#111111' },
-  filterScroll: { flexGrow: 0, flexShrink: 0, height: 48, marginBottom: 12 },
+  strip: { marginBottom: 14 },
+  metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  actionButton: {
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    backgroundColor: theme.bentoSurface,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+  },
+  actionButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  actionButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
+  actionButtonTextSolid: { color: theme.bentoSurface },
+  actionButtonDisabled: { opacity: 0.5 },
+  // White on the grey page, like the cards — bentoSoft is two points off
+  // bentoPage and the field dissolved into it. Matches Inventory's.
+  search: {
+    backgroundColor: theme.bentoSurface,
+    borderWidth: 1,
+    borderColor: theme.bentoRule,
+    borderRadius: 14,
+    height: 44,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  searchInput: { flex: 1, height: '100%', color: theme.bentoInk },
+  // Search and the filter chips share one line. Two stacked 44px bands plus
+  // their margins was 110px of chrome for one job.
+  controlRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  // 140px is the floor for a usable input -- below it the chips give way
+  // first, since filterScroll (below) is allowed to shrink and this isn't.
+  searchInRow: { flex: 1, minWidth: 140, marginBottom: 0 },
+  // A row item now, not a column band, so these flags govern width, not
+  // height. It has to be allowed to shrink (and to shrink past its content
+  // width, via minWidth: 0) or a narrow window has nowhere to take space
+  // from and the search field beside it collapses instead.
+  filterScroll: { flexGrow: 0, flexShrink: 1, minWidth: 0, height: 44 },
   chips: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
+  // Zero padding and clipped: the rows run to the card's edges so a selected
+  // row is a full-width band rather than a floating stripe, and the first and
+  // last rows take the 26px corner.
   list: { overflow: 'hidden' },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 13, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
-  rowSelected: { backgroundColor: '#F7E1E2' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  rowSelected: { backgroundColor: theme.bentoSoft },
   rowMain: { flex: 1, minWidth: 0 },
   rowTrailing: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 9, minWidth: 100 },
-  rowName: { fontSize: 13.5, fontWeight: '700', color: '#111111' },
-  rowSub: { fontSize: 11.5, color: '#999999', marginTop: 2 },
-  empty: { color: '#999999', fontSize: 13, textAlign: 'center', paddingVertical: 20 },
-  emptyDetail: { padding: 24, alignItems: 'center' },
-  detailCard: { padding: 18 },
-  detHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4 },
-  detName: { fontSize: 17, fontWeight: '800', color: '#111111' },
-  detPhone: { fontSize: 12.5, color: '#666666', marginBottom: 16 },
-  // Wraps because loyalty adds a fourth tile — four across squeeze unreadably
-  // on a phone.
-  tiles: { flexDirection: 'row', flexWrap: 'wrap', gap: 9, marginBottom: 16 },
-  actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginBottom: 18 },
-  section: { marginBottom: 18 },
-  sectionTitle: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6, color: '#999999', marginBottom: 8 },
-  histRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#ECECEC', gap: 10 },
-  histTitle: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
-  histMeta: { fontSize: 11, color: '#999999', marginTop: 1 },
-  usualStore: { fontSize: 14, fontWeight: '700', color: '#111111' },
-  usualStoreMeta: { fontSize: 12, fontWeight: '600', color: '#9CA3AF' },
-  histAmount: { fontSize: 12.5, fontWeight: '700', color: '#111111' },
-  histAmountNegative: { color: '#C0392B' },
-  actionButtonDisabled: { opacity: 0.5 },
-  sectionHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  sectionLink: { fontSize: 11.5, fontWeight: '700', color: '#B23B4E' },
-  payrollValue: { fontSize: 14, fontWeight: '700', color: '#111111' },
-  shiftRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
-  shiftDate: { fontSize: 12, color: '#666666' },
-  shiftDuration: { fontSize: 12, fontWeight: '700', color: '#111111' },
+  rowName: { fontSize: 13.5, fontWeight: '700', color: theme.bentoInk },
+  rowSub: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
+  empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+  emptyDetail: { alignItems: 'center' },
+  // The detail pane is a STACK of cards, not one card with headings -- 14px
+  // apart, matching BentoGrid's own gutter.
+  detailStack: { gap: 14 },
+  detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
+  detMeta: { fontSize: 12.5, color: theme.bentoMuted },
+  detHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 },
+  // minWidth 0 so a long name shrinks rather than pushing the buttons off.
+  detIdent: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 1, minWidth: 0 },
+  detActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  histRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.bentoLine, gap: 10 },
+  histTitle: { fontSize: 13, fontWeight: '600', color: theme.bentoInk },
+  histMeta: { fontSize: 11, color: theme.bentoMuted, marginTop: 1 },
+  histAmount: { fontSize: 13, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  histAmountNegative: { color: theme.bentoLoss },
+  usualStore: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  usualStoreMeta: { fontSize: 12, color: theme.bentoMuted, marginTop: 3 },
+  payrollValue: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  payrollRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  shiftRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  shiftDate: { fontSize: 12, color: theme.bentoInk2 },
+  shiftDuration: { fontSize: 12, fontWeight: '700', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
   permGrid: { flexDirection: 'row', gap: 8 },
-  permTile: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: '#F7F7F5', borderRadius: 11, paddingVertical: 11 },
-  permIcon: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  permIconOn: { backgroundColor: '#E1F0E4' },
-  permIconOff: { backgroundColor: '#EAEAEA' },
+  permTile: { flex: 1, alignItems: 'center', gap: 6, backgroundColor: theme.bentoSoft, borderRadius: 14, paddingVertical: 12 },
+  permIcon: { width: 26, height: 26, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
+  permIconOn: { backgroundColor: '#E7F5ED' },
+  permIconOff: { backgroundColor: theme.bentoLine },
   permIconText: { fontSize: 12 },
-  permLabel: { fontSize: 10.5, fontWeight: '600', color: '#666666' },
-  errorText: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 6 },
-  reqRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
-  reqRange: { fontSize: 12.5, fontWeight: '600', color: '#111111' },
-  reqReason: { fontSize: 11, color: '#999999', marginTop: 1 },
-  reqActions: { flexDirection: 'row', gap: 10 },
-  reqApprove: { fontSize: 12, fontWeight: '700', color: '#2E7D46' },
-  reqDeny: { fontSize: 12, fontWeight: '700', color: '#B23B4E' },
+  permLabel: { fontSize: 10.5, fontWeight: '700', color: theme.bentoMuted },
+  errorText: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 10 },
 });
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
-  body: { flex: 1, paddingHorizontal: 24, paddingTop: 24, paddingBottom: 24 },
+  // The grey page the bento cards float on, matching Dashboard and Accounting.
+  safeArea: { flex: 1, backgroundColor: theme.bentoPage },
+  body: { flex: 1, padding: 18, paddingBottom: 24 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 16, flexWrap: 'wrap' },
+  headerTitles: { flexShrink: 1 },
+  headerActions: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6, justifyContent: 'flex-end' },
+  eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: theme.bentoMuted, marginBottom: 3 },
+  title: { color: theme.bentoInk, fontSize: 26, fontWeight: '800', letterSpacing: -1 },
+  blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3 },
+  tabBar: { marginBottom: 16 },
   selfServiceContent: { flexGrow: 1, paddingBottom: 24 },
-  selfServiceHeader: { marginBottom: 20 },
-  selfServiceName: { color: '#111111', fontSize: 24, fontWeight: '800', letterSpacing: -0.4 },
-  selfServiceMeta: { color: '#777777', fontSize: 13, marginTop: 4 },
-  selfServicePanel: { width: '100%', maxWidth: 640, alignSelf: 'center' },
-  placeholder: { color: '#999999', fontSize: 13 },
+  selfServicePanel: { width: '100%', maxWidth: 640, alignSelf: 'center', gap: 14 },
 });

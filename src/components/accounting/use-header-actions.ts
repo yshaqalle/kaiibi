@@ -20,3 +20,19 @@ export function useHeaderActions(setActions: HeaderActionsSetter, node: ReactNod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setActions, ...deps]);
 }
+
+export type DetailSelectionSetter = (selected: boolean) => void;
+
+// Travels upward for the same reason the header actions do: the shell renders
+// the title block before the tab that knows whether anything is selected.
+//
+// Only the boolean travels, not the id. The shell has no business knowing
+// WHICH person is open -- it only decides whether the screen's blurb still has
+// a job.
+export function useDetailSelection(setSelected: DetailSelectionSetter, selected: boolean): void {
+  useEffect(() => {
+    setSelected(selected);
+    // Cleared on unmount so a tab switch never leaves the blurb hidden.
+    return () => setSelected(false);
+  }, [setSelected, selected]);
+}

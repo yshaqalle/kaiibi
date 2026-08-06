@@ -1,3 +1,4 @@
+import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { toDateColumn } from '@/lib/period';
 import { supabase } from '@/lib/supabase';
 import type { Expense, NewExpenseInput } from '@/types/models';
@@ -52,6 +53,30 @@ export async function listExpensesInRange(shopId: string, since: Date, until?: D
   // inflating the current period.
   if (until) query = query.lte('occurred_on', toDateColumn(until));
   const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map(mapExpenseRow);
+}
+
+// Type-ahead for global search.
+//
+// Matches the note and the category only -- NOT the vendor name, which lives
+// on the joined `vendors` row. PostgREST cannot filter a top-level `or` across
+// an embedded table, and turning this into a two-query merge to reach it is
+// not worth it: an expense is found by what it was for, and a search for the
+// vendor itself already returns the vendor and its bills.
+export async function searchExpenses(shopId: string, query: string): Promise<Expense[]> {
+  const q = query.trim();
+  if (q.length < 2) return [];
+  // Quoted for the `or` list -- a note with a comma in it would otherwise
+  // break the filter rather than match. See orFilterValue.
+  const pattern = orFilterValue(containsPattern(q));
+  const { data, error } = await supabase
+    .from('expenses')
+    .select(SELECT_WITH_VENDOR)
+    .eq('shop_id', shopId)
+    .or(`note.ilike.${pattern},category.ilike.${pattern}`)
+    .order('occurred_on', { ascending: false })
+    .limit(6);
   if (error) throw error;
   return (data ?? []).map(mapExpenseRow);
 }

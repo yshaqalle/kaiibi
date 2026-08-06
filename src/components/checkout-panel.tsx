@@ -4,9 +4,13 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 
 import { CategoryChip } from '@/components/category-chip';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
+import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { formatPoints, pointsToCents } from '@/lib/loyalty';
 import type { Currency, PaymentLine, PaymentMethod } from '@/types/models';
+
+// Pinned to the light palette for now — no dark-mode switching yet.
+const theme = Colors.light;
 
 // Cashier/customer/payment live in a bottom-sheet modal behind a single
 // "Checkout" button rather than inline in the cart pane, so the cart pane
@@ -254,31 +258,37 @@ function PointsSection({
 }
 
 const styles = StyleSheet.create({
-  checkout: { backgroundColor: '#111111', height: 56, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginTop: 20 },
-  checkoutDisabled: { backgroundColor: '#CCCCCC' },
-  checkoutText: { color: '#FFFFFF', fontWeight: '800', fontSize: 16 },
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, maxHeight: '85%' },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  title: { fontSize: 18, fontWeight: '800', color: '#111111' },
-  close: { backgroundColor: '#F2F2F2', paddingVertical: 7, paddingHorizontal: 14, borderRadius: 8 },
+  // The sale's primary action: 56px, full width, black. Nothing else on the
+  // sheet competes with it.
+  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  checkoutDisabled: { backgroundColor: theme.bentoSoft },
+  checkoutText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
+  overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
+  // The sheet is the PAGE, not a card — the blocks inside it are the cards, and
+  // a white sheet would flatten them into it.
+  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 24, maxHeight: '85%' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  title: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
+  close: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999 },
   closePressed: { opacity: 0.6 },
-  closeText: { fontSize: 13, fontWeight: '700', color: '#111111' },
-  cashierSection: { marginTop: 0, marginBottom: 4 },
-  cashierLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 8 },
+  closeText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+  cashierSection: { backgroundColor: theme.bentoSurface, borderRadius: 16, padding: 14, marginBottom: 8 },
+  cashierLabel: { fontSize: 10.5, letterSpacing: 0.7, fontWeight: '800', color: theme.bentoMuted, marginBottom: 9, textTransform: 'uppercase' },
   cashierChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  completeSale: { marginBottom: 8 },
-  error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 10 },
-  pointsSection: { marginTop: 16 },
-  pointsLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 8 },
-  pointsBalance: { fontSize: 12, fontWeight: '700', color: '#111111' },
+  completeSale: { marginBottom: 4 },
+  error: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginTop: 10 },
+  pointsSection: { backgroundColor: theme.bentoSurface, borderRadius: 16, padding: 14, marginTop: 8 },
+  pointsLabel: { fontSize: 10.5, letterSpacing: 0.7, fontWeight: '800', color: theme.bentoMuted, marginBottom: 9, textTransform: 'uppercase' },
+  pointsBalance: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
   pointsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  pointsInput: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111', flex: 1 },
-  useMax: { backgroundColor: '#F2F2F2', height: 42, paddingHorizontal: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  pointsInput: { backgroundColor: theme.bentoSoft, borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 12, height: 44, paddingHorizontal: 12, color: theme.bentoInk, flex: 1 },
+  useMax: { backgroundColor: theme.bentoSoft, borderWidth: 1, borderColor: theme.bentoLine, height: 44, paddingHorizontal: 15, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   useMaxDisabled: { opacity: 0.45 },
-  useMaxText: { fontSize: 12, fontWeight: '700', color: '#111111' },
-  pointsUsing: { fontSize: 12, fontWeight: '700', color: '#111111', marginTop: 8 },
-  pointsClamped: { color: '#9A6700' },
-  pointsEarns: { fontSize: 11, color: '#999999', marginTop: 6 },
-  pointsMaturing: { fontSize: 11, color: '#9A6700', fontWeight: '700', marginTop: 4 },
+  useMaxText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+  pointsUsing: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk, marginTop: 8 },
+  // Warm on purpose — a clamp is a mild warning, and cooling it to match the
+  // palette would cost it the flag it carries.
+  pointsClamped: { color: '#8A530F' },
+  pointsEarns: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 6 },
+  pointsMaturing: { fontSize: 11.5, color: '#8A530F', fontWeight: '700', marginTop: 4 },
 });

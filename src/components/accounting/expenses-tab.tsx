@@ -7,6 +7,8 @@ import { useHeaderActions, type HeaderActionsSetter } from '@/components/account
 import { ExportMenu } from '@/components/export-menu';
 import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
+import { BentoFlow } from '@/components/ui/bento';
+import { BentoCard } from '@/components/ui/bento-card';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import type { CsvColumn } from '@/lib/csv';
@@ -140,16 +142,22 @@ export function ExpensesTab({
     [filtered, rangeLabel, canManage]
   );
 
+  // Flow, not a grid — this is a ledger. See BentoFlow.
   return (
-    <View>
-      <View style={styles.metricRow}>
-        <StatTile value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
-        <StatTile value={formatCompactCents(operatingCents)} label="Operating expenses" />
-        {nonOperatingCents > 0 && (
-          <StatTile value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" />
-        )}
-      </View>
+    <BentoFlow>
+      <BentoCard title="What the shop spent" scope={rangeLabel}>
+        <View style={styles.metricRow}>
+          <StatTile variant="bento" value={formatCompactCents(totalCents)} label={`Spent · ${rangeLabel}`} />
+          <StatTile variant="bento" value={formatCompactCents(operatingCents)} label="Operating expenses" hint="feeds net profit" />
+          {nonOperatingCents > 0 && (
+            <StatTile variant="bento" value={formatCompactCents(nonOperatingCents)} label="Stock & owner draws" hint="excluded from profit" />
+          )}
+        </View>
+      </BentoCard>
 
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <BentoCard title="Logged expenses" scope={rangeLabel}>
       {presentCategories.length > 1 && (
         <View style={styles.filterRow}>
           <Pressable onPress={() => setCategoryFilter('all')} style={[styles.filterChip, categoryFilter === 'all' && styles.filterChipActive]}>
@@ -165,8 +173,6 @@ export function ExpensesTab({
           })}
         </View>
       )}
-
-      {error && <Text style={styles.error}>{error}</Text>}
 
       {loading ? (
         <Text style={styles.empty}>Loading…</Text>
@@ -233,6 +239,7 @@ export function ExpensesTab({
           ))}
         </View>
       )}
+      </BentoCard>
 
       {editing !== null && shop && (
         <ExpenseEditorModal
@@ -257,16 +264,16 @@ export function ExpensesTab({
           }
         />
       )}
-    </View>
+    </BentoFlow>
   );
 }
 
 const styles = StyleSheet.create({
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
-  metricRow: { flexDirection: 'row', gap: 10, marginBottom: 18, flexWrap: 'wrap' },
+  metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
 
-  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 16 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
   filterChip: { borderWidth: 1, borderColor: '#ECECEC', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 999 },
   filterChipActive: { backgroundColor: '#F2F2F2', borderColor: '#F2F2F2' },
   filterChipText: { fontSize: 11.5, fontWeight: '700', color: '#777777' },
