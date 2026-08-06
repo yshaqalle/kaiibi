@@ -11,7 +11,14 @@ jest.mock('expo-router', () => ({
   },
 }));
 
-import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { STALE_AFTER_MS, useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+
+// The hook reads the wall clock to decide whether data has gone stale, so the
+// tests own the clock rather than sleeping through a real minute.
+let now = 1_000_000;
+const advance = (ms: number) => {
+  now += ms;
+};
 
 function Probe({ refresh }: { refresh: () => void }) {
   useRefreshOnFocus(refresh);
@@ -35,6 +42,12 @@ function focus() {
 
 beforeEach(() => {
   registered = null;
+  now = 1_000_000;
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 describe('useRefreshOnFocus', () => {
@@ -47,22 +60,40 @@ describe('useRefreshOnFocus', () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it('refetches when the user comes back to the screen', () => {
+  it('refetches when the user comes back after the data has gone stale', () => {
     const refresh = jest.fn();
     mount(refresh);
     focus(); // mount
-    focus(); // navigated away and back
+    advance(STALE_AFTER_MS);
+    focus(); // navigated away and back, a minute later
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('refetches on every subsequent return, not just the first', () => {
+  // The reason the window exists: tab switching is constant at a counter, and
+  // refetching on each one put 20 queries on the wire every time someone
+  // glanced at the Dashboard.
+  it('does NOT refetch when the user flicks back within the window', () => {
     const refresh = jest.fn();
     mount(refresh);
     focus();
+    advance(STALE_AFTER_MS - 1);
     focus();
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('refetches once per window, not once per return', () => {
+    const refresh = jest.fn();
+    mount(refresh);
     focus();
+    advance(STALE_AFTER_MS);
+    focus(); // stale -> refetch
+    focus(); // straight back again -> too soon
+    advance(1_000);
+    focus(); // still inside the new window
+    expect(refresh).toHaveBeenCalledTimes(1);
+    advance(STALE_AFTER_MS);
     focus();
-    expect(refresh).toHaveBeenCalledTimes(3);
+    expect(refresh).toHaveBeenCalledTimes(2);
   });
 
   it('calls the latest refresh, not the one captured at mount', () => {
@@ -73,6 +104,7 @@ describe('useRefreshOnFocus', () => {
     act(() => {
       tree.update(<Probe refresh={second} />);
     });
+    advance(STALE_AFTER_MS);
     focus();
     // Reload callbacks are rebuilt whenever the date range or store filter
     // changes, so a stale closure here would refetch the wrong range.
