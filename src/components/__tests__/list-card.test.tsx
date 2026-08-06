@@ -83,10 +83,9 @@ describe('ListCard preview', () => {
       );
     });
 
-    // Press "View all". Located by its handler rather than by tree position.
-    const trigger = tree!.root.findAll(
-      (node) => typeof node.props?.onPress === 'function' && node.props?.accessibilityRole !== 'button'
-    );
+    // Press "View all". Located by its testID -- an anchor that exists
+    // purely for tests, so accessibility or styling changes can't break it.
+    const trigger = tree!.root.findAll((node) => node.props?.testID === 'list-card-view-all');
     act(() => {
       trigger[0].props.onPress();
     });

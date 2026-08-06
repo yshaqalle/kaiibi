@@ -60,7 +60,13 @@ export function ListCard<T>({
           {/* Only when there IS more. A card showing everything it has should
               not invite a tap that reveals the same thing again. */}
           {hidden > 0 && (
-            <Pressable onPress={() => setOpen(true)} style={({ pressed }) => [styles.viewAll, pressed && styles.pressed]}>
+            <Pressable
+              onPress={() => setOpen(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`View all ${rows.length} in ${title}`}
+              testID="list-card-view-all"
+              style={({ pressed }) => [styles.viewAll, pressed && styles.pressed]}
+            >
               <Text style={styles.viewAllText}>{`View all ${rows.length} →`}</Text>
             </Pressable>
           )}
@@ -77,7 +83,12 @@ export function ListCard<T>({
                     the moment two people have been open in one session. */}
                 {subtitle ? <Text style={styles.modalSub}>{subtitle}</Text> : null}
               </View>
-              <Pressable onPress={() => setOpen(false)} style={({ pressed }) => [styles.close, pressed && styles.pressed]}>
+              <Pressable
+                onPress={() => setOpen(false)}
+                accessibilityRole="button"
+                accessibilityLabel={`Close ${title} list`}
+                style={({ pressed }) => [styles.close, pressed && styles.pressed]}
+              >
                 <Text style={styles.closeText}>Close</Text>
               </Pressable>
             </View>
