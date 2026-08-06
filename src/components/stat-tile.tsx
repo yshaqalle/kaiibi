@@ -26,6 +26,7 @@ export function StatTile({
   tone = 'default',
   sparkline,
   variant = 'default',
+  density = 'default',
 }: {
   value: string;
   label: string;
@@ -43,22 +44,31 @@ export function StatTile({
    * separate itself from the card, which a fill does better than an outline.
    */
   variant?: 'default' | 'bento';
+  /**
+   * `dense` trims the tile's padding and figure size for a strip that has to
+   * share the window with two scrolling panes below it (People). It changes
+   * only the metrics -- the label, the value and the HINT all still render,
+   * which is the point: a figure that doesn't say what is in and out of it
+   * invites an argument, and that is exactly as true in a shorter tile.
+   */
+  density?: 'default' | 'dense';
 }) {
   const bento = variant === 'bento';
+  const dense = density === 'dense';
 
   return (
-    <Card variant={bento ? 'bento' : 'default'} style={[styles.tile, bento && styles.tileBento]}>
+    <Card variant={bento ? 'bento' : 'default'} style={[styles.tile, bento && styles.tileBento, dense && styles.tileDense]}>
       {/* Two lines, so "Customers to check on" wraps between words instead of
           being broken mid-word by a column too narrow for the longest one. */}
       <Text style={[styles.label, bento && styles.labelBento]} numberOfLines={2}>
         {label.toUpperCase()}
       </Text>
 
-      <View style={styles.valueRow}>
+      <View style={[styles.valueRow, dense && styles.valueRowDense]}>
         {/* Shrinks rather than overflows, and never wraps: a figure broken
             across two lines is harder to read than one scaled down. */}
         <Text
-          style={[styles.value, bento ? TONE_BENTO[tone] : TONE[tone]]}
+          style={[styles.value, dense && styles.valueDense, bento ? TONE_BENTO[tone] : TONE[tone]]}
           numberOfLines={1}
           adjustsFontSizeToFit
           minimumFontScale={0.7}
@@ -72,7 +82,7 @@ export function StatTile({
         ) : null}
       </View>
 
-      {hint ? <Text style={[styles.hint, bento && styles.hintBento]} numberOfLines={2}>{hint}</Text> : null}
+      {hint ? <Text style={[styles.hint, bento && styles.hintBento, dense && styles.hintDense]} numberOfLines={2}>{hint}</Text> : null}
       {sparkline && sparkline.length > 1 ? <Sparkline values={sparkline} /> : null}
     </Card>
   );
@@ -132,6 +142,10 @@ const styles = StyleSheet.create({
   // 16, not BENTO_RADIUS: this is a panel inside a 26px card, and matching the
   // parent's corner makes the two read as the same surface.
   tileBento: { backgroundColor: theme.bentoSoft, borderRadius: 16 },
+  // minWidth is deliberately NOT reduced: it is what makes the surrounding
+  // flexWrap row actually wrap on a phone (see the comment on `tile`), and a
+  // denser tile still needs a readable floor.
+  tileDense: { minHeight: 74, padding: 9 },
   label: {
     fontSize: 9.5,
     letterSpacing: 1.1,
@@ -141,13 +155,16 @@ const styles = StyleSheet.create({
   },
   labelBento: { color: theme.bentoMuted },
   valueRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 7 },
+  valueRowDense: { marginTop: 5 },
   // flexShrink lets adjustsFontSizeToFit actually engage — without it the Text
   // keeps its intrinsic width and overflows the tile instead of scaling.
   value: { flexShrink: 1, fontSize: 24, letterSpacing: -1, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  valueDense: { fontSize: 20 },
   delta: { fontSize: 11, fontWeight: '700' },
   deltaUp: { color: theme.success },
   deltaDown: { color: theme.danger },
   hint: { fontSize: 11, color: theme.textSecondary, marginTop: 3, lineHeight: 15 },
   hintBento: { color: theme.bentoMuted2 },
+  hintDense: { fontSize: 10.5, marginTop: 2, lineHeight: 14 },
   spark: { marginTop: 8 },
 });
