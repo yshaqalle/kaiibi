@@ -191,9 +191,13 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
 // Shares the `product-images` bucket with product photos and shop logos --
 // its RLS only cares that the first path segment is the shop id (migration
 // 0002), not what kind of image this is. `staff` is a sub-folder so the two
-// kinds don't collide by id.
+// kinds don't collide by id. `uploadImage` uploads with `upsert: false`, so
+// a bare `${memberId}` path would 409 the moment someone replaces their
+// photo -- the timestamp suffix (matching the convention already used for
+// products/brands/categories/logos) makes each upload's path unique so a
+// replacement never collides with the photo it's replacing.
 export async function uploadStaffPhoto(shopId: string, memberId: string, localUri: string): Promise<string> {
-  return uploadImage(`${shopId}/staff/${memberId}`, localUri);
+  return uploadImage(`${shopId}/staff/${memberId}-${Date.now()}`, localUri);
 }
 
 // Written separately from updateStaffMember, the same way setStaffLocations
