@@ -1207,10 +1207,8 @@ const tabStyles = StyleSheet.create({
   // The detail pane is a STACK of cards, not one card with headings -- 14px
   // apart, matching BentoGrid's own gutter.
   detailStack: { gap: 14 },
-  detHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 3 },
   detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
   detMeta: { fontSize: 12.5, color: theme.bentoMuted },
-  actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 14, marginBottom: 14 },
   detHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 },
   // minWidth 0 so a long name shrinks rather than pushing the buttons off.
   detIdent: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 1, minWidth: 0 },

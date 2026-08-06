@@ -3,7 +3,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { detailColumnsForWidth } from '@/constants/layout';
 
-export function useDetailColumns(): 1 | 2 {
+function useDetailColumns(): 1 | 2 {
   const { width } = useWindowDimensions();
   return detailColumnsForWidth(width);
 }
@@ -38,7 +38,12 @@ const styles = StyleSheet.create({
   // One column: a plain stack. The caller is inside a ScrollView at this
   // width, so nothing here may flex.
   stack: { gap: 14 },
-  row: { flexDirection: 'row', gap: 14, flex: 1, minHeight: 0, alignItems: 'stretch' },
+  // The row itself doesn't flex -- it always sits inside a ScrollView here,
+  // where `flex: 1` has nothing to flex against. `alignItems: 'stretch'`
+  // (the flexbox default, kept explicit) is what actually equalises the two
+  // columns' height, by stretching each `column` View to the row's own
+  // cross-axis size.
+  row: { flexDirection: 'row', gap: 14, alignItems: 'stretch' },
   // minWidth 0 lets a long product name shrink the column rather than
   // widening it past its half of the pane.
   column: { flex: 1, minWidth: 0, gap: 14 },
