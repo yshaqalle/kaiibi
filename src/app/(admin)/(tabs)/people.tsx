@@ -1128,8 +1128,14 @@ const tabStyles = StyleSheet.create({
   // Search and the filter chips share one line. Two stacked 44px bands plus
   // their margins was 110px of chrome for one job.
   controlRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  searchInRow: { flex: 1, marginBottom: 0 },
-  filterScroll: { flexGrow: 0, flexShrink: 0, height: 44 },
+  // 140px is the floor for a usable input -- below it the chips give way
+  // first, since filterScroll (below) is allowed to shrink and this isn't.
+  searchInRow: { flex: 1, minWidth: 140, marginBottom: 0 },
+  // A row item now, not a column band, so these flags govern width, not
+  // height. It has to be allowed to shrink (and to shrink past its content
+  // width, via minWidth: 0) or a narrow window has nowhere to take space
+  // from and the search field beside it collapses instead.
+  filterScroll: { flexGrow: 0, flexShrink: 1, minWidth: 0, height: 44 },
   chips: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
   // Zero padding and clipped: the rows run to the card's edges so a selected
   // row is a full-width band rather than a floating stripe, and the first and
