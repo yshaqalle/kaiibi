@@ -22,6 +22,8 @@ import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
+import { DetailColumns, detailCardStyles, useDetailColumns } from '@/components/ui/detail-columns';
+import { GlanceStrip } from '@/components/ui/glance-strip';
 import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { TabPills } from '@/components/ui/tab-pills';
 import { WhatsAppButton } from '@/components/whatsapp-button';
@@ -213,6 +215,7 @@ export default function PeopleScreen() {
 function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHeaderActions: HeaderActionsSetter }) {
   const { shop, can } = useAuth();
   const canEdit = can('customers.edit');
+  const detailColumns = useDetailColumns();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [rowStats, setRowStats] = useState<Map<string, { totalSpentCents: number; visitCount: number }>>(new Map());
   const [search, setSearch] = useState('');
@@ -362,33 +365,37 @@ function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHead
     <View style={{ flex: 1 }}>
       {error && <Text style={tabStyles.errorText}>{error}</Text>}
 
-      {/* One card, not a grid: four figures read as a single glance, and
+      {/* One low card, not a grid: four figures read as a single glance, and
           splitting them into four cells would put three gutters through one
-          thought. */}
-      <BentoCard title="Customers at a glance" style={tabStyles.strip}>
-        <View style={tabStyles.metricRow}>
-          <StatTile variant="bento" value={String(customers.length)} label="Customers" hint={`${segmentCounts.new} joined in the last 30 days`} />
-          <StatTile variant="bento" value={String(segmentCounts.vip)} label="VIPs" hint="tagged vip" />
-          <StatTile variant="bento" value={String(segmentCounts['at-risk'])} label="At risk" hint="tagged at risk" />
-          <StatTile variant="bento" value={formatCompactCents(lifetimeSpendCents)} label="Lifetime spend" hint="across every store" />
-        </View>
-      </BentoCard>
+          thought. No title -- the tile labels already say what these are, and
+          the heading was 27px this screen could not spare. */}
+      <GlanceStrip style={tabStyles.strip}>
+        <StatTile variant="bento" density="dense" value={String(customers.length)} label="Customers" hint={`${segmentCounts.new} joined in the last 30 days`} />
+        <StatTile variant="bento" density="dense" value={String(segmentCounts.vip)} label="VIPs" hint="tagged vip" />
+        <StatTile variant="bento" density="dense" value={String(segmentCounts['at-risk'])} label="At risk" hint="tagged at risk" />
+        <StatTile variant="bento" density="dense" value={formatCompactCents(lifetimeSpendCents)} label="Lifetime spend" hint="across every store" />
+      </GlanceStrip>
 
-      <View style={tabStyles.search}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search by name, phone, or tag"
-          placeholderTextColor={theme.bentoMuted2}
-          style={tabStyles.searchInput}
-        />
+      <View style={tabStyles.controlRow}>
+        <View style={[tabStyles.search, tabStyles.searchInRow]}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search by name, phone, or tag"
+            placeholderTextColor={theme.bentoMuted2}
+            style={tabStyles.searchInput}
+          />
+        </View>
+        {/* Keeps its horizontal scroll: on a narrow window five chips will not
+            fit beside the field, and wrapping them would put the row's height
+            back where it started. */}
+        <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
+          <CategoryChip variant="bento" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
+          {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
+            <CategoryChip variant="bento" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
+          ))}
+        </ScrollView>
       </View>
-      <ScrollView horizontal style={tabStyles.filterScroll} showsHorizontalScrollIndicator={false} contentContainerStyle={tabStyles.chips}>
-        <CategoryChip variant="bento" label={`All · ${customers.length}`} active={segment === 'all'} onPress={() => setSegment('all')} />
-        {(Object.keys(CUSTOMER_SEGMENT_LABELS) as CustomerSegment[]).map((key) => (
-          <CategoryChip variant="bento" key={key} label={`${CUSTOMER_SEGMENT_LABELS[key]} · ${segmentCounts[key]}`} active={segment === key} onPress={() => setSegment(key)} />
-        ))}
-      </ScrollView>
       <TwoPaneListDetail
         compact={compact}
         list={list}
@@ -396,6 +403,7 @@ function CustomersTab({ compact, setHeaderActions }: { compact: boolean; setHead
         detailOpen={selected !== null}
         onCloseDetail={() => setSelectedId(null)}
         detailTitle="Customer"
+        detailFills={detailColumns === 2}
       />
       {shop && canEdit && (
         <CustomerModal
@@ -443,6 +451,10 @@ function CustomerDetailPane({
   const [error, setError] = useState<string | null>(null);
   const { locations, shop } = useAuth();
   const ledgerNote = useCaveatDismissal('people.customers.append-only-ledger', 'v1');
+  // Only at two columns does a card have a bounded height to flex against. At
+  // one column the detail is inside TwoPaneListDetail's ScrollView, where a
+  // flex child would collapse to nothing.
+  const fills = useDetailColumns() === 2;
   const loyaltyOn = shop?.loyaltyEnabled ?? false;
   const multiStore = hasMultipleLocations(locations);
   // Resolved by id from the store list rather than denormalised onto the
@@ -472,27 +484,33 @@ function CustomerDetailPane({
   };
 
   return (
-    <View style={tabStyles.detailStack}>
+    <View style={[tabStyles.detailStack, fills && tabStyles.detailStackFills]}>
       <BentoCard>
-        <View style={tabStyles.detHead}>
-          <Text style={tabStyles.detName}>
-            {customer.firstName} {customer.lastName ?? ''}
-          </Text>
-          <Badge variant="bento" label={CUSTOMER_SEGMENT_LABELS[segment]} tone={segment === 'vip' ? 'danger' : 'default'} />
-        </View>
-        {customer.phone && <Text style={tabStyles.detMeta}>{customer.phone}</Text>}
-        <View style={tabStyles.actions}>
-          <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
-          {canEdit && (
-            <Pressable onPress={onEdit} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>Edit</Text>
-            </Pressable>
-          )}
-          {canEdit && (
-            <Pressable onPress={toggleVip} style={tabStyles.actionButton}>
-              <Text style={tabStyles.actionButtonText}>{isVip ? 'Remove VIP' : 'Mark VIP'}</Text>
-            </Pressable>
-          )}
+        {/* Name, badge, phone and the actions on ONE line. Stacked, these were
+            four bands and ~64px of margin before the first figure. The row
+            wraps on a long name rather than clipping, which spends the height
+            back only in the case that needs it. */}
+        <View style={tabStyles.detHeadRow}>
+          <View style={tabStyles.detIdent}>
+            <Text style={tabStyles.detName}>
+              {customer.firstName} {customer.lastName ?? ''}
+            </Text>
+            <Badge variant="bento" label={CUSTOMER_SEGMENT_LABELS[segment]} tone={segment === 'vip' ? 'danger' : 'default'} />
+            {customer.phone && <Text style={tabStyles.detMeta}>{customer.phone}</Text>}
+          </View>
+          <View style={tabStyles.detActions}>
+            <WhatsAppButton phone={customer.phone} name={customer.firstName} variant="pill" />
+            {canEdit && (
+              <Pressable onPress={onEdit} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>Edit</Text>
+              </Pressable>
+            )}
+            {canEdit && (
+              <Pressable onPress={toggleVip} style={tabStyles.actionButton}>
+                <Text style={tabStyles.actionButtonText}>{isVip ? 'Remove VIP' : 'Mark VIP'}</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
         <View style={tabStyles.metricRow}>
           <StatTile variant="bento" value={stats ? formatCents(stats.totalSpentCents) : '—'} label="Lifetime spend" />
@@ -503,84 +521,98 @@ function CustomerDetailPane({
         {error && <Text style={tabStyles.errorText}>{error}</Text>}
       </BentoCard>
 
-      <BentoCard title="Notes">
-        <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
-      </BentoCard>
+      <DetailColumns
+        left={
+          <>
+            <BentoCard title="Notes">
+              <NotesField key={customer.id} value={customer.notes} onSave={async (notes) => { await updateCustomer(customer.id, { notes }); await onChanged(); }} />
+            </BentoCard>
 
-      {/* Where they actually shop, by visit count. Hidden for a single-store
-          business (nothing to distinguish) and when the history is tied or
-          empty — naming a store on a 2-2 split would present a coin flip as a
-          fact. See usualStore in lib/customer-segments.ts. */}
-      {usual && (
-        <BentoCard title="Usually shops at">
-          <Text style={tabStyles.usualStore}>{storeNameOf(usual.locationId) ?? 'Unknown store'}</Text>
-          <Text style={tabStyles.usualStoreMeta}>{`${usual.visits} of ${usual.totalVisits} visits`}</Text>
-        </BentoCard>
-      )}
-
-      {/* Side by side on a wide detail pane: the two histories answer the same
-          question about the same person from different sides, and stacking
-          them put a metre of scroll between them. */}
-      <BentoGrid>
-        <BentoCell span={loyaltyOn ? 6 : 12}>
-          <BentoCard title="Purchase history" scope={stats ? `${stats.visitCount} orders` : undefined}>
-            {purchases.length === 0 ? (
-              <Text style={tabStyles.empty}>No purchases yet.</Text>
-            ) : (
-              purchases.map((p) => (
-                <View key={p.saleItemId} style={tabStyles.histRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={tabStyles.histTitle}>
-                      {p.productName}
-                      {p.quantity > 1 ? ` ×${p.quantity}` : ''}
-                    </Text>
-                    <Text style={tabStyles.histMeta}>
-                      {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
-                      {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
-                    </Text>
-                  </View>
-                  <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
-                </View>
-              ))
+            {/* Where they actually shop, by visit count. Hidden for a single-store
+                business (nothing to distinguish) and when the history is tied or
+                empty — naming a store on a 2-2 split would present a coin flip as a
+                fact. See usualStore in lib/customer-segments.ts. */}
+            {usual && (
+              <BentoCard title="Usually shops at">
+                <Text style={tabStyles.usualStore}>{storeNameOf(usual.locationId) ?? 'Unknown store'}</Text>
+                <Text style={tabStyles.usualStoreMeta}>{`${usual.visits} of ${usual.totalVisits} visits`}</Text>
+              </BentoCard>
             )}
-          </BentoCard>
-        </BentoCell>
-
-        {/* What answers "why is my balance 148" at the counter. The ledger is
-            append-only, so a correction shows up as its own row rather than
-            quietly changing an old one. */}
-        {loyaltyOn && (
-          <BentoCell span={6}>
-            <BentoCard title="Points history" scope={`${customer.pointsBalance.toLocaleString()} balance`}>
-              {pointsHistory.length === 0 ? (
-                <Text style={tabStyles.empty}>No points activity yet.</Text>
+          </>
+        }
+        right={
+          <>
+            <BentoCard
+              title="Purchase history"
+              scope={stats ? `${stats.visitCount} orders` : undefined}
+              style={fills ? detailCardStyles.fill : undefined}
+              bodyStyle={fills ? detailCardStyles.fillBody : undefined}
+            >
+              {purchases.length === 0 ? (
+                <Text style={tabStyles.empty}>No purchases yet.</Text>
               ) : (
-                pointsHistory.map((entry) => (
-                  <View key={entry.id} style={tabStyles.histRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
-                      <Text style={tabStyles.histMeta}>
-                        {new Date(entry.createdAt).toLocaleDateString()}
-                        {entry.note ? ` · ${entry.note}` : ''}
-                      </Text>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {purchases.map((p) => (
+                    <View key={p.saleItemId} style={tabStyles.histRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={tabStyles.histTitle}>
+                          {p.productName}
+                          {p.quantity > 1 ? ` ×${p.quantity}` : ''}
+                        </Text>
+                        <Text style={tabStyles.histMeta}>
+                          {new Date(p.createdAt).toLocaleDateString()} · {p.paymentMethod}
+                          {storeNameOf(p.locationId) ? ` · ${storeNameOf(p.locationId)}` : ''}
+                        </Text>
+                      </View>
+                      <Text style={tabStyles.histAmount}>{formatCents(p.lineTotalCents)}</Text>
                     </View>
-                    <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
-                      {entry.deltaPoints > 0 ? '+' : ''}
-                      {entry.deltaPoints.toLocaleString()}
-                    </Text>
-                  </View>
-                ))
-              )}
-              {pointsHistory.length > 0 && !ledgerNote.dismissed && (
-                <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
-                  The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
-                  one, which is what answers &quot;why is my balance what it is&quot; at the counter.
-                </Caveat>
+                  ))}
+                </ScrollView>
               )}
             </BentoCard>
-          </BentoCell>
-        )}
-      </BentoGrid>
+
+            {/* What answers "why is my balance 148" at the counter. The ledger is
+                append-only, so a correction shows up as its own row rather than
+                quietly changing an old one. */}
+            {loyaltyOn && (
+              <BentoCard
+                title="Points history"
+                scope={`${customer.pointsBalance.toLocaleString()} balance`}
+                style={fills ? detailCardStyles.fill : undefined}
+                bodyStyle={fills ? detailCardStyles.fillBody : undefined}
+              >
+                {pointsHistory.length === 0 ? (
+                  <Text style={tabStyles.empty}>No points activity yet.</Text>
+                ) : (
+                  <ScrollView showsVerticalScrollIndicator={false}>
+                    {pointsHistory.map((entry) => (
+                      <View key={entry.id} style={tabStyles.histRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={tabStyles.histTitle}>{POINTS_REASON_LABELS[entry.reason]}</Text>
+                          <Text style={tabStyles.histMeta}>
+                            {new Date(entry.createdAt).toLocaleDateString()}
+                            {entry.note ? ` · ${entry.note}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={[tabStyles.histAmount, entry.deltaPoints < 0 && tabStyles.histAmountNegative]}>
+                          {entry.deltaPoints > 0 ? '+' : ''}
+                          {entry.deltaPoints.toLocaleString()}
+                        </Text>
+                      </View>
+                    ))}
+                    {pointsHistory.length > 0 && !ledgerNote.dismissed && (
+                      <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
+                        The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
+                        one, which is what answers &quot;why is my balance what it is&quot; at the counter.
+                      </Caveat>
+                    )}
+                  </ScrollView>
+                )}
+              </BentoCard>
+            )}
+          </>
+        }
+      />
     </View>
   );
 }
@@ -1093,7 +1125,11 @@ const tabStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   searchInput: { flex: 1, height: '100%', color: theme.bentoInk },
-  filterScroll: { flexGrow: 0, flexShrink: 0, height: 44, marginBottom: 12 },
+  // Search and the filter chips share one line. Two stacked 44px bands plus
+  // their margins was 110px of chrome for one job.
+  controlRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  searchInRow: { flex: 1, marginBottom: 0 },
+  filterScroll: { flexGrow: 0, flexShrink: 0, height: 44 },
   chips: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 16 },
   // Zero padding and clipped: the rows run to the card's edges so a selected
   // row is a full-width band rather than a floating stripe, and the first and
@@ -1110,10 +1146,15 @@ const tabStyles = StyleSheet.create({
   // The detail pane is a STACK of cards, not one card with headings -- 14px
   // apart, matching BentoGrid's own gutter.
   detailStack: { gap: 14 },
+  detailStackFills: { flex: 1, minHeight: 0 },
   detHead: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 3 },
   detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
   detMeta: { fontSize: 12.5, color: theme.bentoMuted },
   actions: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 14, marginBottom: 14 },
+  detHeadRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 },
+  // minWidth 0 so a long name shrinks rather than pushing the buttons off.
+  detIdent: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 1, minWidth: 0 },
+  detActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
   histRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: theme.bentoLine, gap: 10 },
   histTitle: { fontSize: 13, fontWeight: '600', color: theme.bentoInk },
   histMeta: { fontSize: 11, color: theme.bentoMuted, marginTop: 1 },
