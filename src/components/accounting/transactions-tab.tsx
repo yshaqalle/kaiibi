@@ -25,6 +25,7 @@ import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_C
 import { saleProfit } from '@/lib/sales-reporting';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // The former Sales screen, now Accounting's Transactions tab. Behaviour is
 // unchanged except that the date range comes from the Accounting shell (shared
@@ -144,6 +145,9 @@ export function TransactionsTab({
   }, [shop, sinceDate, untilDate, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();

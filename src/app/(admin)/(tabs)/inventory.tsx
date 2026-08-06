@@ -34,6 +34,7 @@ import { createProduct, findProductsByCode, listProducts, setLocationStock, upda
 import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 const PRODUCT_EXPORT_COLUMNS: CsvColumn<Product>[] = [
   { header: 'Name', value: (p) => p.name },
@@ -114,6 +115,9 @@ export default function InventoryScreen() {
   }, [shop, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Stock changes go through product_location_stock, never products.stock --
   // that column is derived by trigger now, so `updateProduct({ stock })` would

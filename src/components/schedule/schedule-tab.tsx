@@ -30,6 +30,7 @@ import { listStaff } from '@/lib/staff';
 import { fromDateColumn, toDateColumn } from '@/lib/period';
 import type { StaffMember } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -104,6 +105,9 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   }, [shop, monday]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // One draft edits in place; two or more are a split day, which is several
   // rows -- the schema has no "split shift", only shifts that share a date.

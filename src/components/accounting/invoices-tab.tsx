@@ -31,6 +31,7 @@ import {
   updateInvoice,
 } from '@/lib/invoices';
 import type { Invoice } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -91,6 +92,9 @@ export function InvoicesTab({
   }, [shop, dateRange]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Scoped before totalling: "what does this store still owe" has to exclude
   // the business's own bills, or every store looks like it owes them.

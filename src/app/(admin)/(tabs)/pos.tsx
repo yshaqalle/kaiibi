@@ -35,6 +35,7 @@ import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt'
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
 import type { Currency, Discount, NewProductInput, PaymentMethod, Product, Promotion } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -137,6 +138,9 @@ export default function PosScreen() {
   }, [shop, activeLocation]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
   useEffect(() => {
     if (!shop) return;
     listCategories(shop.id)

@@ -26,6 +26,7 @@ import { toDateColumn } from '@/lib/period';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { PayrollRun, StaffMember } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 function extractErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
@@ -126,6 +127,9 @@ export function PayrollTab({
   }, [shop, allowed]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Pay data is RLS-protected, so a role without both permissions can't read
   // any of this. Say so rather than rendering an empty screen that looks broken.

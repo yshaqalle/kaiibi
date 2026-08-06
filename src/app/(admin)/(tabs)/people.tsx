@@ -46,6 +46,7 @@ import { membersActiveToday, onLeaveMemberIds as onLeaveMembers } from '@/lib/sh
 import { listShopTimeEntries, sumDurationHours } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, Role, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -265,6 +266,9 @@ function CustomersTab({
   useEffect(() => {
     reload();
   }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -718,6 +722,9 @@ function TeamManagementTab({
   useEffect(() => {
     reload();
   }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Shared with the Dashboard so the two surfaces can't disagree about who's
   // off; also honours non-contiguous date ranges, which the previous inline

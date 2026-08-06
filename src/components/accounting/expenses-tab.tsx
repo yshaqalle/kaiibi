@@ -23,6 +23,7 @@ import {
 import { createExpense, deleteExpense, listExpensesInRange, updateExpense } from '@/lib/expenses';
 import { methodLabel } from '@/lib/payment-methods';
 import type { Expense, ExpenseCategory } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 const EXPENSE_EXPORT_COLUMNS: CsvColumn<Expense>[] = [
   { header: 'Date', value: (e) => e.occurredOn },
@@ -107,6 +108,9 @@ export function ExpensesTab({
   }, [shop, since, until]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // The store filter applies BEFORE the category one and, unlike category, it
   // does move the headline totals: "what did this store spend" is a different

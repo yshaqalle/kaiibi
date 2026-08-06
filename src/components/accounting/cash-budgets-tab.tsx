@@ -43,6 +43,7 @@ import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -144,6 +145,9 @@ export function CashBudgetsTab({
   }, [shop, allowed, since, until, canSeeWagesOwed]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Above the permission guard below on purpose: hooks must run in the same
   // order every render, and an early return between them is what

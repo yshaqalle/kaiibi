@@ -37,6 +37,7 @@ import {
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Expense } from '@/types/models';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 type LaborPicture = {
   accruedCents: number;
@@ -162,6 +163,9 @@ export function ReportsTab({
   }, [shop, since, until, locationFilter, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   // Above the early return, because hooks are. The explanations carry a
   // constant signature — the sentence never changes, so "I've read it" means

@@ -28,6 +28,7 @@ import {
   paymentMethodMix,
   type DailyBucket,
 } from '@/lib/sales-reporting';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -109,6 +110,9 @@ export function OverviewTab({
   }, [shop, since, until, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
   const refundCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);

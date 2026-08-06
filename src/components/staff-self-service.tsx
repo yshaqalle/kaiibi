@@ -17,6 +17,7 @@ import { listMyShifts } from '@/lib/shifts';
 import type { Shift } from '@/lib/scheduling';
 import type { StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Only the
 // People screen's Me tab renders this, and People is a bento screen.
@@ -60,6 +61,9 @@ export function StaffSelfService({ shopId, member }: { shopId: string; member: S
   useEffect(() => {
     reload();
   }, [reload]);
+  // Coming back to this screen on a phone, where the tab shell never unmounted
+  // it, so its data is as old as the last time it was looked at.
+  useRefreshOnFocus(reload);
 
   useEffect(() => {
     if (!openEntry) return;
