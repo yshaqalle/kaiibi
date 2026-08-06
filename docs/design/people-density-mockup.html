@@ -167,6 +167,14 @@
   .hM{font-size:11px;color:var(--d-mut);}
   .hA{font-size:12.5px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
   .hA.neg{color:var(--loss);}
+  /* Revision: list cards that open a modal */
+  .viewAll{margin-top:10px;font-size:12.5px;font-weight:800;color:var(--d-ink);}
+  .cardTitleRow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .cardTitleText{font-size:15px;font-weight:800;color:var(--d-ink);letter-spacing:-.2px;}
+  .modalHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px;}
+  .modalTitle{font-size:19px;font-weight:800;letter-spacing:-.4px;color:var(--d-ink);}
+  .modalSub{font-size:12.5px;color:var(--d-mut);margin-top:2px;}
+
   .usual{font-size:13.5px;font-weight:700;color:var(--d-ink);}
   .usualMeta{font-size:11.5px;color:var(--d-mut);}
 
@@ -872,6 +880,122 @@ fits without hiding anything behind a tap.</p>
     than a squeezed half-cell, Payroll sits under the identity it belongs to, and Recent shifts —
     the reason you opened this person — is finally above the fold with its own bounded scroll.
     The search moves into the fixed chrome so it matches Customers and stops sliding away.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Revision: the unbounded lists become modals</h2>
+
+  <p class="note">Four cards on this screen hold lists that grow without limit while everything
+  around them is a fixed size: <b>Purchase history</b>, <b>Points history</b>, <b>Recent shifts</b>,
+  and <b>Time off requests</b>. Bounding them with an internal scroll (the earlier proposal above)
+  keeps them on the page but makes a card you can see the ends of into a card you scroll inside —
+  and it spends the whole right column on two cards that are usually nearly empty. A customer with
+  one order gets a full-height card to say so.</p>
+
+  <p class="note">Instead: each becomes a compact card that opens a modal holding the full list.
+  One shared component, four call sites. This screen has no shared modal shell today — every modal
+  in the codebase is bespoke — so the component brings its own.</p>
+
+  <div class="switch" role="tablist">
+    <button role="tab" aria-selected="true" data-f="m-preview">Card shows a preview (recommended)</button>
+    <button role="tab" aria-selected="false" data-f="m-count">Card shows only a count</button>
+    <button role="tab" aria-selected="false" data-f="m-open">The modal, open</button>
+  </div>
+
+  <div class="frameWrap" data-frame="m-preview">
+    <div class="frameHead"><b>Preview of the two most recent, then “View all”</b><i>~132px per card</i></div>
+    <div class="scroller"><div class="frame" style="height:auto;">
+      <div style="max-width:560px;display:flex;flex-direction:column;gap:14px;">
+        <div class="card hist">
+          <div class="cardTitle">Purchase history<span class="scope">4 orders</span></div>
+          <div class="hRow"><div><div class="hT">Basmati rice 5kg ×2</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$64.00</div></div>
+          <div class="hRow"><div><div class="hT">Cooking oil 3L</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$18.50</div></div>
+          <div class="viewAll">View all 4 →</div>
+        </div>
+        <div class="card hist">
+          <div class="cardTitle">Points history<span class="scope">148 balance</span></div>
+          <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">2 Aug 2026</div></div><div class="hA">+82</div></div>
+          <div class="hRow"><div><div class="hT">Earned on purchase</div><div class="hM">28 Jul 2026</div></div><div class="hA">+21</div></div>
+          <div class="viewAll">View all 5 →</div>
+        </div>
+        <div class="card hist">
+          <div class="cardTitle">Purchase history<span class="scope">1 order</span></div>
+          <div class="hRow"><div><div class="hT">SKIN1004 Madagascar Centella Air-Fit Suncream Light (50ml) ×2</div><div class="hM">29 Jul 2026 · zaad · Jaalala Skincare</div></div><div class="hA">$38.00</div></div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">The third card is the case from the screenshot: one
+    order. With a preview it renders that order and shows no “View all” at all, because there is
+    nothing more to see — the card is complete in itself and costs one row. That is the argument
+    for a preview over a bare count: the common case needs no click.</p>
+  </div>
+
+  <div class="frameWrap" data-frame="m-count" hidden>
+    <div class="frameHead"><b>Count only</b><i>~76px per card</i></div>
+    <div class="scroller"><div class="frame" style="height:auto;">
+      <div style="max-width:560px;display:flex;flex-direction:column;gap:14px;">
+        <div class="card hist">
+          <div class="cardTitleRow"><span class="cardTitleText">Purchase history</span><span class="scope">4 orders</span></div>
+          <div class="viewAll">View all →</div>
+        </div>
+        <div class="card hist">
+          <div class="cardTitleRow"><span class="cardTitleText">Points history</span><span class="scope">148 balance</span></div>
+          <div class="viewAll">View all →</div>
+        </div>
+        <div class="card hist">
+          <div class="cardTitleRow"><span class="cardTitleText">Purchase history</span><span class="scope">1 order</span></div>
+          <div class="viewAll">View all →</div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">Shorter, and consistent regardless of how much data
+    there is. But every question — even “what did they last buy?” — now costs a click, including
+    for the one-order customer whose whole history would have fitted on the card.</p>
+  </div>
+
+  <div class="frameWrap" data-frame="m-open" hidden>
+    <div class="frameHead"><b>The modal</b><i>one shared component, four call sites</i></div>
+    <div class="scroller"><div class="frame" style="height:auto;background:#d8d8dc;">
+      <div style="max-width:620px;margin:0 auto;background:var(--d-sf);border-radius:24px;padding:18px;">
+        <div class="modalHead">
+          <div>
+            <div class="modalTitle">Purchase history</div>
+            <div class="modalSub">Jaalala Jaalala · 4 orders</div>
+          </div>
+          <span class="btn">Close</span>
+        </div>
+        <div style="max-height:300px;overflow-y:auto;">
+          <div class="hRow"><div><div class="hT">Basmati rice 5kg ×2</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$64.00</div></div>
+          <div class="hRow"><div><div class="hT">Cooking oil 3L</div><div class="hM">2 Aug 2026 · cash · Bakaara Main</div></div><div class="hA">$18.50</div></div>
+          <div class="hRow"><div><div class="hT">Sugar 2kg</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$9.00</div></div>
+          <div class="hRow"><div><div class="hT">Tea leaves 500g</div><div class="hM">28 Jul 2026 · mobile · Bakaara Main</div></div><div class="hA">$12.00</div></div>
+          <div class="hRow"><div><div class="hT">Flour 10kg</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$41.00</div></div>
+          <div class="hRow"><div><div class="hT">Powdered milk 900g</div><div class="hM">19 Jul 2026 · cash · Hodan Branch</div></div><div class="hA">$8.50</div></div>
+        </div>
+      </div>
+    </div></div>
+    <p class="note" style="margin-top:12px;">The subtitle carries whose list it is. A modal that
+    just says “Purchase history” is ambiguous the moment you have two customers open in a session,
+    and the name is free here where it would be redundant on the card.</p>
+  </div>
+
+  <div class="callout good">
+    <b>What this simplifies</b>
+    <p>With the lists in modals, nothing in the detail pane needs to scroll internally — so
+    <code>detailFills</code> and <code>detailCardStyles</code> stop being needed. The detail pane
+    goes back to being an ordinary scrolling pane that simply never has to scroll, because the
+    content now fits. That also removes a real hazard: with a filling pane and nothing scrollable
+    in the left column, a long note had no way to be reached.</p>
+  </div>
+
+  <div class="callout warn">
+    <b>Time off requests is the odd one</b>
+    <p>The other three are read-only history. Time off requests carries Approve/Deny actions and
+    lives in the Team <em>list</em> pane, not the detail pane — it is a queue you work through, not
+    a record you consult. Same modal treatment, but the card must keep showing the pending count
+    as its scope, because that number is the reason to open it at all. “All clear” stays as the
+    empty state.</p>
   </div>
 </section>
 
