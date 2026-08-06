@@ -77,19 +77,20 @@
   .navItem.on{background:var(--d-sf);color:var(--d-ink);}
   .navItem .count{font-size:10.5px;font-weight:800;background:var(--d-ink);color:#fff;
     border-radius:999px;min-width:19px;text-align:center;padding:1px 6px;}
-  .whoFoot{margin-top:22px;display:flex;align-items:center;gap:10px;background:var(--d-sf);
-    border-radius:18px;padding:10px 12px;}
-  .av{width:30px;height:30px;border-radius:999px;background:var(--d-ink);color:#fff;flex-shrink:0;
-    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
-  .whoFoot .wt{min-width:0;}
-  .whoFoot .wt b{display:block;font-size:11.5px;font-weight:700;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-  .whoFoot .wt span{font-size:10px;color:var(--d-mut);}
+  .burger{width:38px;height:38px;border-radius:13px;background:var(--d-sf);flex-shrink:0;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;}
+  .burger i{display:block;width:15px;height:1.5px;border-radius:1px;background:var(--d-ink);}
+  .acctMenu{width:224px;background:var(--d-sf);border-radius:18px;padding:13px 15px;
+    box-shadow:0 8px 18px rgba(11,11,13,.10);}
+  .acctMenu b{display:block;font-size:12.5px;font-weight:700;}
+  .acctMenu span{display:block;font-size:10.5px;color:var(--d-mut);margin-top:2px;}
+  .acctMenu .out{margin-top:12px;padding-top:11px;border-top:1px solid var(--d-rule);
+    font-size:12.5px;font-weight:800;color:var(--loss);}
   .main{flex:1;min-width:0;}
 
   /* narrow: the sidebar becomes the pill tab row accounting.tsx already uses */
-  .mobBrand{display:none;align-items:center;justify-content:space-between;margin-bottom:14px;}
-  .w380 .mobBrand{display:flex;}
+  .mobBrand{display:none;margin-bottom:14px;}
+  .w380 .mobBrand{display:block;}
   .mobBrand .brand{font-size:11.5px;}
   .signout{font-size:11.5px;font-weight:800;color:var(--loss);}
 
@@ -97,7 +98,7 @@
   .head .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
   .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.038em;}
   .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);max-width:62ch;}
-  .headActs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .headActs{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start;}
 
   .tabrow{display:none;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:14px;}
   .w380 .tabrow{display:flex;}
@@ -344,12 +345,39 @@
     above the body is then literally the accounting recipe: eyebrow, 26px title, blurb, controls
     right. Every tab gets a real title instead of the current mix — some tabs render an
     <code>h1</code>, Overview renders a hero sentence, Shops renders nothing at all.</p>
-    <p class="note"><strong>One relocation:</strong> <code>WhoAmI</code> stops floating over the top-right
-    of the scroll area and moves into the sidebar, below the nav — pinned to the rail's foot in the
-    real screen, where the sidebar is full height. Today it collides with whatever the tab puts in
-    the header, and it vanishes entirely on a phone except for a "Sign out" link. In the rail it is
-    where every console puts identity, it stops competing with the tab's own controls, and it frees
-    the header's right edge for search.</p>
+    <p class="note"><strong>One relocation:</strong> <code>WhoAmI</code> becomes a menu behind a
+    button in the header's top-right — the slot <code>accounting.tsx</code> puts its controls in.
+    Today it is an avatar that reveals a card on hover, which behaves differently depending on
+    whether you hovered or clicked and does not exist at all on a phone beyond a bare "Sign out"
+    link.</p>
+    <p class="note">Sign out is the only thing in it, and it is destructive, so it does not get
+    permanent prominence: a red link sitting in the header at all times reads as a warning when
+    nothing is wrong. Behind the button it is one tap away and no louder than that. Folding the
+    email in with it also stops an arbitrarily long address competing with the tab title for the
+    top of the screen — and the email is worth being able to check, because an operator account is
+    a second identity most people also hold a shop login for.</p>
+    <p class="note"><strong>One implementation trap, recorded because it bit once:</strong> the menu
+    has to be rendered in a <code>Modal</code>, not absolutely positioned inside the header. As a
+    child of the scrolling content it gets <em>clipped</em> — the card is cut off mid-email at the
+    edge of the header — and <code>zIndex</code> does not fix it, because clipping is an overflow
+    question, not a stacking one. A <code>Modal</code> portals to the root, which costs the anchor,
+    so the button is measured with <code>measureInWindow</code> and the card is positioned against
+    the window from that.</p>
+    <p class="note">Two earlier drafts are worth recording, since both were tried: the foot of the
+    sidebar rail (the usual console convention — but the rail's foot is the part of the chrome
+    nobody looks at), and a flat card in the header (legible, but it put a permanent red link and a
+    long email against the title).</p>
+
+    <div class="stage" style="margin-top:20px">
+      <div style="display:flex;justify-content:flex-end;gap:14px;align-items:flex-start">
+        <div class="burger"><i></i><i></i><i></i></div>
+        <div class="acctMenu">
+          <b>yusef@kaiibi.com</b>
+          <span>Owner · operator</span>
+          <div class="out">Sign out</div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <section>
@@ -581,14 +609,10 @@
           <span>${label}</span>
           ${k === 'requests' ? `<span class="count">${PENDING}</span>` : ''}
         </div>`).join('')}
-      <div class="whoFoot">
-        <div class="av">YS</div>
-        <div class="wt"><b>yusef@kaiibi.com</b><span>Owner · operator</span></div>
-      </div>
     </div>`;
 
   const tabrow = (active) => `
-    <div class="mobBrand"><div class="brand">KAIIBI PLATFORM</div><span class="signout">Sign out</span></div>
+    <div class="mobBrand"><div class="brand">KAIIBI PLATFORM</div></div>
     <div class="tabrow">${TABS.map(([k, label]) =>
       `<span class="${k === active ? 'on' : ''}">${label}${k === 'requests' ? '  ' + PENDING : ''}</span>`
     ).join('')}</div>`;
@@ -600,7 +624,9 @@
         <h3>${title}</h3>
         <p>${blurb}</p>
       </div>
-      <div class="headActs">${acts}</div>
+      <div class="headActs">${acts}
+        <div class="burger"><i></i><i></i><i></i></div>
+      </div>
     </div>`;
 
   const kpi = (label, n, hint, warn) =>

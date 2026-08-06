@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PlatformOverview } from '@/components/platform-overview';
@@ -166,27 +166,6 @@ export default function PlatformHome() {
                 );
               })}
             </View>
-
-            {/* Who is signed in, in the rail rather than floating over the
-                top-right of the body. Worth stating rather than assuming: an
-                operator account is a second identity most people also hold a
-                shop login for, and acting on the wrong one is the mistake this
-                prevents. In the header it collided with whatever the tab put
-                there; here it is where every console keeps identity. */}
-            <View style={styles.who}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{(session?.user.email ?? '?').slice(0, 2).toUpperCase()}</Text>
-              </View>
-              <View style={styles.whoText}>
-                <Text style={styles.whoEmail} numberOfLines={1}>
-                  {session?.user.email}
-                </Text>
-                <Text style={styles.whoRole}>{myRole ? `${myRole} · operator` : 'operator'}</Text>
-              </View>
-            </View>
-            <Pressable onPress={() => signOut()} style={styles.signOut} hitSlop={6}>
-              <Text style={styles.signOutText}>Sign out</Text>
-            </Pressable>
           </View>
         )}
 
@@ -195,9 +174,6 @@ export default function PlatformHome() {
             <>
               <View style={styles.mobileBrand}>
                 <Text style={styles.brandCompact}>KAIIBI PLATFORM</Text>
-                <Pressable onPress={() => signOut()} hitSlop={8}>
-                  <Text style={styles.signOutText}>Sign out</Text>
-                </Pressable>
               </View>
               <View style={styles.tabBar}>
                 <TabPills
@@ -212,10 +188,15 @@ export default function PlatformHome() {
             </>
           ) : null}
 
+          {/* Titles left, the account menu top right — the same header shape
+              accounting.tsx uses for its controls. */}
           <View style={styles.header}>
-            <Text style={styles.eyebrow}>PLATFORM</Text>
-            <Text style={styles.title}>{current.label}</Text>
-            <Text style={styles.blurb}>{blurb}</Text>
+            <View style={styles.headerTitles}>
+              <Text style={styles.eyebrow}>PLATFORM</Text>
+              <Text style={styles.title}>{current.label}</Text>
+              <Text style={styles.blurb}>{blurb}</Text>
+            </View>
+            <AccountMenu email={session?.user.email ?? null} role={myRole} />
           </View>
 
           {body}
@@ -231,6 +212,79 @@ export default function PlatformHome() {
         </PlatformModal>
       ) : null}
     </SafeAreaView>
+  );
+}
+
+// Who is signed in, and the way out.
+//
+// Behind a menu rather than sitting in the header, because "Sign out" is the
+// only thing in it and a permanent red link is a destructive action given
+// permanent prominence — it reads as a warning when nothing is wrong. Folding
+// it into a menu also stops an arbitrarily long email competing with the tab
+// title for the top of the screen.
+//
+// Worth being able to check at all, though: an operator account is a second
+// identity most people also hold a shop login for, and acting on the wrong one
+// is the mistake the email in here prevents.
+function AccountMenu({ email, role }: { email: string | null; role: string | null }) {
+  // The button's position in the window, captured on press. Non-null IS the
+  // open state -- the menu cannot be drawn before it knows where to draw, so
+  // one piece of state cannot disagree with the other.
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const button = useRef<View>(null);
+  const { width } = useWindowDimensions();
+
+  // Rendered in a Modal rather than absolutely inside the header.
+  //
+  // Absolute positioning made it a child of the scrolling content, which
+  // clipped it: the card was cut off mid-email at the edge of the header, and
+  // `zIndex` cannot help with that -- clipping is an overflow question, not a
+  // stacking one. A Modal portals to the root, so nothing on the page can crop
+  // it. That costs the anchor, which is why the button is measured first.
+  const toggle = () => {
+    if (anchor) {
+      setAnchor(null);
+      return;
+    }
+    button.current?.measureInWindow((x, y, w, h) => {
+      setAnchor({ top: y + h + 8, right: Math.max(12, width - (x + w)) });
+    });
+  };
+
+  return (
+    <>
+      <Pressable
+        ref={button}
+        onPress={toggle}
+        style={({ hovered }) => [styles.menuButton, (hovered || anchor) && styles.menuButtonActive]}
+        hitSlop={6}
+        aria-label="Account menu"
+        aria-expanded={anchor != null}
+      >
+        <View style={styles.menuBar} />
+        <View style={styles.menuBar} />
+        <View style={styles.menuBar} />
+      </Pressable>
+
+      {anchor ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => setAnchor(null)}>
+          {/* Clicking anywhere else dismisses, the usual way out of a menu. */}
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setAnchor(null)} />
+          <View style={[styles.menu, { top: anchor.top, right: anchor.right }]}>
+            <Text style={styles.menuEmail} numberOfLines={1}>
+              {email ?? 'Signed in'}
+            </Text>
+            <Text style={styles.menuRole}>{role ? `${role} · operator` : 'operator'}</Text>
+            <Pressable
+              onPress={() => signOut()}
+              style={({ hovered }) => [styles.menuAction, hovered && styles.menuActionHovered]}
+            >
+              <Text style={styles.menuActionText}>Sign out</Text>
+            </Pressable>
+          </View>
+        </Modal>
+      ) : null}
+    </>
   );
 }
 
@@ -267,43 +321,63 @@ const styles = StyleSheet.create({
   },
   navCountText: { fontSize: 10.5, fontWeight: '800', color: theme.bentoSurface, textAlign: 'center' },
 
-  who: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  menuButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 13,
     backgroundColor: theme.bentoSurface,
-    borderRadius: BENTO_RADIUS_TILE,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginTop: 22,
-  },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 999,
-    backgroundColor: theme.bentoInk,
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 4,
   },
-  avatarText: { color: theme.bentoSurface, fontSize: 11, fontWeight: '800' },
-  whoText: { flex: 1, minWidth: 0 },
-  whoEmail: { fontSize: 11.5, fontWeight: '700', color: theme.bentoInk },
-  whoRole: { fontSize: 10, color: theme.bentoMuted, textTransform: 'capitalize' },
-  signOut: { alignSelf: 'flex-start', marginTop: 10, paddingVertical: 5, paddingHorizontal: 12 },
-  signOutText: { fontSize: 11.5, fontWeight: '800', color: theme.bentoLoss },
+  menuButtonActive: { backgroundColor: theme.bentoSoft },
+  menuBar: { width: 15, height: 1.5, borderRadius: 1, backgroundColor: theme.bentoInk },
+  // `top` and `right` come from the measured button, so this is positioned
+  // against the window rather than against a parent it no longer has.
+  menu: {
+    position: 'absolute',
+    minWidth: 224,
+    backgroundColor: theme.bentoSurface,
+    borderRadius: BENTO_RADIUS_TILE,
+    paddingVertical: 13,
+    paddingHorizontal: 15,
+    shadowColor: theme.bentoInk,
+    shadowOpacity: 0.1,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
+  menuEmail: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk },
+  menuRole: { fontSize: 10.5, color: theme.bentoMuted, textTransform: 'capitalize', marginTop: 2 },
+  menuAction: {
+    marginTop: 12,
+    paddingTop: 11,
+    borderTopWidth: 1,
+    borderTopColor: theme.bentoRule,
+  },
+  menuActionHovered: { opacity: 0.7 },
+  menuActionText: { fontSize: 12.5, fontWeight: '800', color: theme.bentoLoss },
 
   main: { flex: 1 },
   mainContent: { padding: 18, paddingBottom: 60 },
   mainContentCompact: { padding: 14, paddingBottom: 48 },
 
-  mobileBrand: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  mobileBrand: { marginBottom: 14 },
   brandCompact: { fontSize: 11.5, fontWeight: '800', letterSpacing: 1.5, color: theme.bentoInk },
   tabBar: { marginBottom: 16 },
 
-  header: { marginBottom: 16 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    flexWrap: 'wrap',
+    marginBottom: 16,
+  },
+  headerTitles: { flexShrink: 1, minWidth: 240 },
   eyebrow: { fontSize: 10.5, fontWeight: '800', letterSpacing: 1, color: theme.bentoMuted, marginBottom: 3 },
   title: { color: theme.bentoInk, fontSize: 26, fontWeight: '800', letterSpacing: -1 },
-  blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3, maxWidth: 720 },
+  blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3, maxWidth: 680 },
 
   spinner: { marginTop: 40 },
 });
