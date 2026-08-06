@@ -8,6 +8,7 @@ import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
+import { limitLabel } from '@/components/platform/labels';
 import { LIMIT_RESOURCES, type LimitResource } from '@/lib/entitlements';
 import { whatsappLink, type PlatformAuditRow, type PlatformShopRow, type SubscriptionPaymentRow } from '@/lib/platform';
 import type { Plan } from '@/lib/subscriptions';
@@ -169,8 +170,8 @@ export function PlatformOverview({
 
   const headline =
     paying.length === 0
-      ? `No paying shops yet. ${trialing.length} on trial${endingSoon.length > 0 ? `, ${endingSoon.length} deciding within a week` : ''}.`
-      : `${formatCents(mrr + committedMrr)} a month from ${paying.length} paying shop${paying.length === 1 ? '' : 's'}${
+      ? `No paying stores yet. ${trialing.length} on trial${endingSoon.length > 0 ? `, ${endingSoon.length} deciding within a week` : ''}.`
+      : `${formatCents(mrr + committedMrr)} a month from ${paying.length} paying store${paying.length === 1 ? '' : 's'}${
           committed.length > 0 ? ` (${formatCents(committedMrr)} of it starting after trials end)` : ''
         }${
           endingSoon.length > 0 ? ` · ${endingSoon.length} trial${endingSoon.length === 1 ? '' : 's'} ending within a week` : ''
@@ -233,7 +234,7 @@ export function PlatformOverview({
                 value={formatCents(collectedThisMonth)}
                 hint={`${paymentsThisMonth.length} payment${paymentsThisMonth.length === 1 ? '' : 's'}`}
               />
-              <BentoTile label="Average per shop" value={formatCents(arpu)} />
+              <BentoTile label="Average per store" value={formatCents(arpu)} />
               <BentoTile
                 label="Trial → paid"
                 value={`${conversion}%`}
@@ -246,7 +247,9 @@ export function PlatformOverview({
 
         <BentoCell span={6}>
           <BentoCard title="Movement" scope="last 30 days">
-            <BentoTileRow>
+            {/* Four tiles in a half-width card: 2 x 2, not 3 + 1 with the
+                fourth stretched across its own row. */}
+            <BentoTileRow minTileWidth={150}>
               <BentoTile label="New this week" value={`+${newIn(7)}`} hint={`+${newIn(30)} in 30 days`} />
               <BentoTile
                 label="On trial"
@@ -270,12 +273,12 @@ export function PlatformOverview({
 
         <BentoCell span={6}>
           <BentoCard title="Plan mix" scope="today">
-            <DonutChart slices={planSlices} centerValue={String(shops.length)} centerLabel="shops" />
+            <DonutChart slices={planSlices} centerValue={String(shops.length)} centerLabel="stores" />
           </BentoCard>
         </BentoCell>
 
         <BentoCell span={6}>
-          <BentoCard title="New shops" scope="per week">
+          <BentoCard title="New stores" scope="per week">
             <BarChart bars={signupBars} color={CHART_COLORS.signups} />
           </BentoCard>
         </BentoCell>
@@ -287,7 +290,7 @@ export function PlatformOverview({
         </BentoCell>
 
         <BentoCell span={7}>
-          <BentoCard title="Revenue by plan" scope="paying shops only">
+          <BentoCard title="Revenue by plan" scope="paying stores only">
             <View style={styles.mix}>
               {plans
                 .filter((p) => p.priceCents > 0)
@@ -308,16 +311,19 @@ export function PlatformOverview({
                     </View>
                   );
                 })}
-              {mrr === 0 ? <Text style={styles.empty}>No paying shops yet — this fills in as trials convert.</Text> : null}
+              {mrr === 0 ? <Text style={styles.empty}>No paying stores yet — this fills in as trials convert.</Text> : null}
             </View>
           </BentoCard>
         </BentoCell>
 
         <BentoCell span={5}>
-          <BentoCard title="Usage across all shops" scope="right now">
-            <BentoTileRow>
+          <BentoCard title="Usage across all stores" scope="right now">
+            {/* Six tiles in a 5/12 card. Left to itself this wraps 3 + 3 at
+                desktop and 2 + 2 + 2 lower down, both even; the floor just
+                stops a lone seventh-of-a-row tile appearing between them. */}
+            <BentoTileRow minTileWidth={104}>
               {LIMIT_RESOURCES.map((r) => (
-                <BentoTile key={r.key} label={r.label} value={totalUsage(r.key).toLocaleString()} />
+                <BentoTile key={r.key} label={limitLabel(r.key)} value={totalUsage(r.key).toLocaleString()} />
               ))}
             </BentoTileRow>
           </BentoCard>
@@ -328,7 +334,7 @@ export function PlatformOverview({
           full width and its rows get the whole card. */}
       <BentoCard
         title="Needs attention"
-        scope={attention.length === 1 ? '1 shop' : `${attention.length} shops`}
+        scope={attention.length === 1 ? '1 store' : `${attention.length} stores`}
       >
         {attention.length === 0 ? (
           <Text style={styles.empty}>Nothing pressing.</Text>
@@ -345,8 +351,8 @@ export function PlatformOverview({
           ))
         )}
         <Caveat tone="context">
-          Every figure here is ours — subscriptions, signups and how heavily shops use what they pay for. None of it is
-          any shop&apos;s takings.
+          Every figure here is ours — subscriptions, signups and how heavily stores use what they pay for. None of it is
+          any store&apos;s takings.
         </Caveat>
       </BentoCard>
     </View>

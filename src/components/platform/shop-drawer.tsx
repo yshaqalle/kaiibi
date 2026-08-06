@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionRow, Chip, Field, LabelledField, PlatformButton, SectionLabel } from '@/components/platform/kit';
+import { limitLabel } from '@/components/platform/labels';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
@@ -80,7 +81,7 @@ export function ShopDrawer({
         const atLimit = limit != null && used >= limit;
         return (
           <View key={r.key} style={styles.usageRow}>
-            <Text style={styles.usageLabel}>{r.label}</Text>
+            <Text style={styles.usageLabel}>{limitLabel(r.key)}</Text>
             <Text style={[styles.usageValue, atLimit && styles.usageValueAtLimit]}>
               {used.toLocaleString()} / {limit == null ? '∞' : limit.toLocaleString()}
             </Text>
@@ -132,10 +133,10 @@ export function ShopDrawer({
       {wouldExceed.length > 0 ? (
         <View style={styles.caveat}>
           <Caveat tone="wrong">
-            {`${target?.name} would put this shop over ${wouldExceed.length} limit${
+            {`${target?.name} would put this store over ${wouldExceed.length} limit${
               wouldExceed.length === 1 ? '' : 's'
             }: ${wouldExceed
-              .map((r) => `${r.label.toLowerCase()} ${shop.usage[r.key] ?? 0}/${target!.limits[r.key]}`)
+              .map((r) => `${limitLabel(r.key).toLowerCase()} ${shop.usage[r.key] ?? 0}/${target!.limits[r.key]}`)
               .join(', ')}. Existing data is kept and stays editable; new records are blocked until they are back under.`}
           </Caveat>
         </View>
@@ -170,7 +171,7 @@ export function ShopDrawer({
       <DangerZone shop={shop} onDone={onDone} />
 
       <Text style={styles.privacyNote}>
-        This portal cannot open this shop&apos;s products, sales, books, or schedule.
+        This portal cannot open this store&apos;s products, sales, books, or schedule.
       </Text>
     </View>
   );
@@ -198,7 +199,7 @@ function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Pro
   const [error, setError] = useState<string | null>(null);
 
   const matches = typed.trim() === shop.shopName;
-  const destroyed = LIMIT_RESOURCES.map((r) => ({ label: r.label.toLowerCase(), n: shop.usage[r.key] ?? 0 })).filter(
+  const destroyed = LIMIT_RESOURCES.map((r) => ({ label: limitLabel(r.key).toLowerCase(), n: shop.usage[r.key] ?? 0 })).filter(
     (x) => x.n > 0 && x.label !== 'sales this month'
   );
 
@@ -219,7 +220,7 @@ function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Pro
       <>
         <SectionLabel tone="danger">Danger zone</SectionLabel>
         <ActionRow>
-          <PlatformButton label="Delete store / business" danger onPress={() => setOpen(true)} />
+          <PlatformButton label="Delete this store" danger onPress={() => setOpen(true)} />
         </ActionRow>
         <Text style={styles.hint}>Permanent. Use Suspend above if you only need to cut off access.</Text>
       </>
@@ -232,7 +233,7 @@ function DangerZone({ shop, onDone }: { shop: PlatformShopRow; onDone: () => Pro
       <View style={styles.dangerBox}>
         <Text style={styles.dangerTitle}>Delete {shop.shopName}</Text>
         <Text style={styles.dangerBody}>
-          This permanently destroys everything this business has recorded
+          This permanently destroys everything this store has recorded
           {destroyed.length > 0 ? ` — including ${destroyed.map((d) => `${d.n.toLocaleString()} ${d.label}`).join(', ')}` : ''}
           , along with its sales history, books and payroll. It cannot be undone, and we keep no copy.
         </Text>

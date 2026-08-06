@@ -35,7 +35,7 @@ export function RequestsTab({
     // the server requires one too, and a client-side disable is a courtesy,
     // not a rule.
     if (!reason.trim()) {
-      setError('A reason is required — it is what the shop sees if you decline.');
+      setError('A reason is required — it is what the store sees if you decline.');
       return;
     }
     setBusy(requestId);
@@ -63,13 +63,13 @@ export function RequestsTab({
           <Field
             value={reason}
             onChangeText={setReason}
-            placeholder="Reason (required — a decline shows this to the shop)"
+            placeholder="Reason (required — a decline shows this to the store)"
             needed={!reason.trim()}
           />
           {!reason.trim() ? (
             <View style={styles.caveat}>
               <Caveat tone="wrong">
-                Type a reason to enable Approve and Decline. If you decline, this is the message the shop reads.
+                Type a reason to enable Approve and Decline. If you decline, this is the message the store reads.
               </Caveat>
             </View>
           ) : null}
@@ -112,8 +112,8 @@ export function RequestsTab({
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Caveat tone="context">
-        A shop can raise and cancel its own request but can never resolve one — there is no update policy on the table at
-        all, and both decisions run through the audited platform-admin function.
+        A store can raise and cancel its own request but can never resolve one — there is no update policy on the table
+        at all, and both decisions run through the audited platform-admin function.
       </Caveat>
     </BentoCard>
   );

@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { planColor } from '@/components/platform-charts';
 import { PlanEditor } from '@/components/platform/plan-editor';
 import { Chip, PlatformButton, PlatformModal } from '@/components/platform/kit';
+import { limitLabel } from '@/components/platform/labels';
 import { Card } from '@/components/card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Caveat } from '@/components/ui/caveat';
@@ -43,9 +44,12 @@ export function PlansTab({
   const [editing, setEditing] = useState<string | null>(null);
   const editingPlan = plans.find((p) => p.key === editing) ?? null;
 
-  // Three tiers fill a row at 4; four or more wrap to a second row rather than
-  // shrinking below a readable width.
-  const span = plans.length >= 3 ? 4 : plans.length === 2 ? 6 : 12;
+  // The span that leaves no orphan on the last row. Four tiers at span 4 puts
+  // three across and strands the fourth alone, which is what shipped first;
+  // 2x2 compares just as well and does not look broken. Four across was the
+  // other option and is worse — these cards carry twelve module pills and six
+  // limit tiles, and at a quarter of the width they wrap into columns of soup.
+  const span = plans.length === 1 ? 12 : plans.length === 2 || plans.length === 4 ? 6 : 4;
 
   return (
     <View>
@@ -64,8 +68,8 @@ export function PlansTab({
       </BentoGrid>
 
       <Caveat tone="context">
-        Editing a tier changes entitlements for every shop on it at once. Removing a module makes that data read-only for
-        them immediately; lowering a cap keeps their existing records and blocks new ones.
+        Editing a tier changes entitlements for every store on it at once. Removing a module makes that data read-only
+        for them immediately; lowering a cap keeps their existing records and blocks new ones.
       </Caveat>
 
       {/* A modal, not an inline swap: the editor is a form, and dropping a form
@@ -122,7 +126,7 @@ function PlanCard({
       <View style={styles.stats}>
         <View>
           <Text style={[styles.statValue, { color: accent }]}>{shopsOn}</Text>
-          <Text style={styles.statLabel}>shop{shopsOn === 1 ? '' : 's'}</Text>
+          <Text style={styles.statLabel}>store{shopsOn === 1 ? '' : 's'}</Text>
         </View>
         <View>
           <Text style={styles.statValue}>{revenue > 0 ? formatCents(revenue) : '—'}</Text>
@@ -145,8 +149,8 @@ function PlanCard({
         {MODULES.map((m) => {
           const on = plan.modules.includes(m.key);
           return (
-            <View key={m.key} style={[styles.pill, on && { backgroundColor: `${accent}14` }]}>
-              <Text style={[styles.pillText, on ? { color: accent } : styles.pillTextOff]}>
+            <View key={m.key} style={[styles.pill, on && { backgroundColor: `${accent}1F` }]}>
+              <Text style={[styles.pillText, on ? styles.pillTextOn : styles.pillTextOff]}>
                 {on ? '' : '✕ '}
                 {m.label}
               </Text>
@@ -161,11 +165,9 @@ function PlanCard({
           const limit = plan.limits[r.key];
           return (
             <View key={r.key} style={styles.limit}>
-              <Text style={[styles.limitValue, limit == null && styles.limitUnlimited]}>
-                {limit == null ? '∞' : limit.toLocaleString()}
-              </Text>
+              <Text style={styles.limitValue}>{limit == null ? '∞' : limit.toLocaleString()}</Text>
               <Text style={styles.limitLabel} numberOfLines={1}>
-                {r.label}
+                {limitLabel(r.key)}
               </Text>
             </View>
           );
@@ -196,11 +198,17 @@ const styles = StyleSheet.create({
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   pill: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   pillText: { fontSize: 11, fontWeight: '700' },
+  // Ink on the tier's tint, not the tier's hue on white. `bentoSeries3` at
+  // 11px is about 3.3:1 on white -- under the 4.5 small text needs -- and the
+  // tint alone carries the tier identity perfectly well.
+  pillTextOn: { color: theme.bentoInk2 },
   pillTextOff: { color: theme.bentoMuted2 },
 
   limits: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   limit: { backgroundColor: theme.bentoSoft, borderRadius: BENTO_RADIUS_TILE, paddingVertical: 9, paddingHorizontal: 11, minWidth: 84, flexGrow: 1 },
+  // No green on the unlimited case. `bentoProfit` is a STATUS colour and "no
+  // cap" is not profit; six green infinities on the Trial card read as six good
+  // things rather than six absent limits. The glyph already says it.
   limitValue: { fontSize: 14, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
-  limitUnlimited: { color: theme.bentoProfit },
   limitLabel: { fontSize: 9.5, color: theme.bentoMuted, marginTop: 1 },
 });

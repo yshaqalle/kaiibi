@@ -14,7 +14,7 @@ const theme = Colors.light;
 // calmer and changes nothing else.
 
 export function AuditTab({ rows, shops }: { rows: PlatformAuditRow[]; shops: PlatformShopRow[] }) {
-  const shopName = (id: string | null) => shops.find((s) => s.shopId === id)?.shopName ?? (id ? id.slice(0, 8) : '—');
+  const storeName = (id: string | null) => shops.find((s) => s.shopId === id)?.shopName ?? (id ? id.slice(0, 8) : '—');
 
   const columns: Column<PlatformAuditRow>[] = [
     {
@@ -31,9 +31,9 @@ export function AuditTab({ rows, shops }: { rows: PlatformAuditRow[]; shops: Pla
     },
     {
       key: 'shop',
-      header: 'Shop',
+      header: 'Store',
       width: 176,
-      render: (row) => <ValueCell value={shopName(row.targetShopId)} />,
+      render: (row) => <ValueCell value={storeName(row.targetShopId)} />,
     },
     {
       key: 'reason',

@@ -1,3 +1,4 @@
+import { Children, cloneElement, isValidElement } from 'react';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
@@ -51,12 +52,38 @@ export function BentoTile({
 }
 
 /**
- * The row tiles sit in. Wraps, and every tile grows to share the width, so a
- * strip of four and a strip of five both fill the card without the caller
- * doing column maths.
+ * The row tiles sit in. Wraps, and every tile grows to share the width.
+ *
+ * `minTileWidth` is how a card says how many tiles it wants per row, without
+ * hardcoding a count that cannot reflow. It matters because of what a leftover
+ * does: four tiles in a card only wide enough for three wrap 3 + 1, and the
+ * orphan then GROWS to the full width, so it reads as a heading rather than the
+ * fourth of four. Raising the minimum past a third of the row turns that into
+ * an even 2 x 2.
  */
-export function BentoTileRow({ children, style }: { children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.row, style]}>{children}</View>;
+export function BentoTileRow({
+  children,
+  minTileWidth,
+  style,
+}: {
+  children: React.ReactNode;
+  minTileWidth?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return (
+    <View style={[styles.row, style]}>
+      {minTileWidth == null
+        ? children
+        : Children.map(children, (child) =>
+            // Cloned rather than passed down through context: a tile can also
+            // be used on its own, and a context would make its width depend on
+            // whether an ancestor happened to exist.
+            isValidElement<{ style?: StyleProp<ViewStyle> }>(child)
+              ? cloneElement(child, { style: [child.props.style, { minWidth: minTileWidth }] })
+              : child
+          )}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

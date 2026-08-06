@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionRow, Chip, Field, LabelledField, PlatformButton, SectionLabel } from '@/components/platform/kit';
+import { limitLabel } from '@/components/platform/labels';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
@@ -50,7 +51,7 @@ export function PlanEditor({
     const next = Number(raw);
     if (!Number.isFinite(next)) return [];
     const over = shops.filter((s) => s.planKey === plan.key && (s.usage[r.key] ?? 0) > next);
-    return over.length > 0 ? [`${over.length} over ${r.label.toLowerCase()}`] : [];
+    return over.length > 0 ? [`${over.length} over ${limitLabel(r.key).toLowerCase()}`] : [];
   });
 
   const save = async () => {
@@ -98,7 +99,7 @@ export function PlanEditor({
         </LabelledField>
       </View>
       <Text style={styles.meta}>
-        key `{plan.key}` — not editable, {shopsOn} shop{shopsOn === 1 ? '' : 's'} depend on it
+        key `{plan.key}` — not editable, {shopsOn} store{shopsOn === 1 ? '' : 's'} depend on it
       </Text>
 
       <SectionLabel>Modules</SectionLabel>
@@ -111,7 +112,7 @@ export function PlanEditor({
       <SectionLabel>Limits — blank means unlimited</SectionLabel>
       <ActionRow>
         {LIMIT_RESOURCES.map((r) => (
-          <LabelledField key={r.key} label={r.label}>
+          <LabelledField key={r.key} label={limitLabel(r.key)}>
             <Field
               value={limits[r.key]}
               onChangeText={(v) => setLimits((c) => ({ ...c, [r.key]: v }))}
@@ -126,7 +127,7 @@ export function PlanEditor({
       {(losingModules.length > 0 || strandedByLimit.length > 0) && shopsOn > 0 ? (
         <View style={styles.caveat}>
           <Caveat tone="wrong" action={{ label: 'Cancel this edit', onPress: onClose }}>
-            {`This affects ${shopsOn} shop${shopsOn === 1 ? '' : 's'} immediately.${
+            {`This affects ${shopsOn} store${shopsOn === 1 ? '' : 's'} immediately.${
               losingModules.length > 0
                 ? ` Removing ${losingModules.join(', ')} makes that data read-only for them at once.`
                 : ''

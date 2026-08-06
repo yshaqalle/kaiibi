@@ -80,7 +80,7 @@ export function ShopsTab({
   const columns: Column<PlatformShopRow>[] = [
     {
       key: 'shop',
-      header: 'Shop',
+      header: 'Store',
       render: (shop) => <NameCell title={shop.shopName} meta={shop.planName} />,
     },
     {
@@ -114,7 +114,7 @@ export function ShopsTab({
     },
     {
       key: 'stores',
-      header: 'Stores',
+      header: 'Branches',
       numeric: true,
       width: 86,
       render: (shop) => {
@@ -150,7 +150,7 @@ export function ShopsTab({
         <BentoCell span={12}>
           <BentoCard>
             <BentoTileRow>
-              <BentoTile label="MRR" value={formatCents(counts.mrr)} hint="paying shops only" />
+              <BentoTile label="MRR" value={formatCents(counts.mrr)} hint="paying stores only" />
               <BentoTile label="Paying" value={String(counts.active)} />
               <BentoTile label="On trial" value={String(counts.trialing)} />
               <BentoTile label="Grace" value={String(counts.grace)} tone={counts.grace > 0 ? 'warn' : 'default'} />
@@ -172,7 +172,7 @@ export function ShopsTab({
         <Field
           value={search}
           onChangeText={setSearch}
-          placeholder="Search shop, plan, or status"
+          placeholder="Search store, plan, or status"
           // White, not the kit's `bentoSoft` default: this one sits on the grey
           // PAGE rather than inside a white card, and soft-on-page is two greys
           // 1% apart — the field disappeared entirely. It also matches the
@@ -206,7 +206,7 @@ export function ShopsTab({
       <BentoCard bodyStyle={compact ? undefined : styles.tableBody}>
         {compact ? (
           filtered.length === 0 ? (
-            <Text style={styles.empty}>No shops match that.</Text>
+            <Text style={styles.empty}>No stores match that.</Text>
           ) : (
             filtered.map((shop, i) => (
               <ShopCard key={shop.shopId} shop={shop} first={i === 0} onPress={() => onSelect(shop.shopId)} />
@@ -218,7 +218,7 @@ export function ShopsTab({
             rows={filtered}
             keyExtractor={(shop) => shop.shopId}
             onRowPress={(shop) => onSelect(shop.shopId === selected ? null : shop.shopId)}
-            emptyLabel="No shops match that."
+            emptyLabel="No stores match that."
             minWidth={880}
           />
         )}
@@ -256,7 +256,7 @@ function ShopCard({ shop, first, onPress }: { shop: PlatformShopRow; first: bool
       ) : null}
       <Text style={[styles.shopMeta, (overStores || overProducts) && styles.shopMetaOver]}>
         {stores}
-        {storeLimit != null ? `/${storeLimit}` : ''} stores · {products.toLocaleString()}
+        {storeLimit != null ? `/${storeLimit}` : ''} branches · {products.toLocaleString()}
         {productLimit != null ? `/${productLimit.toLocaleString()}` : ''} products
       </Text>
     </Pressable>

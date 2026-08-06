@@ -52,8 +52,8 @@ type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
 // the state of the business rather than a description of the screen.
 const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'overview', label: 'Overview', blurb: 'Is the business growing, is money arriving, who needs a conversation today.' },
-  { key: 'shops', label: 'Shops', blurb: 'Every business on Kaiibi, what they pay, and what they are using.' },
-  { key: 'requests', label: 'Requests', blurb: 'Tier changes waiting on a decision. Approving one moves what a shop can do.' },
+  { key: 'shops', label: 'Stores', blurb: 'Every business on Kaiibi, what they pay, and what they are using.' },
+  { key: 'requests', label: 'Requests', blurb: 'Tier changes waiting on a decision. Approving one moves what a store can do.' },
   { key: 'plans', label: 'Plans', blurb: 'What each tier includes, withholds, and caps — and who is on it.' },
   { key: 'audit', label: 'Audit log', blurb: 'Every operator action, who took it, and why. Append-only.' },
   { key: 'operators', label: 'Operators', blurb: 'Who can reach this portal at all.' },
