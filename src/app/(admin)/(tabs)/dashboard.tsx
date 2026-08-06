@@ -20,6 +20,7 @@ import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { buildAttentionItems, type AttentionItem } from '@/lib/attention';
 import { budgetRows, monthlyBillCommitmentCents, type BudgetRow } from '@/lib/cash-budget-reporting';
 import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
@@ -327,6 +328,16 @@ export default function DashboardScreen() {
   );
   const grossProfitCents = pnl.grossProfitCents;
 
+  // Keyed to the shortfall, not to a boolean: closing this says "I've seen
+  // that these two items cost me nothing on paper", not "never warn me about
+  // uncosted stock again". Sell a third uncosted item and the figure is wrong
+  // by a new amount, so the note earns its place back.
+  const uncostedNote = useCaveatDismissal(
+    'dashboard.uncosted-cogs',
+    `${cogs?.uncostedItemCount ?? 0}:${cogs?.uncostedRevenueCents ?? 0}`
+  );
+  const noPayrollNote = useCaveatDismissal('dashboard.no-payroll-access', 'v1');
+
   const owed = useMemo(() => invoiceTotals(money?.openInvoices ?? []), [money]);
   const monthlyCommitmentCents = useMemo(
     () => monthlyBillCommitmentCents(money?.recurringBills ?? []),
@@ -477,11 +488,12 @@ export default function DashboardScreen() {
           {/* Travels with the figure rather than sitting in a footnote:
               without it, gross profit reads as precise when it is knowably
               overstated. */}
-          {cogs && cogs.uncostedItemCount > 0 ? (
+          {cogs && cogs.uncostedItemCount > 0 && !uncostedNote.dismissed ? (
             <BentoCell span={12}>
               <Caveat
                 tone="wrong"
                 action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}
+                onDismiss={uncostedNote.dismiss}
               >
                 {`${cogs.uncostedItemCount} sold ${cogs.uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(cogs.uncostedRevenueCents)} of revenue), so gross profit looks higher than it is.`}
               </Caveat>
@@ -510,8 +522,8 @@ export default function DashboardScreen() {
                   <StatementRow label="Wages earned, not yet paid" hint="no pay run posted yet" amountCents={-pnl.accruedLaborCents} />
                 )}
                 <StatementRow label="Net profit" amountCents={pnl.netProfitCents} variant="total" />
-                {!canSeeLabor && (
-                  <Caveat tone="partial">
+                {!canSeeLabor && !noPayrollNote.dismissed && (
+                  <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
                     Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
                   </Caveat>
                 )}

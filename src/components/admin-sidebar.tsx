@@ -89,7 +89,6 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
           <View style={styles.headerText}>
             <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
             {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
-            <LocationSwitcher />
           </View>
         </View>
         <View style={styles.nav}>
@@ -111,6 +110,12 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
       </View>
       <View style={styles.slot}>
         <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+          {/* Sits next to the ☰ rather than in the sidebar header, matching the
+              mobile-web and native headers: the two controls that act on the
+              whole session belong together, and buried under the shop name the
+              switcher read as a label rather than something you operate.
+              Renders nothing for a one-location shop, which is most of them. */}
+          <LocationSwitcher />
           <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
             <Text style={styles.menuIcon}>☰</Text>
           </Pressable>
@@ -155,9 +160,8 @@ const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
-  // alignItems, not stretch: the switcher sizes to its label rather than
-  // filling the sidebar width, and renders nothing at all for a one-branch shop
-  // (so this column collapses back to name + subtitle).
+  // Name + category only; the location switcher moved to the top bar (see the
+  // comment on it there).
   headerText: { flex: 1, alignItems: 'flex-start', gap: 4 },
   avatar: { width: 34, height: 34, borderRadius: 9, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   // A shop's uploaded logo is usually dark ink on a transparent background
@@ -192,7 +196,9 @@ const styles = StyleSheet.create({
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
   slot: { flex: 1 },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  // gap matches admin-tabs.web.tsx's mobileHeaderRight, so the switcher/☰ pair
+  // is spaced identically either side of the breakpoint.
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 14, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
   menuIcon: { fontSize: 16, color: '#111111' },
   menuBackdrop: { flex: 1 },

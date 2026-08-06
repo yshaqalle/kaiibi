@@ -14,6 +14,7 @@ import type { DateRange } from '@/components/range-selector';
 import { RankingChart } from '@/components/ranking-chart';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { formatAccountingCents } from '@/lib/currency';
 import { expenseCategoryLabel, expenseTotalsByCategory } from '@/lib/expense-reporting';
 import { profitAndLoss } from '@/lib/pnl';
@@ -161,6 +162,21 @@ export function ReportsTab({
   }, [shop, since, until, locationFilter, canSeeLabor]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Above the early return, because hooks are. The explanations carry a
+  // constant signature — the sentence never changes, so "I've read it" means
+  // read for good. The uncosted-cost one is keyed to the shortfall it
+  // describes, so a bigger hole in cost of goods brings it back rather than
+  // leaving a knowingly overstated profit unqualified.
+  const uncostedNote = useCaveatDismissal(
+    'accounting.reports.uncosted-cogs',
+    `${performance?.uncostedItemCount ?? 0}:${performance?.uncostedRevenueCents ?? 0}`
+  );
+  const nonOperatingNote = useCaveatDismissal('accounting.reports.non-operating-spend', 'v1');
+  const accruedWagesNote = useCaveatDismissal('accounting.reports.accrued-wages', 'v1');
+  const noPayrollNote = useCaveatDismissal('accounting.reports.no-payroll-access', 'v1');
+  const labourBasisNote = useCaveatDismissal('accounting.reports.labour-hours-basis', 'v1');
+  const salesTaxNote = useCaveatDismissal('accounting.reports.sales-tax-owed', 'v1');
 
   if (loading || !performance) {
     return (
@@ -328,18 +344,22 @@ export function ReportsTab({
             carries the meaning: amber means this figure is WRONG until
             something is fixed, blue means it is right and here is why it looks
             odd, grey means part of it is withheld. */}
-        {performance.uncostedItemCount > 0 && (
-          <Caveat tone="wrong" action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}>
+        {performance.uncostedItemCount > 0 && !uncostedNote.dismissed && (
+          <Caveat
+            tone="wrong"
+            action={{ label: 'Set costs in Inventory', onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }) }}
+            onDismiss={uncostedNote.dismiss}
+          >
             {`${performance.uncostedItemCount} sold item${performance.uncostedItemCount === 1 ? '' : 's'} had no cost recorded (${formatAccountingCents(performance.uncostedRevenueCents)} of revenue), so cost of goods sold is understated and profit looks higher than it is.`}
           </Caveat>
         )}
-        {nonOperatingCents > 0 && (
-          <Caveat tone="context">
+        {nonOperatingCents > 0 && !nonOperatingNote.dismissed && (
+          <Caveat tone="context" onDismiss={nonOperatingNote.dismiss}>
             {`${formatAccountingCents(nonOperatingCents)} of stock purchases and owner draws is excluded above — stock becomes a cost when it sells, and an owner draw isn't a business cost. Both still leave the bank account.`}
           </Caveat>
         )}
-        {accruedLabor > 0 && (
-          <Caveat tone="context">
+        {accruedLabor > 0 && !accruedWagesNote.dismissed && (
+          <Caveat tone="context" onDismiss={accruedWagesNote.dismiss}>
             {`Wages above are pay already earned — hourly or salaried — with no pay run posted yet. Post a run in Payroll and this line moves into operating expenses; the total won't change.${
               labor && labor.fixedExcludedCount > 0
                 ? ` ${labor.fixedExcludedCount} fixed-pay ${labor.fixedExcludedCount === 1 ? 'person is' : 'people are'} not included — a flat per-run amount has no daily rate to accrue.`
@@ -347,8 +367,8 @@ export function ReportsTab({
             }`}
           </Caveat>
         )}
-        {!canSeeLabor && (
-          <Caveat tone="partial">
+        {!canSeeLabor && !noPayrollNote.dismissed && (
+          <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
             Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
           </Caveat>
         )}
@@ -375,8 +395,8 @@ export function ReportsTab({
                 </View>
               )}
             </View>
-            {labor && labor.totalHoursInRange > 0 && (
-              <Caveat tone="context">
+            {labor && labor.totalHoursInRange > 0 && !labourBasisNote.dismissed && (
+              <Caveat tone="context" onDismiss={labourBasisNote.dismiss}>
                 {`Based on ${labor.totalHoursInRange}h clocked in this period.${
                   labor.nonHourlyCount > 0
                     ? ` ${labor.nonHourlyCount} salaried or fixed-pay ${labor.nonHourlyCount === 1 ? 'person does' : 'people do'} not clock hours, so the per-hour figure reflects hourly staff only.`
@@ -393,13 +413,15 @@ export function ReportsTab({
           <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
           <StatementRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
           {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />}
-          <Caveat tone="context">
-            {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
-              shop?.taxEnabled
-                ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.`
-                : ''
-            }`}
-          </Caveat>
+          {salesTaxNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={salesTaxNote.dismiss}>
+              {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
+                shop?.taxEnabled
+                  ? ` Your current rate is ${shop.taxRatePercent}%; past sales keep the rate they were charged at.`
+                  : ''
+              }`}
+            </Caveat>
+          )}
         </BentoCard>
       </BentoCell>
 

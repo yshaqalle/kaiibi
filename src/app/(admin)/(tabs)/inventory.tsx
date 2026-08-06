@@ -11,6 +11,7 @@ import { ExportMenu } from '@/components/export-menu';
 import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
@@ -90,11 +91,6 @@ export default function InventoryScreen() {
   // Phone only. The store filter, Export, Import and Move stock live behind one
   // pill on the title row rather than wrapping to a second and third row.
   const [showMore, setShowMore] = useState(false);
-  // Which uncosted count has been acknowledged. Holding the NUMBER rather than
-  // a boolean is what lets the warning come back when the number changes --
-  // dismissing it at 2 should not silence it at 9.
-  const [dismissedUncostedCount, setDismissedUncostedCount] = useState<number | null>(null);
-  const [retailNoteDismissed, setRetailNoteDismissed] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
   // Set by a link that already knows what it wants -- the Dashboard's
   // "5 products low on stock" row lands here rather than on the full list,
@@ -340,6 +336,14 @@ export default function InventoryScreen() {
   const needsAttention = products.filter((p) => p.stock <= (p.reorderLevel ?? defaultLowStockLevel)).length;
   const uncostedCount = products.filter(isUncosted).length;
 
+  // Which uncosted count has been acknowledged. Holding the NUMBER rather than
+  // a boolean is what lets the warning come back when the number changes --
+  // dismissing it at 2 should not silence it at 9. That is exactly the shape
+  // useCaveatDismissal stores, so these now survive leaving the tab instead of
+  // resetting on the next mount.
+  const uncostedNote = useCaveatDismissal('inventory.uncosted-products', String(uncostedCount));
+  const retailNote = useCaveatDismissal('inventory.stock-at-retail', 'v1');
+
   // What the shelf is worth, twice: at what it cost and at what it would sell
   // for. Reported as a PAIR because either alone invites the reader to supply
   // the other from imagination, and the gap between them is the margin sitting
@@ -450,11 +454,11 @@ export default function InventoryScreen() {
             Dismissal is keyed to the COUNT, not to a boolean: closing it says
             "I know about these 2", not "never tell me about uncosted products
             again". A third one appearing is a new fact and says so. */}
-        {uncostedCount > 0 && dismissedUncostedCount !== uncostedCount && (
+        {uncostedCount > 0 && !uncostedNote.dismissed && (
           <Caveat
             tone="wrong"
             action={{ label: `Show the ${uncostedCount}`, onPress: () => setStockFilter('nocost') }}
-            onDismiss={() => setDismissedUncostedCount(uncostedCount)}
+            onDismiss={uncostedNote.dismiss}
           >
             {`${uncostedCount} product${uncostedCount === 1 ? ' has' : 's have'} no purchase cost recorded. ${
               uncostedCount === 1 ? 'It counts' : 'They count'
@@ -467,8 +471,8 @@ export default function InventoryScreen() {
         {/* The number is right; it just invites a wrong reading. 'context', and
             deliberately no action — there is nothing to fix. A plain "I've read
             it" is enough to dismiss an explanation. */}
-        {products.length > 0 && !retailNoteDismissed && (
-          <Caveat tone="context" onDismiss={() => setRetailNoteDismissed(true)}>
+        {products.length > 0 && !retailNote.dismissed && (
+          <Caveat tone="context" onDismiss={retailNote.dismiss}>
             Stock at retail is what the shelf would bring in if every unit sold at its current price — no discounts, no
             expiry, no shrinkage. A ceiling, not a forecast.
           </Caveat>

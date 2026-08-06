@@ -22,6 +22,7 @@ import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { TabPills } from '@/components/ui/tab-pills';
 import { WhatsAppButton } from '@/components/whatsapp-button';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -441,6 +442,7 @@ function CustomerDetailPane({
   const [pointsHistory, setPointsHistory] = useState<CustomerPointsEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const { locations, shop } = useAuth();
+  const ledgerNote = useCaveatDismissal('people.customers.append-only-ledger', 'v1');
   const loyaltyOn = shop?.loyaltyEnabled ?? false;
   const multiStore = hasMultipleLocations(locations);
   // Resolved by id from the store list rather than denormalised onto the
@@ -569,8 +571,8 @@ function CustomerDetailPane({
                   </View>
                 ))
               )}
-              {pointsHistory.length > 0 && (
-                <Caveat tone="context">
+              {pointsHistory.length > 0 && !ledgerNote.dismissed && (
+                <Caveat tone="context" onDismiss={ledgerNote.dismiss}>
                   The ledger is append-only — a correction arrives as its own row rather than quietly changing an old
                   one, which is what answers &quot;why is my balance what it is&quot; at the counter.
                 </Caveat>
@@ -611,6 +613,7 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
   const canManagePayroll = can('people.payroll.manage');
   const canViewHours = canAny(['people.timesheet.view', 'people.payroll.manage']);
   const canApproveTimeOff = can('people.timeoff.approve');
+  const noHoursNote = useCaveatDismissal('people.team.no-timesheet-access', 'v1');
 
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -829,8 +832,8 @@ function TeamManagementTab({ compact, setHeaderActions }: { compact: boolean; se
             hint={canViewHours ? 'since the 1st' : 'needs timesheet access'}
           />
         </View>
-        {!canViewHours && (
-          <Caveat tone="partial">
+        {!canViewHours && !noHoursNote.dismissed && (
+          <Caveat tone="partial" onDismiss={noHoursNote.dismiss}>
             Hours are hidden — you don&apos;t have timesheet access, so the two figures that come from clock-ins are
             left blank rather than shown as zero.
           </Caveat>
@@ -873,6 +876,10 @@ function TeamDetailPane({
   onChanged: () => Promise<void>;
 }) {
   const { shop, locations } = useAuth();
+  // Not keyed to the member: "you don't have payroll access" is one fact about
+  // the viewer, so closing it once shouldn't have to be done again on the next
+  // person in the list.
+  const noPayrollNote = useCaveatDismissal('people.team.no-payroll-access', 'v1');
   const [entries, setEntries] = useState<TimeEntry[]>([]);
   const [editingMember, setEditingMember] = useState(false);
   const [editingPay, setEditingPay] = useState(false);
@@ -979,8 +986,10 @@ function TeamDetailPane({
                   ? 'Not set'
                   : formatPayRateLong(member.payType, member.payRateCents)}
             </Text>
-            {!canManagePayroll && (
-              <Caveat tone="partial">You don&apos;t have payroll access, so this member&apos;s rate is hidden.</Caveat>
+            {!canManagePayroll && !noPayrollNote.dismissed && (
+              <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
+                You don&apos;t have payroll access, so this member&apos;s rate is hidden.
+              </Caveat>
             )}
           </BentoCard>
         </BentoCell>

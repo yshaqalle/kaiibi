@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -14,6 +15,7 @@ import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { totalExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
@@ -58,6 +60,7 @@ export function OverviewTab({
   setHeaderActions: HeaderActionsSetter;
 }) {
   const { shop } = useAuth();
+  const router = useRouter();
   // The local `wide = width >= 1000` check is gone: BentoGrid owns the
   // breakpoints now, so this tab no longer has an opinion about them that
   // could drift from the one the rest of the screen uses.
@@ -157,6 +160,20 @@ export function OverviewTab({
 
   const rangeLabel = formatRangeLabel(dateRange);
 
+  // The two explainers are the same sentence every time, so closing one closes
+  // it for good. The uncosted-cost note is keyed to the shortfall it describes:
+  // let more items sell without a cost price and it is a different, larger
+  // problem, so it comes back rather than staying hidden.
+  const revenueNote = useCaveatDismissal('accounting.overview.revenue-vs-tax', 'v1');
+  const grossProfitNote = useCaveatDismissal('accounting.overview.gross-profit-scope', 'v1');
+  const uncostedNote = useCaveatDismissal(
+    'accounting.overview.uncosted-cogs',
+    `${uncostedItemCount}:${uncostedRevenueCents}`
+  );
+  const cashierNote = useCaveatDismissal('accounting.overview.cashier-gross-takings', 'v1');
+  const showUncostedNote = uncostedItemCount > 0 && !uncostedNote.dismissed;
+  const showAnyCaveat = !revenueNote.dismissed || !grossProfitNote.dismissed || showUncostedNote;
+
   // The daily figures rather than the raw sales: this tab is a summary, so its
   // export is the summary. Someone wanting every line has Transactions.
   useHeaderActions(
@@ -215,23 +232,40 @@ export function OverviewTab({
 
       {/* Kept outside a card: these explain the figures above rather than
           being a figure of their own, and boxing each one turned three
-          sentences into three competing panels. */}
-      <BentoCell span={12}>
-        <Caveat tone="context">
-          {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
-            refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
-          }`}
-        </Caveat>
-        <Caveat tone="context">
-          Gross profit is revenue less what the goods cost. Operating expenses and wages come off on Reports, which is
-          where the bottom line lives.
-        </Caveat>
-        {uncostedItemCount > 0 ? (
-          <Caveat tone="wrong">
-            {`${uncostedItemCount} sold ${uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(uncostedRevenueCents)} of revenue), so cost of goods is understated and gross profit looks higher than it is.`}
-          </Caveat>
-        ) : null}
-      </BentoCell>
+          sentences into three competing panels.
+
+          The cell goes with them once all three are closed — an empty
+          BentoCell still spends a row gap, leaving a hole where the reader
+          just tidied up. */}
+      {showAnyCaveat ? (
+        <BentoCell span={12}>
+          {revenueNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={revenueNote.dismiss}>
+              {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
+                refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
+              }`}
+            </Caveat>
+          )}
+          {grossProfitNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={grossProfitNote.dismiss}>
+              Gross profit is revenue less what the goods cost. Operating expenses and wages come off on Reports, which
+              is where the bottom line lives.
+            </Caveat>
+          )}
+          {showUncostedNote ? (
+            <Caveat
+              tone="wrong"
+              action={{
+                label: 'Set costs in Inventory',
+                onPress: () => router.push({ pathname: '/inventory', params: { filter: 'nocost' } }),
+              }}
+              onDismiss={uncostedNote.dismiss}
+            >
+              {`${uncostedItemCount} sold ${uncostedItemCount === 1 ? 'item has' : 'items have'} no cost recorded (${formatAccountingCents(uncostedRevenueCents)} of revenue), so cost of goods is understated and gross profit looks higher than it is.`}
+            </Caveat>
+          ) : null}
+        </BentoCell>
+      ) : null}
 
       {/* Paired so the revenue shape and the payment split are read together —
           they answer "how much" and "how" about the same money. The grid
@@ -271,9 +305,11 @@ export function OverviewTab({
             emptyLabel="No cashier activity in this range."
             showRank
           />
-          <Caveat tone="context">
-            Gross takings, not net — this ranks who served the most, so it reconciles against a till.
-          </Caveat>
+          {cashierNote.dismissed ? null : (
+            <Caveat tone="context" onDismiss={cashierNote.dismiss}>
+              Gross takings, not net — this ranks who served the most, so it reconciles against a till.
+            </Caveat>
+          )}
         </BentoCard>
       </BentoCell>
     </BentoGrid>

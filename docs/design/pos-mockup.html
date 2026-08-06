@@ -1,0 +1,467 @@
+<title>Kaiibi POS — the bento language at the counter</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{padding-bottom:8px;border-radius:16px;overflow:hidden;}
+  .scroller.raw{overflow-x:auto;}
+  .fitBtn{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;margin-left:auto;}
+  .fitBtn[aria-pressed="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- the workspace: two panes, not a card grid ---- */
+  .panes{display:flex;gap:14px;align-items:stretch;}
+  .browse{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;}
+  .cart{width:392px;flex:none;display:flex;flex-direction:column;gap:12px;}
+  /* Phone: ONE column, and the cart comes FIRST — see the note in the page. */
+  .w380 .panes{display:flex;flex-direction:column;}
+  .w380 .cart{width:auto;order:-1;}
+
+  .search{background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;height:46px;
+    padding:0 6px 0 14px;font-size:13.5px;color:var(--d-mut2);display:flex;align-items:center;
+    justify-content:space-between;gap:10px;}
+  .scanBtn{background:var(--d-ink);color:#fff;border-radius:17px;width:34px;height:34px;display:flex;
+    align-items:center;justify-content:center;font-size:16px;line-height:1;flex:none;}
+  .cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;}
+  .cats span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .cats span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* product grid */
+  .grid{display:grid;gap:10px;}
+  .w1280 .grid{grid-template-columns:repeat(4,1fr);}
+  .w380 .grid{grid-template-columns:repeat(2,1fr);}
+  .tile{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:18px;padding:11px;
+    display:flex;flex-direction:column;gap:2px;}
+  .tile .thumb{height:66px;border-radius:12px;background:var(--d-soft);margin-bottom:7px;display:flex;
+    align-items:center;justify-content:center;}
+  .tile .drop{width:20px;height:20px;border-radius:10px;background:#e2e2e8;}
+  .tile .brand{font-size:9.5px;font-weight:800;letter-spacing:.09em;color:var(--d-mut2);}
+  .tile .nm{font-size:12.5px;font-weight:700;line-height:1.3;}
+  .tile .ft{margin-top:6px;display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;}
+  .tile .pr{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .tile .st{font-size:10.5px;color:var(--d-mut);}
+  .tile.off{opacity:.55;}
+  .warn{font-size:9.5px;font-weight:800;padding:3px 7px;border-radius:999px;background:#fdf1e3;color:#8a530f;white-space:nowrap;}
+  .warn.out{background:#fce9eb;color:#b0293a;}
+
+  /* cart */
+  .cardx{background:var(--d-sf);border-radius:26px;padding:16px;}
+  .cartHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+  .cartHead b{font-size:16px;font-weight:800;letter-spacing:-.02em;}
+  .miniBtn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 11px;
+    font-size:11.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .line{padding:11px 0;border-bottom:1px solid var(--d-rule);}
+  .line:last-of-type{border-bottom:none;}
+  .lineTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .lineName{font-size:13.5px;font-weight:700;flex:1;min-width:0;}
+  .lineAmt{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .lineBot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
+  .qty{display:inline-flex;align-items:center;gap:12px;background:var(--d-soft);border-radius:999px;padding:4px 6px;}
+  .qty i{font-style:normal;width:30px;height:30px;border-radius:15px;background:var(--d-sf);
+    border:1px solid var(--d-ln);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
+  .qty b{min-width:22px;text-align:center;font-variant-numeric:tabular-nums;font-size:14px;}
+  .discLink{font-size:11.5px;font-weight:700;color:var(--d-mut);text-decoration:underline;}
+  .sum{margin-top:12px;padding-top:12px;border-top:1px solid var(--d-rule);}
+  .sumRow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;}
+  .sumRow .k{color:var(--d-mut);}
+  .sumRow .v{font-weight:700;font-variant-numeric:tabular-nums;}
+  .sumRow .v.dis{color:var(--profit);}
+  /* The one loud thing on the screen. */
+  .totalRow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+    margin-top:10px;padding-top:12px;border-top:2px solid var(--d-ink);}
+  .totalRow .k{font-size:15px;font-weight:800;}
+  .totalRow .v{font-size:30px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+  .earns{font-size:11.5px;color:var(--d-mut);margin-top:6px;}
+  .payBtn{margin-top:12px;background:var(--d-ink);color:#fff;border-radius:16px;height:54px;display:flex;
+    align-items:center;justify-content:center;font-size:15px;font-weight:800;letter-spacing:-.01em;}
+  .payBtn.off{background:var(--d-soft);color:var(--d-mut2);}
+  .emptyCart{text-align:center;padding:34px 16px;color:var(--d-mut);font-size:13px;line-height:1.6;}
+  .emptyCart .ic{font-size:26px;display:block;margin-bottom:8px;}
+
+  /* checkout sheet */
+  .sheetWrap{background:var(--d-pg);border-radius:24px;padding:16px;}
+  .sheetHead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .sheetHead b{font-size:17px;font-weight:800;letter-spacing:-.03em;}
+  .sBlock{background:var(--d-sf);border-radius:16px;padding:14px 15px;margin-bottom:8px;}
+  .sLabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);margin-bottom:9px;}
+  .payRow{display:flex;gap:8px;flex-wrap:wrap;}
+  .payOpt{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:14px;padding:11px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .payOpt.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .cust{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .custName{font-size:13.5px;font-weight:700;}
+  .custMeta{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · POS</p>
+  <h1>POS, at the counter</h1>
+  <p class="lede">Four screens are converted and all four arrived at the same rule: grid for
+  glancing, flow for scanning. <strong>POS is neither.</strong> It is the one screen that is
+  <em>operated</em> — under time pressure, with a customer waiting, sometimes one-handed. So the
+  question here is not which layout the design prefers. It is what the palette and the card shape
+  can do without costing a tap.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop / tablet</b><i>1280px · browse + cart</i>
+        <button class="fitBtn" id="fitBtn" type="button" aria-pressed="true">Scaled to fit</button>
+      </div>
+      <div class="scroller" id="wideScroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · cart first, then the grid</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The third case</h2>
+
+    <div class="verdict">
+      <div class="vx good"><b>Unchanged: the two panes, and the phone's order</b>
+        <p>Browse left, cart right. On a phone the cart renders <em>above</em> the grid — already
+        true in the code, and it is the right call: mid-sale the basket is what you are checking,
+        and burying it under a product grid means scrolling past everything you just added.
+        Nothing about bento improves on that, so nothing about bento touches it.</p></div>
+
+      <div class="vx good"><b>Changed: the total is the loudest thing on screen</b>
+        <p>30px, tabular, above a 2px black rule. Everything else in the summary is 13px grey. This
+        is the number the customer is told out loud and the one that gets a sale wrong if it is
+        misread — it should not be the same size as "Subtotal".</p></div>
+
+      <div class="vx mid"><b>Changed carefully: tile radius is 18px, not 26</b>
+        <p><code>BENTO_RADIUS</code> is 26 and that is right for a panel. On a 150px product tile it
+        eats the corners and the tile starts reading as a pill. This is the first place the system
+        needs a second radius, and I would rather name it than quietly break the rule.</p></div>
+
+      <div class="vx bad"><b>The risk worth arguing about: contrast at the counter</b>
+        <p>Every other converted screen is read at a desk. This one is read in shop lighting, at
+        arm's length, often in a hurry. Cool grey on white is a quieter palette than the cream one
+        it replaces — and the product tile carries the most information per pixel of anything in
+        the app.</p>
+        <p>So the tiles here keep a <code>bentoLine</code> border rather than floating borderless
+        like the panels do. If it still reads soft on a real counter, the honest fix is a firmer
+        tile border, not more colour.</p></div>
+    </div>
+
+    <p class="note" style="margin-top:20px"><strong>Touch targets are the real constraint, not
+    styling.</strong> The quantity stepper is 30px circles with a 12px gap — bigger than the 26px
+    the Inventory table uses, because Inventory is adjusted occasionally at a desk and this is
+    pressed repeatedly at a counter. The "Complete sale" button is 54px tall and full-width. Those
+    numbers are the design; the palette is just what they are painted in.</p>
+
+    <p class="note"><strong>What this needs:</strong> a <code>BENTO_RADIUS_TILE</code> (18) beside
+    the existing 26, and nothing else new. Search, chips, cards, the black primary action and the
+    sheet all already exist from the last four conversions.</p>
+
+    <p class="note"><strong>What I have deliberately not designed here:</strong> the receipt modal
+    and the barcode scanner overlay. Both are full-screen takeovers with their own rules, and both
+    deserve their own look rather than being swept into a palette pass.</p>
+  </section>
+</div>
+
+<!-- ═════════════ REGISTER ═════════════ -->
+<template data-tab="register" data-label="Register">
+  <div class="panes">
+    <div class="browse">
+      <div class="search"><span>Search or scan a product</span><span class="scanBtn">⛶</span></div>
+      <div class="cats">
+        <span class="on">All</span><span>Moisturisers</span><span>Cleansers</span><span>Oils</span>
+        <span>Serums</span><span>Masks</span>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Shea Butter Cream 200ml</div>
+          <div class="ft"><span class="pr">$14.00</span><span class="st">42 in stock</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Rose Water Toner 250ml</div>
+          <div class="ft"><span class="pr">$9.50</span><span class="warn">⚠ Low</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">BARWAAQO</div><div class="nm">Black Seed Oil 100ml</div>
+          <div class="ft"><span class="pr">$18.00</span><span class="st">27 in stock</span></div></div>
+
+        <div class="tile off"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Aloe Gel 150ml</div>
+          <div class="ft"><span class="pr">$11.00</span><span class="warn out">⚠ Out</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">HODAN</div><div class="nm">Turmeric Soap Bar</div>
+          <div class="ft"><span class="pr">$4.00</span><span class="st">96 in stock</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Vitamin C Serum 30ml</div>
+          <div class="ft"><span class="pr">$26.00</span><span class="st">9 in stock</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">HODAN</div><div class="nm">Clay Mask 100g</div>
+          <div class="ft"><span class="pr">$12.00</span><span class="st">18 in stock</span></div></div>
+
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">BARWAAQO</div><div class="nm">Argan Hair Oil 60ml</div>
+          <div class="ft"><span class="pr">$16.50</span><span class="warn">⚠ Low</span></div></div>
+      </div>
+    </div>
+
+    <div class="cart">
+      <div class="cardx">
+        <div class="cartHead"><b>Current sale</b>
+          <div style="display:flex;gap:6px"><span class="miniBtn">⛶ Scan</span><span class="miniBtn">⌫ Clear all</span></div>
+        </div>
+
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Shea Butter Cream 200ml</span><span class="lineAmt">$28.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>2</b><i>+</i></span><span class="discLink">+ Add discount</span></div>
+        </div>
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Vitamin C Serum 30ml</span><span class="lineAmt">$26.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>1</b><i>+</i></span><span class="discLink">+ Add discount</span></div>
+        </div>
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Turmeric Soap Bar</span><span class="lineAmt">$12.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>3</b><i>+</i></span><span class="discLink">Bundle −$2.00</span></div>
+        </div>
+
+        <div class="sum">
+          <div class="sumRow"><span class="k">Subtotal</span><span class="v">$66.00</span></div>
+          <div class="sumRow"><span class="k">Discount</span><span class="v dis">−$2.00</span></div>
+          <div class="sumRow"><span class="k">Tax (5%)</span><span class="v">$3.20</span></div>
+          <div class="sumRow"><span class="k discLink">+ Add order discount</span><span class="v"></span></div>
+        </div>
+
+        <div class="totalRow"><span class="k">Total</span><span class="v">$67.20</span></div>
+        <div class="earns">Earns 67 points</div>
+
+        <div class="payBtn">Charge $67.20</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ EMPTY ═════════════ -->
+<template data-tab="empty" data-label="Nothing scanned yet">
+  <div class="panes">
+    <div class="browse">
+      <div class="search"><span>Search or scan a product</span><span class="scanBtn">⛶</span></div>
+      <div class="cats">
+        <span class="on">All</span><span>Moisturisers</span><span>Cleansers</span><span>Oils</span>
+        <span>Serums</span><span>Masks</span>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Shea Butter Cream 200ml</div>
+          <div class="ft"><span class="pr">$14.00</span><span class="st">42 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Rose Water Toner 250ml</div>
+          <div class="ft"><span class="pr">$9.50</span><span class="warn">⚠ Low</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">BARWAAQO</div><div class="nm">Black Seed Oil 100ml</div>
+          <div class="ft"><span class="pr">$18.00</span><span class="st">27 in stock</span></div></div>
+        <div class="tile off"><div class="thumb"><div class="drop"></div></div>
+          <div class="brand">NUURA</div><div class="nm">Aloe Gel 150ml</div>
+          <div class="ft"><span class="pr">$11.00</span><span class="warn out">⚠ Out</span></div></div>
+      </div>
+    </div>
+
+    <div class="cart">
+      <div class="cardx">
+        <div class="cartHead"><b>Current sale</b>
+          <div style="display:flex;gap:6px"><span class="miniBtn">⛶ Scan</span></div>
+        </div>
+        <div class="emptyCart"><span class="ic">🛒</span>Cart is empty.<br>Tap a product to add it.</div>
+        <div class="totalRow"><span class="k">Total</span><span class="v">$0.00</span></div>
+        <div class="payBtn off">Charge</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ CHECKOUT SHEET ═════════════ -->
+<template data-tab="checkout" data-label="Taking payment">
+  <div class="panes">
+    <div class="browse">
+      <div class="sheetWrap">
+        <div class="sheetHead"><b>Take payment</b><span class="miniBtn">Close</span></div>
+
+        <div class="sBlock">
+          <div class="sLabel">Cashier</div>
+          <div class="payRow"><span class="payOpt on">Faduma Ali</span><span class="payOpt">Abdi M.</span>
+            <span class="payOpt">Sagal H.</span></div>
+        </div>
+
+        <div class="sBlock">
+          <div class="sLabel">Customer</div>
+          <div class="cust">
+            <div><div class="custName">Khadra Yusuf</div><div class="custMeta">340 points · $3.40 available</div></div>
+            <span class="miniBtn">Change</span>
+          </div>
+        </div>
+
+        <div class="sBlock">
+          <div class="sLabel">Points</div>
+          <div class="cust">
+            <div><div class="custName">Redeem 100 points</div><div class="custMeta">−$1.00 off this sale</div></div>
+            <span class="qty"><i>−</i><b>100</b><i>+</i></span>
+          </div>
+          <p style="font-size:11.5px;color:var(--d-mut);margin:10px 0 0">Spent before the money is
+          counted — points change the total, and the total is what a split has to add up to.</p>
+        </div>
+
+        <div class="sBlock">
+          <div class="sLabel">Payment</div>
+          <div class="payRow"><span class="payOpt on">Cash</span><span class="payOpt">ZAAD</span>
+            <span class="payOpt">e-Dahab</span><span class="payOpt">Card</span><span class="payOpt">Split</span></div>
+        </div>
+
+        <div class="payBtn">Complete sale · $66.20</div>
+      </div>
+    </div>
+
+    <div class="cart">
+      <div class="cardx">
+        <div class="cartHead"><b>Current sale</b></div>
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Shea Butter Cream 200ml ×2</span><span class="lineAmt">$28.00</span></div>
+        </div>
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Vitamin C Serum 30ml</span><span class="lineAmt">$26.00</span></div>
+        </div>
+        <div class="line">
+          <div class="lineTop"><span class="lineName">Turmeric Soap Bar ×3</span><span class="lineAmt">$12.00</span></div>
+        </div>
+        <div class="sum">
+          <div class="sumRow"><span class="k">Subtotal</span><span class="v">$66.00</span></div>
+          <div class="sumRow"><span class="k">Discount</span><span class="v dis">−$2.00</span></div>
+          <div class="sumRow"><span class="k">Points (100)</span><span class="v dis">−$1.00</span></div>
+          <div class="sumRow"><span class="k">Tax (5%)</span><span class="v">$3.20</span></div>
+        </div>
+        <div class="totalRow"><span class="k">Total</span><span class="v">$66.20</span></div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  let active = 'register';
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [wide, narrow].forEach((host) => {
+      host.innerHTML = '';
+      host.appendChild(tpl.content.cloneNode(true));
+    });
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  // The 1280px frame is scaled to fit a narrower window rather than hiding its
+  // right-hand pane behind a scrollbar. Never scaled up.
+  const scroller = document.getElementById('wideScroller');
+  const fitBtn = document.getElementById('fitBtn');
+  let fit = true;
+
+  function applyFit() {
+    if (!fit) {
+      wide.style.transform = '';
+      scroller.style.height = '';
+      scroller.classList.add('raw');
+      return;
+    }
+    scroller.classList.remove('raw');
+    const k = Math.min(1, scroller.clientWidth / 1280);
+    wide.style.transformOrigin = 'top left';
+    wide.style.transform = `scale(${k})`;
+    scroller.style.height = `${Math.ceil(wide.offsetHeight * k)}px`;
+  }
+
+  fitBtn.addEventListener('click', () => {
+    fit = !fit;
+    fitBtn.setAttribute('aria-pressed', String(fit));
+    fitBtn.textContent = fit ? 'Scaled to fit' : 'Actual size (1280px)';
+    applyFit();
+  });
+  addEventListener('resize', applyFit);
+
+  tabs.forEach((t) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.role = 'tab';
+    b.dataset.go = t.dataset.tab;
+    b.textContent = t.dataset.label;
+    b.addEventListener('click', () => { active = t.dataset.tab; render(); applyFit(); });
+    sw.appendChild(b);
+  });
+  render();
+  applyFit();
+</script>
