@@ -189,11 +189,15 @@ export async function setStaffActive(memberId: string, active: boolean): Promise
 }
 
 // Shares the `product-images` bucket with product photos and shop logos --
-// its RLS only cares that the first path segment is the shop id (migration
-// 0002), not what kind of image this is. `staff` is a sub-folder so the two
-// kinds don't collide by id. `uploadImage` uploads with `upsert: false`, so
-// a bare `${memberId}` path would 409 the moment someone replaces their
-// photo -- the timestamp suffix (matching the convention already used for
+// `staff` is a sub-folder so the two kinds don't collide by id. Its RLS
+// (migration 0024_permission_gates.sql, amended by 20260820000300_staff_photo
+// to also admit `staff.manage`) checks the first path segment is the shop id
+// AND that the uploader holds `inventory.edit`, `settings.access`, or
+// `staff.manage` -- not, as an earlier comment here claimed, merely the shop
+// id (that was migration 0002's original policy, replaced by 0024 well before
+// this function existed). `uploadImage` uploads with `upsert: false`, so a
+// bare `${memberId}` path would 409 the moment someone replaces their photo
+// -- the timestamp suffix (matching the convention already used for
 // products/brands/categories/logos) makes each upload's path unique so a
 // replacement never collides with the photo it's replacing.
 export async function uploadStaffPhoto(shopId: string, memberId: string, localUri: string): Promise<string> {

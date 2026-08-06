@@ -1,11 +1,37 @@
 -- Staff photos. Nullable: a shop that never uploads one is not incomplete,
 -- and the roster falls back to initials.
 --
--- The URL is public, like product images: it points into the same
--- `product-images` bucket, whose RLS is keyed off the first path segment
--- being the shop id rather than the kind of image (migration 0002), so no
--- new bucket or policy is needed.
+-- The URL is public to READ, like product images: the bucket itself is
+-- public (migration 0002's "product images public read"), so no SELECT
+-- policy change is needed for a photo to be viewable once uploaded.
+--
+-- Writing one is a different story. As of 0024_permission_gates.sql, the
+-- `product-images` insert/delete policies are no longer "any shop member" --
+-- they gate on `inventory.edit` or `settings.access`, because the bucket
+-- also serves product photos and shop logos. Neither of those is implied by
+-- `staff.manage` (see IMPLIED_PERMISSIONS in src/lib/permissions.ts), so an
+-- HR-only role could open the roster and add a member but 403 the moment it
+-- tried to upload their photo. The insert policy below is amended in place
+-- (this migration is unapplied) to also admit `staff.manage`.
+--
+-- Delete is left alone: nothing in the staff-photo flow ever deletes a
+-- storage object (a replacement re-uploads to a new timestamped path and
+-- orphans the old one -- see uploadStaffPhoto in src/lib/staff.ts), so a
+-- `staff.manage`-only role never needs delete on this bucket to add,
+-- replace, or view a staff photo. There is also no UPDATE policy on
+-- storage.objects for this bucket at all -- uploads are insert-only.
 alter table public.shop_members add column if not exists photo_url text;
+
+-- Re-admit staff.manage to the insert policy 0024_permission_gates.sql
+-- defined. Everything else about it -- name, bucket check, structure -- is
+-- reproduced verbatim; only the permission array gains a third entry.
+drop policy "shop members upload their shop's product images" on storage.objects;
+create policy "shop members upload their shop's product images"
+  on storage.objects for insert
+  with check (
+    bucket_id = 'product-images'
+    and public.has_any_shop_permission((storage.foldername(name))[1]::uuid, array['inventory.edit', 'settings.access', 'staff.manage'])
+  );
 
 -- Nothing to add to "write shop_members roster" (20260802030200_hr_schema.sql):
 -- that policy is row-level, not column-scoped -- it already grants staff.manage
