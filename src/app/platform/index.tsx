@@ -12,6 +12,7 @@ import { ShopsTab } from '@/components/platform/shops-tab';
 import { TabPills } from '@/components/ui/tab-pills';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
+import { webDataAttr } from '@/lib/web-data-attr';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import {
@@ -153,6 +154,9 @@ export default function PlatformHome() {
                     key={option.key}
                     onPress={() => setTab(option.key)}
                     style={({ hovered }) => [styles.navItem, active && styles.navItemActive, hovered && !active && styles.navItemHovered]}
+                    // Kills the outline a mouse click leaves behind; keyboard
+                    // focus keeps its ring. See global.css.
+                    {...webDataAttr('pointer-focus-quiet')}
                     role="tab"
                     aria-selected={active}
                   >

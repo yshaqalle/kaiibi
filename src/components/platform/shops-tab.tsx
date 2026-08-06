@@ -155,13 +155,30 @@ export function ShopsTab({
               <BentoTile label="On trial" value={String(counts.trialing)} />
               <BentoTile label="Grace" value={String(counts.grace)} tone={counts.grace > 0 ? 'warn' : 'default'} />
               <BentoTile label="Expired" value={String(counts.expired)} tone={counts.expired > 0 ? 'warn' : 'default'} />
+              {/* Present even at zero. The filter row below counts six states;
+                  a strip that counts five leaves shops unaccounted for and the
+                  two rows quietly disagree. */}
+              <BentoTile
+                label="Suspended"
+                value={String(counts.suspended)}
+                tone={counts.suspended > 0 ? 'warn' : 'default'}
+              />
             </BentoTileRow>
           </BentoCard>
         </BentoCell>
       </BentoGrid>
 
       <View style={styles.controls}>
-        <Field value={search} onChangeText={setSearch} placeholder="Search shop, plan, or status" />
+        <Field
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Search shop, plan, or status"
+          // White, not the kit's `bentoSoft` default: this one sits on the grey
+          // PAGE rather than inside a white card, and soft-on-page is two greys
+          // 1% apart — the field disappeared entirely. It also matches the
+          // filter pills beside it, which is what it is grouped with.
+          style={styles.search}
+        />
         <View style={styles.filters}>
           {FILTERS.map((filter) => {
             const n = counts[filter.key];
@@ -287,6 +304,7 @@ function endsSoon(iso: string | null): boolean {
 
 const styles = StyleSheet.create({
   controls: { gap: 10, marginBottom: 14 },
+  search: { backgroundColor: theme.bentoSurface },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   filter: {
     borderWidth: 1,
