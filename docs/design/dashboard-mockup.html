@@ -1,10 +1,12 @@
 <title>Kaiibi Dashboard — Redesign Mockup</title>
 
 <style>
+  /* ============================================================
+     PAGE CHROME — follows the viewer's theme.
+     ============================================================ */
   :root{
     --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
-    --ln:#e4e4ea; --sf:#ffffff;
-    --blue:#2f6bff;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
   }
   @media (prefers-color-scheme: dark){
     :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
@@ -15,50 +17,64 @@
   :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
            --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
 
-  /* The app itself is light-only ("Pinned to the light palette for now" —
-     theme.ts), so the device frames below stay light in both themes on
-     purpose. Only this page's chrome follows the viewer. */
+  /* ============================================================
+     DEVICE PALETTE — the app is light-only ("Pinned to the light
+     palette for now" — theme.ts), so the frames stay light in both
+     themes. Values marked (fixed) failed contrast and have since been
+     applied to theme.ts — see the Contrast proof section.
+     ============================================================ */
   .doc{
     --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
-    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-soft:#f6f6f7;
+    --d-mut:#5e5d65;            /* (fixed) was #8b8b93 — 3.38:1 */
+    --d-mut2:#717078;           /* (fixed) was #a8a8b0 — 2.36:1 */
+    --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
     --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
-    --profit:#0f9d58; --loss:#d92d3f;
+    --profit:#008340;           /* (fixed) was #0f9d58 — 3.34:1 on soft */
+    --loss:#d72b3e;             /* (fixed) was #d92d3f — 4.42:1 on soft */
+    --up-wash:#d9efe4; --up-ink:#007a38;
+    --dn-wash:#fbeaec; --dn-ink:#d12339;
+    /* Dark-surface steps. The light-mode profit/loss are too dark to read on
+       the gauge track (#008340 lands at 2.93:1, under the 3:1 chart-mark
+       floor). These are theme.ts's OWN dark mirrors, which the token comment
+       says nothing reads yet — the hero and the gauge are their first real
+       consumers, on a screen that is otherwise light-only. */
+    --profit-dk:#2eb872; --loss-dk:#e8515f; --track-dk:#2a2a30;
   }
 
   *{box-sizing:border-box;}
   body{margin:0;background:var(--pg);color:var(--ink);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
-  /* Wide enough that the 1280px frame below fits without scrolling on a
-     desktop viewport; prose blocks set their own measure via max-width. */
   .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
 
-  /* ---- page chrome ---- */
   .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
   h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
   .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 30px;}
   h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 8px;letter-spacing:-.01em;}
   .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
   section{margin-top:52px;}
   .note{font-size:13.5px;color:var(--ink2);max-width:66ch;}
-  .note code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+  .note + .note{margin-top:12px;}
+  .note code,.inline{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
     background:var(--pg2);padding:1px 5px;border-radius:4px;}
 
   .meta{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:34px;}
   .meta span{font-size:12px;font-weight:600;color:var(--ink2);background:var(--pg2);
     border:1px solid var(--ln);border-radius:999px;padding:5px 12px;}
 
-  /* ---- device frame ---- */
-  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:12px;}
-  .frameHead b{font-size:14.5px;font-weight:800;}
-  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
-    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .try{display:flex;gap:12px;align-items:flex-start;background:var(--pg2);border:1px solid var(--ln);
+    border-radius:14px;padding:14px 16px;margin-bottom:26px;font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  .try b{color:var(--ink);}
+  .try kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;border:1px solid var(--ln);
+    border-bottom-width:2px;border-radius:5px;padding:1px 5px;background:var(--sf);}
+
   .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
   .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
     color:var(--d-ink);font-size:14px;line-height:1.5;}
   .frame.w1280{width:1280px;} .frame.w900{width:900px;} .frame.w380{width:380px;}
 
-  /* ---- app chrome inside the frame ---- */
+  /* ---------- app chrome inside the frame ---------- */
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
     background:var(--d-sf);border-radius:22px;padding:12px 16px;margin-bottom:14px;flex-wrap:wrap;}
   .tb-l,.tb-r{display:flex;align-items:center;gap:11px;}
@@ -67,85 +83,206 @@
   .brand b{display:block;font-size:15px;font-weight:800;line-height:1.2;}
   .brand span{display:block;font-size:12px;color:var(--d-mut);line-height:1.2;}
   .rnd{width:38px;height:38px;border-radius:50%;border:1px solid var(--d-ln);background:var(--d-sf);
-    display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;cursor:pointer;}
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
   .srch{display:flex;align-items:center;gap:8px;border:1px solid var(--d-ln);border-radius:999px;
     padding:8px 14px;background:var(--d-soft);min-width:180px;}
-  .srch span{font-size:13px;color:var(--d-mut2);}
+  .srch span{font-size:13px;color:var(--d-mut);}
   .who b{display:block;font-size:13.5px;font-weight:700;line-height:1.25;}
   .who span{display:block;font-size:11.5px;color:var(--d-mut);line-height:1.25;}
 
   .greet{display:flex;align-items:center;gap:16px;padding:4px 6px 18px;flex-wrap:wrap;}
   .datechip{width:78px;height:78px;border-radius:50%;border:1px solid var(--d-ln);background:var(--d-sf);
     display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;}
-  .datechip b{font-size:24px;font-weight:800;line-height:1;}
+  .datechip b{font-size:24px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;}
   .datechip span{font-size:10.5px;color:var(--d-mut);text-align:center;margin-top:3px;line-height:1.25;}
   .greet-t{flex:1;min-width:230px;}
-  .greet-t h3{margin:0 0 3px;font-size:24px;font-weight:800;letter-spacing:-.02em;}
+  .greet-t h4{margin:0 0 3px;font-size:24px;font-weight:800;letter-spacing:-.02em;}
   .greet-t p{margin:0;font-size:14px;color:var(--d-mut);max-width:60ch;line-height:1.5;}
   .cta{background:var(--d-ink);color:#fff;border:none;border-radius:999px;padding:13px 22px;
-    font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;}
+    font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;
+    display:inline-flex;align-items:center;gap:9px;}
 
-  /* ---- bento ---- */
+  /* ---------- bento grid ---------- */
   .grid{display:grid;gap:14px;}
   .grid.wide{grid-template-columns:repeat(12,1fr);}
   .grid.mid{grid-template-columns:repeat(2,1fr);}
   .grid.narrow{grid-template-columns:1fr;}
   .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx.tight{padding:16px 18px;}
+  /* Two small cards sharing one grid cell — the reference's costed+goal column. */
+  /* No flex:1 on the children. Forcing them to split the row height gave the
+     goal card less room than its gauge plus caption needed, and the caption
+     spilled out below the card entirely. Let each size to its content. */
+  .stack{display:flex;flex-direction:column;gap:14px;min-width:0;}
+
+  .mini-round{width:34px;height:34px;border-radius:50%;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;flex-shrink:0;color:var(--d-ink2);}
+  .label-sm{font-size:12px;color:var(--d-mut);font-weight:600;margin-bottom:3px;}
+  .value-lg{font-size:26px;font-weight:800;letter-spacing:-.025em;font-variant-numeric:tabular-nums;}
+  .value-lg .cur{font-weight:600;margin-right:1px;}
+  .valrow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .hr{border-top:1px solid var(--d-ln);margin:15px 0 12px;}
+  .linkrow.dark{color:var(--d-ink);font-size:12.5px;margin-top:13px;}
+  .linkrow.dark .linkdot{background:var(--d-ink);color:#fff;}
+  .linkrow.dark:hover .linkdot{background:var(--c1);}
+
+  /* margin gauge — the one other dark surface, and the reason the dark
+     profit/loss steps exist on a light-only screen */
+  .gaugecard{display:flex;align-items:center;justify-content:center;}
+  .gaugering{position:relative;width:150px;height:150px;border-radius:50%;background:var(--d-ink);flex-shrink:0;}
+  .gaugering .mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;color:#fff;text-align:center;padding:0 16px;}
+  .gaugering .mid b{font-size:21px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;}
+  .gaugering .mid span{font-size:10px;color:#a6a6ae;margin-top:3px;line-height:1.3;}
+
+  /* one dot per sold product, filled when it has a cost */
+  .dots{display:grid;grid-template-columns:repeat(8,1fr);gap:5px;margin-top:12px;}
+  .dots i{display:block;width:100%;padding-top:100%;border-radius:50%;background:var(--d-ln);}
+  .dots i.on{background:var(--profit);}
+  .costed-n{font-size:20px;font-weight:800;margin-top:10px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;}
+
+  /* aspect-ratio, not height:100%. The gauge viewBox is square, but a
+     percentage height against an auto-height parent resolved to 197px on a
+     112px-wide box — the card then ran 299px of content through a 229px box
+     and dumped the caption outside it. */
+  .goalmini{width:100%;max-width:112px;aspect-ratio:1;margin:8px auto 0;}
+  .spark-lg{height:54px;margin:12px 0;position:relative;}
+  .tagpill{font-size:11px;font-weight:700;padding:4px 11px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;border:1px solid var(--d-ln);}
+  .tagpill.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* Zone label — groups 13 cards into 6 answers. Full-bleed everywhere. */
+  .zone{grid-column:1/-1;font-size:10.5px;font-weight:800;letter-spacing:.11em;
+    text-transform:uppercase;color:var(--d-mut);padding:12px 4px 0;}
+
   .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
   .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
   .crow .ctitle{margin:0;}
-  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);}
   .num{font-variant-numeric:tabular-nums;}
+  .ic{display:block;flex-shrink:0;stroke:currentColor;fill:none;stroke-width:1.75;
+    stroke-linecap:round;stroke-linejoin:round;}
 
-  /* warning banner */
+  /* ---------- interactive affordances ----------
+     What is clickable must look clickable: pills that cycle carry a caret and
+     a hover state; the static scope pills (As of today, Latest 5) do not. */
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;
+    font-weight:700;color:var(--d-ink2);white-space:nowrap;background:var(--d-sf);}
+  .pill.act{cursor:pointer;display:inline-flex;align-items:center;gap:6px;
+    transition:border-color .15s,background .15s;font-family:inherit;}
+  .pill.act:hover{border-color:#bfbfc8;background:var(--d-soft);}
+  .pill.act .caret{opacity:.5;font-size:9px;line-height:1;}
+  /* The UA's [hidden]{display:none} loses to .pill.act{display:inline-flex} on
+     specificity, so a hidden pill kept painting. Declare it once, loudly. */
+  [hidden]{display:none !important;}
+  [data-act]{outline:none;}
+  [data-act]:focus-visible{outline:2px solid var(--c1);outline-offset:2px;border-radius:999px;}
+  .hero [data-act]:focus-visible{outline-color:#9fc0ff;}
+
+  /* delta badge — arrow + number, never colour alone */
+  .delta{display:inline-flex;align-items:center;gap:2px;font-size:11px;font-weight:800;
+    padding:3px 8px 3px 6px;border-radius:999px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .delta .ic{stroke-width:2.8;}
+  .delta.up{background:var(--up-wash);color:var(--up-ink);}
+  .delta.down{background:var(--dn-wash);color:var(--dn-ink);}
+
+  /* ---------- the one dark card ---------- */
+  .hero{background:
+      radial-gradient(120% 140% at 0% 0%, rgba(255,255,255,.07), transparent 55%),
+      radial-gradient(150% 120% at 100% 118%, rgba(0,163,150,.22), transparent 62%),
+      var(--d-ink);
+    color:#fff;display:flex;flex-direction:column;}
+  .hero .eyeb{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;
+    letter-spacing:.11em;text-transform:uppercase;color:#c7c7cf;}
+  .hero .pill{background:rgba(255,255,255,.09);border-color:rgba(255,255,255,.16);color:#fff;}
+  .hero .pill.act:hover{background:rgba(255,255,255,.17);border-color:rgba(255,255,255,.3);}
+  .hero .lab{font-size:12px;color:#a6a6ae;margin-top:16px;}
+  .hero .big{font-size:40px;font-weight:800;letter-spacing:-.035em;line-height:1.05;margin-top:4px;
+    font-variant-numeric:tabular-nums;}
+  .hero .delta.up{background:rgba(0,163,150,.24);color:#7fe8dc;}
+  .hero .delta.down{background:rgba(255,138,147,.18);color:#ff8a93;}
+  .seg{display:flex;gap:8px;margin-top:16px;}
+  .seg button{flex:1;text-align:center;border-radius:999px;padding:9px 0;font-size:12.5px;
+    font-weight:700;border:1px solid rgba(255,255,255,.18);background:transparent;color:#fff;
+    cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s;}
+  .seg button:hover{border-color:rgba(255,255,255,.38);}
+  .seg button.on{background:#fff;color:var(--d-ink);border-color:#fff;}
+  .hero .rule{border-top:1px solid rgba(255,255,255,.15);margin:16px 0 12px;}
+  .hero .flowrow{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:auto;}
+  .hero .flowv{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px;}
+  .hero .flowv.neg{color:#ff8a93;}
+  .hero .scopenote{font-size:10.5px;color:#a6a6ae;margin-top:10px;line-height:1.4;}
+  .linkrow{display:inline-flex;align-items:center;gap:8px;font-size:11.5px;font-weight:700;
+    line-height:1.3;text-align:left;color:#fff;background:none;border:none;padding:0;
+    cursor:pointer;font-family:inherit;}
+  .linkdot{width:21px;height:21px;border-radius:50%;background:#fff;color:var(--d-ink);
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background .15s,color .15s;}
+  .linkrow:hover .linkdot{background:var(--c2);color:#fff;}
+
+  /* ---------- warning banner ---------- */
   .warn{display:flex;gap:12px;align-items:flex-start;background:#fff8e6;border:1px solid #f0d99a;
     border-radius:22px;padding:15px 18px;}
   .warn b{display:block;font-size:13.5px;margin-bottom:3px;color:#5c4a12;}
-  .warn p{margin:0;font-size:12.5px;color:#7a6320;line-height:1.5;}
+  .warn p{margin:0;font-size:12.5px;color:#6f5a1c;line-height:1.5;}
   .warn a{color:#5c4a12;font-weight:700;}
+  .warn .ic{stroke:#8a6d1f;margin-top:1px;}
 
-  /* P&L */
+  /* ---------- P&L statement rows ---------- */
   .pl{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0;
     border-bottom:1px solid var(--d-ln);}
   .pl:last-child{border-bottom:none;}
   .pl .nm{font-size:13.5px;font-weight:600;}
   .pl .hint{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
   .pl .amt{font-size:15px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums;}
-  .pl.sub{border-top:1px solid var(--d-ln);}
+  .pl.sub{border-top:1px solid var(--d-rule);}
   .pl.tot{background:var(--d-soft);border-radius:14px;border-bottom:none;margin-top:8px;padding:13px 16px;}
   .pl.tot .nm{font-size:14.5px;font-weight:800;}
   .pl.tot .amt{font-size:19px;}
   .loss{color:var(--loss);} .profit{color:var(--profit);}
 
-  /* KPI */
-  /* Column count is pinned per frame rather than left to auto-fit: at 1280
-     auto-fit gave five across and orphaned the last three. Keyed off the
-     frame width class because these frames are fixed-width, so a media
-     query (which reads the viewport) would answer the wrong question. */
+  /* ---------- KPI strip ---------- */
+  /* minmax(0,1fr), never plain 1fr: a track's implicit minimum is min-content,
+     so "$1,434.60" beside a badge refused to shrink and pushed the phone frame
+     into a sideways scroll. */
   .kpis{display:grid;gap:10px;}
-  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
-  .w900 .kpis,.w380 .kpis{grid-template-columns:repeat(2,1fr);}
-  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  /* Six tiles, six columns — one clean row. The strip lost Revenue, Expenses
+     and Net margin to the Overview cards above; printing them twice on one
+     screen is how a dashboard stops being read. */
+  .w1280 .kpis{grid-template-columns:repeat(6,minmax(0,1fr));}
+  .w900 .kpis,.w380 .kpis{grid-template-columns:repeat(2,minmax(0,1fr));}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;min-width:0;}
   .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
-  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
-  .kpi .s{margin-top:6px;height:22px;}
+  .kpi .top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:4px;
+    flex-wrap:wrap;row-gap:4px;}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;min-width:0;}
+  /* The endpoint marker is an HTML element, not an SVG <circle>: the sparkline
+     stretches with preserveAspectRatio="none" (x ~2.5x, y 1x), which turns a
+     circle into a dash and clips it. A positioned dot stays round at every
+     width — and it is what the RN chart does anyway, that endpoint being a View. */
+  .kpi .s{margin-top:6px;height:22px;position:relative;}
+  .kpi .s .tip,.spark-lg .tip{position:absolute;right:0;width:7px;height:7px;border-radius:50%;
+    border:2px solid var(--c1);transform:translate(1px,-50%);}
+  .kpi .s .tip{background:var(--d-soft);}
+  .spark-lg .tip{background:var(--d-sf);}  /* white card, not a soft tile */
+  .w380 .kpi .top{display:block;}
+  .w380 .kpi .delta{margin-top:5px;}
 
-  /* payment rows */
-  .pm{display:flex;align-items:center;gap:11px;padding:9px 0;}
+  /* ---------- payment rows ---------- */
+  .pm{display:flex;align-items:center;gap:11px;padding:9px 0;transition:opacity .18s;}
+  .pm.dim{opacity:.32;}
   .pm-ic{width:32px;height:32px;border-radius:10px;background:var(--d-soft);display:flex;
-    align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+    align-items:center;justify-content:center;flex-shrink:0;color:var(--d-ink2);}
   .pm-b{flex:1;min-width:0;}
   .pm-t{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
   .pm-n{font-size:13.5px;font-weight:700;}
   .pm-a{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;}
   .bar{height:6px;border-radius:3px;background:var(--d-ln);margin-top:5px;overflow:hidden;}
-  .bar i{display:block;height:100%;border-radius:3px;}
+  .bar i{display:block;height:100%;border-radius:3px;transition:width .3s;}
   .pm-p{font-size:11px;color:var(--d-mut);margin-top:3px;font-variant-numeric:tabular-nums;}
 
-  /* attention */
+  /* ---------- needs attention ---------- */
   .att{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 0;
     border-bottom:1px solid var(--d-ln);}
-  .att:last-child{border-bottom:none;}
+  .att:last-of-type{border-bottom:none;}
   .att .tx{display:flex;gap:10px;min-width:0;}
   .sev{width:4px;border-radius:2px;flex-shrink:0;align-self:stretch;}
   .sev.act{background:var(--loss);} .sev.soon{background:var(--c3);} .sev.info{background:var(--d-mut2);}
@@ -155,63 +292,130 @@
     color:var(--d-ink2);white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;}
   .tag.hot{background:var(--d-ink);color:#fff;}
 
-  /* low stock table */
-  table{width:100%;border-collapse:collapse;}
+  /* ---------- tables ---------- */
+  .tablecard{padding:18px 10px;}
+  .tablecard .crow{padding:0 8px;}
+  .tscroll{overflow-x:auto;}
+  table{width:100%;border-collapse:collapse;min-width:420px;}
   th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);
-    text-align:left;padding:0 0 8px;border-bottom:1px solid var(--d-ln);}
+    text-align:left;padding:0 8px 8px;border-bottom:1px solid var(--d-rule);}
   th.r,td.r{text-align:right;}
-  td{padding:10px 0;border-bottom:1px solid var(--d-ln);font-size:13px;}
+  td{padding:10px 8px;border-bottom:1px solid var(--d-ln);font-size:13px;}
   tr:last-child td{border-bottom:none;}
   td .p{font-weight:700;} td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
   .qty{font-weight:800;font-variant-numeric:tabular-nums;}
   .qty.zero{color:var(--loss);} .qty.low{color:var(--c3);}
   .muted{color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  th.w-sm{width:74px;} th.w-md{width:104px;}
+  /* Phone: all three columns must fit. This card compares units-left against
+     the reorder level, and minWidth={420} pushes "Reorder at" off a 380px
+     screen — the comparison is gone on the device most owners use. */
+  .w380 table{min-width:0;}
+  .w380 th,.w380 td{padding-left:6px;padding-right:6px;}
+  .w380 th.w-sm{width:48px;} .w380 th.w-md{width:74px;}
+  .w380 th{font-size:9.5px;letter-spacing:.05em;}
 
-  /* goal */
+  /* ---------- goal ---------- */
   .goal{display:flex;align-items:center;gap:16px;flex-wrap:wrap;}
-  .goal .g{width:108px;height:108px;flex-shrink:0;}
+  .goal .g{width:104px;height:104px;flex-shrink:0;}
   .goal .v{font-size:21px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
-  .goal .c{font-size:12px;color:var(--d-mut);margin-top:4px;line-height:1.45;max-width:22ch;}
+  .goal .c{font-size:12px;color:var(--d-mut);margin-top:4px;line-height:1.45;max-width:24ch;}
 
-  /* An SVG scales its text with the viewBox, so at 380px the 10.5-unit
-     labels landed at about 5px — legible in the wide frame, not on a phone.
-     Narrow steps the type up in user units and drops the sub-captions, which
-     is what the React Native charts must do at this width too. */
+  /* An SVG scales its text with the viewBox, so at 380px the 10.5-unit labels
+     landed at about 5px. Narrow steps the type up in user units and drops the
+     sub-captions — what the React Native charts must do at this width too. */
   .w380 .chart text{font-size:16px;}
   .w380 .chart .sub{display:none;}
 
-  .legend{display:flex;gap:14px;margin-top:8px;font-size:11.5px;color:var(--d-mut);flex-wrap:wrap;}
+  /* n=1 fallback for the trend card — a figure, not a one-point line chart. */
+  .onepoint{background:var(--d-soft);border-radius:16px;padding:26px 18px;text-align:center;}
+  .onepoint .v{font-size:32px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+  .onepoint .l{font-size:12px;color:var(--d-mut);margin-top:6px;}
+
+  .legend{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--d-mut);flex-wrap:wrap;}
   .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px;}
   .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+  .recent{display:grid;grid-template-columns:minmax(0,1fr) auto 92px;align-items:baseline;
+    gap:14px;padding:9px 0;border-bottom:1px solid var(--d-ln);font-size:13px;}
+  .recent:last-of-type{border-bottom:none;}
+  .recent .rn{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .recent .rt{font-size:11.5px;color:var(--d-mut);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .recent .ra{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+  .w380 .recent{grid-template-columns:minmax(0,1fr) auto;gap:10px;}
+  .w380 .recent .rt{grid-column:1;grid-row:2;}
 
-  /* ---- palette proof ---- */
+  /* toast */
+  .flash{position:fixed;bottom:22px;left:50%;transform:translate(-50%,10px);background:var(--ink);
+    color:var(--pg);padding:11px 20px;border-radius:999px;font-size:13px;font-weight:700;
+    opacity:0;transition:opacity .22s,transform .22s;pointer-events:none;z-index:100;max-width:80vw;}
+  .flash.show{opacity:1;transform:translate(-50%,0);}
+  @media (prefers-reduced-motion:reduce){ .flash{transition:none;} }
+
+  /* ---------- proof blocks ---------- */
   .sw{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0;}
   .swx{border:1px solid var(--ln);border-radius:14px;overflow:hidden;background:var(--sf);}
-  .swx .chip{height:62px;}
+  .swx .chip{height:58px;}
   .swx .t{padding:10px 12px;}
   .swx .t b{display:block;font-size:12.5px;font-weight:700;}
   .swx .t code{font-size:11.5px;color:var(--mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
   pre{background:var(--pg2);border:1px solid var(--ln);border-radius:12px;padding:14px 16px;
-    overflow-x:auto;font-size:12.5px;line-height:1.65;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;}
-  .ok{color:#0f9d58;font-weight:700;} .bad{color:#d92d3f;font-weight:700;}
+    overflow-x:auto;font-size:12.5px;line-height:1.65;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;margin:0;}
+  .ok{color:#0a7a44;font-weight:700;} .bad{color:#c02030;font-weight:700;}
+  @media (prefers-color-scheme: dark){ .ok{color:#5fd39b;} .bad{color:#ff8a93;} }
+  :root[data-theme="dark"] .ok{color:#5fd39b;} :root[data-theme="dark"] .bad{color:#ff8a93;}
+  :root[data-theme="light"] .ok{color:#0a7a44;} :root[data-theme="light"] .bad{color:#c02030;}
+
+  .fixtable{width:100%;border-collapse:collapse;margin-top:14px;font-size:13px;min-width:520px;}
+  .fixtable th{color:var(--mut);border-bottom:1px solid var(--ln);padding:0 10px 8px 0;}
+  .fixtable td{border-bottom:1px solid var(--ln);padding:9px 10px 9px 0;vertical-align:top;}
+  .fixtable td:first-child{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;}
+  .fixtable .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px;}
 
   a{color:var(--blue);}
   a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
   @media (prefers-reduced-motion:no-preference){ .cta{transition:opacity .18s;} .cta:hover{opacity:.85;} }
 </style>
 
+<svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true"><defs>
+  <symbol id="i-cash" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="19" height="11" rx="2.5"/><circle cx="12" cy="12" r="2.6"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 24 24"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><line x1="10.8" y1="18.8" x2="13.2" y2="18.8"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><line x1="12" y1="19" x2="12" y2="6"/><polyline points="6,12 12,6 18,12"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="18"/><polyline points="6,12 12,18 18,12"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="9,7 17,7 17,15"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 3.5 21.5 20h-19L12 3.5Z"/><line x1="12" y1="10" x2="12" y2="14.5"/><line x1="12" y1="17.2" x2="12" y2="17.3"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><line x1="20" y1="20" x2="15.8" y2="15.8"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M11.5 3.5h6a2 2 0 0 1 2 2v6L10 21 3 14 11.5 3.5Z"/><circle cx="16" cy="8" r="1.4" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="i-trend" viewBox="0 0 24 24"><polyline points="3,16 9,10 13,14 21,5"/><polyline points="15,5 21,5 21,11"/></symbol>
+</defs></svg>
+
 <div class="wrap doc">
 
-  <p class="eyebrow">Design mockup · Step 1</p>
-  <h1>Dashboard redesign</h1>
-  <p class="lede">The bento composition from <code>dashboard3.html</code>, rebuilt around kaiibi's
-  real card set and a corrected chart palette. Three breakpoints below, then the colour proof.
-  Nothing in the app has changed yet.</p>
+  <p class="eyebrow">Design mockup · Dashboard · Revision 2</p>
+  <h1>Dashboard — the takings hero and zoned grid</h1>
+  <p class="lede">Revision&nbsp;1 shipped. This revision takes the <em>visual language</em> of the
+  reference bento HTML — one dark hero card, zone labels, delta badges, a segmented money in/out
+  control — and applies it to the card set the Dashboard already has. No card was added that has
+  no data behind it.</p>
+
+  <div class="try">
+    <div>
+      <b>This mockup is live, not a picture.</b> Click <b>Money in / Money out</b>, the
+      <b>All methods ▾</b> filter, any <b>7 days ▾</b> pill, or <b>Edit</b> on the goal — every
+      figure and chart recomputes from one data block, exactly as the reference does. All three
+      frames share one state, so a click in the phone updates the desktop. Keyboard works too:
+      <kbd>Tab</kbd> then <kbd>Enter</kbd>.
+    </div>
+  </div>
 
   <div class="meta">
-    <span>7 days · Hodan Store</span>
-    <span>3 new cards: P&amp;L · Waterfall · Payment methods</span>
-    <span>Palette re-stepped for colour-blind readers</span>
+    <span>Hodan Store</span>
+    <span>Full Overview row · 5 cards</span>
+    <span>New: takings hero · zone labels · delta badges</span>
+    <span>4 token contrast fixes applied to theme.ts</span>
     <span>Figures are illustrative</span>
   </div>
 
@@ -234,11 +438,91 @@
   </section>
 
   <section>
-    <h2>Colour proof</h2>
-    <p class="note">The mockup's original chart hues could not ship: its blue and purple are
-    separated by ΔE&nbsp;0.1 for deutan viewers — the same colour to roughly 8% of men — and
-    ΔE&nbsp;10.2 even with full colour vision, under the floor of 15. These four are the same
-    blue-led family, re-stepped until every check passes.</p>
+    <h2>The hero is a control, and it had a bug</h2>
+    <p class="h2sub">Three interactions, and the one thing the reference got wrong.</p>
+
+    <p class="note">The reference hero carries three controls: a payment filter that cycles
+    <em>All methods → Cash only → Mobile money</em>, a <em>Money in / Money out</em> segment, and
+    the range pill. The takings figure eases between values over 650ms rather than snapping —
+    kept here, and suppressed under <code>prefers-reduced-motion</code>.</p>
+
+    <p class="note"><strong>The bug.</strong> In the reference, the payment filter changes the
+    takings figure but <code>renderPayments()</code> ignores <code>state.payFilter</code>
+    entirely, and the money in/out row below is never filtered either. Set it to
+    <em>Mobile money</em> and you get takings of <code>$0.00</code> sitting directly above
+    <em>Money out $1,000.00</em> — two numbers in one card describing different populations,
+    with nothing saying so. That is how a dashboard loses trust.</p>
+
+    <p class="note"><strong>The fix here.</strong> A filter scopes the whole card or it does not
+    exist. Filtering now dims the non-matching rows in Payment methods, and the
+    <em>Money in</em> figure narrows to the same methods. <em>Money out</em> cannot be filtered —
+    kaiibi does not record which wallet an expense was paid from — so selecting it clears the
+    filter and says why, rather than showing a filtered heading over an unfiltered number.
+    Percentages stay measured against full takings, because a filter that changes the series
+    count must not repaint the survivors.</p>
+  </section>
+
+  <section>
+    <h2>What the reference HTML actually contributed</h2>
+
+    <h3>Taken</h3>
+    <p class="note"><strong>Zone labels.</strong> Six uppercase rules group thirteen cards into
+    six questions. The biggest improvement here, and it costs nothing.</p>
+    <p class="note"><strong>The dark takings hero.</strong> One card, and only one. It answers
+    what the Dashboard never could: <em>how much money actually came through the till.</em>
+    Takings is not revenue — the gap is sales tax that was never yours. Both numbers already
+    exist, and <code>dashboard.tsx:196</code> notes the payment mix costs "no extra round trip",
+    so the hero is free.</p>
+    <p class="note"><strong>Delta badges,</strong> on four KPIs rather than eight, and the
+    interactions above.</p>
+
+    <p class="note"><strong>The whole Overview row,</strong> at the reference's own proportions —
+    takings&nbsp;3, income/paid&nbsp;3, margin gauge&nbsp;2, the costed+goal stack&nbsp;2, revenue
+    spark&nbsp;2. Every one is backed by a figure kaiibi already computes: total income and paid
+    are revenue and operating expenses, the gauge is net profit over revenue, the dot grid is
+    <code>cogs.uncostedItemCount</code> against products sold, the ring is
+    <code>GoalMeter</code>, and the spark is the same daily series the trend chart draws.</p>
+
+    <h3>Adapted</h3>
+    <p class="note"><strong>The KPI strip lost three tiles.</strong> Revenue, Expenses and Net
+    margin are now stated at full size in the Overview row, so repeating them below would print
+    the same three numbers twice on one screen. The strip keeps the six figures nothing else
+    states — gross profit, net profit, orders, average sale, sales tax held, team on today — and
+    fits one clean row of six. Restoring all eight is a one-line change if you disagree.</p>
+    <p class="note">Charts keep <code>height:auto</code> instead of the reference's
+    <code>preserveAspectRatio="none"</code> with a fixed height. Non-uniform scaling turns every
+    circular marker into an ellipse and distorts stroke width — visible on the reference's own
+    line charts.</p>
+
+    <h3>Left behind</h3>
+    <p class="note">The mood tracker, "Wallet Verification", the Activity manager, and the
+    concentric-bubble chart — none has a data source in kaiibi, and the bubbles encode magnitude
+    as circle <em>area</em>, the least accurately read encoding, for a comparison the P&amp;L
+    already states to the cent.</p>
+    <p class="note">Cash on hand, budget vs actual, recurring bills, sales tax and the expense
+    donut stay in Accounting, as revision&nbsp;1 decided. The reference's own data block proves
+    the point: its <code>cashAccounts</code>, <code>recurringBills</code>, <code>budgets</code>
+    and <code>customers</code> are all empty arrays.</p>
+  </section>
+
+  <section>
+    <h2>Contrast proof</h2>
+    <p class="h2sub">Computed, not eyeballed. Four live tokens failed; all four are corrected.</p>
+
+    <p class="note">The four categorical series are unchanged from revision&nbsp;1 and still
+    pass — including, newly, against the dark hero's near-black, a second surface they had never
+    been checked on:</p>
+
+<pre>$ node scripts/validate_palette.js "#2f6bff,#00a396,#c8791a,#d4457e" --mode light --surface "#ffffff"
+Palette (light, surface #ffffff, categorical): 4 slots
+  <span class="ok">[PASS]</span> Lightness band      all 4 inside L 0.43–0.77
+  <span class="ok">[PASS]</span> Chroma floor        all 4 &gt;= 0.1
+  <span class="ok">[PASS]</span> CVD separation      worst adjacent #d4457e↔#c8791a ΔE 12.2 (deutan) · tritan 7.4
+  <span class="ok">[PASS]</span> Normal-vision floor worst adjacent #d4457e↔#c8791a ΔE 18.0 (normal)
+  <span class="ok">[PASS]</span> Contrast vs surface all 4 &gt;= 3:1
+
+$ node scripts/validate_palette.js "#2f6bff,#00a396,#c8791a,#d4457e" --mode dark --surface "#0b0b0d"
+  <span class="ok">[PASS]</span> all six checks — the hero ground is safe for series marks</pre>
 
     <div class="sw">
       <div class="swx"><div class="chip" style="background:#2f6bff"></div><div class="t"><b>Series 1 · Cash</b><code>#2f6bff</code></div></div>
@@ -247,196 +531,244 @@
       <div class="swx"><div class="chip" style="background:#d4457e"></div><div class="t"><b>Series 4 · Other</b><code>#d4457e</code></div></div>
     </div>
 
-<pre>$ node scripts/validate_palette.js "#2f6bff,#00a396,#c8791a,#d4457e" \
-      --mode light --surface "#ffffff"
+    <h3>Four tokens in <span class="inline">theme.ts</span> were failing — now fixed</h3>
+    <p class="note">These were live on Dashboard and Accounting; this mockup did not introduce
+    them, it found them. <strong>All four are now applied in
+    <code>src/constants/theme.ts</code></strong> — they were the only four values changed, none
+    of the hexes was duplicated anywhere else in <code>src</code>, and typecheck, lint and 721
+    tests pass unchanged.</p>
+    <p class="note">Each was re-solved in OKLab against <strong><code>bentoSoft</code>
+    #f6f6f7</strong>, not white: the KPI tiles and the P&amp;L total sit on the soft grey, so
+    white is the flattering surface and the wrong one to test on. Hue and chroma held; only
+    lightness moved, and the two muted steps stay 1.33:1 apart so the hierarchy between a label
+    and an axis tick survives.</p>
 
-Palette (light, surface #ffffff, categorical): 4 slots
-  <span class="ok">[PASS]</span> Lightness band      all 4 inside L 0.43–0.77
-  <span class="ok">[PASS]</span> Chroma floor        all 4 &gt;= 0.1
-  <span class="ok">[PASS]</span> CVD separation      worst adjacent #d4457e↔#c8791a ΔE 12.2 (deutan) · tritan 7.4
-  <span class="ok">[PASS]</span> Normal-vision floor worst adjacent #d4457e↔#c8791a ΔE 18.0 (normal)
-  <span class="ok">[PASS]</span> Contrast vs surface all 4 &gt;= 3:1</pre>
+    <div class="scroller">
+    <table class="fixtable">
+      <thead><tr><th>Token</th><th>Now</th><th>On soft</th><th>Fixed</th><th>On soft</th><th>Where it bites</th></tr></thead>
+      <tbody>
+        <tr><td>bentoMuted</td>
+            <td><span class="swatch" style="background:#8b8b93"></span>#8b8b93</td><td class="bad">3.38:1</td>
+            <td><span class="swatch" style="background:#5e5d65"></span>#5e5d65</td><td class="ok">6.02:1</td>
+            <td>Every hint, label and scope pill</td></tr>
+        <tr><td>bentoMuted2</td>
+            <td><span class="swatch" style="background:#a8a8b0"></span>#a8a8b0</td><td class="bad">2.36:1</td>
+            <td><span class="swatch" style="background:#717078"></span>#717078</td><td class="ok">4.53:1</td>
+            <td>Chart axis labels — the worst of the four</td></tr>
+        <tr><td>bentoProfit</td>
+            <td><span class="swatch" style="background:#0f9d58"></span>#0f9d58</td><td class="bad">3.34:1</td>
+            <td><span class="swatch" style="background:#008340"></span>#008340</td><td class="ok">4.50:1</td>
+            <td>P&amp;L rows at 15px — passes at 19px, fails at 15px</td></tr>
+        <tr><td>bentoLoss</td>
+            <td><span class="swatch" style="background:#d92d3f"></span>#d92d3f</td><td class="bad">4.42:1</td>
+            <td><span class="swatch" style="background:#d72b3e"></span>#d72b3e</td><td class="ok">4.52:1</td>
+            <td>Marginal — a hair under on soft only</td></tr>
+      </tbody>
+    </table>
+    </div>
 
-    <p class="note" style="margin-top:18px">Profit green <code>#0f9d58</code> and loss red
-    <code>#d92d3f</code> are kept from the original, but they sit at ΔE&nbsp;4.0 for deutan
-    viewers — the classic red/green trap. They are only legal because every mark carrying them
-    also carries a signed number: each waterfall bar is labelled, each P&amp;L figure shows its
-    minus sign. <strong>That labelling is load-bearing, not decoration</strong> — if a future
-    card drops it, the colour stops meaning anything.</p>
+    <p class="note" style="margin-top:16px">The green is the interesting one.
+    <code>#0f9d58</code> clears 3:1, so it is legal on the 19px bold net-profit total and illegal
+    on the 15px bold row above it — the same token passing and failing in the same card.</p>
 
-    <p class="note" style="margin-top:14px">Type is the system UI stack rather than a webfont,
-    deliberately: React Native renders system faces on device, so a mockup in anything else
-    would misrepresent what ships. Every figure is set in tabular numerals so columns align.</p>
+    <p class="note">Profit green and loss red still sit at ΔE&nbsp;4.0 for deutan viewers — the
+    classic red/green trap. Legal only because every mark carrying them also carries a sign or an
+    arrow: each waterfall bar is labelled, each P&amp;L figure shows its minus sign, each delta
+    badge has a chevron. <strong>That labelling is load-bearing, not decoration.</strong></p>
+
+    <p class="note">Type is the system UI stack rather than a webfont, deliberately: React Native
+    renders system faces on device. Every figure is set in tabular numerals so columns align —
+    which is also why the eased takings figure does not jitter as it counts.</p>
   </section>
 
   <section>
-    <h2>What changed, and what didn't</h2>
-    <p class="note"><strong>New:</strong> the P&amp;L card, the revenue→profit waterfall, and
-    payment methods — the last reusing <code>PaymentMixChart</code>, which already exists in
-    Accounting. The greeting sentence is generated from figures the screen already holds.</p>
-    <p class="note" style="margin-top:12px"><strong>Restyled, same data:</strong> revenue trend,
-    goal meter, needs attention, low stock. The uncosted-cost caveat becomes the amber banner
-    and keeps its deep link to the inventory filter.</p>
-    <p class="note" style="margin-top:12px"><strong>Deliberately absent:</strong> cash on hand,
-    budget vs actual, recurring bills, sales tax, and the expense donut. They stay in Accounting
-    — on a new shop's dashboard they would be five empty states above the fold.</p>
+    <h2>Implementation notes</h2>
+    <p class="note"><strong>Delta badges need data that does not exist yet.</strong> Every query
+    in <code>reload()</code> takes the one <code>{ since, until }</code> pair from
+    <code>dateRange</code>; nothing fetches the window before it, and <code>profitAndLoss</code>
+    is a pure function over a single period. Cheapest honest version: one extra
+    <code>getSalesAndRefundsInRange</code> over the prior window plus
+    <code>listExpensesInRange</code> for the net-profit badge — two round trips, wrapped in the
+    existing <code>attempt()</code> helper so a failure degrades to no badge. Because that prior
+    window only exists for the recorded range, the badges here disappear when you cycle to
+    another range rather than quoting a comparison that was never fetched.</p>
+    <p class="note"><strong>Range cycling is a demo convenience, not a proposal.</strong> The
+    shipped screen gets its range from <code>BentoControlBar</code>, which refetches. Here the
+    other ranges scale the recorded figures and say so in the chart footnote, exactly as the
+    reference does — never let that estimate ship as though it were measured.</p>
+    <p class="note"><strong>The hero needs no new colour token</strong> — its ground is
+    <code>bentoInk</code>, and white on it reads 19.7:1. It does need a
+    <code>Card variant="bentoInk"</code> so the treatment is declared once, and a rule that the
+    Dashboard has exactly one.</p>
+    <p class="note"><strong><code>DataTable</code> needs a narrow column set, not just a
+    scroll.</strong> Low stock exists to compare units left against the reorder level, and at
+    <code>minWidth={420}</code> that second column sits off the right edge of a 380px screen.
+    Horizontal scroll is the right fallback for a wide table, but not when the hidden column
+    <em>is</em> the point. Both tables here fit 323px without scrolling.</p>
+    <p class="note"><strong>StatTile, Badge and CategoryChip still hardcode the cream
+    palette</strong> and each need a real <code>bento</code> variant — the standing red flag in
+    the building-bento-screens skill, unchanged by this revision.</p>
   </section>
 </div>
 
+<div class="flash" id="flash" role="status" aria-live="polite"></div>
+
 <template id="cards">
 
-  <div class="cardx" data-w="12" data-m="2" style="padding:0;background:transparent">
-    <div class="warn">
-      <div style="font-size:16px;line-height:1.3">⚠️</div>
+  <!-- No zone label: the caveat is a banner, not a card, and a heading above a
+       single warning reads as ceremony. -->
+  <div class="cardx js-warn" data-w="12" data-m="2" style="padding:0;background:transparent"></div>
+
+  <div class="zone" data-w="12" data-m="2">Overview</div>
+
+  <div class="cardx hero" data-w="3" data-m="1">
+    <div class="crow" style="margin:0">
+      <div class="eyeb"><svg class="ic" width="15" height="15"><use href="#i-cash"/></svg>Takings</div>
+      <button class="pill act js-payfilter" data-act="payfilter" type="button"></button>
+    </div>
+    <div class="lab">Gross takings this period</div>
+    <div class="big js-takings">$0.00</div>
+    <div class="seg">
+      <button class="js-seg-in" data-act="flow" data-flow="in" type="button">Money in</button>
+      <button class="js-seg-out" data-act="flow" data-flow="out" type="button">Money out</button>
+    </div>
+    <div class="rule"></div>
+    <div class="flowrow">
       <div>
-        <b>Cost of goods sold is understated</b>
-        <p>6 sold items have no cost recorded ($312.40 of revenue), so gross profit looks higher
-        than it is. <a href="#">Set costs in Inventory →</a></p>
+        <div class="lab js-flow-lab" style="margin:0"></div>
+        <div class="flowv js-flow-val"></div>
       </div>
+      <button class="linkrow" data-act="topl" type="button"><span class="linkdot"><svg class="ic" width="11" height="11"><use href="#i-arrow"/></svg></span>See full<br>profit &amp; loss</button>
+    </div>
+    <div class="scopenote js-scopenote"></div>
+  </div>
+
+  <!-- Total income / total paid. Money in and money out at full size, each
+       with its own trend badge — the pair the reference leads with. -->
+  <div class="cardx tight" data-w="3" data-m="1">
+    <div class="crow" style="margin:0">
+      <div class="mini-round"><svg class="ic" width="15" height="15"><use href="#i-up"/></svg></div>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button>
+    </div>
+    <div class="label-sm" style="margin-top:14px">Total income</div>
+    <div class="valrow"><div class="value-lg"><span class="cur">$</span><span class="js-income"></span></div>
+      <span class="js-income-delta"></span></div>
+    <div class="hr"></div>
+    <div class="crow" style="margin:0">
+      <div class="mini-round"><svg class="ic" width="15" height="15"><use href="#i-down"/></svg></div>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button>
+    </div>
+    <div class="label-sm" style="margin-top:14px">Total paid</div>
+    <div class="valrow"><div class="value-lg"><span class="cur">$</span><span class="js-paid"></span></div>
+      <span class="js-paid-delta"></span></div>
+    <button class="linkrow dark" data-act="tochart" type="button">
+      <span class="linkdot"><svg class="ic" width="11" height="11"><use href="#i-arrow"/></svg></span>View on chart mode</button>
+  </div>
+
+  <!-- Net margin. The second dark surface, and the only place the dark
+       profit/loss steps are used. -->
+  <div class="cardx gaugecard" data-w="2" data-m="1">
+    <div class="gaugering">
+      <div class="js-margingauge" style="position:absolute;inset:0"></div>
+      <div class="mid"><b class="js-marginpct"></b><span class="js-marginlab"></span></div>
     </div>
   </div>
 
-  <div class="cardx" data-w="5" data-m="1">
-    <div class="crow"><h4 class="ctitle">Profit &amp; loss</h4><div class="pill">7 days</div></div>
-    <div class="pl"><div class="nm">Revenue<span class="hint">net of sales tax and refunds</span></div><div class="amt num">$3,847.20</div></div>
-    <div class="pl"><div class="nm">Cost of goods sold<span class="hint">what the items sold cost you</span></div><div class="amt num loss">−$2,412.60</div></div>
-    <div class="pl sub"><div class="nm" style="font-weight:800">Gross profit</div><div class="amt num">$1,434.60</div></div>
-    <div class="pl"><div class="nm">Operating expenses<span class="hint">excludes stock purchases and owner draws</span></div><div class="amt num loss">−$890.00</div></div>
-    <div class="pl tot"><div class="nm">Net profit</div><div class="amt num profit">$544.60</div></div>
+  <div class="stack" data-w="2" data-m="1">
+    <div class="cardx tight">
+      <div class="mini-round"><svg class="ic" width="15" height="15"><use href="#i-tag"/></svg></div>
+      <div class="costed-n js-costed-n"></div>
+      <div class="foot" style="margin-top:2px">products have a cost set</div>
+      <div class="dots js-costed-dots"></div>
+    </div>
+    <div class="cardx tight">
+      <div class="crow" style="margin:0">
+        <div class="mini-round"><svg class="ic" width="15" height="15"><use href="#i-target"/></svg></div>
+        <button class="pill act" data-act="editgoal" type="button">Edit</button>
+      </div>
+      <div class="goalmini js-goalgauge"></div>
+      <div class="foot js-goalcap" style="text-align:center"></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="2" data-m="1">
+    <div class="crow" style="margin:0">
+      <div class="mini-round"><svg class="ic" width="15" height="15"><use href="#i-trend"/></svg></div>
+      <div style="font-size:18px;font-weight:800" class="num js-sparkval"></div>
+    </div>
+    <div class="spark-lg js-sparkchart"></div>
+    <div class="crow" style="margin:0;align-items:flex-end">
+      <div>
+        <div style="font-size:14.5px;font-weight:800">Revenue</div>
+        <div class="foot js-sparknote" style="margin-top:2px"></div>
+      </div>
+      <span class="js-sparktag"></span>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12" data-m="2">
+    <div class="crow"><h5 class="ctitle">This period at a glance</h5>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button></div>
+    <div class="kpis js-kpis"></div>
+    <p class="foot js-kpifoot"></p>
+  </div>
+
+  <div class="zone" data-w="12" data-m="2">Profit &amp; loss</div>
+
+  <div class="cardx js-plcard" data-w="5" data-m="1">
+    <div class="crow"><h5 class="ctitle">Profit &amp; loss</h5>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button></div>
+    <div class="js-plrows"></div>
   </div>
 
   <div class="cardx" data-w="7" data-m="1">
-    <h4 class="ctitle">How revenue becomes profit</h4>
-    <svg class="chart" viewBox="0 0 620 230" style="width:100%;height:auto;display:block" role="img"
-         aria-label="Waterfall: revenue $3,847.20 less cost of goods $2,412.60 gives gross profit $1,434.60, less operating expenses $890.00 gives net profit $544.60.">
-      <line x1="46" y1="186" x2="606" y2="186" stroke="#c9c9d0" stroke-dasharray="3 3"/>
-      <line x1="130" y1="16" x2="186" y2="16" stroke="#c9c9d0" stroke-dasharray="3 3"/>
-      <line x1="354" y1="122.6" x2="410" y2="122.6" stroke="#c9c9d0" stroke-dasharray="3 3"/>
-      <rect x="74"  y="16"    width="56" height="170"  rx="5" fill="#2f6bff"/>
-      <rect x="186" y="16"    width="56" height="106.6" rx="5" fill="#d92d3f"/>
-      <rect x="298" y="122.6" width="56" height="63.4"  rx="5" fill="#2f6bff"/>
-      <rect x="410" y="122.6" width="56" height="39.3"  rx="5" fill="#d92d3f"/>
-      <rect x="522" y="161.9" width="56" height="24.1"  rx="5" fill="#0f9d58"/>
-      <g font-size="11.5" font-weight="800" fill="#0b0b0d" text-anchor="middle">
-        <text x="102" y="10">$3,847</text>
-        <text x="214" y="10">−$2,413</text>
-        <text x="326" y="116.6">$1,435</text>
-        <text x="438" y="116.6">−$890</text>
-        <text x="550" y="155.9">$545</text>
-      </g>
-      <g font-size="10.5" fill="#6b6b73" text-anchor="middle">
-        <text x="102" y="206">Revenue</text>
-        <text x="214" y="206">Cost of goods</text>
-        <text x="326" y="206">Gross profit</text>
-        <text x="438" y="206">Operating exp.</text>
-        <text x="550" y="206">Net profit</text>
-      </g>
-      <g class="sub" font-size="9.5" fill="#a8a8b0" text-anchor="middle">
-        <text x="214" y="220">what stock cost</text>
-        <text x="438" y="220">wages, rent, power</text>
-      </g>
-    </svg>
+    <div class="crow"><h5 class="ctitle">How revenue becomes profit</h5>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button></div>
+    <div class="js-waterfall"></div>
     <p class="foot">Green and red are backed by the signed figure on every bar — the colour alone
     never carries the meaning.</p>
   </div>
 
-  <div class="cardx" data-w="8" data-m="1">
-    <h4 class="ctitle">This period at a glance</h4>
-    <div class="kpis">
-      <div class="kpi"><div class="l">Revenue</div><div class="n">$3,847.20</div>
-        <div class="s"><svg viewBox="0 0 100 22" preserveAspectRatio="none" style="width:100%;height:100%" aria-hidden="true">
-          <path d="M0 14.6 L16.7 13.5 L33.3 16.2 L50 9.9 L66.7 4.8 L83.3 7.2 L100 17.2"
-                fill="none" stroke="#2f6bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <circle cx="100" cy="17.2" r="2.6" fill="#fff" stroke="#2f6bff" stroke-width="2"/></svg></div></div>
-      <div class="kpi"><div class="l">Gross profit</div><div class="n">$1,434.60</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Expenses</div><div class="n">$890.00</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Net profit</div><div class="n profit">$544.60</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Orders</div><div class="n">214</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Average sale</div><div class="n">$17.98</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Net margin</div><div class="n">14%</div><div class="s"></div></div>
-      <div class="kpi"><div class="l">Team on today</div><div class="n">4/5</div><div class="s"></div></div>
-    </div>
-  </div>
-
-  <div class="cardx" data-w="4" data-m="1">
-    <div class="crow"><h4 class="ctitle">Revenue goal</h4><div class="pill">This month</div></div>
-    <div class="goal">
-      <div class="g">
-        <svg viewBox="0 0 120 120" style="width:100%;height:100%" role="img" aria-label="62% of the monthly revenue goal.">
-          <circle cx="60" cy="60" r="45.6" fill="none" stroke="#ececf0" stroke-width="13.2"/>
-          <circle cx="60" cy="60" r="45.6" fill="none" stroke="#2f6bff" stroke-width="13.2" stroke-linecap="round"
-                  stroke-dasharray="176.5 286.5" transform="rotate(-90 60 60)"/>
-          <text x="60" y="67" text-anchor="middle" font-size="23" font-weight="800" fill="#0b0b0d">62%</text>
-        </svg>
-      </div>
-      <div>
-        <div class="v">$9,240.00</div>
-        <div class="c">of a $15,000.00 goal · $5,760.00 to go with 11 days left</div>
-      </div>
-    </div>
-    <div class="pl" style="border-top:1px solid var(--d-ln);border-bottom:none;margin-top:14px">
-      <div class="nm">Needed per day<span class="hint">to land the goal by month end</span></div>
-      <div class="amt num">$523.64</div>
-    </div>
-    <p class="foot">Month to date, and always the selected store's own goal — never the
-    whole business's.</p>
-  </div>
+  <div class="zone" data-w="12" data-m="2">Trends</div>
 
   <div class="cardx" data-w="7" data-m="1">
-    <div class="crow"><h4 class="ctitle">Revenue</h4><div class="pill">7 days</div></div>
-    <svg class="chart" viewBox="0 0 600 200" style="width:100%;height:auto;display:block" role="img"
-         aria-label="Daily revenue over seven days, from $486.30 on Monday to a peak of $721.50 on Friday and $416.10 on Sunday.">
-      <defs><linearGradient id="rv" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#2f6bff" stop-opacity="0.20"/>
-        <stop offset="100%" stop-color="#2f6bff" stop-opacity="0"/></linearGradient></defs>
-      <g stroke="#ececf0">
-        <line x1="44" y1="174" x2="588" y2="174"/><line x1="44" y1="93" x2="588" y2="93"/><line x1="44" y1="12" x2="588" y2="12"/>
-      </g>
-      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7 L588 174 L44 174 Z" fill="url(#rv)"/>
-      <path d="M44 75.5 L134.7 70.2 L225.3 83.3 L316 52.8 L406.7 27.9 L497.3 39.5 L588 89.7"
-            fill="none" stroke="#2f6bff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-      <g fill="#fff" stroke="#2f6bff" stroke-width="2">
-        <circle cx="44" cy="75.5" r="3"/><circle cx="134.7" cy="70.2" r="3"/><circle cx="225.3" cy="83.3" r="3"/>
-        <circle cx="316" cy="52.8" r="3"/><circle cx="497.3" cy="39.5" r="3"/><circle cx="588" cy="89.7" r="3"/>
-      </g>
-      <circle cx="406.7" cy="27.9" r="4.6" fill="#2f6bff" stroke="#fff" stroke-width="2"/>
-      <text x="406.7" y="18" text-anchor="middle" font-size="11" font-weight="800" fill="#0b0b0d">$721.50</text>
-      <g font-size="10" fill="#a8a8b0" text-anchor="end">
-        <text x="36" y="178">0</text><text x="36" y="97">400</text><text x="36" y="16">800</text></g>
-      <g font-size="10" fill="#a8a8b0" text-anchor="middle">
-        <text x="44" y="192">Mon</text><text x="134.7" y="192">Tue</text><text x="225.3" y="192">Wed</text>
-        <text x="316" y="192">Thu</text><text x="406.7" y="192">Fri</text><text x="497.3" y="192">Sat</text>
-        <text x="588" y="192">Sun</text></g>
-    </svg>
-    <p class="foot">Friday is the week's peak at $721.50 — market day.</p>
+    <div class="crow"><h5 class="ctitle">Revenue</h5>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button></div>
+    <div class="js-revchart"></div>
+    <p class="foot js-revnote"></p>
   </div>
 
   <div class="cardx" data-w="5" data-m="1">
-    <h4 class="ctitle">Payment methods</h4>
-    <div class="pm"><div class="pm-ic">💵</div><div class="pm-b">
-      <div class="pm-t"><span class="pm-n">Cash</span><span class="pm-a">$2,118.00</span></div>
-      <div class="bar"><i style="width:55.1%;background:#2f6bff"></i></div>
-      <div class="pm-p">55% of takings</div></div></div>
-    <div class="pm"><div class="pm-ic">📱</div><div class="pm-b">
-      <div class="pm-t"><span class="pm-n">ZAAD</span><span class="pm-a">$1,244.20</span></div>
-      <div class="bar"><i style="width:32.3%;background:#00a396"></i></div>
-      <div class="pm-p">32% of takings</div></div></div>
-    <div class="pm"><div class="pm-ic">📱</div><div class="pm-b">
-      <div class="pm-t"><span class="pm-n">e-Dahab</span><span class="pm-a">$431.00</span></div>
-      <div class="bar"><i style="width:11.2%;background:#c8791a"></i></div>
-      <div class="pm-p">11% of takings</div></div></div>
-    <div class="pm"><div class="pm-ic">•</div><div class="pm-b">
-      <div class="pm-t"><span class="pm-n">Other</span><span class="pm-a">$54.00</span></div>
-      <div class="bar"><i style="width:1.4%;background:#d4457e"></i></div>
-      <div class="pm-p">1% of takings</div></div></div>
-    <div class="legend"><span><i class="dot" style="background:#2f6bff"></i>Cash</span>
+    <div class="crow"><h5 class="ctitle">Payment methods</h5>
+      <button class="pill act js-rangepill" data-act="range" type="button"></button></div>
+    <div class="js-payrows"></div>
+    <div class="legend">
+      <span><i class="dot" style="background:#2f6bff"></i>Cash</span>
       <span><i class="dot" style="background:#00a396"></i>ZAAD</span>
       <span><i class="dot" style="background:#c8791a"></i>e-Dahab</span>
-      <span><i class="dot" style="background:#d4457e"></i>Other</span></div>
+      <span><i class="dot" style="background:#d4457e"></i>Other</span>
+    </div>
+    <p class="foot js-paynote"></p>
+  </div>
+
+  <div class="zone" data-w="12" data-m="2">Needs you</div>
+
+  <!-- Money going out lives here, not in a goals zone: overdue supplier bills
+       are something to act on, which is what this zone means. The goal moved
+       up into the Overview stack. -->
+  <div class="cardx" data-w="6" data-m="1">
+    <div class="crow"><h5 class="ctitle">Money going out</h5><div class="pill">As of today</div></div>
+    <div class="pl"><div class="nm">Owed to suppliers<span class="hint">2 open bills</span></div><div class="amt num">$1,240.00</div></div>
+    <div class="pl sub"><div class="nm loss">of that, overdue<span class="hint">oldest 18 days</span></div><div class="amt num loss">$1,240.00</div></div>
+    <!-- `emphasis`, not `total`: $450 a month is a separate fact, not the sum of
+         the rows above. A total-styled row that totals nothing lies about the sum. -->
+    <div class="pl sub"><div class="nm" style="font-weight:800">Committed every month<span class="hint">active recurring bills</span></div><div class="amt num">$450.00</div></div>
+    <p class="foot">These figures deliberately ignore the range — what you owe is a fact about
+    now, not about the last seven days.</p>
   </div>
 
   <div class="cardx" data-w="6" data-m="1">
-    <div class="crow"><h4 class="ctitle">Needs attention</h4><div class="pill">5 items</div></div>
+    <div class="crow"><h5 class="ctitle">Needs attention</h5><div class="pill">5 items</div></div>
     <div class="att"><div class="tx"><div class="sev act"></div><div>
       <b>2 supplier bills are overdue</b><span>$1,240.00 outstanding · oldest 18 days</span></div></div>
       <span class="tag hot">Pay</span></div>
@@ -452,40 +784,571 @@ Palette (light, surface #ffffff, categorical): 4 slots
     <div class="att"><div class="tx"><div class="sev info"></div><div>
       <b>5 customers went quiet</b><span>no order in 60 days or more</span></div></div>
       <span class="tag">Follow up</span></div>
-    <p class="foot">Ordered by what blocks someone or costs money today, not by area.</p>
+    <p class="foot">Ordered by what blocks someone or costs money today, not by area. The severity
+    stripe repeats the ordering in form, so urgency survives a greyscale print.</p>
   </div>
 
-  <div class="cardx" data-w="6" data-m="1">
-    <div class="crow"><h4 class="ctitle">Low stock</h4><div class="pill">Hodan Store</div></div>
-    <table>
-      <thead><tr><th>Product</th><th class="r">Left</th><th class="r">Reorder at</th></tr></thead>
-      <tbody>
-        <tr><td><span class="p">Powdered Milk 900g</span><span class="m">Dairy · SKU 4021</span></td>
-            <td class="r"><span class="qty zero">0</span></td><td class="r muted">12</td></tr>
-        <tr><td><span class="p">Cooking Oil 3L</span><span class="m">Pantry · SKU 3310</span></td>
-            <td class="r"><span class="qty low">2</span></td><td class="r muted">8</td></tr>
-        <tr><td><span class="p">Basmati Rice 5kg</span><span class="m">Grains · SKU 1180</span></td>
-            <td class="r"><span class="qty low">3</span></td><td class="r muted">10</td></tr>
-        <tr><td><span class="p">Sugar 2kg</span><span class="m">Pantry · SKU 2075</span></td>
-            <td class="r"><span class="qty low">5</span></td><td class="r muted">15</td></tr>
-      </tbody>
-    </table>
+  <div class="cardx tablecard js-lowstock" data-w="12" data-m="2">
+    <div class="crow"><h5 class="ctitle">Low stock</h5><div class="pill">As of today</div></div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Product</th><th class="r w-sm">Left</th><th class="r w-md">Reorder at</th></tr></thead>
+      <tbody class="js-lowrows"></tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx tablecard" data-w="12" data-m="2">
+    <div class="crow"><h5 class="ctitle">Expiring soon</h5><div class="pill">As of today</div></div>
+    <div class="tscroll"><table>
+      <thead><tr><th>Product</th><th class="r w-md">Expires</th><th class="r w-sm">Units</th></tr></thead>
+      <tbody class="js-exprows"></tbody>
+    </table></div>
+  </div>
+
+  <div class="zone" data-w="12" data-m="2">Latest sales</div>
+
+  <div class="cardx" data-w="12" data-m="2">
+    <div class="crow"><h5 class="ctitle">Recent transactions</h5><div class="pill">Latest 5</div></div>
+    <div class="js-recent"></div>
+    <p class="foot">The time column is new — the sale already carries it, and without it a
+    full-width row is a name and a number at opposite ends of the screen.</p>
   </div>
 
 </template>
 
 <script>
-  // Not `chrome`: that name is already taken on the global object in
-  // Chromium, and re-declaring it throws before a single card renders.
-  const shellHtml = (narrow) => `
+/* ============================================================
+   DATA — one block, every widget follows. Mirrors the shapes the
+   real screen already computes; figures are illustrative.
+   ============================================================ */
+const DATA = {
+  period: '7d',                  // the range these recorded figures belong to
+  revenue: 3847.20,              // net of sales tax and refunds
+  costOfGoodsSold: 2412.60,
+  operatingExpenses: 890.00,
+  salesTaxCollected: 255.60,     // takings - revenue
+  orders: 214,
+  revenueGoal: 15000.00,
+  monthRevenueSoFar: 9240.00,
+  daysLeftInMonth: 11,
+  itemsMissingCost: 6,
+  soldProducts: 24,              // distinct products sold in the period
+  revenueMissingCost: 312.40,
+  teamOn: 4, teamTotal: 5,
+  // Same-length window immediately before this one. Only exists for the
+  // recorded range -- see the implementation note on delta badges.
+  previousPeriod: { revenue: 3435.00, operatingExpenses: 847.60, orders: 196, netProfit: 415.00 },
+  paymentMethods: [
+    { name:'Cash',    icon:'i-cash',   amount:2261.00, group:'cash',   color:'#2f6bff' },
+    { name:'ZAAD',    icon:'i-wallet', amount:1353.90, group:'mobile', color:'#00a396' },
+    { name:'e-Dahab', icon:'i-wallet', amount:431.90,  group:'mobile', color:'#c8791a' },
+    { name:'Other',   icon:'i-dot',    amount:56.00,   group:'other',  color:'#d4457e' },
+  ],
+  // Recorded per-day revenue for the base range; sums to DATA.revenue.
+  dailyRevenue: [486.30, 512.40, 448.90, 598.20, 721.50, 663.80, 416.10],
+  lowStock: [
+    { name:'Powdered Milk 900g', meta:'Dairy · SKU 4021',  left:0, reorder:12 },
+    { name:'Cooking Oil 3L',     meta:'Pantry · SKU 3310', left:2, reorder:8  },
+    { name:'Basmati Rice 5kg',   meta:'Grains · SKU 1180', left:3, reorder:10 },
+    { name:'Sugar 2kg',          meta:'Pantry · SKU 2075', left:5, reorder:15 },
+  ],
+  expiring: [
+    { name:'Bread Loaf',    meta:'Bakery', when:'Tomorrow',  units:8  },
+    { name:'Yoghurt 500ml', meta:'Dairy',  when:'in 2 days', units:14 },
+    { name:'Fresh Milk 1L', meta:'Dairy',  when:'in 4 days', units:22 },
+  ],
+  recent: [
+    { items:'Basmati Rice 5kg, Cooking Oil 3L',    at:'10:42', amount:42.50 },
+    { items:'Powdered Milk 900g, Tea Leaves 250g', at:'10:18', amount:19.75 },
+    { items:'Cooking Oil 3L',                      at:'09:55', amount:14.00 },
+    { items:'Sugar 2kg',                           at:'09:31', amount:8.00  },
+    { items:'Bread Loaf, Fresh Milk 1L',           at:'08:47', amount:6.25  },
+  ],
+};
+
+const RANGES = [
+  { id:'today', label:'Today',   n:1  },
+  { id:'7d',    label:'7 days',  n:7  },
+  { id:'30d',   label:'30 days', n:30 },
+];
+const PAY_FILTERS = [
+  { label:'All methods',  match:() => true },
+  { label:'Cash only',    match:(m) => m.group === 'cash'   },
+  { label:'Mobile money', match:(m) => m.group === 'mobile' },
+];
+
+const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const state = { range: DATA.period, flow: 'in', payFilter: 0 };
+let lastTakings = null;
+
+/* ---------- derived figures ---------- */
+const rangeInfo   = () => RANGES.find(r => r.id === state.range) || RANGES[1];
+const isBase      = () => state.range === DATA.period;
+const scaleFactor = () => rangeInfo().n / (RANGES.find(r => r.id === DATA.period) || RANGES[1]).n;
+const grossProfit = () => DATA.revenue - DATA.costOfGoodsSold;
+const netProfit   = () => grossProfit() - DATA.operatingExpenses;
+const grossTakings= () => DATA.paymentMethods.reduce((s, m) => s + m.amount, 0);
+const pRevenue    = () => DATA.revenue * scaleFactor();
+const pExpenses   = () => DATA.operatingExpenses * scaleFactor();
+const pOrders     = () => Math.round(DATA.orders * scaleFactor());
+const pNet        = () => netProfit() * scaleFactor();
+const activeFilter= () => PAY_FILTERS[state.payFilter];
+const filteredMethods = () => DATA.paymentMethods.filter(activeFilter().match);
+const pTakings    = () => filteredMethods().reduce((s, m) => s + m.amount, 0) * scaleFactor();
+// Revenue attributable to the filtered methods: takings less this shop's tax
+// share, held in proportion. Only meaningful for money IN.
+const pFilteredRevenue = () => {
+  const all = grossTakings() || 1;
+  return pRevenue() * (filteredMethods().reduce((s, m) => s + m.amount, 0) / all);
+};
+
+/* ---------- formatting ---------- */
+const fmt  = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 });
+const fmt0 = (n) => (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits:0 });
+const esc  = (s) => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const all  = (sel) => document.querySelectorAll(sel);
+const setText = (sel, text) => all(sel).forEach(el => { el.textContent = text; });
+const setHtml = (sel, html) => all(sel).forEach(el => { el.innerHTML = html; });
+
+let flashTimer;
+function flash(msg){
+  const f = document.getElementById('flash');
+  f.textContent = msg; f.classList.add('show');
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => f.classList.remove('show'), 2200);
+}
+
+/* Eases the takings figure rather than snapping it. Tabular numerals keep the
+   width fixed while it counts, so nothing reflows. */
+function animateNumber(els, to, from){
+  if (REDUCE || from === null || from === to) { els.forEach(el => { el.textContent = fmt(to); }); return; }
+  const dur = 650, start = performance.now();
+  function tick(now){
+    const t = Math.min(1, (now - start) / dur);
+    const eased = t >= 1 ? 1 : 1 - Math.pow(2, -10 * t);
+    const v = from + (to - from) * eased;
+    els.forEach(el => { el.textContent = fmt(v); });
+    if (t < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- chart helpers ---------- */
+const AXIS = '#717078', GRID = '#ececf0', C1 = '#2f6bff';
+const PROFIT = '#008340', LOSS = '#d72b3e';
+const NICE = [1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10];
+function niceMax(v){
+  if (v <= 0) return 1;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  const s = v / p;
+  return (NICE.find(x => s <= x) || 10) * p;
+}
+function dayLabels(n){
+  const out = [], today = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    out.push(d.toLocaleDateString('en-US', { weekday:'short' }));
+  }
+  return out;
+}
+function spread(total, n){
+  const out = []; let acc = 0;
+  for (let i = 0; i < n; i++) {
+    const v = i === n - 1 ? Math.round((total - acc) * 100) / 100 : Math.round((total / n) * 100) / 100;
+    acc += v; out.push(v);
+  }
+  return out;
+}
+/* Series for the trend: the recorded day-by-day figures at the base range,
+   an even split elsewhere -- and the footnote says which. */
+function revenueSeries(){
+  const n = rangeInfo().n;
+  if (isBase()) return DATA.dailyRevenue.slice();
+  if (n === 1) return [pRevenue()];
+  return spread(pRevenue(), n);
+}
+
+let uid = 0;
+/* height:auto, NOT preserveAspectRatio="none": non-uniform scaling turns every
+   circular marker into an ellipse and distorts stroke width. */
+function lineChart(values, labels){
+  const W = 600, H = 200, padL = 44, padR = 12, padT = 14, padB = 26;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  const max = niceMax(Math.max(...values, 1));
+  const n = values.length, step = n > 1 ? iw / (n - 1) : 0;
+  const x = (i) => padL + (n > 1 ? i * step : iw / 2);
+  const y = (v) => padT + ih - (v / max) * ih;
+  const pts = values.map((v, i) => [x(i), y(v)]);
+  const line = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ');
+  const area = n > 1
+    ? line + ` L ${pts[n-1][0].toFixed(1)} ${(padT+ih).toFixed(1)} L ${pts[0][0].toFixed(1)} ${(padT+ih).toFixed(1)} Z` : '';
+  const gid = 'rv' + (++uid);
+  const grid = [0, .5, 1].map(f =>
+    `<line x1="${padL}" y1="${(padT+ih-f*ih).toFixed(1)}" x2="${W-padR}" y2="${(padT+ih-f*ih).toFixed(1)}" stroke="${GRID}"/>`).join('');
+  const yT = [0, .5, 1].map(f =>
+    `<text x="${padL-8}" y="${(padT+ih-f*ih+4).toFixed(1)}" font-size="10" fill="${AXIS}" text-anchor="end">${Math.round(max*f)}</text>`).join('');
+  const skip = Math.max(1, Math.ceil(n / 7));
+  const xT = labels.map((l, i) => i % skip === 0
+    ? `<text x="${x(i).toFixed(1)}" y="${H-8}" font-size="10" fill="${AXIS}" text-anchor="middle">${esc(l)}</text>` : '').join('');
+  const peak = values.indexOf(Math.max(...values));
+  // A dot on every point only when they are countable; the peak alone is labelled.
+  const dots = n <= 31 ? pts.map((p, i) => i === peak ? '' :
+    `<circle cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="3" fill="#fff" stroke="${C1}" stroke-width="2"/>`).join('') : '';
+  const peakMark = n > 0
+    ? `<circle cx="${x(peak).toFixed(1)}" cy="${y(values[peak]).toFixed(1)}" r="4.6" fill="${C1}" stroke="#fff" stroke-width="2"/>
+       <text x="${x(peak).toFixed(1)}" y="${(y(values[peak])-10).toFixed(1)}" text-anchor="middle" font-size="11" font-weight="800" fill="#0b0b0d">${esc(fmt(values[peak]))}</text>` : '';
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img"
+    aria-label="Revenue by day. Peak ${esc(fmt(values[peak]))}, total ${esc(fmt(values.reduce((s,v)=>s+v,0)))}.">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${C1}" stop-opacity="0.20"/><stop offset="100%" stop-color="${C1}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}${area ? `<path d="${area}" fill="url(#${gid})"/>` : ''}
+    <path d="${line}" fill="none" stroke="${C1}" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${dots}${peakMark}${yT}${xT}</svg>`;
+}
+function sparkline(values){
+  const n = values.length, max = Math.max(...values, 1);
+  const x = (i) => n > 1 ? (i / (n - 1)) * 100 : 50;
+  const y = (v) => 20 - (v / max) * 18;
+  const d = values.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const lastTop = (y(values[n-1]) / 22) * 100;
+  return `<svg viewBox="0 0 100 22" preserveAspectRatio="none" style="width:100%;height:100%" aria-hidden="true">
+      <path d="${d}" fill="none" stroke="${C1}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+            vector-effect="non-scaling-stroke"/></svg><i class="tip" style="top:${lastTop.toFixed(1)}%"></i>`;
+}
+function waterfall(steps){
+  const W = 620, H = 230, padL = 46, padR = 14, padT = 16, padB = 44;
+  const iw = W - padL - padR, ih = H - padT - padB;
+  let run = 0; const tops = [];
+  steps.forEach(s => {
+    if (s.total) { tops.push({ from:0, to:s.value }); run = s.value; }
+    else { const to = run + s.value; tops.push({ from:run, to }); run = to; }
+  });
+  const vals = tops.flatMap(t => [t.from, t.to]).concat([0]);
+  const max = Math.max(...vals), min = Math.min(...vals), span = (max - min) || 1;
+  const y = (v) => padT + ih - ((v - min) / span) * ih;
+  const slot = iw / steps.length, bw = Math.min(56, slot * 0.56);
+  const zero = `<line x1="${padL}" y1="${y(0).toFixed(1)}" x2="${W-padR}" y2="${y(0).toFixed(1)}" stroke="#c9c9d0" stroke-dasharray="3 3"/>`;
+  const bars = steps.map((s, i) => {
+    const t = tops[i], cx = padL + slot * i + slot / 2;
+    const top = Math.min(y(t.from), y(t.to)), h = Math.max(3, Math.abs(y(t.to) - y(t.from)));
+    const color = s.total ? (t.to >= 0 ? C1 : LOSS) : (s.value >= 0 ? PROFIT : LOSS);
+    const conn = i < steps.length - 1 && !steps[i+1].total
+      ? `<line x1="${(cx+bw/2).toFixed(1)}" y1="${y(t.to).toFixed(1)}" x2="${(cx+slot-bw/2).toFixed(1)}" y2="${y(t.to).toFixed(1)}" stroke="#c9c9d0" stroke-dasharray="3 3"/>` : '';
+    return `${conn}<rect x="${(cx-bw/2).toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="5" fill="${color}"/>
+      <text x="${cx.toFixed(1)}" y="${(top-6).toFixed(1)}" text-anchor="middle" font-size="11.5" font-weight="800" fill="#0b0b0d">${esc(fmt0(s.total ? t.to : s.value))}</text>
+      <text x="${cx.toFixed(1)}" y="${H-24}" text-anchor="middle" font-size="10.5" fill="#5e5d65">${esc(s.label)}</text>
+      ${s.sub ? `<text class="sub" x="${cx.toFixed(1)}" y="${H-10}" text-anchor="middle" font-size="9.5" fill="${AXIS}">${esc(s.sub)}</text>` : ''}`;
+  }).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img"
+    aria-label="Revenue ${esc(fmt(DATA.revenue))} less cost of goods ${esc(fmt(DATA.costOfGoodsSold))} gives gross profit ${esc(fmt(grossProfit()))}, less operating expenses ${esc(fmt(DATA.operatingExpenses))} gives net profit ${esc(fmt(netProfit()))}.">
+    ${zero}${bars}</svg>`;
+}
+/* Filled sparkline for the Revenue card. Same non-scaling-stroke trick as the
+   KPI tile version, plus an area wash. */
+function sparkArea(values){
+  const n = values.length, max = Math.max(...values, 1), H = 54;
+  const x = (i) => n > 1 ? (i / (n - 1)) * 100 : 50;
+  const y = (v) => H - 6 - (v / max) * (H - 14);
+  const line = values.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const area = n > 1 ? line + ` L 100 ${H} L 0 ${H} Z` : '';
+  const gid = 'sp' + (++uid);
+  return `<svg viewBox="0 0 100 ${H}" preserveAspectRatio="none" style="width:100%;height:100%" aria-hidden="true">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${C1}" stop-opacity="0.28"/><stop offset="100%" stop-color="${C1}" stop-opacity="0"/></linearGradient></defs>
+    ${area ? `<path d="${area}" fill="url(#${gid})"/>` : ''}
+    <path d="${line}" fill="none" stroke="${C1}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+          vector-effect="non-scaling-stroke"/></svg>
+    <i class="tip" style="top:${((y(values[n-1]) / H) * 100).toFixed(1)}%"></i>`;
+}
+/* Ring on the dark card. Track and fill are the dark-mode steps: the light
+   profit green reads 2.93:1 here, under the 3:1 floor for a chart mark. */
+function ringDark(pct, positive){
+  const size = 150, r = 57, c = 2 * Math.PI * r, sw = 16;
+  const p = Math.max(0, Math.min(100, Math.abs(pct)));
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:100%;height:100%" aria-hidden="true">
+    <circle cx="75" cy="75" r="${r}" fill="none" stroke="#2a2a30" stroke-width="${sw}"/>
+    <circle cx="75" cy="75" r="${r}" fill="none" stroke="${positive ? '#2eb872' : '#e8515f'}" stroke-width="${sw}"
+      stroke-linecap="round" stroke-dasharray="${((p/100)*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 75 75)"/></svg>`;
+}
+function gauge(pct){
+  const size = 120, r = 45.6, c = 2 * Math.PI * r, p = Math.max(0, Math.min(100, pct));
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:100%;height:auto;display:block" role="img" aria-label="${Math.round(p)}% of the monthly revenue goal.">
+    <circle cx="60" cy="60" r="${r}" fill="none" stroke="#ececf0" stroke-width="13.2"/>
+    <circle cx="60" cy="60" r="${r}" fill="none" stroke="${C1}" stroke-width="13.2" stroke-linecap="round"
+      stroke-dasharray="${((p/100)*c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 60 60)"/>
+    <text x="60" y="67" text-anchor="middle" font-size="23" font-weight="800" fill="#0b0b0d">${Math.round(p)}%</text></svg>`;
+}
+
+/* ---------- delta badges ---------- */
+function pctDelta(current, previous){
+  if (previous == null) return null;
+  const raw = current - previous;
+  // Divide by |previous| so the sign tracks the raw direction even when the
+  // baseline is negative -- a loss that deepens must read as down.
+  return { raw, pct: previous !== 0 ? (raw / Math.abs(previous)) * 100 : null };
+}
+function badge(delta, invert){
+  // Only the recorded range has a fetched prior window. Scaled ranges get no
+  // badge rather than a comparison nobody measured.
+  if (!isBase() || !delta || delta.pct == null || !isFinite(delta.pct)) return '';
+  const favorable = invert ? delta.raw <= 0 : delta.raw >= 0;
+  const icon = delta.raw >= 0 ? 'i-up' : 'i-down';
+  return `<span class="delta ${favorable ? 'up' : 'down'}"><svg class="ic" width="9" height="9"><use href="#${icon}"/></svg>${Math.abs(delta.pct).toFixed(0)}%</span>`;
+}
+
+/* ---------- renderers ---------- */
+function renderWarning(){
+  setHtml('.js-warn', DATA.itemsMissingCost > 0
+    ? `<div class="warn"><svg class="ic" width="18" height="18"><use href="#i-alert"/></svg><div>
+        <b>Cost of goods sold is understated</b>
+        <p>${DATA.itemsMissingCost} sold items have no cost recorded (${fmt(DATA.revenueMissingCost)} of revenue),
+        so gross profit looks higher than it is. <a href="#">Set costs in Inventory →</a></p></div></div>`
+    : '');
+}
+
+function renderHero(){
+  const filtered = state.payFilter !== 0;
+  const outMode  = state.flow === 'out';
+
+  // The filter pill only exists for money IN. Expenses carry no payment method
+  // in kaiibi, so a "Mobile money" heading over an unfilterable figure would be
+  // a lie -- the reference ships exactly that lie.
+  all('.js-payfilter').forEach(el => {
+    el.hidden = outMode;
+    el.innerHTML = `${esc(activeFilter().label)} <span class="caret">▼</span>`;
+  });
+
+  // The headline is ALWAYS gross takings — what the till collected — as in the
+  // reference. Only the row beneath follows the segment. Making the headline
+  // follow it too printed the same $890.00 twice in one card.
+  const takings = pTakings();
+  animateNumber([...all('.js-takings')], takings, lastTakings);
+  lastTakings = takings;
+
+  all('.js-seg-in').forEach(el => el.classList.toggle('on', !outMode));
+  all('.js-seg-out').forEach(el => el.classList.toggle('on', outMode));
+
+  if (outMode) {
+    setText('.js-flow-lab', 'Money out this period');
+    setText('.js-flow-val', fmt(pExpenses()));
+    setText('.js-scopenote', 'Money out is operating expenses, which carry no payment method — so the methods filter is off and the takings above are all methods.');
+  } else {
+    setText('.js-flow-lab', filtered ? `Revenue via ${activeFilter().label.toLowerCase()}` : 'Revenue, net of tax');
+    setText('.js-flow-val', fmt(filtered ? pFilteredRevenue() : pRevenue()));
+    setText('.js-scopenote', filtered
+      ? `Showing ${filteredMethods().length} of ${DATA.paymentMethods.length} methods. Both figures above are filtered.`
+      : '');
+  }
+  all('.js-flow-val').forEach(el => el.classList.toggle('neg', outMode));
+}
+
+function renderIncomePaid(){
+  const pp = DATA.previousPeriod;
+  setText('.js-income', pRevenue().toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }));
+  setText('.js-paid',   pExpenses().toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 }));
+  setHtml('.js-income-delta', badge(pctDelta(DATA.revenue, pp.revenue)));
+  // invert: expenses climbing is an unfavourable move, so the pill reads red
+  // while the arrow still points up. Direction and desirability differ.
+  setHtml('.js-paid-delta',   badge(pctDelta(DATA.operatingExpenses, pp.operatingExpenses), true));
+}
+
+function renderMarginGauge(){
+  const margin = DATA.revenue ? (netProfit() / DATA.revenue) * 100 : 0;
+  const positive = margin >= 0;
+  setHtml('.js-margingauge', ringDark(margin, positive));
+  setText('.js-marginpct', Math.round(margin) + '%');
+  setText('.js-marginlab', positive ? 'Net margin' : 'Net margin (loss)');
+}
+
+function renderCosted(){
+  const total = DATA.soldProducts, costed = total - DATA.itemsMissingCost;
+  setText('.js-costed-n', `${costed}/${total}`);
+  setHtml('.js-costed-dots',
+    Array.from({ length: total }, (_, i) => `<i class="${i < costed ? 'on' : ''}"></i>`).join(''));
+}
+
+function renderGoalMini(){
+  const pct = DATA.revenueGoal ? (DATA.monthRevenueSoFar / DATA.revenueGoal) * 100 : 0;
+  const left = DATA.revenueGoal - DATA.monthRevenueSoFar;
+  setHtml('.js-goalgauge', gauge(pct));
+  // The goal is a calendar-month commitment, so this caption never follows the
+  // range pill -- saying "7 days" beside a monthly figure would be a lie.
+  setText('.js-goalcap', `${fmt0(DATA.monthRevenueSoFar)} of ${fmt0(DATA.revenueGoal)} monthly goal · ${fmt0(left / DATA.daysLeftInMonth)}/day to land it`);
+}
+
+function renderSpark(){
+  const series = revenueSeries();
+  setText('.js-sparkval', fmt0(pRevenue()));
+  setHtml('.js-sparkchart', sparkArea(series));
+  setText('.js-sparknote', `${rangeInfo().label} · ${pOrders()} orders`);
+  const loss = netProfit() < 0;
+  setHtml('.js-sparktag', `<span class="tagpill${loss ? ' solid' : ''}">${loss ? 'at a loss' : 'profitable'}</span>`);
+}
+
+function renderKPIs(){
+  const pp = DATA.previousPeriod;
+  const avg = pOrders() ? pRevenue() / pOrders() : 0;
+  const tile = (label, value, extra) => `<div class="kpi"><div class="l">${label}</div>
+    <div class="top"><div class="n${extra && extra.tone ? ' ' + extra.tone : ''}">${value}</div>${(extra && extra.badge) || ''}</div>
+    <div class="s">${(extra && extra.spark) || ''}</div></div>`;
+  // Revenue, Expenses and Net margin are deliberately absent: they are the
+  // Overview cards above. Six figures nobody has stated yet, one clean row.
+  setHtml('.js-kpis',
+      tile('Gross profit', fmt(grossProfit() * scaleFactor()))
+    + tile('Net profit', fmt(pNet()), { tone: pNet() < 0 ? 'loss' : 'profit', badge: badge(pctDelta(netProfit(), pp.netProfit)) })
+    + tile('Orders', String(pOrders()), { badge: badge(pctDelta(DATA.orders, pp.orders)) })
+    + tile('Average sale', fmt(avg))
+    + tile('Sales tax held', fmt(DATA.salesTaxCollected * scaleFactor()))
+    + tile('Team on today', `${DATA.teamOn}/${DATA.teamTotal}`));
+  setText('.js-kpifoot', isBase()
+    ? 'Sales tax is collected for the authority and is not yours to spend — which is why takings above exceed revenue by exactly this much.'
+    : `Estimated by scaling the recorded ${(RANGES.find(r => r.id === DATA.period) || {}).label.toLowerCase()} figures. Comparison badges are hidden because no prior ${rangeInfo().label.toLowerCase()} window was fetched.`);
+}
+
+function renderPL(){
+  const f = scaleFactor();
+  const np = pNet();
+  const row = (nm, hint, v, cls) => `<div class="pl${cls ? ' ' + cls : ''}">
+    <div class="nm"${cls === 'sub' ? ' style="font-weight:800"' : ''}>${nm}${hint ? `<span class="hint">${hint}</span>` : ''}</div>
+    <div class="amt num${v < 0 ? ' loss' : ''}">${fmt(v)}</div></div>`;
+  setHtml('.js-plrows',
+      row('Revenue', 'net of sales tax and refunds', DATA.revenue * f)
+    + row('Cost of goods sold', 'what the items sold cost you', -DATA.costOfGoodsSold * f)
+    + row('Gross profit', '', grossProfit() * f, 'sub')
+    + row('Operating expenses', 'excludes stock purchases and owner draws', -DATA.operatingExpenses * f)
+    + `<div class="pl tot"><div class="nm">Net profit</div>
+        <div class="amt num ${np < 0 ? 'loss' : 'profit'}">${fmt(np)}</div></div>`);
+}
+
+function renderCharts(){
+  const f = scaleFactor();
+  setHtml('.js-waterfall', waterfall([
+    { label:'Revenue', value: DATA.revenue * f, total:true },
+    { label:'Cost of goods', sub:'what stock cost', value: -DATA.costOfGoodsSold * f },
+    { label:'Gross profit', value: grossProfit() * f, total:true },
+    { label:'Operating exp.', sub:'wages, rent, power', value: -DATA.operatingExpenses * f },
+    { label:'Net profit', value: netProfit() * f, total:true },
+  ]));
+  const series = revenueSeries();
+  // One value is not a trend. A line chart of a single point draws no line —
+  // just a floating dot and an axis implying a shape that was never measured.
+  // The honest form for n=1 is the number itself.
+  setHtml('.js-revchart', series.length > 1
+    ? lineChart(series, dayLabels(series.length))
+    : `<div class="onepoint"><div class="v">${fmt(series[0])}</div>
+        <div class="l">${esc(dayLabels(1)[0])} · one day selected, so there is no trend to plot</div></div>`);
+  setText('.js-revnote', isBase()
+    ? `Friday is the week's peak at ${fmt(Math.max(...series))} — market day. Only the peak is labelled; a number on every point would be noise.`
+    : `Estimated: the ${rangeInfo().label.toLowerCase()} total is scaled from your recorded ${(RANGES.find(r => r.id === DATA.period) || {}).label.toLowerCase()} figure and split evenly, because per-day sales are only recorded for that window.`);
+}
+
+function renderPayments(){
+  const total = grossTakings();
+  const f = scaleFactor();
+  const filtered = state.payFilter !== 0;
+  // Percentages stay measured against FULL takings: a filter that changes the
+  // series count must not repaint or rescale the survivors.
+  setHtml('.js-payrows', DATA.paymentMethods.map(m => {
+    const on = activeFilter().match(m);
+    const pct = total ? (m.amount / total) * 100 : 0;
+    return `<div class="pm${on ? '' : ' dim'}">
+      <div class="pm-ic"><svg class="ic" width="16" height="16"><use href="#${m.icon}"/></svg></div>
+      <div class="pm-b">
+        <div class="pm-t"><span class="pm-n">${esc(m.name)}</span><span class="pm-a">${fmt(m.amount * f)}</span></div>
+        <div class="bar"><i style="width:${pct.toFixed(1)}%;background:${m.color}"></i></div>
+        <div class="pm-p">${pct.toFixed(0)}% of takings</div></div></div>`;
+  }).join(''));
+  setText('.js-paynote', filtered
+    ? `Filtered to ${activeFilter().label.toLowerCase()}. Percentages stay measured against full takings (${fmt(total * f)}) so the bars remain comparable.`
+    : `Sums to takings (${fmt(total * f)}), not revenue — this is money collected, tax included.`);
+}
+
+function renderLists(){
+  setHtml('.js-lowrows', DATA.lowStock.map(p => `<tr>
+    <td><span class="p">${esc(p.name)}</span><span class="m">${esc(p.meta)}</span></td>
+    <td class="r"><span class="qty ${p.left === 0 ? 'zero' : 'low'}">${p.left}</span></td>
+    <td class="r muted">${p.reorder}</td></tr>`).join(''));
+  setHtml('.js-exprows', DATA.expiring.map(p => `<tr>
+    <td><span class="p">${esc(p.name)}</span><span class="m">${esc(p.meta)}</span></td>
+    <td class="r"><span class="qty low">${esc(p.when)}</span></td>
+    <td class="r muted">${p.units}</td></tr>`).join(''));
+  setHtml('.js-recent', DATA.recent.map(s => `<div class="recent">
+    <span class="rn">${esc(s.items)}</span><span class="rt">${esc(s.at)}</span>
+    <span class="ra">${fmt(s.amount)}</span></div>`).join(''));
+}
+
+function renderPills(){
+  all('.js-rangepill').forEach(el => { el.innerHTML = `${esc(rangeInfo().label)} <span class="caret">▼</span>`; });
+}
+
+function renderAll(){
+  renderPills(); renderWarning(); renderHero(); renderIncomePaid(); renderMarginGauge();
+  renderCosted(); renderGoalMini(); renderSpark(); renderKPIs(); renderPL();
+  renderCharts(); renderPayments(); renderLists();
+}
+
+/* ---------- actions ---------- */
+const ACTIONS = {
+  flow(el){
+    const next = el.dataset.flow;
+    if (state.flow === next) return;
+    state.flow = next;
+    // Leaving money-in with a filter on would strand a filter that cannot apply.
+    if (next === 'out' && state.payFilter !== 0) {
+      state.payFilter = 0;
+      flash('Money out cannot be filtered by method — showing all');
+    }
+    renderAll();
+  },
+  payfilter(){
+    state.payFilter = (state.payFilter + 1) % PAY_FILTERS.length;
+    renderAll();
+    flash(`Takings: ${activeFilter().label.toLowerCase()}`);
+  },
+  range(){
+    const i = RANGES.findIndex(r => r.id === state.range);
+    state.range = RANGES[(i + 1) % RANGES.length].id;
+    renderAll();
+    flash(isBase()
+      ? `Showing your recorded ${rangeInfo().label.toLowerCase()} figures`
+      : `Estimated for ${rangeInfo().label.toLowerCase()}`);
+  },
+  topl(){ jumpTo('.js-plcard'); },
+  tochart(){ jumpTo('.js-revchart'); },
+  editgoal(){
+    const v = prompt('Set this month’s revenue goal:', DATA.revenueGoal);
+    if (v === null) return;
+    const n = parseFloat(v);
+    if (!isFinite(n) || n <= 0) { flash('Goal must be a number above zero'); return; }
+    DATA.revenueGoal = n;
+    renderGoalMini();
+    flash('Goal updated for this mockup only');
+  },
+};
+function jumpTo(sel){
+  const el = document.querySelector(sel);
+  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: REDUCE ? 'auto' : 'smooth', block:'center' });
+}
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('[data-act]');
+  if (!el) return;
+  const fn = ACTIONS[el.dataset.act];
+  if (fn) { e.preventDefault(); fn(el); }
+});
+
+/* ---------- build the frames ---------- */
+const tpl = document.getElementById('cards');
+document.querySelectorAll('[data-bento]').forEach((frame) => {
+  const mode = frame.dataset.bento;
+  const narrow = mode === 'narrow';
+  frame.innerHTML = `
     <div class="topbar">
       <div class="tb-l">
         <div class="logo">HS</div>
         <div class="brand"><b>Hodan Store</b><span>Dashboard</span></div>
       </div>
       <div class="tb-r">
-        <div class="srch"><span>🔍</span><span>Search products, people, bills…</span></div>
-        ${narrow ? '' : '<div class="rnd">+</div>'}
+        <div class="srch"><svg class="ic" width="15" height="15" style="color:#717078"><use href="#i-search"/></svg><span>Search products, people, bills…</span></div>
+        ${narrow ? '' : '<div class="rnd"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg></div>'}
         <div class="logo" style="background:#2f6bff">AM</div>
         ${narrow ? '' : '<div class="who"><b>Abdi M.</b><span>Owner</span></div>'}
       </div>
@@ -493,24 +1356,30 @@ Palette (light, surface #ffffff, categorical): 4 slots
     <div class="greet">
       <div class="datechip"><b>12</b><span>Thu,<br>September</span></div>
       <div class="greet-t">
-        <h3>Good morning 👋</h3>
-        <p>Net profit is $544.60 this period on $3,847.20 of revenue. 6 sold items still have no cost recorded.</p>
+        <h4>Good morning 👋</h4>
+        <p>Net profit is ${fmt(netProfit())} this period on ${fmt(DATA.revenue)} of revenue.
+        ${DATA.itemsMissingCost} sold items still have no cost recorded.</p>
       </div>
-      <button class="cta" type="button">Show my tasks →</button>
+      <button class="cta" type="button">Show my tasks
+        <svg class="ic" width="14" height="14" style="stroke:#fff"><use href="#i-arrow"/></svg></button>
     </div>`;
-
-  const tpl = document.getElementById('cards');
-  document.querySelectorAll('[data-bento]').forEach((frame) => {
-    const mode = frame.dataset.bento;
-    frame.innerHTML = shellHtml(mode === 'narrow');
-    const grid = document.createElement('div');
-    grid.className = 'grid ' + mode;
-    tpl.content.querySelectorAll('.cardx').forEach((card) => {
-      const el = card.cloneNode(true);
+  const grid = document.createElement('div');
+  grid.className = 'grid ' + mode;
+  // Direct children, not `.cardx, .zone`: the Overview column is a `.stack`
+  // wrapper holding two cards in one grid cell, and a class list would either
+  // miss it or clone its children twice.
+  [...tpl.content.children].forEach((card) => {
+    const el = card.cloneNode(true);
+    // Zone labels are full-bleed at every breakpoint via CSS, so only real
+    // cards take an inline span.
+    if (!el.classList.contains('zone')) {
       if (mode === 'wide') el.style.gridColumn = 'span ' + el.dataset.w;
       else if (mode === 'mid') el.style.gridColumn = 'span ' + el.dataset.m;
-      grid.appendChild(el);
-    });
-    frame.appendChild(grid);
+    }
+    grid.appendChild(el);
   });
+  frame.appendChild(grid);
+});
+
+renderAll();
 </script>
