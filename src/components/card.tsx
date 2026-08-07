@@ -11,9 +11,16 @@ export function Card({
   children,
   style,
   variant = 'default',
+  fill = false,
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
+  /**
+   * Grow to the height of the row. Only meaningful inside a
+   * `BentoGrid rowAlign="stretch"` — elsewhere there is no row height to
+   * fill and this does nothing.
+   */
+  fill?: boolean;
   /**
    * `bento` is the borderless 26px-radius white card the Dashboard and
    * Accounting use. The default is unchanged and stays on 12px with a
@@ -22,9 +29,13 @@ export function Card({
   variant?: 'default' | 'bento';
 }) {
   if (variant === 'bento') {
-    return <View style={[styles.card, styles.bento, style]}>{children}</View>;
+    return <View style={[styles.card, styles.bento, fill && styles.fill, style]}>{children}</View>;
   }
-  return <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, style]}>{children}</View>;
+  return (
+    <View style={[styles.card, { backgroundColor: theme.surface, borderColor: theme.border }, fill && styles.fill, style]}>
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -33,4 +44,5 @@ const styles = StyleSheet.create({
   // hairline on white-over-#f4f4f5 muddies that separation rather than
   // sharpening it.
   bento: { borderRadius: BENTO_RADIUS, borderWidth: 0, backgroundColor: theme.bentoSurface },
+  fill: { flexGrow: 1 },
 });

@@ -1,5 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Circle, Path } from 'react-native-svg';
 
 import { Card } from '@/components/card';
 import { Colors } from '@/constants/theme';
@@ -25,8 +25,11 @@ export function TopMoverCard({
   shareOfRevenue,
   dailyCents,
   rangeLabel,
+  rank,
 }: {
   mover: ProductMover;
+  /** "Biggest move", "Second", "Third" — position within the row. */
+  rank: string;
   /** This product's share of the range's product revenue, 0–100. */
   shareOfRevenue: number;
   /** Day-by-day take for the sparkline — is this a climb or one good afternoon? */
@@ -37,11 +40,27 @@ export function TopMoverCard({
   const isNew = mover.changePct === null;
 
   return (
-    <Card variant="bento" style={styles.card}>
-      <Text style={styles.name} numberOfLines={2}>
-        {mover.name}
-      </Text>
-      <Text style={styles.scope}>{`vs. the ${rangeLabel.toLowerCase()} before`}</Text>
+    <Card variant="bento" fill style={styles.card}>
+      <View style={styles.head}>
+        <View style={styles.chip}>
+          <Svg width={15} height={15} viewBox="0 0 24 24" aria-hidden>
+            <Path
+              d="M11.5 3.5h6a2 2 0 0 1 2 2v6L10 21 3 14 11.5 3.5Z"
+              stroke={theme.bentoInk2}
+              strokeWidth={1.7}
+              strokeLinejoin="round"
+              fill="none"
+            />
+            <Circle cx={16} cy={8} r={1.3} fill={theme.bentoInk2} />
+          </Svg>
+        </View>
+        <View style={styles.headText}>
+          <Text style={styles.name} numberOfLines={2}>
+            {mover.name}
+          </Text>
+          <Text style={styles.scope}>{`${rank} · vs. ${rangeLabel.toLowerCase()} before`}</Text>
+        </View>
+      </View>
 
       {/* The arrow, not the colour, is what says which way this went. Profit
           green and loss red sit at ΔE 4.0 for deutan viewers, so a figure in
@@ -95,6 +114,16 @@ function Sparkline({ values }: { values: number[] }) {
 
 const styles = StyleSheet.create({
   card: { padding: 16 },
+  head: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  headText: { flex: 1, minWidth: 0 },
+  chip: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: theme.bentoSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   name: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.1 },
   scope: { fontSize: 11, color: theme.bentoMuted, marginTop: 2 },
   change: { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, marginTop: 10, fontVariant: ['tabular-nums'] },
@@ -116,6 +145,6 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   share: { fontSize: 11, color: theme.bentoMuted, fontVariant: ['tabular-nums'] },
-  spark: { marginTop: 12 },
+  spark: { marginTop: 'auto', paddingTop: 12 },
   sparkSpacer: { height: 26, marginTop: 12 },
 });

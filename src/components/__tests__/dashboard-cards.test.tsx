@@ -82,6 +82,7 @@ describe('TopMoverCard', () => {
     const { texts } = render(
       <TopMoverCard
         mover={{ productId: 'p', name: 'Cooking Oil 3L', revenueCents: 5_000, previousCents: 10_000, changePct: -50 }}
+        rank="Biggest move"
         shareOfRevenue={12}
         dailyCents={[100, 200, 150]}
         rangeLabel="7 days"
@@ -96,6 +97,7 @@ describe('TopMoverCard', () => {
     const { texts } = render(
       <TopMoverCard
         mover={{ productId: 'p', name: 'Tea Leaves', revenueCents: 5_000, previousCents: 0, changePct: null }}
+        rank="Second"
         shareOfRevenue={4}
         dailyCents={[]}
         rangeLabel="7 days"

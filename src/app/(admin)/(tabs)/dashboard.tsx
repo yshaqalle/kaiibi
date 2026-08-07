@@ -12,6 +12,7 @@ import { LeaderboardCard, type LeaderboardEntry } from '@/components/dashboard/l
 import { OpenHoursCard } from '@/components/dashboard/open-hours-card';
 import {
   CostedProductsCard,
+  InventoryGlanceCard,
   IncomePaidCard,
   MarginGaugeCard,
   RevenueSparkCard,
@@ -146,6 +147,9 @@ function previousWindow(since: Date, until?: Date): { since: Date; until: Date }
 const PRODUCT_SCAN_LIMIT = 500;
 const BEST_SELLER_LIMIT = 6;
 const LEADERBOARD_LIMIT = 6;
+// Position in the movers row. Named rather than numbered: "Biggest move" says
+// what the ordering IS, where "1" only says there is one.
+const MOVER_RANKS = ['Biggest move', 'Second', 'Third'];
 
 // A key for a two-series chart. The swatch and the word travel together --
 // the series colours are chosen to separate for colour-blind readers, but a
@@ -702,7 +706,10 @@ export default function DashboardScreen() {
 
         {error && <Text style={styles.error}>{error}</Text>}
 
-        <BentoGrid onLayout={(event) => { gridOffset.current = event.nativeEvent.layout.y; }}>
+        {/* rowAlign=stretch: the Overview strip reads as ONE band, and five
+            cards answering one question at five different heights reads as
+            five leftovers rather than a row. */}
+        <BentoGrid rowAlign="stretch" onLayout={(event) => { gridOffset.current = event.nativeEvent.layout.y; }}>
           {/* Travels with the figure rather than sitting in a footnote:
               without it, gross profit reads as precise when it is knowably
               overstated. */}
@@ -753,11 +760,30 @@ export default function DashboardScreen() {
             </BentoCell>
           ) : null}
 
-          {cogs && cogs.uncostedItemCount > 0 ? (
-            <BentoCell span={2}>
-              <CostedProductsCard soldCount={products.length} uncostedCount={cogs.uncostedItemCount} />
-            </BentoCell>
-          ) : null}
+          {/* Two small cards in one cell, as the design stacks them. Not
+              `fill` on either: forcing them to split the row height gave the
+              goal less room than its meter and caption needed. */}
+          <BentoCell span={2}>
+            <View style={styles.stack}>
+              {cogs ? (
+                <CostedProductsCard soldCount={products.length} uncostedCount={cogs.uncostedItemCount} />
+              ) : null}
+              {goalCents ? (
+                <Card variant="bento" style={styles.stackCard}>
+                  <View style={styles.cardHead}>
+                    <Text style={styles.stackTitle}>
+                      {showLocationName ? `Goal · ${scopeName}` : 'Revenue goal'}
+                    </Text>
+                    {/* NOT the range pill: the goal is a calendar-month
+                        commitment and getMonthToDateRevenueCents ignores the
+                        selector, so "7 days" here would be a lie. */}
+                    <Text style={styles.scopePillSmall}>This month</Text>
+                  </View>
+                  <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
+                </Card>
+              ) : null}
+            </View>
+          </BentoCell>
 
           <BentoCell span={2}>
             <RevenueSparkCard
@@ -776,11 +802,11 @@ export default function DashboardScreen() {
                 <Text style={styles.scopePill}>{rangeLabel}</Text>
               </View>
               <View style={styles.metricRow}>
-                {/* Net of sales tax and refunds — tax collected is the
-                    government's money, so it was never revenue. */}
-                <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" sparkline={daily.map((d) => d.netRevenueCents)} />
+                {/* Revenue and Expenses are deliberately absent: both are
+                    stated at full size in the Overview row above, and printing
+                    the same two figures twice on one screen is how a dashboard
+                    stops being read. */}
                 {cogs && <StatTile variant="bento" value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
-                {canSeeExpenses && <StatTile variant="bento" value={formatCompactCents(pnl.operatingCents)} label="Expenses" hint="operating" />}
                 {canSeeExpenses && (
                   <StatTile variant="bento"
                     value={formatCompactCents(pnl.netProfitCents)}
@@ -789,6 +815,12 @@ export default function DashboardScreen() {
                   />
                 )}
                 <StatTile variant="bento" value={String(orderCount)} label="Orders" />
+                <StatTile
+                  variant="bento"
+                  value={formatCompactCents(orderCount ? Math.round(revenueCents / orderCount) : 0)}
+                  label="Average sale"
+                />
+                <StatTile variant="bento" value={formatCompactCents(salesTaxCents)} label="Sales tax held" hint="owed onward, not yours" />
                 {canSeeCustomers && (
                   <StatTile variant="bento"
                     value={String(dormant.length)}
@@ -801,27 +833,6 @@ export default function DashboardScreen() {
             </Card>
           </BentoCell>
 
-          {goalCents ? (
-            <BentoCell span={4}>
-              <Card variant="bento" style={styles.card}>
-                <View style={styles.cardHead}>
-                  {/* Named whenever there is a choice to have made, because
-                      the goal and the revenue behind it are BOTH the selected
-                      store's — an unlabelled meter reads as the whole
-                      business's. */}
-                  <Text style={styles.cardTitle}>
-                    {showLocationName ? `Revenue goal · ${scopeName}` : 'Revenue goal'}
-                  </Text>
-                  {/* NOT the range pill. The goal is a calendar-month
-                      commitment and getMonthToDateRevenueCents ignores the
-                      selector entirely, so saying "7 days" here would be a
-                      lie about the figure beside it. */}
-                  <Text style={styles.scopePill}>This month</Text>
-                </View>
-                <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
-              </Card>
-            </BentoCell>
-          ) : null}
 
           {/* Am I on track — asked at three horizons. Only rendered where a
               goal exists, like the meter above: three rings all reading 0%
@@ -904,10 +915,11 @@ export default function DashboardScreen() {
               "inventory at a glance" tile left a gap, and its three figures
               are already on this screen -- the uncosted count in the caveat
               above, low stock in Needs attention below. */}
-          {movers.map((mover) => (
-            <BentoCell key={`${mover.productId ?? 'gone'}:${mover.name}`} span={4}>
+          {movers.map((mover, index) => (
+            <BentoCell key={`${mover.productId ?? 'gone'}:${mover.name}`} span={3}>
               <TopMoverCard
                 mover={mover}
+                rank={MOVER_RANKS[index] ?? 'Also moving'}
                 rangeLabel={rangeLabel}
                 shareOfRevenue={productRevenueCents > 0 ? (mover.revenueCents / productRevenueCents) * 100 : 0}
                 dailyCents={
@@ -916,6 +928,21 @@ export default function DashboardScreen() {
               />
             </BentoCell>
           ))}
+
+          {/* Completes the row of four. Three products is not inventory --
+              without this the reader learns what moved and has nowhere to
+              go with it. */}
+          {movers.length > 0 ? (
+            <BentoCell span={3}>
+              <InventoryGlanceCard
+                productsSold={products.length}
+                uncostedCount={cogs?.uncostedItemCount ?? 0}
+                lowStockCount={lowStock.length}
+                onSetCosts={() => router.push({ pathname: '/inventory', params: { filter: 'nocost' } })}
+                onReviewLowStock={() => router.push({ pathname: '/inventory', params: { filter: 'low' } })}
+              />
+            </BentoCell>
+          ) : null}
 
           <BentoZone>Trends</BentoZone>
 
@@ -1201,6 +1228,22 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   metricRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  // Two cards sharing one cell. No flex on the children -- forcing them to
+  // split the row height gave the goal less room than its meter needed.
+  stack: { gap: 14 },
+  stackCard: { padding: 16 },
+  stackTitle: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk, flexShrink: 1 },
+  scopePillSmall: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: theme.bentoInk2,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    overflow: 'hidden',
+  },
   cardFoot: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 10, lineHeight: 17 },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 8 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },

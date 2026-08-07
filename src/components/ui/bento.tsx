@@ -41,13 +41,26 @@ export function BentoGrid({
   children,
   style,
   onLayout,
+  rowAlign = 'top',
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   onLayout?: (event: LayoutChangeEvent) => void;
+  /**
+   * `top` (the default) lets each card be as tall as its own content, with
+   * shorter ones sitting at the top of the row. Right for most of a screen:
+   * a table and a three-line statement have no business being the same height.
+   *
+   * `stretch` makes every card in a row as tall as the tallest. Right for a
+   * row that reads as ONE band — the Overview strip, where five cards
+   * answering one question at five different heights reads as five leftovers
+   * rather than a row. A card in a stretched row has to fill it: see the
+   * `fill` prop on `Card`.
+   */
+  rowAlign?: 'top' | 'stretch';
 }) {
   return (
-    <View style={[styles.grid, style]} onLayout={onLayout}>
+    <View style={[styles.grid, rowAlign === 'stretch' && styles.gridStretch, style]} onLayout={onLayout}>
       {children}
     </View>
   );
@@ -128,11 +141,12 @@ const styles = StyleSheet.create({
     // targets, and the half-gutter trick works identically everywhere.
     marginHorizontal: -GAP / 2,
   },
+  gridStretch: { alignItems: 'stretch' },
   flow: { gap: GAP },
   cellOuter: { paddingHorizontal: GAP / 2, marginBottom: GAP },
   // Lets a card inside stretch to the cell's width without the caller
   // remembering to set it.
-  cellInner: { width: '100%' },
+  cellInner: { width: '100%', height: '100%' },
   // Takes the cell's half-gutter so the label's left edge lines up with the
   // cards below it rather than sitting 7px out.
   zoneOuter: { width: '100%', paddingHorizontal: GAP / 2, paddingTop: 4, marginBottom: GAP },
