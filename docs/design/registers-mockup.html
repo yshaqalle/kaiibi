@@ -741,25 +741,34 @@
 
 <!-- ═════════════ 3 · PICK A REGISTER ═════════════ -->
 <template data-tab="pick" data-label="Open · pick a register"
-  data-cap="<b>Step 1 of 2.</b> Only registers at the active location, because a register is a physical counter — the same reasoning that already puts <code>location_id NOT NULL</code> on sales, cashiers and cash accounts. A busy register shows who has it and since when, so picking it is not a mistake you discover after tapping. The person defaults to you; the <em>Change</em> control only appears for someone holding <code>registers.manage</code>.">
+  data-cap="<b>Step 1 of 2.</b> The store first (a dropdown only when the business has more than one), then a register at it. Every row names its store, so the branch the money lands at is never a scroll away. Only registers at the active location, because a register is a physical counter — the same reasoning that already puts <code>location_id NOT NULL</code> on sales, cashiers and cash accounts. A busy register shows who has it and since when, so picking it is not a mistake you discover after tapping. The person defaults to you; the <em>Change</em> control only appears for someone holding <code>registers.manage</code>.">
   <div class="sheetWrap">
     <div class="sheetHead"><b>Open a register</b><span class="miniBtn">Close</span></div>
     <p class="sheetSub">Airport Road · Friday 7 August</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Which store</div>
+      <div class="curPick" style="width:100%;justify-content:space-between">Airport Road <s>▾</s></div>
+      <p class="hint">Only for a business with more than one — a single-store shop is never asked. Choosing here
+      <strong>moves the counter</strong>: a register belongs to a branch, and sales, stock and this session all follow
+      the store shown. Opening a register at a branch the POS is not on would be accepted and then have every sale
+      refused at checkout.</p>
+    </div>
 
     <div class="sBlock">
       <div class="sLabel">Which register</div>
       <div class="regList">
         <div class="regRow on"><span class="badgeDot"></span>
           <span class="body"><span class="t1">Register 1 — front counter</span>
-            <span class="t2">Closed yesterday 21:04 · counted $118.50</span></span>
+            <span class="t2">Airport Road · closed yesterday 21:04 · counted $118.50</span></span>
           <span class="tail free">Free</span></div>
         <div class="regRow busy"><span class="badgeDot"></span>
           <span class="body"><span class="t1">Register 2 — pharmacy side</span>
-            <span class="t2">Sagal H. since 08:12 · float $80.00</span></span>
+            <span class="t2">Airport Road · Sagal H. since 08:12 · float $80.00</span></span>
           <span class="tail taken">In use</span></div>
         <div class="regRow"><span class="badgeDot"></span>
           <span class="body"><span class="t1">Amina H. — phone <span class="kind mob">Mobile</span></span>
-            <span class="t2">Your own register · ZAAD only, no drawer · 34 sessions</span></span>
+            <span class="t2">Airport Road · your own register · ZAAD only, no drawer</span></span>
           <span class="tail free">Free</span></div>
       </div>
       <p class="hint">A register already in use can only be taken over by a manager, and taking it over

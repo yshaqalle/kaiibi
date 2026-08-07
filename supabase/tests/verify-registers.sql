@@ -22,6 +22,12 @@ declare
   v_staff_member uuid;
   v_register_a uuid;
   v_register_b uuid;
+  v_register_c uuid;
+  v_owner2_id uuid := gen_random_uuid();
+  v_owner2_shop uuid;
+  v_owner2_location uuid;
+  v_owner2_product uuid;
+  v_owner2_register uuid;
   v_mobile_a uuid;
   v_mobile_b uuid;
   v_session uuid;
@@ -83,6 +89,30 @@ begin
     values (v_shop_id, v_location_id, 'Register 2') returning id into v_register_b;
 
   v_items := jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'quantity', 1, 'discount_cents', 0));
+
+  -- A second shop set up the way a real one-person shop is: an owner, and NO
+  -- shop_members row for them. Section 15 uses it.
+  --
+  -- Back to the superuser role for the auth.users write -- `authenticated` has
+  -- no rights there, and the fixture at the top of this block only worked
+  -- because it ran before the role was switched.
+  perform set_config('role', 'postgres', true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_owner2_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-registers-solo-' || v_owner2_id || '@example.test', '', now(), now(), now());
+  insert into public.shops (owner_id, name) values (v_owner2_id, 'Solo Shop')
+    returning id into v_owner2_shop;
+  perform set_config('role', 'authenticated', true);
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner2_id)::text, true);
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_owner2_shop, 'Only Store', true) returning id into v_owner2_location;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_owner2_shop, 'Solo Cream', 1000, 400) returning id into v_owner2_product;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_owner2_product, v_owner2_location, 100);
+  insert into public.registers (shop_id, location_id, name)
+    values (v_owner2_shop, v_owner2_location, 'Counter') returning id into v_owner2_register;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
 
   ------------------------------------------------------------------
   raise notice '=== 1. Opening a register, and a second open is refused ===';
@@ -415,6 +445,90 @@ begin
     raise exception 'FAIL: the owner should see more than the cashier''s %, saw %', v_registers, v_count;
   end if;
   raise notice 'OK: owner sees all % sessions', v_count;
+
+  ------------------------------------------------------------------
+  raise notice '=== 13. A register deletes only while it has no history ===';
+  ------------------------------------------------------------------
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+
+  -- Never opened: deletes cleanly. Nothing points at it, so nothing is lost.
+  insert into public.registers (shop_id, location_id, name)
+    values (v_shop_id, v_location_id, 'Register 3 (unused)') returning id into v_register_c;
+  delete from public.registers where id = v_register_c;
+  if exists (select 1 from public.registers where id = v_register_c) then
+    raise exception 'FAIL: an unused register could not be deleted';
+  end if;
+  raise notice 'OK: an unused register deletes';
+
+  -- Register 1 has been opened and closed several times by now. The restrict FK
+  -- is what stops its money history being erased along with it.
+  v_ok := false;
+  begin
+    delete from public.registers where id = v_register_a;
+  exception when others then v_ok := true;
+  end;
+  if not v_ok then
+    raise exception 'FAIL: a register with sessions was deleted, taking its history with it';
+  end if;
+  raise notice 'OK: a register with sessions refuses to delete';
+
+  -- ...and deactivating is the way out, with every session still readable.
+  update public.registers set active = false where id = v_register_a;
+  select count(*) into v_count from public.register_sessions where register_id = v_register_a;
+  if v_count = 0 then raise exception 'FAIL: deactivating lost the sessions'; end if;
+  raise notice 'OK: deactivated instead, % sessions still there', v_count;
+
+  ------------------------------------------------------------------
+  raise notice '=== 14. Session counts are readable without the money ===';
+  ------------------------------------------------------------------
+  select session_count into v_count
+    from public.register_session_counts(v_shop_id) where register_id = v_register_a;
+  if coalesce(v_count, 0) = 0 then
+    raise exception 'FAIL: register_session_counts reported no sessions for a register that has them';
+  end if;
+  select session_count into v_count
+    from public.register_session_counts(v_shop_id) where register_id = v_mobile_a;
+  raise notice 'OK: counts returned without exposing a single session row';
+
+  ------------------------------------------------------------------
+  raise notice '=== 15. The OWNER can run a register with no roster row ===';
+  ------------------------------------------------------------------
+  -- The regression this exists for: an owner has no shop_members row by design
+  -- (adminship is shops.owner_id), so demanding one locked the one person a
+  -- single-person shop actually has out of the entire feature.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner2_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  select public.open_register_session(
+    v_owner2_register, null,
+    jsonb_build_array(jsonb_build_object('currency_code', 'USD', 'amount_minor', 5000, 'rate_to_usd', 1)),
+    null) into v_session;
+  if v_session is null then raise exception 'FAIL: the owner could not open a register'; end if;
+
+  select shop_member_id is null and opened_by = v_owner2_id into v_ok
+    from public.register_sessions where id = v_session;
+  if not v_ok then
+    raise exception 'FAIL: an owner-run session should carry opened_by and no member';
+  end if;
+  raise notice 'OK: owner opened a register with no membership';
+
+  -- ...and can read it back, which needs the opened_by escape hatch since the
+  -- shop_members join matches nothing for them.
+  select count(*) into v_count from public.register_sessions where id = v_session;
+  if v_count <> 1 then raise exception 'FAIL: the owner cannot read their own session'; end if;
+
+  perform public.complete_sale(
+    v_owner2_shop, jsonb_build_array(jsonb_build_object('product_id', v_owner2_product, 'quantity', 1, 'discount_cents', 0)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)),
+    null, null, null, null, 0, null, null, v_owner2_location, 0, v_session);
+
+  perform public.close_register_session(
+    v_session,
+    jsonb_build_array(jsonb_build_object('currency_code', 'USD', 'amount_minor', 6000, 'rate_to_usd', 1)),
+    null);
+  select variance_base_cents into v_base from public.register_sessions where id = v_session;
+  if v_base <> 0 then raise exception 'FAIL: owner close should balance at 6000, got variance %', v_base; end if;
+  raise notice 'OK: owner rang a sale and closed their own register, balanced';
 
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback: verification complete';

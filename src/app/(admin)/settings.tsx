@@ -31,7 +31,7 @@ import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
 import { listLocations } from '@/lib/locations';
-import { listRegisters } from '@/lib/registers';
+import { listRegisters, registerSessionCounts } from '@/lib/registers';
 import { listVendors } from '@/lib/vendors';
 import type { Brand, Category, Currency, Product, Promotion, Register, Role, ShopLocation, Vendor } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
@@ -60,6 +60,7 @@ export default function SettingsScreen() {
   const [allLocations, setAllLocations] = useState<ShopLocation[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [registers, setRegisters] = useState<Register[]>([]);
+  const [registerSessions, setRegisterSessions] = useState<Map<string, number>>(new Map());
   const [roleUsage, setRoleUsage] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +73,7 @@ export default function SettingsScreen() {
     // Not reset to true on subsequent calls -- reload() also runs after every
     // add/rename/delete/color-change, and flipping loading back to true would
     // unmount panels (and close any open modal) each time.
-    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult, locationsResult, registersResult] =
+    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult, locationsResult, registersResult, registerSessionsResult] =
       await Promise.allSettled([
         listBrands(shop.id),
         listCategories(shop.id),
@@ -84,6 +85,7 @@ export default function SettingsScreen() {
         listVendors(shop.id),
         listLocations(shop.id),
         listRegisters(shop.id),
+        registerSessionCounts(shop.id),
       ]);
     if (brandsResult.status === 'fulfilled') setBrandRows(brandsResult.value);
     if (categoriesResult.status === 'fulfilled') setCategoryRows(categoriesResult.value);
@@ -98,6 +100,7 @@ export default function SettingsScreen() {
     if (vendorsResult.status === 'fulfilled') setVendors(vendorsResult.value);
     if (locationsResult.status === 'fulfilled') setAllLocations(locationsResult.value);
     if (registersResult.status === 'fulfilled') setRegisters(registersResult.value);
+    if (registerSessionsResult.status === 'fulfilled') setRegisterSessions(registerSessionsResult.value);
 
     const results: PromiseSettledResult<unknown>[] = [
       brandsResult,
@@ -299,6 +302,7 @@ export default function SettingsScreen() {
             shop={shop}
             registers={registers}
             locations={allLocations}
+            sessionCounts={registerSessions}
             onChange={reload}
           />
         );

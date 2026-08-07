@@ -125,6 +125,17 @@ export async function ensureMobileRegister(
   return data as string;
 }
 
+// How many sessions each register has, so Settings can tell which are still
+// deletable. An RPC rather than a count over `register_sessions`, because that
+// table is gated on registers.manage / budgets.manage / sales.view and
+// settings.access is deliberately none of them -- managing which tills exist is
+// a different job from seeing who was short at close. See 20260822000100.
+export async function registerSessionCounts(shopId: string): Promise<Map<string, number>> {
+  const { data, error } = await supabase.rpc('register_session_counts', { p_shop_id: shopId });
+  if (error) throw error;
+  return new Map((data ?? []).map((row: any) => [row.register_id as string, Number(row.session_count)]));
+}
+
 const SESSION_SELECT = '*, cash:register_session_cash(*)';
 
 export async function openRegisterSession(

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { Badge, Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
 import { AppModal } from '@/components/ui/app-modal';
@@ -23,11 +23,15 @@ export function RegistersPanel({
   shop,
   registers,
   locations,
+  sessionCounts,
   onChange,
 }: {
   shop: Shop;
   registers: Register[];
   locations: ShopLocation[];
+  // Per register. Drives both the "N sessions" line and whether Delete is
+  // offered at all — see the onDelete note below.
+  sessionCounts: Map<string, number>;
   onChange: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<Register | 'new' | null>(null);
@@ -54,7 +58,7 @@ export function RegistersPanel({
               <Row
                 key={register.id}
                 label={register.name}
-                desc={register.kind === 'mobile' ? 'A phone, created by the POS' : 'A counter with a drawer'}
+                desc={describeRegister(register, sessionCounts.get(register.id) ?? 0)}
                 badge={!register.active ? <Badge>Inactive</Badge> : undefined}
               >
                 <Btn onPress={() => setEditing(register)}>Edit</Btn>
@@ -89,19 +93,23 @@ export function RegistersPanel({
           register={typeof editing === 'object' && editing.id ? editing : null}
           locationId={typeof editing === 'object' ? editing.locationId : locations[0]?.id}
           onClose={() => setEditing(null)}
-          onSave={async (name, active) => {
+          locations={locations}
+          onSave={async (name, active, storeId) => {
             if (typeof editing === 'object' && editing.id) await updateRegister(editing.id, { name, active });
-            else if (typeof editing === 'object') await createRegister(shop.id, editing.locationId, name);
+            else await createRegister(shop.id, storeId, name);
             await onChange();
             setEditing(null);
           }}
-          // Offered only for a register nothing can point at yet.
+          // Offered only for a register nothing points at yet.
           // `register_sessions` references it `on delete restrict`, so a
-          // register that has ever been opened refuses to delete — which is the
-          // point: deleting a counter must not erase its money history. Once it
-          // has sessions, "retire this register" is what deactivating is for.
+          // register that has ever been opened refuses to delete — the point
+          // being that deleting a counter must not erase its money history.
+          // Once it has sessions, "retire this register" is what deactivating
+          // is for, and the button is not offered rather than offered and
+          // refused. (The catch inside the modal stays as a backstop: another
+          // device can open a session between this list loading and the tap.)
           onDelete={
-            typeof editing === 'object' && editing.id
+            typeof editing === 'object' && editing.id && (sessionCounts.get(editing.id) ?? 0) === 0
               ? async () => {
                   await deleteRegister(editing.id);
                   await onChange();
@@ -115,23 +123,40 @@ export function RegistersPanel({
   );
 }
 
+// The history is what decides whether this register can still be deleted, so it
+// is worth saying on the row rather than only discovering it in the modal.
+function describeRegister(register: Register, sessions: number): string {
+  const what = register.kind === 'mobile' ? 'A phone, created by the POS' : 'A counter with a drawer';
+  if (sessions === 0) return `${what} · never opened`;
+  return `${what} · ${sessions === 1 ? '1 session' : `${sessions} sessions`}`;
+}
+
 const blankRegister = { id: '', name: '', kind: 'counter', active: true, locationId: '' };
 
 function RegisterEditorModal({
   register,
   locationId,
+  locations,
   onClose,
   onSave,
   onDelete,
 }: {
   register: Register | null;
   locationId?: string;
+  locations: ShopLocation[];
   onClose: () => void;
-  onSave: (name: string, active: boolean) => Promise<void>;
+  onSave: (name: string, active: boolean, storeId: string) => Promise<void>;
   onDelete?: () => Promise<void>;
 }) {
   const [name, setName] = useState(register?.name ?? '');
   const [active, setActive] = useState(register?.active ?? true);
+  // Pre-filled from whichever store's "New register" was tapped, but shown and
+  // changeable all the same: inside the modal that context is gone, and a
+  // register created at the wrong branch is not obvious until a cashier cannot
+  // find it. Only offered for a business with more than one store.
+  const [storeId, setStoreId] = useState(register?.locationId ?? locationId ?? locations[0]?.id ?? '');
+  const store = locations.find((l) => l.id === storeId) ?? null;
+  const multiStore = locations.length > 1;
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -144,7 +169,7 @@ function RegisterEditorModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave(name, active);
+      await onSave(name, active, storeId);
     } catch (err) {
       setError(extractErrorMessage(err, 'Could not save this register.'));
       setSaving(false);
@@ -196,6 +221,40 @@ function RegisterEditorModal({
               What staff call this till. It appears on the register bar in the POS and on every session in the history,
               so name it the way people point at it.
             </Text>
+
+            <Text style={styles.fieldLabel}>STORE</Text>
+            {register ? (
+              <>
+                <Text style={styles.readOnly}>{store?.name ?? 'Unknown store'}</Text>
+                <Text style={styles.fieldHint}>
+                  A register belongs to the branch it stands in, and its past sessions are already recorded against
+                  that branch. If a till genuinely moves, turn this one off and add one at the new store — that keeps
+                  the old history where it happened.
+                </Text>
+              </>
+            ) : multiStore ? (
+              <>
+                <View style={styles.storeRow}>
+                  {locations.map((location) => (
+                    <Pressable
+                      key={location.id}
+                      onPress={() => setStoreId(location.id)}
+                      style={[styles.storeChip, location.id === storeId && styles.storeChipOn]}
+                    >
+                      <Text style={[styles.storeChipText, location.id === storeId && styles.storeChipTextOn]}>
+                        {location.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+                <Text style={styles.fieldHint}>
+                  Which branch this till stands in. Sales rung on it, and the drawer counted at each end of a session,
+                  all belong to this store.
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.readOnly}>{store?.name ?? '—'}</Text>
+            )}
 
             {register && (
               <>
@@ -264,4 +323,16 @@ const styles = StyleSheet.create({
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
   deleteRow: { marginTop: 18, flexDirection: 'row' },
+  readOnly: { fontSize: 14, fontWeight: '700', color: '#111', paddingVertical: 4 },
+  storeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  storeChip: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+  },
+  storeChipOn: { backgroundColor: '#111', borderColor: '#111' },
+  storeChipText: { fontSize: 12.5, fontWeight: '700', color: '#111' },
+  storeChipTextOn: { color: '#fff' },
 });

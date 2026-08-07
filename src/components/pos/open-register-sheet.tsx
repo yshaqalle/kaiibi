@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { DrawerCount, toDrawerEntries, type DrawerCountValue } from '@/components/pos/drawer-count';
+import { StoreDropdown } from '@/components/store-dropdown';
 import { AppModal } from '@/components/ui/app-modal';
+import { useAuth } from '@/hooks/use-auth';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { formatCents, formatForeignCents } from '@/lib/currency';
 import { lastCloseFor, openRegisterSession } from '@/lib/registers';
@@ -29,6 +31,7 @@ export function OpenRegisterSheet({
   sessionsByRegister,
   team,
   myMembership,
+  fallbackName,
   canManageRegisters,
   currencies,
   denominations,
@@ -39,16 +42,36 @@ export function OpenRegisterSheet({
   sessionsByRegister: Record<string, RegisterSession>;
   team: StaffMember[];
   myMembership: StaffMember | null;
+  // An owner has no membership, so `person` below resolves to null and this is
+  // what names them. Without it the sheet reads "Signed in".
+  fallbackName?: string | null;
   canManageRegisters: boolean;
   currencies: Currency[];
   denominations: Record<string, number[]>;
   onClose: () => void;
   onOpened: () => Promise<void>;
 }) {
+  // Which store's registers these are. A register belongs to a branch, so
+  // choosing a store here MOVES THE COUNTER to it rather than just filtering the
+  // list -- `activeLocation` is what a sale gets recorded against, and opening a
+  // register at a branch the POS is not on would pass here and then have
+  // complete_sale refuse every sale for being at a different location. The
+  // cashier would meet that at checkout, with a customer waiting.
+  //
+  // StoreDropdown renders nothing for a single-store business, which is the
+  // whole behaviour there: one store, no question to ask.
+  const { locations, activeLocation, setActiveLocation } = useAuth();
+
   const free = registers.filter((register) => !sessionsByRegister[register.id]);
 
   const [step, setStep] = useState<'pick' | 'count'>('pick');
-  const [registerId, setRegisterId] = useState<string | null>(free[0]?.id ?? null);
+  const [pickedId, setPickedId] = useState<string | null>(free[0]?.id ?? null);
+  // Switching store swaps the whole list underneath, so a register picked at the
+  // previous branch is no longer a valid choice. Derived rather than reset in an
+  // effect: falling back to the first free register here is one expression, and
+  // an effect would fire a second render every time the store changed.
+  const registerId = registers.some((register) => register.id === pickedId) ? pickedId : (free[0]?.id ?? null);
+  const setRegisterId = setPickedId;
   const [memberId, setMemberId] = useState<string | null>(myMembership?.id ?? null);
   const [pickingPerson, setPickingPerson] = useState(false);
   const [count, setCount] = useState<DrawerCountValue>({});
@@ -110,6 +133,12 @@ export function OpenRegisterSheet({
 
   const selected = registers.find((register) => register.id === registerId) ?? null;
   const person = team.find((member) => member.id === memberId) ?? myMembership;
+  // Named on every row, not only in the dropdown above: the store is the thing
+  // that decides where the money lands, and it should not require scrolling back
+  // up to confirm. Only for a business with more than one -- a single-store shop
+  // would just be reading its own name back on every line.
+  const storeNames: Record<string, string> =
+    locations.length > 1 ? Object.fromEntries(locations.map((l) => [l.id, l.name])) : {};
 
   return (
     <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -125,6 +154,21 @@ export function OpenRegisterSheet({
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
             {step === 'pick' ? (
               <>
+                <View style={styles.block}>
+                  <Text style={styles.label}>Which store</Text>
+                  <StoreDropdown
+                    value={activeLocation?.id ?? null}
+                    onChange={(locationId) => locationId && setActiveLocation(locationId)}
+                    allowAll={false}
+                    variant="field"
+                    title="Open a register at"
+                    placeholder="Choose a store"
+                  />
+                  <Text style={styles.hint}>
+                    The counter moves with it: sales, stock and this register all belong to the store shown here.
+                  </Text>
+                </View>
+
                 <View style={styles.block}>
                   <Text style={styles.label}>Which register</Text>
                   {registers.length === 0 && (
@@ -149,6 +193,7 @@ export function OpenRegisterSheet({
                             {register.kind === 'mobile' ? '  ·  mobile' : ''}
                           </Text>
                           <Text style={styles.registerMeta}>
+                            {storeNames[register.locationId] ? `${storeNames[register.locationId]} · ` : ''}
                             {busy
                               ? `In use · ${formatSessionWindow(busy.openedAt)}`
                               : describeLastClose(register, null)}
@@ -171,7 +216,7 @@ export function OpenRegisterSheet({
                   <View style={styles.person}>
                     <View style={styles.personBody}>
                       <Text style={styles.personName}>
-                        {shortPersonName(person?.fullName, person?.email)}
+                        {shortPersonName(person?.fullName ?? fallbackName, person?.email)}
                         {person?.id === myMembership?.id ? '  ·  you' : ''}
                       </Text>
                       <Text style={styles.personMeta}>{person?.roleName ?? 'Staff'}</Text>
@@ -213,7 +258,9 @@ export function OpenRegisterSheet({
             ) : (
               <>
                 <Text style={styles.sub}>
-                  {selected?.name} · {shortPersonName(person?.fullName, person?.email)}
+                  {selected?.name}
+                  {storeNames[selected?.locationId ?? ''] ? ` · ${storeNames[selected!.locationId]}` : ''} ·{' '}
+                  {shortPersonName(person?.fullName ?? fallbackName, person?.email)}
                 </Text>
 
                 <DrawerCount

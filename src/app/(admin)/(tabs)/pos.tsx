@@ -60,7 +60,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -639,6 +639,7 @@ export default function PosScreen() {
         session={registerSession}
         register={registers.find((r) => r.id === registerSession?.registerId) ?? null}
         member={sessionMember ?? myMembership}
+        fallbackName={profile?.fullName}
         onOpen={() => setRegisterSheet('open')}
         onClose={() => setRegisterSheet('close')}
         onHandover={() => setRegisterSheet('handover')}
@@ -834,6 +835,7 @@ export default function PosScreen() {
           sessionsByRegister={sessionsByRegister}
           team={team}
           myMembership={myMembership}
+          fallbackName={profile?.fullName}
           canManageRegisters={can('registers.manage')}
           currencies={currencies}
           denominations={shop.cashDenominations}
@@ -848,6 +850,7 @@ export default function PosScreen() {
           session={registerSession}
           register={registers.find((r) => r.id === registerSession.registerId) ?? null}
           member={sessionMember ?? myMembership}
+          fallbackName={profile?.fullName}
           team={team}
           currencies={currencies}
           denominations={shop.cashDenominations}

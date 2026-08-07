@@ -814,7 +814,10 @@ export type RegisterSession = {
   shopId: string;
   locationId: string;
   registerId: string;
-  shopMemberId: string;
+  // Null for an owner-run session: this app gives an owner no shop_members row
+  // (adminship is shops.owner_id), so `openedBy` carries who it was instead.
+  // Every session names a person one way or the other — see 20260822000200.
+  shopMemberId: string | null;
   openedBy: string | null;
   openedAt: string;
   closedAt: string | null;

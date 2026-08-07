@@ -25,6 +25,7 @@ export function RegisterBar({
   session,
   register,
   member,
+  fallbackName,
   onOpen,
   onClose,
   onHandover,
@@ -33,6 +34,9 @@ export function RegisterBar({
   session: RegisterSession | null;
   register: Register | null;
   member: StaffMember | null;
+  // Shown when the session has no roster row — an owner running their own
+  // register. Their name comes from the signed-in profile instead.
+  fallbackName?: string | null;
   onOpen: () => void;
   onClose: () => void;
   onHandover: () => void;
@@ -64,7 +68,7 @@ export function RegisterBar({
       <View style={styles.dot} />
       <View style={styles.who}>
         <Text style={styles.title}>{register?.name ?? 'Register'}</Text>
-        <Text style={styles.name}>{shortPersonName(member?.fullName, member?.email)}</Text>
+        <Text style={styles.name}>{shortPersonName(member?.fullName ?? fallbackName, member?.email)}</Text>
         <Text style={styles.meta}>
           {formatSessionWindow(session.openedAt)}
           {base ? ` · float ${formatCents(base.openingFloatMinor)}` : ''}

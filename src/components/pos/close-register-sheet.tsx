@@ -42,6 +42,7 @@ export function CloseRegisterSheet({
   session,
   register,
   member,
+  fallbackName,
   team,
   currencies,
   denominations,
@@ -55,6 +56,8 @@ export function CloseRegisterSheet({
   session: RegisterSession;
   register: Register | null;
   member: StaffMember | null;
+  // See RegisterBar: an owner-run session has no roster row to name.
+  fallbackName?: string | null;
   team: StaffMember[];
   currencies: Currency[];
   denominations: Record<string, number[]>;
@@ -186,7 +189,7 @@ export function CloseRegisterSheet({
             </Pressable>
           </View>
           <Text style={styles.sub}>
-            {shortPersonName(member?.fullName, member?.email)} · {formatSessionWindow(session.openedAt)} ·{' '}
+            {shortPersonName(member?.fullName ?? fallbackName, member?.email)} · {formatSessionWindow(session.openedAt)} ·{' '}
             {saleCount === 1 ? '1 sale' : `${saleCount} sales`}
           </Text>
 
@@ -208,7 +211,7 @@ export function CloseRegisterSheet({
                         </Pressable>
                       ))}
                     <Text style={styles.hint}>
-                      One count closes {shortPersonName(member?.fullName, member?.email)}&rsquo;s session and becomes
+                      One count closes {shortPersonName(member?.fullName ?? fallbackName, member?.email)}&rsquo;s session and becomes
                       the incoming float — it is the same notes, counted once, with both names on it.
                     </Text>
                   </View>
