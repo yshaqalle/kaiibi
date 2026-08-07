@@ -69,7 +69,11 @@ export function DashboardPageHeader({ onSelectResult }: { onSelectResult: (resul
           <Text style={styles.shopName} numberOfLines={1}>
             {shop?.name ?? 'Dashboard'}
           </Text>
-          <Text style={styles.shopMeta}>{canEditLogo ? 'Tap the logo to change it' : 'Dashboard'}</Text>
+          {/* Always 'Dashboard'. This used to read "Tap the logo to change it"
+              for anyone who could edit it, which put an instruction in the one
+              line that should say where you are. The mark keeps its
+              accessibilityLabel below, so the affordance is still announced. */}
+          <Text style={styles.shopMeta}>Dashboard</Text>
         </View>
       </View>
 
