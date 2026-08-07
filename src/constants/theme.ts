@@ -48,8 +48,18 @@ export const Colors = {
     bentoSurface: '#ffffff',
     bentoInk: '#0b0b0d',
     bentoInk2: '#1a1a1e',
-    bentoMuted: '#8b8b93',
-    bentoMuted2: '#a8a8b0',
+    // Both steps are solved against `bentoSoft` #f6f6f7, NOT #ffffff. The KPI
+    // tiles, the P&L total row and the selected-row inset all sit on the soft
+    // grey, so white is the flattering surface and the wrong one to test on.
+    //
+    // The previous values failed WCAG AA for normal text: #8b8b93 read 3.38:1
+    // and #a8a8b0 just 2.36:1 -- and muted2 is what chart axis labels wear, so
+    // the least readable token was carrying the numbers on every chart. These
+    // are the same cool hue re-stepped in OKLab holding hue and chroma; only
+    // lightness moved, and the two steps stay 1.33:1 apart so the hierarchy
+    // between a label and an axis tick survives.
+    bentoMuted: '#5e5d65', // 6.02:1 on soft, 6.50:1 on white
+    bentoMuted2: '#717078', // 4.53:1 on soft, 4.89:1 on white
     bentoLine: '#ececf0',
     // The line BETWEEN rows, deliberately firmer than `bentoLine`.
     //
@@ -74,8 +84,19 @@ export const Colors = {
     // classic red/green trap -- so anything wearing these MUST also carry a
     // signed figure or a direction glyph. The waterfall labels every bar and
     // StatementRow prints the minus sign; that labelling is load-bearing.
-    bentoProfit: '#0f9d58',
-    bentoLoss: '#d92d3f',
+    //
+    // Also re-stepped against `bentoSoft`. The old green was the subtle one:
+    // #0f9d58 reads 3.34:1 there, which clears the 3:1 large-text bar and so
+    // was legal on the 19px bold net-profit total, while failing the 4.5:1
+    // normal-text bar on the 15px StatementRow directly above it -- one token
+    // passing and failing inside a single card. Darkening it removes the size
+    // question entirely. The red moved a hair for the same reason (4.42:1).
+    //
+    // These are the LIGHT steps. On a dark ground they are too dark to serve
+    // as a chart mark (#008340 reads 2.93:1 on the #2a2a30 gauge track), so
+    // anything drawn on `bentoInk` must take the dark mirrors below.
+    bentoProfit: '#008340', // 4.50:1 on soft, 4.86:1 on white
+    bentoLoss: '#d72b3e', // 4.52:1 on soft, 4.88:1 on white
     // The third status: needs noticing, but is not broken.
     //
     // Profit/loss is a two-state world, and some states are neither. A shop in
@@ -140,6 +161,13 @@ export const Colors = {
     bentoSeries2: '#00a396',
     bentoSeries3: '#c8791a',
     bentoSeries4: '#d4457e',
+    // These two are the exception to "nothing reads these yet". A dark card on
+    // the LIGHT screen -- the takings hero, and the net-margin gauge sitting on
+    // `bentoInk` -- needs a status colour chosen for a dark ground, and the
+    // light steps are too dark to qualify (#008340 is 2.93:1 on the #2a2a30
+    // gauge track, under the 3:1 chart-mark floor). Both of these clear it:
+    // 5.58:1 and 3.92:1 on that track, 7.69:1 and 5.41:1 as text on the card.
+    // So read them by surface, not by theme.
     bentoProfit: '#2eb872',
     bentoLoss: '#e8515f',
     bentoWarn: '#e0a244',
