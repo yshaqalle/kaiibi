@@ -10,6 +10,13 @@ import { BestSellersCard } from '@/components/dashboard/best-sellers-card';
 import { GreetingBand, summarySentence } from '@/components/dashboard/greeting-band';
 import { LeaderboardCard, type LeaderboardEntry } from '@/components/dashboard/leaderboard-card';
 import { OpenHoursCard } from '@/components/dashboard/open-hours-card';
+import {
+  CostedProductsCard,
+  IncomePaidCard,
+  MarginGaugeCard,
+  RevenueSparkCard,
+} from '@/components/dashboard/overview-cards';
+import { TakingsHeroCard, type TakingsMethod } from '@/components/dashboard/takings-hero-card';
 import { SalesPaceCard } from '@/components/dashboard/sales-pace-card';
 import { TopMoverCard } from '@/components/dashboard/top-mover-card';
 import { DashboardPageHeader } from '@/components/dashboard/page-header';
@@ -19,7 +26,7 @@ import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { WaterfallChart } from '@/components/waterfall-chart';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCell, BentoGrid, BentoZone } from '@/components/ui/bento';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
@@ -32,12 +39,14 @@ import { budgetRows, monthlyBillCommitmentCents, type BudgetRow } from '@/lib/ca
 import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { customerDisplayName, dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
+import { operatingExpenseCents } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { invoiceTotals } from '@/lib/invoice-reporting';
 import { listOpenInvoices } from '@/lib/invoices';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { listPayrollRuns } from '@/lib/payroll';
+import { methodLabel } from '@/lib/payment-methods';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { profitAndLoss } from '@/lib/pnl';
 import { getExpiringProducts, getLowStockProducts } from '@/lib/products';
@@ -51,7 +60,9 @@ import {
   paymentMethodMix,
   productDailyRevenue,
   productMovers,
+  netRevenueCents,
   productPerformance,
+  taxCollectedCents,
   type CogsResult,
   type DailyBucket,
   type ProductSales,
@@ -214,6 +225,9 @@ export default function DashboardScreen() {
   // empty window" are different: null means nobody asked, and Top movers must
   // not report every product as brand new because a query failed.
   const [priorProducts, setPriorProducts] = useState<ProductSales[] | null>(null);
+  // Same window, for the delta badges. Null until fetched, for the same
+  // reason: no badge at all beats a comparison against an assumed zero.
+  const [prior, setPrior] = useState<{ revenueCents: number; expenseCents: number } | null>(null);
   const [topCustomers, setTopCustomers] = useState<LeaderboardEntry[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
   const [money, setMoney] = useState<MoneySnapshot | null>(null);
@@ -222,6 +236,7 @@ export default function DashboardScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const gridOffset = useRef<number | null>(null);
   const attentionOffset = useRef<number | null>(null);
+  const plOffset = useRef<number | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop || !dateRange) return;
@@ -272,8 +287,15 @@ export default function DashboardScreen() {
     // rather than the range's own figures.
     await attempt('what moved', async () => {
       const { since: priorSince, until: priorUntil } = previousWindow(since, until);
-      const prior = await getSalesAndRefundsInRange(shop.id, priorSince, priorUntil, locationFilter);
-      setPriorProducts(productPerformance(prior.sales, PRODUCT_SCAN_LIMIT));
+      const [priorSales, priorExpenses] = await Promise.all([
+        getSalesAndRefundsInRange(shop.id, priorSince, priorUntil, locationFilter),
+        canSeeExpenses ? listExpensesInRange(shop.id, priorSince, priorUntil) : Promise.resolve([]),
+      ]);
+      setPriorProducts(productPerformance(priorSales.sales, PRODUCT_SCAN_LIMIT));
+      setPrior({
+        revenueCents: netRevenueCents(priorSales.sales, priorSales.refunds),
+        expenseCents: operatingExpenseCents(scopeToLocation(priorExpenses, locationFilter)),
+      });
     });
 
     if (canSeeExpenses) {
@@ -456,6 +478,14 @@ export default function DashboardScreen() {
   // from the cell's own onLayout rather than measured on demand: measure() is
   // asynchronous and inconsistent across native and web, while the layout
   // event is already fired for us and is exact.
+  // Same two-offset trick as scrollToAttention below: the cell knows where it
+  // is inside the grid, the grid knows where it is inside the scroll view, and
+  // neither alone lands in the right place.
+  const scrollToProfitAndLoss = () => {
+    if (plOffset.current === null || gridOffset.current === null) return;
+    scrollRef.current?.scrollTo({ y: Math.max(0, gridOffset.current + plOffset.current - 16), animated: true });
+  };
+
   const scrollToAttention = () => {
     if (attentionOffset.current === null || gridOffset.current === null) return;
     // Two offsets summed: the cell reports its position inside the grid, and
@@ -549,6 +579,20 @@ export default function DashboardScreen() {
     }
     return merged;
   }, [locations, locationFilter]);
+
+  // The payment mix, relabelled for the hero. Mobile wallets are grouped
+  // because "Mobile money" is how a shopkeeper thinks about ZAAD and e-Dahab
+  // together -- one question, not two.
+  const takingsMethods = useMemo<TakingsMethod[]>(
+    () =>
+      paymentMix.map((entry) => ({
+        label: methodLabel(entry.method),
+        amountCents: entry.amountCents,
+        group: entry.method === 'cash' ? 'cash' : entry.method === 'zaad' || entry.method === 'edahab' ? 'mobile' : 'other',
+      })),
+    [paymentMix]
+  );
+  const salesTaxCents = useMemo(() => taxCollectedCents(rangeSales), [rangeSales]);
 
   // Pace reads the recorded buckets rather than scaling a total: the last
   // bucket IS today, and the last seven ARE this week, whatever range the
@@ -674,11 +718,64 @@ export default function DashboardScreen() {
             </BentoCell>
           ) : null}
 
+          {/* No zone label above the caveat: it is a banner, not a card, and a
+              heading over a single warning reads as ceremony. */}
+          <BentoZone>Overview</BentoZone>
+
+          {/* The dark card, and the only one. It answers what this screen
+              never could -- how much came through the till -- which is not
+              revenue: the gap is tax that was never the shop's. */}
+          <BentoCell span={3}>
+            <TakingsHeroCard
+              methods={takingsMethods}
+              revenueCents={revenueCents}
+              expenseCents={pnl.operatingCents}
+              taxCents={salesTaxCents}
+              canSeeExpenses={canSeeExpenses}
+              onSeeProfitAndLoss={scrollToProfitAndLoss}
+            />
+          </BentoCell>
+
+          <BentoCell span={3}>
+            <IncomePaidCard
+              revenueCents={revenueCents}
+              expenseCents={pnl.operatingCents}
+              previousRevenueCents={prior?.revenueCents ?? null}
+              previousExpenseCents={prior?.expenseCents ?? null}
+              canSeeExpenses={canSeeExpenses}
+              scope={rangeLabel}
+            />
+          </BentoCell>
+
+          {canSeeExpenses ? (
+            <BentoCell span={2}>
+              <MarginGaugeCard netProfitCents={pnl.netProfitCents} revenueCents={revenueCents} />
+            </BentoCell>
+          ) : null}
+
+          {cogs && cogs.uncostedItemCount > 0 ? (
+            <BentoCell span={2}>
+              <CostedProductsCard soldCount={products.length} uncostedCount={cogs.uncostedItemCount} />
+            </BentoCell>
+          ) : null}
+
+          <BentoCell span={2}>
+            <RevenueSparkCard
+              revenueCents={revenueCents}
+              dailyCents={daily.map((d) => d.netRevenueCents)}
+              orderCount={orderCount}
+              netProfitCents={pnl.netProfitCents}
+              scope={rangeLabel}
+            />
+          </BentoCell>
+
+          <BentoZone>Profit &amp; loss</BentoZone>
+
           {/* The P&L and the waterfall pair deliberately: the statement
               reconciles to the cent, the chart shows what ate the revenue.
               Neither answers the other's question. */}
           {canSeeExpenses ? (
-            <BentoCell span={5}>
+            <BentoCell span={5} onLayout={(event) => { plOffset.current = event.nativeEvent.layout.y; }}>
               <Card variant="bento" style={styles.card}>
                 <View style={styles.cardHead}>
                   <Text style={styles.cardTitle}>Profit &amp; loss</Text>
@@ -795,6 +892,8 @@ export default function DashboardScreen() {
             </BentoCell>
           ) : null}
 
+          <BentoZone>What is selling</BentoZone>
+
           {products.length > 0 ? (
             <BentoCell span={12}>
               <BestSellersCard products={products.slice(0, BEST_SELLER_LIMIT)} rangeLabel={rangeLabel} />
@@ -817,6 +916,8 @@ export default function DashboardScreen() {
               />
             </BentoCell>
           ))}
+
+          <BentoZone>Trends</BentoZone>
 
           {rangeSales.length > 0 ? (
             <BentoCell span={12}>
@@ -890,6 +991,8 @@ export default function DashboardScreen() {
             </Card>
           </BentoCell>
 
+          <BentoZone>Who is behind the numbers</BentoZone>
+
           {cashiers.length > 0 ? (
             <BentoCell span={6}>
               <LeaderboardCard
@@ -916,6 +1019,8 @@ export default function DashboardScreen() {
               />
             </BentoCell>
           ) : null}
+
+          <BentoZone>Needs you</BentoZone>
 
           {money && (money.openInvoices.length > 0 || money.recurringBills.length > 0) ? (
             <BentoCell span={6}>
@@ -1001,6 +1106,8 @@ export default function DashboardScreen() {
             </Card>
             </BentoCell>
           )}
+
+          <BentoZone>Latest sales</BentoZone>
 
           {recentSales.length > 0 && (
             <BentoCell span={6}>

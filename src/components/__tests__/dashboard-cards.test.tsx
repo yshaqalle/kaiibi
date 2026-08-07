@@ -4,6 +4,7 @@ import { BestSellersCard } from '@/components/dashboard/best-sellers-card';
 import { LeaderboardCard } from '@/components/dashboard/leaderboard-card';
 import { OpenHoursCard } from '@/components/dashboard/open-hours-card';
 import { SalesPaceCard } from '@/components/dashboard/sales-pace-card';
+import { TakingsHeroCard, type TakingsMethod } from '@/components/dashboard/takings-hero-card';
 import { TopMoverCard } from '@/components/dashboard/top-mover-card';
 import type { DailyBucket, ProductSales } from '@/lib/sales-reporting';
 import type { OpeningHours } from '@/lib/store-hours';
@@ -213,5 +214,74 @@ describe('OpenHoursCard', () => {
       />
     );
     expect(texts().some((t) => t.includes('outside your posted hours'))).toBe(true);
+  });
+});
+
+describe('TakingsHeroCard', () => {
+  const methods: TakingsMethod[] = [
+    { label: 'Cash', amountCents: 226_100, group: 'cash' },
+    { label: 'ZAAD', amountCents: 135_390, group: 'mobile' },
+    { label: 'e-Dahab', amountCents: 43_190, group: 'mobile' },
+  ];
+
+  const render_ = () =>
+    render(
+      <TakingsHeroCard
+        methods={methods}
+        revenueCents={384_720}
+        expenseCents={89_000}
+        taxCents={25_560}
+        canSeeExpenses
+        onSeeProfitAndLoss={() => {}}
+      />
+    );
+
+  it('leads with takings, and says why they exceed revenue', () => {
+    const { texts } = render_();
+    // 226,100 + 135,390 + 43,190 = 404,680
+    expect(texts().some((t) => t.includes('4,046.80'))).toBe(true);
+    expect(texts().some((t) => t.includes('sales tax you are holding'))).toBe(true);
+  });
+
+  it('scopes BOTH figures when a method filter is on', () => {
+    // The reference design's bug: its filter changed the headline while the
+    // row underneath stayed unfiltered, so "Mobile money" showed $0.00 above
+    // an unfiltered "Money out $1,000.00". A filter scopes the whole card or
+    // it does not exist.
+    const { tree, texts } = render_();
+    pressLabelled(tree, 'All methods');
+    expect(texts()).toContain('Cash only');
+    expect(texts().some((t) => t.includes('2,261.00'))).toBe(true);
+    // Revenue narrows in proportion rather than staying at the full figure.
+    expect(texts().some((t) => t.includes('3,847.20'))).toBe(false);
+    expect(texts().some((t) => t.includes('Both figures above are filtered'))).toBe(true);
+  });
+
+  it('clears the filter when switched to money out, and says why', () => {
+    // Expenses carry no payment method in kaiibi, so a "Cash only" heading
+    // over an unfilterable figure would be a lie.
+    const { tree, texts } = render_();
+    pressLabelled(tree, 'All methods');
+    expect(texts()).toContain('Cash only');
+    pressLabelled(tree, 'Money out');
+    expect(texts().some((t) => t.includes('carry no payment method'))).toBe(true);
+    // Back to full takings, not the cash-only figure.
+    expect(texts().some((t) => t.includes('4,046.80'))).toBe(true);
+    // And the filter control is gone rather than shown and ignored.
+    expect(texts()).not.toContain('Cash only');
+  });
+
+  it('hides the money in/out segment from someone who cannot see expenses', () => {
+    const { texts } = render(
+      <TakingsHeroCard
+        methods={methods}
+        revenueCents={384_720}
+        expenseCents={0}
+        taxCents={25_560}
+        canSeeExpenses={false}
+        onSeeProfitAndLoss={() => {}}
+      />
+    );
+    expect(texts()).not.toContain('Money out');
   });
 });

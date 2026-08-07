@@ -1,7 +1,10 @@
 import { type ReactNode } from 'react';
-import { StyleSheet, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { StyleSheet, Text, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 
 import { TABLET_BREAKPOINT } from '@/constants/layout';
+import { Colors } from '@/constants/theme';
+
+const theme = Colors.light;
 
 // The bento grid the Dashboard and Accounting are laid out on.
 //
@@ -130,4 +133,30 @@ const styles = StyleSheet.create({
   // Lets a card inside stretch to the cell's width without the caller
   // remembering to set it.
   cellInner: { width: '100%' },
+  // Takes the cell's half-gutter so the label's left edge lines up with the
+  // cards below it rather than sitting 7px out.
+  zoneOuter: { width: '100%', paddingHorizontal: GAP / 2, paddingTop: 4, marginBottom: GAP },
+  zone: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    color: theme.bentoMuted,
+  },
 });
+
+/**
+ * An uppercase rule grouping the cards under it into one question.
+ *
+ * The cheapest improvement on this screen and the one that carries the most:
+ * twenty-odd cards read as a wall, and six labelled zones read as six answers.
+ * Always full-bleed, at every column count — a zone heading indented to a
+ * cell's width reads as that cell's title rather than the group's.
+ */
+export function BentoZone({ children }: { children: ReactNode }) {
+  return (
+    <View style={styles.zoneOuter}>
+      <Text style={styles.zone}>{children}</Text>
+    </View>
+  );
+}
