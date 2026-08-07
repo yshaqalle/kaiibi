@@ -80,6 +80,16 @@ export const Colors = {
     bentoSeries2: '#00a396',
     bentoSeries3: '#c8791a',
     bentoSeries4: '#d4457e',
+    // The receding step of `bentoSeries1`, for a chart where one mark is
+    // emphasised and the rest are context -- the peak bar against the other
+    // six days of the week.
+    //
+    // A real colour, not an opacity. The obvious way to draw "the same blue,
+    // quieter" is rgba(47,107,255,.18), which lands at 1.3:1 on white: a mark
+    // you can lose entirely on a sunlit phone, which is where this app is
+    // read. This clears the 3:1 floor for a chart mark on both grounds it
+    // sits on, so the quiet bars are still bars.
+    bentoSeriesSoft: '#5f86ff', // 3.31:1 on white, 3.07:1 on soft
     // Status, not series. Green/red is ΔE 4.0 for deutan viewers -- the
     // classic red/green trap -- so anything wearing these MUST also carry a
     // signed figure or a direction glyph. The waterfall labels every bar and
@@ -161,6 +171,10 @@ export const Colors = {
     bentoSeries2: '#00a396',
     bentoSeries3: '#c8791a',
     bentoSeries4: '#d4457e',
+    // The mirror recedes by going DARKER, where the light one recedes by going
+    // lighter -- a paler blue on a dark ground is more prominent, not less,
+    // which would invert what the token means. Still 3.54:1 on `bentoSurface`.
+    bentoSeriesSoft: '#656f85',
     // These two are the exception to "nothing reads these yet". A dark card on
     // the LIGHT screen -- the takings hero, and the net-margin gauge sitting on
     // `bentoInk` -- needs a status colour chosen for a dark ground, and the

@@ -2,9 +2,12 @@ import {
   bucketDailyTotals,
   cashierPerformance,
   costOfGoodsSold,
+  hourlyTakings,
   grossSalesCents,
   netRevenueCents,
   paymentMethodMix,
+  productMovers,
+  productPerformance,
   refundedCents,
   refundPreviewCents,
   saleProfit,
@@ -445,5 +448,126 @@ describe('refundPreviewCents', () => {
   it('returns 0 rather than dividing by zero when every line is free', () => {
     const sale = makeSale({ items: [soap({ lineTotalCents: 0 })], totalCents: 0 });
     expect(refundPreviewCents(sale, { i1: 1 })).toBe(0);
+  });
+});
+
+describe('productPerformance', () => {
+  const rice = () => makeItem({ id: 'i-rice', productId: 'p-rice', productName: 'Basmati Rice 5kg', quantity: 2, lineTotalCents: 2300 });
+  const oil = () => makeItem({ id: 'i-oil', productId: 'p-oil', productName: 'Cooking Oil 3L', quantity: 1, lineTotalCents: 1450 });
+
+  it('sums units and money per product across sales', () => {
+    const rows = productPerformance([
+      makeSale({ id: 's1', items: [rice(), oil()] }),
+      makeSale({ id: 's2', items: [rice()] }),
+    ]);
+    expect(rows).toEqual([
+      { productId: 'p-rice', name: 'Basmati Rice 5kg', unitsSold: 4, revenueCents: 4600 },
+      { productId: 'p-oil', name: 'Cooking Oil 3L', unitsSold: 1, revenueCents: 1450 },
+    ]);
+  });
+
+  it('ranks by money, which can disagree with ranking by units', () => {
+    // The whole reason the card is sortable: sugar outsells rice by unit and
+    // loses to it by revenue.
+    const sugar = makeItem({ id: 'i-sugar', productId: 'p-sugar', productName: 'Sugar 2kg', quantity: 20, lineTotalCents: 1000 });
+    const rows = productPerformance([makeSale({ items: [rice(), sugar] })]);
+    expect(rows.map((r) => r.name)).toEqual(['Basmati Rice 5kg', 'Sugar 2kg']);
+    expect(rows.map((r) => r.unitsSold)).toEqual([2, 20]);
+  });
+
+  it('keeps two deleted products apart even when they share a name', () => {
+    // productId is null once a product is deleted; folding those together
+    // would merge two unrelated lines under one heading.
+    const rows = productPerformance([
+      makeSale({
+        items: [
+          makeItem({ id: 'a', productId: null, productName: 'Sugar', lineTotalCents: 100, quantity: 1 }),
+          makeItem({ id: 'b', productId: 'p-sugar', productName: 'Sugar', lineTotalCents: 500, quantity: 1 }),
+        ],
+      }),
+    ]);
+    expect(rows).toHaveLength(2);
+  });
+
+  it('ignores sales whose items were never loaded', () => {
+    expect(productPerformance([makeSale({ items: undefined })])).toEqual([]);
+  });
+
+  it('honours the limit', () => {
+    const many = [1, 2, 3, 4].map((n) =>
+      makeItem({ id: `i${n}`, productId: `p${n}`, productName: `P${n}`, quantity: 1, lineTotalCents: n * 100 })
+    );
+    expect(productPerformance([makeSale({ items: many })], 2).map((r) => r.name)).toEqual(['P4', 'P3']);
+  });
+});
+
+describe('productMovers', () => {
+  const row = (name: string, revenueCents: number, unitsSold = 1) => ({ productId: name, name, unitsSold, revenueCents });
+
+  it('ranks by the size of the change, not by the size of the product', () => {
+    const current = [row('Rice', 10_000), row('Oil', 5_000)];
+    const previous = [row('Rice', 9_500), row('Oil', 2_500)];
+    // Rice is twice the product; Oil is the mover.
+    expect(productMovers(current, previous).map((m) => m.name)).toEqual(['Oil', 'Rice']);
+  });
+
+  it('reports a fall as a fall', () => {
+    const movers = productMovers([row('Milk', 4_000)], [row('Milk', 8_000)]);
+    expect(movers[0].changePct).toBeCloseTo(-50);
+  });
+
+  it('drops products too small to be news', () => {
+    // A 400% jump on 1% of takings is noise. The floor is a share of the
+    // period's revenue, not an absolute figure, so it travels between shops.
+    const current = [row('Rice', 99_000), row('Chewing gum', 1_000)];
+    const previous = [row('Rice', 90_000), row('Chewing gum', 200)];
+    expect(productMovers(current, previous).map((m) => m.name)).toEqual(['Rice']);
+  });
+
+  it('marks a product with no prior sales as new rather than as an infinite rise', () => {
+    const movers = productMovers([row('Rice', 5_000)], []);
+    expect(movers[0].changePct).toBeNull();
+    expect(movers[0].previousCents).toBe(0);
+  });
+
+  it('sorts products with a measured change ahead of brand new ones', () => {
+    const current = [row('Rice', 5_000), row('Oil', 5_000)];
+    const previous = [row('Rice', 4_000)];
+    expect(productMovers(current, previous).map((m) => m.name)).toEqual(['Rice', 'Oil']);
+  });
+
+  it('returns nothing when there is no prior window to compare against', () => {
+    expect(productMovers([row('Rice', 5_000)], [], { hasPrevious: false })).toEqual([]);
+  });
+});
+
+describe('hourlyTakings', () => {
+  const at = (hour: number, totalCents: number) =>
+    makeSale({ id: `s${hour}-${totalCents}`, totalCents, createdAt: new Date(2026, 7, 2, hour, 30).toISOString() });
+
+  it('gives one bucket per open hour, including the quiet ones', () => {
+    const { buckets } = hourlyTakings([at(9, 500)], 8, 11);
+    expect(buckets.map((b) => b.hour)).toEqual([8, 9, 10, 11]);
+    expect(buckets.map((b) => b.grossCents)).toEqual([0, 500, 0, 0]);
+  });
+
+  it('counts orders alongside the money', () => {
+    const { buckets } = hourlyTakings([at(9, 500), at(9, 700)], 8, 10);
+    expect(buckets[1]).toMatchObject({ hour: 9, grossCents: 1200, orderCount: 2 });
+  });
+
+  it('keeps out-of-hours takings in the chart and reports them separately', () => {
+    // A sale rung up before opening is real money. Dropping it makes the
+    // chart disagree with the P&L; silently folding it in hides that the
+    // shop traded outside its posted hours.
+    const { buckets, outsideCents } = hourlyTakings([at(6, 900), at(23, 400)], 8, 20);
+    expect(outsideCents).toBe(1300);
+    expect(buckets[0]).toMatchObject({ hour: 8, grossCents: 900 });
+    expect(buckets[buckets.length - 1]).toMatchObject({ hour: 20, grossCents: 400 });
+    expect(buckets.reduce((sum, b) => sum + b.grossCents, 0)).toBe(1300);
+  });
+
+  it('survives a close hour before the open hour', () => {
+    expect(hourlyTakings([], 20, 8).buckets).toEqual([]);
   });
 });

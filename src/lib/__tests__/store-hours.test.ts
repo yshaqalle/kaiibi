@@ -10,6 +10,7 @@ import {
   normalizeDay,
   normalizeHours,
   rangesFor,
+  tradingHourBounds,
   suggestNextRange,
   weekdayKeyFor,
   type OpeningHours,
@@ -432,5 +433,37 @@ describe('gapsBetween', () => {
 
   it('reports nothing when a block is invalid', () => {
     expect(gapsBetween([{ open: '18:00', close: '09:00' }, { open: '10:00', close: '11:00' }])).toEqual([]);
+  });
+});
+
+describe('tradingHourBounds', () => {
+  it('spans the whole trading day of a split shift', () => {
+    // A shop that shuts for lunch is still open across that span as far as a
+    // takings chart is concerned; the quiet hours draw themselves.
+    expect(
+      tradingHourBounds({ mon: [{ open: '08:00', close: '12:00' }, { open: '15:00', close: '20:30' }] }, 'mon')
+    ).toEqual({ openHour: 8, closeHour: 20 });
+  });
+
+  it('rounds the close hour down to the hour the shop is still trading in', () => {
+    // Closing at 18:00 means nothing is rung up in the 18:00 hour, so an
+    // 18:00 bucket would be a guaranteed empty bar on the end of every chart.
+    expect(tradingHourBounds({ tue: [{ open: '09:00', close: '18:00' }] }, 'tue')).toEqual({ openHour: 9, closeHour: 17 });
+    expect(tradingHourBounds({ tue: [{ open: '09:00', close: '18:30' }] }, 'tue')).toEqual({ openHour: 9, closeHour: 18 });
+  });
+
+  it('returns null on a closed day', () => {
+    expect(tradingHourBounds({ mon: [{ open: '08:00', close: '17:00' }] }, 'sun')).toBeNull();
+    expect(tradingHourBounds({ sun: [] }, 'sun')).toBeNull();
+  });
+
+  it('ignores malformed blocks rather than trusting them', () => {
+    expect(
+      tradingHourBounds({ wed: [{ open: '25:00', close: '99:99' }, { open: '10:00', close: '16:00' }] }, 'wed')
+    ).toEqual({ openHour: 10, closeHour: 15 });
+  });
+
+  it('returns null when nothing on the day is usable', () => {
+    expect(tradingHourBounds({ wed: [{ open: '18:00', close: '09:00' }] }, 'wed')).toBeNull();
   });
 });
