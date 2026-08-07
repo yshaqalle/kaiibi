@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 
@@ -23,6 +24,7 @@ export function StatTile({
   label,
   hint,
   delta,
+  badge,
   tone = 'default',
   sparkline,
   variant = 'default',
@@ -32,6 +34,16 @@ export function StatTile({
   label: string;
   hint?: string;
   delta?: { text: string; direction: 'up' | 'down' };
+  /**
+   * A rendered chip beside the figure — in practice `DeltaBadge`, which needs
+   * the raw current/previous pair rather than a formatted string and already
+   * knows to render nothing when there is no prior window.
+   *
+   * Kept separate from `delta` rather than replacing it: `delta` is the plain
+   * coloured text the cream screens still use, and rewriting all of them to
+   * pass a node is a bigger change than this one.
+   */
+  badge?: ReactNode;
   tone?: 'default' | 'warning' | 'positive';
   sparkline?: number[];
   /**
@@ -80,6 +92,7 @@ export function StatTile({
             {delta.text}
           </Text>
         ) : null}
+        {badge}
       </View>
 
       {hint ? <Text style={[styles.hint, bento && styles.hintBento, dense && styles.hintDense]} numberOfLines={2}>{hint}</Text> : null}

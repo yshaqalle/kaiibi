@@ -18,6 +18,8 @@ function mapLocationRow(row: any): ShopLocation {
     // database would rather than silently disabling scanning.
     barcodeScanningEnabled: row.barcode_scanning_enabled ?? true,
     hardwareScannerEnabled: row.hardware_scanner_enabled ?? false,
+    zaadMerchantId: row.zaad_merchant_id ?? null,
+    edahabMerchantId: row.edahab_merchant_id ?? null,
     isPrimary: row.is_primary,
     active: row.active,
     createdAt: row.created_at,
@@ -33,6 +35,8 @@ function toRow(input: Partial<NewShopLocationInput>) {
     ...(input.neighborhood !== undefined && { neighborhood: input.neighborhood }),
     ...(input.address !== undefined && { address: input.address }),
     ...(input.contactPhone !== undefined && { contact_phone: input.contactPhone }),
+    ...(input.zaadMerchantId !== undefined && { zaad_merchant_id: input.zaadMerchantId }),
+    ...(input.edahabMerchantId !== undefined && { edahab_merchant_id: input.edahabMerchantId }),
     ...(input.openingHours !== undefined && { opening_hours: input.openingHours }),
     ...(input.monthlyRevenueGoalCents !== undefined && { monthly_revenue_goal_cents: input.monthlyRevenueGoalCents }),
     ...(input.barcodeScanningEnabled !== undefined && { barcode_scanning_enabled: input.barcodeScanningEnabled }),

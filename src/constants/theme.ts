@@ -48,8 +48,18 @@ export const Colors = {
     bentoSurface: '#ffffff',
     bentoInk: '#0b0b0d',
     bentoInk2: '#1a1a1e',
-    bentoMuted: '#8b8b93',
-    bentoMuted2: '#a8a8b0',
+    // Both steps are solved against `bentoSoft` #f6f6f7, NOT #ffffff. The KPI
+    // tiles, the P&L total row and the selected-row inset all sit on the soft
+    // grey, so white is the flattering surface and the wrong one to test on.
+    //
+    // The previous values failed WCAG AA for normal text: #8b8b93 read 3.38:1
+    // and #a8a8b0 just 2.36:1 -- and muted2 is what chart axis labels wear, so
+    // the least readable token was carrying the numbers on every chart. These
+    // are the same cool hue re-stepped in OKLab holding hue and chroma; only
+    // lightness moved, and the two steps stay 1.33:1 apart so the hierarchy
+    // between a label and an axis tick survives.
+    bentoMuted: '#5e5d65', // 6.02:1 on soft, 6.50:1 on white
+    bentoMuted2: '#717078', // 4.53:1 on soft, 4.89:1 on white
     bentoLine: '#ececf0',
     // The line BETWEEN rows, deliberately firmer than `bentoLine`.
     //
@@ -70,12 +80,33 @@ export const Colors = {
     bentoSeries2: '#00a396',
     bentoSeries3: '#c8791a',
     bentoSeries4: '#d4457e',
+    // The receding step of `bentoSeries1`, for a chart where one mark is
+    // emphasised and the rest are context -- the peak bar against the other
+    // six days of the week.
+    //
+    // A real colour, not an opacity. The obvious way to draw "the same blue,
+    // quieter" is rgba(47,107,255,.18), which lands at 1.3:1 on white: a mark
+    // you can lose entirely on a sunlit phone, which is where this app is
+    // read. This clears the 3:1 floor for a chart mark on both grounds it
+    // sits on, so the quiet bars are still bars.
+    bentoSeriesSoft: '#5f86ff', // 3.31:1 on white, 3.07:1 on soft
     // Status, not series. Green/red is ΔE 4.0 for deutan viewers -- the
     // classic red/green trap -- so anything wearing these MUST also carry a
     // signed figure or a direction glyph. The waterfall labels every bar and
     // StatementRow prints the minus sign; that labelling is load-bearing.
-    bentoProfit: '#0f9d58',
-    bentoLoss: '#d92d3f',
+    //
+    // Also re-stepped against `bentoSoft`. The old green was the subtle one:
+    // #0f9d58 reads 3.34:1 there, which clears the 3:1 large-text bar and so
+    // was legal on the 19px bold net-profit total, while failing the 4.5:1
+    // normal-text bar on the 15px StatementRow directly above it -- one token
+    // passing and failing inside a single card. Darkening it removes the size
+    // question entirely. The red moved a hair for the same reason (4.42:1).
+    //
+    // These are the LIGHT steps. On a dark ground they are too dark to serve
+    // as a chart mark (#008340 reads 2.93:1 on the #2a2a30 gauge track), so
+    // anything drawn on `bentoInk` must take the dark mirrors below.
+    bentoProfit: '#008340', // 4.50:1 on soft, 4.86:1 on white
+    bentoLoss: '#d72b3e', // 4.52:1 on soft, 4.88:1 on white
     // The third status: needs noticing, but is not broken.
     //
     // Profit/loss is a two-state world, and some states are neither. A shop in
@@ -85,6 +116,25 @@ export const Colors = {
     // wants: it currently hardcodes #8A5A05 beside a `warning` that belongs to
     // the cream palette.
     bentoWarn: '#b07206',
+    // The delta badge — "up 12%" beside a figure. A washed pill rather than
+    // coloured text, because a bare green number on a soft tile is a figure
+    // that happens to be green, where a pill reads as a comparison. The ink
+    // steps are solved against their own wash, NOT against `bentoSoft`: the
+    // wash is what sits behind the glyph.
+    //
+    // The badge always carries an arrow as well as the colour — same rule as
+    // `bentoProfit`/`bentoLoss` above, and for the same deutan reason.
+    bentoUpWash: '#d9efe4',
+    bentoUpInk: '#007a38', // 4.94:1 on its wash
+    bentoDownWash: '#fbeaec',
+    bentoDownInk: '#d12339', // 4.72:1 on its wash
+    // The same pill shape in the neutral case — a figure being carried beside
+    // a status one, with no status of its own. `bentoSoft` would be the
+    // obvious choice and is wrong here: it is the tile fill, so a soft pill on
+    // a soft tile disappears. This is `bentoSeries1` washed to the same
+    // lightness as the pair above.
+    bentoAccentWash: '#e6edff',
+    bentoAccentInk: '#1b47b8', // 7.35:1 on its wash
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series
@@ -140,9 +190,29 @@ export const Colors = {
     bentoSeries2: '#00a396',
     bentoSeries3: '#c8791a',
     bentoSeries4: '#d4457e',
+    // The mirror recedes by going DARKER, where the light one recedes by going
+    // lighter -- a paler blue on a dark ground is more prominent, not less,
+    // which would invert what the token means. Still 3.54:1 on `bentoSurface`.
+    bentoSeriesSoft: '#656f85',
+    // These two are the exception to "nothing reads these yet". A dark card on
+    // the LIGHT screen -- the takings hero, and the net-margin gauge sitting on
+    // `bentoInk` -- needs a status colour chosen for a dark ground, and the
+    // light steps are too dark to qualify (#008340 is 2.93:1 on the #2a2a30
+    // gauge track, under the 3:1 chart-mark floor). Both of these clear it:
+    // 5.58:1 and 3.92:1 on that track, 7.69:1 and 5.41:1 as text on the card.
+    // So read them by surface, not by theme.
     bentoProfit: '#2eb872',
     bentoLoss: '#e8515f',
     bentoWarn: '#e0a244',
+    // Dark mirrors of the delta wash. A pale mint pill on a dark card would be
+    // the brightest thing in it, so the wash goes translucent-dark and the ink
+    // goes light — the pill still reads as a pill, and no longer shouts.
+    bentoUpWash: '#123a2a',
+    bentoUpInk: '#7fe8bc',
+    bentoDownWash: '#3d1a20',
+    bentoDownInk: '#ff8a93',
+    bentoAccentWash: '#1a2440',
+    bentoAccentInk: '#8fb4ff',
   },
 } as const;
 

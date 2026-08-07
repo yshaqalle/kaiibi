@@ -205,6 +205,146 @@ export function cashierPerformance(sales: Sale[], limit = 5): { name: string; re
     .slice(0, limit);
 }
 
+export type ProductSales = {
+  // Null once the product itself is deleted. Kept in the key rather than
+  // discarded: two deleted products can share a name, and folding those into
+  // one row invents a product that never existed.
+  productId: string | null;
+  name: string;
+  unitsSold: number;
+  revenueCents: number;
+};
+
+// What sold, from the frozen line snapshots on each sale — so a product
+// renamed or repriced later doesn't rewrite what last week sold for.
+//
+// Gross of refunds, deliberately. A `PeriodRefund` carries only
+// `{ quantity, unitCostCents }` (see refund_sale_items), with no product
+// identity on it, so a refund cannot be attributed to a line here. Any screen
+// showing these figures beside net revenue has to say which it is showing.
+export function productPerformance(sales: Sale[], limit = 5): ProductSales[] {
+  const totals = new Map<string, ProductSales>();
+  for (const sale of sales) {
+    for (const item of sale.items ?? []) {
+      const key = item.productId ?? `name:${item.productName}`;
+      const row = totals.get(key);
+      if (row) {
+        row.unitsSold += item.quantity;
+        row.revenueCents += item.lineTotalCents;
+      } else {
+        totals.set(key, {
+          productId: item.productId,
+          name: item.productName,
+          unitsSold: item.quantity,
+          revenueCents: item.lineTotalCents,
+        });
+      }
+    }
+  }
+  return Array.from(totals.values())
+    .sort((a, b) => b.revenueCents - a.revenueCents)
+    .slice(0, limit);
+}
+
+export type ProductMover = {
+  productId: string | null;
+  name: string;
+  revenueCents: number;
+  previousCents: number;
+  // Null when the product did not sell at all in the prior window. A rise
+  // from zero has no percentage — reporting one would be dividing by nothing
+  // and calling the result news.
+  changePct: number | null;
+};
+
+// What moved, not what is biggest. `productPerformance` already answers which
+// products are large; this answers which ones changed, against the same-length
+// window immediately before.
+export function productMovers(
+  current: ProductSales[],
+  previous: ProductSales[],
+  options: {
+    limit?: number;
+    /**
+     * Ignore products below this share of the period's revenue. A 400% jump on
+     * 1% of takings is arithmetic, not news, and a card that leads with it
+     * teaches people to stop reading the card. Expressed as a share rather
+     * than an amount so it means the same thing in a kiosk and a supermarket.
+     */
+    minShareOfRevenue?: number;
+    /**
+     * False when no prior window was fetched. Returns nothing rather than
+     * comparing against an empty array, which would report every product as
+     * brand new — the same rule the delta badges follow.
+     */
+    hasPrevious?: boolean;
+  } = {}
+): ProductMover[] {
+  const { limit = 3, minShareOfRevenue = 0.02, hasPrevious = true } = options;
+  if (!hasPrevious) return [];
+
+  const totalCents = current.reduce((sum, row) => sum + row.revenueCents, 0);
+  const floorCents = totalCents * minShareOfRevenue;
+  const priorByKey = new Map(previous.map((row) => [row.productId ?? `name:${row.name}`, row.revenueCents]));
+
+  return current
+    .filter((row) => row.revenueCents >= floorCents)
+    .map((row) => {
+      const previousCents = priorByKey.get(row.productId ?? `name:${row.name}`) ?? 0;
+      return {
+        productId: row.productId,
+        name: row.name,
+        revenueCents: row.revenueCents,
+        previousCents,
+        changePct: previousCents > 0 ? ((row.revenueCents - previousCents) / previousCents) * 100 : null,
+      };
+    })
+    .sort((a, b) => {
+      // A measured change always outranks an unmeasurable one, however large
+      // the new product is — otherwise the top slot goes to whichever product
+      // happens to be new, every time.
+      if (a.changePct === null && b.changePct === null) return b.revenueCents - a.revenueCents;
+      if (a.changePct === null) return 1;
+      if (b.changePct === null) return -1;
+      return Math.abs(b.changePct) - Math.abs(a.changePct);
+    })
+    .slice(0, limit);
+}
+
+export type HourBucket = { hour: number; grossCents: number; orderCount: number };
+
+// Takings by hour of the day, bounded by the shop's posted opening hours so
+// the chart stops where the shutter does instead of drawing twelve empty
+// hours either side of the trading day.
+//
+// Gross, like `cashierPerformance`: this is a till question — when does money
+// come through the door — not a profit one.
+export function hourlyTakings(
+  sales: Sale[],
+  openHour: number,
+  closeHour: number
+): { buckets: HourBucket[]; outsideCents: number } {
+  if (closeHour < openHour) return { buckets: [], outsideCents: 0 };
+
+  const buckets: HourBucket[] = [];
+  for (let hour = openHour; hour <= closeHour; hour++) buckets.push({ hour, grossCents: 0, orderCount: 0 });
+
+  let outsideCents = 0;
+  for (const sale of sales) {
+    const hour = new Date(sale.createdAt).getHours();
+    // Clamped into the nearest open hour rather than dropped. A sale rung up
+    // before opening is real money: dropping it makes this chart disagree
+    // with the P&L. `outsideCents` is returned so the caller can say so
+    // instead of the total quietly landing on the first bar.
+    const clamped = Math.min(Math.max(hour, openHour), closeHour);
+    if (hour !== clamped) outsideCents += sale.totalCents;
+    const bucket = buckets[clamped - openHour];
+    bucket.grossCents += sale.totalCents;
+    bucket.orderCount += 1;
+  }
+  return { buckets, outsideCents };
+}
+
 export type PaymentMixEntry = { method: PaymentMethod; amountCents: number; pct: number };
 
 // How takings split across payment methods. Falls back to the sale's own
@@ -282,4 +422,39 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
   }
 
   return Array.from(buckets.values());
+}
+
+// One product's day-by-day take, for the sparkline on a mover card. Answers
+// the question a percentage raises but cannot settle: was this a steady climb
+// or one unusual afternoon?
+//
+// Same day bucketing and the same product key as `bucketDailyTotals` and
+// `productPerformance`, so the three cannot disagree about which day a sale
+// landed on or which line belongs to which product.
+export function productDailyRevenue(
+  sales: Sale[],
+  product: { productId: string | null; name: string },
+  sinceDate: Date,
+  untilDate?: Date
+): number[] {
+  const since = startOfDay(sinceDate);
+  const until = untilDate ? new Date(untilDate) : new Date();
+  const dayCount = Math.max(1, Math.floor((until.getTime() - since.getTime()) / 86_400_000) + 1);
+  const wanted = product.productId ?? `name:${product.name}`;
+
+  const byDay = new Map<string, number>();
+  for (let i = 0; i < dayCount; i++) {
+    const day = new Date(since);
+    day.setDate(since.getDate() + i);
+    byDay.set(dayKeyFor(day), 0);
+  }
+  for (const sale of sales) {
+    const key = dayKeyFor(sale.createdAt);
+    if (!byDay.has(key)) continue;
+    for (const item of sale.items ?? []) {
+      if ((item.productId ?? `name:${item.productName}`) !== wanted) continue;
+      byDay.set(key, (byDay.get(key) ?? 0) + item.lineTotalCents);
+    }
+  }
+  return Array.from(byDay.values());
 }

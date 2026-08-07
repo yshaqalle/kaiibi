@@ -29,7 +29,8 @@ export type Module =
   | 'scheduling'
   | 'multi_location'
   | 'multi_currency'
-  | 'data_export';
+  | 'data_export'
+  | 'receipt_branding_removal';
 
 export const MODULES: { key: Module; label: string; description: string }[] = [
   { key: 'pos', label: 'Point of sale', description: 'Ring up sales and take payment at the register.' },
@@ -44,6 +45,20 @@ export const MODULES: { key: Module; label: string; description: string }[] = [
   { key: 'multi_location', label: 'Multiple stores', description: 'Open more than one branch and move stock between them.' },
   { key: 'multi_currency', label: 'Multiple currencies', description: 'Take payment in more than one currency.' },
   { key: 'data_export', label: 'Data export', description: 'Export sales, stock, and reports to CSV or PDF.' },
+  // The one module in this catalog that REMOVES something rather than
+  // unlocking it. Receipts carry the Kaiibi mark by default, and a plan
+  // granting this takes it off.
+  //
+  // Written that way round on purpose: 'default on' then has to be true of
+  // every shop that has never been considered -- new shops, trials, lapsed
+  // plans, and any plan an admin forgets to tick. The inverse ('branding'
+  // as a granted module) would silently drop the mark from every one of
+  // them, which is the failure we cannot see happening.
+  {
+    key: 'receipt_branding_removal',
+    label: 'Remove Kaiibi branding',
+    description: 'Print receipts without the "Powered by Kaiibi" footer.',
+  },
 ];
 
 export const ALL_MODULES: Module[] = MODULES.map((m) => m.key);

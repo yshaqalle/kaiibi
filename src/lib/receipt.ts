@@ -1,5 +1,7 @@
 import { formatCents, formatForeignCents } from '@/lib/currency';
+import { KAIIBI_MARK_DATA_URI } from '@/lib/kaiibi-mark';
 import { methodLabel } from '@/lib/payment-methods';
+import { qrSvg, receiptPayload, receiptShortCode } from '@/lib/qr';
 import { formatDayHours, rangesFor, weekdayKeyFor, type OpeningHours } from '@/lib/store-hours';
 import type { PaymentLine, Sale } from '@/types/models';
 
@@ -10,6 +12,14 @@ import type { PaymentLine, Sale } from '@/types/models';
 export type ReceiptItem = { name: string; quantity: number; unitPriceCents: number; discountCents?: number };
 
 export type ReceiptData = {
+  // The sale this receipt is for. Printed as a short code and encoded whole
+  // into the QR, so a scan resolves to exactly one sale — see src/lib/qr.ts.
+  //
+  // Nullable because the receipt is not the sale: a caller that has rendered
+  // one without an id (a preview, a test) should get a receipt missing its
+  // code rather than a crash. Both the code line and the QR disappear together
+  // when it is null, so a receipt never shows a number with nothing to scan.
+  saleId: string | null;
   shopName: string;
   shopLogoUrl: string | null;
   // The name of the branch this sale was rung up at, printed under the shop
@@ -30,9 +40,21 @@ export type ReceiptData = {
   // migration 0009. Optional: most shops are a single owner running the
   // register themselves.
   cashierName: string | null;
+  // The selling location's mobile-money merchant numbers, printed under the
+  // payment line that used them and nowhere else — a cash-only receipt shows
+  // neither. Per location, not per shop: `Shop.paymentZaadEnabled` decides
+  // whether the business takes ZAAD, these say which till at this branch
+  // received it (migration 20260821000000).
+  zaadMerchantId: string | null;
+  edahabMerchantId: string | null;
   // Printed at the bottom of the receipt, below "Thank you" — set in
   // Settings and applies to every sale, not captured per-sale.
   returnPolicy: string | null;
+  // Whether to print the "Powered by Kaiibi" footer. Defaults to true
+  // everywhere it isn't explicitly resolved, which is the point: a shop only
+  // loses the mark when its plan grants `receipt_branding_removal`, so a new
+  // shop, a trial, a lapsed plan and a plan nobody has looked at all keep it.
+  showKaiibiBranding?: boolean;
   items: ReceiptItem[];
   payments: PaymentLine[];
   customer: { name: string | null; phone: string | null; email: string | null };
@@ -135,11 +157,18 @@ export function buildReceiptFromSale(
     neighborhood: string | null;
     contactPhone: string | null;
     openingHours: OpeningHours;
+    zaadMerchantId?: string | null;
+    edahabMerchantId?: string | null;
   } | null,
-  showLocationName = false
+  showLocationName = false,
+  // Resolved by the caller from `hasModule('receipt_branding_removal')`.
+  // Defaulted to true here rather than left to the caller: a caller that
+  // forgets it prints the mark, which is the safe direction to fail.
+  showKaiibiBranding = true
 ): ReceiptData {
   const subtotalCents = (sale.items ?? []).reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0);
   return {
+    saleId: sale.id,
     shopName: shop.name,
     shopLogoUrl: shop.receiptShowLogo === false ? null : shop.logoUrl,
     locationName: storeNameFor(shop.name, location?.name ?? null, showLocationName),
@@ -148,7 +177,10 @@ export function buildReceiptFromSale(
     shopContactPhone: location?.contactPhone ?? null,
     shopHours: formatTodayHours(location?.openingHours, new Date(sale.createdAt)),
     cashierName: shop.receiptShowCashierName === false ? null : sale.cashierName,
+    zaadMerchantId: location?.zaadMerchantId ?? null,
+    edahabMerchantId: location?.edahabMerchantId ?? null,
     returnPolicy: shop.returnPolicy,
+    showKaiibiBranding,
     items: (sale.items ?? []).map((item) => ({ name: item.productName, quantity: item.quantity, unitPriceCents: item.unitPriceCents, discountCents: item.discountCents })),
     payments: (sale.payments ?? []).map((p) => ({
       method: p.method,
@@ -177,6 +209,21 @@ export function buildReceiptFromSale(
   };
 }
 
+// The merchant number to print under a payment line, or null when there is
+// nothing to print — which covers cash, "other", and a mobile-money payment at
+// a branch that hasn't entered its number yet.
+//
+// Whitespace-only counts as unset: an owner who tabbed through the field and
+// left a space should not get a receipt reading "Merchant ID" followed by
+// nothing.
+export function merchantIdFor(
+  receipt: Pick<ReceiptData, 'zaadMerchantId' | 'edahabMerchantId'>,
+  method: PaymentLine['method']
+): string | null {
+  const id = method === 'zaad' ? receipt.zaadMerchantId : method === 'edahab' ? receipt.edahabMerchantId : null;
+  return id && id.trim() ? id.trim() : null;
+}
+
 // Renders a single payment's amount, plus the foreign-currency detail it was
 // tendered in (if any) — e.g. a customer paying in EUR for a USD-priced sale.
 function formatPaymentLine(payment: PaymentLine): string {
@@ -198,6 +245,10 @@ export function buildReceiptText(receipt: ReceiptData): string {
   if (location) lines.push(location);
   if (receipt.shopContactPhone) lines.push(receipt.shopContactPhone);
   if (receipt.shopHours) lines.push(receipt.shopHours);
+  lines.push('');
+  // The short code, not the QR payload: this is read by a person, and the
+  // full uuid would be noise in a WhatsApp message.
+  if (receipt.saleId) lines.push(`Receipt #${receiptShortCode(receipt.saleId)}`);
   lines.push(new Date(receipt.createdAt).toLocaleString());
   if (receipt.cashierName) lines.push(`Served by ${receipt.cashierName}`);
   lines.push('');
@@ -221,6 +272,8 @@ export function buildReceiptText(receipt: ReceiptData): string {
   lines.push(`TOTAL: ${formatCents(receipt.totalCents)}`);
   for (const payment of receipt.payments) {
     lines.push(formatPaymentLine(payment));
+    const merchantId = merchantIdFor(receipt, payment.method);
+    if (merchantId) lines.push(`  Merchant ID ${merchantId}`);
   }
   if (receipt.customer.name || receipt.customer.phone || receipt.customer.email) {
     lines.push('');
@@ -239,103 +292,208 @@ export function buildReceiptText(receipt: ReceiptData): string {
   return lines.join('\n');
 }
 
-// A small self-contained HTML page — used for both Print (opened in a new
-// tab, then window.print()) and Save (downloaded as a .html file), so a
-// saved receipt looks the same as a printed one.
+// A self-contained 80mm thermal-tape receipt — used for Print (rendered into a
+// hidden iframe, then window.print()) and for the PDF that Email and Share
+// attach, so a saved receipt is the same object as a printed one.
+//
+// Shaped for the roll it comes off: monospace throughout so the item columns
+// line up on a printer with no proportional font to fall back on, dashed rules
+// instead of boxes, and pure black on white — a thermal head has one colour and
+// no greys, so anything mid-tone prints as dither or vanishes.
+//
+// Everything is inline: no stylesheet link, no font URL, no remote image. The
+// print iframe and expo-print's printToFileAsync both render this string
+// detached from the app, where any external reference silently fails to load.
 export function buildReceiptHtml(receipt: ReceiptData): string {
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const money = (cents: number) => formatCents(cents).replace(/^\$/, '');
 
   const itemRows = receipt.items
     .map((line) => {
       const gross = line.unitPriceCents * line.quantity;
       const discount = line.discountCents ?? 0;
-      const discountLine = discount > 0 ? `<div class="row muted"><span>&nbsp;&nbsp;discount</span><span>-${formatCents(discount)}</span></div>` : '';
-      return `<div class="row"><span>${line.quantity} &times; ${esc(line.name)}</span><span>${formatCents(gross - discount)}</span></div>${discountLine}`;
+      // The discount rides under the item name rather than taking a row of its
+      // own — on 80mm the name column is the only one with room to spare.
+      const discountNote = discount > 0
+        ? `<span class="item-sub">discount &minus;${money(discount)}</span>`
+        : '';
+      return `<tr>
+        <td class="item-name">${esc(line.name)}${discountNote}</td>
+        <td class="num qty">${line.quantity}</td>
+        <td class="num price">${money(line.unitPriceCents)}</td>
+        <td class="num total">${money(gross - discount)}</td>
+      </tr>`;
     })
     .join('');
 
   const hasDiscount = Boolean(receipt.discountCents && receipt.discountCents > 0);
   const hasTax = Boolean(receipt.taxCents && receipt.taxCents > 0);
   const hasPoints = Boolean(receipt.pointsRedeemed && receipt.pointsRedeemed > 0);
-  const summaryRows = `${hasDiscount ? `<div class="row muted"><span>Subtotal</span><span>${formatCents(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
-       <div class="row muted"><span>Discount</span><span>-${formatCents(receipt.discountCents ?? 0)}</span></div>` : ''}${hasPoints ? `<div class="row muted"><span>Points used (${receipt.pointsRedeemed})</span><span>-${formatCents(receipt.pointsRedeemedCents ?? 0)}</span></div>` : ''}${hasTax ? `<div class="row muted"><span>Tax (${receipt.taxRatePercent}%)</span><span>${formatCents(receipt.taxCents ?? 0)}</span></div>` : ''}`;
+  const summaryRows = [
+    hasDiscount
+      ? `<div class="row"><span class="label">Subtotal</span><span class="value">${money(receipt.subtotalCents ?? receipt.totalCents + (receipt.discountCents ?? 0))}</span></div>
+         <div class="row"><span class="label">Discount</span><span class="value">&minus;${money(receipt.discountCents ?? 0)}</span></div>`
+      : '',
+    hasPoints
+      ? `<div class="row"><span class="label">Points used (${receipt.pointsRedeemed})</span><span class="value">&minus;${money(receipt.pointsRedeemedCents ?? 0)}</span></div>`
+      : '',
+    hasTax
+      ? `<div class="row"><span class="label">Tax (${receipt.taxRatePercent}%)</span><span class="value">${money(receipt.taxCents ?? 0)}</span></div>`
+      : '',
+  ].join('');
 
   const paymentRows = receipt.payments
     .map((p) => {
       const hasCurrency = p.currencyCode && p.foreignAmountCents !== null && p.exchangeRate !== null;
-      const changeSuffix = hasCurrency && p.foreignChangeCents && p.foreignChangeCents > 0
-        ? ` (change ${esc(formatForeignCents(p.foreignChangeCents, p.currencyCode as string))})`
+      const label = hasCurrency ? `${methodLabel(p.method)} (${esc(p.currencyCode as string)})` : methodLabel(p.method);
+      const change = hasCurrency && p.foreignChangeCents && p.foreignChangeCents > 0
+        ? ` &middot; change ${esc(formatForeignCents(p.foreignChangeCents, p.currencyCode as string))}`
         : '';
-      const line = hasCurrency
-        ? `${methodLabel(p.method)} (${esc(p.currencyCode as string)}): ${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$${changeSuffix}`
-        : methodLabel(p.method);
-      return `<div class="row muted"><span>${line}</span><span>${formatCents(p.amountCents)}</span></div>`;
+      const currencyNote = hasCurrency
+        ? `<div class="sub">${esc(formatForeignCents(p.foreignAmountCents as number, p.currencyCode as string))} @ ${p.exchangeRate}/$${change}</div>`
+        : '';
+      const merchantId = merchantIdFor(receipt, p.method);
+      const merchantNote = merchantId ? `<div class="sub">Merchant ID ${esc(merchantId)}</div>` : '';
+      return `<div class="row"><span class="label">${label}</span><span class="value">${formatCents(p.amountCents)}</span></div>${currencyNote}${merchantNote}`;
     })
     .join('');
 
-  const customerBlock = receipt.customer.name || receipt.customer.phone || receipt.customer.email
-    ? `<div class="divider"></div><div class="label">CUSTOMER</div>
-       ${receipt.customer.name ? `<div class="muted">${esc(receipt.customer.name)}</div>` : ''}
-       ${receipt.customer.phone ? `<div class="muted">${esc(receipt.customer.phone)}</div>` : ''}
-       ${receipt.customer.email ? `<div class="muted">${esc(receipt.customer.email)}</div>` : ''}
-       ${receipt.pointsEarned && receipt.pointsEarned > 0 ? `<div class="muted">Points earned: ${receipt.pointsEarned}</div>` : ''}`
+  const hasCustomer = Boolean(receipt.customer.name || receipt.customer.phone || receipt.customer.email);
+  const customerBlock = hasCustomer
+    ? `<div class="dashed"></div>
+       <div class="section-label">Customer</div>
+       ${receipt.customer.name ? `<div class="customer">${esc(receipt.customer.name)}</div>` : ''}
+       ${receipt.customer.phone ? `<div class="customer">${esc(receipt.customer.phone)}</div>` : ''}
+       ${receipt.customer.email ? `<div class="customer">${esc(receipt.customer.email)}</div>` : ''}
+       ${receipt.pointsEarned && receipt.pointsEarned > 0 ? `<div class="customer">Points earned: ${receipt.pointsEarned}</div>` : ''}`
+    : '';
+
+  // The code line and the QR appear together or not at all — a printed number
+  // with no scannable code beside it invites someone to type a uuid by hand.
+  const codeRow = receipt.saleId
+    ? `<div class="row"><span class="label">Receipt #</span><span class="value">${receiptShortCode(receipt.saleId)}</span></div>`
+    : '';
+  const qrBlock = receipt.saleId
+    ? `<div class="qr">${qrSvg(receiptPayload(receipt.saleId), 62)}<div class="qr-num">${receiptShortCode(receipt.saleId)}</div></div>`
     : '';
 
   const location = formatLocation(receipt);
-
-  const returnPolicyBlock = receipt.returnPolicy && receipt.returnPolicy.trim()
-    ? `<div class="divider"></div><div class="policy">${esc(receipt.returnPolicy.trim())}</div>`
+  const when = new Date(receipt.createdAt);
+  const policy = receipt.returnPolicy && receipt.returnPolicy.trim()
+    ? `<div class="policy">${esc(receipt.returnPolicy.trim())}</div>`
     : '';
+  const branding = receipt.showKaiibiBranding === false
+    ? ''
+    : `<div class="powered-by">
+         <span class="pb-text">Powered by</span>
+         <img class="pb-mark" src="${KAIIBI_MARK_DATA_URI}" alt="Kaiibi" />
+         <span class="pb-name">Kaiibi</span>
+       </div>`;
 
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Receipt</title>
 <style>
+  @page { size: 80mm auto; margin: 0; }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, Helvetica, Arial, sans-serif; background: #FFFFFF; margin: 0; padding: 24px 16px; color: #111111; display: flex; justify-content: center; }
-  .card { width: 100%; max-width: 380px; background: #F3F2ED; border-radius: 16px; padding: 22px 20px; }
-  .head { text-align: center; margin-bottom: 4px; }
-  .logo { display: block; width: 52px; height: 52px; object-fit: cover; border-radius: 12px; margin: 0 auto 10px; }
-  .shop { font-size: 18px; font-weight: 800; letter-spacing: 0.2px; }
-  .muted { color: #777777; font-size: 12px; margin-top: 2px; }
-  .divider { border-top: 1.5px dashed #D9D9D3; margin: 16px 0; }
-  .row { display: flex; justify-content: space-between; align-items: center; font-size: 14px; margin: 5px 0; }
-  .row.muted span { color: #666666; font-size: 13px; }
-  .row span:first-child { color: #333333; }
-  .row span:last-child { font-weight: 700; }
-  .total { background: #111111; color: #FFFFFF; border-radius: 10px; padding: 10px 14px; margin-bottom: 4px; }
-  .total span { font-weight: 800; }
-  .total span:first-child { color: #FFFFFF; font-size: 14px; letter-spacing: 0.3px; }
-  .total span:last-child { color: #FFFFFF; font-size: 17px; }
-  .label { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: #999999; margin: 2px 0 4px; }
-  .policy { color: #777777; font-size: 11px; line-height: 1.5; }
-  .thanks { margin-top: 18px; text-align: center; color: #999999; font-size: 12px; font-weight: 700; letter-spacing: 0.3px; }
-  @media print { body { padding: 0; } .card { border-radius: 0; max-width: 100%; } }
+  html, body { margin: 0; padding: 0; background: #FFFFFF; }
+  .receipt {
+    width: 80mm;
+    margin: 0 auto;
+    padding: 22px 16px 14px;
+    background: #FFFFFF;
+    color: #111111;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+    font-size: 11.5px;
+    line-height: 1.55;
+    /* Item columns only line up if the digits are all one width. */
+    font-variant-numeric: tabular-nums;
+  }
+  .center { text-align: center; }
+  .logo { width: 46px; height: 46px; object-fit: contain; display: block; margin: 0 auto 8px; }
+  .shop-name { font-size: 17px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; line-height: 1.25; margin-bottom: 3px; }
+  .store-name { font-size: 11px; letter-spacing: 0.6px; text-transform: uppercase; color: #333333; margin-bottom: 6px; }
+  .shop-meta { font-size: 10.5px; color: #333333; margin: 1px 0; }
+  /* A gradient rather than border-style: dashed — browsers each pick their own
+     dash length for the latter, so the rule looked different in the print
+     preview and the PDF. This one is the same everywhere. */
+  .dashed { height: 1px; margin: 11px 0; background-image: repeating-linear-gradient(to right, #8F8F8F 0 4px, transparent 4px 9px); }
+  .rule-under-head { height: 1px; margin-bottom: 2px; background-image: repeating-linear-gradient(to right, #8F8F8F 0 3px, transparent 3px 7px); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 2px 0; }
+  .row .label { color: #333333; }
+  .row .value { text-align: right; white-space: nowrap; }
+  table.items { width: 100%; border-collapse: collapse; margin: 4px 0 2px; font-size: 11px; }
+  table.items th { text-align: left; font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; padding-bottom: 5px; }
+  table.items th.num, table.items td.num { text-align: right; white-space: nowrap; }
+  table.items th.qty, table.items td.qty { width: 3ch; }
+  table.items th.price, table.items td.price { width: 7ch; }
+  table.items th.total, table.items td.total { width: 7ch; }
+  table.items td { padding: 4px 0 0; vertical-align: top; }
+  table.items td.item-name { padding-right: 8px; word-break: break-word; }
+  .item-sub { display: block; font-size: 9.5px; color: #666666; }
+  .totals { margin-top: 8px; font-size: 11.5px; }
+  .totals .row.grand { font-size: 15px; font-weight: 700; margin-top: 8px; padding-top: 9px; border-top: 1.5px solid #111111; letter-spacing: 0.5px; }
+  .payment { font-size: 10.5px; color: #333333; }
+  .payment .sub { font-size: 9.5px; color: #666666; margin: 0 0 2px; }
+  .section-label { font-size: 9.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #666666; margin-bottom: 3px; }
+  .customer { font-size: 10.5px; color: #333333; }
+  .qr { text-align: center; margin: 14px 0 4px; }
+  .qr svg { display: block; margin: 0 auto; }
+  .qr-num { font-size: 9.5px; letter-spacing: 2.5px; margin-top: 6px; color: #333333; }
+  .thanks { text-align: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.5px; margin: 12px 0 3px; }
+  .policy { text-align: center; font-size: 9.5px; line-height: 1.45; color: #555555; margin-bottom: 3px; }
+  .powered-by { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 14px; padding-top: 11px; background-image: repeating-linear-gradient(to right, #8F8F8F 0 4px, transparent 4px 9px); background-size: 100% 1px; background-repeat: no-repeat; background-position: top left; }
+  .pb-text { font-size: 9.5px; color: #888888; letter-spacing: 0.3px; }
+  /* print-color-adjust: the mark is a white K on a black square, and browsers
+     drop background graphics by default when printing — without this it comes
+     out as an empty box. */
+  .pb-mark { width: 14px; height: 14px; object-fit: contain; display: block; border-radius: 3px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .pb-name { font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; color: #111111; }
 </style>
 </head>
 <body>
-  <div class="card">
-    <div class="head">
+  <div class="receipt">
+    <div class="center">
       ${receipt.shopLogoUrl ? `<img class="logo" src="${esc(receipt.shopLogoUrl)}" alt="" />` : ''}
-      <div class="shop">${esc(receipt.shopName)}</div>
-      ${receipt.locationName ? `<div class="muted">${esc(receipt.locationName)}</div>` : ''}
-      ${location ? `<div class="muted">${esc(location)}</div>` : ''}
-      ${receipt.shopContactPhone ? `<div class="muted">${esc(receipt.shopContactPhone)}</div>` : ''}
-      ${receipt.shopHours ? `<div class="muted">${esc(receipt.shopHours)}</div>` : ''}
-      <div class="muted">${esc(new Date(receipt.createdAt).toLocaleString())}</div>
-      ${receipt.cashierName ? `<div class="muted">Served by ${esc(receipt.cashierName)}</div>` : ''}
+      <div class="shop-name">${esc(receipt.shopName)}</div>
+      ${receipt.locationName ? `<div class="store-name">${esc(receipt.locationName)}</div>` : ''}
+      ${location ? `<div class="shop-meta">${esc(location)}</div>` : ''}
+      ${receipt.shopContactPhone ? `<div class="shop-meta">${esc(receipt.shopContactPhone)}</div>` : ''}
+      ${receipt.shopHours ? `<div class="shop-meta">${esc(receipt.shopHours)}</div>` : ''}
     </div>
-    <div class="divider"></div>
-    ${itemRows}
-    <div class="divider"></div>
-    ${summaryRows}
-    <div class="row total"><span>Total</span><span>${formatCents(receipt.totalCents)}</span></div>
-    ${paymentRows}
+
+    <div class="dashed"></div>
+
+    ${codeRow}
+    <div class="row"><span class="label">Date</span><span class="value">${when.toLocaleDateString()}</span></div>
+    <div class="row"><span class="label">Time</span><span class="value">${when.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
+    ${receipt.cashierName ? `<div class="row"><span class="label">Cashier</span><span class="value">${esc(receipt.cashierName)}</span></div>` : ''}
+
+    <div class="dashed"></div>
+
+    <table class="items">
+      <thead><tr><th>Item</th><th class="num qty">Qty</th><th class="num price">Price</th><th class="num total">Total</th></tr></thead>
+    </table>
+    <div class="rule-under-head"></div>
+    <table class="items"><tbody>${itemRows}</tbody></table>
+
+    <div class="totals">
+      ${summaryRows}
+      <div class="row grand"><span>TOTAL</span><span>${formatCents(receipt.totalCents)}</span></div>
+    </div>
+
+    <div class="dashed"></div>
+
+    <div class="payment">${paymentRows}</div>
     ${customerBlock}
-    ${returnPolicyBlock}
-    <div class="thanks">Thank you for your purchase!</div>
+    ${qrBlock}
+
+    <div class="thanks">THANK YOU FOR YOUR PURCHASE!</div>
+    ${policy}
+    ${branding}
   </div>
 </body>
 </html>`;

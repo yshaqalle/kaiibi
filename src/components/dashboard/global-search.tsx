@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -26,6 +26,25 @@ const KIND_LABEL: Record<SearchResultKind, string> = {
 };
 
 const DEBOUNCE_MS = 250;
+
+// Keeps focus in the search field when the pointer goes down on the results
+// panel, on web only.
+//
+// Without it the panel cannot be clicked at all. The browser moves focus as the
+// DEFAULT ACTION of mousedown, so `onBlur` below runs in that same task and
+// unmounts the rows -- while react-native-web has only just STARTED the press:
+// its Pressable defaults `delayPressIn` to 50ms, so `onPressIn` is a timer, not
+// a synchronous callback. Unmounting the row cancels that timer
+// (usePressEvents' cleanup calls PressResponder.reset()), so neither onPressIn
+// nor onPress ever fires and a click selects nothing.
+//
+// Suppressing the default action removes the race rather than trying to win it:
+// the field never blurs, the rows stay mounted, and a plain `onPress` fires on
+// release the way it does anywhere else. Native has no mousedown and does not
+// blur on tap -- `keyboardShouldPersistTaps` covers it there -- so this is
+// scoped to web.
+const keepFieldFocused =
+  Platform.OS === 'web' ? { onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault() } : null;
 
 // The header's search field, and the results list under it.
 //
@@ -90,13 +109,20 @@ export function GlobalSearch({ onSelect }: { onSelect: (result: SearchResult) =>
         <Text style={styles.icon}>🔍</Text>
         <TextInput
           value={query}
-          onChangeText={setQuery}
+          // Typing reopens the panel as well as focusing does. Selecting a
+          // result closes it without giving the field's focus away, so a reader
+          // who comes back and types again would otherwise sit in front of a
+          // field that searches but shows nothing.
+          onChangeText={(text) => {
+            setQuery(text);
+            setOpen(true);
+          }}
           onFocus={() => setOpen(true)}
           // Closing on blur is what gives the panel a way OUT. Without it the
           // only exits were picking a result or emptying the field, so tapping
           // anywhere else left an absolutely-positioned list sitting over the
-          // cards. The rows below fire on press-IN precisely so they still beat
-          // this -- see the note there.
+          // cards. A press on the panel itself is exempt -- see
+          // `keepFieldFocused` above.
           onBlur={() => setOpen(false)}
           placeholder="Search products, people, bills…"
           placeholderTextColor={theme.bentoMuted2}
@@ -112,7 +138,7 @@ export function GlobalSearch({ onSelect }: { onSelect: (result: SearchResult) =>
       </View>
 
       {showPanel ? (
-        <View style={styles.panel}>
+        <View style={styles.panel} {...keepFieldFocused}>
           {loading && results.length === 0 ? (
             <View style={styles.state}>
               <ActivityIndicator size="small" color={theme.bentoMuted} />
@@ -124,12 +150,12 @@ export function GlobalSearch({ onSelect }: { onSelect: (result: SearchResult) =>
               {results.map((result) => (
                 <Pressable
                   key={`${result.kind}-${result.id}`}
-                  // onPressIn, not onPress: it fires on touch-down/mouse-down,
-                  // which lands BEFORE the field's onBlur above. With onPress
-                  // the blur would unmount this row first and the tap would
-                  // select nothing. A timer on the blur would do the same job
-                  // less predictably.
-                  onPressIn={() => {
+                  // A plain onPress: the panel holds focus in the field while
+                  // the pointer is down, so nothing unmounts this row mid-press.
+                  // Press-IN would fire on mouse-down instead, which selects on
+                  // an accidental brush and gives the reader no way to slide off
+                  // and cancel.
+                  onPress={() => {
                     setOpen(false);
                     setQuery('');
                     onSelect(result);

@@ -148,6 +148,8 @@ function LocationEditorModal({
   const [neighborhood, setNeighborhood] = useState(location?.neighborhood ?? '');
   const [city, setCity] = useState(location?.city ?? '');
   const [contactPhone, setContactPhone] = useState(location?.contactPhone ?? '');
+  const [zaadMerchantId, setZaadMerchantId] = useState(location?.zaadMerchantId ?? '');
+  const [edahabMerchantId, setEdahabMerchantId] = useState(location?.edahabMerchantId ?? '');
   const [openingHours, setOpeningHours] = useState<OpeningHours>(location?.openingHours ?? {});
   const [goalInput, setGoalInput] = useState(
     location?.monthlyRevenueGoalCents != null ? String(location.monthlyRevenueGoalCents / 100) : ''
@@ -190,6 +192,11 @@ function LocationEditorModal({
         neighborhood: neighborhood.trim() || null,
         city: city.trim() || null,
         contactPhone: contactPhone.trim() || null,
+        // Trimmed to null rather than saved as '': the receipt treats empty
+        // and unset the same way, and storing one of each would mean two
+        // states nobody can tell apart in the database.
+        zaadMerchantId: zaadMerchantId.trim() || null,
+        edahabMerchantId: edahabMerchantId.trim() || null,
         // The editor normalises a day as it collapses, so this is the backstop
         // for a day still open when Save is tapped -- blocks sorted, and any
         // that touch merged into one. Two blocks with no closure between them
@@ -286,6 +293,30 @@ function LocationEditorModal({
               keyboardType="phone-pad"
               style={modalStyles.input}
             />
+
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>ZAAD MERCHANT ID</Text>
+            <TextInput
+              value={zaadMerchantId}
+              onChangeText={setZaadMerchantId}
+              placeholder="This store's ZAAD number"
+              placeholderTextColor="#999999"
+              autoCapitalize="none"
+              style={modalStyles.input}
+            />
+
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>E-DAHAB MERCHANT ID</Text>
+            <TextInput
+              value={edahabMerchantId}
+              onChangeText={setEdahabMerchantId}
+              placeholder="This store's e-Dahab number"
+              placeholderTextColor="#999999"
+              autoCapitalize="none"
+              style={modalStyles.input}
+            />
+            <Text style={modalStyles.fieldHint}>
+              Printed on a receipt under the payment line that used it, so a customer can query the
+              transfer with the carrier. Each store has its own. Leave blank to print nothing.
+            </Text>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>MONTHLY REVENUE GOAL</Text>
             <TextInput

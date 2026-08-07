@@ -254,3 +254,29 @@ export function gapsBetween(ranges: TimeRange[]): TimeRange[] {
   }
   return gaps;
 }
+
+// The span of a trading day, in whole hours, for charts that bucket takings by
+// hour. Split shifts collapse to one span: a shop that shuts for lunch is
+// still open across that stretch as far as a takings chart is concerned, and
+// the closed hours draw themselves as empty bars — which is the truth.
+//
+// `closeHour` is the last hour money can still be taken in, not the closing
+// time: closing at 18:00 means nothing is ever rung up in the 18:00 hour, so
+// including it would put a guaranteed empty bar on the end of every chart.
+//
+// Null on a day the shop is shut, or one whose blocks are all malformed —
+// callers must handle it rather than get bounds that imply trading.
+export function tradingHourBounds(
+  hours: OpeningHours,
+  day: WeekdayKey
+): { openHour: number; closeHour: number } | null {
+  const valid = rangesFor(hours, day).filter(isValidRange);
+  if (valid.length === 0) return null;
+  const openMinutes = Math.min(...valid.map((range) => minutesOf(range.open)));
+  const closeMinutes = Math.max(...valid.map((range) => minutesOf(range.close)));
+  const openHour = Math.floor(openMinutes / 60);
+  // Ceil-then-minus-one, so a close of 18:30 keeps its 18:00 hour while a
+  // close of 18:00 does not.
+  const closeHour = Math.ceil(closeMinutes / 60) - 1;
+  return closeHour < openHour ? { openHour, closeHour: openHour } : { openHour, closeHour };
+}

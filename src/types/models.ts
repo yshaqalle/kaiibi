@@ -125,6 +125,15 @@ export type ShopLocation = {
   // one isn't.
   barcodeScanningEnabled: boolean;
   hardwareScannerEnabled: boolean;
+  // Mobile-money merchant numbers, printed on a receipt under the payment line
+  // that used them (migration 20260821000000). Per store for the same reason as
+  // the phone above: `Shop.paymentZaadEnabled` says whether the business takes
+  // ZAAD at all, this says which till at this branch receives it, and a shop
+  // running three branches commonly runs three accounts.
+  //
+  // Null or empty both mean "not set" and print nothing.
+  zaadMerchantId: string | null;
+  edahabMerchantId: string | null;
   // Exactly one per shop. The fallback whenever a location isn't otherwise
   // resolvable — what a fresh device selects before anyone chooses.
   isPrimary: boolean;
@@ -139,11 +148,29 @@ export type ShopLocation = {
 // (camera on, wedge off), so the "add a store" form has no reason to ask about
 // hardware before the store exists. They stay settable on the update patches
 // that Settings sends.
+//
+// The merchant ids are optional for the same reason from the other direction:
+// they have no default and start null, and asking for a ZAAD number while
+// someone is still typing the branch name would be friction for a field most
+// shops fill in later, if at all.
 export type NewShopLocationInput = Omit<
   ShopLocation,
-  'id' | 'shopId' | 'isPrimary' | 'createdAt' | 'updatedAt' | 'barcodeScanningEnabled' | 'hardwareScannerEnabled'
+  | 'id'
+  | 'shopId'
+  | 'isPrimary'
+  | 'createdAt'
+  | 'updatedAt'
+  | 'barcodeScanningEnabled'
+  | 'hardwareScannerEnabled'
+  | 'zaadMerchantId'
+  | 'edahabMerchantId'
 > &
-  Partial<Pick<ShopLocation, 'barcodeScanningEnabled' | 'hardwareScannerEnabled'>>;
+  Partial<
+    Pick<
+      ShopLocation,
+      'barcodeScanningEnabled' | 'hardwareScannerEnabled' | 'zaadMerchantId' | 'edahabMerchantId'
+    >
+  >;
 
 // How many units of a product sit at one branch. `Product.stock` is the sum of
 // these across every location, maintained by trigger (migration
