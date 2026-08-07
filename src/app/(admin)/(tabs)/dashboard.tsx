@@ -769,60 +769,6 @@ export default function DashboardScreen() {
             />
           </BentoCell>
 
-          <BentoZone>Profit &amp; loss</BentoZone>
-
-          {/* The P&L and the waterfall pair deliberately: the statement
-              reconciles to the cent, the chart shows what ate the revenue.
-              Neither answers the other's question. */}
-          {canSeeExpenses ? (
-            <BentoCell span={5} onLayout={(event) => { plOffset.current = event.nativeEvent.layout.y; }}>
-              <Card variant="bento" style={styles.card}>
-                <View style={styles.cardHead}>
-                  <Text style={styles.cardTitle}>Profit &amp; loss</Text>
-                  <Text style={styles.scopePill}>{rangeLabel}</Text>
-                </View>
-                <StatementRow label="Revenue" hint="net of sales tax and refunds" amountCents={pnl.revenueCents} />
-                <StatementRow label="Cost of goods sold" hint="what the items sold cost you" amountCents={-pnl.cogsCents} />
-                <StatementRow label="Gross profit" amountCents={pnl.grossProfitCents} variant="emphasis" />
-                <StatementRow
-                  label="Operating expenses"
-                  hint="excludes stock purchases and owner draws"
-                  amountCents={-pnl.postedOperatingCents}
-                />
-                {pnl.accruedLaborCents > 0 && (
-                  <StatementRow label="Wages earned, not yet paid" hint="no pay run posted yet" amountCents={-pnl.accruedLaborCents} />
-                )}
-                <StatementRow label="Net profit" amountCents={pnl.netProfitCents} variant="total" />
-                {!canSeeLabor && !noPayrollNote.dismissed && (
-                  <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
-                    Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
-                  </Caveat>
-                )}
-              </Card>
-            </BentoCell>
-          ) : null}
-
-          {canSeeExpenses ? (
-            <BentoCell span={7}>
-              <Card variant="bento" style={styles.card}>
-                <View style={styles.cardHead}>
-                  <Text style={styles.cardTitle}>How revenue becomes profit</Text>
-                  <Text style={styles.scopePill}>{rangeLabel}</Text>
-                </View>
-                <WaterfallChart
-                  formatValue={formatCompactCents}
-                  steps={[
-                    { label: 'Revenue', value: pnl.revenueCents, total: true },
-                    { label: 'Cost of goods', sub: 'what stock cost', value: -pnl.cogsCents },
-                    { label: 'Gross profit', value: pnl.grossProfitCents, total: true },
-                    { label: 'Operating exp.', sub: 'wages, rent, power', value: -pnl.operatingCents },
-                    { label: 'Net profit', value: pnl.netProfitCents, total: true },
-                  ]}
-                />
-              </Card>
-            </BentoCell>
-          ) : null}
-
           <BentoCell span={canSeeExpenses ? 8 : 12}>
             <Card variant="bento" style={styles.card}>
               <View style={styles.cardHead}>
@@ -889,6 +835,60 @@ export default function DashboardScreen() {
                 monthlyGoalCents={goalCents}
                 daysLeftInMonth={daysLeftInMonth()}
               />
+            </BentoCell>
+          ) : null}
+
+          <BentoZone>Profit &amp; loss</BentoZone>
+
+          {/* The P&L and the waterfall pair deliberately: the statement
+              reconciles to the cent, the chart shows what ate the revenue.
+              Neither answers the other's question. */}
+          {canSeeExpenses ? (
+            <BentoCell span={5} onLayout={(event) => { plOffset.current = event.nativeEvent.layout.y; }}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Profit &amp; loss</Text>
+                  <Text style={styles.scopePill}>{rangeLabel}</Text>
+                </View>
+                <StatementRow label="Revenue" hint="net of sales tax and refunds" amountCents={pnl.revenueCents} />
+                <StatementRow label="Cost of goods sold" hint="what the items sold cost you" amountCents={-pnl.cogsCents} />
+                <StatementRow label="Gross profit" amountCents={pnl.grossProfitCents} variant="emphasis" />
+                <StatementRow
+                  label="Operating expenses"
+                  hint="excludes stock purchases and owner draws"
+                  amountCents={-pnl.postedOperatingCents}
+                />
+                {pnl.accruedLaborCents > 0 && (
+                  <StatementRow label="Wages earned, not yet paid" hint="no pay run posted yet" amountCents={-pnl.accruedLaborCents} />
+                )}
+                <StatementRow label="Net profit" amountCents={pnl.netProfitCents} variant="total" />
+                {!canSeeLabor && !noPayrollNote.dismissed && (
+                  <Caveat tone="partial" onDismiss={noPayrollNote.dismiss}>
+                    Wages aren&apos;t included — you don&apos;t have payroll access, so this profit figure leaves out labour costs.
+                  </Caveat>
+                )}
+              </Card>
+            </BentoCell>
+          ) : null}
+
+          {canSeeExpenses ? (
+            <BentoCell span={7}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>How revenue becomes profit</Text>
+                  <Text style={styles.scopePill}>{rangeLabel}</Text>
+                </View>
+                <WaterfallChart
+                  formatValue={formatCompactCents}
+                  steps={[
+                    { label: 'Revenue', value: pnl.revenueCents, total: true },
+                    { label: 'Cost of goods', sub: 'what stock cost', value: -pnl.cogsCents },
+                    { label: 'Gross profit', value: pnl.grossProfitCents, total: true },
+                    { label: 'Operating exp.', sub: 'wages, rent, power', value: -pnl.operatingCents },
+                    { label: 'Net profit', value: pnl.netProfitCents, total: true },
+                  ]}
+                />
+              </Card>
             </BentoCell>
           ) : null}
 
@@ -1107,27 +1107,6 @@ export default function DashboardScreen() {
             </BentoCell>
           )}
 
-          <BentoZone>Latest sales</BentoZone>
-
-          {recentSales.length > 0 && (
-            <BentoCell span={6}>
-              <Card variant="bento" style={styles.card}>
-                <View style={styles.cardHead}>
-                  <Text style={styles.cardTitle}>Recent transactions</Text>
-                  <Text style={styles.scopePill}>Latest {recentSales.length}</Text>
-                </View>
-                {recentSales.map((sale) => (
-                  <View key={sale.id} style={styles.recentRow}>
-                    <Text style={styles.recentName} numberOfLines={1}>
-                      {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
-                    </Text>
-                    <Text style={styles.recentMeta}>{formatAccountingCents(sale.totalCents)}</Text>
-                  </View>
-                ))}
-              </Card>
-            </BentoCell>
-          )}
-
           {expiringSoon.length > 0 && (
             <BentoCell span={12}>
             <Card variant="bento" style={styles.tableCard}>
@@ -1166,6 +1145,27 @@ export default function DashboardScreen() {
             </Card>
             </BentoCell>
           )}
+          <BentoZone>Latest sales</BentoZone>
+
+          {recentSales.length > 0 && (
+            <BentoCell span={6}>
+              <Card variant="bento" style={styles.card}>
+                <View style={styles.cardHead}>
+                  <Text style={styles.cardTitle}>Recent transactions</Text>
+                  <Text style={styles.scopePill}>Latest {recentSales.length}</Text>
+                </View>
+                {recentSales.map((sale) => (
+                  <View key={sale.id} style={styles.recentRow}>
+                    <Text style={styles.recentName} numberOfLines={1}>
+                      {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
+                    </Text>
+                    <Text style={styles.recentMeta}>{formatAccountingCents(sale.totalCents)}</Text>
+                  </View>
+                ))}
+              </Card>
+            </BentoCell>
+          )}
+
         </BentoGrid>
       </ScrollView>
     </SafeAreaView>
