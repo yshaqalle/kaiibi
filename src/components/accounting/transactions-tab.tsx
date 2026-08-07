@@ -393,7 +393,7 @@ function SaleRow({
   onCancelDelete: () => void;
   onDelete: () => void;
 }) {
-  const { shop, locations } = useAuth();
+  const { shop, locations, hasModule } = useAuth();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
   const [showRefund, setShowRefund] = useState(false);
@@ -561,7 +561,8 @@ function SaleRow({
                   sale,
                   shop,
                   locations.find((location) => location.id === sale.locationId) ?? null,
-                  hasMultipleLocations(locations)
+                  hasMultipleLocations(locations),
+                  !hasModule('receipt_branding_removal')
                 )
               : null
           }

@@ -53,7 +53,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop, can, locations, activeLocation, limitFor, usageOf } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -365,7 +365,10 @@ export default function PosScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      await completeSale(
+      // The new sale's id, which the receipt needs for its code and QR.
+      // `completeSale` has always returned it; this path used to drop it on the
+      // floor because nothing downstream asked for one.
+      const saleId = await completeSale(
         shop.id,
         cart,
         payments,
@@ -382,6 +385,7 @@ export default function PosScreen() {
         redemption.points
       );
       const completed: ReceiptData = {
+        saleId,
         shopName: shop.name,
         shopLogoUrl: shop.receiptShowLogo ? shop.logoUrl : null,
         // The branch's own address, phone and hours -- what the customer needs
@@ -393,7 +397,12 @@ export default function PosScreen() {
         shopContactPhone: activeLocation.contactPhone,
         shopHours: formatTodayHours(activeLocation.openingHours, new Date()),
         cashierName: shop.receiptShowCashierName ? cashierName : null,
+        // This branch's mobile-money numbers, printed only under the payment
+        // line that used them.
+        zaadMerchantId: activeLocation.zaadMerchantId,
+        edahabMerchantId: activeLocation.edahabMerchantId,
         returnPolicy: shop.returnPolicy,
+        showKaiibiBranding: !hasModule('receipt_branding_removal'),
         items: cart.map((line) => ({
           name: line.product.name,
           quantity: line.quantity,
