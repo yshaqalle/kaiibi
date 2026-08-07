@@ -423,3 +423,38 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
 
   return Array.from(buckets.values());
 }
+
+// One product's day-by-day take, for the sparkline on a mover card. Answers
+// the question a percentage raises but cannot settle: was this a steady climb
+// or one unusual afternoon?
+//
+// Same day bucketing and the same product key as `bucketDailyTotals` and
+// `productPerformance`, so the three cannot disagree about which day a sale
+// landed on or which line belongs to which product.
+export function productDailyRevenue(
+  sales: Sale[],
+  product: { productId: string | null; name: string },
+  sinceDate: Date,
+  untilDate?: Date
+): number[] {
+  const since = startOfDay(sinceDate);
+  const until = untilDate ? new Date(untilDate) : new Date();
+  const dayCount = Math.max(1, Math.floor((until.getTime() - since.getTime()) / 86_400_000) + 1);
+  const wanted = product.productId ?? `name:${product.name}`;
+
+  const byDay = new Map<string, number>();
+  for (let i = 0; i < dayCount; i++) {
+    const day = new Date(since);
+    day.setDate(since.getDate() + i);
+    byDay.set(dayKeyFor(day), 0);
+  }
+  for (const sale of sales) {
+    const key = dayKeyFor(sale.createdAt);
+    if (!byDay.has(key)) continue;
+    for (const item of sale.items ?? []) {
+      if ((item.productId ?? `name:${item.productName}`) !== wanted) continue;
+      byDay.set(key, (byDay.get(key) ?? 0) + item.lineTotalCents);
+    }
+  }
+  return Array.from(byDay.values());
+}

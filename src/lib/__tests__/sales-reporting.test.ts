@@ -6,6 +6,7 @@ import {
   grossSalesCents,
   netRevenueCents,
   paymentMethodMix,
+  productDailyRevenue,
   productMovers,
   productPerformance,
   refundedCents,
@@ -569,5 +570,45 @@ describe('hourlyTakings', () => {
 
   it('survives a close hour before the open hour', () => {
     expect(hourlyTakings([], 20, 8).buckets).toEqual([]);
+  });
+});
+
+describe('productDailyRevenue', () => {
+  const on = (day: number, lineTotalCents: number) =>
+    makeSale({
+      id: `s${day}-${lineTotalCents}`,
+      createdAt: new Date(2026, 7, day, 11, 0).toISOString(),
+      items: [makeItem({ productId: 'p-rice', productName: 'Rice', lineTotalCents, quantity: 1 })],
+    });
+
+  it('gives one figure per day in the range, zeros included', () => {
+    const series = productDailyRevenue(
+      [on(1, 500), on(3, 200), on(3, 100)],
+      { productId: 'p-rice', name: 'Rice' },
+      new Date(2026, 7, 1),
+      new Date(2026, 7, 4)
+    );
+    expect(series).toEqual([500, 0, 300, 0]);
+  });
+
+  it('counts only the product asked for', () => {
+    const mixed = makeSale({
+      id: 'mixed',
+      createdAt: new Date(2026, 7, 1, 11, 0).toISOString(),
+      items: [
+        makeItem({ id: 'a', productId: 'p-rice', productName: 'Rice', lineTotalCents: 500, quantity: 1 }),
+        makeItem({ id: 'b', productId: 'p-oil', productName: 'Oil', lineTotalCents: 900, quantity: 1 }),
+      ],
+    });
+    expect(productDailyRevenue([mixed], { productId: 'p-rice', name: 'Rice' }, new Date(2026, 7, 1), new Date(2026, 7, 1))).toEqual([500]);
+  });
+
+  it('matches a deleted product by name, the same key productPerformance uses', () => {
+    const sale = makeSale({
+      id: 'gone',
+      createdAt: new Date(2026, 7, 1, 11, 0).toISOString(),
+      items: [makeItem({ productId: null, productName: 'Retired blend', lineTotalCents: 700, quantity: 1 })],
+    });
+    expect(productDailyRevenue([sale], { productId: null, name: 'Retired blend' }, new Date(2026, 7, 1), new Date(2026, 7, 1))).toEqual([700]);
   });
 });
