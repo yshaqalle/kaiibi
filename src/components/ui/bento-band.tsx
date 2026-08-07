@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { BENTO_RADIUS, Colors } from '@/constants/theme';
 
@@ -37,6 +38,28 @@ export function BentoBand({
 }) {
   return (
     <View style={[styles.band, style]}>
+      {/* Two washes over the flat ink, matching the design's radial pair: a
+          blue one from the top-right and a bare lift from the bottom-left.
+          Without them a full-width band is a black slab, and at this size that
+          reads as a hole in the page rather than as a surface.
+          `pointerEvents="none"` and a zero-index layer, so it can never sit
+          between a reader and the controls above it. */}
+      <View style={styles.wash} pointerEvents="none">
+        <Svg width="100%" height="100%">
+          <Defs>
+            <RadialGradient id="bandBlue" cx="100%" cy="0%" r="95%">
+              <Stop offset="0" stopColor={theme.bentoSeries1} stopOpacity={0.2} />
+              <Stop offset="1" stopColor={theme.bentoSeries1} stopOpacity={0} />
+            </RadialGradient>
+            <RadialGradient id="bandLift" cx="0%" cy="120%" r="90%">
+              <Stop offset="0" stopColor="#ffffff" stopOpacity={0.055} />
+              <Stop offset="1" stopColor="#ffffff" stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#bandLift)" />
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#bandBlue)" />
+        </Svg>
+      </View>
       <View style={styles.head}>
         <View style={styles.headText}>
           <Text style={styles.title}>{title}</Text>
@@ -68,6 +91,22 @@ export function BandPill({ label, onPress }: { label: string; onPress: () => voi
       <Text style={styles.pillLabel}>{label}</Text>
       <Text style={styles.caret}>▾</Text>
     </Pressable>
+  );
+}
+
+/**
+ * A pill on a band that only LABELS — what window the figures cover.
+ *
+ * The ink counterpart of `BentoCard`'s scope pill, and deliberately without
+ * the caret `BandPill` carries: the range is owned by the screen's control
+ * bar, so this states the scope rather than offering to change it. A second
+ * range control inside a card is how two ranges end up on one screen.
+ */
+export function BandScope({ label }: { label: string }) {
+  return (
+    <View style={styles.pill}>
+      <Text style={styles.pillLabel}>{label}</Text>
+    </View>
   );
 }
 
@@ -105,7 +144,10 @@ export function BandSegment<T extends string>({
 export const ON_INK_MUTED = '#a6a6ae';
 
 const styles = StyleSheet.create({
-  band: { borderRadius: BENTO_RADIUS, backgroundColor: theme.bentoInk, padding: 18 },
+  // `overflow: hidden` so the wash below is clipped to the rounded corners
+  // rather than painting square ones over them.
+  band: { borderRadius: BENTO_RADIUS, backgroundColor: theme.bentoInk, padding: 18, overflow: 'hidden' },
+  wash: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   // Wraps rather than shrinking the title: at 6 columns the segment control
   // beside it would squeeze "Best sellers" to two characters and an ellipsis.
   head: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },

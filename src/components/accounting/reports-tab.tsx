@@ -388,7 +388,7 @@ export function ReportsTab({
           <BentoCard title="Labour" scope={rangeLabel}>
             <StatementRow label="Wages posted by a pay run" amountCents={postedWagesCents} />
             {accruedLabor > 0 && <StatementRow label="Earned, not yet paid" amountCents={accruedLabor} />}
-            <StatementRow label="Total labour cost" amountCents={totalLaborCents} variant="emphasis" />
+            <StatementRow label="Total labour cost" amountCents={totalLaborCents} variant="emphasis" last />
             <View style={styles.kpiRow}>
               {laborPctOfRevenue !== null && (
                 <View style={styles.kpi}>
@@ -419,8 +419,13 @@ export function ReportsTab({
       <BentoCell span={canSeeLabor && totalLaborCents > 0 ? 3 : 7}>
         <BentoCard title="Sales tax collected" scope={rangeLabel}>
           <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
-          <StatementRow label="Sales tax collected" hint="held for the tax authority" amountCents={performance.taxCollectedCents} />
-          {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />}
+          <StatementRow
+            label="Sales tax collected"
+            hint="held for the tax authority"
+            amountCents={performance.taxCollectedCents}
+            last={performance.refundedCents === 0}
+          />
+          {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} last />}
           {salesTaxNote.dismissed ? null : (
             <Caveat tone="context" onDismiss={salesTaxNote.dismiss}>
               {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${
@@ -436,8 +441,13 @@ export function ReportsTab({
       {categoryTotals.length > 0 && (
         <BentoCell span={6}>
           <BentoCard title="Where the money went" scope={rangeLabel}>
-            {categoryTotals.map((row) => (
-              <StatementRow key={row.category} label={expenseCategoryLabel(row.category)} amountCents={row.totalCents} />
+            {categoryTotals.map((row, index) => (
+              <StatementRow
+                key={row.category}
+                label={expenseCategoryLabel(row.category)}
+                amountCents={row.totalCents}
+                last={index === categoryTotals.length - 1}
+              />
             ))}
           </BentoCard>
         </BentoCell>

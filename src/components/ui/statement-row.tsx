@@ -40,6 +40,15 @@ export function StatementRow({
   variant = 'item',
   /** Tints the figure green when positive is good and it is. Totals only. */
   tone,
+  /**
+   * Last row of its group — drops the trailing hairline.
+   *
+   * Rows are loose siblings rather than a list, so nothing can work out on its
+   * own that it is last, and a rule hanging under the final row with only card
+   * padding beneath it reads as a group that got cut off. `total` never needs
+   * this: it is a filled panel and carries no rule either way.
+   */
+  last = false,
 }: {
   label: string;
   hint?: string;
@@ -47,14 +56,23 @@ export function StatementRow({
   value?: string;
   variant?: StatementVariant;
   tone?: 'default' | 'positive';
+  last?: boolean;
 }) {
   const text = value ?? (amountCents === undefined ? '' : formatAccountingCents(amountCents));
   const negative = amountCents !== undefined && amountCents < 0;
+  // The bottom line is always coloured — green when the shop made money, red
+  // when it lost it. Everywhere else colour is opt-in via `tone`, but a net
+  // profit printed in plain ink is the one figure on the card a reader is
+  // looking for, and it should not take a second read to see which way it went.
+  // The signed figure is right there beside it, so the colour is reinforcing
+  // something already stated rather than carrying it alone.
+  const totalPositive = variant === 'total' && !negative;
 
   return (
     <View
       style={[
         styles.row,
+        last && styles.rowLast,
         variant === 'emphasis' && styles.rowEmphasis,
         variant === 'total' && styles.rowTotal,
       ]}
@@ -82,7 +100,7 @@ export function StatementRow({
           (variant === 'emphasis' || variant === 'total') && styles.amountStrong,
           variant === 'total' && styles.amountTotal,
           negative && styles.amountNegative,
-          tone === 'positive' && !negative && styles.amountPositive,
+          (tone === 'positive' || totalPositive) && !negative && styles.amountPositive,
         ]}
       >
         {text}
@@ -92,32 +110,56 @@ export function StatementRow({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, paddingVertical: 9 },
-  rowEmphasis: { borderTopWidth: 1, borderTopColor: theme.border, paddingTop: 11 },
-  // 2px and the text colour rather than the border colour: the bottom line of
-  // a statement should read as a rule under everything above it, not as one
-  // more divider.
-  rowTotal: { borderTopWidth: 2, borderTopColor: theme.text, marginTop: 4, paddingTop: 12 },
+  // A hairline under every row, so the statement reads as ruled lines rather
+  // than as floating pairs of text.
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.bentoLine,
+  },
+  rowLast: { borderBottomWidth: 0 },
+  // `bentoRule`, not `bentoLine`: a subtotal's rule has to be legible AS a
+  // stronger line than the ones dividing the items above it, or the two read
+  // as the same kind of break and the subtotal stops looking like one.
+  rowEmphasis: { borderTopWidth: 1, borderTopColor: theme.bentoRule, paddingTop: 12 },
+  // A filled panel, not a rule. The bottom line is the one figure a reader
+  // came to the card for, and a heavy black rule above it was doing the job by
+  // shouting — it read as a divider between two halves of the card rather than
+  // as the card's conclusion. The soft fill separates it without adding weight,
+  // and it needs no rules of its own.
+  rowTotal: {
+    borderTopWidth: 0,
+    borderBottomWidth: 0,
+    backgroundColor: theme.bentoSoft,
+    borderRadius: 14,
+    marginTop: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+  },
 
   labelWrap: { flex: 1, minWidth: 0 },
   labelWrapSub: { paddingLeft: 16 },
-  label: { fontSize: 13, color: theme.text },
-  labelSub: { color: theme.textSecondary },
+  label: { fontSize: 13.5, fontWeight: '600', color: theme.bentoInk },
+  labelSub: { color: theme.bentoMuted },
   labelStrong: { fontWeight: '800' },
-  labelTotal: { fontSize: 14 },
-  hint: { fontSize: 11, color: theme.textSecondary, marginTop: 2, lineHeight: 15 },
+  labelTotal: { fontSize: 14.5 },
+  hint: { fontSize: 11, fontWeight: '400', color: theme.bentoMuted, marginTop: 2, lineHeight: 15 },
 
   amount: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: theme.text,
+    fontSize: 15,
+    fontWeight: '800',
+    color: theme.bentoInk,
     // Digits line up down the column. Ignored on native, honoured on web,
     // which is where these tables are actually read side by side.
     fontVariant: ['tabular-nums'],
   },
-  amountSub: { fontWeight: '600', color: theme.textSecondary },
+  amountSub: { fontWeight: '600', color: theme.bentoMuted },
   amountStrong: { fontWeight: '800' },
-  amountTotal: { fontSize: 19, letterSpacing: -0.5 },
-  amountNegative: { color: theme.danger },
-  amountPositive: { color: theme.success },
+  amountTotal: { fontSize: 19, letterSpacing: -0.4 },
+  amountNegative: { color: theme.bentoLoss },
+  amountPositive: { color: theme.bentoProfit },
 });

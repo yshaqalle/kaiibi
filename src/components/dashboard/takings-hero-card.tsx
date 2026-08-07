@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Svg, { Defs, RadialGradient, Rect, Stop } from 'react-native-svg';
 
 import { BENTO_RADIUS, Colors } from '@/constants/theme';
 import { formatAccountingCents } from '@/lib/currency';
@@ -74,6 +75,26 @@ export function TakingsHeroCard({
 
   return (
     <View style={styles.card}>
+      {/* The design's two radial washes: a bare lift from the top-left and a
+          teal one from the bottom-right. On a card this size flat ink reads as
+          a hole punched in the page rather than as a surface. Decorative only,
+          and behind everything. */}
+      <View style={styles.wash} pointerEvents="none">
+        <Svg width="100%" height="100%">
+          <Defs>
+            <RadialGradient id="heroLift" cx="0%" cy="0%" r="110%">
+              <Stop offset="0" stopColor="#ffffff" stopOpacity={0.07} />
+              <Stop offset="0.55" stopColor="#ffffff" stopOpacity={0} />
+            </RadialGradient>
+            <RadialGradient id="heroTeal" cx="100%" cy="118%" r="115%">
+              <Stop offset="0" stopColor={theme.bentoSeries2} stopOpacity={0.22} />
+              <Stop offset="0.62" stopColor={theme.bentoSeries2} stopOpacity={0} />
+            </RadialGradient>
+          </Defs>
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#heroTeal)" />
+          <Rect x="0" y="0" width="100%" height="100%" fill="url(#heroLift)" />
+        </Svg>
+      </View>
       <View style={styles.head}>
         <Text style={styles.eyebrow}>Takings</Text>
         {/* Hidden entirely in money-out, rather than shown and ignored. */}
@@ -141,11 +162,18 @@ export function TakingsHeroCard({
 }
 
 const styles = StyleSheet.create({
+  // `flex: 1` so the card fills the height its cell was stretched to. Without
+  // it the card sized to its own content and stopped short of the white one
+  // beside it — the Overview row read as five cards of five different heights
+  // rather than as one band, which is the whole reason the grid stretches.
   card: {
+    flex: 1,
     borderRadius: BENTO_RADIUS,
     backgroundColor: theme.bentoInk,
     padding: 18,
+    overflow: 'hidden',
   },
+  wash: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, minHeight: 30 },
   eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.2, textTransform: 'uppercase', color: '#c7c7cf' },
   label: { fontSize: 12, color: ON_INK_MUTED, marginTop: 14 },
@@ -171,7 +199,17 @@ const styles = StyleSheet.create({
   segLabel: { fontSize: 12.5, fontWeight: '700', color: '#ffffff' },
   segLabelOn: { color: theme.bentoInk },
   rule: { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.16)', marginTop: 16, marginBottom: 12 },
-  flowRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' },
+  // `marginTop: auto` takes up whatever height the stretch handed the card and
+  // puts it ABOVE this block, so the bottom line sits on the bottom edge
+  // instead of floating directly under the rule with dead space beneath it.
+  flowRow: {
+    marginTop: 'auto',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexWrap: 'wrap',
+  },
   flowText: { flexGrow: 1, flexShrink: 1, flexBasis: 120 },
   flowValue: { fontSize: 18, fontWeight: '800', color: '#ffffff', marginTop: 2, fontVariant: ['tabular-nums'] },
   // The minus sign in the value is what says "out"; this only reinforces it.

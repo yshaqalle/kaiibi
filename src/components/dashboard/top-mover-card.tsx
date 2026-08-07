@@ -62,12 +62,24 @@ export function TopMoverCard({
         </View>
       </View>
 
-      {/* The arrow, not the colour, is what says which way this went. Profit
+      {/* The SIGN, not the colour, is what says which way this went. Profit
           green and loss red sit at ΔE 4.0 for deutan viewers, so a figure in
-          either has to carry a glyph or a sign as well. */}
-      <Text style={[styles.change, isNew ? styles.changeNew : rising ? styles.changeUp : styles.changeDown]}>
-        {isNew ? 'New' : `${rising ? '↑' : '↓'} ${Math.abs(mover.changePct ?? 0).toFixed(0)}%`}
-      </Text>
+          either has to carry a glyph or a sign as well.
+          A sign rather than an arrow: an arrow beside "0%" claims a direction
+          the figure does not have, and a change of nothing is a real result
+          that this card has to be able to state. */}
+      {isNew ? (
+        <Text style={[styles.change, styles.changeSolo, styles.changeNew]}>New</Text>
+      ) : (
+        <View style={styles.changeRow}>
+          <Text style={[styles.change, rising ? styles.changeUp : styles.changeDown]}>
+            {`${rising ? '+' : '−'}${Math.abs(mover.changePct ?? 0).toFixed(0)}`}
+          </Text>
+          {/* Raised rather than baseline-aligned, so the number is what the
+              eye lands on and the unit stays subordinate to it. */}
+          <Text style={[styles.changeUnit, rising ? styles.changeUp : styles.changeDown]}>%</Text>
+        </View>
+      )}
 
       <View style={styles.metaRow}>
         <Text style={styles.amount}>{formatCompactCents(mover.revenueCents)}</Text>
@@ -87,14 +99,14 @@ function Sparkline({ values }: { values: number[] }) {
   const path = values
     .map((value, i) => {
       const x = (i / (values.length - 1)) * 100;
-      const y = 24 - (value / max) * 20;
+      const y = 48 - (value / max) * 42;
       return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
     })
     .join(' ');
 
   return (
     <View style={styles.spark}>
-      <Svg width="100%" height={26} viewBox="0 0 100 26" preserveAspectRatio="none">
+      <Svg width="100%" height={52} viewBox="0 0 100 52" preserveAspectRatio="none">
         {/* vectorEffect keeps the stroke 2px however far the viewBox is
             stretched — without it a wide card draws a hairline and a narrow
             one draws a slab. */}
@@ -116,17 +128,25 @@ const styles = StyleSheet.create({
   card: { padding: 16 },
   head: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   headText: { flex: 1, minWidth: 0 },
+  // A rounded square, not a circle: circles on this screen are avatars and
+  // date chips — things that stand for a person or a day. A product marker is
+  // neither.
   chip: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     backgroundColor: theme.bentoSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.1 },
+  name: { fontSize: 13, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.1 },
   scope: { fontSize: 11, color: theme.bentoMuted, marginTop: 2 },
-  change: { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, marginTop: 10, fontVariant: ['tabular-nums'] },
+  changeRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 12 },
+  // No marginTop of its own — the row above owns the spacing, or `changeSolo`
+  // supplies it when the figure stands alone.
+  change: { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, fontVariant: ['tabular-nums'] },
+  changeSolo: { marginTop: 12 },
+  changeUnit: { fontSize: 14, fontWeight: '700', marginTop: 1 },
   changeUp: { color: theme.bentoProfit },
   changeDown: { color: theme.bentoLoss },
   // A product with no prior sales has no percentage, so it takes neither
@@ -136,8 +156,11 @@ const styles = StyleSheet.create({
   amount: {
     fontSize: 11.5,
     fontWeight: '800',
-    color: theme.bentoInk2,
-    backgroundColor: theme.bentoSoft,
+    // The neutral wash, not `bentoSoft`: this pill sits on the card's white,
+    // where a soft-grey pill beside a green or red figure reads as the one
+    // that has been greyed out.
+    color: theme.bentoAccentInk,
+    backgroundColor: theme.bentoAccentWash,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 3,
@@ -146,5 +169,5 @@ const styles = StyleSheet.create({
   },
   share: { fontSize: 11, color: theme.bentoMuted, fontVariant: ['tabular-nums'] },
   spark: { marginTop: 'auto', paddingTop: 12 },
-  sparkSpacer: { height: 26, marginTop: 12 },
+  sparkSpacer: { height: 52, marginTop: 12 },
 });

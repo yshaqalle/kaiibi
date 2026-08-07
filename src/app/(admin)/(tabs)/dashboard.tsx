@@ -15,13 +15,13 @@ import {
   InventoryGlanceCard,
   IncomePaidCard,
   MarginGaugeCard,
+  RevenueGoalCard,
   RevenueSparkCard,
 } from '@/components/dashboard/overview-cards';
 import { TakingsHeroCard, type TakingsMethod } from '@/components/dashboard/takings-hero-card';
 import { SalesPaceCard } from '@/components/dashboard/sales-pace-card';
 import { TopMoverCard } from '@/components/dashboard/top-mover-card';
 import { DashboardPageHeader } from '@/components/dashboard/page-header';
-import { GoalMeter } from '@/components/goal-meter';
 import { PaymentMixChart, type PaymentMixItem } from '@/components/payment-mix-chart';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
@@ -31,6 +31,7 @@ import { BentoCell, BentoGrid, BentoZone } from '@/components/ui/bento';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
+import { DeltaBadge } from '@/components/ui/delta-badge';
 import { StatementRow } from '@/components/ui/statement-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -41,11 +42,11 @@ import { listBudgets, listRecurringBills } from '@/lib/cash-budgets';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
 import { customerDisplayName, dormantCustomers, getCustomersStatsBatch, listCustomers } from '@/lib/customers';
 import { operatingExpenseCents } from '@/lib/expense-reporting';
+import { dayKeyFor } from '@/lib/period';
 import { listExpensesInRange } from '@/lib/expenses';
 import { invoiceTotals } from '@/lib/invoice-reporting';
 import { listOpenInvoices } from '@/lib/invoices';
 import { scopeToLocation } from '@/lib/location-reporting';
-import { hasMultipleLocations } from '@/lib/location-selection';
 import { listPayrollRuns } from '@/lib/payroll';
 import { methodLabel } from '@/lib/payment-methods';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
@@ -165,6 +166,9 @@ function Legend({ color, label }: { color: string; label: string }) {
 
 type HrSnapshot = {
   activeToday: number;
+  // The denominator. "3 on today" is not a fact until you know whether the
+  // shop has four staff or forty.
+  teamTotal: number;
   onLeave: StaffMember[];
   staleShifts: TimeEntry[];
   pendingTimeOff: TimeOffRequest[];
@@ -183,7 +187,6 @@ type MoneySnapshot = {
 export default function DashboardScreen() {
   const router = useRouter();
   const { shop, can, locations, activeLocation } = useAuth();
-  const showLocationName = hasMultipleLocations(locations);
   // Time and leave data is RLS-protected; without these the queries would just
   // fail, so the rows are left out rather than erroring the whole screen.
   const canSeeTeam = can('people.timesheet.view');
@@ -218,6 +221,10 @@ export default function DashboardScreen() {
   const [lowStock, setLowStock] = useState<Product[]>([]);
   const [expiringSoon, setExpiringSoon] = useState<Product[]>([]);
   const [monthToDateCents, setMonthToDateCents] = useState(0);
+  // The same month, day by day — what the Open hours card's Weeks view plots.
+  // Separate from `monthToDateCents` because a single total cannot be split
+  // into weeks after the fact.
+  const [monthDaily, setMonthDaily] = useState<DailyBucket[]>([]);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   // Every sale in the range, with its items. Already fetched for COGS and the
@@ -231,7 +238,16 @@ export default function DashboardScreen() {
   const [priorProducts, setPriorProducts] = useState<ProductSales[] | null>(null);
   // Same window, for the delta badges. Null until fetched, for the same
   // reason: no badge at all beats a comparison against an assumed zero.
-  const [prior, setPrior] = useState<{ revenueCents: number; expenseCents: number } | null>(null);
+  //
+  // `netProfitCents` here excludes accrued wages — the prior window's labour
+  // is not fetched — so the KPI strip only badges net profit when the current
+  // window has no accrual either. See the badge below.
+  const [prior, setPrior] = useState<{
+    revenueCents: number;
+    expenseCents: number;
+    orderCount: number;
+    netProfitCents: number;
+  } | null>(null);
   const [topCustomers, setTopCustomers] = useState<LeaderboardEntry[]>([]);
   const [hr, setHr] = useState<HrSnapshot | null>(null);
   const [money, setMoney] = useState<MoneySnapshot | null>(null);
@@ -296,9 +312,19 @@ export default function DashboardScreen() {
         canSeeExpenses ? listExpensesInRange(shop.id, priorSince, priorUntil) : Promise.resolve([]),
       ]);
       setPriorProducts(productPerformance(priorSales.sales, PRODUCT_SCAN_LIMIT));
+      const priorRevenueCents = netRevenueCents(priorSales.sales, priorSales.refunds);
+      const priorExpenseCents = operatingExpenseCents(scopeToLocation(priorExpenses, locationFilter));
+      // Free — the same sales set the movers already consumed. Cost of goods
+      // is what makes a net-profit comparison possible at all; without it the
+      // strip could only compare revenue, which moves for reasons profit does
+      // not.
+      const priorCogsCents = costOfGoodsSold(priorSales.sales, priorSales.refunds).cogsCents;
       setPrior({
-        revenueCents: netRevenueCents(priorSales.sales, priorSales.refunds),
-        expenseCents: operatingExpenseCents(scopeToLocation(priorExpenses, locationFilter)),
+        revenueCents: priorRevenueCents,
+        expenseCents: priorExpenseCents,
+        // One sale is one order, the same count `getDailyTotalsCents` buckets.
+        orderCount: priorSales.sales.length,
+        netProfitCents: priorRevenueCents - priorCogsCents - priorExpenseCents,
       });
     });
 
@@ -391,6 +417,7 @@ export default function DashboardScreen() {
         const leaveIds = onLeaveMemberIds(timeOff);
         setHr({
           activeToday: membersActiveToday(entries),
+          teamTotal: members.length,
           onLeave: members.filter((m) => leaveIds.has(m.id)),
           staleShifts: staleOpenShifts(entries),
           pendingTimeOff: timeOff.filter((r) => r.status === 'pending'),
@@ -419,6 +446,12 @@ export default function DashboardScreen() {
     // Scoped to the same store the goal belongs to, so the meter compares like
     // with like.
     getMonthToDateRevenueCents(shop.id, locationFilter).then(setMonthToDateCents);
+    // Same window, bucketed. The Weeks view needs the shape, not just the sum.
+    getDailyTotalsCents(shop.id, startOfThisMonth(), undefined, locationFilter)
+      .then(setMonthDaily)
+      // Its own catch: Weeks is one view of one card, and a failure here must
+      // not take the goal meter down with it.
+      .catch(() => setMonthDaily([]));
   }, [shop, locationFilter]);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
@@ -473,10 +506,9 @@ export default function DashboardScreen() {
     [money]
   );
 
-  const scopeName = useMemo(() => {
-    if (locationFilter === null) return 'All stores';
-    return locations.find((location) => location.id === locationFilter)?.name ?? 'This store';
-  }, [locations, locationFilter]);
+  // The goal card used to print the store name in its own title. It no longer
+  // needs to: the control bar at the top of the screen names the store every
+  // figure below it is scoped to, and no other card repeats that.
 
   // "Show my tasks" jumps to the Needs attention card. The offset is captured
   // from the cell's own onLayout rather than measured on demand: measure() is
@@ -520,6 +552,30 @@ export default function DashboardScreen() {
     [daily]
   );
 
+  // The best day in the range and what it took. A line answers "which way is
+  // this going"; it does not answer "which day was the good one", and that is
+  // the thing an owner acts on — it is the day worth staffing.
+  const revenuePeak = useMemo(() => {
+    if (daily.length === 0) return null;
+    const top = daily.reduce((best, d) => (d.netRevenueCents > best.netRevenueCents ? d : best));
+    return {
+      // Weekday names repeat once a range is longer than a week, so a longer
+      // range gets a date instead. "Tuesday" in a 30-day window names four days.
+      label: new Date(top.day).toLocaleDateString(
+        undefined,
+        daily.length <= 7 ? { weekday: 'long' } : { month: 'short', day: 'numeric' }
+      ),
+      cents: top.netRevenueCents,
+    };
+  }, [daily]);
+
+  // What the payment card sums to. Takings, not revenue: this is money
+  // collected, tax included, which is why it does not match the P&L above it.
+  const takingsCents = useMemo(
+    () => paymentMix.reduce((sum, entry) => sum + entry.amountCents, 0),
+    [paymentMix]
+  );
+
   // Every product sold in the range, ranked. Scanned deep rather than capped
   // at what is displayed, because the movers' share floor is measured against
   // the whole of it.
@@ -555,13 +611,17 @@ export default function DashboardScreen() {
   const comparePoints: GroupedBarPoint[] = useMemo(() => {
     const byDay = new Map<string, number>();
     for (const expense of expenses) {
-      const key = expense.occurredOn.slice(0, 10);
+      // `dayKeyFor`, not a date slice. `DailyBucket.day` is a `toDateString()`
+      // key ("Thu Aug 06 2026"), so slicing ten characters off each side
+      // compared "Thu Aug 06" against "2026-08-06" — a pair that can never
+      // match, which drew every expense bar at zero however much was spent.
+      const key = dayKeyFor(expense.occurredOn);
       byDay.set(key, (byDay.get(key) ?? 0) + expense.amountCents);
     }
     return daily.map((d) => ({
       label: new Date(d.day).toLocaleDateString(undefined, { weekday: 'short' }),
       a: d.netRevenueCents,
-      b: byDay.get(d.day.slice(0, 10)) ?? 0,
+      b: byDay.get(d.day) ?? 0,
     }));
   }, [daily, expenses]);
 
@@ -768,19 +828,18 @@ export default function DashboardScreen() {
               {cogs ? (
                 <CostedProductsCard soldCount={products.length} uncostedCount={cogs.uncostedItemCount} />
               ) : null}
+              {/* No scope pill and no title: the caption says "monthly goal"
+                  in words, which is the same fact a "This month" pill carried
+                  and one less thing in a card this small. The goal is a
+                  calendar-month commitment either way — it never follows the
+                  range selector. */}
               {goalCents ? (
-                <Card variant="bento" style={styles.stackCard}>
-                  <View style={styles.cardHead}>
-                    <Text style={styles.stackTitle}>
-                      {showLocationName ? `Goal · ${scopeName}` : 'Revenue goal'}
-                    </Text>
-                    {/* NOT the range pill: the goal is a calendar-month
-                        commitment and getMonthToDateRevenueCents ignores the
-                        selector, so "7 days" here would be a lie. */}
-                    <Text style={styles.scopePillSmall}>This month</Text>
-                  </View>
-                  <GoalMeter valueCents={monthToDateCents} goalCents={goalCents} />
-                </Card>
+                <RevenueGoalCard
+                  monthToDateCents={monthToDateCents}
+                  goalCents={goalCents}
+                  daysLeftInMonth={daysLeftInMonth()}
+                  onEdit={() => router.push('/settings')}
+                />
               ) : null}
             </View>
           </BentoCell>
@@ -795,41 +854,61 @@ export default function DashboardScreen() {
             />
           </BentoCell>
 
-          <BentoCell span={canSeeExpenses ? 8 : 12}>
+          {/* Span 12, not 8. Six tiles in one clean row is the whole form of
+              this strip, and at eight columns the last two wrapped onto a
+              second line beside a gap where nothing sat. */}
+          <BentoCell span={12}>
             <Card variant="bento" style={styles.card}>
               <View style={styles.cardHead}>
                 <Text style={styles.cardTitle}>This period at a glance</Text>
                 <Text style={styles.scopePill}>{rangeLabel}</Text>
               </View>
               <View style={styles.metricRow}>
-                {/* Revenue and Expenses are deliberately absent: both are
-                    stated at full size in the Overview row above, and printing
-                    the same two figures twice on one screen is how a dashboard
-                    stops being read. */}
+                {/* Revenue, Expenses and Net margin are deliberately absent:
+                    all three are stated at full size in the Overview row
+                    above, and printing the same figures twice on one screen is
+                    how a dashboard stops being read. Six figures nobody has
+                    stated yet, one row.
+                    "Customers to check on" is not here for the same reason —
+                    it is already a row in Needs attention below. */}
                 {cogs && <StatTile variant="bento" value={formatCompactCents(grossProfitCents)} label="Gross profit" />}
                 {canSeeExpenses && (
                   <StatTile variant="bento"
                     value={formatCompactCents(pnl.netProfitCents)}
                     label="Net profit"
                     tone={pnl.netProfitCents < 0 ? 'warning' : 'positive'}
+                    // Only when the two windows were computed the same way.
+                    // The prior window's accrued wages are never fetched, so
+                    // once this period carries an accrual the comparison would
+                    // be against a figure that excludes one — a badge that
+                    // reports a fall the shop did not have.
+                    badge={
+                      pnl.accruedLaborCents === 0 ? (
+                        <DeltaBadge current={pnl.netProfitCents} previous={prior?.netProfitCents} />
+                      ) : undefined
+                    }
                   />
                 )}
-                <StatTile variant="bento" value={String(orderCount)} label="Orders" />
+                <StatTile
+                  variant="bento"
+                  value={String(orderCount)}
+                  label="Orders"
+                  badge={<DeltaBadge current={orderCount} previous={prior?.orderCount} />}
+                />
                 <StatTile
                   variant="bento"
                   value={formatCompactCents(orderCount ? Math.round(revenueCents / orderCount) : 0)}
                   label="Average sale"
                 />
                 <StatTile variant="bento" value={formatCompactCents(salesTaxCents)} label="Sales tax held" hint="owed onward, not yours" />
-                {canSeeCustomers && (
-                  <StatTile variant="bento"
-                    value={String(dormant.length)}
-                    label="Customers to check on"
-                    tone={dormant.length > 0 ? 'warning' : 'default'}
-                  />
+                {canSeeTeam && hr && (
+                  <StatTile variant="bento" value={`${hr.activeToday}/${hr.teamTotal}`} label="Team on today" />
                 )}
-                {canSeeTeam && hr && <StatTile variant="bento" value={String(hr.activeToday)} label="Team active today" />}
               </View>
+              <Text style={styles.cardFoot}>
+                Sales tax is collected for the authority and is not yours to spend — which is why
+                takings above exceed revenue by exactly this much.
+              </Text>
             </Card>
           </BentoCell>
 
@@ -899,6 +978,10 @@ export default function DashboardScreen() {
                     { label: 'Net profit', value: pnl.netProfitCents, total: true },
                   ]}
                 />
+                <Text style={styles.cardFoot}>
+                  Green and red are backed by the signed figure on every bar — the colour alone
+                  never carries the meaning.
+                </Text>
               </Card>
             </BentoCell>
           ) : null}
@@ -951,6 +1034,7 @@ export default function DashboardScreen() {
               <OpenHoursCard
                 sales={rangeSales}
                 daily={daily}
+                monthDaily={monthDaily}
                 openingHours={scopeOpeningHours}
                 rangeLabel={rangeLabel}
               />
@@ -964,6 +1048,12 @@ export default function DashboardScreen() {
                 <Text style={styles.scopePill}>{rangeLabel}</Text>
               </View>
               <TrendChart data={trendData} formatValue={formatCompactCents} showAxis />
+              {revenuePeak ? (
+                <Text style={styles.cardFoot}>
+                  {`${revenuePeak.label} is the range's peak at ${formatAccountingCents(revenuePeak.cents)}. ` +
+                    `Net of sales tax and refunds, so this line matches the revenue row in the P&L above.`}
+                </Text>
+              ) : null}
             </Card>
           </BentoCell>
 
@@ -1015,6 +1105,18 @@ export default function DashboardScreen() {
                 <Text style={styles.scopePill}>{rangeLabel}</Text>
               </View>
               <PaymentMixChart items={paymentMix} formatValue={formatAccountingCents} />
+              <View style={styles.legendRow}>
+                <Legend color={theme.bentoSeries1} label="Cash" />
+                <Legend color={theme.bentoSeries2} label="ZAAD" />
+                <Legend color={theme.bentoSeries3} label="e-Dahab" />
+                <Legend color={theme.bentoSeries4} label="Other" />
+              </View>
+              {/* The one card on this screen that does NOT sum to revenue, so
+                  it says so rather than leaving a reader to reconcile it
+                  against the P&L and find a gap the size of the tax. */}
+              <Text style={styles.cardFoot}>
+                {`Sums to takings (${formatAccountingCents(takingsCents)}), not revenue — this is money collected, tax included.`}
+              </Text>
             </Card>
           </BentoCell>
 
@@ -1061,7 +1163,11 @@ export default function DashboardScreen() {
                 </View>
                 <StatementRow label="Owed to suppliers" hint={`${owed.openCount} open ${owed.openCount === 1 ? 'bill' : 'bills'}`} amountCents={owed.outstandingCents} />
                 {owed.overdueCents > 0 && <StatementRow label="of that, overdue" variant="sub" amountCents={owed.overdueCents} />}
-                <StatementRow label="Committed every month" hint="active recurring bills" amountCents={monthlyCommitmentCents} variant="emphasis" />
+                <StatementRow label="Committed every month" hint="active recurring bills" amountCents={monthlyCommitmentCents} variant="emphasis" last />
+                <Text style={styles.cardFoot}>
+                  These figures deliberately ignore the range above — what you owe is a fact about
+                  now, not about the window the rest of this screen is showing.
+                </Text>
               </Card>
             </BentoCell>
           ) : null}
@@ -1073,9 +1179,19 @@ export default function DashboardScreen() {
             <Card variant="bento" style={styles.card}>
               <View style={styles.cardHead}>
                 <Text style={styles.cardTitle}>Needs attention</Text>
-                <Text style={styles.scopePill}>As of today</Text>
+                {/* The count, not "As of today". Every other card on this
+                    screen is scoped by a window; this one is scoped by how
+                    much there is, and the number is the thing a reader wants
+                    before they decide to look. */}
+                <Text style={styles.scopePill}>
+                  {`${attention.length} ${attention.length === 1 ? 'item' : 'items'}`}
+                </Text>
               </View>
               <AttentionList items={attention} onSelect={openAttention} />
+              <Text style={styles.cardFoot}>
+                Ordered by what blocks someone or costs money today, not by area. The severity
+                stripe repeats that ordering in form, so urgency survives a greyscale print.
+              </Text>
             </Card>
           </BentoCell>
 
@@ -1175,20 +1291,33 @@ export default function DashboardScreen() {
           <BentoZone>Latest sales</BentoZone>
 
           {recentSales.length > 0 && (
-            <BentoCell span={6}>
+            <BentoCell span={12}>
               <Card variant="bento" style={styles.card}>
                 <View style={styles.cardHead}>
                   <Text style={styles.cardTitle}>Recent transactions</Text>
                   <Text style={styles.scopePill}>Latest {recentSales.length}</Text>
                 </View>
-                {recentSales.map((sale) => (
-                  <View key={sale.id} style={styles.recentRow}>
+                {recentSales.map((sale, index) => (
+                  <View
+                    key={sale.id}
+                    style={[styles.recentRow, index === recentSales.length - 1 && styles.recentRowLast]}
+                  >
                     <Text style={styles.recentName} numberOfLines={1}>
                       {sale.items?.map((item) => item.productName).join(', ') || 'Sale'}
                     </Text>
-                    <Text style={styles.recentMeta}>{formatAccountingCents(sale.totalCents)}</Text>
+                    {/* The middle column. Across the full width a name and a
+                        number sit at opposite ends of the screen with nothing
+                        between them, and the sale already carries the time. */}
+                    <Text style={styles.recentTime}>
+                      {new Date(sale.createdAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+                    </Text>
+                    <Text style={styles.recentAmount}>{formatAccountingCents(sale.totalCents)}</Text>
                   </View>
                 ))}
+                <Text style={styles.cardFoot}>
+                  Gross of tax, like a till reading — the same figure the customer was charged, not
+                  the revenue it becomes in the P&amp;L.
+                </Text>
               </Card>
             </BentoCell>
           )}
@@ -1231,26 +1360,32 @@ const styles = StyleSheet.create({
   // Two cards sharing one cell. No flex on the children -- forcing them to
   // split the row height gave the goal less room than its meter needed.
   stack: { gap: 14 },
-  stackCard: { padding: 16 },
-  stackTitle: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk, flexShrink: 1 },
-  scopePillSmall: {
-    fontSize: 10.5,
-    fontWeight: '700',
-    color: theme.bentoInk2,
-    borderWidth: 1,
-    borderColor: theme.bentoLine,
-    borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    overflow: 'hidden',
-  },
   cardFoot: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 10, lineHeight: 17 },
   legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 8 },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendDot: { width: 9, height: 9, borderRadius: 5 },
   legendLabel: { fontSize: 11.5, color: theme.bentoMuted, fontWeight: '600' },
-  recentRow: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
-  recentName: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
-  recentMeta: { fontSize: 11, marginTop: 3, color: theme.bentoMuted },
+  // Three columns, baseline-aligned: what sold, when, and for how much. The
+  // amount takes a fixed width so the figures form a column that can be
+  // scanned down rather than sitting wherever each name happens to end.
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 14,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.bentoLine,
+  },
+  recentRowLast: { borderBottomWidth: 0 },
+  recentName: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: theme.bentoInk },
+  recentTime: { fontSize: 11.5, color: theme.bentoMuted, fontVariant: ['tabular-nums'] },
+  recentAmount: {
+    width: 92,
+    textAlign: 'right',
+    fontSize: 13,
+    fontWeight: '800',
+    color: theme.bentoInk,
+    fontVariant: ['tabular-nums'],
+  },
   error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 12 },
 });

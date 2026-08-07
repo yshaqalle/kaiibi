@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import Svg, { Circle, Path, Polyline } from 'react-native-svg';
+import Svg, { Circle, Path, Polyline, Text as SvgText } from 'react-native-svg';
 
 import { Card } from '@/components/card';
 import { DeltaBadge } from '@/components/ui/delta-badge';
@@ -16,7 +16,7 @@ const theme = Colors.light;
  * heading says what it is — so they carry `aria-hidden` and never become the
  * only signal.
  */
-function IconChip({ glyph }: { glyph: 'up' | 'down' | 'tag' | 'trend' }) {
+function IconChip({ glyph }: { glyph: 'up' | 'down' | 'tag' | 'trend' | 'target' }) {
   return (
     <View style={styles.chip}>
       <Svg width={16} height={16} viewBox="0 0 24 24" aria-hidden>
@@ -48,6 +48,13 @@ function IconChip({ glyph }: { glyph: 'up' | 'down' | 'tag' | 'trend' }) {
           <>
             <Polyline points="3,16 9,10 13,14 21,5" stroke={theme.bentoInk2} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
             <Polyline points="15,5 21,5 21,11" stroke={theme.bentoInk2} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" fill="none" />
+          </>
+        ) : null}
+        {glyph === 'target' ? (
+          <>
+            <Circle cx={12} cy={12} r={8.5} stroke={theme.bentoInk2} strokeWidth={1.75} fill="none" />
+            <Circle cx={12} cy={12} r={4.5} stroke={theme.bentoInk2} strokeWidth={1.75} fill="none" />
+            <Circle cx={12} cy={12} r={1} fill={theme.bentoInk2} />
           </>
         ) : null}
       </Svg>
@@ -176,6 +183,99 @@ export function CostedProductsCard({ soldCount, uncostedCount }: { soldCount: nu
 }
 
 /**
+ * How far into the monthly revenue goal the shop is.
+ *
+ * A ring rather than a bar. The question is "how much of the month's target is
+ * done", which is a proportion of a fixed whole — the shape a ring states
+ * directly and a bar only states once you have read both ends of it. The old
+ * bar spent its height printing the figure, the percentage, a zero and the
+ * goal, four numbers for one fact.
+ *
+ * The percentage is drawn INSIDE the ring, and the money is spelled out in the
+ * caption underneath, because a ring alone cannot be read to the dollar and
+ * this is a figure people quote at each other.
+ */
+export function RevenueGoalCard({
+  monthToDateCents,
+  goalCents,
+  daysLeftInMonth,
+  onEdit,
+}: {
+  monthToDateCents: number;
+  goalCents: number;
+  daysLeftInMonth: number;
+  onEdit: () => void;
+}) {
+  const pct = goalCents > 0 ? (monthToDateCents / goalCents) * 100 : 0;
+  const remainingCents = Math.max(0, goalCents - monthToDateCents);
+  const met = remainingCents === 0;
+
+  return (
+    <Card variant="bento" fill style={styles.goalCard}>
+      <View style={styles.goalHead}>
+        <IconChip glyph="target" />
+        <Pressable onPress={onEdit} style={({ pressed }) => [styles.editPill, pressed && styles.editPillPressed]} role="button">
+          <Text style={styles.editLabel}>Edit</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.goalRing}>
+        <GoalRing pct={pct} />
+      </View>
+
+      <Text style={styles.goalCaption}>
+        {`${formatCompactCents(monthToDateCents)} of ${formatCompactCents(goalCents)} monthly goal · ` +
+          // Dividing by the days left is what the run-rate means, and on the
+          // last day of the month that divisor is zero. Both edges get a
+          // sentence instead of an Infinity or a pointless "$0/day".
+          (met
+            ? 'already met'
+            : daysLeftInMonth > 0
+              ? `${formatCompactCents(Math.round(remainingCents / daysLeftInMonth))}/day to land it`
+              : `${formatCompactCents(remainingCents)} short with the month over`)}
+      </Text>
+    </Card>
+  );
+}
+
+const RING = 120;
+const RING_R = 45.6;
+const RING_STROKE = 13.2;
+const RING_C = 2 * Math.PI * RING_R;
+
+function GoalRing({ pct }: { pct: number }) {
+  const swept = Math.max(0, Math.min(100, pct));
+  return (
+    <Svg
+      width="100%"
+      height="100%"
+      viewBox={`0 0 ${RING} ${RING}`}
+      role="img"
+      aria-label={`${Math.round(pct)}% of the monthly revenue goal.`}
+    >
+      <Circle cx={60} cy={60} r={RING_R} fill="none" stroke={theme.bentoLine} strokeWidth={RING_STROKE} />
+      <Circle
+        cx={60}
+        cy={60}
+        r={RING_R}
+        fill="none"
+        stroke={theme.bentoSeries1}
+        strokeWidth={RING_STROKE}
+        strokeLinecap="round"
+        strokeDasharray={`${((swept / 100) * RING_C).toFixed(1)} ${RING_C.toFixed(1)}`}
+        // Twelve o'clock, not three — where a progress ring is read from.
+        transform={`rotate(-90 60 60)`}
+      />
+      {/* SVG text, so it scales with the ring rather than needing its own
+          absolute overlay to stay centred at every card width. */}
+      <SvgText x={60} y={67} textAnchor="middle" fontSize={23} fontWeight="800" fill={theme.bentoInk}>
+        {`${Math.round(pct)}%`}
+      </SvgText>
+    </Svg>
+  );
+}
+
+/**
  * Revenue as a shape, with the period's total and whether it was profitable.
  *
  * The smallest card in the row and the one that answers "was this a good
@@ -246,6 +346,29 @@ export function RevenueSparkCard({
 
 const styles = StyleSheet.create({
   card: { padding: 16 },
+  goalCard: { paddingVertical: 16, paddingHorizontal: 18 },
+  goalHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  // Capped and centred rather than filling the card: the ring is a proportion,
+  // and a proportion does not get more readable by getting bigger. Squared by
+  // aspectRatio so the SVG's own viewBox is never letterboxed.
+  goalRing: { width: '100%', maxWidth: 112, aspectRatio: 1, alignSelf: 'center', marginTop: 8 },
+  goalCaption: {
+    fontSize: 11.5,
+    color: theme.bentoMuted,
+    lineHeight: 17,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  editPill: {
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    overflow: 'hidden',
+  },
+  editPillPressed: { backgroundColor: theme.bentoSoft },
+  editLabel: { fontSize: 12, fontWeight: '700', color: theme.bentoInk2 },
   chip: {
     width: 32,
     height: 32,

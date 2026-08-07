@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receipt — kaiibi design mockup</title>
+<style>
+  /* ------------------------------------------------------------------
+     Thermal-tape receipt. 80mm roll, monospace, dashed rules.
+     Every field below maps to a real property on ReceiptData
+     (src/lib/receipt.ts) — nothing here is invented copy except where
+     the NOTES panel says otherwise.
+     ------------------------------------------------------------------ */
+  @page { size: 80mm auto; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", "Courier New", monospace;
+  }
+
+  .receipt {
+    width: 80mm;
+    margin: 0 auto;
+    background: #ffffff;
+    padding: 22px 16px 14px;
+    color: #111111;
+    font-size: 11.5px;
+    line-height: 1.55;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Screen-only staging. Never applied to print or the generated PDF. */
+  @media screen {
+    html, body { background: #e7e6e1; }
+    .stage {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 28px;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 24px 16px 60px;
+    }
+    .receipt {
+      box-shadow: 0 6px 26px rgba(0, 0, 0, 0.16);
+    }
+    .variant { max-width: 80mm; }
+    .variant-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #6d6b63;
+      margin: 0 0 8px 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+  }
+
+  .center { text-align: center; }
+
+  /* ---- Header ---- */
+  .logo {
+    width: 46px;
+    height: 46px;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto 8px;
+  }
+  .shop-name {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    line-height: 1.25;
+    margin-bottom: 3px;
+  }
+  /* Branch name — only printed for multi-location shops, and never when it
+     duplicates the shop name (storeNameFor() in src/lib/receipt.ts). */
+  .store-name {
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: #333;
+    margin-bottom: 6px;
+  }
+  .shop-meta {
+    font-size: 10.5px;
+    color: #333;
+    margin: 1px 0;
+  }
+
+  /* ---- Rules ---- */
+  .dashed {
+    height: 1px;
+    margin: 11px 0;
+    background-image: repeating-linear-gradient(to right, #8f8f8f 0 4px, transparent 4px 9px);
+  }
+  .dashed.tight { margin: 7px 0; }
+  .solid {
+    height: 1.5px;
+    background: #111111;
+    margin: 8px 0;
+  }
+
+  /* ---- Label/value rows ---- */
+  .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    margin: 2px 0;
+  }
+  .row .label { color: #333; }
+  .row .value { text-align: right; white-space: nowrap; }
+
+  /* ---- Items table ---- */
+  table.items {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4px 0 2px;
+    font-size: 11px;
+  }
+  table.items th {
+    text-align: left;
+    font-weight: 700;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    padding-bottom: 5px;
+  }
+  table.items thead tr { border-bottom: 1px solid transparent; }
+  table.items th.num, table.items td.num { text-align: right; white-space: nowrap; }
+  table.items th.qty, table.items td.qty { width: 3ch; }
+  table.items th.price, table.items td.price { width: 7ch; }
+  table.items th.total, table.items td.total { width: 7ch; }
+  table.items td { padding: 4px 0 0; vertical-align: top; }
+  table.items td.item-name { padding-right: 8px; word-break: break-word; }
+  /* Second line under an item: kaiibi prints a per-line discount here
+     (ReceiptItem.discountCents), not a product description. */
+  .item-sub { font-size: 9.5px; color: #666; display: block; }
+  .rule-under-head {
+    height: 1px;
+    background-image: repeating-linear-gradient(to right, #8f8f8f 0 3px, transparent 3px 7px);
+    margin-bottom: 2px;
+  }
+
+  /* ---- Totals ---- */
+  .totals { margin-top: 8px; font-size: 11.5px; }
+  .totals .row.grand {
+    font-size: 15px;
+    font-weight: 700;
+    margin-top: 8px;
+    padding-top: 9px;
+    border-top: 1.5px solid #111111;
+    letter-spacing: 0.5px;
+  }
+
+  /* ---- Payments ---- */
+  .payment { font-size: 10.5px; color: #333; }
+  .payment .sub {
+    font-size: 9.5px;
+    color: #666;
+    margin: 0 0 2px 0;
+  }
+
+  /* ---- Customer ---- */
+  .section-label {
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #666;
+    margin-bottom: 3px;
+  }
+  .customer { font-size: 10.5px; color: #333; }
+
+  /* ---- QR ----
+     Encodes KR- plus the sale's uuid, uppercase. Uppercase hex and a hyphen
+     are all inside QR's alphanumeric charset, which holds the symbol at
+     version 2 (25x25) at ECC-M; lowercase would force byte mode and a
+     larger symbol. ~16mm printed at 4 dots/module on a 203dpi head. */
+  .qr { text-align: center; margin: 14px 0 4px; }
+  .qr svg {
+    width: 60px;
+    height: 60px;
+    display: block;
+    margin: 0 auto;
+    shape-rendering: crispEdges;
+  }
+  .qr-num {
+    font-size: 9.5px;
+    letter-spacing: 2.5px;
+    margin-top: 6px;
+    color: #333;
+  }
+
+  /* ---- Footer ---- */
+  .thanks {
+    text-align: center;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin: 12px 0 3px;
+  }
+  .policy {
+    text-align: center;
+    font-size: 9.5px;
+    line-height: 1.45;
+    color: #555;
+    margin-bottom: 3px;
+  }
+  .powered-by {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    margin-top: 14px;
+    padding-top: 11px;
+    background-image: repeating-linear-gradient(to right, #8f8f8f 0 4px, transparent 4px 9px);
+    background-size: 100% 1px;
+    background-repeat: no-repeat;
+    background-position: top left;
+  }
+  .powered-by .pb-text { font-size: 9.5px; color: #888; letter-spacing: 0.3px; }
+  /* assets/images/kaiibi.jpeg — the platform mark, a white K on a black
+     square. Given a small radius so it reads as a badge rather than a
+     printing artifact, and `print-color-adjust` so the black square
+     survives a browser's "background graphics off" print default. */
+  .powered-by img.mark {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    display: block;
+    border-radius: 3px;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .powered-by .pb-name { font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; color: #111; }
+
+  /* ---- Screen-only notes ---- */
+  .notes {
+    max-width: 720px;
+    margin: 28px auto 0;
+    padding: 20px 22px;
+    background: #ffffff;
+    border-radius: 14px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: #2c2b27;
+  }
+  .notes h2 { font-size: 14px; letter-spacing: 0.4px; text-transform: uppercase; margin: 0 0 10px; }
+  .notes h3 { font-size: 13px; margin: 18px 0 6px; }
+  .notes ul { margin: 0; padding-left: 20px; }
+  .notes li { margin-bottom: 5px; }
+  .notes code {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    background: #f0efea;
+    padding: 1px 5px;
+    border-radius: 4px;
+  }
+  .notes .open { color: #8a4b00; font-weight: 600; }
+  @media print { .notes, .variant-label { display: none; } .stage { display: block; padding: 0; } }
+</style>
+</head>
+<body>
+
+<div class="stage">
+
+  <!-- ================================================================
+       VARIANT A — everything on. Multi-location shop, logo, hours,
+       cashier, line discount, cart discount, loyalty points in and out,
+       foreign-currency payment, named customer, return policy.
+       ================================================================ -->
+  <div class="variant">
+    <p class="variant-label">A · Full receipt (every optional block)</p>
+    <div class="receipt">
+
+      <div class="center">
+        <img class="logo" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='9' fill='%23111'/%3E%3Ctext x='20' y='26.5' font-family='monospace' font-size='15' font-weight='700' fill='%23fff' text-anchor='middle'%3EHG%3C/text%3E%3C/svg%3E" alt="">
+        <div class="shop-name">Hodan Grocery</div>
+        <div class="store-name">Bakaara Branch</div>
+        <div class="shop-meta">Mogadishu · Hodan</div>
+        <div class="shop-meta">+252 61 234 5678</div>
+        <div class="shop-meta">Open today 8:00 AM – 10:00 PM</div>
+      </div>
+
+      <div class="dashed"></div>
+
+      <div class="row"><span class="label">Receipt #</span><span class="value">4F2A-0193</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">08/06/2026</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">3:42 PM</span></div>
+      <div class="row"><span class="label">Cashier</span><span class="value">Maria G.</span></div>
+
+      <div class="dashed"></div>
+
+      <table class="items">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num qty">Qty</th>
+            <th class="num price">Price</th>
+            <th class="num total">Total</th>
+          </tr>
+        </thead>
+      </table>
+      <div class="rule-under-head"></div>
+      <table class="items">
+        <tbody>
+          <tr>
+            <td class="item-name">House Blend Coffee</td>
+            <td class="num qty">1</td>
+            <td class="num price">8.50</td>
+            <td class="num total">8.50</td>
+          </tr>
+          <tr>
+            <td class="item-name">Almond Croissant<span class="item-sub">discount −0.50</span></td>
+            <td class="num qty">2</td>
+            <td class="num price">3.75</td>
+            <td class="num total">7.00</td>
+          </tr>
+          <tr>
+            <td class="item-name">Ceramic Mug</td>
+            <td class="num qty">1</td>
+            <td class="num price">12.00</td>
+            <td class="num total">12.00</td>
+          </tr>
+          <tr>
+            <td class="item-name">Sparkling Water</td>
+            <td class="num qty">3</td>
+            <td class="num price">2.25</td>
+            <td class="num total">6.75</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div class="row"><span class="label">Subtotal</span><span class="value">34.75</span></div>
+        <div class="row"><span class="label">Discount</span><span class="value">−3.48</span></div>
+        <div class="row"><span class="label">Points used (120)</span><span class="value">−1.20</span></div>
+        <div class="row"><span class="label">Tax (8.5%)</span><span class="value">2.56</span></div>
+        <div class="row grand"><span>TOTAL</span><span>$32.63</span></div>
+      </div>
+
+      <div class="dashed"></div>
+
+      <!-- Mobile-money lines carry the shop's merchant ID underneath, and only
+           when that method was actually used on this sale. A cash-only receipt
+           never prints one. -->
+      <div class="payment">
+        <div class="row"><span class="label">Cash (EUR)</span><span class="value">$20.00</span></div>
+        <div class="sub">€18.40 @ 0.92/$ · change €1.30</div>
+        <div class="row"><span class="label">ZAAD</span><span class="value">$10.00</span></div>
+        <div class="sub">Merchant ID 618 4471</div>
+        <div class="row"><span class="label">e-Dahab</span><span class="value">$2.63</span></div>
+        <div class="sub">Merchant ID 906 2210</div>
+      </div>
+
+      <div class="dashed"></div>
+
+      <div class="section-label">Customer</div>
+      <div class="customer">Amina Yusuf</div>
+      <div class="customer">+252 61 555 0142</div>
+      <div class="customer">amina@example.com</div>
+      <div class="customer">Points earned: 33</div>
+
+      <div class="qr">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"><path stroke="#111" d="M2 2.5h7m1 0h3m1 0h1m2 0h2m1 0h7m-25 1h1m5 0h1m6 0h2m3 0h1m5 0h1m-25 1h1m1 0h3m1 0h1m1 0h1m3 0h2m2 0h1m1 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m2 0h2m3 0h1m3 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m2 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1m-25 1h1m5 0h1m1 0h2m6 0h1m1 0h1m5 0h1m-25 1h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7m-16 1h1m1 0h4m1 0h1m-17 1h1m1 0h1m3 0h2m1 0h3m3 0h1m3 0h1m2 0h1m1 0h1m-25 1h2m1 0h2m2 0h1m3 0h1m1 0h1m4 0h1m4 0h2m-25 1h1m2 0h2m1 0h1m1 0h3m2 0h3m1 0h2m1 0h2m2 0h1m-24 1h4m3 0h1m1 0h2m1 0h2m4 0h1m2 0h1m1 0h1m-22 1h2m1 0h1m3 0h3m2 0h1m1 0h1m1 0h1m1 0h1m-20 1h2m1 0h1m2 0h3m1 0h8m2 0h3m-25 1h3m2 0h4m1 0h1m1 0h5m1 0h2m2 0h1m-20 1h1m1 0h1m5 0h3m4 0h1m2 0h1m1 0h1m-24 1h2m2 0h3m3 0h1m1 0h1m2 0h9m-16 1h3m2 0h4m3 0h5m-25 1h7m1 0h2m1 0h2m1 0h1m1 0h1m1 0h1m1 0h2m1 0h1m-24 1h1m5 0h1m7 0h3m3 0h1m2 0h1m-24 1h1m1 0h3m1 0h1m2 0h1m1 0h4m1 0h5m1 0h3m-25 1h1m1 0h3m1 0h1m3 0h1m4 0h2m2 0h1m3 0h1m-24 1h1m1 0h3m1 0h1m1 0h1m1 0h3m1 0h4m1 0h6m-25 1h1m5 0h1m2 0h2m3 0h4m2 0h1m3 0h1m-25 1h7m1 0h2m1 0h1m4 0h1m3 0h1m2 0h2"/></svg>
+          <div class="qr-num">4F2A-0193</div>
+        </div>
+
+      <div class="thanks">THANK YOU FOR YOUR PURCHASE!</div>
+      <div class="policy">Returns accepted within 14 days with receipt</div>
+
+      <div class="powered-by">
+        <span class="pb-text">Powered by</span>
+        <img class="mark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAKKADAAQAAAABAAAAKAAAAAB65masAAADcUlEQVRYCe2WSyitURTHnQd5RcqMAfIYGBkodAYGMjllYOpdByOPAcmjhAkjEyYSqUOhmHjMJEKdvJKRYoC8Qylv5/id+3X3/e52Lt+Oe9Xt7MFp7fWt9f/vvfZ6HJPJZAr4jmX+DlIvp5/4n0XeH+r/P9QWIw3E4/FIkZC8JAO+SgaSO1vrW5WkATQ2Nra3tzc0NNRsNj8/Py8tLbW3twtojbWxsTEnJ+f+/j4wMHBtba21tfXp6UmC+m3743DeH0CFrBewTklJAf3w8NDlcr28vMzOzqIUNshVVVUYbG9v83t+fp6WlqY3EJZCgOuXv9BKAhDJyckgVlZWIm9ubs7MzAhchPz8fE7T1NTU2dl5c3OTnZ0tvkpQ+q1CHcMNon6hyczMdDqdPT09l5eXdXV1HG5+fh4CvZlP+eM3Fm4SHKyJiYkTExPT09OQjY6ONjc3j4yMSGbCXRIUiCXP6OjoycnJvb098g76/v7+rq4uyeadrTIxFyI1goKChoeHg4ODie3Q0NDKykptbS00Bq+LpTIxRTI1NdXd3Z2enp6Xl0dC3d7eFhUVPT4+GmeFWCG5tAu1tbVFRUU5HI6CgoKKior4+HiymsxSYlW7MdAkVEREBM2htLQ0KyuLi5aUlOzu7qqyQqxQx8XFxTabjZDW19fztHd3d0dHRzSNmJgYIzgcTr+MEvO0ZO/x8TGvy9PSOOkYqampV1dXc3NzYWFhqtxGickg4jw2NkaEz87OHh4e6F9Wq9Vut7vdHmqJ2yhxGyXmiouLizzwwsICHTs3N5d5MDg4CBmFxJkaGhr+CjHQ5eXlQG9tbVFOCIWFhShbWlqQeQVk0ts4t0Ide0dKQIDb7bZYLAi06KSkpI6ODrK6urqa9kkn2d/fX11d1cKOzXtLn2k+ZZy16VRWVoa8vr6uTSdkTkD/Ir0zMjLCw8P5tLOzw/Dmk08ovdKAxc95PD4+ztw9OTkRYxECXn15eZm6qqmp6evrI+AMDJQfchsiTkhIIJ5MeDoUFTUwMCBwEeLi4jY2Nq6vr09PTw8ODvjl/wnvor+fbxnn9xchjYyM1GyAoIcw8IULt6SOQ0JCEFBiAOvFxYW2FWaS4D2KpPK5lVAkL+krCJLBW0yjxG89P6lRm06fJNO7+4n10fgS+U9Z5k+uLwmvEZBvy+pXNvGKWaCnlKMAAAAASUVORK5CYII=" alt="">
+        <span class="pb-name">Kaiibi</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================================================================
+       VARIANT B — everything off. Single-location shop, no logo, no
+       cashier, no hours, no discount, no tax, no loyalty, walk-in cash
+       customer, no return policy. This is the common case and it must
+       not look broken.
+       ================================================================ -->
+  <div class="variant">
+    <p class="variant-label">B · Minimal receipt (all optional blocks absent)</p>
+    <div class="receipt">
+
+      <div class="center">
+        <div class="shop-name">Hodan Grocery</div>
+        <div class="shop-meta">Mogadishu · Hodan</div>
+      </div>
+
+      <div class="dashed"></div>
+
+      <div class="row"><span class="label">Receipt #</span><span class="value">7B10-0044</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">08/06/2026</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">9:05 AM</span></div>
+
+      <div class="dashed"></div>
+
+      <table class="items">
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th class="num qty">Qty</th>
+            <th class="num price">Price</th>
+            <th class="num total">Total</th>
+          </tr>
+        </thead>
+      </table>
+      <div class="rule-under-head"></div>
+      <table class="items">
+        <tbody>
+          <tr>
+            <td class="item-name">Sparkling Water</td>
+            <td class="num qty">3</td>
+            <td class="num price">2.25</td>
+            <td class="num total">6.75</td>
+          </tr>
+          <tr>
+            <td class="item-name">Imported Belgian Dark Chocolate Bar 90g</td>
+            <td class="num qty">1</td>
+            <td class="num price">4.00</td>
+            <td class="num total">4.00</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="totals">
+        <div class="row grand"><span>TOTAL</span><span>$10.75</span></div>
+      </div>
+
+      <div class="dashed"></div>
+
+      <div class="payment">
+        <div class="row"><span class="label">Cash</span><span class="value">$10.75</span></div>
+      </div>
+
+      <div class="qr">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29"><path stroke="#111" d="M2 2.5h7m6 0h1m1 0h1m2 0h7m-25 1h1m5 0h1m1 0h3m1 0h1m2 0h1m2 0h1m5 0h1m-25 1h1m1 0h3m1 0h1m5 0h1m2 0h2m1 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m2 0h2m4 0h1m2 0h1m1 0h3m1 0h1m-25 1h1m1 0h3m1 0h1m1 0h2m3 0h1m2 0h1m1 0h1m1 0h3m1 0h1m-25 1h1m5 0h1m4 0h3m2 0h1m1 0h1m5 0h1m-25 1h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7m-16 1h1m3 0h2m1 0h1m-17 1h1m1 0h1m1 0h1m1 0h1m2 0h1m1 0h6m3 0h1m2 0h1m-24 1h3m1 0h2m1 0h1m1 0h2m1 0h1m2 0h1m3 0h4m1 0h1m-23 1h2m1 0h2m1 0h1m1 0h1m3 0h1m3 0h3m1 0h3m-25 1h1m2 0h1m1 0h1m1 0h1m2 0h2m5 0h1m1 0h1m3 0h2m-24 1h1m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m2 0h1m2 0h2m1 0h1m-23 1h1m3 0h1m1 0h9m1 0h1m4 0h1m1 0h1m-25 1h1m2 0h1m2 0h2m3 0h2m2 0h3m2 0h1m1 0h2m-23 1h2m1 0h1m2 0h4m1 0h3m1 0h2m1 0h3m-22 1h1m1 0h1m2 0h2m2 0h4m3 0h5m1 0h1m-15 1h2m1 0h1m1 0h2m1 0h1m3 0h2m2 0h1m-25 1h7m3 0h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m-23 1h1m5 0h1m3 0h2m4 0h1m3 0h2m-22 1h1m1 0h3m1 0h1m1 0h2m2 0h3m1 0h5m1 0h1m1 0h1m-25 1h1m1 0h3m1 0h1m4 0h1m1 0h1m3 0h2m2 0h1m-22 1h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h2m3 0h1m1 0h1m1 0h1m-25 1h1m5 0h1m2 0h3m3 0h3m1 0h1m1 0h1m1 0h2m-25 1h7m1 0h3m5 0h1m2 0h2m1 0h1m1 0h1"/></svg>
+          <div class="qr-num">7B10-0044</div>
+        </div>
+
+      <div class="thanks">THANK YOU FOR YOUR PURCHASE!</div>
+
+      <div class="powered-by">
+        <span class="pb-text">Powered by</span>
+        <img class="mark" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAKKADAAQAAAABAAAAKAAAAAB65masAAADcUlEQVRYCe2WSyitURTHnQd5RcqMAfIYGBkodAYGMjllYOpdByOPAcmjhAkjEyYSqUOhmHjMJEKdvJKRYoC8Qylv5/id+3X3/e52Lt+Oe9Xt7MFp7fWt9f/vvfZ6HJPJZAr4jmX+DlIvp5/4n0XeH+r/P9QWIw3E4/FIkZC8JAO+SgaSO1vrW5WkATQ2Nra3tzc0NNRsNj8/Py8tLbW3twtojbWxsTEnJ+f+/j4wMHBtba21tfXp6UmC+m3743DeH0CFrBewTklJAf3w8NDlcr28vMzOzqIUNshVVVUYbG9v83t+fp6WlqY3EJZCgOuXv9BKAhDJyckgVlZWIm9ubs7MzAhchPz8fE7T1NTU2dl5c3OTnZ0tvkpQ+q1CHcMNon6hyczMdDqdPT09l5eXdXV1HG5+fh4CvZlP+eM3Fm4SHKyJiYkTExPT09OQjY6ONjc3j4yMSGbCXRIUiCXP6OjoycnJvb098g76/v7+rq4uyeadrTIxFyI1goKChoeHg4ODie3Q0NDKykptbS00Bq+LpTIxRTI1NdXd3Z2enp6Xl0dC3d7eFhUVPT4+GmeFWCG5tAu1tbVFRUU5HI6CgoKKior4+HiymsxSYlW7MdAkVEREBM2htLQ0KyuLi5aUlOzu7qqyQqxQx8XFxTabjZDW19fztHd3d0dHRzSNmJgYIzgcTr+MEvO0ZO/x8TGvy9PSOOkYqampV1dXc3NzYWFhqtxGickg4jw2NkaEz87OHh4e6F9Wq9Vut7vdHmqJ2yhxGyXmiouLizzwwsICHTs3N5d5MDg4CBmFxJkaGhr+CjHQ5eXlQG9tbVFOCIWFhShbWlqQeQVk0ts4t0Ide0dKQIDb7bZYLAi06KSkpI6ODrK6urqa9kkn2d/fX11d1cKOzXtLn2k+ZZy16VRWVoa8vr6uTSdkTkD/Ir0zMjLCw8P5tLOzw/Dmk08ovdKAxc95PD4+ztw9OTkRYxECXn15eZm6qqmp6evrI+AMDJQfchsiTkhIIJ5MeDoUFTUwMCBwEeLi4jY2Nq6vr09PTw8ODvjl/wnvor+fbxnn9xchjYyM1GyAoIcw8IULt6SOQ0JCEFBiAOvFxYW2FWaS4D2KpPK5lVAkL+krCJLBW0yjxG89P6lRm06fJNO7+4n10fgS+U9Z5k+uLwmvEZBvy+pXNvGKWaCnlKMAAAAASUVORK5CYII=" alt="">
+        <span class="pb-name">Kaiibi</span>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<div class="notes">
+  <h2>Design notes</h2>
+  <p>
+    Replaces the rounded cream card in <code>buildReceiptHtml()</code> and the native preview in
+    <code>receipt-modal.tsx</code> with an 80mm thermal-tape receipt: monospace throughout, dashed
+    rules, a four-column item table, tabular figures, and a Kaiibi footer.
+  </p>
+
+  <h3>How the reference maps onto kaiibi's data</h3>
+  <ul>
+    <li><b>Tagline / street address / VAT ID</b> — dropped. No tax-id field exists anywhere in kaiibi
+      (not on <code>Shop</code>, not on <code>Location</code>, not in any migration), so the reference's
+      <code>VAT/Tax ID</code> line has nothing to print and is gone for good. The header keeps shop name,
+      branch, <code>city · neighborhood</code>, phone and today's hours.</li>
+    <li><b>Mobile-money merchant ID</b> — printed under a ZAAD or e-Dahab payment line, and only when that
+      method was used on the sale. A cash-only receipt prints none (variant B).</li>
+    <li><b>Register</b> — dropped. kaiibi has no register concept; <code>Cashier</code> stays.</li>
+    <li><b>Item sub-line</b> — the reference uses it for a product description. kaiibi has none, so the slot
+      carries the per-line discount (<code>ReceiptItem.discountCents</code>) instead, which today prints as a
+      whole extra row.</li>
+    <li><b>Rows the reference has no slot for</b> — <code>Points used (N)</code>, foreign-currency payment detail
+      (<code>€27.60 @ 0.92/$ · change €1.30</code>), the <code>CUSTOMER</code> block and <code>Points earned</code>
+      all keep their current fields, restyled to the tape.</li>
+    <li><b>Return policy</b> — the shop's own <code>returnPolicy</code> string sits where the reference's
+      "Returns accepted within 14 days" line is. Absent when unset (variant B).</li>
+    <li><b>Logo</b> — respects <code>receiptShowLogo</code>; <b>cashier</b> respects <code>receiptShowCashierName</code>.</li>
+  </ul>
+
+  <h3>Decided</h3>
+  <ul>
+    <li><b>QR, not a 1D barcode.</b> It encodes <code>KR-</code> plus <code>sales.id</code> uppercased — 35
+      characters, all inside QR's alphanumeric charset, which holds the symbol at version 2 (25&times;25) at ECC-M.
+      Lowercase hex or a colon separator would force byte mode and a bigger symbol, so the case matters.
+      About 16mm square printed at 4 dots/module on a 203dpi head, against a 1D code eating the full tape width.
+      <b>No migration:</b> the uuid already exists, so receipts printed today stay resolvable whenever
+      scan-to-return gets built. ECC-M also recovers ~15% damage, which matters for paper that lives in a pocket.
+      The app's camera scanner already accepts <code>qr</code> (<code>RETAIL_BARCODE_TYPES</code>).</li>
+    <li><b>The short code under it is a search hint, not a key.</b> <code>4F2A-0193</code> is the head of the
+      same uuid, for reading out over the phone or typing into search. Collisions are harmless because it only
+      narrows a list — the QR carries the authoritative id.</li>
+    <li><b>Merchant IDs live on the location, not the shop.</b> Two nullable text columns on
+      <code>ShopLocation</code>, beside <code>contactPhone</code> and the scanner flags, edited in Settings →
+      Stores. The shop-level <code>paymentZaadEnabled</code> / <code>paymentEdahabEnabled</code> toggles stay
+      where they are and keep their meaning: the shop decides <i>whether</i> it takes ZAAD, each branch supplies
+      <i>which till</i> receives it. <code>buildReceiptFromSale</code> already takes a <code>location</code>
+      argument, so the plumbing is free.</li>
+    <li><b>Receipt branding is a plan module, default on.</b> Set at platform level in the plan editor, not by
+      the shop owner. Modelled as a new entry in <code>MODULES</code> (<code>src/lib/entitlements.ts</code>) that
+      <i>removes</i> the footer when a plan grants it — so no plan granting it means every receipt carries the
+      mark, which is the default we want. <code>multi_currency</code> and <code>data_export</code> are already
+      non-screen capability modules, so there's precedent.</li>
+  </ul>
+
+  <h3>Still open</h3>
+  <ul>
+    <li class="open">The reference is print-shaped. The in-app modal preview
+      (<code>receipt-modal.tsx</code>) is React Native, not HTML — it has to be rebuilt by hand to match, including
+      a monospace font that exists on both iOS and Android. Should the modal match, or only the printed, PDF and
+      shared output? This is the larger half of the work.</li>
+    <li class="open">Minor, follows from the QR: a laser wedge scanner can't read a 2D symbol, only an imager
+      can. Locations with <code>hardwareScannerEnabled</code> would have to scan receipts on the camera instead.
+      Worth confirming that's acceptable before the scan-to-return work starts.</li>
+  </ul>
+</div>
+
+</body>
+</html>

@@ -116,6 +116,25 @@ export const Colors = {
     // wants: it currently hardcodes #8A5A05 beside a `warning` that belongs to
     // the cream palette.
     bentoWarn: '#b07206',
+    // The delta badge — "up 12%" beside a figure. A washed pill rather than
+    // coloured text, because a bare green number on a soft tile is a figure
+    // that happens to be green, where a pill reads as a comparison. The ink
+    // steps are solved against their own wash, NOT against `bentoSoft`: the
+    // wash is what sits behind the glyph.
+    //
+    // The badge always carries an arrow as well as the colour — same rule as
+    // `bentoProfit`/`bentoLoss` above, and for the same deutan reason.
+    bentoUpWash: '#d9efe4',
+    bentoUpInk: '#007a38', // 4.94:1 on its wash
+    bentoDownWash: '#fbeaec',
+    bentoDownInk: '#d12339', // 4.72:1 on its wash
+    // The same pill shape in the neutral case — a figure being carried beside
+    // a status one, with no status of its own. `bentoSoft` would be the
+    // obvious choice and is wrong here: it is the tile fill, so a soft pill on
+    // a soft tile disappears. This is `bentoSeries1` washed to the same
+    // lightness as the pair above.
+    bentoAccentWash: '#e6edff',
+    bentoAccentInk: '#1b47b8', // 7.35:1 on its wash
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series
@@ -185,6 +204,15 @@ export const Colors = {
     bentoProfit: '#2eb872',
     bentoLoss: '#e8515f',
     bentoWarn: '#e0a244',
+    // Dark mirrors of the delta wash. A pale mint pill on a dark card would be
+    // the brightest thing in it, so the wash goes translucent-dark and the ink
+    // goes light — the pill still reads as a pill, and no longer shouts.
+    bentoUpWash: '#123a2a',
+    bentoUpInk: '#7fe8bc',
+    bentoDownWash: '#3d1a20',
+    bentoDownInk: '#ff8a93',
+    bentoAccentWash: '#1a2440',
+    bentoAccentInk: '#8fb4ff',
   },
 } as const;
 

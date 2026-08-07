@@ -6,6 +6,7 @@ import { OpenHoursCard } from '@/components/dashboard/open-hours-card';
 import { SalesPaceCard } from '@/components/dashboard/sales-pace-card';
 import { TakingsHeroCard, type TakingsMethod } from '@/components/dashboard/takings-hero-card';
 import { TopMoverCard } from '@/components/dashboard/top-mover-card';
+import { dayKeyFor, fromDateColumn } from '@/lib/period';
 import type { DailyBucket, ProductSales } from '@/lib/sales-reporting';
 import type { OpeningHours } from '@/lib/store-hours';
 import type { Sale } from '@/types/models';
@@ -62,7 +63,7 @@ describe('BestSellersCard', () => {
   it('ranks by money first, and shows the units it is not ranking by', () => {
     const { texts } = render(<BestSellersCard products={products} rangeLabel="7 days" />);
     expect(texts()).toContain('By revenue');
-    expect(texts()).toContain('96 sold');
+    expect(texts()).toContain('96 units');
     // Rice is rank 1 while money is the measure.
     expect(texts().indexOf('Basmati Rice 5kg')).toBeLessThan(texts().indexOf('Sugar 2kg'));
   });
@@ -78,7 +79,7 @@ describe('BestSellersCard', () => {
 });
 
 describe('TopMoverCard', () => {
-  it('carries a direction glyph, never colour alone', () => {
+  it('carries a direction sign, never colour alone', () => {
     const { texts } = render(
       <TopMoverCard
         mover={{ productId: 'p', name: 'Cooking Oil 3L', revenueCents: 5_000, previousCents: 10_000, changePct: -50 }}
@@ -88,9 +89,26 @@ describe('TopMoverCard', () => {
         rangeLabel="7 days"
       />
     );
-    // The arrow is what says "down" -- profit green and loss red are ΔE 4.0
-    // apart for deutan viewers, so the colour cannot carry it.
-    expect(texts()).toContain('↓ 50%');
+    // The minus sign is what says "down" -- profit green and loss red are ΔE
+    // 4.0 apart for deutan viewers, so the colour cannot carry it. A sign
+    // rather than an arrow, so that a change of 0% does not claim a direction.
+    expect(texts()).toContain('−50');
+    expect(texts()).toContain('%');
+  });
+
+  it('does not claim a direction for a product that did not move', () => {
+    const { texts } = render(
+      <TopMoverCard
+        mover={{ productId: 'p', name: 'Sugar 2kg', revenueCents: 5_000, previousCents: 5_000, changePct: 0 }}
+        rank="Third"
+        shareOfRevenue={9}
+        dailyCents={[100, 200]}
+        rangeLabel="7 days"
+      />
+    );
+    // "↑ 0%" was the old output: an arrow asserting a rise that did not happen.
+    expect(texts()).toContain('+0');
+    expect(texts().some((t) => t.includes('↑') || t.includes('↓'))).toBe(false);
   });
 
   it('says "New" rather than inventing a percentage from zero', () => {
@@ -164,8 +182,13 @@ describe('LeaderboardCard', () => {
 describe('OpenHoursCard', () => {
   const hours: OpeningHours = { mon: [{ open: '08:00', close: '18:00' }], sun: [] };
 
-  const bucket = (day: string, netRevenueCents: number): DailyBucket => ({
-    day,
+  // `day` is keyed the way production keys it — `dayKeyFor`, i.e.
+  // `toDateString()`. Passing a bare ISO date here is what let the card ship
+  // with `new Date(`${day}T00:00:00`)`: that parses an ISO date fine and a
+  // toDateString() key not at all, so every real axis label read "Invalid
+  // Date" while these tests stayed green.
+  const bucket = (isoDay: string, netRevenueCents: number): DailyBucket => ({
+    day: dayKeyFor(fromDateColumn(isoDay)),
     grossCents: netRevenueCents,
     taxCents: 0,
     refundCents: 0,
@@ -184,6 +207,7 @@ describe('OpenHoursCard', () => {
       <OpenHoursCard
         sales={[]}
         daily={[bucket('2026-08-02', 0)]}
+        monthDaily={[]}
         openingHours={hours}
         rangeLabel="7 days"
       />
@@ -196,6 +220,7 @@ describe('OpenHoursCard', () => {
       <OpenHoursCard
         sales={[sale('2026-08-03T09:30:00', 500), sale('2026-08-03T14:30:00', 4_000)]}
         daily={[bucket('2026-08-03', 4_500)]}
+        monthDaily={[]}
         openingHours={hours}
         rangeLabel="7 days"
       />
@@ -211,6 +236,7 @@ describe('OpenHoursCard', () => {
       <OpenHoursCard
         sales={[sale('2026-08-03T06:00:00', 900)]}
         daily={[bucket('2026-08-03', 900)]}
+        monthDaily={[]}
         openingHours={hours}
         rangeLabel="7 days"
       />

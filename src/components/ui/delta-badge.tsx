@@ -51,10 +51,10 @@ const styles = StyleSheet.create({
 // Washes rather than the full status hues: a saturated pill beside a figure
 // competes with the figure. The TEXT carries the contrast.
 const light = StyleSheet.create({
-  good: { backgroundColor: '#d9efe4' },
-  bad: { backgroundColor: '#fbeaec' },
-  goodText: { color: '#00693a' },
-  badText: { color: '#b81e30' },
+  good: { backgroundColor: theme.bentoUpWash },
+  bad: { backgroundColor: theme.bentoDownWash },
+  goodText: { color: theme.bentoUpInk },
+  badText: { color: theme.bentoDownInk },
 });
 
 const ink = StyleSheet.create({

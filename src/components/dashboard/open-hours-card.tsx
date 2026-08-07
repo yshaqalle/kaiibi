@@ -6,6 +6,7 @@ import Svg, { Circle, Line, Path } from 'react-native-svg';
 import { BandFoot, BandSegment, BentoBand, ON_INK_MUTED } from '@/components/ui/bento-band';
 import { Colors } from '@/constants/theme';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
+import { fromDateColumn } from '@/lib/period';
 import { hourlyTakings, type DailyBucket } from '@/lib/sales-reporting';
 import { tradingHourBounds, weekdayKeyFor, type OpeningHours } from '@/lib/store-hours';
 import type { Sale } from '@/types/models';
@@ -16,7 +17,25 @@ const W = 300;
 const H = 96;
 const PAD_TOP = 14;
 
-type Granularity = 'hours' | 'days';
+type Granularity = 'hours' | 'days' | 'weeks';
+
+/**
+ * A `DailyBucket.day` back into a Date, at LOCAL midnight.
+ *
+ * In production the key is `dayKeyFor`'s output, which is
+ * `Date.toDateString()` — "Thu Aug 06 2026", not an ISO date. Appending
+ * "T00:00:00" to force local midnight, which is the obvious move and what this
+ * card used to do, produces "Thu Aug 06 2026T00:00:00" and an Invalid Date:
+ * every label on the Days view read "Invalid Date", as did the peak note.
+ *
+ * Both shapes are accepted because `DailyBucket.day` is typed `string` and
+ * nothing enforces which one a caller passes. The ISO form has to go through
+ * `fromDateColumn` — bare `new Date('2026-08-02')` is UTC midnight, which is
+ * the previous day west of Greenwich.
+ */
+function dayDate(key: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? fromDateColumn(key) : new Date(key);
+}
 
 /**
  * When the money actually comes in.
@@ -26,20 +45,30 @@ type Granularity = 'hours' | 'days';
  * decisions it answers are staffing and closing time, which nothing else on
  * this screen touches.
  *
- * Two views, because they answer different questions. *Hours* is about one
- * day and needs a day picked; *Days* is about the week and compares each day
- * against what that weekday usually takes — a flat average would call every
- * Saturday a triumph and every Monday a disaster.
+ * Three views, because they answer different questions. *Hours* is about one
+ * day and needs a day picked; *Days* is about the range, day by day; *Weeks*
+ * steps back to the calendar month.
+ *
+ * Weeks deliberately ignores the range pill. A month is a month — scaling a
+ * seven-day window up to look like one would put four bars on screen that no
+ * week ever took.
  */
 export function OpenHoursCard({
   sales,
   daily,
+  monthDaily,
   openingHours,
   rangeLabel,
 }: {
   /** Every sale in the range, with items — the same set the P&L consumed. */
   sales: Sale[];
   daily: DailyBucket[];
+  /**
+   * Day-by-day for the calendar month so far, for the Weeks view only. Empty
+   * until it loads, which drops the Weeks option rather than showing an empty
+   * chart under a segment that looks like it should work.
+   */
+  monthDaily: DailyBucket[];
   openingHours: OpeningHours;
   rangeLabel: string;
 }) {
@@ -56,7 +85,7 @@ export function OpenHoursCard({
 
   const hourly = useMemo(() => {
     if (!selected) return null;
-    const date = new Date(`${selected.day}T00:00:00`);
+    const date = dayDate(selected.day);
     const bounds = tradingHourBounds(openingHours, weekdayKeyFor(date));
     if (!bounds) return null;
     const onDay = sales.filter((sale) => sameDay(new Date(sale.createdAt), date));
@@ -66,7 +95,7 @@ export function OpenHoursCard({
   const dayPoints = useMemo(
     () =>
       daily.map((bucket) => ({
-        label: shortWeekday(new Date(`${bucket.day}T00:00:00`)),
+        label: shortWeekday(dayDate(bucket.day)),
         value: bucket.netRevenueCents,
       })),
     [daily]
@@ -77,8 +106,27 @@ export function OpenHoursCard({
     [hourly]
   );
 
+  // Calendar weeks of the current month. Bucketed on the day of the month
+  // rather than on an ISO week number, so "Week 1" is always the 1st to the
+  // 7th — a reader comparing two months needs the weeks to mean the same
+  // thing in both, which ISO weeks (starting mid-month) do not give.
+  const weekPoints = useMemo(() => {
+    const totals: number[] = [];
+    for (const bucket of monthDaily) {
+      const index = Math.floor((dayDate(bucket.day).getDate() - 1) / 7);
+      totals[index] = (totals[index] ?? 0) + bucket.netRevenueCents;
+    }
+    return Array.from(totals, (value, index) => ({ label: `Week ${index + 1}`, value: value ?? 0 }));
+  }, [monthDaily]);
+
+  const monthToDateCents = useMemo(
+    () => monthDaily.reduce((sum, bucket) => sum + bucket.netRevenueCents, 0),
+    [monthDaily]
+  );
+
   const showingHours = granularity === 'hours';
-  const points = showingHours ? hourPoints : dayPoints;
+  const showingWeeks = granularity === 'weeks';
+  const points = showingHours ? hourPoints : showingWeeks ? weekPoints : dayPoints;
 
   return (
     <BentoBand
@@ -91,6 +139,9 @@ export function OpenHoursCard({
           options={[
             { key: 'hours', label: 'Hours' },
             { key: 'days', label: 'Days' },
+            // Only once the month's own buckets are in. A Weeks button that
+            // opens an empty chart is worse than no button.
+            ...(weekPoints.length > 0 ? ([{ key: 'weeks', label: 'Weeks' }] as const) : []),
           ]}
         />
       }
@@ -98,7 +149,7 @@ export function OpenHoursCard({
       {showingHours && daily.length > 1 ? (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
           {daily.map((bucket) => {
-            const date = new Date(`${bucket.day}T00:00:00`);
+            const date = dayDate(bucket.day);
             const shut = tradingHourBounds(openingHours, weekdayKeyFor(date)) === null;
             const on = selected?.day === bucket.day;
             return (
@@ -123,7 +174,7 @@ export function OpenHoursCard({
       {showingHours && !hourly ? (
         <BandFoot>
           {selected
-            ? `The shop is closed on ${longWeekday(new Date(`${selected.day}T00:00:00`))}, so there are no trading hours to plot. Pick another day, or set hours in Settings.`
+            ? `The shop is closed on ${longWeekday(dayDate(selected.day))}, so there are no trading hours to plot. Pick another day, or set hours in Settings.`
             : 'No opening hours are set yet — add them in Settings and this fills in.'}
         </BandFoot>
       ) : (
@@ -141,7 +192,9 @@ export function OpenHoursCard({
                 ? ` ${formatAccountingCents(hourly.outsideCents)} was rung up outside your posted hours and is shown in the nearest open hour.`
                 : '')
             : ''
-          : `Net revenue per day across the ${rangeLabel.toLowerCase()}.`}
+          : showingWeeks
+            ? `Month to date, ${formatAccountingCents(monthToDateCents)}, by calendar week. This view ignores the range pill — a month is a month.`
+            : `Net revenue per day across the ${rangeLabel.toLowerCase()}.`}
       </BandFoot>
     </BentoBand>
   );
