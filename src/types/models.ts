@@ -62,6 +62,11 @@ export type Shop = {
   paymentZaadEnabled: boolean;
   paymentEdahabEnabled: boolean;
   paymentSplitEnabled: boolean;
+  // Note values the drawer tally offers, keyed by currency code, in that
+  // currency's minor unit: {"USD": [10000, ...], "SLSH": [1000000, ...]}.
+  // A starting point, not a constraint — the tally accepts values not listed
+  // here, because a seeded list is guaranteed to be wrong somewhere.
+  cashDenominations: Record<string, number[]>;
   // Notification preferences (Settings → Notifications). These are
   // currently preferences only — nothing in the app sends a daily summary,
   // low-stock alert, or push/email/WhatsApp notification yet, so toggling
@@ -134,6 +139,12 @@ export type ShopLocation = {
   // Null or empty both mean "not set" and print nothing.
   zaadMerchantId: string | null;
   edahabMerchantId: string | null;
+  // Whether this branch's POS refuses to sell without an open register. Lives
+  // here rather than on `Shop` for the reason the merchant ids do: a flagship
+  // with three tills wants the drawer counted, the kiosk where the owner is the
+  // only person behind the counter does not, and one business runs both. Off by
+  // default — complete_sale enforces it server-side when on.
+  requireOpenRegister: boolean;
   // Exactly one per shop. The fallback whenever a location isn't otherwise
   // resolvable — what a fresh device selects before anyone chooses.
   isPrimary: boolean;
@@ -164,11 +175,19 @@ export type NewShopLocationInput = Omit<
   | 'hardwareScannerEnabled'
   | 'zaadMerchantId'
   | 'edahabMerchantId'
+  | 'requireOpenRegister'
 > &
   Partial<
     Pick<
       ShopLocation,
-      'barcodeScanningEnabled' | 'hardwareScannerEnabled' | 'zaadMerchantId' | 'edahabMerchantId'
+      | 'barcodeScanningEnabled'
+      | 'hardwareScannerEnabled'
+      | 'zaadMerchantId'
+      | 'edahabMerchantId'
+      // Never set while creating a branch: a store with no registers yet cannot
+      // require one, so this is only ever turned on later, from the Registers
+      // panel, once there is something to open.
+      | 'requireOpenRegister'
     >
   >;
 
@@ -733,6 +752,90 @@ export type Cashier = {
   locationId: string;
   name: string;
   createdAt: string;
+};
+
+// A durable named place a sale is rung from — usually a counter with a drawer,
+// sometimes a person's phone. Deliberately NOT ephemeral: `id` outlives every
+// session opened on it, which is what makes "is Register 2 short three days
+// running" answerable at all. See migration 20260822000000.
+//
+// Distinct from `Cashier`, which is only a label printed on a receipt.
+export type Register = {
+  id: string;
+  shopId: string;
+  // NOT NULL for phones too. A mobile seller still sells somewhere, and stock,
+  // takings and staff access are all branch-scoped.
+  locationId: string;
+  name: string;
+  kind: 'counter' | 'mobile';
+  // Whose phone, for kind='mobile'. Null for a counter — a till belongs to the
+  // shop, not to whoever is standing at it.
+  shopMemberId: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+// One currency's worth of the drawer, at both ends of a session. A Hargeisa
+// drawer holds USD and SLSH at once, so a session has one of these per
+// currency rather than a single float.
+//
+// Every `*Minor` figure is in that currency's minor unit — the same convention
+// `sale_payments.foreign_amount_cents` uses, and the same as USD cents.
+export type RegisterSessionCash = {
+  id: string;
+  sessionId: string;
+  // 'USD' for the base currency. Written out rather than left null (as
+  // `sale_payments.currency_code` does) because Postgres unique indexes treat
+  // nulls as distinct, which would allow several base rows per session.
+  currencyCode: string;
+  openingFloatMinor: number;
+  // Snapshotted at both ends, so reopening last Tuesday's close next month
+  // cannot re-convert it at today's rate and quietly change a signed-off
+  // figure. The drift between the two is the day's FX exposure on the float —
+  // real money, but not a cash discrepancy.
+  openingRateToUsd: number;
+  closingCountedMinor: number | null;
+  closingRateToUsd: number | null;
+  expectedMinor: number | null;
+  varianceMinor: number | null;
+  // Counts keyed by note VALUE in minor units, plus an `other` key carrying a
+  // plain amount: {"10000": 2, "5000": 3, "other": 350}. Never a foreign key
+  // into the shop's denomination list, so a note that list doesn't know about
+  // is simply another key.
+  openingDenominations: Record<string, number> | null;
+  closingDenominations: Record<string, number> | null;
+};
+
+// One open→close cycle on a register: who was on it, what they started with,
+// what they handed over, and whether it added up.
+export type RegisterSession = {
+  id: string;
+  shopId: string;
+  locationId: string;
+  registerId: string;
+  shopMemberId: string;
+  openedBy: string | null;
+  openedAt: string;
+  closedAt: string | null;
+  closedBy: string | null;
+  // Sum of the per-currency variances, each converted at its own CLOSING rate.
+  // Frozen at close. Null while the session is open.
+  varianceBaseCents: number | null;
+  openingNote: string | null;
+  closingNote: string | null;
+  cash: RegisterSessionCash[];
+};
+
+// What the client sends for one currency when opening or closing. `amountMinor`
+// is what was counted; `rateToUsd` defaults server-side from `shop_currencies`
+// when omitted, and is editable at the counter because the street rate moves
+// faster than Settings does.
+export type DrawerCountEntry = {
+  currencyCode: string;
+  amountMinor: number;
+  rateToUsd: number | null;
+  denominations: Record<string, number> | null;
 };
 
 export type Role = {

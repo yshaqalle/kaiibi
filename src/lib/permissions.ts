@@ -28,7 +28,8 @@ export type Permission =
   | 'expenses.manage'
   | 'invoices.view'
   | 'invoices.manage'
-  | 'budgets.manage';
+  | 'budgets.manage'
+  | 'registers.manage';
 
 export const PERMISSIONS: { key: Permission; label: string; description: string }[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },
@@ -51,6 +52,7 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },
   { key: 'invoices.manage', label: 'Manage bills', description: 'Record vendor bills and mark payments against them.' },
   { key: 'budgets.manage', label: 'Manage budgets and cash', description: 'Set category budgets, recurring bills, and cash-on-hand balances.' },
+  { key: 'registers.manage', label: 'Manage registers', description: "Open a register for someone else, close anyone's register, and sign off cash variance. Everyone with POS access can open and close their own." },
 ];
 
 export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map((p) => p.key);

@@ -8,6 +8,9 @@ import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
+import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
+import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
+import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
 import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
@@ -18,9 +21,12 @@ import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
+import { useRegisterSession } from '@/hooks/use-register-session';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
+import { sessionCashSummary } from '@/lib/registers';
+import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { confirmDestructive } from '@/lib/confirm';
@@ -29,12 +35,13 @@ import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
+import { cashMovementsByCurrency } from '@/lib/register-sessions';
 import { createProduct, findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
-import type { Currency, Discount, NewProductInput, PaymentMethod, Product, Promotion } from '@/types/models';
+import type { Currency, Discount, NewProductInput, PaymentLine, PaymentMethod, Product, Promotion, StaffMember } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -53,7 +60,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -96,6 +103,16 @@ export default function PosScreen() {
     setPendingReceipt(null);
   };
   const [cashiers, setCashiers] = useState<string[]>([]);
+  // The register this counter is on, if any. Fails soft to "nothing open",
+  // which is exactly what a shop that has never set a register up sees.
+  const { registers, session: registerSession, reload: reloadRegister } = useRegisterSession();
+  const [team, setTeam] = useState<StaffMember[]>([]);
+  const [registerSheet, setRegisterSheet] = useState<'open' | 'close' | 'handover' | null>(null);
+  // Cash movements for the OPEN session only, so the close sheet can preview
+  // the variance before the server's own figure comes back. Reset whenever the
+  // session changes.
+  const [sessionPayments, setSessionPayments] = useState<PaymentLine[]>([]);
+  const [sessionSaleCount, setSessionSaleCount] = useState(0);
   // Unlike customer info (cleared after every sale), the cashier stays
   // selected across sales — whoever is running the register doesn't change
   // sale-to-sale, so re-picking it each time would just be busywork.
@@ -138,6 +155,35 @@ export default function PosScreen() {
   }, [shop, activeLocation]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // The roster, for the open sheet's person picker and the register bar's name.
+  // Fails soft to an empty list: a cashier without staff.manage cannot read it,
+  // and the sheets fall back to "you" and to `myMembership` when it is empty.
+  useEffect(() => {
+    if (!shop) return;
+    let cancelled = false;
+    listStaff(shop.id)
+      .then((staff) => { if (!cancelled) setTeam(staff.filter((member) => member.active)); })
+      .catch(() => { if (!cancelled) setTeam([]); });
+    return () => { cancelled = true; };
+  }, [shop]);
+
+  // What this session has taken so far, so the close sheet can show a variance
+  // the moment the count is entered rather than after a round trip.
+  useEffect(() => {
+    if (!registerSession) return;
+    let cancelled = false;
+    sessionCashSummary(registerSession.id)
+      .then((summary) => {
+        if (cancelled) return;
+        setSessionPayments(summary.payments);
+        setSessionSaleCount(summary.saleCount);
+      })
+      .catch(() => {
+        if (!cancelled) { setSessionPayments([]); setSessionSaleCount(0); }
+      });
+    return () => { cancelled = true; };
+  }, [registerSession, receipt]);
   // Coming back to this screen on a phone, where the tab shell never unmounted
   // it, so its data is as old as the last time it was looked at.
   useRefreshOnFocus(reload);
@@ -307,6 +353,15 @@ export default function PosScreen() {
     return () => clearTimeout(timer);
   }, [pendingReceipt]);
 
+  // The register's own person is who is serving, so the receipt should say so
+  // without anyone re-picking it. Only ever fills a BLANK selection — a cashier
+  // who deliberately picked a different name keeps it.
+  const sessionMember = team.find((member) => member.id === registerSession?.shopMemberId) ?? null;
+  useEffect(() => {
+    if (!sessionMember?.fullName) return;
+    setCashierName((current) => current ?? sessionMember.fullName);
+  }, [sessionMember, setCashierName]);
+
   const grossCents = cartTotalCents(cart);
   const subtotalCents = cartSubtotalCents(cart, promotions);
   const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
@@ -382,7 +437,8 @@ export default function PosScreen() {
         promotions,
         transactionDiscountCents,
         activeLocation.id,
-        redemption.points
+        redemption.points,
+        registerSession?.id ?? null
       );
       const completed: ReceiptData = {
         saleId,
@@ -570,11 +626,28 @@ export default function PosScreen() {
     </View>
   );
 
+  // A shop that requires an open register gets a refusal in place of the cart.
+  // The product grid stays browsable behind it on purpose: answering "do you
+  // have it in stock?" is harmless, and the cashier can keep serving while a
+  // supervisor walks over with the float.
+  const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
+
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
+      <RegisterBar
+        registers={registers}
+        session={registerSession}
+        register={registers.find((r) => r.id === registerSession?.registerId) ?? null}
+        member={sessionMember ?? myMembership}
+        onOpen={() => setRegisterSheet('open')}
+        onClose={() => setRegisterSheet('close')}
+        onHandover={() => setRegisterSheet('handover')}
+      />
+      {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
       {/* The whole sale is ONE card floating on the grey page — it used to be a
           white column with a hairline down its left edge, which read as a
           second page rather than as the thing being built. */}
+      {!registerBlocks && (
       <Card variant="bento" style={[styles.cartCard, compact && styles.cartCardCompact]}>
       <View style={styles.cartTitleRow}>
         <Text style={styles.cartTitle}>Current sale</Text>
@@ -723,8 +796,22 @@ export default function PosScreen() {
         />
       )}
       </Card>
+      )}
     </View>
   );
+
+  const sessionsByRegister = registerSession ? { [registerSession.registerId]: registerSession } : {};
+  // Read through the session rather than cleared when it ends: a closed session
+  // leaves its last summary in state, and gating here is one condition instead
+  // of a synchronous setState on every close.
+  const livePayments = registerSession ? sessionPayments : [];
+  const sessionCashMovements = cashMovementsByCurrency(livePayments);
+  const nonCashTotals = (['zaad', 'edahab', 'other'] as const)
+    .map((method) => ({
+      label: method === 'zaad' ? 'ZAAD' : method === 'edahab' ? 'e-Dahab' : 'Other',
+      cents: livePayments.filter((p) => p.method === method).reduce((sum, p) => sum + p.amountCents, 0),
+    }))
+    .filter((total) => total.cents > 0);
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
@@ -741,6 +828,36 @@ export default function PosScreen() {
           </>
         )}
       </Split>
+      {shop && registerSheet === 'open' && (
+        <OpenRegisterSheet
+          registers={registers}
+          sessionsByRegister={sessionsByRegister}
+          team={team}
+          myMembership={myMembership}
+          canManageRegisters={can('registers.manage')}
+          currencies={currencies}
+          denominations={shop.cashDenominations}
+          onClose={() => setRegisterSheet(null)}
+          onOpened={reloadRegister}
+        />
+      )}
+      {shop && registerSession && (registerSheet === 'close' || registerSheet === 'handover') && (
+        <CloseRegisterSheet
+          key={`${registerSession.id}-${registerSheet}`}
+          mode={registerSheet}
+          session={registerSession}
+          register={registers.find((r) => r.id === registerSession.registerId) ?? null}
+          member={sessionMember ?? myMembership}
+          team={team}
+          currencies={currencies}
+          denominations={shop.cashDenominations}
+          cashMovements={sessionCashMovements}
+          saleCount={sessionSaleCount}
+          nonCashTotals={nonCashTotals}
+          onClose={() => setRegisterSheet(null)}
+          onDone={reloadRegister}
+        />
+      )}
       <ReceiptModal
         receipt={receipt}
         onClose={() => setReceipt(null)}

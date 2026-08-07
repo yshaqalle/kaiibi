@@ -16,6 +16,7 @@ function location(overrides: Partial<ShopLocation> & { id: string }): ShopLocati
     hardwareScannerEnabled: false,
     zaadMerchantId: null,
     edahabMerchantId: null,
+    requireOpenRegister: false,
     isPrimary: false,
     active: true,
     createdAt: '2026-08-04T00:00:00Z',

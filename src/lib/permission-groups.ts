@@ -4,7 +4,11 @@ import type { Permission } from '@/lib/permissions';
 // read-only Access & permissions grid shows (Task 12) -- purely a display
 // grouping, not a data-model concept.
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
-  { label: 'POS', permissions: ['pos.access'] },
+  // `registers.manage` sits with POS rather than Accounting because it is
+  // exercised at the counter: opening a register for a colleague and signing off
+  // their drawer count. Everyone with pos.access already opens and closes their
+  // own — this is only the supervisory half.
+  { label: 'POS', permissions: ['pos.access', 'registers.manage'] },
   { label: 'Inventory', permissions: ['inventory.view', 'inventory.edit'] },
   {
     label: 'People',
