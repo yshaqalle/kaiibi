@@ -53,6 +53,8 @@ misconfigured. It is normal.
 1. A local Expo module, `hardware-keyboard`, answering "is a physical keyboard
    attached right now" with live connect/disconnect events.
 2. `useScannerSettings().hardware` gated on it.
+3. A one-time, dismissible prompt on the till screens when a keyboard is
+   attached to a store that has not switched scanning on.
 
 **Phase B — typing on the scanner till**
 
@@ -82,7 +84,9 @@ With the store setting **on**:
 | **Unknown** | Mounted (setting wins) | Normal `TextInput` | System keyboard |
 
 With the setting **off**, every row is the `Absent` row: nothing mounts and no
-keypad appears, whatever is attached. The setting is still permission.
+keypad appears, whatever is attached. The setting is still permission. The one
+thing that does happen there is the prompt below, when a keyboard is detected
+and the reader can act on it.
 
 `Unknown` means the platform could not answer — API unavailable, or the module
 missing from a build. It is the safety valve, and it is deliberately narrow: a
@@ -110,6 +114,45 @@ in a keyboard case reports exactly what a scanner till reports — but that user
 has real keys in front of them and needs no keypad from us. The store setting is
 the only signal available for *this attached keyboard probably has no keys on
 it*, so it has to stay in the condition.
+
+### Setting off but a keyboard attached — offer the toggle, once
+
+The mirror image of the notice this design killed, and it survives where that
+one did not. The difference is not the wording, it is how often it fires and
+whether anything can be done about it:
+
+|  | Setting **on**, nothing attached | Setting **off**, keyboard attached |
+|---|---|---|
+| How often | The majority of devices in a shop | Only when someone physically connects one |
+| Is it wrong? | No — a tablet with no scanner is normal | Probably — a scanner is plugged in and doing nothing |
+| Is there a fix? | None, and none implied | Yes: one toggle |
+
+The second is the shop that just bought a scanner, plugged it in, and has not
+found the setting. That is worth one sentence.
+
+**Conditions, all required:**
+
+- Store setting off, and detection reports `true` — not `null`. An unknown
+  answer must never produce advice.
+- The reader holds `settings.access`. A cashier cannot change a store setting,
+  and telling them to is worse than silence — they get nothing.
+- Not previously dismissed on this device, via `useCaveatDismissal`
+  (`'till.keyboard-detected'`), which already persists per device. Per device is
+  the right scope because the condition is per device.
+
+**Copy, and why it hedges:** detection cannot tell a scanner from a keyboard, so
+the prompt must not claim one. A tablet in a keyboard case trips exactly the
+same signal, and asserting "scanner detected" to that reader is a bug they can
+see. So it names what is actually known and lets the reader — who can see what
+is plugged in — resolve it:
+
+> A keyboard or barcode scanner is connected to this device. If it's a scanner,
+> turn on scanning for this store to use it. → **Open scanning settings**
+
+`Caveat tone="context"` with an action, deep-linked to the location editor
+rather than flipping the setting from here: this is a store-wide change made
+from one device, and the person should see what they are turning on. Dismissal
+is the keyboard-case reader's exit, and it sticks.
 
 ### The keypad owns the text; the field stops taking focus
 
@@ -248,6 +291,10 @@ own state.
   place the two answers diverge.
 - `SearchKeypad` renders a QWERTY row order and calls `onChange` with the
   reduced text.
+- The "keyboard attached, scanning off" prompt: shown only for
+  `attached === true` **and** `settings.access` **and** not dismissed. The three
+  suppressions are the test — `null` detection, a reader without the permission,
+  and a previous dismissal each have to silence it on their own.
 - `WedgeSink` — existing tests stay green; the focus-yield behaviour is
   unchanged by this work.
 
@@ -278,6 +325,12 @@ own state.
 
 - Changing `hardwareScannerEnabled` from a store column to a device setting.
   Detection removes the need.
-- A status row in Settings reporting what is attached. Killed by the rule: with
-  most devices legitimately scanner-less, it is noise on the majority of tills.
+- A notice when the setting is **on** and nothing is attached. Killed by the
+  rule: with most devices legitimately scanner-less, it fires on the majority of
+  tills, is not describing a fault, and offers no action. The opposite case is
+  in — see the decision above for why the asymmetry is real and not a
+  preference.
+- A status row in Settings reporting what is attached to the device being held.
+  The location editor gets opened by an owner on their own phone as often as on
+  the till, so it would report about the wrong device most of the time.
 - A general on-screen keyboard component for use anywhere else in the app.
