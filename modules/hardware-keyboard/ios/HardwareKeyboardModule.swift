@@ -11,10 +11,9 @@ import GameController
 // GCKeyboard is iOS 14+; the app's deployment target is 16.4 (ios/Podfile), so
 // no availability guard is needed.
 //
-// `coalesced` is `coalescedKeyboard` under its pre-rename name; the Xcode 26 /
-// iOS 26 SDK's Swift overlay renamed the property (same symbol, same iOS 14+
-// availability), and this SDK errors on the old spelling instead of just
-// warning.
+// `coalesced` is the Swift-projected name for Objective-C's `coalescedKeyboard`
+// class property, because Swift automatically strips the redundant type-name
+// suffix when importing.
 public class HardwareKeyboardModule: Module {
   public func definition() -> ModuleDefinition {
     Name("HardwareKeyboard")
