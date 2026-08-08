@@ -1,5 +1,12 @@
 import { supabase } from '@/lib/supabase';
-import type { DrawerCountEntry, PaymentLine, Register, RegisterSession, RegisterSessionCash } from '@/types/models';
+import type {
+  DrawerCountEntry,
+  PaymentLine,
+  Register,
+  RegisterSession,
+  RegisterSessionCash,
+  SessionTransaction,
+} from '@/types/models';
 
 // Registers and their sessions. The IO half — the arithmetic lives in
 // `register-sessions.ts` so Jest can load it without Supabase.
@@ -54,6 +61,7 @@ function mapSessionRow(row: any): RegisterSession {
     varianceBaseCents: row.variance_base_cents,
     openingNote: row.opening_note,
     closingNote: row.closing_note,
+    handedOverFrom: row.handed_over_from ?? null,
     cash: (row.cash ?? []).map(mapCashRow),
   };
 }
@@ -275,6 +283,114 @@ export async function registerSessionTotals(
     totals.set(id, current);
   }
   return totals;
+}
+
+// Every session in one continuous RUN of a register: the one asked for, plus
+// whatever was handed over to or from it.
+//
+// A run is what someone means by "this register today" when two people worked
+// it. It is walked through `handed_over_from` rather than by time, because
+// adjacency cannot tell a handover from a close-and-reopen — see 20260822000400.
+export async function sessionRun(sessionId: string): Promise<RegisterSession[]> {
+  const { data, error } = await supabase
+    .from('register_sessions')
+    .select(SESSION_SELECT)
+    .eq('id', sessionId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return [];
+  const anchor = mapSessionRow(data);
+
+  // Everything on this register, then walk the links. One query rather than a
+  // recursive fetch: a register has a handful of sessions a day, and a round
+  // trip per link at a counter is worse than a few extra rows.
+  const { data: siblings, error: siblingError } = await supabase
+    .from('register_sessions')
+    .select(SESSION_SELECT)
+    .eq('register_id', anchor.registerId)
+    .order('opened_at', { ascending: true });
+  if (siblingError) throw siblingError;
+  const all = (siblings ?? []).map(mapSessionRow);
+
+  const byId = new Map(all.map((session) => [session.id, session]));
+  const byPredecessor = new Map(
+    all.filter((s) => s.handedOverFrom).map((s) => [s.handedOverFrom as string, s])
+  );
+
+  // Back to the start of the run...
+  let first = byId.get(anchor.id) ?? anchor;
+  const guard = new Set<string>([first.id]);
+  while (first.handedOverFrom) {
+    const previous = byId.get(first.handedOverFrom);
+    // A cycle cannot happen through the RPC, but a hand-edited row should not
+    // hang the sheet.
+    if (!previous || guard.has(previous.id)) break;
+    guard.add(previous.id);
+    first = previous;
+  }
+
+  // ...then forward through every handover.
+  const run: RegisterSession[] = [first];
+  let cursor = first;
+  while (byPredecessor.has(cursor.id)) {
+    const next = byPredecessor.get(cursor.id) as RegisterSession;
+    if (guard.has(next.id) && next.id !== anchor.id) break;
+    guard.add(next.id);
+    run.push(next);
+    cursor = next;
+  }
+  return run;
+}
+
+// Sales and refunds rung through a set of sessions, newest first.
+export async function sessionTransactions(sessionIds: readonly string[]): Promise<SessionTransaction[]> {
+  if (sessionIds.length === 0) return [];
+  const ids = [...sessionIds];
+  const [salesResult, refundsResult] = await Promise.all([
+    supabase
+      .from('sales')
+      .select('id, created_at, total_cents, item_count, customer_name, register_session_id, payments:sale_payments(*)')
+      .in('register_session_id', ids),
+    supabase.from('refunds').select('id, created_at, total_cents, register_session_id').in('register_session_id', ids),
+  ]);
+  if (salesResult.error) throw salesResult.error;
+  if (refundsResult.error) throw refundsResult.error;
+
+  const rows: SessionTransaction[] = (salesResult.data ?? []).map((sale: any) => ({
+    id: sale.id,
+    createdAt: sale.created_at,
+    totalCents: sale.total_cents ?? 0,
+    itemCount: sale.item_count ?? 0,
+    customerName: sale.customer_name,
+    kind: 'sale',
+    payments: (sale.payments ?? []).map((payment: any) => ({
+      method: payment.method,
+      amountCents: payment.amount_cents,
+      tenderedCents: payment.tendered_cents,
+      customerName: payment.customer_name,
+      customerPhone: payment.customer_phone,
+      currencyCode: payment.currency_code,
+      exchangeRate: payment.exchange_rate != null ? Number(payment.exchange_rate) : null,
+      foreignAmountCents: payment.foreign_amount_cents,
+      foreignChangeCents: payment.foreign_change_cents,
+    })),
+  }));
+
+  for (const refund of refundsResult.data ?? []) {
+    rows.push({
+      id: (refund as any).id,
+      createdAt: (refund as any).created_at,
+      // Negative so it reads as money leaving without the list needing to know
+      // what a refund is at every call site.
+      totalCents: -((refund as any).total_cents ?? 0),
+      itemCount: 0,
+      customerName: null,
+      kind: 'refund',
+      payments: [],
+    });
+  }
+
+  return rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 // What the register was last closed at, per currency — the open sheet pre-fills

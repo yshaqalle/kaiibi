@@ -1,9 +1,9 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ListCard } from '@/components/ui/list-card';
 import { Colors } from '@/constants/theme';
 import { formatCents, formatForeignCents } from '@/lib/currency';
-import { BASE_CURRENCY, formatSessionWindow, varianceTone } from '@/lib/register-sessions';
+import { BASE_CURRENCY, formatSessionRange, varianceTone } from '@/lib/register-sessions';
 import type { Currency, RegisterSession } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -39,9 +39,11 @@ export type SessionRow = {
 export function RegisterSessionsCard({
   rows,
   currencies,
+  onOpenSession,
 }: {
   rows: SessionRow[];
   currencies: Currency[];
+  onOpenSession: (row: SessionRow) => void;
 }) {
   const outOfBalance = rows.filter(
     (row) => row.session.closedAt && (row.session.varianceBaseCents ?? 0) !== 0
@@ -55,7 +57,11 @@ export function RegisterSessionsCard({
       scope={outOfBalance === 0 ? 'All balanced' : `${outOfBalance} out of balance`}
       rows={rows}
       keyExtractor={(row) => row.session.id}
-      renderRow={(row) => <SessionRowView row={row} currencies={currencies} />}
+      renderRow={(row) => (
+        <Pressable onPress={() => onOpenSession(row)} accessibilityRole="button">
+          <SessionRowView row={row} currencies={currencies} />
+        </Pressable>
+      )}
       emptyLabel="No register has been opened in this period."
       previewCount={4}
       // ListCard renders `note` bare inside the card body, so it must be an
@@ -90,7 +96,7 @@ function SessionRowView({ row, currencies }: { row: SessionRow; currencies: Curr
     .map((cash) => formatMinor(cash.openingFloatMinor, cash.currencyCode, currencies));
 
   const meta = [
-    formatSessionWindow(session.openedAt),
+    formatSessionRange(session.openedAt, session.closedAt),
     // Takings first, because it is the line someone scans for. Shown for a
     // session that has rung nothing too — "0 sales" on an open register is
     // itself worth seeing.

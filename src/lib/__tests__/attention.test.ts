@@ -33,6 +33,7 @@ function closedSession(over: { varianceBaseCents: number | null; closingNote?: s
     varianceBaseCents: over.varianceBaseCents,
     openingNote: null,
     closingNote: over.closingNote ?? null,
+    handedOverFrom: null,
     cash: [],
   };
   return { session, registerName: 'Register 1', personName: 'Amina H.' };

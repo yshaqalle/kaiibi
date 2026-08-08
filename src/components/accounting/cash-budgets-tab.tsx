@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
+import { RegisterSessionDetail } from '@/components/accounting/register-session-detail';
 import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
@@ -99,6 +100,7 @@ export function CashBudgetsTab({
   // to names — the card renders, it does not look things up.
   const [sessionRows, setSessionRows] = useState<SessionRow[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [openSession, setOpenSession] = useState<SessionRow | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -407,7 +409,26 @@ export function CashBudgetsTab({
               Beside cash on hand because it is the same question asked over
               time: this tab already owns where the money physically is. --- */}
           <BentoCell span={12}>
-            <RegisterSessionsCard rows={sessionRows} currencies={currencies} />
+            <RegisterSessionsCard
+              rows={sessionRows}
+              currencies={currencies}
+              onOpenSession={setOpenSession}
+            />
+            {/* Mounted only while open and keyed by session, so it loads the
+                run fresh instead of needing an effect to reset it. */}
+            {openSession && (
+              <RegisterSessionDetail
+                key={openSession.session.id}
+                sessionId={openSession.session.id}
+                registerName={openSession.registerName}
+                nameFor={(session) =>
+                  sessionRows.find((row) => row.session.id === session.id)?.personName ??
+                  (session.shopMemberId ? 'Staff' : 'The owner')
+                }
+                currencies={currencies}
+                onClose={() => setOpenSession(null)}
+              />
+            )}
           </BentoCell>
 
           {/* --- Budget vs actual: the one section the date range drives, so

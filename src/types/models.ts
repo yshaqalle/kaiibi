@@ -827,7 +827,25 @@ export type RegisterSession = {
   varianceBaseCents: number | null;
   openingNote: string | null;
   closingNote: string | null;
+  // The session this one took over from. Set only by a handover — a register
+  // opened fresh a minute after a close is a NEW run, not a continuation, and
+  // inferring the link from timestamps could not tell the two apart.
+  handedOverFrom: string | null;
   cash: RegisterSessionCash[];
+};
+
+// One sale rung through a session, for the detail sheet's transaction list.
+export type SessionTransaction = {
+  id: string;
+  createdAt: string;
+  totalCents: number;
+  itemCount: number;
+  customerName: string | null;
+  payments: PaymentLine[];
+  // Refunds are listed alongside sales, in the order things happened: a refund
+  // takes cash out of whichever drawer was open when it was issued, so hiding
+  // it from that session's list would hide it from the person holding the cash.
+  kind: 'sale' | 'refund';
 };
 
 // What the client sends for one currency when opening or closing. `amountMinor`

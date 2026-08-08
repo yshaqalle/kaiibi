@@ -23,6 +23,7 @@ declare
   v_register_a uuid;
   v_register_b uuid;
   v_register_c uuid;
+  v_register_c_seed uuid;
   v_owner2_id uuid := gen_random_uuid();
   v_owner2_shop uuid;
   v_owner2_location uuid;
@@ -87,6 +88,8 @@ begin
     values (v_shop_id, v_location_id, 'Register 1') returning id into v_register_a;
   insert into public.registers (shop_id, location_id, name)
     values (v_shop_id, v_location_id, 'Register 2') returning id into v_register_b;
+  insert into public.registers (shop_id, location_id, name)
+    values (v_shop_id, v_location_id, 'Register 4') returning id into v_register_c_seed;
 
   v_items := jsonb_build_array(jsonb_build_object('product_id', v_product_id, 'quantity', 1, 'discount_cents', 0));
 
@@ -316,6 +319,15 @@ begin
   if not v_ok then raise exception 'FAIL: handover did not move the register to the incoming member'; end if;
   raise notice 'OK: handover closed one, opened one, carried 6000 across';
 
+  -- The link must be RECORDED, not inferred: a close and a fresh open a moment
+  -- later looks identical by timestamp and is not a handover at all.
+  select handed_over_from = v_session into v_ok
+    from public.register_sessions where id = v_session2;
+  if not coalesce(v_ok, false) then
+    raise exception 'FAIL: the handover did not record which session it came from';
+  end if;
+  raise notice 'OK: the incoming session records where it came from';
+
   -- 5000 float + 1000 cash sale = 6000 expected, counted 6000, so it balances.
   select variance_minor into v_variance
     from public.register_session_cash where session_id = v_session and currency_code = 'USD';
@@ -450,6 +462,14 @@ begin
   raise notice '=== 13. A register deletes only while it has no history ===';
   ------------------------------------------------------------------
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+
+  -- A register opened fresh -- not handed over -- must NOT claim a predecessor,
+  -- or two unrelated runs would render as one continuous one.
+  select public.open_register_session(v_register_c_seed, v_owner_member, '[]'::jsonb, null) into v_session;
+  select handed_over_from is null into v_ok from public.register_sessions where id = v_session;
+  if not v_ok then raise exception 'FAIL: a fresh open claimed to be a handover'; end if;
+  perform public.close_register_session(v_session, '[]'::jsonb, null);
+  raise notice 'OK: a fresh open is not a handover';
 
   -- Never opened: deletes cleanly. Nothing points at it, so nothing is lost.
   insert into public.registers (shop_id, location_id, name)
