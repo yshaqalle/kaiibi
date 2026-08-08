@@ -16,6 +16,7 @@ import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
@@ -559,6 +560,8 @@ export default function PosScreen() {
 
   const browsePaneEl = (
     <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
+      <TillKeyboardNotice />
+
       <View style={styles.searchWrap}>
         <Text style={styles.searchIcon}>⌕</Text>
         <TextInput

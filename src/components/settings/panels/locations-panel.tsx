@@ -348,7 +348,8 @@ function LocationEditorModal({
                 <Text style={modalStyles.toggleTitle}>This store has a barcode scanner</Text>
                 <Text style={modalStyles.toggleHint}>
                   For the USB or Bluetooth kind that plugs into the till. Turn this on only if one is connected here —
-                  it makes the register watch the keyboard for scans.
+                  it makes the register watch the keyboard for scans. Each device checks for itself, so tills without a
+                  scanner are unaffected.
                 </Text>
               </View>
               <Switch value={hardwareScannerEnabled} onValueChange={setHardwareScannerEnabled} />

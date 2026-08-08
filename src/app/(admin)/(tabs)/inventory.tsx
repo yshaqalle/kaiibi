@@ -16,6 +16,7 @@ import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
+import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
@@ -540,6 +541,8 @@ export default function InventoryScreen() {
               />
             ))}
         </View>
+
+        <TillKeyboardNotice />
 
         <View style={styles.searchWrap}>
           <TextInput
