@@ -1,6 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 
-import { PHOTO_QUALITY, pickPhotoFromLibrary, takePhotoWithCamera } from '@/lib/photo-picker';
+import { PHOTO_QUALITY, pickPhotoFromLibrary, releasePhotoUri, takePhotoWithCamera } from '@/lib/photo-picker';
 
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
@@ -116,5 +116,26 @@ describe('pickPhotoFromLibrary', () => {
     expect(mocked.launchImageLibraryAsync).toHaveBeenCalledWith(
       expect.objectContaining({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: PHOTO_QUALITY })
     );
+  });
+});
+
+describe('releasePhotoUri', () => {
+  let revoke: jest.SpyInstance;
+  beforeEach(() => { revoke = jest.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {}); });
+  afterEach(() => { revoke.mockRestore(); });
+
+  it('gives a blob url back to the browser', () => {
+    releasePhotoUri('blob:https://till.example/1234');
+    expect(revoke).toHaveBeenCalledWith('blob:https://till.example/1234');
+  });
+
+  // Everything that is not a live object URL: a native capture, a photo
+  // already in storage, and no photo at all. None of these are the browser's
+  // to reclaim.
+  it('leaves file, https and null uris alone', () => {
+    releasePhotoUri('file:///tmp/photo.jpg');
+    releasePhotoUri('https://cdn.example/photo.jpg');
+    releasePhotoUri(null);
+    expect(revoke).not.toHaveBeenCalled();
   });
 });

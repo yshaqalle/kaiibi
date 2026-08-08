@@ -9,6 +9,7 @@ import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } fr
 import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
 import { isValidRateInput } from '@/lib/pay-rate';
+import { useLocalPhotoUri } from '@/hooks/use-local-photo-uri';
 import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
 import { updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import { deleteImageByPublicUrl } from '@/lib/storage';
@@ -58,7 +59,7 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
   // The existing remote URL to start, a local uri once a new photo is picked
   // -- distinguishing the two is what tells save() whether there is anything
   // new to upload.
-  const [photoUri, setPhotoUri] = useState<string | null>(member.photoUrl);
+  const [photoUri, setPhotoUri] = useLocalPhotoUri(member.photoUrl);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);

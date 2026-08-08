@@ -185,7 +185,9 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   // The template is this week's rota with the times taken out: the people on
   // the board, against the days on the board, at the store the board is
   // showing. Falls back to the documented example only when there is nobody to
-  // build it from -- a shop that has not added anyone yet.
+  // build it from -- a shop that has not added anyone yet, or one whose people
+  // here are all inactive (scheduleTemplateRows leaves those out, so the check
+  // is on the rows it produced, not on the roster it was handed).
   //
   // Not gated on `members.length > 0` any more. It was, and since the modal is
   // only mounted when this is non-null, pressing Import with an empty roster
@@ -193,13 +195,13 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   // pressed.
   const templateStore = locationId ? storeName(locationId) : (primaryLocationOf(locations)?.name ?? '');
   const days = weekDaysFrom(monday);
+  const templateRows = scheduleTemplateRows(visibleMembers, days, templateStore);
   const importConfig: ImportEntityConfig<ShiftDraft> | null = shop
     ? {
         title: 'schedule',
         filenamePrefix: 'schedule',
         templateColumns: SCHEDULE_TEMPLATE_COLUMNS,
-        exampleRows:
-          visibleMembers.length > 0 ? scheduleTemplateRows(visibleMembers, days, templateStore) : SCHEDULE_EXAMPLE_ROWS,
+        exampleRows: templateRows.length > 0 ? templateRows : SCHEDULE_EXAMPLE_ROWS,
         run: (parsed) => runScheduleImport(shop.id, parsed, { members, locations }),
         unitLabel: 'shift',
       }

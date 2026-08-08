@@ -5,6 +5,7 @@ import { CameraPhotoButton } from '@/components/camera-photo-button';
 import { OptionPicker } from '@/components/option-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
+import { useLocalPhotoUri } from '@/hooks/use-local-photo-uri';
 import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
 import { provisionStaff, updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import type { Role } from '@/types/models';
@@ -32,7 +33,7 @@ export function TeamAddModal({
   const [roleId, setRoleId] = useState<string | null>(null);
   // A local file/blob uri once picked, never a remote one -- there is nothing
   // to re-upload until this changes.
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useLocalPhotoUri(null);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);

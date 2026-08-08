@@ -64,3 +64,20 @@ export async function takePhotoWithCamera(): Promise<PhotoPick> {
 // offered is not a platform question -- a desktop browser may or may not have a
 // webcam, and one can be plugged in mid-session -- so it is answered by
 // CameraPhotoButton, which renders nothing when there is no camera to use.
+
+// Gives a `blob:` object URL back to the browser. A web capture or web library
+// pick mints one per photo, and the browser holds the bytes alive until the
+// page unloads unless someone says otherwise -- this is the someone.
+//
+// It must NOT be called at upload time: a failed submit keeps the uri in state
+// for the retry, and a revoked url reads as a broken photo, not a retryable
+// one. The safe moments are when a newer pick replaces it and when the form
+// holding it unmounts, which is what use-local-photo-uri.ts arranges.
+//
+// Everything that isn't a live object URL passes through untouched: native
+// `file://` uris, `https://` urls already in storage, and null.
+export function releasePhotoUri(uri: string | null | undefined): void {
+  if (!uri?.startsWith('blob:')) return;
+  if (typeof URL === 'undefined' || typeof URL.revokeObjectURL !== 'function') return;
+  URL.revokeObjectURL(uri);
+}

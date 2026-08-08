@@ -18,6 +18,7 @@ import { formatCents, toCents } from '@/lib/currency';
 import { findProductsByCode, uploadProductImage } from '@/lib/products';
 import { needsCostConfirmation } from '@/lib/product-costing';
 import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
+import { useLocalPhotoUri } from '@/hooks/use-local-photo-uri';
 import { deleteImageByPublicUrl } from '@/lib/storage';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
@@ -103,7 +104,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const [isListedOnline, setIsListedOnline] = useState(initial?.isListedOnline ?? false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [imageUri, setImageUri] = useState<string | null>(initial?.imageUrl ?? null);
+  const [imageUri, setImageUri] = useLocalPhotoUri(initial?.imageUrl ?? null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
