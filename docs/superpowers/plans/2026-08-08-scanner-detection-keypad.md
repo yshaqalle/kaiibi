@@ -213,30 +213,36 @@ Native code, so nothing here is unit-testable — it is verified on a device in 
 - Consumes: nothing.
 - Produces: `getHardwareKeyboardModule(): HardwareKeyboardModule | null` from `modules/hardware-keyboard`, where `HardwareKeyboardModule` has `isAttached(): boolean` and `addListener('onChange', (event: { attached: boolean }) => void)`. Returns `null` when the native side is absent.
 
-- [ ] **Step 1: Generate the scaffold**
+- [ ] **Step 1: Generate the scaffold, non-interactively**
+
+Every prompt this tool would otherwise ask is passed as a flag, so it runs unattended. `--features Function Event` is doing real work: it generates exactly the two things this module needs and, by omitting `View`, produces no native view files to delete afterwards.
 
 ```bash
-npx create-expo-module@latest --local
+cd /Users/yusefs/development/kaiibi && npx create-expo-module@latest --local hardware-keyboard \
+  --name HardwareKeyboard \
+  --description "Reports whether a physical keyboard is attached to this device" \
+  --package expo.modules.hardwarekeyboard \
+  --platform apple android \
+  --features Function Event
 ```
 
-Answer the prompts:
-- name: `hardware-keyboard`
-- package name (Android): `expo.modules.hardwarekeyboard`
-- everything else: accept the defaults.
-
-- [ ] **Step 2: Delete the generated view and example files**
-
-The generator ships a native view and a web implementation this module has no use for.
+- [ ] **Step 2: Confirm what it generated**
 
 ```bash
-cd modules/hardware-keyboard
-rm -f ios/HardwareKeyboardView.swift \
-      android/src/main/java/expo/modules/hardwarekeyboard/HardwareKeyboardView.kt \
-      src/HardwareKeyboard.types.ts src/HardwareKeyboardModule.web.ts \
-      src/HardwareKeyboardView.tsx src/HardwareKeyboardView.web.tsx
-rmdir src 2>/dev/null || true
-cd -
+ls -R modules/hardware-keyboard
 ```
+
+Expected: a `modules/hardware-keyboard/` directory holding `expo-module.config.json`, an `index.ts` or `src/`, `ios/` and `android/`.
+
+If the directory came out under a different name, rename it to `hardware-keyboard` before continuing — later steps and `src/hooks/use-hardware-keyboard.ts` import that exact path.
+
+Delete any web or types stub the generator left behind, since this module has no web half:
+
+```bash
+rm -f modules/hardware-keyboard/src/*.web.ts modules/hardware-keyboard/src/*.types.ts
+```
+
+Steps 3–6 below then REPLACE the generated `expo-module.config.json`, Swift, Kotlin and TypeScript with the contents given. If the generator put the TS in `src/index.ts` rather than `index.ts`, keep its location and write the Step 6 contents there — but make sure `modules/hardware-keyboard/index.ts` is what resolves, adding a one-line re-export if needed.
 
 - [ ] **Step 3: Write the module config**
 
