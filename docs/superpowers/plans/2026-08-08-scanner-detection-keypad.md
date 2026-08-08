@@ -285,8 +285,12 @@ public class HardwareKeyboardModule: Module {
 
     Events("onChange")
 
+    // `coalesced` is the Swift-projected name for Objective-C's
+    // `coalescedKeyboard` class property, because Swift automatically strips the
+    // redundant type-name suffix when importing. `GCKeyboard.coalescedKeyboard`
+    // is not valid Swift and will not compile.
     Function("isAttached") { () -> Bool in
-      return GCKeyboard.coalescedKeyboard != nil
+      return GCKeyboard.coalesced != nil
     }
 
     OnStartObserving {
@@ -318,7 +322,7 @@ public class HardwareKeyboardModule: Module {
   private func keyboardDidDisconnect() {
     // Read through rather than assuming false: a device can have two keyboards
     // attached, and one going away does not mean none are left.
-    sendEvent("onChange", ["attached": GCKeyboard.coalescedKeyboard != nil])
+    sendEvent("onChange", ["attached": GCKeyboard.coalesced != nil])
   }
 }
 ```
