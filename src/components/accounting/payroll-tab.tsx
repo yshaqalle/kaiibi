@@ -226,12 +226,13 @@ export function PayrollTab({
             {(['weekly', 'biweekly', 'semimonthly', 'monthly'] as const).map((option) => (
               <CategoryChip
                 key={option}
+                variant="bento"
                 label={CADENCE_LABELS[option]}
                 active={cadence === option}
                 onPress={() => setCadence(option)}
               />
             ))}
-            <CategoryChip label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
+            <CategoryChip variant="bento" label="Custom dates" active={cadence === null} onPress={() => setCadence(null)} />
           </View>
           {activeStaff !== null && coveredCount !== null && (
             <View style={styles.coverageRow}>
@@ -269,6 +270,7 @@ export function PayrollTab({
               {periodOptions.periods.map((period) => (
                 <CategoryChip
                   key={`${period.start}-${period.end}`}
+                  variant="bento"
                   label={`${period.start} → ${period.end}`}
                   active={periodStart === period.start && periodEnd === period.end}
                   onPress={() => {

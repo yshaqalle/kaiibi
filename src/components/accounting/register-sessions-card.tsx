@@ -28,6 +28,9 @@ const theme = Colors.light;
 export type SessionRow = {
   session: RegisterSession;
   registerName: string;
+  // Where the till stands. Carried so the detail sheet can show it without a
+  // second lookup — the list has already resolved the register.
+  registerNote: string | null;
   personName: string;
   // What it rang up, across every tender. Present for open sessions too — "how
   // is this till doing?" is a different question from "does the drawer add up?",

@@ -874,6 +874,7 @@ export default function PosScreen() {
           key={registerSession.id}
           sessionId={registerSession.id}
           registerName={registers.find((r) => r.id === registerSession.registerId)?.name ?? 'Register'}
+          registerNote={registers.find((r) => r.id === registerSession.registerId)?.note ?? null}
           nameFor={(session) => {
             const onIt = team.find((member) => member.id === session.shopMemberId);
             return onIt?.fullName ?? onIt?.email ?? (session.shopMemberId ? 'Staff' : profile?.fullName ?? 'The owner');

@@ -154,6 +154,7 @@ export function CashBudgetsTab({
           listStaff(shop.id).catch(() => []),
         ]);
         const registerName = new Map(registerRows.map((r) => [r.id, r.name]));
+        const registerNote = new Map(registerRows.map((r) => [r.id, r.note]));
         const memberName = new Map(members.map((m) => [m.id, m.fullName ?? m.email ?? 'Staff']));
         // Opened inside the range, or still open — a session that started last
         // month and is still running is very much this month's problem.
@@ -166,6 +167,7 @@ export function CashBudgetsTab({
           inRange.map((session) => ({
             session,
             registerName: registerName.get(session.registerId) ?? 'A register',
+            registerNote: registerNote.get(session.registerId) ?? null,
             // An owner-run session carries no roster row (see 20260822000200),
             // so it is named generically rather than rendering "undefined".
             personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
@@ -438,6 +440,7 @@ export function CashBudgetsTab({
                 key={detailRow.session.id}
                 sessionId={detailRow.session.id}
                 registerName={detailRow.registerName}
+                registerNote={detailRow.registerNote}
                 nameFor={(session) =>
                   sessionRows.find((row) => row.session.id === session.id)?.personName ??
                   (session.shopMemberId ? 'Staff' : 'The owner')
