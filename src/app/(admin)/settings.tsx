@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,7 +19,7 @@ import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { RolesPanel } from '@/components/settings/panels/roles-panel';
 import { BusinessPanel } from '@/components/settings/panels/business-panel';
 import { VendorsPanel } from '@/components/settings/panels/vendors-panel';
-import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
+import { isSettingsNavId, SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { createBrand, deleteBrand, listBrands, renameBrand, updateBrand, uploadBrandImage } from '@/lib/brands';
@@ -46,7 +47,14 @@ export default function SettingsScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
 
-  const [activeNav, setActiveNav] = useState<SettingsNavId>('profile');
+  // Seeded from the URL so something elsewhere can send the reader to the
+  // panel it is talking about -- see TillKeyboardNotice. Read once, as the
+  // initial value: after that the reader owns which panel is open, and a
+  // re-render must not yank them back.
+  const params = useLocalSearchParams<{ nav?: string }>();
+  const [activeNav, setActiveNav] = useState<SettingsNavId>(
+    isSettingsNavId(params.nav) ? params.nav : 'profile',
+  );
   const [menuOpen, setMenuOpen] = useState(false);
 
   const [brandRows, setBrandRows] = useState<Brand[]>([]);
