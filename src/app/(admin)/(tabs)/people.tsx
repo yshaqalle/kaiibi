@@ -551,8 +551,15 @@ function CustomerDetailPane({
         }
         right={
           <>
+            {/* Keyed by customer so switching person REMOUNTS the card and its
+                internal state (open modal, expanded preview) cannot outlive the
+                customer it belonged to. The prefix is what makes it a valid key
+                rather than just a scoping trick: this and "Points history" are
+                siblings in one fragment, and keying both on the bare id gave two
+                children the same key -- which React is free to resolve by
+                dropping one. */}
             <ListCard
-              key={customer.id}
+              key={`purchases-${customer.id}`}
               title="Purchase history"
               scope={stats ? `${stats.visitCount} orders` : undefined}
               subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
@@ -581,7 +588,7 @@ function CustomerDetailPane({
                 quietly changing an old one. */}
             {loyaltyOn && (
               <ListCard
-                key={customer.id}
+                key={`points-${customer.id}`}
                 title="Points history"
                 scope={`${customer.pointsBalance.toLocaleString()} balance`}
                 subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
