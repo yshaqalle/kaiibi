@@ -153,8 +153,12 @@ export function OpenRegisterSheet({
   // that decides where the money lands, and it should not require scrolling back
   // up to confirm. Only for a business with more than one -- a single-store shop
   // would just be reading its own name back on every line.
-  const storeNames: Record<string, string> =
-    locations.length > 1 ? Object.fromEntries(locations.map((l) => [l.id, l.name])) : {};
+  // One store means there is no store question to ask and no store worth naming
+  // on every row — it would just read the shop's own name back at them.
+  const multiStore = locations.filter((location) => location.active).length > 1;
+  const storeNames: Record<string, string> = multiStore
+    ? Object.fromEntries(locations.map((l) => [l.id, l.name]))
+    : {};
 
   return (
     <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
@@ -170,6 +174,7 @@ export function OpenRegisterSheet({
           <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
             {step === 'pick' ? (
               <>
+                {multiStore && (
                 <View style={styles.block}>
                   <Text style={styles.label}>Which store</Text>
                   <StoreDropdown
@@ -184,6 +189,7 @@ export function OpenRegisterSheet({
                     The counter moves with it: sales, stock and this register all belong to the store shown here.
                   </Text>
                 </View>
+                )}
 
                 <View style={styles.block}>
                   <Text style={styles.label}>Which register</Text>
@@ -263,7 +269,7 @@ export function OpenRegisterSheet({
                         {shortPersonName(person?.fullName ?? fallbackName, person?.email)}
                         {person?.id === myMembership?.id ? '  ·  you' : ''}
                       </Text>
-                      <Text style={styles.personMeta}>{person?.roleName ?? 'Staff'}</Text>
+                      <Text style={styles.personMeta}>{person?.roleName ?? (myMembership ? 'Staff' : 'Owner')}</Text>
                     </View>
                     {canManageRegisters && team.length > 1 && (
                       <Pressable onPress={() => setPickingPerson((open) => !open)} style={styles.headBtn}>

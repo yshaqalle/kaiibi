@@ -1,8 +1,14 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { Platform, StyleSheet, Text, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
+import { isTabletDevice } from '@/lib/device';
+
+// Matches `sidebar.width` in admin-sidebar.tsx. Only ever used to GUESS the
+// grid width before the first measurement, so a drift here costs one frame of
+// wrong layout, never a wrong final layout.
+const SIDEBAR_WIDTH = 220;
 
 const theme = Colors.light;
 
@@ -63,13 +69,23 @@ export function bentoCellFraction(span: number, gridWidth: number): number {
 /**
  * The grid width to assume before the grid has measured itself, so the first
  * paint lands on the right layout instead of visibly reflowing. Subtracts the
- * chrome the grid does not get: the sidebar the nav shell draws at tablet
- * width and up, and the screen's own page padding.
+ * chrome the grid does not get: the nav sidebar, and the screen's own padding.
+ *
+ * Whether that sidebar is there is answered DIFFERENTLY per platform, and both
+ * answers are deliberate (see admin-tabs.tsx):
+ *
+ *   native — `isTabletDevice()`, a device-class test. A width test would swap
+ *            navigators mid-rotation and used to crash the POS, so an iPad mini
+ *            gets the sidebar at 744pt even though that is under the tablet
+ *            breakpoint. Guessing on width here estimated 708pt where the grid
+ *            actually had 502pt, and the layout visibly reflowed on first paint.
+ *   web    — a live width breakpoint (admin-tabs.web.tsx), which the shell can
+ *            afford because both of its branches render a Slot.
  */
 function useEstimatedGridWidth(): number {
   const { width } = useWindowDimensions();
-  const sidebar = width >= TABLET_BREAKPOINT ? 210 : 0;
-  return Math.max(1, width - sidebar - 36);
+  const hasSidebar = Platform.OS === 'web' ? width >= TABLET_BREAKPOINT : isTabletDevice();
+  return Math.max(1, width - (hasSidebar ? SIDEBAR_WIDTH : 0) - 36);
 }
 
 const GAP = 14;
@@ -88,11 +104,18 @@ export function BentoGrid({
    * shorter ones sitting at the top of the row. Right for most of a screen:
    * a table and a three-line statement have no business being the same height.
    *
-   * `stretch` makes every card in a row as tall as the tallest. Right for a
-   * row that reads as ONE band — the Overview strip, where five cards
-   * answering one question at five different heights reads as five leftovers
-   * rather than a row. A card in a stretched row has to fill it: see the
-   * `fill` prop on `Card`.
+   * `stretch` lets a card in a row be as tall as the tallest. Right for a row
+   * that reads as ONE band — the Overview strip, where five cards answering
+   * one question at five different heights reads as five leftovers rather than
+   * a row.
+   *
+   * It is safe to put on a WHOLE grid, which is what the Dashboard does, and
+   * the reason is worth knowing: this stretches the CELL, and only a card that
+   * asks grows to fill it. `BentoCard` never asks, so every card built on it
+   * still hugs its own content and a mixed row looks exactly as it does under
+   * `top`. Opting in is `fill` on `Card` — today that is `overview-cards.tsx`
+   * and `top-mover-card.tsx`, i.e. precisely the Overview band and the movers
+   * row. Splitting the screen into two grids to scope this would buy nothing.
    */
   rowAlign?: 'top' | 'stretch';
 }) {
