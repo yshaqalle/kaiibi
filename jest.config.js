@@ -7,7 +7,6 @@ process.env.TZ = 'America/New_York';
 module.exports = {
   preset: 'jest-expo',
   testPathIgnorePatterns: ['/node_modules/', '/.expo/', '/.claude/'],
-  setupFiles: ['<rootDir>/jest/env-setup.js'],
   // constants/theme.ts imports global.css for the web font variables, which
   // Jest cannot parse — so anything reading a colour token was untestable.
   // See jest/style-stub.js.

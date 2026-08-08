@@ -1,3 +1,9 @@
+// settings-sidebar.tsx transitively imports src/lib/supabase.ts, which throws
+// at import time unless EXPO_PUBLIC_SUPABASE_URL/ANON_KEY are set. This test
+// never calls a Supabase method, so a bare mock is enough to let the import
+// chain resolve without real credentials -- do not delete this as unused.
+jest.mock('@/lib/supabase', () => ({ supabase: {} }));
+
 import { isSettingsNavId } from '@/components/settings/settings-sidebar';
 
 describe('isSettingsNavId', () => {
