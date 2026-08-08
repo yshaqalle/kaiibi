@@ -44,10 +44,10 @@ export const so: Messages = {
     "Ku iibi USD, ETB ama SLSH. Aqbal lacag caddaan ah, ZAAD, e-Dahab ama wallet kale. La soco alaabta, shaqaalaha iyo faa'iidada dhabta ah — dhammaan taleefankaaga.",
   'hero.ledeShort':
     "Ku iibi lacag kasta. Aqbal caddaan, ZAAD ama e-Dahab. La soco alaabta, shaqaalaha iyo faa'iidada.",
-  'hero.ctaPrimary': 'Bilaash ku bilow',
+  'hero.ctaPrimary': 'Bilow tijaabada bilaashka ah',
   'hero.ctaSecondary': 'Arag sida uu u shaqeeyo',
   'hero.ctaDashboard': 'Aad shaashaddaada',
-  'hero.note1': 'Qorshe bilaash ah oo weligiis ah',
+  'hero.note1': 'Astaamaha oo dhan inta tijaabadu socoto',
   'hero.note2': "Kaadh looma baahna",
   'hero.note3': 'Wuxuu ku shaqeeyaa taleefan casri ah kasta',
 
@@ -166,19 +166,8 @@ export const so: Messages = {
   'plans.tag': 'Qorshayaasha',
   'plans.title': 'Dooro qorshaha ku habboon dukaankaaga',
   'plans.lede':
-    'Ka bilow qorshaha Bilaashka ah oo sii jooji intaad rabto, ama qaado Tijaabada si aad wax walba u aragto. Qiimaha Caadiga iyo Pro dhawaan ayaa la shaacin doonaa.',
+    'Qaado Tijaabada si aad wax walba u aragto, kadibna dooro qorshaha kugu habboon. Qiimaha Caadiga iyo Pro dhawaan ayaa la shaacin doonaa.',
   'plans.mostPopular': 'Ugu caansan',
-
-  'plans.free.name': 'Bilaash',
-  'plans.free.for': 'Dukaan cusub oo bilaabaya',
-  'plans.free.price': 'Bilaash — had iyo jeer',
-  'plans.free.priceNote': 'Kaadh ma leh, waqti tijaabo ma leh',
-  'plans.free.f1': 'Iib hal qalab',
-  'plans.free.f2': 'Liiska alaabta iyo bakhaarka',
-  'plans.free.f3': 'Kooban iibka maalinlaha',
-  'plans.free.f4': 'Caddaan, ZAAD, e-Dahab',
-  'plans.free.f5': 'Ilaa 50 alaab iyo 300 iib bishii',
-  'plans.free.cta': 'Bilaash ku bilow',
 
   'plans.trial.name': 'Tijaabo',
   'plans.trial.for': 'Tijaabi dhammaan astaamaha Pro, bilaash',
@@ -187,20 +176,20 @@ export const so: Messages = {
   'plans.trial.f1': 'Wax kasta oo Pro qaban karo',
   'plans.trial.f2': 'Kaadh looma baahna bilowga',
   'plans.trial.f3': 'Xogtaada way kuu haraysaa markuu dhammaado',
-  'plans.trial.f4': 'Waqti kasta ku noqo Bilaashka',
+  'plans.trial.f4': 'Ballan-qaad kuma saarna markuu dhammaado',
   'plans.trial.cta': 'Bilow tijaabada',
 
   'plans.standard.name': 'Caadi',
   'plans.standard.for': 'Dukaan mashquul ah oo koox yar leh',
   'plans.standard.price': 'Qiimaha dhawaan',
   'plans.standard.priceNote': 'Waan shaacin doonaa ka hor bilowga',
-  'plans.standard.f1': 'Wax kasta oo Bilaashka ku jira',
+  'plans.standard.f1': 'Iib, alaab iyo bakhaar',
   'plans.standard.f2': 'Khasnajiyo badan oo akoon leh',
   'plans.standard.f3': "Qiimaha kharashka iyo faa'iidada dhabta ah",
   'plans.standard.f4': 'Qiimo-dhimis iyo dallacaad',
   'plans.standard.f5': 'Diiwaanka macaamiisha',
   'plans.standard.f6': 'Rasiidyo WhatsApp',
-  'plans.standard.cta': 'Bilaash ku bilow',
+  'plans.standard.cta': 'Bilow',
 
   'plans.pro.name': 'Pro',
   'plans.pro.for': 'Laamo badan iyo kooxo waaweyn',
@@ -221,9 +210,9 @@ export const so: Messages = {
   // ── faq ───────────────────────────────────────────────────────────────────
   'faq.tag': "Su'aalaha",
   'faq.title': "Su'aalaha badanaa la weydiiyo",
-  'faq.q1': 'Qorshaha Bilaashka ah imisa ayuu dhab ahaan qaadanayaa?',
+  'faq.q1': 'Ma jirtaa tijaabo bilaash ah?',
   'faq.a1':
-    'Waxba. Mana laha waqti tijaabo. Waxaad dukaankaaga ku maamuli kartaa qorshaha Bilaashka ah inta aad rabto, ilaa 50 alaab iyo 300 iib bishii.',
+    'Haa. Waxaad tijaabin kartaa wax kasta oo Pro qaban karo adigoon kaadh isticmaalin, muddadana waa la shaacin doonaa bilowga. Xogtaadu way kuu haraysaa markay tijaabadu dhammaato.',
   'faq.q2': 'Caadiga iyo Pro imisa ayay noqon doonaan?',
   'faq.a2':
     'Weli qiimaha waan dejinaynaa. Halkan ayaa lagu daabici doonaa ka hor inta aan qorshayaashaas la bixin.',

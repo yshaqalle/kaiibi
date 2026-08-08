@@ -45,10 +45,10 @@ export const en = {
     'Sell in USD, ETB or SLSH. Take cash, ZAAD, e-Dahab or another wallet. Track stock, staff and real profit — all from the phone in your pocket.',
   'hero.ledeShort':
     'Sell in any currency. Take cash, ZAAD or e-Dahab. Track stock, staff and real profit.',
-  'hero.ctaPrimary': 'Get started free',
+  'hero.ctaPrimary': 'Start your free trial',
   'hero.ctaSecondary': 'See how it works',
   'hero.ctaDashboard': 'Go to your dashboard',
-  'hero.note1': 'Free plan forever',
+  'hero.note1': 'Every feature during the trial',
   'hero.note2': 'No card required',
   // "any smartphone", not "any Android phone": the app ships on iOS as well as
   // Android and runs in a browser on top of that. "Smartphone" rather than
@@ -168,19 +168,8 @@ export const en = {
   'plans.tag': 'Plans',
   'plans.title': 'Pick the plan that fits your shop',
   'plans.lede':
-    'Start on Free and stay there as long as you like, or take the Trial to see everything. Pricing for Standard and Pro will be announced soon.',
+    'Take the Trial to see everything, then pick the plan that fits. Pricing for Standard and Pro will be announced soon.',
   'plans.mostPopular': 'Most popular',
-
-  'plans.free.name': 'Free',
-  'plans.free.for': 'For a new shop finding its feet',
-  'plans.free.price': 'Free — always',
-  'plans.free.priceNote': 'No card, no trial clock',
-  'plans.free.f1': 'Point of sale on one device',
-  'plans.free.f2': 'Product and stock list',
-  'plans.free.f3': 'Daily sales summary',
-  'plans.free.f4': 'Cash, ZAAD, e-Dahab',
-  'plans.free.f5': 'Up to 50 products and 300 sales a month',
-  'plans.free.cta': 'Start free',
 
   'plans.trial.name': 'Trial',
   'plans.trial.for': 'Try every Pro feature, free',
@@ -189,20 +178,20 @@ export const en = {
   'plans.trial.f1': 'Everything Pro can do',
   'plans.trial.f2': 'No card to start',
   'plans.trial.f3': 'Keep your data after it ends',
-  'plans.trial.f4': 'Drop to Free any time',
+  'plans.trial.f4': 'No commitment when it ends',
   'plans.trial.cta': 'Start trial',
 
   'plans.standard.name': 'Standard',
   'plans.standard.for': 'For a busy shop with a small team',
   'plans.standard.price': 'Pricing coming soon',
   'plans.standard.priceNote': 'We will announce it before launch',
-  'plans.standard.f1': 'Everything in Free',
+  'plans.standard.f1': 'Point of sale, products and stock',
   'plans.standard.f2': 'Multiple cashiers with logins',
   'plans.standard.f3': 'Cost prices and true profit',
   'plans.standard.f4': 'Discounts and promotions',
   'plans.standard.f5': 'Customer records',
   'plans.standard.f6': 'WhatsApp receipts',
-  'plans.standard.cta': 'Start free',
+  'plans.standard.cta': 'Get started',
 
   'plans.pro.name': 'Pro',
   'plans.pro.for': 'For several branches and bigger teams',
@@ -223,9 +212,9 @@ export const en = {
   // ── faq ───────────────────────────────────────────────────────────────────
   'faq.tag': 'FAQ',
   'faq.title': 'Common questions',
-  'faq.q1': 'What does the Free plan actually cost?',
+  'faq.q1': 'Is there a free trial?',
   'faq.a1':
-    'Nothing, and there is no trial timer on it. You can run your shop on Free for as long as it suits you, up to 50 products and 300 sales a month.',
+    'Yes. You can try everything Pro can do without a card, and the length will be announced at launch. Your data stays with you when the trial ends.',
   'faq.q2': 'How much will Standard and Pro cost?',
   'faq.a2':
     'We are still setting the prices. They will be published here before those plans go on sale.',

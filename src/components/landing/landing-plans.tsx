@@ -9,7 +9,12 @@ import { useLocale } from '@/hooks/use-locale';
 import { openExternalUrl } from '@/lib/external-url';
 import type { MessageKey } from '@/lib/i18n';
 
-// Four plans, no prices — pricing for Standard and Pro isn't set yet.
+// Three plans, no prices — pricing for Standard and Pro isn't set yet.
+//
+// The Free card was removed: that plan is no longer offered, so the landing
+// page must not advertise it. Copy that leaned on it went with it — the hero's
+// "Free plan forever" note, the Free-plan FAQ, Standard's "Everything in Free"
+// bullet. The Trial stays, and is still free to start.
 //
 // Copy is static rather than read from `listAllPlans()`: the point of these
 // cards is that they DON'T show prices, so fetching a price table to not
@@ -17,8 +22,8 @@ import type { MessageKey } from '@/lib/i18n';
 // function already exists in lib/subscriptions.ts.
 //
 // Two CTAs differ from the design. Standard's "Join the waitlist" became
-// "Start free" -> /signup, because no waitlist exists and a Free signup
-// captures the same contact details. Pro's "Talk to us" is email rather than
+// "Get started" -> /signup, because no waitlist exists and a signup captures
+// the same contact details. Pro's "Talk to us" is email rather than
 // WhatsApp — see constants/contact.ts.
 
 type PlanCta = { kind: 'signup' } | { kind: 'email' };
@@ -36,16 +41,6 @@ type Plan = {
 };
 
 const PLANS: Plan[] = [
-  {
-    key: 'free',
-    name: 'plans.free.name',
-    for: 'plans.free.for',
-    price: 'plans.free.price',
-    priceNote: 'plans.free.priceNote',
-    features: ['plans.free.f1', 'plans.free.f2', 'plans.free.f3', 'plans.free.f4', 'plans.free.f5'],
-    cta: 'plans.free.cta',
-    action: { kind: 'signup' },
-  },
   {
     key: 'trial',
     name: 'plans.trial.name',
@@ -100,7 +95,9 @@ export function LandingPlans() {
   const { t } = useLocale();
   const { width } = useWindowDimensions();
 
-  const columns = width >= 1050 ? 4 : width >= MarketingLayout.narrowBreakpoint ? 2 : 1;
+  // Three across on desktop (the 1050 breakpoint was sized for four cards, so
+  // three fit comfortably below it); two, then one, as the viewport narrows.
+  const columns = width >= 1050 ? 3 : width >= MarketingLayout.narrowBreakpoint ? 2 : 1;
 
   return (
     <LandingSection id="plans" background="gray" narrow={width < MarketingLayout.narrowBreakpoint}>
