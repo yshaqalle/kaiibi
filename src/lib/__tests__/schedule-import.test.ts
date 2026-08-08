@@ -1,5 +1,5 @@
 import type { ParsedCsv } from '@/lib/csv';
-import { parseScheduleRows, type ScheduleImportContext } from '@/lib/schedule-import';
+import { parseScheduleRows, scheduleTemplateRows, type ScheduleImportContext } from '@/lib/schedule-import';
 import type { Shift } from '@/lib/scheduling';
 import type { ShopLocation, StaffMember } from '@/types/models';
 
@@ -216,5 +216,70 @@ describe('parseScheduleRows — rejections', () => {
     );
     expect(drafts).toHaveLength(2);
     expect(rejected).toHaveLength(1);
+  });
+});
+
+// ─── The pre-filled template ─────────────────────────────────────────────
+
+describe('scheduleTemplateRows', () => {
+  const week = ['2026-08-10', '2026-08-11', '2026-08-12'];
+
+  it('writes one row per person per day, with the dates and store filled in', () => {
+    const rows = scheduleTemplateRows([member()], week, 'Main');
+    expect(rows).toEqual([
+      { Date: '2026-08-10', 'Staff Name': 'Hamse Jibril', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: 'Main', Note: '' },
+      { Date: '2026-08-11', 'Staff Name': 'Hamse Jibril', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: 'Main', Note: '' },
+      { Date: '2026-08-12', 'Staff Name': 'Hamse Jibril', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: 'Main', Note: '' },
+    ]);
+  });
+
+  // A whole person's week together, rather than a whole day's staff together:
+  // filling this in means going down one column for one person at a time.
+  it('groups a person’s week together', () => {
+    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'amina@example.com' })], week, 'Main');
+    expect(rows.map((r) => r['Staff Email'])).toEqual([
+      'hamse@example.com', 'hamse@example.com', 'hamse@example.com',
+      'amina@example.com', 'amina@example.com', 'amina@example.com',
+    ]);
+  });
+
+  it('leaves out people who are no longer active', () => {
+    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'gone@example.com', active: false })], week, 'Main');
+    expect(rows.every((r) => r['Staff Email'] === 'hamse@example.com')).toBe(true);
+  });
+
+  // Name is the parser's fallback identity, so someone with no email address
+  // still gets usable rows instead of rows that can only be rejected.
+  it('still writes rows for someone with no email', () => {
+    const rows = scheduleTemplateRows([member({ email: null })], week, 'Main');
+    expect(rows[0]).toMatchObject({ 'Staff Name': 'Hamse Jibril', 'Staff Email': '' });
+  });
+});
+
+describe('parseScheduleRows — the blank days of a pre-filled template', () => {
+  const blank = { Date: '2026-08-10', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: '', Note: '' };
+
+  // The whole point of handing over a grid: the days someone is not working are
+  // left empty, and empty is an answer, not a mistake.
+  it('skips a row with no times at all, without rejecting it', () => {
+    const { drafts, rejected } = parseScheduleRows(csv([blank]), singleStore);
+    expect(drafts).toEqual([]);
+    expect(rejected).toEqual([]);
+  });
+
+  it('imports the filled days out of a template and ignores the rest', () => {
+    const rows = [blank, { ...blank, Date: '2026-08-11', Start: '09:00', End: '17:00' }, { ...blank, Date: '2026-08-12' }];
+    const { drafts, rejected } = parseScheduleRows(csv(rows), singleStore);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0].date).toBe('2026-08-11');
+    expect(rejected).toEqual([]);
+  });
+
+  // Half-filled is a mistake, and stays one -- someone typed a start and got
+  // distracted, which is not the same as leaving the day empty.
+  it('still rejects a row with a start and no end', () => {
+    const { rejected } = parseScheduleRows(csv([{ ...blank, Start: '09:00' }]), singleStore);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatch(/End/);
   });
 });

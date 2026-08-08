@@ -16,7 +16,7 @@ import { listProducts } from '@/lib/products';
 import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import { runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
 import { listSales } from '@/lib/sales';
-import { SCHEDULE_EXAMPLE_ROWS, SCHEDULE_TEMPLATE_COLUMNS } from '@/lib/schedule-import';
+import { SCHEDULE_EXAMPLE_ROWS, SCHEDULE_TEMPLATE_COLUMNS, scheduleTemplateRows } from '@/lib/schedule-import';
 import { listShiftsForWeek, runScheduleImport } from '@/lib/shifts';
 import { listStaff } from '@/lib/staff';
 import { TEAM_EXPORT_COLUMNS_WITH_PAY } from '@/lib/staff-export';
@@ -352,5 +352,27 @@ describe('schedule import', () => {
     expect(second.rejected).toHaveLength(3);
     expect(second.rejected[0].reason).toMatch(/already has a shift overlapping/);
     expect(await listShiftsForWeek(SHOP_ID, WEEK)).toHaveLength(3);
+  });
+
+  // The template a manager is actually handed: their own people against the
+  // week on screen, dates and store already written in. They type times on the
+  // days someone works and upload it untouched otherwise -- so the blank days
+  // have to survive the round trip as nothing at all, not as five rejections.
+  it('imports a pre-filled week template with only some days filled in', async () => {
+    const week = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14'];
+    const filled = scheduleTemplateRows([member], week, mainStore.name).map((row) =>
+      row.Date === '2026-08-10' || row.Date === '2026-08-12' ? { ...row, Start: '09:00', End: '17:00' } : row
+    );
+
+    const parsed = downloadThenUpload(SCHEDULE_TEMPLATE_COLUMNS, filled);
+    expect(parsed.rows).toHaveLength(5);
+
+    const report = await runScheduleImport(SHOP_ID, parsed, context);
+    expect(report.rejected).toEqual([]);
+    expect(report.accepted).toHaveLength(2);
+
+    const rota = await listShiftsForWeek(SHOP_ID, WEEK);
+    expect(rota.map((s) => s.date)).toEqual(['2026-08-10', '2026-08-12']);
+    expect(rota.every((s) => s.shopMemberId === member.id && s.locationId === mainStore.id)).toBe(true);
   });
 });
