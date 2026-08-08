@@ -452,14 +452,18 @@ import { act, create } from 'react-test-renderer';
 import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
 
 const listeners: ((event: { attached: boolean }) => void)[] = [];
-let attached = false;
-let modulePresent = true;
+// `mock`-prefixed on purpose, and not cosmetic: `jest.mock()` is hoisted above
+// these declarations, and `babel-plugin-jest-hoist` REFUSES to compile a
+// factory that closes over an out-of-scope `let` unless its name begins with
+// `mock`. Rename these and the suite fails to transform at all.
+let mockAttached = false;
+let mockModulePresent = true;
 
 jest.mock('../../../modules/hardware-keyboard', () => ({
   getHardwareKeyboardModule: () =>
-    modulePresent
+    mockModulePresent
       ? {
-          isAttached: () => attached,
+          isAttached: () => mockAttached,
           addListener: (_name: string, fn: (event: { attached: boolean }) => void) => {
             listeners.push(fn);
             return { remove: () => { listeners.length = 0; } };
@@ -480,10 +484,10 @@ function render() {
 }
 
 describe('useHardwareKeyboard', () => {
-  beforeEach(() => { listeners.length = 0; attached = false; modulePresent = true; });
+  beforeEach(() => { listeners.length = 0; mockAttached = false; mockModulePresent = true; });
 
   it('reports what the device says on mount', () => {
-    attached = true;
+    mockAttached = true;
     expect(render().at(-1)).toBe(true);
   });
 
@@ -497,7 +501,7 @@ describe('useHardwareKeyboard', () => {
   // A JS bundle running on a binary built before the module existed. This is
   // the case the whole `null` contract exists for, and it must not throw.
   it('answers null when the native module is missing', () => {
-    modulePresent = false;
+    mockModulePresent = false;
     expect(render().at(-1)).toBeNull();
   });
 });
@@ -739,20 +743,24 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 
-let attached: boolean | null = true;
-let settingOn = false;
-let permitted = true;
-let dismissed = false;
+// `mock`-prefixed on purpose, and not cosmetic: `jest.mock()` is hoisted above
+// these declarations, and `babel-plugin-jest-hoist` REFUSES to compile a
+// factory that closes over an out-of-scope `let` unless its name begins with
+// `mock`. Rename these and the suite fails to transform at all.
+let mockAttached: boolean | null = true;
+let mockSettingOn = false;
+let mockPermitted = true;
+let mockDismissed = false;
 
-jest.mock('@/hooks/use-hardware-keyboard', () => ({ useHardwareKeyboard: () => attached }));
+jest.mock('@/hooks/use-hardware-keyboard', () => ({ useHardwareKeyboard: () => mockAttached }));
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
-    activeLocation: { hardwareScannerEnabled: settingOn },
-    can: () => permitted,
+    activeLocation: { hardwareScannerEnabled: mockSettingOn },
+    can: () => mockPermitted,
   }),
 }));
 jest.mock('@/hooks/use-caveat-dismissal', () => ({
-  useCaveatDismissal: () => ({ dismissed, dismiss: jest.fn() }),
+  useCaveatDismissal: () => ({ dismissed: mockDismissed, dismiss: jest.fn() }),
 }));
 jest.mock('expo-router', () => ({ useRouter: () => ({ push: jest.fn() }) }));
 
@@ -763,7 +771,7 @@ function shown(): boolean {
 }
 
 describe('TillKeyboardNotice', () => {
-  beforeEach(() => { attached = true; settingOn = false; permitted = true; dismissed = false; });
+  beforeEach(() => { mockAttached = true; mockSettingOn = false; mockPermitted = true; mockDismissed = false; });
 
   it('offers the toggle when a keyboard is plugged into a store that has not enabled scanning', () => {
     expect(shown()).toBe(true);
@@ -771,30 +779,30 @@ describe('TillKeyboardNotice', () => {
 
   // Each of the four below has to silence it on its own.
   it('says nothing once scanning is already on', () => {
-    settingOn = true;
+    mockSettingOn = true;
     expect(shown()).toBe(false);
   });
 
   it('says nothing when no keyboard is attached', () => {
-    attached = false;
+    mockAttached = false;
     expect(shown()).toBe(false);
   });
 
   // An unknown answer must never produce advice.
   it('says nothing when detection could not answer', () => {
-    attached = null;
+    mockAttached = null;
     expect(shown()).toBe(false);
   });
 
   // A cashier cannot change a store setting. Telling them to is worse than
   // silence, because they cannot act and cannot make it stop.
   it('says nothing to someone who cannot change the setting', () => {
-    permitted = false;
+    mockPermitted = false;
     expect(shown()).toBe(false);
   });
 
   it('stays gone once dismissed', () => {
-    dismissed = true;
+    mockDismissed = true;
     expect(shown()).toBe(false);
   });
 });
