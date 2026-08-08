@@ -42,7 +42,7 @@ import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
 import { listCurrencies } from '@/lib/currencies';
-import { listRegisters, listRegisterSessions } from '@/lib/registers';
+import { listRegisters, listRegisterSessions, registerSessionTotals } from '@/lib/registers';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import type { Budget, CashAccount, Currency, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
@@ -146,19 +146,23 @@ export function CashBudgetsTab({
         ]);
         const registerName = new Map(registerRows.map((r) => [r.id, r.name]));
         const memberName = new Map(members.map((m) => [m.id, m.fullName ?? m.email ?? 'Staff']));
+        // Opened inside the range, or still open — a session that started last
+        // month and is still running is very much this month's problem.
+        const inRange = sessions.filter(
+          (session) => !session.closedAt || new Date(session.openedAt) >= since
+        );
+        const totals = await registerSessionTotals(inRange.map((session) => session.id));
         setCurrencies(currencyRows);
         setSessionRows(
-          sessions
-            // Opened inside the range, or still open — a session that started
-            // last month and is still running is very much this month's problem.
-            .filter((session) => !session.closedAt || new Date(session.openedAt) >= since)
-            .map((session) => ({
-              session,
-              registerName: registerName.get(session.registerId) ?? 'A register',
-              // An owner-run session carries no roster row (see 20260822000200),
-              // so it is named generically rather than rendering "undefined".
-              personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
-            }))
+          inRange.map((session) => ({
+            session,
+            registerName: registerName.get(session.registerId) ?? 'A register',
+            // An owner-run session carries no roster row (see 20260822000200),
+            // so it is named generically rather than rendering "undefined".
+            personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
+            saleCount: totals.get(session.id)?.saleCount ?? 0,
+            takenCents: totals.get(session.id)?.totalCents ?? 0,
+          }))
         );
       } catch {
         setSessionRows([]);

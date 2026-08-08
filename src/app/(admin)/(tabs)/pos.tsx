@@ -640,6 +640,8 @@ export default function PosScreen() {
         register={registers.find((r) => r.id === registerSession?.registerId) ?? null}
         member={sessionMember ?? myMembership}
         fallbackName={profile?.fullName}
+        saleCount={sessionSaleCount}
+        takenCents={sessionPayments.reduce((sum, payment) => sum + payment.amountCents, 0)}
         onOpen={() => setRegisterSheet('open')}
         onClose={() => setRegisterSheet('close')}
         onHandover={() => setRegisterSheet('handover')}

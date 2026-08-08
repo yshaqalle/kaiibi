@@ -7,8 +7,10 @@ import {
   currenciesToCount,
   denominationsFor,
   expectedMinor,
+  formatSessionRange,
   formatSessionWindow,
   fxDriftBaseCents,
+  paymentBreakdown,
   tallyTotalMinor,
   totalFxDriftBaseCents,
   varianceMinor,
@@ -374,5 +376,70 @@ describe('denominationsFor', () => {
 
   it('drops junk entries', () => {
     expect(denominationsFor({ USD: [1000, 0, -5, Number.NaN] }, 'USD')).toEqual([1000]);
+  });
+});
+
+
+describe('formatSessionRange', () => {
+  // The regression: a closed session was rendered with formatSessionWindow,
+  // which always reads "open Xh Ym" — so a register counted and signed off at
+  // 15:00 still claimed to be running seven hours later.
+  it('reads as a window, not as still open', () => {
+    const label = formatSessionRange('2026-08-07T08:12:00Z', '2026-08-07T15:00:00Z');
+    expect(label).not.toContain('open');
+    expect(label).toMatch(/→/);
+    expect(label).toContain('6h 48m');
+  });
+
+  it('leaves the date off a session that opened and closed the same day', () => {
+    const label = formatSessionRange('2026-08-07T08:12:00Z', '2026-08-07T15:00:00Z');
+    expect(label).not.toMatch(/Aug/);
+  });
+
+  // Times chosen to cross midnight in the suite's pinned zone (jest.config.js
+  // sets TZ=America/New_York), not in UTC — 20:00Z to 02:00Z is one local
+  // evening there, which is what made the first version of this test wrong.
+  it('names the opening day when it ran past midnight', () => {
+    const label = formatSessionRange('2026-08-08T01:00:00Z', '2026-08-08T08:00:00Z');
+    expect(label).toMatch(/Aug/);
+    expect(label).toContain('7h 0m');
+  });
+
+  it('falls back to the live label while still open', () => {
+    const label = formatSessionRange('2026-08-07T08:12:00Z', null, new Date('2026-08-07T11:24:00Z'));
+    expect(label).toBe('open 3h 12m');
+  });
+
+  it('survives a malformed timestamp', () => {
+    expect(formatSessionRange('nope', 'also nope')).toBe('');
+  });
+});
+
+describe('paymentBreakdown', () => {
+  it('groups by tender, largest first', () => {
+    const rows = paymentBreakdown([
+      payment({ method: 'cash', amountCents: 1000 }),
+      payment({ method: 'zaad', amountCents: 41200 }),
+      payment({ method: 'cash', amountCents: 500 }),
+      payment({ method: 'edahab', amountCents: 9650 }),
+    ]);
+    expect(rows).toEqual([
+      { method: 'zaad', count: 1, totalCents: 41200 },
+      { method: 'edahab', count: 1, totalCents: 9650 },
+      { method: 'cash', count: 2, totalCents: 1500 },
+    ]);
+  });
+
+  // Takings, not drawer contents: a foreign cash line counts at what it was
+  // worth to the sale, because this answers "how did the register do".
+  it('counts foreign cash at its base-currency value', () => {
+    const rows = paymentBreakdown([
+      payment({ method: 'cash', amountCents: 1000, currencyCode: 'SLSH', foreignAmountCents: 200000 }),
+    ]);
+    expect(rows).toEqual([{ method: 'cash', count: 1, totalCents: 1000 }]);
+  });
+
+  it('is empty for a session that took nothing', () => {
+    expect(paymentBreakdown([])).toEqual([]);
   });
 });

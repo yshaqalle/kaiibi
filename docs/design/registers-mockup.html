@@ -367,6 +367,55 @@
   .sesVar.flat{color:var(--d-mut2);} .sesVar.open{color:var(--profit);}
   .sesVar em{display:block;font-style:normal;font-size:10.5px;font-weight:700;color:var(--d-mut2);margin-top:1px;}
 
+  /* ═══════════ Session detail sheet ═══════════ */
+  .dlHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px;}
+  .dlHead b{font-size:18px;font-weight:800;letter-spacing:-.03em;}
+  .dlSub{font-size:12px;color:var(--d-mut);margin:0 0 12px;font-variant-numeric:tabular-nums;}
+  .dlLive{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:var(--profit);
+    background:var(--upWash);border-radius:999px;padding:3px 9px;}
+  .dlLive i{width:7px;height:7px;border-radius:4px;background:var(--profit);font-style:normal;}
+  .dlStrip{display:grid;gap:8px;margin-bottom:8px;}
+  .w1280 .dlStrip{grid-template-columns:repeat(4,1fr);}
+  .w380 .dlStrip{grid-template-columns:repeat(2,1fr);}
+  .dlTile{background:var(--d-sf);border-radius:16px;padding:12px 13px;}
+  .dlTile .k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);}
+  .dlTile .v{font-size:20px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:3px;}
+  .dlTile .h{font-size:11px;color:var(--d-mut2);margin-top:1px;}
+  .mixRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .mixRow:last-of-type{border-bottom:none;}
+  .mixName{font-size:13px;font-weight:700;width:88px;flex:none;}
+  .mixBarWrap{flex:1;height:8px;border-radius:4px;background:var(--d-soft);overflow:hidden;}
+  .mixBar{height:100%;border-radius:4px;}
+  .mixAmt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mixCount{font-size:11px;color:var(--d-mut2);width:52px;text-align:right;flex:none;}
+  .txRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .txRow:last-of-type{border-bottom:none;}
+  .txTime{font-size:11.5px;color:var(--d-mut);width:52px;flex:none;font-variant-numeric:tabular-nums;}
+  .txBody{flex:1;min-width:0;}
+  .txName{font-size:13px;font-weight:700;}
+  .txMeta{font-size:11px;color:var(--d-mut2);margin-top:1px;}
+  .txAmt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .txAmt.refund{color:var(--downInk);}
+
+  /* who was on it, in order — the chain a handover creates */
+  .segRow{display:flex;align-items:center;gap:11px;padding:11px 0;}
+  .segRow + .segRow{border-top:1px solid var(--d-rule);}
+  .segAv{width:30px;height:30px;border-radius:15px;background:var(--accWash);color:var(--accInk);flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
+  .segBody{flex:1;min-width:0;}
+  .segName{font-size:13px;font-weight:700;}
+  .segWhen{font-size:11.5px;color:var(--d-mut);margin-top:1px;font-variant-numeric:tabular-nums;}
+  .segTake{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;flex:none;}
+  .segTake em{display:block;font-style:normal;font-size:10.5px;font-weight:700;margin-top:1px;}
+  .segTake em.short{color:var(--downInk);} .segTake em.over{color:var(--upInk);}
+  .segTake em.flat{color:var(--d-mut2);} .segTake em.open{color:var(--profit);}
+  .hoMark{display:flex;align-items:center;gap:9px;margin:2px 0 2px 15px;padding-left:14px;
+    border-left:2px dashed var(--d-rule);font-size:11px;color:var(--d-mut);line-height:1.5;}
+  .txHandover{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--d-rule);}
+  .txHandover .bar{flex:1;height:1px;background:var(--d-rule);}
+  .txHandover .lbl{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--accInk);background:var(--accWash);border-radius:999px;padding:3px 10px;white-space:nowrap;}
+
   /* ═══════════ Dashboard: attention rows (cream, NOT bento) ═══════════ */
   .cream{--c-sf:#ffffff; --c-ink:#17261F; --c-mut:#6B6B6B; --c-ln:#EFEEE9; --c-pg:#FAF9F5;
     --c-danger:#C0392B; --c-warn:#D27631; --c-info:#2a78d6;}
@@ -1284,7 +1333,110 @@
   </div>
 </template>
 
-<!-- ═════════════ 13 · DASHBOARD ═════════════ -->
+<!-- ═════════════ 13 · SESSION DETAIL ═════════════ -->
+<template data-tab="detail" data-label="Session detail"
+  data-cap="<b>Tapping any session row opens this — scoped to the REGISTER'S RUN, not one person's turn.</b> A handover closes one session and opens another, so a till worked by two people is two sessions; totals for the whole run go at the top, then the breakdown by who was on it, then every transaction in the order it happened with the handover marked in place.">
+  <div class="sheetWrap">
+    <div class="dlHead">
+      <div>
+        <b>Register 1</b>
+        <p class="dlSub">Today · 2 people · since 08:12 · <span class="dlLive"><i></i>Open 9h 52m</span></p>
+      </div>
+      <span class="miniBtn">Close</span>
+    </div>
+
+    <div class="dlStrip">
+      <div class="dlTile"><div class="k">Taken</div><div class="v">$1,842.50</div>
+        <div class="h">53 sales · whole run</div></div>
+      <div class="dlTile"><div class="k">In the drawer</div><div class="v">$612.00</div>
+        <div class="h">right now</div></div>
+      <div class="dlTile"><div class="k">Shillings</div><div class="v">4,115,000</div>
+        <div class="h">right now</div></div>
+      <div class="dlTile"><div class="k">Refunded</div><div class="v">−$12.00</div>
+        <div class="h">1 refund, in cash</div></div>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Everything above spans the handover. Each person&rsquo;s own figures — and
+    their own variance — are below, because a drawer count belongs to whoever signed it.</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Who has been on it</div>
+
+      <div class="segRow">
+        <span class="segAv">AH</span>
+        <span class="segBody"><span class="segName">Amina H.</span>
+          <span class="segWhen">08:12 → 15:00 · 6h 48m · float $118.50</span></span>
+        <span class="segTake">$1,193.50<em class="short">−$5.00 short</em></span>
+      </div>
+
+      <div class="hoMark">Handed over at 15:00 · counted $448.50 + 355,000 Sl Sh, which became the next float</div>
+
+      <div class="segRow">
+        <span class="segAv" style="background:var(--d-soft);color:var(--d-mut)">FA</span>
+        <span class="segBody"><span class="segName">Faduma Ali</span>
+          <span class="segWhen">15:00 → now · 3h 04m · float $448.50</span></span>
+        <span class="segTake">$649.00<em class="open">Still running</em></span>
+      </div>
+
+      <p class="hint">Two sessions, not one reassigned — the count between them is the money boundary, and it is what
+      lets each person be held to their own figure. A close and a fresh open half an hour later is <em>not</em> shown
+      as a handover, because it was not one: the drawer was counted, banked and started again.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">How it was paid <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--d-mut2)">— whole run</span></div>
+      <div class="mixRow"><span class="mixName">ZAAD</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:71%;background:var(--c1)"></span></span>
+        <span class="mixCount">16 sales</span><span class="mixAmt">$688.00</span></div>
+      <div class="mixRow"><span class="mixName">Cash</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:62%;background:var(--c2)"></span></span>
+        <span class="mixCount">28 sales</span><span class="mixAmt">$601.00</span></div>
+      <div class="mixRow"><span class="mixName">Cash · Sl Sh</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:38%;background:var(--c4)"></span></span>
+        <span class="mixCount">6 sales</span><span class="mixAmt">$372.00</span></div>
+      <div class="mixRow"><span class="mixName">e-Dahab</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:19%;background:var(--c3)"></span></span>
+        <span class="mixCount">3 sales</span><span class="mixAmt">$181.50</span></div>
+      <p class="hint">Shillings are shown at what they were worth to the sale, because this answers &ldquo;how did this
+      register do&rdquo;. The drawer tiles above are the other question and count the notes themselves — the two are
+      never added together.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Transactions</div>
+      <div class="txRow"><span class="txTime">17:04</span>
+        <span class="txBody"><span class="txName">2 items</span><span class="txMeta">ZAAD</span></span>
+        <span class="txAmt">$31.00</span></div>
+      <div class="txRow"><span class="txTime">15:12</span>
+        <span class="txBody"><span class="txName">1 item · Khadra Yusuf</span>
+          <span class="txMeta">Cash · $20.00 tendered, $2.80 change</span></span>
+        <span class="txAmt">$17.20</span></div>
+
+      <div class="txHandover"><span class="bar"></span>
+        <span class="lbl">15:00 · Amina H. → Faduma Ali</span><span class="bar"></span></div>
+
+      <div class="txRow"><span class="txTime">14:18</span>
+        <span class="txBody"><span class="txName">Refund · 1 item</span>
+          <span class="txMeta">Cash out of this drawer</span></span>
+        <span class="txAmt refund">−$12.00</span></div>
+      <div class="txRow"><span class="txTime">13:58</span>
+        <span class="txBody"><span class="txName">5 items</span>
+          <span class="txMeta">Cash · Sl Sh 200,000 in, 85,000 change</span></span>
+        <span class="txAmt">$10.00</span></div>
+      <div class="txRow"><span class="txTime">13:40</span>
+        <span class="txBody"><span class="txName">2 items · Sagal H.</span>
+          <span class="txMeta">Split · Cash $10.00 + ZAAD $18.00</span></span>
+        <span class="txAmt">$28.00</span></div>
+
+      <div style="margin-top:11px"><span class="miniBtn">View all 53 in Transactions →</span></div>
+      <p class="hint">One list in the order things happened, with the handover marked where it falls — so &ldquo;who was
+      on the till when this went through&rdquo; is answered by reading, not by cross-referencing two lists.</p>
+    </div>
+
+    <div class="payBtn sub">Close this register<em>Counts the drawer and signs off Faduma&rsquo;s variance</em></div>
+  </div>
+</template>
+
+<!-- ═════════════ 14 · DASHBOARD ═════════════ -->
 <template data-tab="attention" data-label="Dashboard · attention"
   data-cap="<b>Dashboard, as attention rows — not an eighth card.</b> The list's job is &ldquo;what needs attention right now&rdquo;, ordered by actionability. An out-of-balance close belongs there exactly; a standing card reading <b>$0.00 variance</b> every day is one nobody reads by week two. Note what is NOT here: nothing about a register being left open. That was decided — a session may stay open as long as the shop wants — and a dashboard alert would quietly reverse it.">
   <div class="cream" style="background:var(--c-pg);border-radius:20px;padding:16px">

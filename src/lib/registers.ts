@@ -249,6 +249,34 @@ export async function sessionCashSummary(
   return { payments, saleCount: rows.length };
 }
 
+// What each session has rung up: how many sales, and how much across every
+// tender. One query for the whole list rather than one per row — a month of
+// sessions would otherwise be sixty round trips to render one card.
+//
+// Takings here are ALL tenders, not just cash. "How is this till doing?" is a
+// different question from "what should be in the drawer?", and conflating them
+// is what makes a mobile-money-heavy session look empty.
+export async function registerSessionTotals(
+  sessionIds: readonly string[]
+): Promise<Map<string, { saleCount: number; totalCents: number }>> {
+  const totals = new Map<string, { saleCount: number; totalCents: number }>();
+  if (sessionIds.length === 0) return totals;
+  const { data, error } = await supabase
+    .from('sales')
+    .select('register_session_id, total_cents')
+    .in('register_session_id', [...sessionIds]);
+  if (error) throw error;
+  for (const row of data ?? []) {
+    const id = (row as any).register_session_id as string | null;
+    if (!id) continue;
+    const current = totals.get(id) ?? { saleCount: 0, totalCents: 0 };
+    current.saleCount += 1;
+    current.totalCents += (row as any).total_cents ?? 0;
+    totals.set(id, current);
+  }
+  return totals;
+}
+
 // What the register was last closed at, per currency — the open sheet pre-fills
 // the float from this, because overnight it is physically the same money. Its
 // provenance is shown next to the field rather than presented as a bare

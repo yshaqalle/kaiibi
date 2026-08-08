@@ -26,6 +26,8 @@ export function RegisterBar({
   register,
   member,
   fallbackName,
+  saleCount,
+  takenCents,
   onOpen,
   onClose,
   onHandover,
@@ -37,6 +39,11 @@ export function RegisterBar({
   // Shown when the session has no roster row — an owner running their own
   // register. Their name comes from the signed-in profile instead.
   fallbackName?: string | null;
+  // What this session has rung up so far, across every tender. Shown live
+  // because "how is this till doing?" should not require starting to close it —
+  // which was the only way to see it before.
+  saleCount?: number;
+  takenCents?: number;
   onOpen: () => void;
   onClose: () => void;
   onHandover: () => void;
@@ -74,6 +81,11 @@ export function RegisterBar({
           {base ? ` · float ${formatCents(base.openingFloatMinor)}` : ''}
           {otherFloats.length > 0 ? ` +${otherFloats.length}` : ''}
         </Text>
+        {(saleCount ?? 0) > 0 && (
+          <Text style={styles.taken}>
+            {saleCount === 1 ? '1 sale' : `${saleCount} sales`} · {formatCents(takenCents ?? 0)} taken
+          </Text>
+        )}
       </View>
       <View style={styles.actions}>
         <Pressable onPress={onHandover} style={styles.action}>
@@ -126,6 +138,9 @@ const styles = StyleSheet.create({
   titleShut: { fontSize: 13.5, fontWeight: '800', letterSpacing: -0.1, color: theme.bentoInk2 },
   name: { fontSize: 13, fontWeight: '700', color: theme.bentoInk2 },
   meta: { fontSize: 11.5, color: theme.bentoMuted },
+  // Louder than the rest of the meta line: it is the number someone glances at
+  // mid-shift, and it changes while they watch.
+  taken: { fontSize: 12, fontWeight: '800', color: theme.bentoInk2, fontVariant: ['tabular-nums'] },
   actions: { flexDirection: 'row', gap: 6, marginLeft: 'auto' },
   action: {
     borderWidth: 1,

@@ -227,6 +227,53 @@ export function formatSessionWindow(openedAt: string, now: Date = new Date()): s
 }
 
 /**
+ * A finished session's window: when it ran, and for how long.
+ *
+ * Distinct from `formatSessionWindow`, which is for the LIVE bar and always
+ * reads "open 3h 12m". Reusing it on a closed session claimed a register was
+ * still running seven hours after it was counted and signed off.
+ */
+export function formatSessionRange(openedAt: string, closedAt: string | null, now: Date = new Date()): string {
+  if (!closedAt) return formatSessionWindow(openedAt, now);
+  const opened = new Date(openedAt);
+  const closed = new Date(closedAt);
+  if (Number.isNaN(opened.getTime()) || Number.isNaN(closed.getTime())) return '';
+  const time = (date: Date) =>
+    date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  const minutes = Math.max(0, Math.round((closed.getTime() - opened.getTime()) / 60_000));
+  const hours = Math.floor(minutes / 60);
+  const length = hours === 0 ? `${minutes}m` : `${hours}h ${minutes % 60}m`;
+  // The day only when it is not the day it closed — a session that opened at
+  // 08:12 and closed at 15:00 the same day needs no dates cluttering it.
+  const sameDay = opened.toDateString() === closed.toDateString();
+  const day = sameDay ? '' : `${opened.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} `;
+  return `${day}${time(opened)} → ${time(closed)} · ${length}`;
+}
+
+/**
+ * What each tender took on a session, largest first.
+ *
+ * All tenders, not just cash: this answers "how did this register do", which is
+ * a different question from "does the drawer add up" and must not be confused
+ * with it. Foreign cash is reported in base-currency terms here because the
+ * question is about takings, not about which notes are in the drawer.
+ */
+export function paymentBreakdown(
+  payments: readonly PaymentLine[]
+): { method: PaymentLine['method']; count: number; totalCents: number }[] {
+  const byMethod = new Map<PaymentLine['method'], { count: number; totalCents: number }>();
+  for (const payment of payments) {
+    const current = byMethod.get(payment.method) ?? { count: 0, totalCents: 0 };
+    current.count += 1;
+    current.totalCents += payment.amountCents;
+    byMethod.set(payment.method, current);
+  }
+  return [...byMethod.entries()]
+    .map(([method, totals]) => ({ method, ...totals }))
+    .sort((a, b) => b.totalCents - a.totalCents);
+}
+
+/**
  * The note values the tally offers for a currency, largest first.
  *
  * Counting a drawer starts with the biggest notes, so the rows should too.

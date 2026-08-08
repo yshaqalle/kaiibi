@@ -29,6 +29,11 @@ export type SessionRow = {
   session: RegisterSession;
   registerName: string;
   personName: string;
+  // What it rang up, across every tender. Present for open sessions too — "how
+  // is this till doing?" is a different question from "does the drawer add up?",
+  // and only the second one waits for a close.
+  saleCount: number;
+  takenCents: number;
 };
 
 export function RegisterSessionsCard({
@@ -53,7 +58,15 @@ export function RegisterSessionsCard({
       renderRow={(row) => <SessionRowView row={row} currencies={currencies} />}
       emptyLabel="No register has been opened in this period."
       previewCount={4}
-      note="Counted figures and variances are frozen as they were signed off — a later refund or edit never rewrites them."
+      // ListCard renders `note` bare inside the card body, so it must be an
+      // element — a plain string lands as a text node inside a View and React
+      // Native refuses it.
+      note={
+        <Text style={styles.cardNote}>
+          Counted figures and variances are frozen as they were signed off — a later refund or edit never rewrites
+          them.
+        </Text>
+      }
     />
   );
 }
@@ -78,6 +91,10 @@ function SessionRowView({ row, currencies }: { row: SessionRow; currencies: Curr
 
   const meta = [
     formatSessionWindow(session.openedAt),
+    // Takings first, because it is the line someone scans for. Shown for a
+    // session that has rung nothing too — "0 sales" on an open register is
+    // itself worth seeing.
+    `${row.saleCount === 1 ? '1 sale' : `${row.saleCount} sales`} · ${formatCents(row.takenCents)}`,
     open
       ? floats.length > 0
         ? `float ${floats.join(' + ')}`
@@ -146,4 +163,5 @@ const styles = StyleSheet.create({
   tail: { alignItems: 'flex-end', flexShrink: 0 },
   value: { fontSize: 13.5, fontWeight: '800', fontVariant: ['tabular-nums'] },
   tailLabel: { fontSize: 10.5, fontWeight: '700', color: theme.bentoMuted2, marginTop: 1 },
+  cardNote: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 12, lineHeight: 17 },
 });

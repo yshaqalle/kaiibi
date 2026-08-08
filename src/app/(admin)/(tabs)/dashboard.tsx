@@ -751,6 +751,14 @@ export default function DashboardScreen() {
       router.push({ pathname: '/accounting', params: { tab: 'cash' } });
       return;
     }
+    // A drawer that did not balance lands on Cash & Budgets, where the sessions
+    // card is. Without this it fell through to the team roster below, which is
+    // the right destination for a time-off row and a baffling one for a $5
+    // variance.
+    if (item.key.startsWith('register-session-')) {
+      router.push({ pathname: '/accounting', params: { tab: 'cash' } });
+      return;
+    }
     if (item.key === 'low-stock') {
       router.push({ pathname: '/inventory', params: { filter: 'low' } });
       return;
