@@ -648,7 +648,6 @@ export default function PosScreen() {
         onClose={() => setRegisterSheet('close')}
         onHandover={() => setRegisterSheet('handover')}
         onShowDetail={() => setRegisterSheet('detail')}
-        compact={compact}
       />
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
       {/* The whole sale is ONE card floating on the grey page — it used to be a

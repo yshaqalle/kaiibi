@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
@@ -53,17 +54,23 @@ export function RegisterBar({
   // wants "how is this doing", and before this the only way to see it was to
   // leave the POS for Accounting and find the row.
   onShowDetail: () => void;
-  // On a phone the two labelled buttons plus a name do not fit on one line, and
-  // the bar must stay ONE line — so the labels drop and the glyphs carry them.
-  // Squeezing the name to three characters instead would be a worse trade: the
-  // buttons are recognisable by shape, a truncated person is not.
-  compact?: boolean;
 }) {
+  // Measured, not inferred from the window. The bar sits inside the cart column
+  // — 392pt on a desktop, near full width on a phone — so the WIDE layout is
+  // the one where this box is narrowest. Reading `useWindowDimensions` here said
+  // "1440, plenty of room", the labels stayed, and the float truncated to
+  // "float $…". Same trap bento.tsx documents: the child never gets the window.
+  const [width, setWidth] = useState<number | null>(null);
+  const onLayout = (event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width);
+  // Two labelled buttons need ~260pt before the person and the float get any.
+  // Below that the labels drop and the glyphs carry them — a button is
+  // recognisable by shape, a truncated name is not.
+  const roomForLabels = width == null || width >= 560;
   if (registers.length === 0 && !session) return null;
 
   if (!session) {
     return (
-      <View style={[styles.bar, styles.barShut]}>
+      <View style={[styles.bar, styles.barShut]} onLayout={onLayout}>
         <View style={[styles.dot, styles.dotShut]} />
         <View style={styles.who}>
           <Text style={styles.titleShut} numberOfLines={1}>No register open</Text>
@@ -72,7 +79,7 @@ export function RegisterBar({
           </Text>
         </View>
         <Pressable onPress={onOpen} style={[styles.action, styles.actionDark, styles.actionAlone]} accessibilityLabel="Open register">
-          <Text style={styles.actionDarkText}>{compact ? '⊕' : '⊕  Open register'}</Text>
+          <Text style={styles.actionDarkText}>{roomForLabels ? '⊕  Open register' : '⊕'}</Text>
         </Pressable>
       </View>
     );
@@ -82,7 +89,7 @@ export function RegisterBar({
   const otherFloats = session.cash.filter((row) => row.currencyCode !== BASE_CURRENCY && row.openingFloatMinor > 0);
 
   return (
-    <View style={styles.bar}>
+    <View style={styles.bar} onLayout={onLayout}>
       <View style={styles.dot} />
       <Pressable onPress={onShowDetail} style={styles.who} accessibilityRole="button" accessibilityLabel="Register details">
         <Text style={styles.title} numberOfLines={1}>{register?.name ?? 'Register'}</Text>
@@ -102,10 +109,10 @@ export function RegisterBar({
       </Pressable>
       <View style={styles.actions}>
         <Pressable onPress={onHandover} style={[styles.action, styles.actionDark]} accessibilityLabel="Handover">
-          <Text style={styles.actionDarkText}>{compact ? '⇄' : '⇄  Handover'}</Text>
+          <Text style={styles.actionDarkText}>{roomForLabels ? '⇄  Handover' : '⇄'}</Text>
         </Pressable>
         <Pressable onPress={onClose} style={[styles.action, styles.actionDark]} accessibilityLabel="Close register">
-          <Text style={styles.actionDarkText}>{compact ? '⊘' : '⊘  Close register'}</Text>
+          <Text style={styles.actionDarkText}>{roomForLabels ? '⊘  Close register' : '⊘'}</Text>
         </Pressable>
       </View>
     </View>
