@@ -1,5 +1,5 @@
 import { attentionCounts, buildAttentionItems, type AttentionInput } from '@/lib/attention';
-import type { Customer, Invoice, Product, RecurringBill, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Invoice, Product, RecurringBill, RegisterSession, TimeEntry, TimeOffRequest } from '@/types/models';
 
 const TODAY = new Date('2026-08-04T12:00:00Z');
 
@@ -14,8 +14,28 @@ function emptyInput(): AttentionInput {
     lowStock: [],
     expiringSoon: [],
     dormant: [],
+    closedSessions: [],
     today: TODAY,
   };
+}
+
+function closedSession(over: { varianceBaseCents: number | null; closingNote?: string | null }) {
+  const session: RegisterSession = {
+    id: `sess-${over.varianceBaseCents}`,
+    shopId: 'shop',
+    locationId: 'loc',
+    registerId: 'reg-1',
+    shopMemberId: 'member-1',
+    openedBy: 'user-1',
+    openedAt: '2026-08-04T08:12:00Z',
+    closedAt: '2026-08-04T15:00:00Z',
+    closedBy: 'user-1',
+    varianceBaseCents: over.varianceBaseCents,
+    openingNote: null,
+    closingNote: over.closingNote ?? null,
+    cash: [],
+  };
+  return { session, registerName: 'Register 1', personName: 'Amina H.' };
 }
 
 function invoice(over: { dueOn: string; amountCents: number; paidCents?: number; vendorName?: string }): Invoice {
@@ -215,5 +235,67 @@ describe('attentionCounts', () => {
       lowStock: [{ name: 'Rice' } as Product],
     });
     expect(attentionCounts(items)).toEqual({ all: 4, money: 1, team: 2, stock: 1, customers: 0 });
+  });
+});
+
+
+describe('register sessions on the attention list', () => {
+  // The whole reason this is an attention row and not a dashboard card: on a
+  // day when every drawer balanced, it contributes nothing at all.
+  it('says nothing when every register balanced', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [closedSession({ varianceBaseCents: 0 })],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it('raises a short drawer as something to act on today', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [closedSession({ varianceBaseCents: -500, closingNote: 'wrong change at 2pm' })],
+    });
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ severity: 'act', area: 'money', action: 'Review' });
+    expect(items[0].title).toBe('Register 1 closed $5.00 short');
+    expect(items[0].detail).toBe('Amina H. · wrong change at 2pm');
+  });
+
+  // Over is amber, not red: the shop is not out of pocket, but a drawer that
+  // misses in either direction is one nobody can vouch for.
+  it('raises an over drawer as this week rather than today', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [closedSession({ varianceBaseCents: 200 })],
+    });
+    expect(items[0]).toMatchObject({ severity: 'soon', area: 'money' });
+    expect(items[0].title).toBe('Register 1 closed $2.00 over');
+  });
+
+  it('reads a never-computed variance as balanced rather than as a gap', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [closedSession({ varianceBaseCents: null })],
+    });
+    expect(items).toEqual([]);
+  });
+
+  it('falls back to the register alone when nobody is named', () => {
+    const entry = closedSession({ varianceBaseCents: -100 });
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [{ ...entry, personName: '' }],
+    });
+    expect(items[0].detail).toBeUndefined();
+  });
+
+  // Ordering is by actionability, not by area — a short drawer outranks a
+  // budget nearing its limit, and both outrank anything merely informational.
+  it('sorts a short drawer above softer money items', () => {
+    const items = buildAttentionItems({
+      ...emptyInput(),
+      closedSessions: [closedSession({ varianceBaseCents: 200 }), closedSession({ varianceBaseCents: -500 })],
+    });
+    expect(items.map((item) => item.severity)).toEqual(['act', 'soon']);
   });
 });

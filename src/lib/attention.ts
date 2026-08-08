@@ -1,7 +1,8 @@
 import { billDueState } from '@/lib/cash-budget-reporting';
 import { balanceCents, invoiceStatus } from '@/lib/invoice-reporting';
 import type { BudgetRow } from '@/lib/cash-budget-reporting';
-import type { Customer, Invoice, Product, RecurringBill, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import { varianceTone } from '@/lib/register-sessions';
+import type { Customer, Invoice, Product, RecurringBill, RegisterSession, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 
 // What needs attention right now, as pure functions over already-fetched rows.
 //
@@ -41,6 +42,10 @@ export type AttentionInput = {
   openInvoices: Invoice[];
   recurringBills: RecurringBill[];
   budgetRows: BudgetRow[];
+  // Sessions closed in the period, with the register and person already
+  // resolved to names by the caller. Only out-of-balance ones produce a row --
+  // see the note in buildAttentionItems.
+  closedSessions: { session: RegisterSession; registerName: string; personName: string }[];
   // Team
   pendingTimeOff: TimeOffRequest[];
   staleShifts: TimeEntry[];
@@ -109,6 +114,33 @@ export function buildAttentionItems(input: AttentionInput): AttentionItem[] {
       action: formatMoney(bill.amountCents),
       title: `${bill.name} due soon`,
       detail: `Due ${bill.nextDueDate}`,
+    });
+  }
+
+  // A drawer that did not balance. NOTHING here fires on a day when every
+  // register closed clean, which is the whole reason this is an attention row
+  // and not a dashboard card: a card reading "$0.00 variance" every day is one
+  // nobody reads by week two.
+  //
+  // Short is `act` and over is `soon`: short means the shop is out of pocket
+  // today, over usually means a sale was rung wrong. Both get a row, because a
+  // drawer that misses in either direction is one nobody can vouch for -- only
+  // one of them costs money this morning.
+  //
+  // Deliberately absent: anything about a register being left OPEN. A session
+  // may stay open as long as the shop wants; that is settled, and an alert here
+  // would quietly reverse it in the first place an owner looks.
+  for (const entry of input.closedSessions) {
+    const variance = entry.session.varianceBaseCents ?? 0;
+    if (variance === 0) continue;
+    const tone = varianceTone(variance);
+    items.push({
+      key: `register-session-${entry.session.id}`,
+      severity: tone === 'short' ? 'act' : 'soon',
+      area: 'money',
+      action: 'Review',
+      title: `${entry.registerName} closed ${formatMoney(Math.abs(variance))} ${tone}`,
+      detail: [entry.personName, entry.session.closingNote].filter(Boolean).join(' · ') || undefined,
     });
   }
 

@@ -347,6 +347,40 @@
   .hRow .amt.short{color:var(--downInk);} .hRow .amt.over{color:var(--upInk);}
   .hRow .amt.flat{color:var(--d-mut2);}
 
+  /* ═══════════ Accounting: the sessions card ═══════════ */
+  .acctPage{background:var(--d-pg);border-radius:20px;padding:16px;}
+  .acctHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+  .acctHead b{font-size:22px;font-weight:800;letter-spacing:-.03em;}
+  .acctHead .eb{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);
+    display:block;margin-bottom:2px;}
+  .acctTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .acctTabs span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .acctTabs span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .sesRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--d-rule);}
+  .sesRow:last-of-type{border-bottom:none;}
+  .sesBody{flex:1;min-width:0;}
+  .sesTitle{font-size:13.5px;font-weight:700;}
+  .sesMeta{font-size:11.5px;color:var(--d-mut);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .sesVar{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+  .sesVar.short{color:var(--downInk);} .sesVar.over{color:var(--upInk);}
+  .sesVar.flat{color:var(--d-mut2);} .sesVar.open{color:var(--profit);}
+  .sesVar em{display:block;font-style:normal;font-size:10.5px;font-weight:700;color:var(--d-mut2);margin-top:1px;}
+
+  /* ═══════════ Dashboard: attention rows (cream, NOT bento) ═══════════ */
+  .cream{--c-sf:#ffffff; --c-ink:#17261F; --c-mut:#6B6B6B; --c-ln:#EFEEE9; --c-pg:#FAF9F5;
+    --c-danger:#C0392B; --c-warn:#D27631; --c-info:#2a78d6;}
+  .attCard{background:var(--c-sf);border:1px solid var(--c-ln);border-radius:12px;padding:4px 14px;}
+  .attRow{display:flex;align-items:flex-start;gap:12px;padding:13px 0;}
+  .attRow + .attRow{border-top:1px solid var(--c-ln);}
+  .attStripe{width:4px;align-self:stretch;border-radius:2px;flex:none;}
+  .attBody{flex:1;min-width:0;}
+  .attTitleRow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .attTitle{font-size:13.5px;font-weight:700;color:var(--c-ink);}
+  .attPill{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 9px;white-space:nowrap;}
+  .attDetail{font-size:12px;color:var(--c-mut);margin-top:3px;line-height:1.5;}
+  .attChev{color:var(--c-mut);font-size:14px;align-self:center;}
+
   /* ═══════════ the state map ═══════════ */
   .map{display:grid;gap:10px;margin-top:20px;}
   .mapRow{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;}
@@ -443,6 +477,16 @@
         <div class="node"><b>Reveal + sign off</b>
           <span>Per currency: float, cash in, cash out, expected, counted. Variances are converted
           and summed only after that. Rate movement is reported on its own card.</span></div>
+      </div>
+
+      <div class="mapRow">
+        <div class="node"><b>Where it surfaces afterwards</b>
+          <span><b>Accounting → Cash &amp; Budgets</b> lists every session, complete and boring — the place you go to
+          investigate. <b>Dashboard</b> shows only the ones that did not balance, as attention rows.</span></div>
+        <span class="arrow">→</span>
+        <div class="node term"><b>A day when everything balanced</b>
+          <span>The dashboard says nothing at all. That is the design: an alert that fires every day is one nobody
+          reads by week two.</span></div>
       </div>
 
       <div class="mapRow">
@@ -625,6 +669,27 @@
         deliberately <em>not</em> a row in that table — migration 0015 makes it the implicit default
         when <code>currency_code</code> is null. Splitting the list across a shop column for dollars
         and a currency column for everything else would be two homes for one setting.</p></div>
+
+      <div class="vx good"><b>The dashboard gets attention rows, not an eighth card</b>
+        <p>Two surfaces, two jobs. <strong>Accounting</strong> is where you investigate, so the sessions list is
+        complete and unexciting: every session, in order, variance frozen as it was signed off. <strong>Dashboard</strong>
+        answers "what needs attention right now", and the register-shaped answer to that is a drawer that did not
+        balance — nothing else.</p>
+        <p>A standing card reading <code>$0.00 variance</code> every day is a card nobody reads by week two, and the
+        Dashboard has just absorbed seven new ones, so the bar for another should be high. An
+        <code>AttentionItem</code> costs nothing on the days it has nothing to say.</p>
+        <p><strong>What is deliberately absent: any alert about a register left open.</strong> A session may stay open
+        as long as the shop wants — that was decided, and there is no nag anywhere else in the feature. Putting
+        "Register 1 open since Tuesday" on the dashboard would quietly reverse it in the one place the owner looks
+        first.</p></div>
+
+      <div class="vx mid"><b>Over is amber, short is red, and neither is silent</b>
+        <p>Short means the shop is out of pocket; over usually means a sale was rung wrong. Only one of those costs
+        money today, so only one is red — but a drawer that misses in either direction is a drawer nobody can vouch
+        for, and both get a row.</p>
+        <p>The severities are the existing ones (<code>act</code> / <code>soon</code> / <code>info</code>) and the
+        colour is the attention list's own semantic stripe, not the bento palette. This list lives in the cream world;
+        two colour systems in one component and neither reads.</p></div>
 
       <div class="vx mid"><b>Colour never carries the variance on its own</b>
         <p>Every variance shows a sign, a word (<em>Short</em> / <em>Over</em> / <em>Balances</em>)
@@ -1168,27 +1233,121 @@
   </div>
 </template>
 
-<!-- ═════════════ 12 · HISTORY ═════════════ -->
-<template data-tab="history" data-label="Session history"
-  data-cap="<b>Accounting → Cash &amp; Budgets</b>, the tab that already owns &ldquo;where the shop's money physically is&rdquo;. A <code>ListCard</code>, so it previews a few and opens the rest in a sheet. The variance is frozen at close — a later refund or sale edit must never rewrite a figure somebody signed off, the same rule that freezes <code>cashier_name</code> and <code>unit_cost_cents</code>.">
-  <div class="cardx">
-    <div class="cartHead"><b>Register sessions</b><span class="miniBtn">Last 7 days</span></div>
-    <div class="hRow"><span class="body"><span class="h1x">Register 1 · Amina H.</span>
-        <span class="h2x">Today 08:12 → 15:00 · 31 sales · $448.50 + 355,000 Sl Sh</span></span>
-      <span class="amt short">−$5.00</span></div>
-    <div class="hRow"><span class="body"><span class="h1x">Register 1 · Faduma Ali</span>
-        <span class="h2x">Today 15:00 → open · 12 sales · float $448.50 + 355,000 Sl Sh</span></span>
-      <span class="amt flat">Open</span></div>
-    <div class="hRow"><span class="body"><span class="h1x">Register 2 · Sagal H.</span>
-        <span class="h2x">Yesterday 08:00 → 21:04 · 44 sales · counted $80.00</span></span>
-      <span class="amt flat">$0.00</span></div>
-    <div class="hRow"><span class="body"><span class="h1x">Register 1 · Amina H.</span>
-        <span class="h2x">Yesterday 08:10 → 20:58 · 38 sales · counted $118.50</span></span>
-      <span class="amt over">+$2.00</span></div>
-    <div class="hRow"><span class="body"><span class="h1x">Main counter · Abdi M.</span>
-        <span class="h2x">2 Aug 09:00 → 19:30 · 26 sales · counted $210.00</span></span>
-      <span class="amt flat">$0.00</span></div>
-    <div style="margin-top:12px"><span class="miniBtn">View all 18 sessions →</span></div>
+<!-- ═════════════ 12 · ACCOUNTING ═════════════ -->
+<template data-tab="history" data-label="Accounting · sessions"
+  data-cap="<b>Accounting → Cash &amp; Budgets.</b> The tab that already owns &ldquo;where the shop's money physically is&rdquo; — <code>cash_accounts</code> lives here, and its own migration comment already asks &ldquo;whose float, which drawer of the two&rdquo;. This is the investigation surface, so it is complete and boring: every session, in order, with the variance frozen as it was signed off.">
+  <div class="acctPage">
+    <div class="acctHead">
+      <div><span class="eb">Accounting</span><b>Cash &amp; Budgets</b></div>
+      <span class="miniBtn">This month ▾</span>
+    </div>
+    <div class="acctTabs">
+      <span>Overview</span><span>Transactions</span><span>Expenses</span><span>Bills</span>
+      <span class="on">Cash &amp; Budgets</span><span>Payroll</span><span>Reports</span>
+    </div>
+
+    <div class="cardx" style="margin-bottom:12px">
+      <div class="cartHead"><b>Cash on hand</b><span class="miniBtn">Add account</span></div>
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Airport Road drawer</span>
+        <span class="sesMeta">Counted 7 Aug 15:00</span></span>
+        <span class="sesVar flat">$448.50</span></div>
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Dahabshiil current</span>
+        <span class="sesMeta">Bank · counted 1 Aug</span></span>
+        <span class="sesVar flat">$12,400.00</span></div>
+    </div>
+
+    <div class="cardx">
+      <div class="cartHead"><b>Register sessions</b><span class="miniBtn">All registers ▾</span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Amina H.</span>
+          <span class="sesMeta">Today 08:12 → 15:00 · 31 sales · counted $448.50 + 355,000 Sl Sh</span></span>
+        <span class="sesVar short">−$5.00<em>Short</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Faduma Ali</span>
+          <span class="sesMeta">Today 15:00 → open · 12 sales · float $448.50 + 355,000 Sl Sh</span></span>
+        <span class="sesVar open">Open<em>3h 04m</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Amina H. — mobile</span>
+          <span class="sesMeta">Today 09:40 → 15:00 · 22 sales · no drawer</span></span>
+        <span class="sesVar flat">—<em>Nothing to count</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 2 · Sagal H.</span>
+          <span class="sesMeta">Yesterday 08:00 → 21:04 · 44 sales · counted $80.00</span></span>
+        <span class="sesVar flat">$0.00<em>Balanced</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Amina H.</span>
+          <span class="sesMeta">Yesterday 08:10 → 20:58 · 38 sales · counted $118.50</span></span>
+        <span class="sesVar over">+$2.00<em>Over</em></span></div>
+
+      <div style="margin-top:12px"><span class="miniBtn">View all 18 sessions →</span></div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ 13 · DASHBOARD ═════════════ -->
+<template data-tab="attention" data-label="Dashboard · attention"
+  data-cap="<b>Dashboard, as attention rows — not an eighth card.</b> The list's job is &ldquo;what needs attention right now&rdquo;, ordered by actionability. An out-of-balance close belongs there exactly; a standing card reading <b>$0.00 variance</b> every day is one nobody reads by week two. Note what is NOT here: nothing about a register being left open. That was decided — a session may stay open as long as the shop wants — and a dashboard alert would quietly reverse it.">
+  <div class="cream" style="background:var(--c-pg);border-radius:20px;padding:16px">
+    <div class="acctHead" style="color:var(--c-ink)">
+      <div><span class="eb" style="color:var(--c-mut)">Dashboard</span><b>Needs attention</b></div>
+    </div>
+
+    <div class="attCard">
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-danger)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Register 1 closed $5.00 short</span>
+            <span class="attPill" style="background:#F7E1E2;color:#B23B4E">Review</span>
+          </span>
+          <span class="attDetail">Amina H., today 08:12 – 15:00. Note: &ldquo;gave $5 change from the wrong note at
+          about 2pm&rdquo;.</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-warn)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Register 1 closed $2.00 over</span>
+            <span class="attPill" style="background:#F8EEDA;color:#9A6B0C">Review</span>
+          </span>
+          <span class="attDetail">Amina H., yesterday. Over is amber rather than red: the shop is not out of pocket,
+          but a drawer that does not balance in either direction is still a drawer nobody can vouch for.</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-danger)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Barwaaqo invoice is 6 days late</span>
+            <span class="attPill" style="background:#F7E1E2;color:#B23B4E">Pay</span>
+          </span>
+          <span class="attDetail">$1,240.00 · due 1 August</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-warn)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Sagal H. is waiting on time off</span>
+            <span class="attPill" style="background:#F8EEDA;color:#9A6B0C">Decide</span>
+          </span>
+          <span class="attDetail">12 – 14 August</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+    </div>
+
+    <p class="note" style="color:var(--c-mut);margin-top:14px;font-size:12.5px">
+      The two register rows sort in among everything else by how actionable they are, not by area — the list's
+      existing rule. On a day when every drawer balanced, neither appears at all and the dashboard is unchanged.
+    </p>
   </div>
 </template>
 

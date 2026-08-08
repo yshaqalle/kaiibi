@@ -530,6 +530,21 @@ begin
   if v_base <> 0 then raise exception 'FAIL: owner close should balance at 6000, got variance %', v_base; end if;
   raise notice 'OK: owner rang a sale and closed their own register, balanced';
 
+  -- The same trap as the session bug, caught before it shipped this time: a
+  -- mobile register required a shop_members row, which an owner never has.
+  select public.ensure_mobile_register(v_owner2_shop, v_owner2_location) into v_mobile_a;
+  select public.ensure_mobile_register(v_owner2_shop, v_owner2_location) into v_mobile_b;
+  if v_mobile_a is null or v_mobile_a is distinct from v_mobile_b then
+    raise exception 'FAIL: the owner could not get a reusable mobile register (% vs %)', v_mobile_a, v_mobile_b;
+  end if;
+  select count(*) into v_count from public.registers
+    where shop_id = v_owner2_shop and kind = 'mobile';
+  if v_count <> 1 then raise exception 'FAIL: expected 1 owner mobile register, got %', v_count; end if;
+  select user_id = v_owner2_id and shop_member_id is null into v_ok
+    from public.registers where id = v_mobile_a;
+  if not v_ok then raise exception 'FAIL: an owner mobile register should be keyed by user, not member'; end if;
+  raise notice 'OK: owner got a mobile register, reused not duplicated';
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback: verification complete';
 exception

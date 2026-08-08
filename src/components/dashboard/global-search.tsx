@@ -40,9 +40,15 @@ const DEBOUNCE_MS = 250;
 //
 // Suppressing the default action removes the race rather than trying to win it:
 // the field never blurs, the rows stay mounted, and a plain `onPress` fires on
-// release the way it does anywhere else. Native has no mousedown and does not
-// blur on tap -- `keyboardShouldPersistTaps` covers it there -- so this is
+// release the way it does anywhere else. Native has no mousedown, so this is
 // scoped to web.
+//
+// Native's equivalent is `keyboardShouldPersistTaps`, and the catch is that it
+// has to be set on EVERY enclosing ScrollView, not just the panel's own below.
+// Responder capture runs ancestors-first: an outer scroller left at the default
+// `never` claims the tap to dismiss the keyboard before this component is
+// consulted at all, and the blur that follows closes the panel. Any screen
+// hosting this search owes it that prop -- see the Dashboard's ScrollView.
 const keepFieldFocused =
   Platform.OS === 'web' ? { onMouseDown: (event: { preventDefault: () => void }) => event.preventDefault() } : null;
 

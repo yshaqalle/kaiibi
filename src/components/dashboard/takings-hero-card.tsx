@@ -162,12 +162,17 @@ export function TakingsHeroCard({
 }
 
 const styles = StyleSheet.create({
-  // `flex: 1` so the card fills the height its cell was stretched to. Without
-  // it the card sized to its own content and stopped short of the white one
-  // beside it — the Overview row read as five cards of five different heights
-  // rather than as one band, which is the whole reason the grid stretches.
+  // `flexGrow: 1` so the card fills the height its cell was stretched to.
+  // Without it the card sized to its own content and stopped short of the
+  // white one beside it — the Overview row read as five cards of five
+  // different heights rather than as one band, which is the whole reason the
+  // grid stretches.
+  //
+  // Not `flex: 1`: RN's shorthand also sets `flexBasis: 0`, so the card would
+  // contribute NO height to its cell and collapse to nothing on a phone, where
+  // one card per row means the stretch has no taller sibling to stretch to.
   card: {
-    flex: 1,
+    flexGrow: 1,
     borderRadius: BENTO_RADIUS,
     backgroundColor: theme.bentoInk,
     padding: 18,

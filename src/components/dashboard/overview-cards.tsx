@@ -411,7 +411,13 @@ const styles = StyleSheet.create({
   // stretched card, so the five Overview cards share a baseline.
   spark: { height: 44, marginTop: 'auto', marginBottom: 10 },
   sparkFootRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' },
-  sparkFootText: { flexGrow: 1, flexShrink: 1 },
+  // `flexBasis` matters as much as the grow/shrink: without it the basis is
+  // the text's own width, the tag beside it does not shrink, and the block
+  // gets squeezed to ~57pt in a narrow cell -- which breaks "Revenue" across
+  // two lines mid-word. A basis wider than the leftover makes the row wrap
+  // the tag onto its own line instead, which is the readable answer. Same
+  // fix, same reason, as `flowText` in takings-hero-card.
+  sparkFootText: { flexGrow: 1, flexShrink: 1, flexBasis: 110 },
   sparkTitle: { fontSize: 14, fontWeight: '800', color: theme.bentoInk },
   tag: {
     fontSize: 10.5,

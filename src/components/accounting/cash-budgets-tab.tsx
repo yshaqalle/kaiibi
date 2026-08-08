@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
+import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
@@ -40,9 +41,11 @@ import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
+import { listCurrencies } from '@/lib/currencies';
+import { listRegisters, listRegisterSessions } from '@/lib/registers';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
-import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
+import type { Budget, CashAccount, Currency, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -92,6 +95,10 @@ export function CashBudgetsTab({
   // reading it lost their place after every change. Gating on "has anything
   // arrived yet" keeps the rows mounted, so they keep their height and their
   // position, and the values update underneath. First found in inventory.tsx.
+  // Sessions in the selected range, with register and person already resolved
+  // to names — the card renders, it does not look things up.
+  const [sessionRows, setSessionRows] = useState<SessionRow[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -127,6 +134,37 @@ export function CashBudgetsTab({
         setExpensesSinceBalances([]);
       }
 
+      // Registers, in their own try: a shop that never opened one, or a role
+      // that cannot read sessions, gets an empty card rather than losing the
+      // whole tab. Same fail-soft posture the rest of this screen takes.
+      try {
+        const [registerRows, sessions, currencyRows, members] = await Promise.all([
+          listRegisters(shop.id),
+          listRegisterSessions(shop.id, { locationId: locationFilter, limit: 60 }),
+          listCurrencies(shop.id),
+          listStaff(shop.id).catch(() => []),
+        ]);
+        const registerName = new Map(registerRows.map((r) => [r.id, r.name]));
+        const memberName = new Map(members.map((m) => [m.id, m.fullName ?? m.email ?? 'Staff']));
+        setCurrencies(currencyRows);
+        setSessionRows(
+          sessions
+            // Opened inside the range, or still open — a session that started
+            // last month and is still running is very much this month's problem.
+            .filter((session) => !session.closedAt || new Date(session.openedAt) >= since)
+            .map((session) => ({
+              session,
+              registerName: registerName.get(session.registerId) ?? 'A register',
+              // An owner-run session carries no roster row (see 20260822000200),
+              // so it is named generically rather than rendering "undefined".
+              personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
+            }))
+        );
+      } catch {
+        setSessionRows([]);
+        setCurrencies([]);
+      }
+
       if (canSeeWagesOwed) {
         const rangeEnd = until ?? new Date();
         const [members, entries, runs] = await Promise.all([
@@ -144,7 +182,7 @@ export function CashBudgetsTab({
     } finally {
       setLoaded(true);
     }
-  }, [shop, allowed, since, until, canSeeWagesOwed]);
+  }, [shop, allowed, since, until, canSeeWagesOwed, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
   // Coming back to this screen on a phone, where the tab shell never unmounted
@@ -359,6 +397,13 @@ export function CashBudgetsTab({
               </Text>
             )}
           </BentoCard>
+          </BentoCell>
+
+          {/* --- Who was on which register, and whether the drawer added up.
+              Beside cash on hand because it is the same question asked over
+              time: this tab already owns where the money physically is. --- */}
+          <BentoCell span={12}>
+            <RegisterSessionsCard rows={sessionRows} currencies={currencies} />
           </BentoCell>
 
           {/* --- Budget vs actual: the one section the date range drives, so
