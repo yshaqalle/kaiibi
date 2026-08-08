@@ -38,12 +38,15 @@ const SERIES = [theme.bentoSeries1, theme.bentoSeries2, theme.bentoSeries3, them
 export function RegisterSessionDetail({
   sessionId,
   registerName,
+  registerNote,
   nameFor,
   currencies,
   onClose,
 }: {
   sessionId: string;
   registerName: string;
+  /** Where this till stands — context, not identity. See migration 20260822000500. */
+  registerNote?: string | null;
   /** Resolves a session to whoever was on it — the caller already holds the roster. */
   nameFor: (session: RegisterSession) => string;
   currencies: Currency[];
@@ -105,6 +108,7 @@ export function RegisterSessionDetail({
           <View style={styles.head}>
             <View style={styles.headTitles}>
               <Text style={styles.title}>{registerName}</Text>
+              {registerNote ? <Text style={styles.registerNote}>{registerNote}</Text> : null}
               <Text style={styles.sub}>
                 {run.length > 1 ? `${run.length} people · ` : ''}
                 {first ? formatSessionRange(first.openedAt, open ? null : last?.closedAt ?? null) : ''}
@@ -355,6 +359,7 @@ const styles = StyleSheet.create({
   headTitles: { flex: 1, minWidth: 0 },
   title: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5, color: theme.bentoInk },
   sub: { fontSize: 12, color: theme.bentoMuted, marginTop: 2 },
+  registerNote: { fontSize: 12, color: theme.bentoInk2, marginTop: 3 },
   headBtn: { borderWidth: 1, borderColor: theme.bentoLine, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 6 },
   headBtnText: { fontSize: 11.5, fontWeight: '700', color: theme.bentoInk2 },
   body: { padding: 16, gap: 8 },

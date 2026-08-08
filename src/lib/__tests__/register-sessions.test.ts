@@ -16,6 +16,8 @@ import {
   totalFxDriftBaseCents,
   varianceMinor,
   varianceTone,
+  withDenomination,
+  withoutDenomination,
 } from '@/lib/register-sessions';
 import type { PaymentLine, RegisterSession, RegisterSessionCash } from '@/types/models';
 
@@ -518,5 +520,45 @@ describe('assembleRun', () => {
       session({ id: 'y', handedOverFrom: 'x' }),
     ]);
     expect(run.map((s) => s.id)).toEqual(['a', 'b']);
+  });
+});
+
+
+describe('withDenomination / withoutDenomination', () => {
+  const list = { USD: [10000, 5000, 1000], SLSH: [500000] };
+
+  it('adds a note and keeps the list largest-first', () => {
+    expect(withDenomination(list, 'SLSH', 1000000).SLSH).toEqual([1000000, 500000]);
+  });
+
+  // Adding one twice would split a single denomination across two rows, so the
+  // count for it could disagree with itself.
+  it('is a no-op for a note already there', () => {
+    expect(withDenomination(list, 'USD', 5000)).toBe(list);
+  });
+
+  it('starts a currency that had no list yet', () => {
+    expect(withDenomination(list, 'ETB', 20000).ETB).toEqual([20000]);
+    expect(withDenomination(null, 'USD', 10000)).toEqual({ USD: [10000] });
+  });
+
+  it('refuses a value that is not a note', () => {
+    expect(withDenomination(list, 'USD', 0)).toBe(list);
+    expect(withDenomination(list, 'USD', -100)).toBe(list);
+  });
+
+  it('removes a note, and keeps an emptied currency present', () => {
+    expect(withoutDenomination(list, 'SLSH', 500000).SLSH).toEqual([]);
+  });
+
+  it('leaves the list alone when the note is not in it', () => {
+    expect(withoutDenomination(list, 'USD', 200)).toBe(list);
+  });
+
+  it('never mutates what it was given', () => {
+    const before = JSON.stringify(list);
+    withDenomination(list, 'USD', 200);
+    withoutDenomination(list, 'USD', 1000);
+    expect(JSON.stringify(list)).toBe(before);
   });
 });

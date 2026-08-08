@@ -325,6 +325,42 @@ export function paymentBreakdown(
 }
 
 /**
+ * The shop's note list with one value added, largest first.
+ *
+ * Used when a cashier meets a note the seeded list does not know about — a
+ * 10,000 shilling, a 200 dollar — and chooses to keep it. Deduped, because
+ * adding a note that already exists should be a no-op rather than a second row
+ * that splits the count for one denomination across two lines.
+ *
+ * Returns the map unchanged when there is nothing to do, so a caller can skip
+ * the write by identity.
+ */
+export function withDenomination(
+  denominations: Record<string, number[]> | null | undefined,
+  currencyCode: string,
+  minor: number
+): Record<string, number[]> {
+  const current = denominations ?? {};
+  if (!Number.isFinite(minor) || minor <= 0) return current;
+  const existing = current[currencyCode] ?? [];
+  if (existing.includes(minor)) return current;
+  return { ...current, [currencyCode]: [...existing, minor].sort((a, b) => b - a) };
+}
+
+/** The same list with one value removed. A currency left with no notes keeps an
+ * empty array rather than disappearing, so the editor can still show it. */
+export function withoutDenomination(
+  denominations: Record<string, number[]> | null | undefined,
+  currencyCode: string,
+  minor: number
+): Record<string, number[]> {
+  const current = denominations ?? {};
+  const existing = current[currencyCode];
+  if (!existing || !existing.includes(minor)) return current;
+  return { ...current, [currencyCode]: existing.filter((note) => note !== minor) };
+}
+
+/**
  * The note values the tally offers for a currency, largest first.
  *
  * Counting a drawer starts with the biggest notes, so the rows should too.

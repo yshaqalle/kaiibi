@@ -7,7 +7,7 @@ import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { formatCents, formatForeignCents } from '@/lib/currency';
-import { lastCloseFor, openRegisterSession } from '@/lib/registers';
+import { ensureMobileRegister, lastCloseFor, openRegisterSession } from '@/lib/registers';
 import { BASE_CURRENCY, formatSessionWindow } from '@/lib/register-sessions';
 import { shortPersonName } from '@/lib/user-identity';
 import type { Currency, Register, RegisterSession, StaffMember } from '@/types/models';
@@ -35,8 +35,10 @@ export function OpenRegisterSheet({
   canManageRegisters,
   currencies,
   denominations,
+  onRememberNote,
   onClose,
   onOpened,
+  onRegistersChanged,
 }: {
   registers: Register[];
   sessionsByRegister: Record<string, RegisterSession>;
@@ -48,8 +50,12 @@ export function OpenRegisterSheet({
   canManageRegisters: boolean;
   currencies: Currency[];
   denominations: Record<string, number[]>;
+  // Persists an ad-hoc note to the shop's list; absent without settings access.
+  onRememberNote?: (currencyCode: string, minor: number) => void;
   onClose: () => void;
   onOpened: () => Promise<void>;
+  // Refetches the register list after a phone register is provisioned.
+  onRegistersChanged: () => Promise<void>;
 }) {
   // Which store's registers these are. A register belongs to a branch, so
   // choosing a store here MOVES THE COUNTER to it rather than just filtering the
@@ -60,7 +66,7 @@ export function OpenRegisterSheet({
   //
   // StoreDropdown renders nothing for a single-store business, which is the
   // whole behaviour there: one store, no question to ask.
-  const { locations, activeLocation, setActiveLocation } = useAuth();
+  const { shop, locations, activeLocation, setActiveLocation } = useAuth();
 
   const free = registers.filter((register) => !sessionsByRegister[register.id]);
 
@@ -79,6 +85,7 @@ export function OpenRegisterSheet({
   const [note, setNote] = useState('');
   const [lastClose, setLastClose] = useState<RegisterSession | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [creatingMobile, setCreatingMobile] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The float pre-fills from what this register was last closed at, because
@@ -130,6 +137,15 @@ export function OpenRegisterSheet({
       setSubmitting(false);
     }
   };
+
+  // Their own phone register, if it exists. Matched on the member when they
+  // have a roster row and on the register's kind otherwise — an owner's is
+  // keyed by user id, which the client does not hold.
+  const hasOwnMobile = registers.some(
+    (register) =>
+      register.kind === 'mobile' &&
+      (memberId ? register.shopMemberId === memberId : register.shopMemberId === null)
+  );
 
   const selected = registers.find((register) => register.id === registerId) ?? null;
   const person = team.find((member) => member.id === memberId) ?? myMembership;
@@ -209,6 +225,34 @@ export function OpenRegisterSheet({
                     A register already in use can only be taken over by a manager, and taking it over closes it with a
                     count first — the money cannot change hands without a boundary.
                   </Text>
+
+                  {/* A phone is a register too. Offered only when this person
+                      does not already have one here: theirs is durable and gets
+                      reused, so a second would split their history in half. */}
+                  {!hasOwnMobile && (
+                    <Pressable
+                      onPress={async () => {
+                        if (!shop || !activeLocation) return;
+                        setCreatingMobile(true);
+                        setError(null);
+                        try {
+                          const id = await ensureMobileRegister(shop.id, activeLocation.id, memberId);
+                          await onRegistersChanged();
+                          setRegisterId(id);
+                        } catch (err) {
+                          setError(extractErrorMessage(err, 'Could not set your phone up as a register.'));
+                        } finally {
+                          setCreatingMobile(false);
+                        }
+                      }}
+                      disabled={creatingMobile}
+                      style={styles.mobileButton}
+                    >
+                      <Text style={styles.mobileButtonText}>
+                        {creatingMobile ? 'Setting up…' : '+ Sell from my phone instead'}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
 
                 <View style={styles.block}>
@@ -267,6 +311,7 @@ export function OpenRegisterSheet({
                   currencyCodes={codes}
                   currencies={currencies}
                   denominations={denominations}
+                  onRememberNote={onRememberNote}
                   value={count}
                   onChange={setCount}
                   onAddCurrency={addableCurrency ? () => setExtraCodes((c) => [...c, addableCurrency.code]) : undefined}
@@ -414,4 +459,15 @@ const styles = StyleSheet.create({
   primaryText: { color: '#fff', fontSize: 15, fontWeight: '800', letterSpacing: -0.1 },
   primaryTextOff: { color: theme.bentoMuted2 },
   error: { color: theme.bentoLoss, fontSize: 12.5, fontWeight: '600' },
+  mobileButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: theme.bentoRule,
+    borderRadius: 999,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+  },
+  mobileButtonText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
 });

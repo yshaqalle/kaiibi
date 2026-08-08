@@ -27,6 +27,7 @@ import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
 import { sessionCashSummary } from '@/lib/registers';
+import { updateShop } from '@/lib/shops';
 import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
@@ -36,7 +37,7 @@ import { formatCents } from '@/lib/currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { cashMovementsByCurrency } from '@/lib/register-sessions';
+import { cashMovementsByCurrency, withDenomination } from '@/lib/register-sessions';
 import { createProduct, findProductsByCode, listProducts } from '@/lib/products';
 import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
@@ -61,7 +62,7 @@ function extractErrorMessage(err: unknown): string {
 }
 
 export default function PosScreen() {
-  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile } = useAuth();
+  const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
   const showLocationName = hasMultipleLocations(locations);
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
@@ -647,6 +648,7 @@ export default function PosScreen() {
         onClose={() => setRegisterSheet('close')}
         onHandover={() => setRegisterSheet('handover')}
         onShowDetail={() => setRegisterSheet('detail')}
+        compact={compact}
       />
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
       {/* The whole sale is ONE card floating on the grey page — it used to be a
@@ -805,6 +807,24 @@ export default function PosScreen() {
     </View>
   );
 
+  // Keeping a note the cashier just met writes a shop setting, so it is offered
+  // only to someone who may edit settings. Everyone can still COUNT with the
+  // note — this is about whether it survives to tomorrow.
+  const rememberNote = can('settings.access')
+    ? async (currencyCode: string, minor: number) => {
+        if (!shop) return;
+        const next = withDenomination(shop.cashDenominations, currencyCode, minor);
+        if (next === shop.cashDenominations) return;
+        try {
+          await updateShop(shop.id, { cashDenominations: next });
+          await refreshShop();
+        } catch {
+          // Silent on purpose: the note still works for this count, and a
+          // failure to remember it is not worth interrupting a drawer count.
+        }
+      }
+    : undefined;
+
   const sessionsByRegister = registerSession ? { [registerSession.registerId]: registerSession } : {};
   // Read through the session rather than cleared when it ends: a closed session
   // leaves its last summary in state, and gating here is one condition instead
@@ -843,8 +863,10 @@ export default function PosScreen() {
           canManageRegisters={can('registers.manage')}
           currencies={currencies}
           denominations={shop.cashDenominations}
+          onRememberNote={rememberNote}
           onClose={() => setRegisterSheet(null)}
           onOpened={reloadRegister}
+          onRegistersChanged={reloadRegister}
         />
       )}
       {registerSession && registerSheet === 'detail' && (
@@ -871,6 +893,7 @@ export default function PosScreen() {
           team={team}
           currencies={currencies}
           denominations={shop.cashDenominations}
+          onRememberNote={rememberNote}
           cashMovements={sessionCashMovements}
           saleCount={sessionSaleCount}
           nonCashTotals={nonCashTotals}

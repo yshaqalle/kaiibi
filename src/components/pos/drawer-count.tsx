@@ -31,6 +31,7 @@ export function DrawerCount({
   value,
   onChange,
   onAddCurrency,
+  onRememberNote,
   autoFocusFirst,
 }: {
   // Which currencies to ask about, in order. Base currency first — see
@@ -43,6 +44,10 @@ export function DrawerCount({
   // Offered only when there is a currency the drawer could hold but isn't
   // counting yet. Absent on the close sheet when nothing else is available.
   onAddCurrency?: () => void;
+  // Persists an ad-hoc note to the shop's list. Absent for someone without
+  // settings access — they can still count with the note, they just cannot
+  // rewrite a shop setting to do it.
+  onRememberNote?: (currencyCode: string, minor: number) => void;
   autoFocusFirst?: boolean;
 }) {
   if (currencyCodes.length === 0) {
@@ -67,6 +72,7 @@ export function DrawerCount({
           notes={denominationsFor(denominations, code)}
           entry={value[code] ?? { amount: '', counts: {} }}
           onChange={(entry) => onChange({ ...value, [code]: entry })}
+          onRememberNote={onRememberNote ? (minor) => onRememberNote(code, minor) : undefined}
           autoFocus={autoFocusFirst && index === 0}
         />
       ))}
@@ -85,6 +91,7 @@ function CurrencyBlock({
   notes,
   entry,
   onChange,
+  onRememberNote,
   autoFocus,
 }: {
   code: string;
@@ -92,6 +99,7 @@ function CurrencyBlock({
   notes: number[];
   entry: { amount: string; counts: Record<string, string> };
   onChange: (entry: { amount: string; counts: Record<string, string> }) => void;
+  onRememberNote?: (minor: number) => void;
   autoFocus?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>('figure');
@@ -103,6 +111,7 @@ function CurrencyBlock({
   const [added, setAdded] = useState<number[]>([]);
   const [adding, setAdding] = useState(false);
   const [newNote, setNewNote] = useState('');
+  const [remembered, setRemembered] = useState(false);
 
   const rows = useMemo(() => {
     const all = [...new Set([...notes, ...added])];
@@ -223,6 +232,31 @@ function CurrencyBlock({
           ) : (
             <Pressable onPress={() => setAdding(true)} style={styles.addNote}>
               <Text style={styles.addNoteText}>+ Add a note</Text>
+            </Pressable>
+          )}
+
+          {/* Offered only once a note has actually been added, and only to
+              someone who may edit settings. Without it an added note is good for
+              this count alone and has to be re-added tomorrow — and the stored
+              breakdown, which is what solves a variance a week later, quietly
+              loses a denomination. */}
+          {added.length > 0 && onRememberNote && (
+            <Pressable
+              onPress={() => {
+                added.forEach(onRememberNote);
+                setRemembered(true);
+              }}
+              disabled={remembered}
+              style={styles.remember}
+            >
+              <View style={[styles.rememberBox, remembered && styles.rememberBoxOn]}>
+                <Text style={styles.rememberTick}>{remembered ? '✓' : ''}</Text>
+              </View>
+              <Text style={styles.rememberText}>
+                {remembered
+                  ? `Saved ${added.map((note) => format(note)).join(' and ')} for next time`
+                  : `Remember ${added.map((note) => format(note)).join(' and ')} for next time`}
+              </Text>
             </Pressable>
           )}
 
@@ -359,6 +393,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   addNoteText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
+  remember: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 11 },
+  rememberBox: {
+    width: 17,
+    height: 17,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: theme.bentoRule,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rememberBoxOn: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  rememberTick: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  rememberText: { fontSize: 11.5, color: theme.bentoMuted, flex: 1 },
   addCurrency: {
     alignSelf: 'flex-start',
     borderWidth: 1,

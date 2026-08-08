@@ -46,6 +46,7 @@ export function CloseRegisterSheet({
   team,
   currencies,
   denominations,
+  onRememberNote,
   cashMovements,
   saleCount,
   nonCashTotals,
@@ -61,6 +62,8 @@ export function CloseRegisterSheet({
   team: StaffMember[];
   currencies: Currency[];
   denominations: Record<string, number[]>;
+  // Persists an ad-hoc note to the shop's list; absent without settings access.
+  onRememberNote?: (currencyCode: string, minor: number) => void;
   // Net cash into the drawer this session, per currency — from the session's
   // own sales. Used for the local preview only; the server recomputes all of it.
   cashMovements: Record<string, number>;
@@ -221,6 +224,7 @@ export function CloseRegisterSheet({
                   currencyCodes={codes}
                   currencies={currencies}
                   denominations={denominations}
+                  onRememberNote={onRememberNote}
                   value={count}
                   onChange={setCount}
                   autoFocusFirst

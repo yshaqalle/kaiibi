@@ -767,6 +767,10 @@ export type Register = {
   // takings and staff access are all branch-scoped.
   locationId: string;
   name: string;
+  // Free-text context: where it stands, what a cashier should know about it.
+  // Distinct from `name`, which is identity and renders in the POS bar and
+  // every session row — see migration 20260822000500 for why they are split.
+  note: string | null;
   kind: 'counter' | 'mobile';
   // Whose phone, for kind='mobile'. Null for a counter — a till belongs to the
   // shop, not to whoever is standing at it.

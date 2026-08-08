@@ -303,7 +303,9 @@ export default function SettingsScreen() {
             registers={registers}
             locations={allLocations}
             sessionCounts={registerSessions}
+            currencies={currencies}
             onChange={reload}
+            onShopSaved={refreshShop}
           />
         );
       case 'security':

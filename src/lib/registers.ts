@@ -23,6 +23,7 @@ function mapRegisterRow(row: any): Register {
     shopId: row.shop_id,
     locationId: row.location_id,
     name: row.name,
+    note: row.note ?? null,
     kind: row.kind,
     shopMemberId: row.shop_member_id,
     active: row.active,
@@ -86,21 +87,32 @@ export async function listRegisters(shopId: string, locationId?: string | null):
   return (data ?? []).map(mapRegisterRow);
 }
 
-export async function createRegister(shopId: string, locationId: string, name: string): Promise<void> {
+export async function createRegister(
+  shopId: string,
+  locationId: string,
+  name: string,
+  note?: string | null
+): Promise<void> {
   const { error } = await supabase
     .from('registers')
-    .insert({ shop_id: shopId, location_id: locationId, name: name.trim() });
+    .insert({ shop_id: shopId, location_id: locationId, name: name.trim(), note: blankToNull(note) });
   if (error) throw error;
+}
+
+function blankToNull(value: string | null | undefined): string | null {
+  const trimmed = (value ?? '').trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 export async function updateRegister(
   id: string,
-  input: Partial<{ name: string; active: boolean; locationId: string }>
+  input: Partial<{ name: string; note: string | null; active: boolean; locationId: string }>
 ): Promise<void> {
   const { error } = await supabase
     .from('registers')
     .update({
       ...(input.name !== undefined && { name: input.name.trim() }),
+      ...(input.note !== undefined && { note: blankToNull(input.note) }),
       ...(input.active !== undefined && { active: input.active }),
       ...(input.locationId !== undefined && { location_id: input.locationId }),
       updated_at: new Date().toISOString(),

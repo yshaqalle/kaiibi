@@ -32,6 +32,7 @@ export function RegisterBar({
   onClose,
   onHandover,
   onShowDetail,
+  compact,
 }: {
   registers: Register[];
   session: RegisterSession | null;
@@ -52,6 +53,11 @@ export function RegisterBar({
   // wants "how is this doing", and before this the only way to see it was to
   // leave the POS for Accounting and find the row.
   onShowDetail: () => void;
+  // On a phone the two labelled buttons plus a name do not fit on one line, and
+  // the bar must stay ONE line — so the labels drop and the glyphs carry them.
+  // Squeezing the name to three characters instead would be a worse trade: the
+  // buttons are recognisable by shape, a truncated person is not.
+  compact?: boolean;
 }) {
   if (registers.length === 0 && !session) return null;
 
@@ -60,13 +66,13 @@ export function RegisterBar({
       <View style={[styles.bar, styles.barShut]}>
         <View style={[styles.dot, styles.dotShut]} />
         <View style={styles.who}>
-          <Text style={styles.titleShut}>No register open</Text>
+          <Text style={styles.titleShut} numberOfLines={1}>No register open</Text>
           <Text style={styles.meta}>
             {registers.length === 1 ? '1 register here' : `${registers.length} registers here`}
           </Text>
         </View>
-        <Pressable onPress={onOpen} style={[styles.action, styles.actionDark]}>
-          <Text style={styles.actionDarkText}>Open register</Text>
+        <Pressable onPress={onOpen} style={[styles.action, styles.actionDark, styles.actionAlone]} accessibilityLabel="Open register">
+          <Text style={styles.actionDarkText}>{compact ? '⊕' : '⊕  Open register'}</Text>
         </Pressable>
       </View>
     );
@@ -79,9 +85,11 @@ export function RegisterBar({
     <View style={styles.bar}>
       <View style={styles.dot} />
       <Pressable onPress={onShowDetail} style={styles.who} accessibilityRole="button" accessibilityLabel="Register details">
-        <Text style={styles.title}>{register?.name ?? 'Register'}</Text>
-        <Text style={styles.name}>{shortPersonName(member?.fullName ?? fallbackName, member?.email)}</Text>
-        <Text style={styles.meta}>
+        <Text style={styles.title} numberOfLines={1}>{register?.name ?? 'Register'}</Text>
+        <Text style={styles.name} numberOfLines={1}>
+          {shortPersonName(member?.fullName ?? fallbackName, member?.email)}
+        </Text>
+        <Text style={styles.meta} numberOfLines={1}>
           {formatSessionWindow(session.openedAt)}
           {base ? ` · float ${formatCents(base.openingFloatMinor)}` : ''}
           {otherFloats.length > 0 ? ` +${otherFloats.length}` : ''}
@@ -93,11 +101,11 @@ export function RegisterBar({
         )}
       </Pressable>
       <View style={styles.actions}>
-        <Pressable onPress={onHandover} style={styles.action}>
-          <Text style={styles.actionText}>Handover</Text>
+        <Pressable onPress={onHandover} style={[styles.action, styles.actionDark]} accessibilityLabel="Handover">
+          <Text style={styles.actionDarkText}>{compact ? '⇄' : '⇄  Handover'}</Text>
         </Pressable>
-        <Pressable onPress={onClose} style={styles.action}>
-          <Text style={styles.actionText}>Close register</Text>
+        <Pressable onPress={onClose} style={[styles.action, styles.actionDark]} accessibilityLabel="Close register">
+          <Text style={styles.actionDarkText}>{compact ? '⊘' : '⊘  Close register'}</Text>
         </Pressable>
       </View>
     </View>
@@ -117,7 +125,7 @@ export function RegisterGate({ onOpen }: { onOpen: () => void }) {
         it opens.
       </Text>
       <Pressable onPress={onOpen} style={styles.gateButton}>
-        <Text style={styles.gateButtonText}>Open register</Text>
+        <Text style={styles.gateButtonText}>⊕  Open register</Text>
       </Pressable>
     </View>
   );
@@ -133,12 +141,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 11,
     marginBottom: 12,
-    flexWrap: 'wrap',
   },
   barShut: { backgroundColor: 'transparent', borderWidth: 1, borderStyle: 'dashed', borderColor: theme.bentoRule },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: theme.bentoProfit },
   dotShut: { backgroundColor: theme.bentoMuted2 },
-  who: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flexShrink: 1, flexWrap: 'wrap' },
+  who: { flexDirection: 'row', alignItems: 'baseline', gap: 8, flex: 1, minWidth: 0, flexWrap: 'wrap' },
   title: { fontSize: 13.5, fontWeight: '800', letterSpacing: -0.1, color: theme.bentoInk },
   titleShut: { fontSize: 13.5, fontWeight: '800', letterSpacing: -0.1, color: theme.bentoInk2 },
   name: { fontSize: 13, fontWeight: '700', color: theme.bentoInk2 },
@@ -146,16 +153,17 @@ const styles = StyleSheet.create({
   // Louder than the rest of the meta line: it is the number someone glances at
   // mid-shift, and it changes while they watch.
   taken: { fontSize: 12, fontWeight: '800', color: theme.bentoInk2, fontVariant: ['tabular-nums'] },
-  actions: { flexDirection: 'row', gap: 6, marginLeft: 'auto' },
+  actions: { flexDirection: 'row', gap: 6, flexShrink: 0 },
   action: {
     borderWidth: 1,
     borderColor: theme.bentoLine,
     borderRadius: 999,
     paddingHorizontal: 11,
     paddingVertical: 6,
-    marginLeft: 'auto',
   },
-  actionText: { fontSize: 11.5, fontWeight: '700', color: theme.bentoInk2 },
+  // Only for the shut state, where the button is a direct child of the bar and
+  // has to push itself right. The open state's `actions` row does that already.
+  actionAlone: { marginLeft: 'auto' },
   actionDark: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
   actionDarkText: { fontSize: 11.5, fontWeight: '700', color: '#fff' },
   gate: { backgroundColor: theme.surface, borderRadius: 26, padding: 34, alignItems: 'center' },
