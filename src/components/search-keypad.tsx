@@ -42,25 +42,31 @@ export function SearchKeypad({
 
   return (
     <View style={styles.dock}>
-      {ROWS.map((row, index) => (
-        <View key={index} style={styles.row}>
-          {/* Short rows are centred rather than stretched, so a key is the
-              same width on every row and the hand can trust where it is. */}
-          {row.length < ROWS[0].length ? <View style={styles.spacer} /> : null}
-          {row.map((char) => (
-            <Pressable
-              key={char}
-              onPress={() => apply({ type: 'char', value: char })}
-              style={styles.key}
-              accessibilityRole="button"
-              accessibilityLabel={char}
-            >
-              <Text style={styles.keyLabel}>{char.toUpperCase()}</Text>
-            </Pressable>
-          ))}
-          {row.length < ROWS[0].length ? <View style={styles.spacer} /> : null}
-        </View>
-      ))}
+      {ROWS.map((row, index) => {
+        // Half the missing width on each side, so a key is the same width on
+        // every row and the hand can trust where it is. A FIXED spacer only
+        // balances a row that is exactly one key short: the bottom row is three
+        // short, and a fixed 0.5 left its keys about a quarter wider than the
+        // letters above them.
+        const spacerFlex = (ROWS[0].length - row.length) / 2;
+        return (
+          <View key={index} style={styles.row}>
+            {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
+            {row.map((char) => (
+              <Pressable
+                key={char}
+                onPress={() => apply({ type: 'char', value: char })}
+                style={styles.key}
+                accessibilityRole="button"
+                accessibilityLabel={char}
+              >
+                <Text style={styles.keyLabel}>{char.toUpperCase()}</Text>
+              </Pressable>
+            ))}
+            {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
+          </View>
+        );
+      })}
 
       <View style={styles.row}>
         <Pressable onPress={() => apply({ type: 'clear' })} style={[styles.key, styles.utilKey]} accessibilityRole="button">
@@ -87,7 +93,6 @@ export function SearchKeypad({
 const styles = StyleSheet.create({
   dock: { backgroundColor: theme.bentoSoft, borderTopWidth: 1, borderTopColor: theme.bentoLine, padding: 10, gap: 6 },
   row: { flexDirection: 'row', gap: 5 },
-  spacer: { flex: 0.5 },
   key: {
     flex: 1,
     minWidth: 0,
