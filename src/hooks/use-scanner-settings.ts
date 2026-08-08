@@ -1,15 +1,8 @@
 import { useAuth } from '@/hooks/use-auth';
+import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
+import { resolveScannerSettings, type ScannerSettings } from '@/lib/scanner-settings';
 
-export type ScannerSettings = {
-  // Show the Scan buttons and allow the camera scanner to open.
-  camera: boolean;
-  // Watch for a USB/Bluetooth keyboard-wedge scanner typing into the page.
-  hardware: boolean;
-  // Whether a typed/scanned code in a search box should be resolved as a scan
-  // at all. True if either method is on -- someone with a wedge scanner and
-  // someone typing a code by hand both expect Enter to find the product.
-  resolveCodes: boolean;
-};
+export type { ScannerSettings };
 
 // The single place that answers "does this till scan?".
 //
@@ -18,13 +11,19 @@ export type ScannerSettings = {
 // setting ever moves (to the business, or to the device) exactly one file
 // changes.
 //
-// Resolved from the store this device is working in, because that is what the
-// setting describes: the scanner is plugged into a particular counter. With no
-// store resolved yet, scanning stays off rather than guessing -- a brief
-// missing button is better than a global key listener nobody asked for.
+// Two inputs, and they answer different halves. The STORE setting is
+// permission: this shop uses scanners. The DEVICE says whether this particular
+// till has one attached -- which the store column cannot express, since a shop
+// runs on several devices and usually only one of them scans. The rules for
+// combining them are in `resolveScannerSettings`, kept pure so all six cases
+// are tested without a device.
 export function useScannerSettings(): ScannerSettings {
   const { activeLocation } = useAuth();
-  const camera = activeLocation?.barcodeScanningEnabled ?? false;
-  const hardware = activeLocation?.hardwareScannerEnabled ?? false;
-  return { camera, hardware, resolveCodes: camera || hardware };
+  const keyboardAttached = useHardwareKeyboard();
+
+  return resolveScannerSettings({
+    camera: activeLocation?.barcodeScanningEnabled ?? false,
+    hardwareSetting: activeLocation?.hardwareScannerEnabled ?? false,
+    keyboardAttached,
+  });
 }
