@@ -58,6 +58,14 @@ describe('SearchRow', () => {
     expect(tree.root.findAllByType(SearchKeypad)).toHaveLength(1);
   });
 
+  it('renders no text input even with the keypad open', () => {
+    // A TextInput here would take focus from the wedge sink and stop hardware scanning.
+    const { tree } = render(true);
+    act(() => { findPressables(tree)[0].props.onPress(); });
+    expect(tree.root.findAllByType(SearchKeypad)).toHaveLength(1);
+    expect(tree.root.findAllByType(TextInput)).toHaveLength(0);
+  });
+
   it('says how to use it while it is closed and empty', () => {
     expect(render(true).labels()).toContain('Tap to type, or scan');
   });
