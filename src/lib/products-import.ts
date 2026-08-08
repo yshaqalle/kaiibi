@@ -24,22 +24,51 @@ export const PRODUCTS_TEMPLATE_COLUMNS: { header: string; required: boolean }[] 
 // Cost/Price are plain dollar amounts (e.g. "12.99"), not cents -- converted
 // on the way in/out so a spreadsheet-editing user never has to think in cents.
 // Tags support either ; or , as a separator within the cell.
-export const PRODUCTS_EXAMPLE_ROW: Record<string, string> = {
-  Name: 'Blue Cotton T-Shirt',
-  SKU: 'TSHIRT-BLU-M',
-  Barcode: '012345678905',
-  Brand: 'Acme',
-  Category: 'Apparel',
-  Tags: 'summer;bestseller',
-  Supplier: 'Acme Wholesale',
-  Cost: '4.50',
-  Price: '12.99',
-  Stock: '25',
-  'Reorder Level': '5',
-  'Shelf Number': 'A3',
-  'Expiry Date': '',
-  'Batch Number': '',
-};
+//
+// Two rows, because the templates are one demo shop rather than five unrelated
+// examples: the sales template rings up BOTH of these (the t-shirt by SKU, the
+// scarf by name), the same way its customer is the customers template's
+// customer and the schedule template's email is the staff template's staff
+// member. Downloading every template and importing them in order has to
+// actually work -- a sales template naming a product no products template
+// creates rejects itself.
+//
+// The scarf doubles as the "only the required columns filled" example, which
+// the single t-shirt row never showed.
+export const PRODUCTS_EXAMPLE_ROWS: Record<string, string>[] = [
+  {
+    Name: 'Blue Cotton T-Shirt',
+    SKU: 'TSHIRT-BLU-M',
+    Barcode: '012345678905',
+    Brand: 'Acme',
+    Category: 'Apparel',
+    Tags: 'summer;bestseller',
+    Supplier: 'Acme Wholesale',
+    Cost: '4.50',
+    Price: '12.99',
+    Stock: '25',
+    'Reorder Level': '5',
+    'Shelf Number': 'A3',
+    'Expiry Date': '',
+    'Batch Number': '',
+  },
+  {
+    Name: 'Wool Scarf',
+    SKU: 'SCARF-WOOL',
+    Barcode: '',
+    Brand: '',
+    Category: 'Apparel',
+    Tags: '',
+    Supplier: '',
+    Cost: '',
+    Price: '8.00',
+    Stock: '10',
+    'Reorder Level': '',
+    'Shelf Number': '',
+    'Expiry Date': '',
+    'Batch Number': '',
+  },
+];
 
 function parseDollarsToCents(value: string | undefined): number | null {
   if (!value?.trim()) return null;

@@ -70,12 +70,13 @@ begin
   insert into public.product_location_stock (product_id, location_id, stock)
     values (v_product_id, v_location_id, 100000);
 
-  -- The owner has no shop_members row by design (adminship is shops.owner_id),
-  -- but a session needs a member, so give them one.
-  insert into public.roles (shop_id, name, permissions)
-    values (v_shop_id, 'Cashier', array['pos.access']) returning id into v_role_id;
-  insert into public.shop_members (shop_id, user_id, role_id, full_name, active)
-    values (v_shop_id, v_owner_id, v_role_id, 'Owner Omar', true) returning id into v_owner_member;
+  -- Cashier and the owner's own membership are both seeded with the shop now
+  -- (20260823000000), so this takes the rows that are already there instead of
+  -- creating them -- both are unique per shop and would collide.
+  select id into v_role_id from public.roles where shop_id = v_shop_id and name = 'Cashier';
+  update public.shop_members set full_name = 'Owner Omar'
+    where shop_id = v_shop_id and user_id = v_owner_id
+    returning id into v_owner_member;
   insert into public.shop_members (shop_id, user_id, role_id, full_name, active)
     values (v_shop_id, v_staff_user, v_role_id, 'Amina Hassan', true) returning id into v_staff_member;
 
@@ -511,11 +512,17 @@ begin
   raise notice 'OK: counts returned without exposing a single session row';
 
   ------------------------------------------------------------------
-  raise notice '=== 15. The OWNER can run a register with no roster row ===';
+  raise notice '=== 15. The OWNER can run a register ===';
   ------------------------------------------------------------------
-  -- The regression this exists for: an owner has no shop_members row by design
-  -- (adminship is shops.owner_id), so demanding one locked the one person a
-  -- single-person shop actually has out of the entire feature.
+  -- The regression this exists for: demanding a shop_members row locked the one
+  -- person a single-person shop actually has out of the entire feature.
+  --
+  -- 20260822000200 fixed it by letting a session name its owner through
+  -- opened_by with a null member. 20260823000000 fixed the cause instead -- the
+  -- owner now HAS a roster row -- so the same session is expected to carry a
+  -- member id today. The nullable column and its opened_by fallback stay,
+  -- because a session must still say who ran it if a membership ever goes
+  -- missing, but an owner is no longer the case that exercises them.
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner2_id)::text, true);
   perform set_config('role', 'authenticated', true);
 
@@ -525,15 +532,17 @@ begin
     null) into v_session;
   if v_session is null then raise exception 'FAIL: the owner could not open a register'; end if;
 
-  select shop_member_id is null and opened_by = v_owner2_id into v_ok
-    from public.register_sessions where id = v_session;
+  select s.shop_member_id = m.id and s.opened_by = v_owner2_id into v_ok
+    from public.register_sessions s
+    join public.shop_members m on m.shop_id = v_owner2_shop and m.user_id = v_owner2_id
+   where s.id = v_session;
   if not v_ok then
-    raise exception 'FAIL: an owner-run session should carry opened_by and no member';
+    raise exception 'FAIL: an owner-run session should carry the owner''s own membership';
   end if;
-  raise notice 'OK: owner opened a register with no membership';
+  raise notice 'OK: owner opened a register against their own roster row';
 
-  -- ...and can read it back, which needs the opened_by escape hatch since the
-  -- shop_members join matches nothing for them.
+  -- ...and can read it back, through the ordinary membership policy now rather
+  -- than the opened_by escape hatch.
   select count(*) into v_count from public.register_sessions where id = v_session;
   if v_count <> 1 then raise exception 'FAIL: the owner cannot read their own session'; end if;
 
@@ -550,8 +559,10 @@ begin
   if v_base <> 0 then raise exception 'FAIL: owner close should balance at 6000, got variance %', v_base; end if;
   raise notice 'OK: owner rang a sale and closed their own register, balanced';
 
-  -- The same trap as the session bug, caught before it shipped this time: a
-  -- mobile register required a shop_members row, which an owner never has.
+  -- The same trap as the session bug, caught before it shipped that time: a
+  -- mobile register required a shop_members row. It is keyed by membership for
+  -- the owner too now, which is the point -- one identity, so the phone register
+  -- and the counter register belong to the same person in every report.
   select public.ensure_mobile_register(v_owner2_shop, v_owner2_location) into v_mobile_a;
   select public.ensure_mobile_register(v_owner2_shop, v_owner2_location) into v_mobile_b;
   if v_mobile_a is null or v_mobile_a is distinct from v_mobile_b then
@@ -560,9 +571,11 @@ begin
   select count(*) into v_count from public.registers
     where shop_id = v_owner2_shop and kind = 'mobile';
   if v_count <> 1 then raise exception 'FAIL: expected 1 owner mobile register, got %', v_count; end if;
-  select user_id = v_owner2_id and shop_member_id is null into v_ok
-    from public.registers where id = v_mobile_a;
-  if not v_ok then raise exception 'FAIL: an owner mobile register should be keyed by user, not member'; end if;
+  select r.shop_member_id = m.id into v_ok
+    from public.registers r
+    join public.shop_members m on m.shop_id = v_owner2_shop and m.user_id = v_owner2_id
+   where r.id = v_mobile_a;
+  if not v_ok then raise exception 'FAIL: an owner mobile register should be keyed by their membership'; end if;
   raise notice 'OK: owner got a mobile register, reused not duplicated';
 
   raise notice 'ALL CHECKS PASSED';

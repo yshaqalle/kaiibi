@@ -31,7 +31,7 @@ import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
-import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
+import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -310,7 +310,7 @@ export default function InventoryScreen() {
         title: 'products',
         filenamePrefix: 'products',
         templateColumns: PRODUCTS_TEMPLATE_COLUMNS,
-        exampleRows: [PRODUCTS_EXAMPLE_ROW],
+        exampleRows: PRODUCTS_EXAMPLE_ROWS,
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>

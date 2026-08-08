@@ -1,9 +1,9 @@
 import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
+import { CameraPhotoButton } from '@/components/camera-photo-button';
 import { CategoryChip } from '@/components/category-chip';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { Caveat } from '@/components/ui/caveat';
@@ -17,6 +17,7 @@ import { confirmChoice } from '@/lib/confirm';
 import { formatCents, toCents } from '@/lib/currency';
 import { findProductsByCode, uploadProductImage } from '@/lib/products';
 import { needsCostConfirmation } from '@/lib/product-costing';
+import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
 import { deleteImageByPublicUrl } from '@/lib/storage';
 import { createTag, listTags } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
@@ -103,6 +104,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [imageUri, setImageUri] = useState<string | null>(initial?.imageUrl ?? null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
   // Looks up whoever already owns this barcode. Shared by the debounced
@@ -169,12 +171,22 @@ export const ProductForm = forwardRef<ProductFormHandle, {
   const costBlank = costInput.trim() === '';
   const willConfirmCost = needsCostConfirmation(costInput, initial?.costCents);
 
-  const pickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (!result.canceled) setImageUri(result.assets[0].uri);
+  // Kept apart from the form-wide `error`, which renders at the foot of a long
+  // scrolling form -- a refused camera has to be answered where the button that
+  // asked for it is, or the reader never sees why nothing happened.
+  const applyPhotoPick = (picked: PhotoPick) => {
+    if (picked.status === 'picked') {
+      setImageUri(picked.uri);
+      setPhotoError(null);
+    }
+    if (picked.status === 'failed') setPhotoError(picked.message);
   };
+
+  // Most stock is photographed at the counter as it is being added, not chosen
+  // from a library it was never in -- so the camera sits next to the library
+  // rather than behind it. Taking the photo is CameraPhotoButton's job; both
+  // routes land here.
+  const pickImage = async () => applyPhotoPick(await pickPhotoFromLibrary());
 
   const submit = async () => {
     if (!valid) return;
@@ -269,10 +281,32 @@ export const ProductForm = forwardRef<ProductFormHandle, {
 
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <Field label="PHOTO">
-        <Pressable onPress={pickImage} style={styles.photoPicker}>
+      <Field label="PHOTO" style={styles.photoField}>
+        <Pressable
+          onPress={pickImage}
+          style={styles.photoPicker}
+          accessibilityRole="button"
+          accessibilityLabel={imageUri ? 'Change the product photo' : 'Choose a product photo'}
+        >
           {imageUri ? <Image source={{ uri: imageUri }} contentFit="cover" style={styles.photoPreview} /> : <Text style={styles.photoHint}>Add a product photo</Text>}
         </Pressable>
+        {/* CameraPhotoButton renders nothing where there is no camera, which
+            leaves "Choose photo" sitting alone at full width -- correct, and
+            the reason the row is not gated as a whole. */}
+        <View style={styles.photoActions}>
+          <CameraPhotoButton
+            onCapture={(uri) => applyPhotoPick({ status: 'picked', uri })}
+            onError={(message) => applyPhotoPick({ status: 'failed', message })}
+            style={[styles.photoAction, styles.photoActionPrimary]}
+            accessibilityLabel="Take a product photo with the camera"
+          >
+            <Text style={[styles.photoActionText, styles.photoActionPrimaryText]}>Take photo</Text>
+          </CameraPhotoButton>
+          <Pressable onPress={pickImage} style={styles.photoAction} accessibilityRole="button">
+            <Text style={styles.photoActionText}>Choose photo</Text>
+          </Pressable>
+        </View>
+        {photoError && <Text style={styles.photoErrorText}>{photoError}</Text>}
       </Field>
       <Field label="PRODUCT NAME *"><TextInput value={name} onChangeText={setName} placeholder="e.g. ANUA Heartleaf Toner" placeholderTextColor="#999999" style={styles.input} /></Field>
       <Field label="DESCRIPTION"><TextInput value={description} onChangeText={setDescription} placeholder="Materials, size, story…" placeholderTextColor="#999999" style={[styles.input, styles.multiline]} multiline textAlignVertical="top" /></Field>
@@ -500,9 +534,16 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', gap: 8 },
   half: { flex: 1 },
   fieldLabel: { fontSize: 10, letterSpacing: 1, fontWeight: '800', color: '#999999', marginBottom: 7, marginTop: 3 },
-  photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', borderRadius: 11, marginBottom: 12, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  photoField: { marginBottom: 12 },
+  photoPicker: { height: 146, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#EDEDED', borderStyle: 'dashed', borderRadius: 11, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   photoPreview: { width: '100%', height: '100%' },
   photoHint: { color: '#999999', fontSize: 13 },
+  photoActions: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  photoAction: { flex: 1, height: 38, borderRadius: 9, backgroundColor: '#F2F2F2', alignItems: 'center', justifyContent: 'center' },
+  photoActionPrimary: { backgroundColor: '#111111' },
+  photoActionText: { fontSize: 12, fontWeight: '800', color: '#111111' },
+  photoActionPrimaryText: { color: '#FFFFFF' },
+  photoErrorText: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 8 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 9, paddingHorizontal: 11, height: 43, color: '#111111', marginBottom: 8 },
   inputInvalid: { borderWidth: 1, borderColor: '#C0392B' },
   barcodeRow: { flexDirection: 'row', gap: 6 },

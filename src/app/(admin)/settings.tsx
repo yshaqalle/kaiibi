@@ -31,6 +31,7 @@ import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
 import { listLocations } from '@/lib/locations';
+import { primaryLocationOf } from '@/lib/location-selection';
 import { listRegisters, registerSessionCounts } from '@/lib/registers';
 import { listVendors } from '@/lib/vendors';
 import type { Brand, Category, Currency, Product, Promotion, Register, Role, ShopLocation, Vendor } from '@/types/models';
@@ -276,7 +277,14 @@ export default function SettingsScreen() {
             cashiers={cashiers}
             onAdd={(name) =>
               runOrShowError(async () => {
-                await createCashier(shop.id, name);
+                // A cashier row has to name a store (NOT NULL since
+                // 20260815000000). Settings has no store picker for cashiers
+                // and nothing reads the column back, so new profiles land at
+                // the primary store -- the same store the migration backfilled
+                // the existing rows to.
+                const location = primaryLocationOf(allLocations);
+                if (!location) throw new Error('Add a store under Store locations before adding cashiers.');
+                await createCashier(shop.id, location.id, name);
                 await reload();
               })
             }

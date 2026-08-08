@@ -146,8 +146,12 @@ begin
   ------------------------------------------------------------------
   insert into public.roles (shop_id, name, permissions) values (v_shop_id, 'Verify Role', array['expenses.manage'])
     returning id into v_role_id;
-  insert into public.shop_members (shop_id, user_id, role_id, active, full_name, pay_type, pay_rate_cents)
-    values (v_shop_id, v_user_id, v_role_id, true, 'Verify Staff', 'hourly', 500)
+  -- The owner has had a shop_members row since 20260823000000, created with the
+  -- shop itself, and shop_members is unique on (shop_id, user_id) -- so this
+  -- puts pay on the row that already exists rather than making a second one.
+  update public.shop_members
+     set role_id = v_role_id, active = true, full_name = 'Verify Staff', pay_type = 'hourly', pay_rate_cents = 500
+   where shop_id = v_shop_id and user_id = v_user_id
     returning id into v_member_id;
 
   insert into public.payroll_runs (shop_id, period_start, period_end)
