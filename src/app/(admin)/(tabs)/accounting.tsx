@@ -64,7 +64,7 @@ export default function AccountingScreen() {
   // overdue-bill row opens Bills rather than dropping the reader on Overview
   // to find it. Read once as the INITIAL value; state is authoritative while
   // mounted, so a tap never waits for the URL to catch up.
-  const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const { tab: tabParam, session: sessionParam } = useLocalSearchParams<{ tab?: string; session?: string }>();
   const [tab, setTabState] = useState<AccountingTab>(
     TAB_OPTIONS.some((option) => option.key === tabParam) ? (tabParam as AccountingTab) : 'overview'
   );
@@ -150,7 +150,7 @@ export default function AccountingScreen() {
             {tab === 'invoices' && <InvoicesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
-            {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}

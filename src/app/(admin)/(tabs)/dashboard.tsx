@@ -70,10 +70,11 @@ import {
   type ProductSales,
 } from '@/lib/sales-reporting';
 import { membersActiveToday, onLeaveMemberIds, staleOpenShifts } from '@/lib/shift-hours';
+import { listRegisters, listRegisterSessions } from '@/lib/registers';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
 import { listShopTimeOffRequests } from '@/lib/time-off';
-import type { Customer, Expense, Invoice, Product, RecurringBill, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
+import type { Customer, Expense, Invoice, Product, RecurringBill, RegisterSession, Sale, StaffMember, TimeEntry, TimeOffRequest } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 
@@ -226,6 +227,11 @@ export default function DashboardScreen() {
   // into weeks after the fact.
   const [monthDaily, setMonthDaily] = useState<DailyBucket[]>([]);
   const [dormant, setDormant] = useState<{ customer: Customer; lastOrderAt: string }[]>([]);
+  // Only sessions that closed out of balance ever land here — see the note in
+  // buildAttentionItems for why a balanced day shows nothing at all.
+  const [closedSessions, setClosedSessions] = useState<
+    { session: RegisterSession; registerName: string; personName: string }[]
+  >([]);
   const [recentSales, setRecentSales] = useState<Sale[]>([]);
   // Every sale in the range, with its items. Already fetched for COGS and the
   // payment mix; keeping it means best sellers, top movers, open hours and
@@ -349,6 +355,30 @@ export default function DashboardScreen() {
           setAccruedWagesCents(accruedLaborCents(members, entries, since, rangeEnd, runs).accruedCents);
         });
       }
+
+      // Drawers that did not balance. Its own attempt() like the rest: a shop
+      // with no registers resolves to an empty list and simply contributes no
+      // rows, rather than costing the whole attention list.
+      await attempt('registers', async () => {
+        const [registers, sessions, members] = await Promise.all([
+          listRegisters(shop.id),
+          listRegisterSessions(shop.id, { limit: 40 }),
+          listStaff(shop.id).catch(() => []),
+        ]);
+        const registerName = new Map(registers.map((r) => [r.id, r.name]));
+        const memberName = new Map(members.map((m) => [m.id, m.fullName ?? m.email ?? 'Staff']));
+        setClosedSessions(
+          sessions
+            .filter((session) => session.closedAt && (session.varianceBaseCents ?? 0) !== 0)
+            .map((session) => ({
+              session,
+              registerName: registerName.get(session.registerId) ?? 'A register',
+              // An owner-run session has no roster row, so it falls back to a
+              // generic word rather than rendering "undefined" at someone.
+              personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
+            }))
+        );
+      });
 
       // Same permission -- bills, budgets and what is owed to suppliers are
       // the same kind of secret -- but its own attempt(), so a shop with no
@@ -665,6 +695,7 @@ export default function DashboardScreen() {
   const weekCents = useMemo(() => daily.slice(-7).reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
 
   const attention = buildAttentionItems({
+    closedSessions,
     openInvoices: money?.openInvoices ?? [],
     recurringBills: money?.recurringBills ?? [],
     budgetRows: money?.budgets ?? [],
@@ -720,6 +751,20 @@ export default function DashboardScreen() {
       router.push({ pathname: '/accounting', params: { tab: 'cash' } });
       return;
     }
+    // A drawer that did not balance lands on Cash & Budgets, where the sessions
+    // card is. Without this it fell through to the team roster below, which is
+    // the right destination for a time-off row and a baffling one for a $5
+    // variance.
+    if (item.key.startsWith('register-session-')) {
+      // The session id, not just the tab: the row names one short drawer, so
+      // landing on a list and making the reader find it again wastes the one
+      // thing the row already knew.
+      router.push({
+        pathname: '/accounting',
+        params: { tab: 'cash', session: item.key.replace('register-session-', '') },
+      });
+      return;
+    }
     if (item.key === 'low-stock') {
       router.push({ pathname: '/inventory', params: { filter: 'low' } });
       return;
@@ -737,7 +782,19 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} refreshControl={pullToRefresh}>
+      {/* `keyboardShouldPersistTaps` belongs HERE, not only on the search
+          panel's own list. Responder capture runs ancestors-first, so at the
+          default `never` this ScrollView ate the tap to dismiss the keyboard
+          and the result rows never saw it — and the blur it caused closed the
+          panel, so there was no second tap to give. `handled` and not
+          `always`: a tap no child claims still dismisses the keyboard, which
+          is what closes the panel when you tap the page. */}
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        refreshControl={pullToRefresh}
+        keyboardShouldPersistTaps="handled"
+      >
         <DashboardPageHeader onSelectResult={openSearchResult} />
 
         <GreetingBand

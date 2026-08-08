@@ -24,7 +24,13 @@ export async function completeSale(
   // the balance under a row lock and recomputes what they're worth, so this is
   // a request rather than an instruction -- if it no longer fits, the sale is
   // refused rather than quietly rung up for a different amount.
-  pointsRedeemed = 0
+  pointsRedeemed = 0,
+  // Which register session rang this up, when one is open. Omitted rather than
+  // sent as null when absent, same as `locationId` above -- a shop that never
+  // opens a register keeps working exactly as it does today. The server
+  // validates that the session is open, belongs to this shop and sits at this
+  // location; it is not taken on trust.
+  registerSessionId?: string | null
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
@@ -40,6 +46,7 @@ export async function completeSale(
     p_customer_id: customer?.id ?? null,
     p_points_redeemed: pointsRedeemed,
     ...(locationId ? { p_location_id: locationId } : {}),
+    ...(registerSessionId ? { p_register_session_id: registerSessionId } : {}),
   });
   if (error) throw error;
   return data as string;

@@ -21,7 +21,8 @@ export type SettingsNavId =
   | 'payments'
   | 'tax'
   | 'loyalty'
-  | 'cashiers';
+  | 'cashiers'
+  | 'registers';
 
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
 type NavGroup = { group: string; items: NavItem[] };
@@ -75,6 +76,10 @@ export const SETTINGS_NAV: NavGroup[] = [
       { id: 'tax', label: 'Tax and currencies', icon: 'calculator-outline' },
       { id: 'loyalty', label: 'Loyalty', icon: 'star-outline' },
       { id: 'cashiers', label: 'Cashiers', icon: 'card-outline' },
+      // Beside Cashiers on purpose: a cashier is WHO rings a sale up, a register
+      // is WHERE from. Both belong to a store, which is why they sit together
+      // under Sales rather than under Business.
+      { id: 'registers', label: 'Registers', icon: 'browsers-outline' },
     ],
   },
 ];

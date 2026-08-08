@@ -159,6 +159,7 @@ function LocationEditorModal({
   // whether it was created here or straight in the database.
   const [barcodeScanningEnabled, setBarcodeScanningEnabled] = useState(location?.barcodeScanningEnabled ?? true);
   const [hardwareScannerEnabled, setHardwareScannerEnabled] = useState(location?.hardwareScannerEnabled ?? false);
+  const [requireOpenRegister, setRequireOpenRegister] = useState(location?.requireOpenRegister ?? false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -206,6 +207,7 @@ function LocationEditorModal({
         monthlyRevenueGoalCents: goalInput.trim() ? toCents(goalInput) : null,
         barcodeScanningEnabled,
         hardwareScannerEnabled,
+        requireOpenRegister,
         active,
       });
     } catch (err) {
@@ -350,6 +352,19 @@ function LocationEditorModal({
                 </Text>
               </View>
               <Switch value={hardwareScannerEnabled} onValueChange={setHardwareScannerEnabled} />
+            </View>
+
+            <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>REGISTERS</Text>
+            <View style={modalStyles.toggleRow}>
+              <View style={modalStyles.toggleCopy}>
+                <Text style={modalStyles.toggleTitle}>Require an open register to sell</Text>
+                <Text style={modalStyles.toggleHint}>
+                  This store counts its drawer at the start and end of every session, and the register refuses a sale
+                  until someone has opened one. Leave it off and the register still works exactly as it does now —
+                  sales just are not tied to a till. Add the tills themselves under Settings → Registers.
+                </Text>
+              </View>
+              <Switch value={requireOpenRegister} onValueChange={setRequireOpenRegister} />
             </View>
 
             <Text style={[modalStyles.fieldLabel, modalStyles.fieldLabelSpaced]}>OPENING HOURS</Text>

@@ -1,8 +1,14 @@
-import { type ReactNode } from 'react';
-import { StyleSheet, Text, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { Platform, StyleSheet, Text, useWindowDimensions, View, type LayoutChangeEvent, type StyleProp, type ViewStyle } from 'react-native';
 
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
+import { isTabletDevice } from '@/lib/device';
+
+// Matches `sidebar.width` in admin-sidebar.tsx. Only ever used to GUESS the
+// grid width before the first measurement, so a drift here costs one frame of
+// wrong layout, never a wrong final layout.
+const SIDEBAR_WIDTH = 220;
 
 const theme = Colors.light;
 
@@ -15,24 +21,71 @@ const theme = Colors.light;
 // which is what `alignItems: 'flex-start'` below makes explicit rather than
 // accidental.
 //
-// Three step points, matching what the rest of the app already uses:
+// Cells are sized by ONE rule: a card is never narrower than `MIN_CARD`.
 //
-//   >= 1000            12 columns   desktop web, sidebar alongside
-//   >= TABLET_BREAKPOINT 6 columns  tablet and the narrow desktop window
-//   below               1 column    phone, native and mobile web
+// This replaces three fixed pixel breakpoints, and it replaces them because
+// those needed a new patch for every device anyone happened to open. Two
+// things went wrong with them repeatedly:
 //
-// 1000 is the same threshold Accounting's Overview already reads for its
-// two-up layout (overview-tab.tsx), and TABLET_BREAKPOINT is the nav shell's
-// own switch, so a screen never disagrees with the chrome around it.
-const WIDE_BREAKPOINT = 1000;
+//   - They read the WINDOW. The grid never gets the window -- the admin
+//     sidebar takes ~210pt and the page another ~36pt -- so a 1024pt iPad was
+//     handed 777pt while a window-based check still called it a desktop.
+//   - Dropping 12 columns to 6 does not widen a small card at all: `span={2}`
+//     resolves to one sixth at BOTH counts. That is why the revenue spark card
+//     kept breaking "Revenue" mid-word no matter which threshold moved.
+//
+// So the question a cell asks is not "how wide is this device" but "does the
+// proportion the design asked for still leave me readable here". It keeps that
+// proportion wherever it fits, and steps up to the next fraction that clears
+// the floor -- a third, a half, full width -- where it does not. Rows wrap on
+// their own. Wide screens are untouched; only cramped ones degrade, and they
+// degrade identically everywhere, including on sizes nobody has opened yet.
+//
+// 240 is a design decision, not a device measurement: it is roughly where a
+// bento card stops holding a heading, a figure and a caption on one line each.
+const MIN_CARD = 240;
 
-export type BentoColumns = 12 | 6 | 1;
+// The fractions a cell may take. Anything coarser than a third is not worth
+// having -- two cards of 1/3 and 2/3 read as a pairing, four of 1/4 read as a
+// row, and a 1/5 is a sliver whatever the screen.
+const STEPS = [1 / 3, 1 / 2, 1];
 
-export function useBentoColumns(): BentoColumns {
-  const { width } = useWindowDimensions();
-  if (width >= WIDE_BREAKPOINT) return 12;
-  if (width >= TABLET_BREAKPOINT) return 6;
+/**
+ * The share of the grid a cell takes. Exported for its tests: this is the one
+ * rule the whole responsive behaviour rests on, and it is pure, so it is worth
+ * pinning at the widths real devices actually produce.
+ */
+export function bentoCellFraction(span: number, gridWidth: number): number {
+  const clamped = Math.max(1, Math.min(12, Math.round(span)));
+  const asked = clamped / 12;
+  // The design's own proportion first: on a wide grid nothing else applies.
+  if (asked * gridWidth >= MIN_CARD) return asked;
+  for (const step of STEPS) {
+    if (step > asked && step * gridWidth >= MIN_CARD) return step;
+  }
   return 1;
+}
+
+/**
+ * The grid width to assume before the grid has measured itself, so the first
+ * paint lands on the right layout instead of visibly reflowing. Subtracts the
+ * chrome the grid does not get: the nav sidebar, and the screen's own padding.
+ *
+ * Whether that sidebar is there is answered DIFFERENTLY per platform, and both
+ * answers are deliberate (see admin-tabs.tsx):
+ *
+ *   native — `isTabletDevice()`, a device-class test. A width test would swap
+ *            navigators mid-rotation and used to crash the POS, so an iPad mini
+ *            gets the sidebar at 744pt even though that is under the tablet
+ *            breakpoint. Guessing on width here estimated 708pt where the grid
+ *            actually had 502pt, and the layout visibly reflowed on first paint.
+ *   web    — a live width breakpoint (admin-tabs.web.tsx), which the shell can
+ *            afford because both of its branches render a Slot.
+ */
+function useEstimatedGridWidth(): number {
+  const { width } = useWindowDimensions();
+  const hasSidebar = Platform.OS === 'web' ? width >= TABLET_BREAKPOINT : isTabletDevice();
+  return Math.max(1, width - (hasSidebar ? SIDEBAR_WIDTH : 0) - 36);
 }
 
 const GAP = 14;
@@ -51,20 +104,49 @@ export function BentoGrid({
    * shorter ones sitting at the top of the row. Right for most of a screen:
    * a table and a three-line statement have no business being the same height.
    *
-   * `stretch` makes every card in a row as tall as the tallest. Right for a
-   * row that reads as ONE band — the Overview strip, where five cards
-   * answering one question at five different heights reads as five leftovers
-   * rather than a row. A card in a stretched row has to fill it: see the
-   * `fill` prop on `Card`.
+   * `stretch` lets a card in a row be as tall as the tallest. Right for a row
+   * that reads as ONE band — the Overview strip, where five cards answering
+   * one question at five different heights reads as five leftovers rather than
+   * a row.
+   *
+   * It is safe to put on a WHOLE grid, which is what the Dashboard does, and
+   * the reason is worth knowing: this stretches the CELL, and only a card that
+   * asks grows to fill it. `BentoCard` never asks, so every card built on it
+   * still hugs its own content and a mixed row looks exactly as it does under
+   * `top`. Opting in is `fill` on `Card` — today that is `overview-cards.tsx`
+   * and `top-mover-card.tsx`, i.e. precisely the Overview band and the movers
+   * row. Splitting the screen into two grids to scope this would buy nothing.
    */
   rowAlign?: 'top' | 'stretch';
 }) {
+  const estimate = useEstimatedGridWidth();
+  // `null` until the first layout, when the estimate above stands in.
+  const [measured, setMeasured] = useState<number | null>(null);
+
   return (
-    <View style={[styles.grid, rowAlign === 'stretch' && styles.gridStretch, style]} onLayout={onLayout}>
-      {children}
-    </View>
+    <GridContext.Provider value={{ rowAlign, width: measured ?? estimate }}>
+      <View
+        style={[styles.grid, rowAlign === 'stretch' && styles.gridStretch, style]}
+        onLayout={(event) => {
+          // The grid's OWN width is the only honest input here. Reading the
+          // window instead is what put a desktop layout in 777pt of space.
+          setMeasured(event.nativeEvent.layout.width);
+          onLayout?.(event);
+        }}
+      >
+        {children}
+      </View>
+    </GridContext.Provider>
   );
 }
+
+// Lets a cell know how much room its grid actually has, and whether its row
+// stretches, without every caller having to pass either down. See `cellInner`
+// below for why the cell cannot just always grow.
+const GridContext = createContext<{ rowAlign: 'top' | 'stretch'; width: number | null }>({
+  rowAlign: 'top',
+  width: null,
+});
 
 /**
  * The other body layout: full-width cards stacked down the page, no grid.
@@ -83,13 +165,14 @@ export function BentoFlow({ children, style }: { children: ReactNode; style?: St
 }
 
 /**
- * One cell. `span` is in TWELFTHS regardless of the active column count --
- * callers describe the layout once, in the vocabulary of the design, and the
- * cell resolves it for the width it actually has.
+ * One cell. `span` is in TWELFTHS, always — callers describe the layout once,
+ * in the vocabulary of the design, and the cell resolves it for the width it
+ * actually has.
  *
- * At 6 columns a span is halved (rounded up, so a 5-wide and a 7-wide both
- * become full-width rather than one of them collapsing to a sliver). At 1
- * column everything is full width.
+ * The span is what the cell takes wherever that still leaves it readable. Below
+ * `MIN_CARD` it widens to a third, then a half, then the full row, and the row
+ * wraps. So `span={2}` is a fifth of a desktop band and a third of a tablet,
+ * and the caller never says so.
  */
 export function BentoCell({
   span = 12,
@@ -106,27 +189,18 @@ export function BentoCell({
    */
   onLayout?: (event: LayoutChangeEvent) => void;
 }) {
-  const columns = useBentoColumns();
-  const clamped = Math.max(1, Math.min(12, Math.round(span)));
-
-  let fraction: number;
-  if (columns === 1) {
-    fraction = 1;
-  } else if (columns === 6) {
-    // Halve, round UP, then cap. A 7/12 card and a 5/12 card sitting in one
-    // row both want the full width here; rounding down would give the 5 a
-    // 2/6 sliver next to a 4/6 and break the pairing the design intends.
-    fraction = Math.min(6, Math.ceil(clamped / 2)) / 6;
-  } else {
-    fraction = clamped / 12;
-  }
+  const { rowAlign, width: gridWidth } = useContext(GridContext);
+  // A cell used outside a BentoGrid still has to size itself somehow, so the
+  // window estimate remains the fallback.
+  const estimate = useEstimatedGridWidth();
+  const fraction = bentoCellFraction(span, gridWidth ?? estimate);
 
   // The gap is subtracted in proportion to the span so a row of cells whose
   // fractions sum to 1 lands exactly on the container width. Without this a
   // 6+6 row overflows by one gap and wraps to two rows.
   return (
     <View style={[{ width: `${fraction * 100}%` }, styles.cellOuter, style]} onLayout={onLayout}>
-      <View style={styles.cellInner}>{children}</View>
+      <View style={[styles.cellInner, rowAlign === 'stretch' && styles.cellInnerFill]}>{children}</View>
     </View>
   );
 }
@@ -146,7 +220,25 @@ const styles = StyleSheet.create({
   cellOuter: { paddingHorizontal: GAP / 2, marginBottom: GAP },
   // Lets a card inside stretch to the cell's width without the caller
   // remembering to set it.
-  cellInner: { width: '100%', height: '100%' },
+  cellInner: { width: '100%' },
+  // Fills the height `rowAlign="stretch"` handed the cell. Gated on stretch,
+  // and NOT expressed as `height: '100%'` -- both halves of that matter, and
+  // both were learned the hard way on native:
+  //
+  // `height: '100%'` is a no-op on web, where CSS resolves a percentage
+  // height to `auto` against an auto-height parent. Yoga resolves it against
+  // the owner height threaded down through layout, and inside a ScrollView
+  // that chain ends at the SCROLLVIEW'S OWN FRAME -- so every cell became a
+  // viewport tall, the dark hero card filled one, and the rest of the
+  // Dashboard was pushed below the fold.
+  //
+  // `flexGrow` fixes that but must NOT be unconditional. In a `top` grid the
+  // row is `alignItems: 'flex-start'`, the cell has no row height to fill,
+  // and Yoga hands the grow the available height instead -- which made
+  // Accounting's first card a viewport tall and pushed every chart under it
+  // off-screen. A cell only grows where there is a stretched row to grow
+  // into.
+  cellInnerFill: { flexGrow: 1 },
   // Takes the cell's half-gutter so the label's left edge lines up with the
   // cards below it rather than sitting 7px out.
   zoneOuter: { width: '100%', paddingHorizontal: GAP / 2, paddingTop: 4, marginBottom: GAP },

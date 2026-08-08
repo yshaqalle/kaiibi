@@ -42,6 +42,11 @@ function mapShopRow(row: any): Shop {
     defaultLowStockLevel: row.default_low_stock_level,
     expiryTrackingEnabled: row.expiry_tracking_enabled,
     expiryWarningLeadDays: row.expiry_warning_lead_days,
+    // Defaulted rather than read straight through, for the reason the loyalty
+    // fields give above: a row fetched before migration 20260822000000 reaches
+    // this database has no such column, and the drawer tally must fall back to
+    // an empty note list rather than crash on an undefined map.
+    cashDenominations: row.cash_denominations ?? {},
     createdAt: row.created_at,
   };
 }
@@ -130,6 +135,7 @@ export async function updateShop(id: string, input: Partial<{
   notifyDailySummary: boolean; notifyLargeSale: boolean; notifyLowStock: boolean; notifyOutOfStock: boolean;
   notifyViaPush: boolean; notifyViaEmail: boolean; notifyViaWhatsapp: boolean;
   defaultLowStockLevel: number; expiryTrackingEnabled: boolean; expiryWarningLeadDays: number;
+  cashDenominations: Record<string, number[]>;
 }>): Promise<Shop> {
   const { data, error } = await supabase
     .from('shops')
@@ -164,6 +170,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.defaultLowStockLevel !== undefined && { default_low_stock_level: input.defaultLowStockLevel }),
       ...(input.expiryTrackingEnabled !== undefined && { expiry_tracking_enabled: input.expiryTrackingEnabled }),
       ...(input.expiryWarningLeadDays !== undefined && { expiry_warning_lead_days: input.expiryWarningLeadDays }),
+      ...(input.cashDenominations !== undefined && { cash_denominations: input.cashDenominations }),
     })
     .eq('id', id)
     .select('*')

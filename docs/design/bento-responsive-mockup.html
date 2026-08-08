@@ -1,0 +1,542 @@
+<title>Bento grid — sizing by card, not by device</title>
+
+<style>
+  :root {
+    --page:        #f4f4f5;
+    --surface:     #ffffff;
+    --ink:         #0b0b0d;
+    --ink2:        #1a1a1e;
+    --muted:       #5e5d65;
+    --muted2:      #717078;
+    --line:        #ececf0;
+    --rule:        #dcdce4;
+    --soft:        #f6f6f7;
+    --series1:     #2f6bff;
+    --series2:     #00a396;
+    --loss:        #d72b3e;
+    --profit:      #008340;
+    --radius:      26px;
+
+    /* Tool chrome: a slate biased toward the series-1 blue so the frame reads
+       as instrumentation, not as another app surface. */
+    --chrome-bg:     #eef0f4;
+    --chrome-panel:  #ffffff;
+    --chrome-ink:    #14161c;
+    --chrome-muted:  #5a6072;
+    --chrome-line:   #dfe3ec;
+    --chrome-accent: #2f6bff;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --chrome-bg:     #101219;
+      --chrome-panel:  #171a23;
+      --chrome-ink:    #eef0f6;
+      --chrome-muted:  #98a0b5;
+      --chrome-line:   #262b38;
+      --chrome-accent: #7fa2ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --chrome-bg:     #101219;
+    --chrome-panel:  #171a23;
+    --chrome-ink:    #eef0f6;
+    --chrome-muted:  #98a0b5;
+    --chrome-line:   #262b38;
+    --chrome-accent: #7fa2ff;
+  }
+  :root[data-theme="light"] {
+    --chrome-bg:     #eef0f4;
+    --chrome-panel:  #ffffff;
+    --chrome-ink:    #14161c;
+    --chrome-muted:  #5a6072;
+    --chrome-line:   #dfe3ec;
+    --chrome-accent: #2f6bff;
+  }
+
+  body {
+    background: var(--chrome-bg);
+    color: var(--chrome-ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 40px 22px 80px; }
+
+  .eyebrow {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--chrome-muted);
+  }
+
+  h1 {
+    font-size: clamp(26px, 4vw, 38px); font-weight: 800; letter-spacing: -1px;
+    margin: 6px 0 10px; text-wrap: balance;
+  }
+  .lede { color: var(--chrome-muted); font-size: 15px; max-width: 65ch; margin-bottom: 8px; }
+  .lede b { color: var(--chrome-ink); font-weight: 700; }
+
+  /* ---- measurement rail ---------------------------------------------- */
+  .rail {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--chrome-panel);
+    border: 1px solid var(--chrome-line);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin: 26px 0 30px;
+    display: flex; flex-direction: column; gap: 14px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+  }
+  .railTop { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; }
+  .readout { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
+  .readout small { font-size: 12px; font-weight: 500; color: var(--chrome-muted); }
+  input[type="range"] { width: 100%; accent-color: var(--chrome-accent); }
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; }
+  .presets button {
+    font: inherit; font-size: 12px; font-weight: 650;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    background: transparent; color: var(--chrome-muted);
+    border: 1px solid var(--chrome-line);
+  }
+  .presets button:hover { border-color: var(--chrome-accent); color: var(--chrome-ink); }
+  .presets button[aria-pressed="true"] {
+    background: var(--chrome-accent); border-color: var(--chrome-accent); color: #fff;
+  }
+  .presets button:focus-visible,
+  input[type="range"]:focus-visible { outline: 2px solid var(--chrome-accent); outline-offset: 2px; }
+  .presets button span { font-family: var(--mono); font-variant-numeric: tabular-nums; opacity: 0.75; }
+
+  /* ---- specimens ------------------------------------------------------ */
+  .specimen { margin-bottom: 34px; }
+  .specHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin-bottom: 4px; }
+  .specHead h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+  .verdict {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  }
+  .verdict.bad  { background: rgba(215,43,62,0.12);  color: var(--loss); }
+  .verdict.good { background: rgba(0,131,64,0.12);   color: var(--profit); }
+  @media (prefers-color-scheme: dark) {
+    .verdict.bad  { background: rgba(232,81,95,0.18);  color: #ff8a95; }
+    .verdict.good { background: rgba(46,184,114,0.18); color: #5fd79b; }
+  }
+  .specNote { color: var(--chrome-muted); font-size: 13px; margin-bottom: 12px; max-width: 68ch; }
+
+  /* the app surface being previewed — pinned to Colors.light on purpose */
+  .stage {
+    background: var(--page); border-radius: 14px; padding: 18px;
+    border: 1px solid var(--chrome-line); overflow: hidden;
+  }
+  .scaler { transform-origin: top left; }
+  .zone {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--muted); margin: 2px 0 10px;
+  }
+  .zone + .zone { margin-top: 20px; }
+
+  /* mirrors BentoGrid: wrapping row, half-gutter cells, no CSS grid */
+  .grid { display: flex; flex-wrap: wrap; align-items: flex-start; margin: 0 -7px; }
+  .cell { padding: 0 7px; margin-bottom: 14px; box-sizing: border-box; }
+  .card {
+    background: var(--surface); border-radius: var(--radius); padding: 16px;
+    min-height: 104px; display: flex; flex-direction: column; gap: 2px;
+    position: relative; overflow: hidden;
+  }
+  .card.ink { background: var(--ink); }
+  .card.ink .cLabel { color: #a6a6ae; }
+  .card.ink .cValue { color: #fff; }
+  .cLabel {
+    font-size: 10px; font-weight: 800; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .cValue {
+    font-size: 21px; font-weight: 800; letter-spacing: -0.6px; color: var(--ink);
+    font-variant-numeric: tabular-nums; margin-top: 2px;
+  }
+  .cHint { font-size: 11px; color: var(--muted2); margin-top: auto; }
+
+  /* the measurement annotation clipped to each card */
+  .tag {
+    position: absolute; right: 8px; bottom: 8px;
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 10.5px; font-weight: 700;
+    padding: 2px 7px; border-radius: 999px;
+    background: rgba(0,131,64,0.10); color: var(--profit);
+  }
+  .cell.cramped .card { outline: 2px solid var(--loss); outline-offset: -2px; }
+  .cell.cramped .tag { background: rgba(215,43,62,0.12); color: var(--loss); }
+  .card.ink .tag { background: rgba(255,255,255,0.14); color: #fff; }
+  .cell.cramped .card.ink .tag { background: var(--loss); color: #fff; }
+
+  /* a card too narrow for its own words, shown honestly */
+  .cValue.breaks { word-break: break-all; }
+
+  /* ---- summary table --------------------------------------------------- */
+  .tableWrap { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 520px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--chrome-line); }
+  th { font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--chrome-muted); }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td .bad { color: var(--loss); font-weight: 700; }
+  td .good { color: var(--profit); font-weight: 700; }
+
+  .footnote {
+    margin-top: 34px; padding-top: 20px; border-top: 1px solid var(--chrome-line);
+    color: var(--chrome-muted); font-size: 13px; max-width: 68ch;
+  }
+  .footnote h3 { font-size: 14px; font-weight: 800; color: var(--chrome-ink); margin-bottom: 6px; }
+  .footnote p { margin-bottom: 10px; }
+  code {
+    font-family: var(--mono); font-size: 12px;
+    background: rgba(47,107,255,0.10); color: var(--chrome-accent);
+    padding: 1px 5px; border-radius: 5px;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">kaiibi · bento grid</p>
+  <h1>Sizing by card, not by device</h1>
+  <p class="lede">
+    The grid currently picks its column count from fixed pixel breakpoints, so every new
+    screen size is a case someone has to find by hand. The proposal replaces that with one
+    rule: <b>a bento card is never narrower than 240pt.</b> Drag the width to compare —
+    all seven Dashboard zones, not just the strip at the top.
+  </p>
+
+  <div class="rail">
+    <div class="railTop">
+      <span class="eyebrow">Grid width</span>
+      <span class="readout" id="readout">778<small> pt</small></span>
+      <span class="readout" style="font-size:12px;font-weight:500;color:var(--chrome-muted)" id="scaleNote"></span>
+    </div>
+    <input type="range" id="slider" min="320" max="2200" step="1" value="778"
+           aria-label="Grid width in points" />
+    <div class="presets" id="presets"></div>
+    <div class="presets" id="screens" style="border-top:1px solid var(--chrome-line);padding-top:12px">
+      <span class="eyebrow" style="align-self:center;margin-right:4px">Screen</span>
+      <button type="button" data-screen="dashboard">Dashboard <span>7 zones</span></button>
+      <button type="button" data-screen="accounting">Accounting &middot; Overview <span>5 cards</span></button>
+    </div>
+  </div>
+
+  <section class="specimen">
+    <div class="specHead">
+      <h2>Today — fixed breakpoints</h2>
+      <span class="verdict" id="v-today"></span>
+    </div>
+    <p class="specNote" id="n-today"></p>
+    <div class="stage"><div class="scaler" id="stage-today"></div></div>
+  </section>
+
+  <section class="specimen">
+    <div class="specHead">
+      <h2>Proposed — minimum card width</h2>
+      <span class="verdict" id="v-next"></span>
+    </div>
+    <p class="specNote" id="n-next"></p>
+    <div class="stage"><div class="scaler" id="stage-next"></div></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Every size, both rules</p>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Device</th><th>Grid</th>
+            <th>Today · narrowest card</th>
+            <th>Proposed · narrowest card</th>
+          </tr>
+        </thead>
+        <tbody id="summary"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <h3>Why the current rule keeps needing another patch</h3>
+    <p>
+      The ladder is <code>12 → 6 → 1</code> with no middle step, and dropping from twelve
+      columns to six does not widen a small card at all: <code>span={2}</code> resolves to
+      one sixth of the grid at <em>both</em> counts. That is why the revenue spark card kept
+      breaking &ldquo;Revenue&rdquo; across two lines no matter which breakpoint moved.
+    </p>
+    <h3>What the proposed rule does</h3>
+    <p>
+      A cell keeps the proportion the design asked for whenever that clears the floor. When it
+      does not, it widens to the next fraction that does — a third, a half, then full width —
+      and the row wraps on its own. Wide screens are untouched; only cramped ones degrade, and
+      they degrade the same way everywhere.
+    </p>
+    <p>
+      The tuning surface becomes a single number you can argue about on design grounds, rather
+      than a list of devices someone has to keep discovering. Sizes neither of us has opened
+      are correct by construction.
+    </p>
+    <p>
+      Widths above are the <em>grid&rsquo;s</em> width — the window minus the ~210pt admin
+      sidebar and 36pt of page padding. The preview is pinned to the light palette because the
+      app is (<code>Colors.light</code>, no dark mode yet).
+    </p>
+  </div>
+</div>
+
+<script>
+  var MIN_CARD = 240;
+
+  var DEVICES = [
+    { name: "iPhone 16 Pro",        grid: 366  },
+    { name: "iPad mini · portrait", grid: 502  },
+    { name: "iPad Pro 13 · portrait", grid: 778 },
+    { name: "iPad mini · landscape", grid: 887 },
+    { name: "iPad Pro 13 · landscape", grid: 1120 },
+    { name: "Desktop web",          grid: 2149 }
+  ];
+
+  // Every zone of the Dashboard, then the Accounting Overview body, with the
+  // spans the screens actually pass today. Read straight off dashboard.tsx and
+  // accounting/overview-tab.tsx so the mockup cannot flatter the real layout.
+  var SCREENS = {
+    dashboard: [
+      { zone: "Overview", cells: [
+        { span: 3, label: "Takings",       value: "$38.98", hint: "gross this period", ink: true },
+        { span: 3, label: "Income & paid", value: "$38.00", hint: "in and out" },
+        { span: 2, label: "Net margin",    value: "5%",     hint: "after everything" },
+        { span: 2, label: "Costed",        value: "3/3",    hint: "products priced" },
+        { span: 2, label: "Revenue",       value: "$38",    hint: "7 days · 8 orders" },
+        { span: 12, label: "This period at a glance", value: "$2 · $2 · 8 · $5", hint: "gross, net, orders, average" }
+      ]},
+      { zone: "Profit & loss", cells: [
+        { span: 5, label: "Profit & loss", value: "$2.00", hint: "net this period" },
+        { span: 7, label: "How revenue becomes profit", value: "waterfall", hint: "revenue to net" }
+      ]},
+      { zone: "What is selling", cells: [
+        { span: 12, label: "Best sellers", value: "$38.00", hint: "top 3 · 79% is Gg", ink: true },
+        { span: 3,  label: "Top mover",    value: "Gg",     hint: "first · vs. 7 days before" },
+        { span: 3,  label: "Top mover",    value: "test",   hint: "second · vs. 7 days before" },
+        { span: 3,  label: "Top mover",    value: "another item", hint: "third · vs. 7 days before" },
+        { span: 3,  label: "Inventory",    value: "3",      hint: "as of today" }
+      ]},
+      { zone: "Trends", cells: [
+        { span: 12, label: "Sales pace", value: "$0 · $38 · $39", hint: "today, week, month" },
+        { span: 7,  label: "Revenue",    value: "trend",   hint: "daily shape" },
+        { span: 5,  label: "Orders",     value: "8",       hint: "by day" },
+        { span: 7,  label: "Open hours", value: "hours",   hint: "when the shop sells" },
+        { span: 5,  label: "Revenue vs expenses", value: "grouped", hint: "side by side" }
+      ]},
+      { zone: "Who is behind the numbers", cells: [
+        { span: 6, label: "Top performers", value: "0/1", hint: "by takings" },
+        { span: 6, label: "Team on today",  value: "0/1", hint: "clocked in" }
+      ]},
+      { zone: "Needs you", cells: [
+        { span: 6,  label: "Attention",   value: "1", hint: "needs a decision" },
+        { span: 6,  label: "Dormant",     value: "—", hint: "customers gone quiet" },
+        { span: 12, label: "Drawers",     value: "—", hint: "closed out of balance" }
+      ]},
+      { zone: "Latest sales", cells: [
+        { span: 12, label: "Latest sales", value: "8 sales", hint: "most recent first" }
+      ]}
+    ],
+    accounting: [
+      { zone: "Overview", cells: [
+        { span: 12, label: "This period at a glance", value: "$38 · $0 · $2 · $1", hint: "revenue, expenses, gross, tax" },
+        { span: 7,  label: "Revenue",        value: "trend", hint: "daily shape" },
+        { span: 5,  label: "Payment methods", value: "cash · ZAAD", hint: "split of takings" },
+        { span: 6,  label: "Top products",   value: "3 items", hint: "ranked by revenue" },
+        { span: 6,  label: "Who rang it up", value: "—",      hint: "by cashier" }
+      ]}
+    ]
+  };
+
+  var screenKey = "dashboard";
+  var ROWS = SCREENS[screenKey];
+
+  function clampSpan(s) { return Math.max(1, Math.min(12, Math.round(s))); }
+
+  // --- the rule shipping today -----------------------------------------
+  function columnsToday(w) { return w >= 1050 ? 12 : (w >= 700 ? 6 : 1); }
+  function fractionToday(span, w) {
+    var cols = columnsToday(w), c = clampSpan(span);
+    if (cols === 1) return 1;
+    if (cols === 6) return Math.min(6, Math.max(2, Math.ceil(c / 2))) / 6;
+    return c / 12;
+  }
+
+  // --- the proposal: keep the design's proportion until it stops clearing
+  //     the floor, then step up to the next fraction that does.
+  function fractionProposed(span, w) {
+    var c = clampSpan(span), base = c / 12;
+    var steps = [base, 1 / 3, 1 / 2, 1].filter(function (f) { return f >= base - 1e-9; });
+    steps.sort(function (a, b) { return a - b; });
+    for (var i = 0; i < steps.length; i++) {
+      if (steps[i] * w >= MIN_CARD) return steps[i];
+    }
+    return 1;
+  }
+
+  function narrowest(fracFn, w) {
+    var min = Infinity;
+    ROWS.forEach(function (row) {
+      row.cells.forEach(function (cell) {
+        min = Math.min(min, fracFn(cell.span, w) * w);
+      });
+    });
+    return Math.round(min);
+  }
+
+  function build(target, fracFn, w) {
+    target.textContent = "";
+    ROWS.forEach(function (row) {
+      var zone = document.createElement("p");
+      zone.className = "zone";
+      zone.textContent = row.zone;
+      target.appendChild(zone);
+
+      var grid = document.createElement("div");
+      grid.className = "grid";
+
+      row.cells.forEach(function (cell) {
+        var frac = fracFn(cell.span, w);
+        var px = frac * w;
+        var cramped = px < MIN_CARD;
+
+        var outer = document.createElement("div");
+        outer.className = "cell" + (cramped ? " cramped" : "");
+        outer.style.width = (frac * 100) + "%";
+
+        var card = document.createElement("div");
+        card.className = "card" + (cell.ink ? " ink" : "");
+
+        var label = document.createElement("p");
+        label.className = "cLabel";
+        label.textContent = cell.label;
+
+        var value = document.createElement("p");
+        // Below ~150pt the real card breaks its own words. Show that rather
+        // than quietly letting the mockup look better than the app.
+        value.className = "cValue" + (px < 150 ? " breaks" : "");
+        value.textContent = cell.value;
+
+        var hint = document.createElement("p");
+        hint.className = "cHint";
+        hint.textContent = cell.hint;
+
+        var tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = Math.round(px) + "pt";
+
+        card.appendChild(label);
+        card.appendChild(value);
+        card.appendChild(hint);
+        card.appendChild(tag);
+        outer.appendChild(card);
+        grid.appendChild(outer);
+      });
+
+      target.appendChild(grid);
+    });
+  }
+
+  var slider   = document.getElementById("slider");
+  var readout  = document.getElementById("readout");
+  var scaleNote= document.getElementById("scaleNote");
+  var presets  = document.getElementById("presets");
+  var summary  = document.getElementById("summary");
+
+  DEVICES.forEach(function (d) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = d.name + " <span>" + d.grid + "</span>";
+    b.addEventListener("click", function () { slider.value = d.grid; render(); });
+    b.dataset.grid = d.grid;
+    presets.appendChild(b);
+  });
+
+  function rebuildSummary() {
+    summary.textContent = "";
+    DEVICES.forEach(function (d) {
+      var t = narrowest(fractionToday, d.grid);
+      var p = narrowest(fractionProposed, d.grid);
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + d.name + "</td>" +
+        '<td class="num">' + d.grid + "pt</td>" +
+        '<td class="num"><span class="' + (t < MIN_CARD ? "bad" : "good") + '">' + t + "pt</span></td>" +
+        '<td class="num"><span class="' + (p < MIN_CARD ? "bad" : "good") + '">' + p + "pt</span></td>";
+      summary.appendChild(tr);
+    });
+  }
+
+  function fit(stageEl, w) {
+    var avail = stageEl.parentElement.clientWidth;
+    var scale = Math.min(1, avail / w);
+    stageEl.style.width = w + "px";
+    stageEl.style.transform = "scale(" + scale + ")";
+    // The scaled box no longer reserves its own height, so give it back.
+    stageEl.parentElement.style.height = (stageEl.scrollHeight * scale) + "px";
+    return scale;
+  }
+
+  function render() {
+    var w = parseInt(slider.value, 10);
+    readout.innerHTML = w + "<small> pt</small>";
+
+    Array.prototype.forEach.call(presets.children, function (b) {
+      b.setAttribute("aria-pressed", String(parseInt(b.dataset.grid, 10) === w));
+    });
+    Array.prototype.forEach.call(screens.querySelectorAll("button"), function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.screen === screenKey));
+    });
+
+    var today = document.getElementById("stage-today");
+    var next  = document.getElementById("stage-next");
+    build(today, fractionToday, w);
+    build(next,  fractionProposed, w);
+
+    var scale = fit(today, w);
+    fit(next, w);
+    scaleNote.textContent = scale < 1 ? "shown at " + Math.round(scale * 100) + "%" : "shown actual size";
+
+    var t = narrowest(fractionToday, w);
+    var p = narrowest(fractionProposed, w);
+
+    var vt = document.getElementById("v-today");
+    vt.textContent = "narrowest " + t + "pt";
+    vt.className = "verdict " + (t < MIN_CARD ? "bad" : "good");
+
+    var vn = document.getElementById("v-next");
+    vn.textContent = "narrowest " + p + "pt";
+    vn.className = "verdict " + (p < MIN_CARD ? "bad" : "good");
+
+    document.getElementById("n-today").textContent =
+      "Columns resolve to " + columnsToday(w) + ". " +
+      (t < MIN_CARD
+        ? "Cards outlined in red fall under the 240pt floor — that is where words break mid-line."
+        : "Every card clears the floor at this width.");
+
+    document.getElementById("n-next").textContent =
+      p < MIN_CARD
+        ? "Even at full width a card cannot reach 240pt here, so the floor is the screen itself."
+        : "Every card clears the floor. Cards keep the design's proportion wherever it fits and step up only where it does not.";
+  }
+
+  var screens = document.getElementById("screens");
+  Array.prototype.forEach.call(screens.querySelectorAll("button"), function (b) {
+    b.addEventListener("click", function () {
+      screenKey = b.dataset.screen;
+      ROWS = SCREENS[screenKey];
+      rebuildSummary();
+      render();
+    });
+  });
+
+  slider.addEventListener("input", render);
+  window.addEventListener("resize", render);
+  rebuildSummary();
+  render();
+</script>

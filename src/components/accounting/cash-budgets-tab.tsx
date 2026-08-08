@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
+import { RegisterSessionDetail } from '@/components/register-session-detail';
+import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
 import { BudgetBar } from '@/components/budget-bar';
@@ -40,9 +42,11 @@ import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
 import { listPayrollRuns } from '@/lib/payroll';
 import { accruedLaborCents } from '@/lib/payroll-reporting';
+import { listCurrencies } from '@/lib/currencies';
+import { listRegisters, listRegisterSessions, registerSessionTotals } from '@/lib/registers';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
-import type { Budget, CashAccount, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
+import type { Budget, CashAccount, Currency, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -58,12 +62,15 @@ function extractErrorMessage(err: unknown): string {
 export function CashBudgetsTab({
   dateRange,
   locationFilter,
+  focusSessionId,
   setHeaderActions,
   setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
+  // A session to open on arrival, from a Dashboard attention row.
+  focusSessionId?: string | null;
   setHeaderActions: HeaderActionsSetter;
   setRefresh: RefreshSetter;
 }) {
@@ -92,6 +99,15 @@ export function CashBudgetsTab({
   // reading it lost their place after every change. Gating on "has anything
   // arrived yet" keeps the rows mounted, so they keep their height and their
   // position, and the values update underneath. First found in inventory.tsx.
+  // Sessions in the selected range, with register and person already resolved
+  // to names — the card renders, it does not look things up.
+  const [sessionRows, setSessionRows] = useState<SessionRow[]>([]);
+  const [currencies, setCurrencies] = useState<Currency[]>([]);
+  const [openSession, setOpenSession] = useState<SessionRow | null>(null);
+  // Which deep-linked session has already been dismissed, so closing the sheet
+  // does not immediately reopen it. Derived rather than synced in an effect —
+  // the param does not change while the screen is up.
+  const [dismissedFocus, setDismissedFocus] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -127,6 +143,43 @@ export function CashBudgetsTab({
         setExpensesSinceBalances([]);
       }
 
+      // Registers, in their own try: a shop that never opened one, or a role
+      // that cannot read sessions, gets an empty card rather than losing the
+      // whole tab. Same fail-soft posture the rest of this screen takes.
+      try {
+        const [registerRows, sessions, currencyRows, members] = await Promise.all([
+          listRegisters(shop.id),
+          listRegisterSessions(shop.id, { locationId: locationFilter, limit: 60 }),
+          listCurrencies(shop.id),
+          listStaff(shop.id).catch(() => []),
+        ]);
+        const registerName = new Map(registerRows.map((r) => [r.id, r.name]));
+        const registerNote = new Map(registerRows.map((r) => [r.id, r.note]));
+        const memberName = new Map(members.map((m) => [m.id, m.fullName ?? m.email ?? 'Staff']));
+        // Opened inside the range, or still open — a session that started last
+        // month and is still running is very much this month's problem.
+        const inRange = sessions.filter(
+          (session) => !session.closedAt || new Date(session.openedAt) >= since
+        );
+        const totals = await registerSessionTotals(inRange.map((session) => session.id));
+        setCurrencies(currencyRows);
+        setSessionRows(
+          inRange.map((session) => ({
+            session,
+            registerName: registerName.get(session.registerId) ?? 'A register',
+            registerNote: registerNote.get(session.registerId) ?? null,
+            // An owner-run session carries no roster row (see 20260822000200),
+            // so it is named generically rather than rendering "undefined".
+            personName: session.shopMemberId ? memberName.get(session.shopMemberId) ?? 'Staff' : 'The owner',
+            saleCount: totals.get(session.id)?.saleCount ?? 0,
+            takenCents: totals.get(session.id)?.totalCents ?? 0,
+          }))
+        );
+      } catch {
+        setSessionRows([]);
+        setCurrencies([]);
+      }
+
       if (canSeeWagesOwed) {
         const rangeEnd = until ?? new Date();
         const [members, entries, runs] = await Promise.all([
@@ -144,7 +197,7 @@ export function CashBudgetsTab({
     } finally {
       setLoaded(true);
     }
-  }, [shop, allowed, since, until, canSeeWagesOwed]);
+  }, [shop, allowed, since, until, canSeeWagesOwed, locationFilter]);
 
   useEffect(() => { reload(); }, [reload]);
   // Coming back to this screen on a phone, where the tab shell never unmounted
@@ -183,6 +236,16 @@ export function CashBudgetsTab({
   const cashTotal = totalCashCents(accountsInScope);
   const monthlyCommitment = monthlyBillCommitmentCents(billsInScope);
   const rows = budgetRows(expensesInScope, budgetsInScope);
+
+  // Which session the detail sheet shows. An explicit tap wins; otherwise the
+  // one a Dashboard attention row deep-linked to, until it is dismissed.
+  // Derived rather than synced in an effect — the param cannot change while the
+  // screen is up, so there is nothing to keep in step.
+  const focusedRow =
+    focusSessionId && focusSessionId !== dismissedFocus
+      ? sessionRows.find((row) => row.session.id === focusSessionId) ?? null
+      : null;
+  const detailRow = openSession ?? focusedRow;
 
   return (
     <View>
@@ -359,6 +422,36 @@ export function CashBudgetsTab({
               </Text>
             )}
           </BentoCard>
+          </BentoCell>
+
+          {/* --- Who was on which register, and whether the drawer added up.
+              Beside cash on hand because it is the same question asked over
+              time: this tab already owns where the money physically is. --- */}
+          <BentoCell span={12}>
+            <RegisterSessionsCard
+              rows={sessionRows}
+              currencies={currencies}
+              onOpenSession={setOpenSession}
+            />
+            {/* Mounted only while open and keyed by session, so it loads the
+                run fresh instead of needing an effect to reset it. */}
+            {detailRow && (
+              <RegisterSessionDetail
+                key={detailRow.session.id}
+                sessionId={detailRow.session.id}
+                registerName={detailRow.registerName}
+                registerNote={detailRow.registerNote}
+                nameFor={(session) =>
+                  sessionRows.find((row) => row.session.id === session.id)?.personName ??
+                  (session.shopMemberId ? 'Staff' : 'The owner')
+                }
+                currencies={currencies}
+                onClose={() => {
+                  setOpenSession(null);
+                  if (focusSessionId) setDismissedFocus(focusSessionId);
+                }}
+              />
+            )}
           </BentoCell>
 
           {/* --- Budget vs actual: the one section the date range drives, so

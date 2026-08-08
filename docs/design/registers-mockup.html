@@ -1,0 +1,1564 @@
+<title>Kaiibi Registers — who is on the register, and does the drawer add up</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts,
+     at its CURRENT value — commit 5240362 raised four of these to WCAG AA, so
+     --d-mut/--d-mut2/--profit/--loss differ from pos-mockup.html on purpose. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --upWash:#d9efe4; --upInk:#007a38; --downWash:#fbeaec; --downInk:#d12339;
+    --accWash:#e6edff; --accInk:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:26px 0 6px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .switch .step{font-size:10.5px;font-weight:800;color:var(--mut);opacity:.8;margin-right:5px;}
+  .switch button[aria-selected="true"] .step{color:var(--pg);opacity:.7;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .caption{font-size:13px;color:var(--ink2);margin:0 0 14px;max-width:80ch;}
+  .caption b{color:var(--ink);}
+  .scroller{padding-bottom:8px;border-radius:16px;overflow:hidden;}
+  .scroller.raw{overflow-x:auto;}
+  .fitBtn{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;margin-left:auto;}
+  .fitBtn[aria-pressed="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- POS workspace, carried over from pos-mockup.html unchanged ---- */
+  .panes{display:flex;gap:14px;align-items:flex-start;}
+  .browse{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px;}
+  .cart{width:392px;flex:none;display:flex;flex-direction:column;gap:12px;}
+  .w380 .panes{display:flex;flex-direction:column;}
+  .w380 .cart{width:auto;order:-1;}
+
+  .search{background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;height:46px;
+    padding:0 6px 0 14px;font-size:13.5px;color:var(--d-mut2);display:flex;align-items:center;
+    justify-content:space-between;gap:10px;}
+  .scanBtn{background:var(--d-ink);color:#fff;border-radius:17px;width:34px;height:34px;display:flex;
+    align-items:center;justify-content:center;font-size:16px;line-height:1;flex:none;}
+  .cats{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;}
+  .cats span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .cats span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  .grid{display:grid;gap:10px;}
+  .w1280 .grid{grid-template-columns:repeat(4,1fr);}
+  .w380 .grid{grid-template-columns:repeat(2,1fr);}
+  .tile{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:18px;padding:11px;
+    display:flex;flex-direction:column;gap:2px;}
+  .tile .thumb{height:66px;border-radius:12px;background:var(--d-soft);margin-bottom:7px;display:flex;
+    align-items:center;justify-content:center;}
+  .tile .drop{width:20px;height:20px;border-radius:10px;background:#e2e2e8;}
+  .tile .brand{font-size:9.5px;font-weight:800;letter-spacing:.09em;color:var(--d-mut2);}
+  .tile .nm{font-size:12.5px;font-weight:700;line-height:1.3;}
+  .tile .ft{margin-top:6px;display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap;}
+  .tile .pr{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .tile .st{font-size:10.5px;color:var(--d-mut);}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:16px;}
+  .cartHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+  .cartHead b{font-size:16px;font-weight:800;letter-spacing:-.02em;}
+  .miniBtn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 11px;
+    font-size:11.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .miniBtn.dark{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .line{padding:11px 0;border-bottom:1px solid var(--d-rule);}
+  .line:last-of-type{border-bottom:none;}
+  .lineTop{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}
+  .lineName{font-size:13.5px;font-weight:700;flex:1;min-width:0;}
+  .lineAmt{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .lineBot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
+  .qty{display:inline-flex;align-items:center;gap:12px;background:var(--d-soft);border-radius:999px;padding:4px 6px;}
+  .qty i{font-style:normal;width:30px;height:30px;border-radius:15px;background:var(--d-sf);
+    border:1px solid var(--d-ln);display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
+  .qty b{min-width:22px;text-align:center;font-variant-numeric:tabular-nums;font-size:14px;}
+  .discLink{font-size:11.5px;font-weight:700;color:var(--d-mut);text-decoration:underline;}
+  .sum{margin-top:12px;padding-top:12px;border-top:1px solid var(--d-rule);}
+  .sumRow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:4px 0;font-size:13px;}
+  .sumRow .k{color:var(--d-mut);}
+  .sumRow .v{font-weight:700;font-variant-numeric:tabular-nums;}
+  .sumRow .v.dis{color:var(--profit);}
+  .totalRow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+    margin-top:10px;padding-top:12px;border-top:2px solid var(--d-ink);}
+  .totalRow .k{font-size:15px;font-weight:800;}
+  .totalRow .v{font-size:30px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+  .payBtn{margin-top:12px;background:var(--d-ink);color:#fff;border-radius:16px;height:54px;display:flex;
+    align-items:center;justify-content:center;font-size:15px;font-weight:800;letter-spacing:-.01em;}
+  .payBtn.off{background:var(--d-soft);color:var(--d-mut2);}
+  .payBtn.sub{font-size:12px;font-weight:700;flex-direction:column;gap:1px;}
+  .payBtn.sub em{font-style:normal;font-size:11px;font-weight:600;opacity:.72;}
+
+  /* ═══════════ NEW: the register bar ═══════════ */
+  .regBar{background:var(--d-sf);border-radius:18px;padding:11px 14px;display:flex;align-items:center;
+    gap:12px;margin-bottom:12px;}
+  .regBar .dot{width:9px;height:9px;border-radius:5px;background:var(--profit);flex:none;}
+  .regBar .who{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;}
+  .regBar .regName{font-size:13.5px;font-weight:800;letter-spacing:-.01em;white-space:nowrap;}
+  .regBar .sep{color:var(--d-ln);}
+  .regBar .nm{font-size:13px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .regBar .meta{font-size:11.5px;color:var(--d-mut);font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .regBar .acts{margin-left:auto;display:flex;gap:6px;flex:none;}
+  .w380 .regBar{flex-wrap:wrap;}
+  .w380 .regBar .acts{margin-left:0;width:100%;}
+
+  /* the closed / nudge variant — same bar, dashed and quiet */
+  .regBar.shut{background:transparent;border:1px dashed var(--d-rule);}
+  .regBar.shut .dot{background:var(--d-mut2);}
+  .regBar.shut .regName{color:var(--d-ink2);}
+
+  /* the blocking variant, only when require_open_register is on */
+  .gate{background:var(--d-sf);border-radius:26px;padding:34px 22px;text-align:center;}
+  .gate .ic{font-size:30px;display:block;margin-bottom:10px;}
+  .gate b{display:block;font-size:17px;font-weight:800;letter-spacing:-.02em;margin-bottom:5px;}
+  .gate p{margin:0 auto;max-width:40ch;font-size:13px;color:var(--d-mut);}
+  .gate .go{margin:18px auto 0;background:var(--d-ink);color:#fff;border-radius:16px;height:50px;width:min(320px,100%);
+    display:flex;align-items:center;justify-content:center;font-size:14.5px;font-weight:800;}
+
+  /* ═══════════ sheets ═══════════ */
+  .sheetWrap{background:var(--d-pg);border-radius:24px;padding:16px;}
+  .sheetHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px;}
+  .sheetHead b{font-size:17px;font-weight:800;letter-spacing:-.03em;}
+  .sheetSub{font-size:12px;color:var(--d-mut);margin:0 0 12px;}
+  .sBlock{background:var(--d-sf);border-radius:16px;padding:14px 15px;margin-bottom:8px;}
+  .sLabel{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);margin-bottom:9px;}
+  .hint{font-size:11.5px;color:var(--d-mut);margin:9px 0 0;line-height:1.5;}
+
+  /* register chooser */
+  .regList{display:grid;gap:8px;}
+  .w1280 .regList{grid-template-columns:repeat(2,1fr);}
+  .regRow{border:1px solid var(--d-ln);border-radius:16px;padding:12px 13px;display:flex;align-items:center;gap:11px;}
+  .regRow.on{border-color:var(--d-ink);border-width:2px;padding:11px 12px;}
+  .regRow.busy{background:var(--d-soft);}
+  .regRow .badgeDot{width:8px;height:8px;border-radius:4px;flex:none;background:var(--d-mut2);}
+  .regRow.busy .badgeDot{background:var(--profit);}
+  .regRow .body{min-width:0;flex:1;}
+  .regRow .t1{font-size:13.5px;font-weight:800;letter-spacing:-.01em;}
+  .regRow .t2{font-size:11.5px;color:var(--d-mut);margin-top:1px;}
+  .regRow .tail{font-size:11px;font-weight:800;flex:none;white-space:nowrap;}
+  .regRow .tail.free{color:var(--profit);}
+  .regRow .tail.taken{color:var(--d-mut2);}
+
+  /* register kind */
+  .kind{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;
+    padding:2px 7px;flex:none;background:var(--d-soft);color:var(--d-mut);}
+  .kind.mob{background:var(--accWash);color:var(--accInk);}
+  .nothing{background:var(--d-soft);border-radius:16px;padding:20px 16px;text-align:center;}
+  .nothing b{display:block;font-size:14px;font-weight:800;margin-bottom:4px;}
+  .nothing p{margin:0 auto;max-width:44ch;font-size:12px;color:var(--d-mut);line-height:1.55;}
+
+  /* person row */
+  .person{display:flex;align-items:center;gap:11px;}
+  .av{width:34px;height:34px;border-radius:17px;background:var(--accWash);color:var(--accInk);flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;letter-spacing:.02em;}
+  .person .body{flex:1;min-width:0;}
+  .person .p1{font-size:13.5px;font-weight:700;}
+  .person .p2{font-size:11.5px;color:var(--d-mut);margin-top:1px;}
+
+  /* money entry */
+  .money{border:1px solid var(--d-rule);border-radius:14px;padding:12px 14px;display:flex;align-items:baseline;gap:8px;}
+  .money .cur{font-size:20px;font-weight:800;color:var(--d-mut2);}
+  .money .amt{font-size:30px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+  .money .amt.ghost{color:var(--d-mut2);}
+  .money .caret{width:2px;height:26px;background:var(--d-ink);display:inline-block;margin-left:1px;}
+  .money.big .amt{font-size:34px;}
+
+  /* how to count: one figure, or note by note */
+  .seg{display:flex;background:var(--d-soft);border-radius:999px;padding:3px;gap:3px;margin-bottom:11px;}
+  .seg span{flex:1;text-align:center;border-radius:999px;padding:8px 10px;font-size:12.5px;font-weight:700;
+    color:var(--d-mut);}
+  .seg span.on{background:var(--d-sf);color:var(--d-ink);font-weight:800;
+    box-shadow:0 1px 2px rgba(11,11,13,.08);}
+
+  /* the denomination tally */
+  .tally{display:grid;}
+  .dRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .dRow:last-of-type{border-bottom:none;}
+  .dNote{width:52px;flex:none;border:1px solid var(--d-rule);border-radius:8px;padding:5px 0;text-align:center;
+    font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;background:var(--d-soft);}
+  .dNote.other{font-size:11px;font-weight:700;color:var(--d-mut);letter-spacing:.02em;}
+  .dNote.added{border-color:var(--accInk);border-style:dashed;background:var(--accWash);color:var(--accInk);}
+  .dTag{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accInk);
+    background:var(--accWash);border-radius:999px;padding:2px 6px;flex:none;}
+  .addNote{margin-top:11px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;
+    color:var(--d-ink2);border:1px dashed var(--d-rule);border-radius:999px;padding:8px 14px;}
+  .remember{margin-top:9px;display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--d-mut);}
+  .remember .box{width:15px;height:15px;border-radius:4px;background:var(--d-ink);color:#fff;flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;}
+  .dTimes{font-size:12px;color:var(--d-mut2);flex:none;}
+  .dQty{width:66px;flex:none;border:1px solid var(--d-rule);border-radius:10px;padding:7px 0;text-align:center;
+    font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .dQty.zero{color:var(--d-mut2);font-weight:600;}
+  .dAmt{margin-left:auto;font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums;}
+  .dAmt.zero{color:var(--d-mut2);font-weight:600;}
+  .dTotal{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+    margin-top:11px;padding-top:12px;border-top:2px solid var(--d-ink);}
+  .dTotal .k{font-size:13px;font-weight:800;}
+  .dTotal .k em{font-style:normal;display:block;font-size:11px;font-weight:600;color:var(--d-mut);margin-top:1px;}
+  .dTotal .v{font-size:28px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+
+  /* amount + currency lines: the drawer as a list, not a fixed pair of blocks */
+  .cashLine{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .cashLine:last-of-type{border-bottom:none;}
+  .cashAmt{flex:1;min-width:0;border:1px solid var(--d-rule);border-radius:12px;padding:10px 12px;
+    font-size:19px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+  .cashAmt.ghost{color:var(--d-mut2);font-weight:600;}
+  .curPick{flex:none;border:1px solid var(--d-rule);border-radius:12px;padding:10px 12px;font-size:12.5px;
+    font-weight:800;display:flex;align-items:center;gap:6px;white-space:nowrap;}
+  .curPick s{text-decoration:none;color:var(--d-mut2);font-weight:700;}
+  .lineX{flex:none;width:30px;height:30px;border-radius:15px;display:flex;align-items:center;
+    justify-content:center;color:var(--d-mut2);font-size:15px;}
+  .addLine{margin-top:10px;display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;
+    color:var(--d-ink2);border:1px dashed var(--d-rule);border-radius:999px;padding:8px 14px;}
+  .rateNote{margin-top:11px;background:var(--d-soft);border-radius:12px;padding:10px 12px;font-size:11.5px;
+    color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .rateNote b{color:var(--d-ink2);font-weight:800;}
+  .grand{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+    margin-top:12px;padding-top:12px;border-top:2px solid var(--d-ink);}
+  .grand .k{font-size:13px;font-weight:800;}
+  .grand .k em{font-style:normal;display:block;font-size:11px;font-weight:600;color:var(--d-mut);margin-top:1px;}
+  .grand .v{font-size:28px;font-weight:800;letter-spacing:-.035em;font-variant-numeric:tabular-nums;}
+
+  /* the FX card — value moved, nobody is short */
+  .fx{background:var(--accWash);border-radius:16px;padding:14px 15px;}
+  .fx b{display:block;font-size:13px;font-weight:800;color:var(--accInk);margin-bottom:3px;}
+  .fx p{margin:0;font-size:12px;color:var(--accInk);opacity:.92;line-height:1.55;}
+
+  /* per-currency headings inside a count block */
+  .curHead{display:flex;align-items:baseline;gap:9px;margin-bottom:10px;}
+  .curHead b{font-size:14px;font-weight:800;letter-spacing:-.01em;}
+  .curHead i{font-style:normal;font-size:11.5px;color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .curHead .tag{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    background:var(--d-soft);color:var(--d-mut);border-radius:999px;padding:2px 8px;margin-left:auto;}
+  .varPair{display:grid;gap:8px;}
+  .w1280 .varPair{grid-template-columns:repeat(2,1fr);}
+  .var.sm{padding:13px 14px;gap:11px;}
+  .var.sm .glyph{width:30px;height:30px;border-radius:15px;font-size:15px;}
+  .var.sm .n{font-size:21px;}
+  .var.sm .w{font-size:11px;}
+
+  /* count summary rows */
+  .cRow{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:6px 0;font-size:13px;}
+  .cRow .k{color:var(--d-mut);}
+  .cRow .k em{font-style:normal;color:var(--d-mut2);font-size:11.5px;display:block;}
+  .cRow .v{font-weight:700;font-variant-numeric:tabular-nums;}
+  .cRow.rule{border-top:1px solid var(--d-rule);margin-top:6px;padding-top:11px;}
+  .cRow.strong .k{color:var(--d-ink);font-weight:800;}
+  .cRow.strong .v{font-weight:800;}
+
+  /* the variance verdict — sign and word always, colour never alone */
+  .var{border-radius:16px;padding:15px 16px;display:flex;align-items:center;gap:13px;}
+  .var .glyph{width:36px;height:36px;border-radius:18px;flex:none;display:flex;align-items:center;
+    justify-content:center;font-size:17px;font-weight:800;}
+  .var .n{font-size:26px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1;}
+  .var .w{font-size:12px;font-weight:700;margin-top:1px;}
+  .var.short{background:var(--downWash);} .var.short .glyph{background:var(--downInk);color:#fff;}
+  .var.short .n,.var.short .w{color:var(--downInk);}
+  .var.over{background:var(--upWash);} .var.over .glyph{background:var(--upInk);color:#fff;}
+  .var.over .n,.var.over .w{color:var(--upInk);}
+  .var.flat{background:var(--d-soft);} .var.flat .glyph{background:var(--d-ink);color:#fff;}
+  .var.flat .n,.var.flat .w{color:var(--d-ink);}
+
+  .textarea{border:1px solid var(--d-rule);border-radius:14px;padding:11px 13px;font-size:13px;
+    color:var(--d-mut2);min-height:62px;}
+  .req{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--downInk);
+    background:var(--downWash);border-radius:999px;padding:2px 7px;margin-left:7px;}
+
+  /* not-in-drawer chips */
+  .chips{display:flex;gap:7px;flex-wrap:wrap;}
+  .chip{border:1px solid var(--d-ln);border-radius:999px;padding:6px 11px;font-size:11.5px;font-weight:700;
+    color:var(--d-ink2);font-variant-numeric:tabular-nums;}
+
+  /* ═══════════ settings panel ═══════════ */
+  .setWrap{background:#ffffff;border-radius:16px;padding:20px 22px;color:#111;}
+  .setH{font-size:20px;font-weight:800;letter-spacing:-.02em;margin:0 0 3px;}
+  .setSub{font-size:12.5px;color:#6B7280;margin:0 0 18px;}
+  .setSec{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#9CA3AF;
+    margin:22px 0 8px;}
+  .setRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #F3F4F6;}
+  .setRow:last-child{border-bottom:none;}
+  .setRow .body{flex:1;min-width:0;}
+  .setRow .l{font-size:13.5px;font-weight:700;}
+  .setRow .d{font-size:11.5px;color:#6B7280;margin-top:1px;}
+  .setBtn{border:1px solid #E5E7EB;background:#fff;border-radius:8px;padding:6px 12px;font-size:12px;
+    font-weight:700;color:#111;white-space:nowrap;}
+  .setBtn.dark{background:#111;color:#fff;border-color:#111;}
+  .setPill{font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;border-radius:999px;
+    padding:2px 8px;background:#F3F4F6;color:#6B7280;}
+  .setPill.live{background:#d9efe4;color:#007a38;}
+
+  /* ═══════════ history card ═══════════ */
+  .hRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--d-rule);}
+  .hRow:last-child{border-bottom:none;}
+  .hRow .body{flex:1;min-width:0;}
+  .hRow .h1x{font-size:13.5px;font-weight:700;}
+  .hRow .h2x{font-size:11.5px;color:var(--d-mut);margin-top:1px;font-variant-numeric:tabular-nums;}
+  .hRow .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .hRow .amt.short{color:var(--downInk);} .hRow .amt.over{color:var(--upInk);}
+  .hRow .amt.flat{color:var(--d-mut2);}
+
+  /* ═══════════ Accounting: the sessions card ═══════════ */
+  .acctPage{background:var(--d-pg);border-radius:20px;padding:16px;}
+  .acctHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px;flex-wrap:wrap;}
+  .acctHead b{font-size:22px;font-weight:800;letter-spacing:-.03em;}
+  .acctHead .eb{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);
+    display:block;margin-bottom:2px;}
+  .acctTabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .acctTabs span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .acctTabs span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .sesRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--d-rule);}
+  .sesRow:last-of-type{border-bottom:none;}
+  .sesBody{flex:1;min-width:0;}
+  .sesTitle{font-size:13.5px;font-weight:700;}
+  .sesMeta{font-size:11.5px;color:var(--d-mut);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .sesVar{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;text-align:right;}
+  .sesVar.short{color:var(--downInk);} .sesVar.over{color:var(--upInk);}
+  .sesVar.flat{color:var(--d-mut2);} .sesVar.open{color:var(--profit);}
+  .sesVar em{display:block;font-style:normal;font-size:10.5px;font-weight:700;color:var(--d-mut2);margin-top:1px;}
+
+  /* ═══════════ Session detail sheet ═══════════ */
+  .dlHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:2px;}
+  .dlHead b{font-size:18px;font-weight:800;letter-spacing:-.03em;}
+  .dlSub{font-size:12px;color:var(--d-mut);margin:0 0 12px;font-variant-numeric:tabular-nums;}
+  .dlLive{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:var(--profit);
+    background:var(--upWash);border-radius:999px;padding:3px 9px;}
+  .dlLive i{width:7px;height:7px;border-radius:4px;background:var(--profit);font-style:normal;}
+  .dlStrip{display:grid;gap:8px;margin-bottom:8px;}
+  .w1280 .dlStrip{grid-template-columns:repeat(4,1fr);}
+  .w380 .dlStrip{grid-template-columns:repeat(2,1fr);}
+  .dlTile{background:var(--d-sf);border-radius:16px;padding:12px 13px;}
+  .dlTile .k{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);}
+  .dlTile .v{font-size:20px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;margin-top:3px;}
+  .dlTile .h{font-size:11px;color:var(--d-mut2);margin-top:1px;}
+  .mixRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .mixRow:last-of-type{border-bottom:none;}
+  .mixName{font-size:13px;font-weight:700;width:88px;flex:none;}
+  .mixBarWrap{flex:1;height:8px;border-radius:4px;background:var(--d-soft);overflow:hidden;}
+  .mixBar{height:100%;border-radius:4px;}
+  .mixAmt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .mixCount{font-size:11px;color:var(--d-mut2);width:52px;text-align:right;flex:none;}
+  .txRow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-rule);}
+  .txRow:last-of-type{border-bottom:none;}
+  .txTime{font-size:11.5px;color:var(--d-mut);width:52px;flex:none;font-variant-numeric:tabular-nums;}
+  .txBody{flex:1;min-width:0;}
+  .txName{font-size:13px;font-weight:700;}
+  .txMeta{font-size:11px;color:var(--d-mut2);margin-top:1px;}
+  .txAmt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .txAmt.refund{color:var(--downInk);}
+
+  /* who was on it, in order — the chain a handover creates */
+  .segRow{display:flex;align-items:center;gap:11px;padding:11px 0;}
+  .segRow + .segRow{border-top:1px solid var(--d-rule);}
+  .segAv{width:30px;height:30px;border-radius:15px;background:var(--accWash);color:var(--accInk);flex:none;
+    display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;}
+  .segBody{flex:1;min-width:0;}
+  .segName{font-size:13px;font-weight:700;}
+  .segWhen{font-size:11.5px;color:var(--d-mut);margin-top:1px;font-variant-numeric:tabular-nums;}
+  .segTake{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;flex:none;}
+  .segTake em{display:block;font-style:normal;font-size:10.5px;font-weight:700;margin-top:1px;}
+  .segTake em.short{color:var(--downInk);} .segTake em.over{color:var(--upInk);}
+  .segTake em.flat{color:var(--d-mut2);} .segTake em.open{color:var(--profit);}
+  .hoMark{display:flex;align-items:center;gap:9px;margin:2px 0 2px 15px;padding-left:14px;
+    border-left:2px dashed var(--d-rule);font-size:11px;color:var(--d-mut);line-height:1.5;}
+  .txHandover{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--d-rule);}
+  .txHandover .bar{flex:1;height:1px;background:var(--d-rule);}
+  .txHandover .lbl{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--accInk);background:var(--accWash);border-radius:999px;padding:3px 10px;white-space:nowrap;}
+
+  /* ═══════════ Dashboard: attention rows (cream, NOT bento) ═══════════ */
+  .cream{--c-sf:#ffffff; --c-ink:#17261F; --c-mut:#6B6B6B; --c-ln:#EFEEE9; --c-pg:#FAF9F5;
+    --c-danger:#C0392B; --c-warn:#D27631; --c-info:#2a78d6;}
+  .attCard{background:var(--c-sf);border:1px solid var(--c-ln);border-radius:12px;padding:4px 14px;}
+  .attRow{display:flex;align-items:flex-start;gap:12px;padding:13px 0;}
+  .attRow + .attRow{border-top:1px solid var(--c-ln);}
+  .attStripe{width:4px;align-self:stretch;border-radius:2px;flex:none;}
+  .attBody{flex:1;min-width:0;}
+  .attTitleRow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}
+  .attTitle{font-size:13.5px;font-weight:700;color:var(--c-ink);}
+  .attPill{font-size:10.5px;font-weight:800;border-radius:999px;padding:2px 9px;white-space:nowrap;}
+  .attDetail{font-size:12px;color:var(--c-mut);margin-top:3px;line-height:1.5;}
+  .attChev{color:var(--c-mut);font-size:14px;align-self:center;}
+
+  /* ═══════════ the state map ═══════════ */
+  .map{display:grid;gap:10px;margin-top:20px;}
+  .mapRow{display:flex;align-items:stretch;gap:10px;flex-wrap:wrap;}
+  .node{border:1px solid var(--ln);background:var(--sf);border-radius:14px;padding:11px 14px;min-width:190px;flex:1;}
+  .node b{display:block;font-size:13px;font-weight:800;margin-bottom:2px;}
+  .node span{font-size:12px;color:var(--ink2);}
+  .node.term{border-style:dashed;}
+  .node.hot{border-left:4px solid #c8791a;}
+  .arrow{align-self:center;font-size:18px;color:var(--mut);flex:none;padding:0 2px;}
+
+  table.cmp{border-collapse:collapse;width:100%;margin-top:16px;font-size:13.5px;}
+  table.cmp th,table.cmp td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  table.cmp th{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);}
+  table.cmp td:first-child{font-weight:700;white-space:nowrap;}
+  .tblScroll{overflow-x:auto;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · POS · Registers</p>
+  <h1>Registers: who is on the register, and does the drawer add up</h1>
+  <p class="lede">A sale currently records a branch, an auth user, and <code>cashier_name</code> — a
+  frozen string copied from a list that has no link to any account. So the shop cannot answer the
+  one question that matters at handover: <strong>who was on Register 2 this afternoon, what did they
+  start with, what did they hand over, and is it short?</strong> This adds a register (a named counter)
+  and a register session (one open→close cycle, with a count at each end).</p>
+
+  <p class="note" style="margin-bottom:26px"><strong>Not called a shift.</strong>
+  <code>shifts</code> already means the People rota — who is scheduled to come in — and
+  <code>time_entries</code> already means clocked hours. Reusing either word for a cash boundary
+  would collide with a live, different meaning in the same app. It is a <em>session</em>.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <p class="caption" id="caption"></p>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop / tablet</b><i>1280px</i>
+        <button class="fitBtn" id="fitBtn" type="button" aria-pressed="true">Scaled to fit</button>
+      </div>
+      <div class="scroller" id="wideScroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <!-- ───────────────────────── the flow ───────────────────────── -->
+  <section>
+    <h2>What happens when you tap Registers and nothing is open</h2>
+    <p class="note">The whole design turns on this question, so here it is as a state map. The two
+    amber-edged nodes are the only places a decision is forced on the user; everything else is
+    reversible.</p>
+
+    <div class="map">
+      <div class="mapRow">
+        <div class="node term"><b>No registers exist at this store</b>
+          <span>POS shows <em>nothing</em>. Not a banner, not a dot. A shop that has never set a
+          register up is not using the feature, and nagging them about it is how banners get ignored.</span></div>
+        <span class="arrow">→</span>
+        <div class="node"><b>One-time hint, dismissible</b>
+          <span>Only for someone with <code>settings.access</code>, reusing the existing
+          <code>use-caveat-dismissal</code> hook. Sent once. Points at Settings → Registers.</span></div>
+      </div>
+
+      <div class="mapRow">
+        <div class="node term"><b>Registers exist, none open</b>
+          <span>A dashed grey bar above the cart: <em>No register open · Open register</em>. POS
+          still sells — see the toggle below.</span></div>
+        <span class="arrow">→</span>
+        <div class="node hot"><b>Open — pick a register</b>
+          <span>Registers at <em>this</em> location only, counters and phones alike. Busy ones are
+          visibly busy, with who and since when — not an error you discover after tapping.</span></div>
+        <span class="arrow">→</span>
+        <div class="node hot"><b>Count the opening float</b>
+          <span>Amount + currency lines, as many as the drawer holds, with the rate captured.
+          Pre-filled from the last close, because that is physically the same money.</span></div>
+      </div>
+
+      <div class="mapRow">
+        <div class="node"><b>Open</b>
+          <span>Solid bar: green dot, register, person, since, float. Every sale rung from here carries
+          <code>register_session_id</code>.</span></div>
+        <span class="arrow">→</span>
+        <div class="node hot"><b>Close — count first</b>
+          <span>The expected figure is <strong>not shown yet</strong>. You are counting money, not
+          checking a number the app already told you.</span></div>
+        <span class="arrow">→</span>
+        <div class="node"><b>Reveal + sign off</b>
+          <span>Per currency: float, cash in, cash out, expected, counted. Variances are converted
+          and summed only after that. Rate movement is reported on its own card.</span></div>
+      </div>
+
+      <div class="mapRow">
+        <div class="node"><b>Where it surfaces afterwards</b>
+          <span><b>Accounting → Cash &amp; Budgets</b> lists every session, complete and boring — the place you go to
+          investigate. <b>Dashboard</b> shows only the ones that did not balance, as attention rows.</span></div>
+        <span class="arrow">→</span>
+        <div class="node term"><b>A day when everything balanced</b>
+          <span>The dashboard says nothing at all. That is the design: an alert that fires every day is one nobody
+          reads by week two.</span></div>
+      </div>
+
+      <div class="mapRow">
+        <div class="node"><b>Handover</b>
+          <span>Close and reopen in one sheet. One count serves as both the outgoing close and the
+          incoming float — because it is one pile of money, counted once, with two people looking at it.</span></div>
+        <span class="arrow">→</span>
+        <div class="node term"><b>Stays open indefinitely</b>
+          <span>Explicitly allowed. Past midnight the bar reads <em>since Tue 08:12</em> instead of
+          a duration. That is information, not a warning — there is no nag.</span></div>
+      </div>
+    </div>
+
+    <h3>The three ways POS can behave with no session, and which one ships</h3>
+    <div class="tblScroll">
+      <table class="cmp">
+        <tr><th>Behaviour</th><th>What the cashier sees</th><th>Verdict</th></tr>
+        <tr><td>Hard block, always</td>
+          <td>POS refuses to sell until a register is opened.</td>
+          <td>No. Every existing shop is mid-trade. Shipping this on by default breaks a working
+          counter to introduce a feature nobody asked that shop for.</td></tr>
+        <tr><td>Nudge (default)</td>
+          <td>A dashed bar offering <em>Open register</em>. Sales work; they simply carry a null
+          <code>register_session_id</code>.</td>
+          <td><strong>Ships on.</strong> The bar is an invitation. A shop adopts registers when it
+          wants them, not when we decide.</td></tr>
+        <tr><td>Hard block, opt-in</td>
+          <td>Same refusal, behind <code>shops.require_open_register</code>, default false.</td>
+          <td><strong>Ships off.</strong> The shop that <em>wants</em> accountability needs this to
+          be enforceable, or staff will simply skip the count on a busy day.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>The decisions worth arguing about</h2>
+
+    <div class="verdict">
+      <div class="vx good"><b>Count before reveal</b>
+        <p>The close sheet takes the counted cash <em>before</em> it shows what the register expected.
+        If the expected figure is on screen first, a tired cashier at the end of a shift types it
+        back in and the variance is structurally always zero — the feature then costs a minute a
+        day and detects nothing.</p>
+        <p>They can still step back and change the number after the reveal. The design does not
+        prevent that; it just refuses to <em>lead</em> with the answer. And a non-zero variance
+        requires a note, so an unexplained gap cannot be silently accepted at 9pm and puzzled over
+        on Friday.</p></div>
+
+      <div class="vx good"><b>A register is durable; a session is not. That is the whole distinction</b>
+        <p><code>registers.id</code> is a stable uuid that outlives every session opened on it.
+        <code>register_sessions.id</code> is one open→close cycle. Collapse the two — create a
+        register when a session starts and drop it at close — and every session becomes its own
+        island: "is Register 2 short three days running", "which register takes the most on a
+        Friday", "this phone seller's variances are all in one direction" all stop being
+        answerable. The durable id <em>is</em> the reporting.</p>
+        <p>It is <strong>not</strong> necessarily physical. A register is "a durable named place a
+        sale is rung from" — usually a counter with a drawer, sometimes a person's phone. Both are
+        the same row with a <code>kind</code> of <code>'counter'</code> or <code>'mobile'</code>,
+        and a mobile one is auto-provisioned the first time someone opens a session with no counter
+        free, named after them and reused thereafter. What differs is how much of the close sheet
+        applies, not the shape of the data.</p>
+        <p>Location stays <code>not null</code> on both. A phone seller is still selling
+        <em>somewhere</em>, and stock, takings and staff access in this app are all scoped by
+        branch — a register with no branch would be a hole in every one of those.</p></div>
+
+      <div class="vx mid"><b>The sale records the session, and deliberately not the register</b>
+        <p><code>sales.register_session_id</code> alone. The register is one join away through the
+        session, and unlike the things this schema does freeze — <code>cashier_name</code>,
+        <code>unit_cost_cents</code>, <code>exchange_rate</code> — <code>register_id</code> is an
+        <em>immutable</em> FK: a session can never move to a different register. Those snapshots
+        exist because the value drifts; copying a stable id just creates a second place for the
+        truth to live and a way for the two to disagree.</p>
+        <p>The cost is one join on "takings by register", answered with an index on
+        <code>register_sessions(register_id)</code> rather than a column on the busiest table in
+        the app. If that ever measures badly on real data, denormalise then — with a number to
+        point at.</p></div>
+
+      <div class="vx good"><b>The session carries the employee — there is no separate assignment table</b>
+        <p>"Assign Amina to Register 2" and "Amina opened Register 2 with $120" are the same event. Storing
+        them separately means they can disagree, and then neither one can be trusted for the money.
+        Whoever opens a register is the person on it; a manager holding
+        <code>registers.manage</code> can open it <em>for</em> someone else, which is the real-world
+        case (the supervisor sets the float, the cashier works the counter).</p>
+        <p>Planning ahead — "Amina works Tuesday morning" — is what <code>shifts</code> already
+        does. Building a second rota here would be two answers to one question.</p></div>
+
+      <div class="vx good"><b>Handover is close-and-reopen, not reassign-in-place</b>
+        <p>Reassigning an open session in place leaves one drawer count spanning two people, so
+        neither can be held to it. The point of the count <em>is</em> the boundary.</p>
+        <p>But making that two separate flows (close, then find the open sheet, then re-count the
+        same money) is the kind of friction that gets skipped. So Handover is one sheet: count once,
+        that figure closes the outgoing session and becomes the incoming float, and both names are
+        on it.</p></div>
+
+      <div class="vx mid"><b>The float defaults to the last close, and that is a claim</b>
+        <p>Pre-filling the opening float with the previous session's counted figure is right almost
+        always — it is physically the same money in the same drawer overnight. It is wrong the day
+        someone banks the takings, and then the pre-fill is a number the opener has to notice and
+        correct.</p>
+        <p>Mitigated by showing its provenance under the field (<em>"Register 1 closed at $118.50
+        yesterday 21:04"</em>) rather than presenting it as a bare default. If it still causes
+        wrong floats in practice, the honest fix is to default to empty, not to hide the provenance.</p></div>
+
+      <div class="vx bad"><b>The risk: mobile money is not in the drawer, and the close sheet says so twice</b>
+        <p>ZAAD and e-Dahab are most of the takings in a lot of these shops, and a close sheet that
+        shows a big "total sales" figure next to a small counted-cash figure invites exactly the
+        wrong subtraction. So the reveal keeps the two apart structurally: the expected-cash
+        arithmetic contains <em>only</em> cash lines, and the mobile-money totals appear separately
+        as chips under the heading <em>Not in the drawer</em>.</p>
+        <p>Related, and worth stating because it is a real trap in this codebase:
+        <code>sale_payments.tendered_cents</code> is only written when change was given, so it is
+        null for exact-tender cash and cannot be summed. Expected cash sums
+        <code>amount_cents</code> on cash lines, minus cash refunds against the session.</p></div>
+
+      <div class="vx good"><b>Note by note is the count that actually happens</b>
+        <p>Nobody counts a drawer by arriving at one number. They count a stack of twenties, then
+        the tens, and hold a running sum in their head — which is where the errors come from at
+        9pm. So the tally lets them enter what they are physically holding (<em>$20 × 4</em>) and
+        does the arithmetic. The running total <em>is</em> the counted figure; there is no separate
+        confirm-the-number step to get out of step with the rows above it.</p>
+        <p>It is a toggle, not a replacement. A kiosk with six notes in the drawer does not want
+        seven rows, and forcing the tally on them would make the fast path slower. The choice is
+        remembered per device, the way <code>kaiibi.activeLocationId</code> already is.</p>
+        <p>The last row is the one that makes it usable: a plain amount for coins, shillings and
+        anything that is not one of the shop's notes. Without it the tally can disagree with the
+        drawer and the cashier has no way to say so — and a count you cannot reconcile is worse
+        than a count you had to do in your head.</p></div>
+
+      <div class="vx good"><b>Enter amount + currency; compare per currency; convert only the variance</b>
+        <p>A Hargeisa drawer holds dollars <em>and</em> shillings at once, so the count is a list of
+        <em>amount + currency</em> lines — add as many as the drawer holds — at open and at close
+        alike. One combined figure is shown, because the person closing wants to know whether the
+        drawer is right, not to do two separate reconciliations.</p>
+        <p><strong>The order of operations is what makes that safe.</strong> Each currency is
+        differenced against its own expected figure first, with no rate involved; only the resulting
+        variances are converted and summed. Convert the <em>balances</em> instead and difference
+        those, and a rate drifting 115 → 118 reports about $80 of variance on a 355,000 Sl Sh drawer
+        where every note stayed put — a fabricated accusation against whoever was on the register.
+        Converting a −$5 variance at 115 or at 118 changes it by pennies.</p>
+        <p>It also fixes a bug in the first draft of this plan: expected cash cannot be
+        <em>"sum <code>amount_cents</code> where method='cash'"</em>. On a shilling payment
+        <code>amount_cents</code> is the dollar equivalent applied to the sale, while the money that
+        entered the drawer is <code>foreign_amount_cents</code>. Dollars expected must therefore
+        <em>exclude</em> cash lines carrying a <code>currency_code</code>, and shillings expected is
+        <code>foreign_amount_cents − foreign_change_cents</code> over that currency's lines.</p></div>
+
+      <div class="vx good"><b>Two rate snapshots per session, and the FX movement is reported separately</b>
+        <p>The rate is captured at open and again at close, on the session itself, rather than read
+        live whenever a report is run. Without that, reopening last Tuesday's close next month
+        re-converts it at today's rate and the signed-off figure quietly changes — the same reason
+        <code>sale_payments.exchange_rate</code> and <code>sale_items.unit_cost_cents</code> are
+        already snapshots in this schema.</p>
+        <p>Having both ends also buys something the shop cannot currently see at all: the drift
+        between them is the day's <strong>exchange exposure on the float</strong>. 355,000 Sl Sh
+        held across a 115 → 118 move lost about $78 of value with every note still in the drawer.
+        That belongs on the close sheet — it is real money — but in its own card, never folded into
+        the variance. Mixing them tells a cashier they are $83 short when they are $5 short.</p>
+        <p>Rates default from <code>shop_currencies.rate_to_usd</code> and are editable at the point
+        of counting, because the street rate moves faster than anyone updates Settings.</p></div>
+
+      <div class="vx good"><b>The note list is a starting point, and the drawer can always overrule it</b>
+        <p>$1/5/10/20/50/100 is right for a dollar drawer and meaningless for shillings, where the
+        notes run 100 to 10,000. So the denominations are data, not a constant:
+        <code>shops.cash_denominations</code> as a jsonb map keyed by currency code, seeded
+        <code>{"USD":[…],"SLSH":[…]}</code> and editable in Settings → Registers.</p>
+        <p><strong>But a seeded list will always be wrong somewhere</strong>, and the moment it is,
+        the cashier is holding a note the app refuses to acknowledge — so it goes in the catch-all,
+        the breakdown stops meaning anything, and the one artefact that solves a variance next week
+        is gone. <em>+ Add a note</em> fixes that where the problem actually happens: in the drawer,
+        with the note in your hand. It takes effect immediately for this count, and offers to
+        remember it — only to someone with <code>settings.access</code>, since remembering it edits
+        a shop setting.</p>
+        <p>This needs no schema: <code>closing_denominations</code> is a jsonb map keyed by note
+        value, so an unseeded 10,000 is simply another key. The stored count is a record of what was
+        in the drawer, never a foreign key into a list that may have changed since.</p>
+        <p>Every currency also gets the plain-amount <em>Other</em> row, dollars and shillings
+        alike — coins, a torn note, a foreign scrap. It is what lets the tally always reconcile to
+        the drawer instead of quietly disagreeing with it.</p>
+        <p>A jsonb map rather than a column on <code>shop_currencies</code> because USD is
+        deliberately <em>not</em> a row in that table — migration 0015 makes it the implicit default
+        when <code>currency_code</code> is null. Splitting the list across a shop column for dollars
+        and a currency column for everything else would be two homes for one setting.</p></div>
+
+      <div class="vx good"><b>The dashboard gets attention rows, not an eighth card</b>
+        <p>Two surfaces, two jobs. <strong>Accounting</strong> is where you investigate, so the sessions list is
+        complete and unexciting: every session, in order, variance frozen as it was signed off. <strong>Dashboard</strong>
+        answers "what needs attention right now", and the register-shaped answer to that is a drawer that did not
+        balance — nothing else.</p>
+        <p>A standing card reading <code>$0.00 variance</code> every day is a card nobody reads by week two, and the
+        Dashboard has just absorbed seven new ones, so the bar for another should be high. An
+        <code>AttentionItem</code> costs nothing on the days it has nothing to say.</p>
+        <p><strong>What is deliberately absent: any alert about a register left open.</strong> A session may stay open
+        as long as the shop wants — that was decided, and there is no nag anywhere else in the feature. Putting
+        "Register 1 open since Tuesday" on the dashboard would quietly reverse it in the one place the owner looks
+        first.</p></div>
+
+      <div class="vx mid"><b>Over is amber, short is red, and neither is silent</b>
+        <p>Short means the shop is out of pocket; over usually means a sale was rung wrong. Only one of those costs
+        money today, so only one is red — but a drawer that misses in either direction is a drawer nobody can vouch
+        for, and both get a row.</p>
+        <p>The severities are the existing ones (<code>act</code> / <code>soon</code> / <code>info</code>) and the
+        colour is the attention list's own semantic stripe, not the bento palette. This list lives in the cream world;
+        two colour systems in one component and neither reads.</p></div>
+
+      <div class="vx mid"><b>Colour never carries the variance on its own</b>
+        <p>Every variance shows a sign, a word (<em>Short</em> / <em>Over</em> / <em>Balances</em>)
+        and a glyph as well as <code>bentoLoss</code>/<code>bentoProfit</code>. That is the bento
+        skill's rule 4, and it matters more here than on a chart: this is the number that decides
+        whether a conversation with an employee happens.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Implementation notes</h2>
+    <p class="note"><strong>Almost nothing new in the design system.</strong> The bar, the sheet
+    blocks, the black primary action, the pill chips and the avatar all exist. Every field is still
+    a plain <code>TextInput keyboardType="number-pad"</code> plus <code>toCents()</code>, the
+    control every money field in the app already uses — the tally is rows of those, not a custom
+    keypad. The one genuinely new primitive is the segmented <em>One figure / Note by note</em>
+    switch, and <code>SegmentedControl</code> in <code>src/components/segmented-control.tsx</code>
+    already is that.</p>
+    <p class="note"><strong>Radii:</strong> the sheet is the page (<code>--d-pg</code>, 24) and the
+    blocks inside it are cards (<code>--d-sf</code>, 16), matching the checkout sheet in
+    <code>pos-mockup.html</code>. The register bar and the register chooser rows take
+    <code>BENTO_RADIUS_TILE</code> (18/16), not 26 — same reason product tiles do.</p>
+    <p class="note"><strong>Settings → Registers</strong> is drawn in the grayscale Settings
+    palette on purpose. Settings is not a bento screen yet, and this panel should look like the
+    Locations panel it sits beside, not like the POS.</p>
+    <p class="note"><strong>Deliberately not designed here:</strong> mid-session pay-ins, pay-outs
+    and cash drops; a denomination breakdown; a printed Z-report; auto-close at midnight. Each is a
+    real request and each is its own screen.</p>
+  </section>
+</div>
+
+<!-- ═════════════ 1 · NO REGISTER OPEN (default) ═════════════ -->
+<template data-tab="nudge" data-label="No register open"
+  data-cap="<b>The default.</b> Registers exist at this store but none is open. The bar is dashed and grey — an invitation, not an error. The cart, the grid and the Charge button all behave exactly as they do today; the sale simply carries a null session id.">
+  <div class="regBar shut">
+    <span class="dot"></span>
+    <span class="who"><span class="regName">No register open</span>
+      <span class="meta">Airport Road · 2 registers</span></span>
+    <span class="acts"><span class="miniBtn dark">Open register</span></span>
+  </div>
+  <div class="panes">
+    <div class="browse">
+      <div class="search"><span>Search or scan a product</span><span class="scanBtn">⛶</span></div>
+      <div class="cats"><span class="on">All</span><span>Moisturisers</span><span>Cleansers</span><span>Oils</span><span>Serums</span></div>
+      <div class="grid">
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Shea Butter Cream 200ml</div>
+          <div class="ft"><span class="pr">$14.00</span><span class="st">42 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Rose Water Toner 250ml</div>
+          <div class="ft"><span class="pr">$9.50</span><span class="st">8 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">BARWAAQO</div>
+          <div class="nm">Black Seed Oil 100ml</div>
+          <div class="ft"><span class="pr">$18.00</span><span class="st">27 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">HODAN</div>
+          <div class="nm">Turmeric Soap Bar</div>
+          <div class="ft"><span class="pr">$4.00</span><span class="st">96 in stock</span></div></div>
+      </div>
+    </div>
+    <div class="cart">
+      <div class="cardx">
+        <div class="cartHead"><b>Current sale</b><span class="miniBtn">⛶ Scan</span></div>
+        <div class="line"><div class="lineTop"><span class="lineName">Shea Butter Cream 200ml</span>
+          <span class="lineAmt">$28.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>2</b><i>+</i></span><span class="discLink">+ Add discount</span></div></div>
+        <div class="sum"><div class="sumRow"><span class="k">Subtotal</span><span class="v">$28.00</span></div>
+          <div class="sumRow"><span class="k">Tax (5%)</span><span class="v">$1.40</span></div></div>
+        <div class="totalRow"><span class="k">Total</span><span class="v">$29.40</span></div>
+        <div class="payBtn">Charge $29.40</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ 2 · BLOCKED (opt-in) ═════════════ -->
+<template data-tab="blocked" data-label="Blocked (opt-in)"
+  data-cap="<b>Only when <code>shops.require_open_register</code> is on.</b> Default false, so no existing shop ever sees this without switching it on. The refusal replaces the cart, not the grid — browsing stock is harmless, and the cashier can still answer &ldquo;do you have it in stock?&rdquo; while the supervisor walks over with the float.">
+  <div class="regBar shut">
+    <span class="dot"></span>
+    <span class="who"><span class="regName">No register open</span>
+      <span class="meta">Airport Road · 2 registers</span></span>
+    <span class="acts"><span class="miniBtn dark">Open register</span></span>
+  </div>
+  <div class="panes">
+    <div class="browse">
+      <div class="search"><span>Search or scan a product</span><span class="scanBtn">⛶</span></div>
+      <div class="cats"><span class="on">All</span><span>Moisturisers</span><span>Cleansers</span><span>Oils</span><span>Serums</span></div>
+      <div class="grid">
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Shea Butter Cream 200ml</div>
+          <div class="ft"><span class="pr">$14.00</span><span class="st">42 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Rose Water Toner 250ml</div>
+          <div class="ft"><span class="pr">$9.50</span><span class="st">8 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">BARWAAQO</div>
+          <div class="nm">Black Seed Oil 100ml</div>
+          <div class="ft"><span class="pr">$18.00</span><span class="st">27 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">HODAN</div>
+          <div class="nm">Turmeric Soap Bar</div>
+          <div class="ft"><span class="pr">$4.00</span><span class="st">96 in stock</span></div></div>
+      </div>
+    </div>
+    <div class="cart">
+      <div class="gate">
+        <span class="ic">🔒</span>
+        <b>Open a register to sell</b>
+        <p>This store counts its drawer at the start and end of every session. Pick a register, count what is in
+        it, and it opens.</p>
+        <div class="go">Open register</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ 3 · PICK A REGISTER ═════════════ -->
+<template data-tab="pick" data-label="Open · pick a register"
+  data-cap="<b>Step 1 of 2.</b> The store first (a dropdown only when the business has more than one), then a register at it. Every row names its store, so the branch the money lands at is never a scroll away. Only registers at the active location, because a register is a physical counter — the same reasoning that already puts <code>location_id NOT NULL</code> on sales, cashiers and cash accounts. A busy register shows who has it and since when, so picking it is not a mistake you discover after tapping. The person defaults to you; the <em>Change</em> control only appears for someone holding <code>registers.manage</code>.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Open a register</b><span class="miniBtn">Close</span></div>
+    <p class="sheetSub">Airport Road · Friday 7 August</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Which store</div>
+      <div class="curPick" style="width:100%;justify-content:space-between">Airport Road <s>▾</s></div>
+      <p class="hint">Only for a business with more than one — a single-store shop is never asked. Choosing here
+      <strong>moves the counter</strong>: a register belongs to a branch, and sales, stock and this session all follow
+      the store shown. Opening a register at a branch the POS is not on would be accepted and then have every sale
+      refused at checkout.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Which register</div>
+      <div class="regList">
+        <div class="regRow on"><span class="badgeDot"></span>
+          <span class="body"><span class="t1">Register 1 — front counter</span>
+            <span class="t2">Airport Road · closed yesterday 21:04 · counted $118.50</span></span>
+          <span class="tail free">Free</span></div>
+        <div class="regRow busy"><span class="badgeDot"></span>
+          <span class="body"><span class="t1">Register 2 — pharmacy side</span>
+            <span class="t2">Airport Road · Sagal H. since 08:12 · float $80.00</span></span>
+          <span class="tail taken">In use</span></div>
+        <div class="regRow"><span class="badgeDot"></span>
+          <span class="body"><span class="t1">Amina H. — phone <span class="kind mob">Mobile</span></span>
+            <span class="t2">Airport Road · your own register · ZAAD only, no drawer</span></span>
+          <span class="tail free">Free</span></div>
+      </div>
+      <p class="hint">A register already in use can only be taken over by a manager, and taking it over
+      closes it with a count first — the money cannot change hands without a boundary.</p>
+      <p class="hint">The third one is not a counter. A register is a <strong>durable named place a
+      sale is rung from</strong>, which is usually a till with a drawer and is sometimes a person's
+      phone. Either way it keeps one id across every session, because "how did this register do
+      this month" is not a question an id that dies at close can answer.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Who is on it</div>
+      <div class="person">
+        <span class="av">AH</span>
+        <span class="body"><span class="p1">Amina H. <span class="chip" style="margin-left:6px">You</span></span>
+          <span class="p2">Cashier · Airport Road</span></span>
+        <span class="miniBtn">Change</span>
+      </div>
+      <p class="hint">Opening a register for someone else needs <code>registers.manage</code>. Without
+      it this row is your name and nothing more — no picker, no empty state to wonder about.</p>
+    </div>
+
+    <div class="payBtn">Next · count the float</div>
+  </div>
+</template>
+
+<!-- ═════════════ 4 · COUNT THE FLOAT ═════════════ -->
+<template data-tab="float" data-label="Open · count the float"
+  data-cap="<b>Step 2 of 2 — and it is the close sheet's twin.</b> One block per currency in the drawer, the same <em>One figure / Note by note</em> toggle, the same tally. Pre-filled with what this register was closed at, because overnight that is physically the same money; the provenance sits under the field rather than presenting the number as a bare default.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Count the float</b><span class="miniBtn">Back</span></div>
+    <p class="sheetSub">Register 1 — front counter · Amina H.</p>
+
+    <div class="sBlock">
+      <div class="sLabel">What is in the drawer</div>
+      <div class="seg"><span class="on">One figure</span><span>Note by note</span></div>
+
+      <div class="cashLine"><span class="cashAmt">118.50</span>
+        <span class="curPick">$ USD <s>▾</s></span><span class="lineX">×</span></div>
+      <div class="cashLine"><span class="cashAmt">40,000</span>
+        <span class="curPick">Sl Sh <s>▾</s></span><span class="lineX">×</span></div>
+      <div><span class="addLine">+ Add another currency</span></div>
+
+      <div class="rateNote">Rates recorded at open · <b>1 USD = 115 Sl Sh</b> · from Settings →
+        Currencies, editable here if the street rate has moved.</div>
+
+      <div class="grand"><span class="k">Opening float<em>Two currencies, converted at the rate above</em></span>
+        <span class="v">$466.33</span></div>
+      <p class="hint">Register 1 closed at <strong>$118.50 + 40,000 Sl Sh</strong> yesterday 21:04,
+      pre-filled because overnight that is physically the same money. If the takings were banked or
+      the float topped up, type what is actually there.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Note <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--d-mut2)">— optional</span></div>
+      <div class="textarea">e.g. topped up with $30 from the safe</div>
+    </div>
+
+    <div class="payBtn sub">Open Register 1<em>$118.50 · 40,000 Sl Sh · Amina H.</em></div>
+  </div>
+</template>
+
+<!-- ═════════════ 5 · OPEN ═════════════ -->
+<template data-tab="open" data-label="Register open"
+  data-cap="<b>Open.</b> One line above the cart: green dot, register, person, since, float. Every sale rung from here carries <code>register_session_id</code>. Past midnight the duration becomes a weekday (<em>since Thu 08:12</em>) — a session may stay open as long as the shop wants, and there is no nag.">
+  <div class="regBar">
+    <span class="dot"></span>
+    <span class="who"><span class="regName">Register 1</span><span class="sep">·</span>
+      <span class="nm">Amina H.</span>
+      <span class="meta">open 3h 12m · float $118.50 · 14 sales</span></span>
+    <span class="acts"><span class="miniBtn">Handover</span><span class="miniBtn">Close register</span></span>
+  </div>
+  <div class="panes">
+    <div class="browse">
+      <div class="search"><span>Search or scan a product</span><span class="scanBtn">⛶</span></div>
+      <div class="cats"><span class="on">All</span><span>Moisturisers</span><span>Cleansers</span><span>Oils</span><span>Serums</span></div>
+      <div class="grid">
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Shea Butter Cream 200ml</div>
+          <div class="ft"><span class="pr">$14.00</span><span class="st">42 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">NUURA</div>
+          <div class="nm">Rose Water Toner 250ml</div>
+          <div class="ft"><span class="pr">$9.50</span><span class="st">8 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">BARWAAQO</div>
+          <div class="nm">Black Seed Oil 100ml</div>
+          <div class="ft"><span class="pr">$18.00</span><span class="st">27 in stock</span></div></div>
+        <div class="tile"><div class="thumb"><div class="drop"></div></div><div class="brand">HODAN</div>
+          <div class="nm">Turmeric Soap Bar</div>
+          <div class="ft"><span class="pr">$4.00</span><span class="st">96 in stock</span></div></div>
+      </div>
+    </div>
+    <div class="cart">
+      <div class="cardx">
+        <div class="cartHead"><b>Current sale</b><span class="miniBtn">⛶ Scan</span></div>
+        <div class="line"><div class="lineTop"><span class="lineName">Vitamin C Serum 30ml</span>
+          <span class="lineAmt">$26.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>1</b><i>+</i></span><span class="discLink">+ Add discount</span></div></div>
+        <div class="line"><div class="lineTop"><span class="lineName">Turmeric Soap Bar</span>
+          <span class="lineAmt">$12.00</span></div>
+          <div class="lineBot"><span class="qty"><i>−</i><b>3</b><i>+</i></span><span class="discLink">+ Add discount</span></div></div>
+        <div class="sum"><div class="sumRow"><span class="k">Subtotal</span><span class="v">$38.00</span></div>
+          <div class="sumRow"><span class="k">Tax (5%)</span><span class="v">$1.90</span></div></div>
+        <div class="totalRow"><span class="k">Total</span><span class="v">$39.90</span></div>
+        <div class="payBtn">Charge $39.90</div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ 6 · CLOSE, COUNT FIRST ═════════════ -->
+<template data-tab="count" data-label="Close · count first"
+  data-cap="<b>The expected figure is not on this screen.</b> Sales count and window are here because they help you know which session you are closing; the cash total is not, because it is the answer. The drawer is entered as amount + currency lines, the same shape as the opening count, and the rate is captured again here.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Close Register 1</b><span class="miniBtn">Cancel</span></div>
+    <p class="sheetSub">Amina H. · opened 08:12, 6h 48m ago · 31 sales</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Count the drawer</div>
+      <div class="seg"><span class="on">One figure</span><span>Note by note</span></div>
+
+      <div class="cashLine"><span class="cashAmt ghost">0.00</span>
+        <span class="curPick">$ USD <s>▾</s></span><span class="lineX">×</span></div>
+      <div class="cashLine"><span class="cashAmt ghost">0</span>
+        <span class="curPick">Sl Sh <s>▾</s></span><span class="lineX">×</span></div>
+      <div><span class="addLine">+ Add another currency</span></div>
+
+      <div class="rateNote">Rate now · <b>1 USD = 118 Sl Sh</b> · recorded against this close.
+        At open it was 115.</div>
+
+      <p class="hint">Count what is physically in the drawer, each currency on its own line,
+      including the float you started with. What the register expected is on the next step —
+      counting against a number already on screen is not a count.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Not in the drawer</div>
+      <div class="chips"><span class="chip">ZAAD $412.00</span><span class="chip">e-Dahab $96.50</span>
+        <span class="chip">31 sales</span></div>
+      <p class="hint">Taken on this session but never in your hand. Nothing here belongs on either
+      line above.</p>
+    </div>
+
+    <div class="payBtn">Review the count</div>
+  </div>
+</template>
+
+<!-- ═════════════ 7 · NOTE BY NOTE ═════════════ -->
+<template data-tab="denoms" data-label="Close · note by note"
+  data-cap="<b>The same lines, expanded into a note-by-note tally.</b> You count what you are already holding — a stack of twenties — and type how many; the running total fills that currency&rsquo;s line. Each currency has its own note list, and <b>+ Add a note</b> handles what the list does not know about: the 10,000 and 100 shilling rows here were added in the drawer, and can be remembered for next time. Every currency also gets a plain-amount <em>Other</em> row so the tally can always reconcile.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Close Register 1</b><span class="miniBtn">Cancel</span></div>
+    <p class="sheetSub">Amina H. · opened 08:12, 6h 48m ago · 31 sales</p>
+
+    <div class="sBlock">
+      <div class="curHead"><b>US Dollars</b><i>float $118.50</i><span class="tag">Base</span></div>
+      <div class="seg"><span>One figure</span><span class="on">Note by note</span></div>
+
+      <div class="tally">
+        <div class="dRow"><span class="dNote">$100</span><span class="dTimes">×</span>
+          <span class="dQty">2</span><span class="dAmt">$200.00</span></div>
+        <div class="dRow"><span class="dNote">$50</span><span class="dTimes">×</span>
+          <span class="dQty">3</span><span class="dAmt">$150.00</span></div>
+        <div class="dRow"><span class="dNote">$20</span><span class="dTimes">×</span>
+          <span class="dQty">4</span><span class="dAmt">$80.00</span></div>
+        <div class="dRow"><span class="dNote">$10</span><span class="dTimes">×</span>
+          <span class="dQty">1</span><span class="dAmt">$10.00</span></div>
+        <div class="dRow"><span class="dNote">$5</span><span class="dTimes">×</span>
+          <span class="dQty">1</span><span class="dAmt">$5.00</span></div>
+        <div class="dRow"><span class="dNote">$1</span><span class="dTimes">×</span>
+          <span class="dQty zero">0</span><span class="dAmt zero">$0.00</span></div>
+        <div class="dRow"><span class="dNote other">Other</span><span class="dTimes">=</span>
+          <span class="dQty">3.50</span><span class="dAmt">$3.50</span></div>
+      </div>
+      <div><span class="addNote">+ Add a note</span></div>
+      <div class="dTotal"><span class="k">Counted<em>11 notes plus loose change</em></span><span class="v">$448.50</span></div>
+    </div>
+
+    <div class="sBlock">
+      <div class="curHead"><b>Somaliland Shillings</b><i>float 40,000 Sl Sh</i><span class="tag">Sl Sh</span></div>
+      <div class="seg"><span>One figure</span><span class="on">Note by note</span></div>
+
+      <div class="tally">
+        <div class="dRow"><span class="dNote added">10,000</span><span class="dTimes">×</span>
+          <span class="dQty">25</span><span class="dTag">Added</span><span class="dAmt">250,000</span></div>
+        <div class="dRow"><span class="dNote">5,000</span><span class="dTimes">×</span>
+          <span class="dQty">18</span><span class="dAmt">90,000</span></div>
+        <div class="dRow"><span class="dNote">1,000</span><span class="dTimes">×</span>
+          <span class="dQty">12</span><span class="dAmt">12,000</span></div>
+        <div class="dRow"><span class="dNote">500</span><span class="dTimes">×</span>
+          <span class="dQty">4</span><span class="dAmt">2,000</span></div>
+        <div class="dRow"><span class="dNote added">100</span><span class="dTimes">×</span>
+          <span class="dQty">8</span><span class="dTag">Added</span><span class="dAmt">800</span></div>
+        <div class="dRow"><span class="dNote other">Other</span><span class="dTimes">=</span>
+          <span class="dQty">200</span><span class="dAmt">200</span></div>
+      </div>
+      <div><span class="addNote">+ Add a note</span></div>
+      <div class="remember"><span class="box">✓</span>Remember 10,000 and 100 for next time</div>
+      <div class="dTotal"><span class="k">Counted<em>67 notes plus loose change</em></span><span class="v">355,000</span></div>
+      <p class="hint">The seeded list is a starting point, not the shop's whole currency. Notes it
+      does not know about — a 10,000 or a 100 — are added here, in the drawer, at the moment
+      someone is holding one. <em>Other</em> takes a plain whole amount for anything left.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="rateNote">Rate now · <b>1 USD = 118 Sl Sh</b> · recorded against this close.
+        At open it was 115.</div>
+      <div class="grand"><span class="k">Counted, whole drawer<em>$448.50 + 355,000 Sl Sh at 118</em></span>
+        <span class="v">$3,456.97</span></div>
+      <p class="hint">Each currency is still compared against its own expected figure on the next
+      step. This total is for the person holding the money, not for the variance arithmetic.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Not in the drawer</div>
+      <div class="chips"><span class="chip">ZAAD $412.00</span><span class="chip">e-Dahab $96.50</span>
+        <span class="chip">31 sales</span></div>
+    </div>
+
+    <div class="payBtn">Review the count</div>
+  </div>
+</template>
+
+<!-- ═════════════ 8 · REVEAL ═════════════ -->
+<template data-tab="reveal" data-label="Close · variance revealed"
+  data-cap="<b>Now the arithmetic, and only now.</b> Each currency is differenced against its own expected figure — no rate involved — and only those variances are converted and summed into the headline. The rate movement between open and close is reported separately as exchange exposure, because it is real money but nobody is short because of it.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Close Register 1</b><span class="miniBtn">Back</span></div>
+    <p class="sheetSub">Amina H. · 08:12 → 15:00 · 31 sales</p>
+
+    <div class="sBlock">
+      <div class="var short">
+        <span class="glyph">↓</span>
+        <span><span class="n">−$5.00</span><span class="w">Short — across the whole drawer, at today's rate</span></span>
+      </div>
+      <div class="varPair" style="margin-top:8px">
+        <div class="var short sm"><span class="glyph">↓</span>
+          <span><span class="n">−$5.00</span><span class="w">US Dollars</span></span></div>
+        <div class="var flat sm"><span class="glyph">✓</span>
+          <span><span class="n">0 Sl Sh</span><span class="w">Somaliland Shillings</span></span></div>
+      </div>
+      <p class="hint">Each currency is compared against its own expected figure first — that
+      arithmetic never touches a rate. Only the resulting variances are converted and added, and a
+      variance is small enough that the rate used barely moves it. Doing it the other way round —
+      converting the whole drawer and differencing that — is what would invent a variance.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">US Dollars — how that is worked out</div>
+      <div class="cRow"><span class="k">Opening float</span><span class="v">$118.50</span></div>
+      <div class="cRow"><span class="k">Cash sales settled in dollars <em>14 sales</em></span><span class="v">$347.00</span></div>
+      <div class="cRow"><span class="k">Cash refunds <em>1 refund</em></span><span class="v">−$12.00</span></div>
+      <div class="cRow rule strong"><span class="k">Expected in the drawer</span><span class="v">$453.50</span></div>
+      <div class="cRow strong"><span class="k">You counted <em>2×$100 · 3×$50 · 4×$20 · 1×$10 · 1×$5 · $3.50 coins</em></span>
+        <span class="v">$448.50</span></div>
+      <p class="hint">Dollar cash lines only. A sale settled in shillings is counted below, not
+      here, even though the sale itself was priced in dollars.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Somaliland Shillings — how that is worked out</div>
+      <div class="cRow"><span class="k">Opening float</span><span class="v">40,000</span></div>
+      <div class="cRow"><span class="k">Taken in shillings <em>4 sales</em></span><span class="v">380,000</span></div>
+      <div class="cRow"><span class="k">Change given in shillings</span><span class="v">−65,000</span></div>
+      <div class="cRow rule strong"><span class="k">Expected in the drawer</span><span class="v">355,000</span></div>
+      <div class="cRow strong"><span class="k">You counted <em>25×10,000 · 18×5,000 · 12×1,000 · 4×500 · 8×100 · 200 other</em></span>
+        <span class="v">355,000</span></div>
+      <p class="hint">Handed over minus change handed back, both in shillings as recorded on the
+      payment line — never the dollar equivalent. The note breakdown is kept with the session,
+      because "one $5 note fewer than the last count" is the sentence that solves a $5 variance.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="fx">
+        <b>The rate moved: 115 → 118 Sl Sh to the dollar</b>
+        <p>Your 355,000 Sl Sh was worth $3,086.96 when you opened and is worth $3,008.47 now —
+        <strong>$78.48 less</strong>, with every note still in the drawer. That is the shop's
+        exchange exposure for the day, not a cash discrepancy, so it is reported here and kept out
+        of the variance above. Nobody is short $78.</p>
+      </div>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">What happened <span class="req">Required</span></div>
+      <div class="textarea">e.g. gave $5 change from the wrong note at about 2pm</div>
+      <p class="hint">Required because the variance is not zero. A gap with no explanation cannot be
+      investigated a week later, and this is the number that decides whether a conversation happens.</p>
+    </div>
+
+    <div class="payBtn sub">Close Register 1<em>Recorded against Amina H. · −$5.00 short</em></div>
+  </div>
+</template>
+
+<!-- ═════════════ 9 · MOBILE REGISTER ═════════════ -->
+<template data-tab="mobile" data-label="Mobile register"
+  data-cap="<b>A phone is a register too, and it still has a durable id.</b> Auto-provisioned the first time someone opens a session with no counter free — named after them, tied to the location they are selling at, and reused every time after. What changes is not the data model, it is how much of the sheet applies: a seller taking only ZAAD has no drawer, so there is nothing to count and the close is one tap.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Close Amina H. — phone</b><span class="miniBtn">Cancel</span></div>
+    <p class="sheetSub">Opened 09:40, 5h 20m ago · 22 sales · Airport Road</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Count the drawer</div>
+      <div class="nothing">
+        <b>Nothing to count</b>
+        <p>This session took no cash and opened with no float. Every sale settled through ZAAD or
+        e-Dahab, which never passed through anyone's hands.</p>
+      </div>
+      <p class="hint">The count asks only for currencies this session actually saw — a float it was
+      given, or cash it took. For a phone seller that is usually none, and a close sheet that
+      demanded a $0.00 confirmation anyway would train people to type zero without reading.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">What this session took</div>
+      <div class="chips"><span class="chip">ZAAD $604.00</span><span class="chip">e-Dahab $118.00</span>
+        <span class="chip">22 sales</span></div>
+      <p class="hint">Recorded against this register like any other, so it appears in the same
+      session history and the same per-register comparison as the counters do.</p>
+    </div>
+
+    <div class="payBtn sub">Close register<em>Amina H. · nothing to reconcile</em></div>
+  </div>
+</template>
+
+<!-- ═════════════ 10 · HANDOVER ═════════════ -->
+<template data-tab="handover" data-label="Handover"
+  data-cap="<b>One pile of money, counted once, with two people looking at it.</b> The count closes Amina's session and becomes Faduma's opening float in the same action. Reassigning an open session in place would leave one count spanning two people, so neither could be held to it — the count <em>is</em> the boundary.">
+  <div class="sheetWrap">
+    <div class="sheetHead"><b>Hand over Register 1</b><span class="miniBtn">Cancel</span></div>
+    <p class="sheetSub">Count each currency once. It closes one session and opens the next.</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Going off</div>
+      <div class="person"><span class="av">AH</span>
+        <span class="body"><span class="p1">Amina H.</span>
+          <span class="p2">08:12 → now · 31 sales · float $118.50 · 40,000 Sl Sh</span></span></div>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Coming on</div>
+      <div class="person"><span class="av" style="background:var(--d-soft);color:var(--d-mut)">FA</span>
+        <span class="body"><span class="p1">Faduma Ali</span>
+          <span class="p2">Cashier · Airport Road</span></span>
+        <span class="miniBtn">Change</span></div>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Count the drawer</div>
+      <div class="money big"><span class="cur">$</span><span class="amt ghost">0.00</span><span class="caret"></span></div>
+      <p class="hint">Each counted figure is Amina&rsquo;s closing count <em>and</em> Faduma&rsquo;s opening float, per currency. The variances against Amina&rsquo;s session are shown on the next step, before anything is signed off.</p>
+    </div>
+
+    <div class="payBtn">Review the count</div>
+  </div>
+</template>
+
+<!-- ═════════════ 11 · SETTINGS ═════════════ -->
+<template data-tab="settings" data-label="Settings · Registers"
+  data-cap="<b>Settings → Sales → Registers</b>, beside Cashiers and Store locations. Drawn in the grayscale Settings palette on purpose — Settings is not a bento screen, and this panel should look like the Locations panel it copies, not like the POS. A register with sessions is deactivated, never deleted: <code>on delete restrict</code>, because deleting a counter must not erase its money history.">
+  <div class="setWrap">
+    <div class="setH">Registers</div>
+    <p class="setSub">A register is one physical counter. Sales and cash counts belong to the register they
+    were rung on, so each one lives at a store.</p>
+
+    <div class="setSec">Airport Road · 3 registers</div>
+    <div class="setRow"><span class="body"><span class="l">Register 1 — front counter</span>
+        <span class="d">Amina H. on it since 08:12 · 31 sales</span></span>
+      <span class="setPill live">Open</span><span class="setBtn">Edit</span></div>
+    <div class="setRow"><span class="body"><span class="l">Register 2 — pharmacy side</span>
+        <span class="d">Closed yesterday 21:04 · counted $80.00</span></span>
+      <span class="setPill">Closed</span><span class="setBtn">Edit</span></div>
+
+    <div class="setRow"><span class="body"><span class="l">Amina H. — phone</span>
+        <span class="d">Mobile · auto-created 12 July · 34 sessions · no drawer</span></span>
+      <span class="setPill">Closed</span><span class="setBtn">Edit</span></div>
+
+    <div class="setSec">Hargeisa Central · 1 register</div>
+    <div class="setRow"><span class="body"><span class="l">Main counter</span>
+        <span class="d">Closed 2 August · counted $210.00</span></span>
+      <span class="setPill">Closed</span><span class="setBtn">Edit</span></div>
+    <div class="setRow"><span class="body"><span class="l">Kiosk (retired)</span>
+        <span class="d">Deactivated · 14 past sessions kept</span></span>
+      <span class="setPill">Inactive</span><span class="setBtn">Edit</span></div>
+
+    <div class="setSec">Rules</div>
+    <div class="setRow"><span class="body"><span class="l">Require an open register to sell</span>
+        <span class="d">Off. POS works without one; sales just are not tied to a register.</span></span>
+      <span class="setBtn">Off</span></div>
+    <div class="setRow"><span class="body"><span class="l">Notes in the drawer</span>
+        <span class="d">USD $100 · $50 · $20 · $10 · $5 · $1 &nbsp;·&nbsp; SLSH 10,000 · 5,000 · 1,000 · 500 · 100 &nbsp;·&nbsp; a cashier can add one mid-count.</span></span>
+      <span class="setBtn">Edit</span></div>
+    <div class="setRow"><span class="body"><span class="l">Ask for the exchange rate at open and close</span>
+        <span class="d">On. Defaults from Settings → Currencies; the person counting can correct it.</span></span>
+      <span class="setBtn">On</span></div>
+
+    <div class="setRow" style="border:none;padding-top:16px">
+      <span class="setBtn dark">New register</span></div>
+  </div>
+</template>
+
+<!-- ═════════════ 12 · ACCOUNTING ═════════════ -->
+<template data-tab="history" data-label="Accounting · sessions"
+  data-cap="<b>Accounting → Cash &amp; Budgets.</b> The tab that already owns &ldquo;where the shop's money physically is&rdquo; — <code>cash_accounts</code> lives here, and its own migration comment already asks &ldquo;whose float, which drawer of the two&rdquo;. This is the investigation surface, so it is complete and boring: every session, in order, with the variance frozen as it was signed off.">
+  <div class="acctPage">
+    <div class="acctHead">
+      <div><span class="eb">Accounting</span><b>Cash &amp; Budgets</b></div>
+      <span class="miniBtn">This month ▾</span>
+    </div>
+    <div class="acctTabs">
+      <span>Overview</span><span>Transactions</span><span>Expenses</span><span>Bills</span>
+      <span class="on">Cash &amp; Budgets</span><span>Payroll</span><span>Reports</span>
+    </div>
+
+    <div class="cardx" style="margin-bottom:12px">
+      <div class="cartHead"><b>Cash on hand</b><span class="miniBtn">Add account</span></div>
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Airport Road drawer</span>
+        <span class="sesMeta">Counted 7 Aug 15:00</span></span>
+        <span class="sesVar flat">$448.50</span></div>
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Dahabshiil current</span>
+        <span class="sesMeta">Bank · counted 1 Aug</span></span>
+        <span class="sesVar flat">$12,400.00</span></div>
+    </div>
+
+    <div class="cardx">
+      <div class="cartHead"><b>Register sessions</b><span class="miniBtn">All registers ▾</span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Amina H.</span>
+          <span class="sesMeta">Today 08:12 → 15:00 · 31 sales · counted $448.50 + 355,000 Sl Sh</span></span>
+        <span class="sesVar short">−$5.00<em>Short</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Faduma Ali</span>
+          <span class="sesMeta">Today 15:00 → open · 12 sales · float $448.50 + 355,000 Sl Sh</span></span>
+        <span class="sesVar open">Open<em>3h 04m</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Amina H. — mobile</span>
+          <span class="sesMeta">Today 09:40 → 15:00 · 22 sales · no drawer</span></span>
+        <span class="sesVar flat">—<em>Nothing to count</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 2 · Sagal H.</span>
+          <span class="sesMeta">Yesterday 08:00 → 21:04 · 44 sales · counted $80.00</span></span>
+        <span class="sesVar flat">$0.00<em>Balanced</em></span></div>
+
+      <div class="sesRow"><span class="sesBody"><span class="sesTitle">Register 1 · Amina H.</span>
+          <span class="sesMeta">Yesterday 08:10 → 20:58 · 38 sales · counted $118.50</span></span>
+        <span class="sesVar over">+$2.00<em>Over</em></span></div>
+
+      <div style="margin-top:12px"><span class="miniBtn">View all 18 sessions →</span></div>
+    </div>
+  </div>
+</template>
+
+<!-- ═════════════ 13 · SESSION DETAIL ═════════════ -->
+<template data-tab="detail" data-label="Session detail"
+  data-cap="<b>Tapping any session row opens this — scoped to the REGISTER'S RUN, not one person's turn.</b> A handover closes one session and opens another, so a till worked by two people is two sessions; totals for the whole run go at the top, then the breakdown by who was on it, then every transaction in the order it happened with the handover marked in place.">
+  <div class="sheetWrap">
+    <div class="dlHead">
+      <div>
+        <b>Register 1</b>
+        <p class="dlSub">Today · 2 people · since 08:12 · <span class="dlLive"><i></i>Open 9h 52m</span></p>
+      </div>
+      <span class="miniBtn">Close</span>
+    </div>
+
+    <div class="dlStrip">
+      <div class="dlTile"><div class="k">Taken</div><div class="v">$1,842.50</div>
+        <div class="h">53 sales · whole run</div></div>
+      <div class="dlTile"><div class="k">In the drawer</div><div class="v">$612.00</div>
+        <div class="h">right now</div></div>
+      <div class="dlTile"><div class="k">Shillings</div><div class="v">4,115,000</div>
+        <div class="h">right now</div></div>
+      <div class="dlTile"><div class="k">Refunded</div><div class="v">−$12.00</div>
+        <div class="h">1 refund, in cash</div></div>
+    </div>
+    <p class="hint" style="margin:0 0 8px">Everything above spans the handover. Each person&rsquo;s own figures — and
+    their own variance — are below, because a drawer count belongs to whoever signed it.</p>
+
+    <div class="sBlock">
+      <div class="sLabel">Who has been on it</div>
+
+      <div class="segRow">
+        <span class="segAv">AH</span>
+        <span class="segBody"><span class="segName">Amina H.</span>
+          <span class="segWhen">08:12 → 15:00 · 6h 48m · float $118.50</span></span>
+        <span class="segTake">$1,193.50<em class="short">−$5.00 short</em></span>
+      </div>
+
+      <div class="hoMark">Handed over at 15:00 · counted $448.50 + 355,000 Sl Sh, which became the next float</div>
+
+      <div class="segRow">
+        <span class="segAv" style="background:var(--d-soft);color:var(--d-mut)">FA</span>
+        <span class="segBody"><span class="segName">Faduma Ali</span>
+          <span class="segWhen">15:00 → now · 3h 04m · float $448.50</span></span>
+        <span class="segTake">$649.00<em class="open">Still running</em></span>
+      </div>
+
+      <p class="hint">Two sessions, not one reassigned — the count between them is the money boundary, and it is what
+      lets each person be held to their own figure. A close and a fresh open half an hour later is <em>not</em> shown
+      as a handover, because it was not one: the drawer was counted, banked and started again.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">How it was paid <span style="text-transform:none;letter-spacing:0;font-weight:600;color:var(--d-mut2)">— whole run</span></div>
+      <div class="mixRow"><span class="mixName">ZAAD</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:71%;background:var(--c1)"></span></span>
+        <span class="mixCount">16 sales</span><span class="mixAmt">$688.00</span></div>
+      <div class="mixRow"><span class="mixName">Cash</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:62%;background:var(--c2)"></span></span>
+        <span class="mixCount">28 sales</span><span class="mixAmt">$601.00</span></div>
+      <div class="mixRow"><span class="mixName">Cash · Sl Sh</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:38%;background:var(--c4)"></span></span>
+        <span class="mixCount">6 sales</span><span class="mixAmt">$372.00</span></div>
+      <div class="mixRow"><span class="mixName">e-Dahab</span>
+        <span class="mixBarWrap"><span class="mixBar" style="width:19%;background:var(--c3)"></span></span>
+        <span class="mixCount">3 sales</span><span class="mixAmt">$181.50</span></div>
+      <p class="hint">Shillings are shown at what they were worth to the sale, because this answers &ldquo;how did this
+      register do&rdquo;. The drawer tiles above are the other question and count the notes themselves — the two are
+      never added together.</p>
+    </div>
+
+    <div class="sBlock">
+      <div class="sLabel">Transactions</div>
+      <div class="txRow"><span class="txTime">17:04</span>
+        <span class="txBody"><span class="txName">2 items</span><span class="txMeta">ZAAD</span></span>
+        <span class="txAmt">$31.00</span></div>
+      <div class="txRow"><span class="txTime">15:12</span>
+        <span class="txBody"><span class="txName">1 item · Khadra Yusuf</span>
+          <span class="txMeta">Cash · $20.00 tendered, $2.80 change</span></span>
+        <span class="txAmt">$17.20</span></div>
+
+      <div class="txHandover"><span class="bar"></span>
+        <span class="lbl">15:00 · Amina H. → Faduma Ali</span><span class="bar"></span></div>
+
+      <div class="txRow"><span class="txTime">14:18</span>
+        <span class="txBody"><span class="txName">Refund · 1 item</span>
+          <span class="txMeta">Cash out of this drawer</span></span>
+        <span class="txAmt refund">−$12.00</span></div>
+      <div class="txRow"><span class="txTime">13:58</span>
+        <span class="txBody"><span class="txName">5 items</span>
+          <span class="txMeta">Cash · Sl Sh 200,000 in, 85,000 change</span></span>
+        <span class="txAmt">$10.00</span></div>
+      <div class="txRow"><span class="txTime">13:40</span>
+        <span class="txBody"><span class="txName">2 items · Sagal H.</span>
+          <span class="txMeta">Split · Cash $10.00 + ZAAD $18.00</span></span>
+        <span class="txAmt">$28.00</span></div>
+
+      <div style="margin-top:11px"><span class="miniBtn">View all 53 in Transactions →</span></div>
+      <p class="hint">One list in the order things happened, with the handover marked where it falls — so &ldquo;who was
+      on the till when this went through&rdquo; is answered by reading, not by cross-referencing two lists.</p>
+    </div>
+
+    <div class="payBtn sub">Close this register<em>Counts the drawer and signs off Faduma&rsquo;s variance</em></div>
+  </div>
+</template>
+
+<!-- ═════════════ 14 · DASHBOARD ═════════════ -->
+<template data-tab="attention" data-label="Dashboard · attention"
+  data-cap="<b>Dashboard, as attention rows — not an eighth card.</b> The list's job is &ldquo;what needs attention right now&rdquo;, ordered by actionability. An out-of-balance close belongs there exactly; a standing card reading <b>$0.00 variance</b> every day is one nobody reads by week two. Note what is NOT here: nothing about a register being left open. That was decided — a session may stay open as long as the shop wants — and a dashboard alert would quietly reverse it.">
+  <div class="cream" style="background:var(--c-pg);border-radius:20px;padding:16px">
+    <div class="acctHead" style="color:var(--c-ink)">
+      <div><span class="eb" style="color:var(--c-mut)">Dashboard</span><b>Needs attention</b></div>
+    </div>
+
+    <div class="attCard">
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-danger)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Register 1 closed $5.00 short</span>
+            <span class="attPill" style="background:#F7E1E2;color:#B23B4E">Review</span>
+          </span>
+          <span class="attDetail">Amina H., today 08:12 – 15:00. Note: &ldquo;gave $5 change from the wrong note at
+          about 2pm&rdquo;.</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-warn)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Register 1 closed $2.00 over</span>
+            <span class="attPill" style="background:#F8EEDA;color:#9A6B0C">Review</span>
+          </span>
+          <span class="attDetail">Amina H., yesterday. Over is amber rather than red: the shop is not out of pocket,
+          but a drawer that does not balance in either direction is still a drawer nobody can vouch for.</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-danger)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Barwaaqo invoice is 6 days late</span>
+            <span class="attPill" style="background:#F7E1E2;color:#B23B4E">Pay</span>
+          </span>
+          <span class="attDetail">$1,240.00 · due 1 August</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+
+      <div class="attRow">
+        <span class="attStripe" style="background:var(--c-warn)"></span>
+        <span class="attBody">
+          <span class="attTitleRow">
+            <span class="attTitle">Sagal H. is waiting on time off</span>
+            <span class="attPill" style="background:#F8EEDA;color:#9A6B0C">Decide</span>
+          </span>
+          <span class="attDetail">12 – 14 August</span>
+        </span>
+        <span class="attChev">→</span>
+      </div>
+    </div>
+
+    <p class="note" style="color:var(--c-mut);margin-top:14px;font-size:12.5px">
+      The two register rows sort in among everything else by how actionable they are, not by area — the list's
+      existing rule. On a day when every drawer balanced, neither appears at all and the dashboard is unchanged.
+    </p>
+  </div>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  const caption = document.getElementById('caption');
+  let active = 'nudge';
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [wide, narrow].forEach((host) => {
+      host.innerHTML = '';
+      host.appendChild(tpl.content.cloneNode(true));
+    });
+    caption.innerHTML = tpl.dataset.cap || '';
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  // The 1280px frame is scaled to fit a narrower window rather than hiding its
+  // right-hand pane behind a scrollbar. Never scaled up.
+  const scroller = document.getElementById('wideScroller');
+  const fitBtn = document.getElementById('fitBtn');
+  let fit = true;
+
+  function applyFit() {
+    if (!fit) {
+      wide.style.transform = '';
+      scroller.style.height = '';
+      scroller.classList.add('raw');
+      return;
+    }
+    scroller.classList.remove('raw');
+    const k = Math.min(1, scroller.clientWidth / 1280);
+    wide.style.transformOrigin = 'top left';
+    wide.style.transform = `scale(${k})`;
+    scroller.style.height = `${Math.ceil(wide.offsetHeight * k)}px`;
+  }
+
+  fitBtn.addEventListener('click', () => {
+    fit = !fit;
+    fitBtn.setAttribute('aria-pressed', String(fit));
+    fitBtn.textContent = fit ? 'Scaled to fit' : 'Actual size (1280px)';
+    applyFit();
+  });
+  addEventListener('resize', applyFit);
+
+  tabs.forEach((t, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.role = 'tab';
+    b.dataset.go = t.dataset.tab;
+    b.innerHTML = `<span class="step">${i + 1}</span>${t.dataset.label}`;
+    b.addEventListener('click', () => { active = t.dataset.tab; render(); applyFit(); });
+    sw.appendChild(b);
+  });
+  render();
+  applyFit();
+</script>

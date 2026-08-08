@@ -1,3 +1,4 @@
+<meta charset="utf-8" />
 <title>Kaiibi Accounting — Bento Everywhere (Option B)</title>
 
 <style>
@@ -85,6 +86,30 @@
   .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
 
   /* ---- bento ---- */
+  /* ---------- real-device comparison ---------- */
+  .ruleBar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 20px;}
+  .ruleBar .lbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--mut);margin-right:2px;}
+  .ruleBar button{font:inherit;font-size:12.5px;font-weight:650;padding:7px 14px;border-radius:999px;
+    cursor:pointer;background:transparent;color:var(--mut);border:1px solid var(--ln);}
+  .ruleBar button[aria-pressed="true"]{background:#2f6bff;border-color:#2f6bff;color:#fff;}
+  .ruleBar button:focus-visible{outline:2px solid #2f6bff;outline-offset:2px;}
+  .dev{margin-bottom:24px;}
+  .devHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;margin-bottom:8px;}
+  .devHead b{font-size:14px;font-weight:800;}
+  .devHead i{font-style:normal;font-size:12px;color:var(--mut);font-variant-numeric:tabular-nums;}
+  .devHead .flag{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;
+    font-variant-numeric:tabular-nums;}
+  .devHead .flag.bad{background:rgba(215,43,62,.12);color:#d72b3e;}
+  .devHead .flag.good{background:rgba(0,131,64,.12);color:#008340;}
+  @media (prefers-color-scheme: dark){
+    .devHead .flag.bad{background:rgba(232,81,95,.18);color:#ff8a95;}
+    .devHead .flag.good{background:rgba(46,184,114,.18);color:#5fd79b;}
+  }
+  .devClip{overflow:hidden;}
+  .devScale{transform-origin:top left;}
+  .frame .cardx.tooTight{outline:2px solid #d72b3e;outline-offset:-2px;}
+
   .grid{display:grid;gap:14px;}
   .grid.wide{grid-template-columns:repeat(12,1fr);}
   .grid.narrow{grid-template-columns:1fr;}
@@ -184,6 +209,21 @@
     <div>
       <div class="frameHead"><b>Phone</b><i>380px · single column</i></div>
       <div class="frame w380" id="fNarrow"></div>
+    </div>
+
+    <div style="margin-top:34px">
+      <div class="frameHead"><b>The real devices</b><i>grid width = window − ~210px sidebar − 36px padding</i></div>
+      <p style="color:var(--mut);font-size:13px;max-width:68ch;margin:6px 0 14px">
+        The tab above at the widths each device actually gives the grid. Today's rule is three
+        fixed breakpoints; the proposal is one floor — a card is never narrower than 240px.
+        Cards outlined in red fall under it.
+      </p>
+      <div class="ruleBar" id="ruleBar">
+        <span class="lbl">Sizing rule</span>
+        <button type="button" data-rule="today" aria-pressed="true">Before · fixed breakpoints</button>
+        <button type="button" data-rule="next" aria-pressed="false">Shipped · minimum card width</button>
+      </div>
+      <div id="devices"></div>
     </div>
   </div>
 
@@ -689,7 +729,108 @@
     });
     sw.querySelectorAll('button').forEach((b) =>
       b.setAttribute('aria-selected', String(b.dataset.go === active)));
+    renderDevices(tpl);
   }
+
+  /* ---------- the real devices, under either sizing rule ----------
+     Same tab template as the two frames above, so the content is the actual
+     screen and only the SPANS differ. */
+  const MIN_CARD = 240;
+  const DEVICES = [
+    { name: 'iPhone 16 Pro',           note: '402px window',  grid: 366  },
+    { name: 'iPad mini · portrait',    note: '744px window',  grid: 502  },
+    { name: 'iPad Pro 13" · portrait', note: '1024px window', grid: 778  },
+    { name: 'iPad mini · landscape',   note: '1133px window', grid: 887  },
+    { name: 'iPad Pro 13" · landscape',note: '1366px window', grid: 1120 },
+    { name: 'Desktop web',             note: '2391px window', grid: 2149 }
+  ];
+  const clamp12 = (n) => Math.max(1, Math.min(12, n));
+
+  function spanToday(w12, gridW) {
+    const cols = gridW >= 1050 ? 12 : (gridW >= 700 ? 6 : 1);
+    const c = clamp12(w12);
+    if (cols === 1) return 12;
+    if (cols === 6) return Math.min(6, Math.max(2, Math.ceil(c / 2))) * 2;
+    return c;
+  }
+  function spanProposed(w12, gridW) {
+    const c = clamp12(w12), base = c / 12;
+    const steps = [base, 1 / 3, 1 / 2, 1]
+      .filter((f) => f >= base - 1e-9).sort((a, b) => a - b);
+    for (const f of steps) if (f * gridW >= MIN_CARD) return Math.round(f * 12);
+    return 12;
+  }
+
+  const deviceHost = document.getElementById('devices');
+  const ruleBar = document.getElementById('ruleBar');
+  let deviceRule = 'today';
+  let deviceBoxes = [];
+
+  function fitDevices() {
+    deviceBoxes.forEach(({ clip, scale, frame }) => {
+      const k = Math.min(1, clip.clientWidth / frame.offsetWidth);
+      scale.style.transform = 'scale(' + k + ')';
+      clip.style.height = (scale.scrollHeight * k) + 'px';
+    });
+  }
+
+  function renderDevices(tpl) {
+    const spanFn = deviceRule === 'next' ? spanProposed : spanToday;
+    deviceHost.textContent = '';
+    deviceBoxes = DEVICES.map((dev) => {
+      const cards = [...tpl.content.querySelectorAll('.cardx')];
+      let narrowest = Infinity;
+      cards.forEach((c) => {
+        narrowest = Math.min(narrowest, (spanFn(+c.dataset.w, dev.grid) / 12) * dev.grid);
+      });
+      narrowest = Math.round(narrowest);
+
+      const wrap = document.createElement('div');
+      wrap.className = 'dev';
+      const head = document.createElement('div');
+      head.className = 'devHead';
+      head.innerHTML = `<b>${dev.name}</b><i>${dev.note} → ${dev.grid}px grid</i>` +
+        `<span class="flag ${narrowest < MIN_CARD ? 'bad' : 'good'}">narrowest card ${narrowest}px</span>`;
+      wrap.appendChild(head);
+
+      const clip = document.createElement('div');
+      clip.className = 'devClip';
+      const scale = document.createElement('div');
+      scale.className = 'devScale';
+      const frame = document.createElement('div');
+      // The width class drives the card internals (`.w380 .kpis`, `.w380
+      // table`), so a phone frame without it renders desktop-tuned cards at
+      // 366px — prettier than the app, and therefore useless.
+      frame.className = 'frame ' + (dev.grid < 520 ? 'w380' : 'w1280');
+      frame.style.width = (dev.grid + 36) + 'px';
+      frame.innerHTML = shell(tpl, dev.grid < 520);
+
+      const grid = document.createElement('div');
+      grid.className = 'grid wide';
+      cards.forEach((card) => {
+        const el = card.cloneNode(true);
+        const s = spanFn(+el.dataset.w, dev.grid);
+        el.style.gridColumn = 'span ' + s;
+        if ((s / 12) * dev.grid < MIN_CARD) el.classList.add('tooTight');
+        grid.appendChild(el);
+      });
+      frame.appendChild(grid);
+
+      scale.appendChild(frame);
+      clip.appendChild(scale);
+      wrap.appendChild(clip);
+      deviceHost.appendChild(wrap);
+      return { clip, scale, frame };
+    });
+    ruleBar.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-pressed', String(b.dataset.rule === deviceRule)));
+    fitDevices();
+  }
+
+  ruleBar.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => { deviceRule = b.dataset.rule; render(); });
+  });
+  window.addEventListener('resize', fitDevices);
 
   tabs.forEach((t) => {
     const b = document.createElement('button');

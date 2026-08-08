@@ -10,6 +10,7 @@ import { CatalogPanel, InventoryAlertsPanel } from '@/components/settings/panels
 // no send infrastructure exists yet (see docs/backlog/2026-08-01-notification-delivery.md).
 // import { NotificationsPanel } from '@/components/settings/panels/notifications-panel';
 import { LocationsPanel } from '@/components/settings/panels/locations-panel';
+import { RegistersPanel } from '@/components/settings/panels/registers-panel';
 import { ProfilePanel } from '@/components/settings/panels/profile-panel';
 import { ReceiptPanel } from '@/components/settings/panels/receipt-panel';
 import { CashiersPanel, LoyaltyPanel, PaymentsPanel, PromotionsPanel, TaxAndCurrenciesPanel } from '@/components/settings/panels/sales-panel';
@@ -30,8 +31,9 @@ import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
 import { listLocations } from '@/lib/locations';
+import { listRegisters, registerSessionCounts } from '@/lib/registers';
 import { listVendors } from '@/lib/vendors';
-import type { Brand, Category, Currency, Product, Promotion, Role, ShopLocation, Vendor } from '@/types/models';
+import type { Brand, Category, Currency, Product, Promotion, Register, Role, ShopLocation, Vendor } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 
 export default function SettingsScreen() {
@@ -57,6 +59,8 @@ export default function SettingsScreen() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [allLocations, setAllLocations] = useState<ShopLocation[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
+  const [registers, setRegisters] = useState<Register[]>([]);
+  const [registerSessions, setRegisterSessions] = useState<Map<string, number>>(new Map());
   const [roleUsage, setRoleUsage] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +73,7 @@ export default function SettingsScreen() {
     // Not reset to true on subsequent calls -- reload() also runs after every
     // add/rename/delete/color-change, and flipping loading back to true would
     // unmount panels (and close any open modal) each time.
-    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult, locationsResult] =
+    const [brandsResult, categoriesResult, tagsResult, cashiersResult, productsResult, promotionsResult, currenciesResult, vendorsResult, locationsResult, registersResult, registerSessionsResult] =
       await Promise.allSettled([
         listBrands(shop.id),
         listCategories(shop.id),
@@ -80,6 +84,8 @@ export default function SettingsScreen() {
         listCurrencies(shop.id),
         listVendors(shop.id),
         listLocations(shop.id),
+        listRegisters(shop.id),
+        registerSessionCounts(shop.id),
       ]);
     if (brandsResult.status === 'fulfilled') setBrandRows(brandsResult.value);
     if (categoriesResult.status === 'fulfilled') setCategoryRows(categoriesResult.value);
@@ -93,6 +99,8 @@ export default function SettingsScreen() {
     if (currenciesResult.status === 'fulfilled') setCurrencies(currenciesResult.value);
     if (vendorsResult.status === 'fulfilled') setVendors(vendorsResult.value);
     if (locationsResult.status === 'fulfilled') setAllLocations(locationsResult.value);
+    if (registersResult.status === 'fulfilled') setRegisters(registersResult.value);
+    if (registerSessionsResult.status === 'fulfilled') setRegisterSessions(registerSessionsResult.value);
 
     const results: PromiseSettledResult<unknown>[] = [
       brandsResult,
@@ -284,6 +292,20 @@ export default function SettingsScreen() {
                 await reload();
               })
             }
+          />
+        );
+      case 'registers':
+        return loading ? (
+          <Text style={styles.hint}>Loading…</Text>
+        ) : (
+          <RegistersPanel
+            shop={shop}
+            registers={registers}
+            locations={allLocations}
+            sessionCounts={registerSessions}
+            currencies={currencies}
+            onChange={reload}
+            onShopSaved={refreshShop}
           />
         );
       case 'security':

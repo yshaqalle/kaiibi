@@ -1,3 +1,4 @@
+<meta charset="utf-8" />
 <title>Kaiibi Dashboard — Redesign Mockup</title>
 
 <style>
@@ -73,6 +74,32 @@
   .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
     color:var(--d-ink);font-size:14px;line-height:1.5;}
   .frame.w1280{width:1280px;} .frame.w900{width:900px;} .frame.w380{width:380px;}
+
+  /* ---------- real-device comparison ---------- */
+  .ruleBar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:14px 0 22px;}
+  .ruleBar .lbl{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--mut);margin-right:2px;}
+  .ruleBar button{font:inherit;font-size:12.5px;font-weight:650;padding:7px 14px;border-radius:999px;
+    cursor:pointer;background:transparent;color:var(--mut);border:1px solid var(--ln);}
+  .ruleBar button[aria-pressed="true"]{background:#2f6bff;border-color:#2f6bff;color:#fff;}
+  .ruleBar button:focus-visible{outline:2px solid #2f6bff;outline-offset:2px;}
+  .dev{margin-bottom:26px;}
+  .devHead{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 12px;margin-bottom:8px;}
+  .devHead b{font-size:14.5px;font-weight:800;}
+  .devHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-variant-numeric:tabular-nums;}
+  .devHead .flag{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;
+    font-variant-numeric:tabular-nums;}
+  .devHead .flag.bad{background:rgba(215,43,62,.12);color:#d72b3e;}
+  .devHead .flag.good{background:rgba(0,131,64,.12);color:#008340;}
+  @media (prefers-color-scheme: dark){
+    .devHead .flag.bad{background:rgba(232,81,95,.18);color:#ff8a95;}
+    .devHead .flag.good{background:rgba(46,184,114,.18);color:#5fd79b;}
+  }
+  .devClip{overflow:hidden;}
+  .devScale{transform-origin:top left;}
+  /* a card that cannot hold its own words at this width */
+  .frame .cardx.tooTight{outline:2px solid #d72b3e;outline-offset:-2px;}
 
   /* ---------- app chrome inside the frame ---------- */
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -589,6 +616,22 @@
     <h2>Narrow — single column</h2>
     <p class="h2sub">&lt; 820px. Phone, native and mobile web, under the bottom tab bar.</p>
     <div class="scroller"><div class="frame w380" data-bento="narrow"></div></div>
+  </section>
+
+  <section>
+    <h2>The real devices — and the rule that decides them</h2>
+    <p class="h2sub">The same cards above, at the grid widths the app actually gets on each
+    device: the window minus the ~210px admin sidebar and 36px of page padding. Today's rule
+    is three fixed breakpoints; the proposal is one floor — <b>a card is never narrower than
+    240px</b>. Cards outlined in red fall under it, which is where words break mid-line.</p>
+
+    <div class="ruleBar" id="ruleBar">
+      <span class="lbl">Sizing rule</span>
+      <button type="button" data-rule="today" aria-pressed="true">Before · fixed breakpoints</button>
+      <button type="button" data-rule="next" aria-pressed="false">Shipped · minimum card width</button>
+    </div>
+
+    <div id="devices"></div>
   </section>
 
   <section>
@@ -2271,5 +2314,153 @@ document.querySelectorAll('[data-bento]').forEach((frame) => {
   frame.appendChild(grid);
 });
 
+/* ---------- the real devices, under either sizing rule ----------
+   Same `#cards` template as the frames above, so the content is the actual
+   dashboard and only the SPANS differ. Widths are the grid's, not the
+   window's: the admin sidebar takes ~210px and the page another 36px, and
+   reading the window instead of the grid is the bug this section exists to
+   show. */
+const MIN_CARD = 240;
+
+const DEVICES = [
+  { name: 'iPhone 16 Pro',           note: '402px window',  grid: 366  },
+  { name: 'iPad mini · portrait',    note: '744px window',  grid: 502  },
+  { name: 'iPad Pro 13" · portrait', note: '1024px window', grid: 778  },
+  { name: 'iPad mini · landscape',   note: '1133px window', grid: 887  },
+  { name: 'iPad Pro 13" · landscape',note: '1366px window', grid: 1120 },
+  { name: 'Desktop web',             note: '2391px window', grid: 2149 }
+];
+
+const clamp12 = (n) => Math.max(1, Math.min(12, n));
+
+/* Today: 12 / 6 / 1 by fixed breakpoint. Returned in TWELFTHS so it drops
+   straight into the 12-column grid the frames already use. */
+function spanToday(w12, gridW) {
+  const cols = gridW >= 1050 ? 12 : (gridW >= 700 ? 6 : 1);
+  const c = clamp12(w12);
+  if (cols === 1) return 12;
+  if (cols === 6) return Math.min(6, Math.max(2, Math.ceil(c / 2))) * 2;
+  return c;
+}
+
+/* Proposed: keep the design's proportion while it clears the floor, else step
+   up to the next fraction that does — a third, a half, full width. */
+function spanProposed(w12, gridW) {
+  const c = clamp12(w12);
+  const base = c / 12;
+  const steps = [base, 1 / 3, 1 / 2, 1]
+    .filter((f) => f >= base - 1e-9)
+    .sort((a, b) => a - b);
+  for (const f of steps) if (f * gridW >= MIN_CARD) return Math.round(f * 12);
+  return 12;
+}
+
+function buildDevice(host, dev, rule) {
+  const spanFn = rule === 'next' ? spanProposed : spanToday;
+  const narrow = dev.grid < 520;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'dev';
+
+  let narrowest = Infinity;
+  [...tpl.content.children].forEach((card) => {
+    if (card.classList.contains('zone')) return;
+    narrowest = Math.min(narrowest, (spanFn(+card.dataset.w, dev.grid) / 12) * dev.grid);
+  });
+  narrowest = Math.round(narrowest);
+
+  const head = document.createElement('div');
+  head.className = 'devHead';
+  head.innerHTML = `<b>${dev.name}</b><i>${dev.note} → ${dev.grid}px grid</i>` +
+    `<span class="flag ${narrowest < MIN_CARD ? 'bad' : 'good'}">narrowest card ${narrowest}px</span>`;
+  wrap.appendChild(head);
+
+  const clip = document.createElement('div');
+  clip.className = 'devClip';
+  const scale = document.createElement('div');
+  scale.className = 'devScale';
+
+  const frame = document.createElement('div');
+  // The width class is not decoration: the card INTERNALS are responsive
+  // through it (`.w380 .kpis`, `.w380 table`, `.w380 .recent`...). Without it
+  // a phone frame renders a six-across KPI strip and a full-width table
+  // inside 366px, which is a prettier lie than the app tells.
+  frame.className = 'frame ' + (dev.grid < 520 ? 'w380' : dev.grid < 1000 ? 'w900' : 'w1280');
+  frame.style.width = (dev.grid + 36) + 'px'; // inline width beats the class
+
+  frame.innerHTML = `
+    <div class="topbar">
+      <div class="tb-l">
+        <div class="logo">HS</div>
+        <div class="brand"><b>Hodan Store</b><span>Dashboard</span></div>
+      </div>
+      <div class="tb-r">
+        <div class="srch"><svg class="ic" width="15" height="15" style="color:#717078"><use href="#i-search"/></svg><span>Search products, people, bills…</span></div>
+        ${narrow ? '' : '<div class="rnd"><svg class="ic" width="16" height="16"><use href="#i-plus"/></svg></div>'}
+        <div class="logo" style="background:#2f6bff">AM</div>
+        ${narrow ? '' : '<div class="who"><b>Abdi M.</b><span>Owner</span></div>'}
+      </div>
+    </div>
+    <div class="greet">
+      <div class="datechip"><b>12</b><span>Thu,<br>September</span></div>
+      <div class="greet-t">
+        <h4>Good morning 👋</h4>
+        <p>Net profit is ${fmt(netProfit())} this period on ${fmt(DATA.revenue)} of revenue.
+        ${DATA.itemsMissingCost} sold items still have no cost recorded.</p>
+      </div>
+      <button class="cta" type="button">Show my tasks
+        <svg class="ic" width="14" height="14" style="stroke:#fff"><use href="#i-arrow"/></svg></button>
+    </div>`;
+
+  const grid = document.createElement('div');
+  grid.className = 'grid wide';
+  [...tpl.content.children].forEach((card) => {
+    const el = card.cloneNode(true);
+    if (!el.classList.contains('zone')) {
+      const s = spanFn(+el.dataset.w, dev.grid);
+      el.style.gridColumn = 'span ' + s;
+      if ((s / 12) * dev.grid < MIN_CARD) el.classList.add('tooTight');
+    }
+    grid.appendChild(el);
+  });
+  frame.appendChild(grid);
+
+  scale.appendChild(frame);
+  clip.appendChild(scale);
+  wrap.appendChild(clip);
+  host.appendChild(wrap);
+
+  return { clip, scale, frame };
+}
+
+const deviceHost = document.getElementById('devices');
+let deviceRule = 'today';
+let deviceBoxes = [];
+
+function fitDevices() {
+  deviceBoxes.forEach(({ clip, scale, frame }) => {
+    const avail = clip.clientWidth;
+    const k = Math.min(1, avail / frame.offsetWidth);
+    scale.style.transform = 'scale(' + k + ')';
+    clip.style.height = (scale.scrollHeight * k) + 'px';
+  });
+}
+
+function renderDevices() {
+  deviceHost.textContent = '';
+  deviceBoxes = DEVICES.map((d) => buildDevice(deviceHost, d, deviceRule));
+  document.querySelectorAll('#ruleBar button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.rule === deviceRule));
+  });
+  renderAll();     // repopulate the js-* hooks inside the fresh clones
+  fitDevices();
+}
+
+document.querySelectorAll('#ruleBar button').forEach((b) => {
+  b.addEventListener('click', () => { deviceRule = b.dataset.rule; renderDevices(); });
+});
+window.addEventListener('resize', fitDevices);
+
 renderAll();
+renderDevices();
 </script>
