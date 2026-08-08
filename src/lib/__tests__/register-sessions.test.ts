@@ -1,6 +1,7 @@
 import {
   BASE_CURRENCY,
   OTHER_DENOMINATION,
+  assembleRun,
   canCloseSession,
   cashMovementsByCurrency,
   combinedVarianceBaseCents,
@@ -16,7 +17,7 @@ import {
   varianceMinor,
   varianceTone,
 } from '@/lib/register-sessions';
-import type { PaymentLine, RegisterSessionCash } from '@/types/models';
+import type { PaymentLine, RegisterSession, RegisterSessionCash } from '@/types/models';
 
 function payment(over: Partial<PaymentLine>): PaymentLine {
   return {
@@ -441,5 +442,81 @@ describe('paymentBreakdown', () => {
 
   it('is empty for a session that took nothing', () => {
     expect(paymentBreakdown([])).toEqual([]);
+  });
+});
+
+
+function session(over: Partial<RegisterSession> & { id: string }): RegisterSession {
+  return {
+    shopId: 'shop',
+    locationId: 'loc',
+    registerId: 'reg-1',
+    shopMemberId: 'member-1',
+    openedBy: 'user-1',
+    openedAt: '2026-08-07T08:00:00Z',
+    closedAt: null,
+    closedBy: null,
+    varianceBaseCents: null,
+    openingNote: null,
+    closingNote: null,
+    handedOverFrom: null,
+    cash: [],
+    ...over,
+  };
+}
+
+describe('assembleRun', () => {
+  it('is just the session when nothing was handed over', () => {
+    const only = session({ id: 'a' });
+    expect(assembleRun('a', [only]).map((s) => s.id)).toEqual(['a']);
+  });
+
+  it('walks back to the start and forward to the end from the middle', () => {
+    const run = assembleRun('b', [
+      session({ id: 'c', handedOverFrom: 'b' }),
+      session({ id: 'a' }),
+      session({ id: 'b', handedOverFrom: 'a' }),
+    ]);
+    expect(run.map((s) => s.id)).toEqual(['a', 'b', 'c']);
+  });
+
+  // The distinction the whole `handedOverFrom` column exists for: a close and a
+  // fresh open moments later is a NEW run, and must not be spliced onto this one.
+  it('leaves out a session that was opened fresh rather than handed over', () => {
+    const run = assembleRun('a', [
+      session({ id: 'a', closedAt: '2026-08-07T15:00:00Z' }),
+      session({ id: 'b', openedAt: '2026-08-07T15:01:00Z' }),
+    ]);
+    expect(run.map((s) => s.id)).toEqual(['a']);
+  });
+
+  it('ignores a link to a session that is not in the window', () => {
+    const run = assembleRun('b', [session({ id: 'b', handedOverFrom: 'missing' })]);
+    expect(run.map((s) => s.id)).toEqual(['b']);
+  });
+
+  // No RPC can produce this, but a hand-edited row could, and hanging the sheet
+  // would be worse than the feature is worth.
+  it('does not loop forever on a cycle', () => {
+    const run = assembleRun('a', [
+      session({ id: 'a', handedOverFrom: 'b' }),
+      session({ id: 'b', handedOverFrom: 'a' }),
+    ]);
+    expect(run.length).toBeLessThanOrEqual(2);
+    expect(new Set(run.map((s) => s.id)).size).toBe(run.length);
+  });
+
+  it('returns nothing when the anchor is not in the list', () => {
+    expect(assembleRun('ghost', [session({ id: 'a' })])).toEqual([]);
+  });
+
+  it('keeps other runs on the same register out of it', () => {
+    const run = assembleRun('a', [
+      session({ id: 'a' }),
+      session({ id: 'b', handedOverFrom: 'a' }),
+      session({ id: 'x' }),
+      session({ id: 'y', handedOverFrom: 'x' }),
+    ]);
+    expect(run.map((s) => s.id)).toEqual(['a', 'b']);
   });
 });

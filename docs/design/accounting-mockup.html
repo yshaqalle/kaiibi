@@ -797,7 +797,10 @@
       const scale = document.createElement('div');
       scale.className = 'devScale';
       const frame = document.createElement('div');
-      frame.className = 'frame';
+      // The width class drives the card internals (`.w380 .kpis`, `.w380
+      // table`), so a phone frame without it renders desktop-tuned cards at
+      // 366px — prettier than the app, and therefore useless.
+      frame.className = 'frame ' + (dev.grid < 520 ? 'w380' : 'w1280');
       frame.style.width = (dev.grid + 36) + 'px';
       frame.innerHTML = shell(tpl, dev.grid < 520);
 

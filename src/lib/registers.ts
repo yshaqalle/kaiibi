@@ -1,3 +1,4 @@
+import { assembleRun } from '@/lib/register-sessions';
 import { supabase } from '@/lib/supabase';
 import type {
   DrawerCountEntry,
@@ -301,45 +302,24 @@ export async function sessionRun(sessionId: string): Promise<RegisterSession[]> 
   if (!data) return [];
   const anchor = mapSessionRow(data);
 
-  // Everything on this register, then walk the links. One query rather than a
-  // recursive fetch: a register has a handful of sessions a day, and a round
-  // trip per link at a counter is worse than a few extra rows.
+  // Recent sessions on this register, then walk the links in `assembleRun`.
+  // BOUNDED: a busy till accumulates hundreds of sessions over a year and a run
+  // is at most a handful, so an unbounded fetch would pull a year of history to
+  // render one sheet. Ordered newest-first so the window always contains the
+  // anchor and its neighbours.
   const { data: siblings, error: siblingError } = await supabase
     .from('register_sessions')
     .select(SESSION_SELECT)
     .eq('register_id', anchor.registerId)
-    .order('opened_at', { ascending: true });
+    .order('opened_at', { ascending: false })
+    .limit(50);
   if (siblingError) throw siblingError;
   const all = (siblings ?? []).map(mapSessionRow);
+  // The anchor may fall outside the window on a very busy register; including
+  // it explicitly means the sheet always has at least the session asked for.
+  if (!all.some((session) => session.id === anchor.id)) all.push(anchor);
 
-  const byId = new Map(all.map((session) => [session.id, session]));
-  const byPredecessor = new Map(
-    all.filter((s) => s.handedOverFrom).map((s) => [s.handedOverFrom as string, s])
-  );
-
-  // Back to the start of the run...
-  let first = byId.get(anchor.id) ?? anchor;
-  const guard = new Set<string>([first.id]);
-  while (first.handedOverFrom) {
-    const previous = byId.get(first.handedOverFrom);
-    // A cycle cannot happen through the RPC, but a hand-edited row should not
-    // hang the sheet.
-    if (!previous || guard.has(previous.id)) break;
-    guard.add(previous.id);
-    first = previous;
-  }
-
-  // ...then forward through every handover.
-  const run: RegisterSession[] = [first];
-  let cursor = first;
-  while (byPredecessor.has(cursor.id)) {
-    const next = byPredecessor.get(cursor.id) as RegisterSession;
-    if (guard.has(next.id) && next.id !== anchor.id) break;
-    guard.add(next.id);
-    run.push(next);
-    cursor = next;
-  }
-  return run;
+  return assembleRun(anchor.id, all);
 }
 
 // Sales and refunds rung through a set of sessions, newest first.

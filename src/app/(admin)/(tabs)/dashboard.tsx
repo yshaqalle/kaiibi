@@ -756,7 +756,13 @@ export default function DashboardScreen() {
     // the right destination for a time-off row and a baffling one for a $5
     // variance.
     if (item.key.startsWith('register-session-')) {
-      router.push({ pathname: '/accounting', params: { tab: 'cash' } });
+      // The session id, not just the tab: the row names one short drawer, so
+      // landing on a list and making the reader find it again wastes the one
+      // thing the row already knew.
+      router.push({
+        pathname: '/accounting',
+        params: { tab: 'cash', session: item.key.replace('register-session-', '') },
+      });
       return;
     }
     if (item.key === 'low-stock') {

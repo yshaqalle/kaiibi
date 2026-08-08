@@ -2380,8 +2380,12 @@ function buildDevice(host, dev, rule) {
   scale.className = 'devScale';
 
   const frame = document.createElement('div');
-  frame.className = 'frame';
-  frame.style.width = (dev.grid + 36) + 'px'; // +36 = the frame's own padding
+  // The width class is not decoration: the card INTERNALS are responsive
+  // through it (`.w380 .kpis`, `.w380 table`, `.w380 .recent`...). Without it
+  // a phone frame renders a six-across KPI strip and a full-width table
+  // inside 366px, which is a prettier lie than the app tells.
+  frame.className = 'frame ' + (dev.grid < 520 ? 'w380' : dev.grid < 1000 ? 'w900' : 'w1280');
+  frame.style.width = (dev.grid + 36) + 'px'; // inline width beats the class
 
   frame.innerHTML = `
     <div class="topbar">

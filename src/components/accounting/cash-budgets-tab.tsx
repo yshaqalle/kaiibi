@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
-import { RegisterSessionDetail } from '@/components/accounting/register-session-detail';
+import { RegisterSessionDetail } from '@/components/register-session-detail';
 import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
 import { Badge } from '@/components/badge';
@@ -62,12 +62,15 @@ function extractErrorMessage(err: unknown): string {
 export function CashBudgetsTab({
   dateRange,
   locationFilter,
+  focusSessionId,
   setHeaderActions,
   setRefresh,
 }: {
   dateRange: DateRange;
   /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
   locationFilter: string | null;
+  // A session to open on arrival, from a Dashboard attention row.
+  focusSessionId?: string | null;
   setHeaderActions: HeaderActionsSetter;
   setRefresh: RefreshSetter;
 }) {
@@ -101,6 +104,10 @@ export function CashBudgetsTab({
   const [sessionRows, setSessionRows] = useState<SessionRow[]>([]);
   const [currencies, setCurrencies] = useState<Currency[]>([]);
   const [openSession, setOpenSession] = useState<SessionRow | null>(null);
+  // Which deep-linked session has already been dismissed, so closing the sheet
+  // does not immediately reopen it. Derived rather than synced in an effect —
+  // the param does not change while the screen is up.
+  const [dismissedFocus, setDismissedFocus] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -227,6 +234,16 @@ export function CashBudgetsTab({
   const cashTotal = totalCashCents(accountsInScope);
   const monthlyCommitment = monthlyBillCommitmentCents(billsInScope);
   const rows = budgetRows(expensesInScope, budgetsInScope);
+
+  // Which session the detail sheet shows. An explicit tap wins; otherwise the
+  // one a Dashboard attention row deep-linked to, until it is dismissed.
+  // Derived rather than synced in an effect — the param cannot change while the
+  // screen is up, so there is nothing to keep in step.
+  const focusedRow =
+    focusSessionId && focusSessionId !== dismissedFocus
+      ? sessionRows.find((row) => row.session.id === focusSessionId) ?? null
+      : null;
+  const detailRow = openSession ?? focusedRow;
 
   return (
     <View>
@@ -416,17 +433,20 @@ export function CashBudgetsTab({
             />
             {/* Mounted only while open and keyed by session, so it loads the
                 run fresh instead of needing an effect to reset it. */}
-            {openSession && (
+            {detailRow && (
               <RegisterSessionDetail
-                key={openSession.session.id}
-                sessionId={openSession.session.id}
-                registerName={openSession.registerName}
+                key={detailRow.session.id}
+                sessionId={detailRow.session.id}
+                registerName={detailRow.registerName}
                 nameFor={(session) =>
                   sessionRows.find((row) => row.session.id === session.id)?.personName ??
                   (session.shopMemberId ? 'Staff' : 'The owner')
                 }
                 currencies={currencies}
-                onClose={() => setOpenSession(null)}
+                onClose={() => {
+                  setOpenSession(null);
+                  if (focusSessionId) setDismissedFocus(focusSessionId);
+                }}
               />
             )}
           </BentoCell>

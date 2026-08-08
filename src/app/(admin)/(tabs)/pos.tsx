@@ -11,6 +11,7 @@ import { CheckoutPanel } from '@/components/checkout-panel';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
+import { RegisterSessionDetail } from '@/components/register-session-detail';
 import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
@@ -107,7 +108,7 @@ export default function PosScreen() {
   // which is exactly what a shop that has never set a register up sees.
   const { registers, session: registerSession, reload: reloadRegister } = useRegisterSession();
   const [team, setTeam] = useState<StaffMember[]>([]);
-  const [registerSheet, setRegisterSheet] = useState<'open' | 'close' | 'handover' | null>(null);
+  const [registerSheet, setRegisterSheet] = useState<'open' | 'close' | 'handover' | 'detail' | null>(null);
   // Cash movements for the OPEN session only, so the close sheet can preview
   // the variance before the server's own figure comes back. Reset whenever the
   // session changes.
@@ -645,6 +646,7 @@ export default function PosScreen() {
         onOpen={() => setRegisterSheet('open')}
         onClose={() => setRegisterSheet('close')}
         onHandover={() => setRegisterSheet('handover')}
+        onShowDetail={() => setRegisterSheet('detail')}
       />
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
       {/* The whole sale is ONE card floating on the grey page — it used to be a
@@ -843,6 +845,19 @@ export default function PosScreen() {
           denominations={shop.cashDenominations}
           onClose={() => setRegisterSheet(null)}
           onOpened={reloadRegister}
+        />
+      )}
+      {registerSession && registerSheet === 'detail' && (
+        <RegisterSessionDetail
+          key={registerSession.id}
+          sessionId={registerSession.id}
+          registerName={registers.find((r) => r.id === registerSession.registerId)?.name ?? 'Register'}
+          nameFor={(session) => {
+            const onIt = team.find((member) => member.id === session.shopMemberId);
+            return onIt?.fullName ?? onIt?.email ?? (session.shopMemberId ? 'Staff' : profile?.fullName ?? 'The owner');
+          }}
+          currencies={currencies}
+          onClose={() => setRegisterSheet(null)}
         />
       )}
       {shop && registerSession && (registerSheet === 'close' || registerSheet === 'handover') && (

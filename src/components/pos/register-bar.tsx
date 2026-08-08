@@ -31,6 +31,7 @@ export function RegisterBar({
   onOpen,
   onClose,
   onHandover,
+  onShowDetail,
 }: {
   registers: Register[];
   session: RegisterSession | null;
@@ -47,6 +48,10 @@ export function RegisterBar({
   onOpen: () => void;
   onClose: () => void;
   onHandover: () => void;
+  // Tapping the bar itself. The person standing at the till is the one who most
+  // wants "how is this doing", and before this the only way to see it was to
+  // leave the POS for Accounting and find the row.
+  onShowDetail: () => void;
 }) {
   if (registers.length === 0 && !session) return null;
 
@@ -73,7 +78,7 @@ export function RegisterBar({
   return (
     <View style={styles.bar}>
       <View style={styles.dot} />
-      <View style={styles.who}>
+      <Pressable onPress={onShowDetail} style={styles.who} accessibilityRole="button" accessibilityLabel="Register details">
         <Text style={styles.title}>{register?.name ?? 'Register'}</Text>
         <Text style={styles.name}>{shortPersonName(member?.fullName ?? fallbackName, member?.email)}</Text>
         <Text style={styles.meta}>
@@ -86,7 +91,7 @@ export function RegisterBar({
             {saleCount === 1 ? '1 sale' : `${saleCount} sales`} · {formatCents(takenCents ?? 0)} taken
           </Text>
         )}
-      </View>
+      </Pressable>
       <View style={styles.actions}>
         <Pressable onPress={onHandover} style={styles.action}>
           <Text style={styles.actionText}>Handover</Text>

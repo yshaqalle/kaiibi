@@ -227,6 +227,57 @@ export function formatSessionWindow(openedAt: string, now: Date = new Date()): s
 }
 
 /**
+ * Every session in one continuous RUN of a register, oldest first.
+ *
+ * A handover closes one session and opens another, so a till worked by two
+ * people is two rows and one thing in someone's head. The chain is walked
+ * through `handedOverFrom` and never through timestamps: a close followed by a
+ * fresh open a minute later looks identical by time and is emphatically NOT a
+ * handover — that close drew a money boundary on purpose.
+ *
+ * Pure, and separated from the query that feeds it, because the walk has the
+ * failure modes worth testing: a missing predecessor, a link to a session on
+ * another register, and a cycle that no RPC can create but a hand-edited row
+ * can — and any of the three hanging the sheet would be worse than the feature.
+ */
+export function assembleRun(
+  anchorId: string,
+  sessions: readonly RegisterSession[]
+): RegisterSession[] {
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  const anchor = byId.get(anchorId);
+  if (!anchor) return [];
+
+  const byPredecessor = new Map<string, RegisterSession>();
+  for (const session of sessions) {
+    // Only within this register: a link pointing elsewhere is data damage, and
+    // following it would splice another till's takings into this run.
+    if (session.handedOverFrom && byId.has(session.handedOverFrom)) {
+      byPredecessor.set(session.handedOverFrom, session);
+    }
+  }
+
+  const seen = new Set<string>([anchor.id]);
+  let first = anchor;
+  while (first.handedOverFrom) {
+    const previous = byId.get(first.handedOverFrom);
+    if (!previous || seen.has(previous.id)) break;
+    seen.add(previous.id);
+    first = previous;
+  }
+
+  const run: RegisterSession[] = [first];
+  let cursor = first;
+  for (;;) {
+    const next = byPredecessor.get(cursor.id);
+    if (!next || run.some((session) => session.id === next.id)) break;
+    run.push(next);
+    cursor = next;
+  }
+  return run;
+}
+
+/**
  * A finished session's window: when it ran, and for how long.
  *
  * Distinct from `formatSessionWindow`, which is for the LIVE bar and always

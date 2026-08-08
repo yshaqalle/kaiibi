@@ -17,6 +17,10 @@ import type { Currency, RegisterSession, SessionTransaction } from '@/types/mode
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
+// Lives at the top level rather than under accounting/ because both surfaces
+// open it: Accounting reaches it from the sessions list, and the POS reaches it
+// from the register bar — which is where the person standing at the till is.
+//
 // One register's RUN, not one person's turn.
 //
 // A handover closes one session and opens another, so a till worked by two
@@ -73,7 +77,12 @@ export function RegisterSessionDetail({
   const open = run.some((session) => !session.closedAt);
   const first = run[0];
   const allPayments = transactions.flatMap((row) => row.payments);
-  const takenCents = transactions.reduce((sum, row) => sum + row.totalCents, 0);
+  // Sales only. Netting refunds off here while also showing a "Refunded" tile
+  // beside it invites the reader to subtract them a second time — the two tiles
+  // have to mean different things or one of them is a lie.
+  const takenCents = transactions
+    .filter((row) => row.kind === 'sale')
+    .reduce((sum, row) => sum + row.totalCents, 0);
   const refundedCents = transactions
     .filter((row) => row.kind === 'refund')
     .reduce((sum, row) => sum + row.totalCents, 0);
