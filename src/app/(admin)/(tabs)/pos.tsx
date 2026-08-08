@@ -636,19 +636,6 @@ export default function PosScreen() {
 
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
-      <RegisterBar
-        registers={registers}
-        session={registerSession}
-        register={registers.find((r) => r.id === registerSession?.registerId) ?? null}
-        member={sessionMember ?? myMembership}
-        fallbackName={profile?.fullName}
-        saleCount={sessionSaleCount}
-        takenCents={sessionPayments.reduce((sum, payment) => sum + payment.amountCents, 0)}
-        onOpen={() => setRegisterSheet('open')}
-        onClose={() => setRegisterSheet('close')}
-        onHandover={() => setRegisterSheet('handover')}
-        onShowDetail={() => setRegisterSheet('detail')}
-      />
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
       {/* The whole sale is ONE card floating on the grey page — it used to be a
           white column with a hairline down its left edge, which read as a
@@ -837,8 +824,25 @@ export default function PosScreen() {
     }))
     .filter((total) => total.cents > 0);
 
+  const registerBarEl = (
+    <RegisterBar
+      registers={registers}
+      session={registerSession}
+      register={registers.find((r) => r.id === registerSession?.registerId) ?? null}
+      member={sessionMember ?? myMembership}
+      fallbackName={profile?.fullName}
+      saleCount={sessionSaleCount}
+      takenCents={livePayments.reduce((sum, payment) => sum + payment.amountCents, 0)}
+      onOpen={() => setRegisterSheet('open')}
+      onClose={() => setRegisterSheet('close')}
+      onHandover={() => setRegisterSheet('handover')}
+      onShowDetail={() => setRegisterSheet('detail')}
+    />
+  );
+
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
+      <View style={styles.registerBarWrap}>{registerBarEl}</View>
       <Split style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
         {compact ? (
           <>
@@ -947,6 +951,8 @@ const styles = StyleSheet.create({
   // The counter is a workspace, not a page of cards: the two panes are the
   // layout, and the bento surfaces are what they are painted in.
   safeArea: { flex: 1, backgroundColor: theme.bentoPage },
+  // Above both panes, so the bar gets the whole width and keeps its labels.
+  registerBarWrap: { paddingHorizontal: 14, paddingTop: 14 },
   split: { flex: 1, flexDirection: 'row' },
   splitCompact: { flex: 1, flexDirection: 'column' },
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },

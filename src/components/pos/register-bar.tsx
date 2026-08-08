@@ -33,7 +33,6 @@ export function RegisterBar({
   onClose,
   onHandover,
   onShowDetail,
-  compact,
 }: {
   registers: Register[];
   session: RegisterSession | null;
