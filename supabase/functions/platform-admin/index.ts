@@ -317,10 +317,26 @@ Deno.serve(async (req) => {
         if (!body.plan) return errorResponse(400, 'unknown', 'plan is required.');
         const key = body.plan.key as string | undefined;
         if (!key) return errorResponse(400, 'unknown', 'plan.key is required.');
-        const { data: before } = await adminClient.from('plans').select('*').eq('key', key).maybeSingle();
+
+        // Allowlist, not a spread. Retirement has its own audited action
+        // (retire_plan / republish_plan) and must not be settable here:
+        // `retire_at` and `successor_plan_key` sent through this path would set
+        // a retirement with no successor validation, which is exactly how a
+        // two-hop chain gets created -- and shop_effective_plan() follows only
+        // one hop. `is_public` is the other half of that same state (retiring
+        // clears it, republishing restores it), and `active` has no editor at
+        // all. The portal's plan editor sends only the columns below.
+        const editable = ['key', 'name', 'description', 'price_cents', 'currency', 'billing_interval', 'modules', 'limits', 'sort_order'] as const;
+        const planPayload: Record<string, unknown> = {};
+        for (const column of editable) {
+          if (column in body.plan) planPayload[column] = body.plan[column];
+        }
+
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', key).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
         const { data: after, error } = await adminClient
           .from('plans')
-          .upsert({ ...body.plan, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+          .upsert({ ...planPayload, updated_at: new Date().toISOString() }, { onConflict: 'key' })
           .select('*')
           .single();
         if (error) return errorResponse(500, 'unknown', error.message);
@@ -339,24 +355,30 @@ Deno.serve(async (req) => {
           return errorResponse(400, 'unknown', 'A plan cannot succeed itself.');
         }
 
-        const { data: plan } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        const { data: plan, error: planError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (planError) return errorResponse(500, 'unknown', planError.message);
         if (!plan) return errorResponse(400, 'unknown', 'No such plan.');
 
-        const { data: successor } = await adminClient
+        const { data: successor, error: successorError } = await adminClient
           .from('plans').select('*').eq('key', body.successorPlanKey).maybeSingle();
+        if (successorError) return errorResponse(500, 'unknown', successorError.message);
         if (!successor) return errorResponse(400, 'unknown', 'No such successor plan.');
         if (!successor.active) {
           return errorResponse(400, 'unknown', 'That successor is deactivated — stores cannot be moved onto it.');
         }
-        // `trial` is assigned by the signup trigger and can never be chosen, so
-        // it can never be somewhere stores are moved TO.
-        if (!successor.is_public) {
-          return errorResponse(400, 'unknown', 'That successor is not offered to stores, so nobody can be moved onto it.');
-        }
         // Keeps every chain exactly one hop long, which is what lets
-        // shop_effective_plan() resolve without recursing.
+        // shop_effective_plan() resolve without recursing. Tested BEFORE the
+        // is_public guard below: retiring through this endpoint clears
+        // is_public in the same write that sets retire_at, so checking
+        // visibility first would tell an operator to fix the wrong thing.
         if (successor.retire_at) {
           return errorResponse(400, 'unknown', 'That successor is itself being retired. Pick a plan that is staying.');
+        }
+        // `trial` is assigned by the signup trigger and can never be chosen, so
+        // it can never be somewhere stores are moved TO. Still reached on its
+        // own for a plan hidden by some other means than a retirement.
+        if (!successor.is_public) {
+          return errorResponse(400, 'unknown', 'That successor is not offered to stores, so nobody can be moved onto it.');
         }
 
         // Free is reached by falling THROUGH post_trial_plan_key, not by being
@@ -364,8 +386,12 @@ Deno.serve(async (req) => {
         // resolves to the fallback plan. Retiring the fallback without naming a
         // new one would hand every lapsed store on the platform the successor's
         // entitlements for nothing.
-        const { data: settings } = await adminClient
-          .from('platform_settings').select('post_trial_plan_key').eq('id', true).maybeSingle();
+        const { data: settings, error: settingsReadError } = await adminClient
+          .from('platform_settings').select('*').eq('id', true).maybeSingle();
+        // Not swallowed: if this read fails, isFallback is false and the guard
+        // below silently does not fire, which is the one failure this whole
+        // case exists to prevent.
+        if (settingsReadError) return errorResponse(500, 'unknown', settingsReadError.message);
         const isFallback = settings?.post_trial_plan_key === body.planKey;
         if (isFallback && !body.postTrialPlanKey) {
           return errorResponse(
@@ -374,9 +400,21 @@ Deno.serve(async (req) => {
             'This plan is where lapsed stores land. Choose a new fallback plan before retiring it.'
           );
         }
-        if (body.postTrialPlanKey) {
-          const { data: fallback } = await adminClient
+        // postTrialPlanKey only ever means "replace the fallback I am retiring".
+        // Accepting it while retiring some unrelated tier would relocate every
+        // lapsed store on the platform as an undocumented side effect;
+        // set_platform_settings is the audited action for moving the fallback.
+        if (!isFallback && body.postTrialPlanKey) {
+          return errorResponse(
+            400,
+            'unknown',
+            'That plan is not where lapsed stores land, so a replacement fallback does not apply. Change the fallback from platform settings.'
+          );
+        }
+        if (isFallback && body.postTrialPlanKey) {
+          const { data: fallback, error: fallbackError } = await adminClient
             .from('plans').select('key, active, retire_at').eq('key', body.postTrialPlanKey).maybeSingle();
+          if (fallbackError) return errorResponse(500, 'unknown', fallbackError.message);
           if (!fallback) return errorResponse(400, 'unknown', 'No such fallback plan.');
           if (!fallback.active || fallback.retire_at) {
             return errorResponse(400, 'unknown', 'The fallback plan must be one that is staying.');
@@ -386,16 +424,73 @@ Deno.serve(async (req) => {
         // 30 days: long enough for a store to be told, decide, and be moved by
         // hand if they ask. The portal offers no other value today; the field
         // exists so a longer sunset does not need a deploy.
-        const retireAt = body.retireAt ?? new Date(Date.now() + 30 * 86_400_000).toISOString();
+        let retireAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
+        if (body.retireAt !== undefined) {
+          const parsed = new Date(body.retireAt);
+          if (!Number.isFinite(parsed.getTime())) {
+            return errorResponse(400, 'unknown', 'retireAt is not a date I can read.');
+          }
+          // A date already past makes retire_at <= now() true immediately, so
+          // every store on the plan moves to the successor with no notice --
+          // the opposite of the graceful sunset this action exists to give.
+          if (parsed.getTime() <= Date.now()) {
+            return errorResponse(400, 'unknown', 'retireAt must be in the future — stores need notice before they are moved.');
+          }
+          retireAt = parsed.toISOString();
+        }
+
+        // Read the dependants BEFORE anything is written, so the audit row can
+        // say what they pointed at. republish_plan does not restore them, so
+        // this log is the only record of where they were.
+        const { data: dependants, error: dependantsError } = await adminClient
+          .from('plans')
+          .select('key, successor_plan_key')
+          .eq('successor_plan_key', body.planKey);
+        if (dependantsError) return errorResponse(500, 'unknown', dependantsError.message);
+
+        const now = new Date().toISOString();
+        const planUpdate = {
+          is_public: false,
+          retire_at: retireAt,
+          successor_plan_key: body.successorPlanKey,
+          updated_at: now,
+        };
+        const settingsUpdate = isFallback && body.postTrialPlanKey
+          ? { post_trial_plan_key: body.postTrialPlanKey, updated_at: now }
+          : null;
+
+        // Logged BEFORE the writes, the same way delete_shop does it. Three
+        // tables change here and there is no transaction across them; if one
+        // fails part-way the log still shows an attempt that did not complete,
+        // which is recoverable. The other order leaves the platform's fallback
+        // pointing at a retired plan with no record of how it got there.
+        // The `after` side is therefore the intended state, not a re-read.
+        await audit(
+          'retire_plan',
+          null,
+          { plan, settings, repointed: dependants ?? [] },
+          {
+            plan: { ...plan, ...planUpdate },
+            settings: settingsUpdate ? { ...settings, ...settingsUpdate } : settings,
+            repointed: (dependants ?? []).map((d) => ({ key: d.key, successor_plan_key: body.successorPlanKey })),
+          }
+        );
+
+        // Settings FIRST. A failure here leaves the plan un-retired and the
+        // platform coherent; doing it last would leave the retired plan named
+        // as the fallback, and every lapsed store would silently pick up the
+        // successor's full module set the moment the date passed.
+        if (settingsUpdate) {
+          const { error: settingsError } = await adminClient
+            .from('platform_settings')
+            .update(settingsUpdate)
+            .eq('id', true);
+          if (settingsError) return errorResponse(500, 'unknown', settingsError.message);
+        }
 
         const { data: after, error } = await adminClient
           .from('plans')
-          .update({
-            is_public: false,
-            retire_at: retireAt,
-            successor_plan_key: body.successorPlanKey,
-            updated_at: new Date().toISOString(),
-          })
+          .update(planUpdate)
           .eq('key', body.planKey)
           .select('*')
           .single();
@@ -403,33 +498,30 @@ Deno.serve(async (req) => {
 
         // Anything that pointed at this plan now points past it, so no chain is
         // ever two hops long. Without this, retiring A->B and later B->C would
-        // leave A's stores landing on a plan that is itself gone.
+        // leave A's stores landing on a plan that is itself gone. Must run
+        // after the write above -- it depends on the retirement having happened.
         const { error: repointError } = await adminClient
           .from('plans')
-          .update({ successor_plan_key: body.successorPlanKey, updated_at: new Date().toISOString() })
+          .update({ successor_plan_key: body.successorPlanKey, updated_at: now })
           .eq('successor_plan_key', body.planKey);
         if (repointError) return errorResponse(500, 'unknown', repointError.message);
 
-        let settingsAfter = settings;
-        if (body.postTrialPlanKey) {
-          const { data: updatedSettings, error: settingsError } = await adminClient
-            .from('platform_settings')
-            .update({ post_trial_plan_key: body.postTrialPlanKey, updated_at: new Date().toISOString() })
-            .eq('id', true)
-            .select('*')
-            .single();
-          if (settingsError) return errorResponse(500, 'unknown', settingsError.message);
-          settingsAfter = updatedSettings;
-        }
-
-        await audit('retire_plan', null, { plan, settings }, { plan: after, settings: settingsAfter });
         return ok({ plan: after });
       }
 
       case 'republish_plan': {
         if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
-        const { data: before } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
         if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        // This action means "undo a retirement", not "publish anything". Without
+        // this check it would set is_public = true on any plan named -- including
+        // the seeded `trial` row, which is $0, carries every module and has no
+        // limits, and which the store-facing chooser lists on is_public alone.
+        // One call with a benign name would make the whole product free.
+        if (!before.retire_at) {
+          return errorResponse(400, 'unknown', 'That plan is not being retired, so there is nothing to republish.');
+        }
 
         const { data: after, error } = await adminClient
           .from('plans')
