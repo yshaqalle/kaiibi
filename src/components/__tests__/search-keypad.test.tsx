@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { SearchKeypad } from '@/components/search-keypad';
@@ -106,5 +106,17 @@ describe('SearchKeypad', () => {
     for (const row of rows) {
       expect(totalFlex(row)).toBe(topRowKeyCount);
     }
+  });
+
+  // On a tablet the dock surface spans the screen but the KEYS cap at a
+  // phone-ish width and centre -- stretched to tablet width they become a
+  // piano and the hand loses the row shape it learned on the phone.
+  it('caps the key block width so tablet keys do not stretch', () => {
+    const { tree } = render();
+    const capped = tree.root.findAll((node) => {
+      const flat = StyleSheet.flatten(node.props?.style);
+      return flat?.maxWidth === 560 && flat?.alignSelf === 'center';
+    });
+    expect(capped.length).toBeGreaterThan(0);
   });
 });

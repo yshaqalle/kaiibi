@@ -42,56 +42,61 @@ export function SearchKeypad({
 
   return (
     <View style={styles.dock}>
-      {ROWS.map((row, index) => {
-        // Half the missing width on each side, so a key is the same width on
-        // every row and the hand can trust where it is. A FIXED spacer only
-        // balances a row that is exactly one key short: the bottom row is three
-        // short, and a fixed 0.5 left its keys about a quarter wider than the
-        // letters above them.
-        const spacerFlex = (ROWS[0].length - row.length) / 2;
-        return (
-          <View key={index} style={styles.row}>
-            {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
-            {row.map((char) => (
-              <Pressable
-                key={char}
-                onPress={() => apply({ type: 'char', value: char })}
-                style={styles.key}
-                accessibilityRole="button"
-                accessibilityLabel={char}
-              >
-                <Text style={styles.keyLabel}>{char.toUpperCase()}</Text>
-              </Pressable>
-            ))}
-            {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
-          </View>
-        );
-      })}
+      <View style={styles.inner}>
+        {ROWS.map((row, index) => {
+          // Half the missing width on each side, so a key is the same width on
+          // every row and the hand can trust where it is. A FIXED spacer only
+          // balances a row that is exactly one key short: the bottom row is three
+          // short, and a fixed 0.5 left its keys about a quarter wider than the
+          // letters above them.
+          const spacerFlex = (ROWS[0].length - row.length) / 2;
+          return (
+            <View key={index} style={styles.row}>
+              {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
+              {row.map((char) => (
+                <Pressable
+                  key={char}
+                  onPress={() => apply({ type: 'char', value: char })}
+                  style={styles.key}
+                  accessibilityRole="button"
+                  accessibilityLabel={char}
+                >
+                  <Text style={styles.keyLabel}>{char.toUpperCase()}</Text>
+                </Pressable>
+              ))}
+              {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
+            </View>
+          );
+        })}
 
-      <View style={styles.row}>
-        <Pressable onPress={() => apply({ type: 'clear' })} style={[styles.key, styles.utilKey]} accessibilityRole="button">
-          <Text style={styles.utilLabel}>Clear</Text>
-        </Pressable>
-        <Pressable onPress={() => apply({ type: 'space' })} style={[styles.key, styles.utilKey, styles.spaceKey]} accessibilityRole="button" accessibilityLabel="space">
-          <Text style={styles.utilLabel}>space</Text>
-        </Pressable>
-        <Pressable onPress={() => apply({ type: 'delete' })} style={[styles.key, styles.utilKey]} accessibilityRole="button" accessibilityLabel="delete">
-          <Text style={styles.utilLabel}>⌫</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => { onSubmit(); onClose(); }}
-          style={[styles.key, styles.doneKey]}
-          accessibilityRole="button"
-        >
-          <Text style={styles.doneLabel}>Done</Text>
-        </Pressable>
+        <View style={styles.row}>
+          <Pressable onPress={() => apply({ type: 'clear' })} style={[styles.key, styles.utilKey]} accessibilityRole="button">
+            <Text style={styles.utilLabel}>Clear</Text>
+          </Pressable>
+          <Pressable onPress={() => apply({ type: 'space' })} style={[styles.key, styles.utilKey, styles.spaceKey]} accessibilityRole="button" accessibilityLabel="space">
+            <Text style={styles.utilLabel}>space</Text>
+          </Pressable>
+          <Pressable onPress={() => apply({ type: 'delete' })} style={[styles.key, styles.utilKey]} accessibilityRole="button" accessibilityLabel="delete">
+            <Text style={styles.utilLabel}>⌫</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => { onSubmit(); onClose(); }}
+            style={[styles.key, styles.doneKey]}
+            accessibilityRole="button"
+          >
+            <Text style={styles.doneLabel}>Done</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  dock: { backgroundColor: theme.bentoSoft, borderTopWidth: 1, borderTopColor: theme.bentoLine, padding: 10, gap: 6 },
+  dock: { backgroundColor: theme.bentoSoft, borderTopWidth: 1, borderTopColor: theme.bentoLine, padding: 10 },
+  // The dock SURFACE spans the screen; the KEYS cap and centre so a tablet
+  // till doesn't stretch them into a piano.
+  inner: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: 6 },
   row: { flexDirection: 'row', gap: 5 },
   key: {
     flex: 1,
