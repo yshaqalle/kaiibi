@@ -2,6 +2,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, type StyleProp, type ViewStyle, View } from 'react-native';
 
+import { AppModal } from '@/components/ui/app-modal';
+
 // Web uses the browser's date control; iOS/Android use the platform picker.
 // Keeping one component gives every date field the same calendar-first UX.
 export function DateInput({
@@ -30,14 +32,36 @@ export function DateInput({
         <Text style={[styles.inputText, !value && styles.placeholder]}>{value || 'Select date'}</Text>
         <Text style={styles.calendarIcon}>▾</Text>
       </Pressable>
-      {showPicker && (
+      {showPicker && Platform.OS === 'ios' && (
+        // Apple's inline calendar is ~320pt wide and refuses to shrink, but
+        // every form in the app puts DateInput in a half-width column. Rendered
+        // in-flow it bled out of the card, so it gets its own centered modal
+        // where the window, not the column, sizes it.
+        <AppModal visible transparent animationType="fade" onRequestClose={() => setShowPicker(false)}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setShowPicker(false)}>
+            <Pressable style={styles.pickerCard} onPress={(event) => event.stopPropagation()}>
+              <DateTimePicker
+                value={selectedDate}
+                mode="date"
+                display="inline"
+                minimumDate={minDate}
+                onChange={(_event, date) => {
+                  setShowPicker(false);
+                  if (date) onChangeText(formatLocalDate(date));
+                }}
+              />
+            </Pressable>
+          </Pressable>
+        </AppModal>
+      )}
+      {showPicker && Platform.OS !== 'ios' && (
         <DateTimePicker
           value={selectedDate}
           mode="date"
-          display={Platform.OS === 'ios' ? 'inline' : 'default'}
+          display="default"
           minimumDate={minDate}
           onChange={(_event, date) => {
-            if (Platform.OS === 'android') setShowPicker(false);
+            setShowPicker(false);
             if (date) onChangeText(formatLocalDate(date));
           }}
         />
@@ -68,6 +92,8 @@ const webInputStyle = {
 
 const styles = StyleSheet.create({
   input: { minHeight: 42, backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
+  pickerCard: { backgroundColor: '#FFFFFF', borderRadius: 16, padding: 10 },
   inputText: { color: '#111111', fontSize: 14 },
   placeholder: { color: '#999999' },
   calendarIcon: { color: '#666666', fontSize: 15 },
