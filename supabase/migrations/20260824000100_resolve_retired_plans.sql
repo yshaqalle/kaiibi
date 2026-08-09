@@ -9,11 +9,15 @@
 -- every store instantly, because nothing was destroyed.
 --
 -- ONE HOP, NOT A CHAIN. A recursive resolve would turn an operator's mistake
--- into an infinite loop inside a function called on every gated write. The
--- edge function refuses to retire into a plan that is itself retiring, and
--- when retiring B it re-points anything whose successor was B onto B's own
--- successor -- so chains are one hop long by construction and this never has
--- to walk one.
+-- into an infinite loop inside a function called on every gated write. A
+-- later edge function will refuse to retire into a plan that is itself
+-- retiring, and when retiring B will re-point anything whose successor was B
+-- onto B's own successor -- so chains will be one hop long by construction
+-- and this will never have to walk one. That edge function does not exist
+-- yet, so today an operator could hand-enter a two-link chain by editing
+-- plans directly; this function still lands safely on the intermediate
+-- retired plan rather than looping or returning NULL, just without hopping
+-- the second link.
 --
 -- shop_effective_status() is deliberately NOT touched. Retirement changes
 -- which plan applies, never what status a store is in: a store on a retired
@@ -32,6 +36,11 @@ language sql security definer stable set search_path = public as $$
     end as key
   ),
   hopped as (
+    -- coalesce falls back to the base key whenever the inner select returns
+    -- no row: either the base plan isn't retiring, or its retire_at hasn't
+    -- landed yet. It can never fall back to a NULL successor_plan_key while a
+    -- row does match, because plans_retire_needs_successor (20260824000000)
+    -- makes retire_at is not null without a successor_plan_key unreachable.
     select coalesce(
       (select r.successor_plan_key from public.plans r
         where r.key = (select key from base)
@@ -40,5 +49,8 @@ language sql security definer stable set search_path = public as $$
       (select key from base)
     ) as key
   )
+  -- The FK from plans.successor_plan_key to plans(key) is what guarantees the
+  -- hop lands on a real row, so this select is what keeps the function from
+  -- ever returning NULL instead of a plan.
   select p.* from public.plans p where p.key = (select key from hopped);
 $$;

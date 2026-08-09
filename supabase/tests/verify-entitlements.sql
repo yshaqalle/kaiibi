@@ -342,12 +342,11 @@ begin
   -- on a retired plan is not lapsed and must never read as such.
   select id into v_std_id from public.plans where key = 'standard';
 
-  update public.shop_subscriptions
-  set plan_id = v_free_id,
-      trial_ends_at = now() - interval '100 days',
-      grace_until   = now() - interval '93 days',
-      current_period_end = null
-  where shop_id = v_shop_id;
+  -- Section 11 deleted this shop's subscription row; recreate it lapsed, on
+  -- Free, so the update below (and the assertions that follow) have a row to
+  -- act on rather than silently matching zero.
+  insert into public.shop_subscriptions (shop_id, plan_id, trial_ends_at, grace_until, current_period_end)
+  values (v_shop_id, v_free_id, now() - interval '100 days', now() - interval '93 days', null);
 
   -- Retirement in the FUTURE changes nothing at all.
   update public.plans
@@ -365,7 +364,7 @@ begin
   -- Past the date, the successor applies.
   update public.plans set retire_at = now() - interval '1 day' where key = 'free';
 
-  if (public.shop_effective_plan(v_shop_id)).key <> 'standard' then
+  if (public.shop_effective_plan(v_shop_id)).id <> v_std_id then
     raise exception 'FAIL: a retired plan did not resolve to its successor (got %)',
       (public.shop_effective_plan(v_shop_id)).key;
   end if;
@@ -380,6 +379,26 @@ begin
       public.shop_effective_status(v_shop_id);
   end if;
 
+  -- The primary real-world case: a live, paying store on a tier being
+  -- withdrawn, not a lapsed one falling through post_trial_plan_key. A future
+  -- current_period_end routes shop_effective_plan through the subscription
+  -- arm instead of the fallback arm; the hop must still apply because the
+  -- resolver only cares about the resolved key's retire_at, not which arm
+  -- produced it.
+  update public.shop_subscriptions set current_period_end = now() + interval '30 days'
+  where shop_id = v_shop_id;
+  if public.shop_effective_status(v_shop_id) <> 'active' then
+    raise exception 'FAIL: setup error -- a future current_period_end did not read as active';
+  end if;
+  if (public.shop_effective_plan(v_shop_id)).id <> v_std_id then
+    raise exception 'FAIL: an active store on a retired plan did not resolve to its successor (got %)',
+      (public.shop_effective_plan(v_shop_id)).key;
+  end if;
+  update public.shop_subscriptions
+  set trial_ends_at = now() - interval '100 days', grace_until = now() - interval '93 days',
+      current_period_end = null
+  where shop_id = v_shop_id;
+
   -- Republishing restores everyone, because nothing was destroyed.
   update public.plans set retire_at = null, successor_plan_key = null where key = 'free';
 
@@ -389,7 +408,9 @@ begin
   end if;
 
   -- The subscription row was never rewritten -- that is the entire point.
-  if (select plan_id from public.shop_subscriptions where shop_id = v_shop_id) <> v_free_id then
+  -- "is distinct from" (not <>) so a missing row -- NULL, not v_free_id --
+  -- fails this check instead of silently passing.
+  if (select plan_id from public.shop_subscriptions where shop_id = v_shop_id) is distinct from v_free_id then
     raise exception 'FAIL: retirement rewrote plan_id instead of resolving at read time';
   end if;
 
