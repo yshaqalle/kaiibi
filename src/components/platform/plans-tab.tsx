@@ -1,17 +1,19 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { planColor } from '@/components/platform-charts';
 import { PlanEditor } from '@/components/platform/plan-editor';
+import { PlanLifecycleModal } from '@/components/platform/plan-lifecycle-modal';
 import { PlanRetireModal } from '@/components/platform/plan-retire-modal';
 import { Chip, PlatformButton, PlatformModal } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
 import { Card } from '@/components/card';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Caveat } from '@/components/ui/caveat';
-import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
+import { BENTO_RADIUS, BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
+import { canArchivePlan, canPublishPlan } from '@/lib/plan-lifecycle';
 import type { PlatformShopRow } from '@/lib/platform';
 import type { Plan } from '@/lib/subscriptions';
 
@@ -33,6 +35,7 @@ const theme = Colors.light;
 
 export function PlansTab({
   plans,
+  archivedPlans,
   shops,
   compact,
   pendingRequestsByPlanKey,
@@ -40,6 +43,7 @@ export function PlansTab({
   onDone,
 }: {
   plans: Plan[];
+  archivedPlans: Plan[];
   shops: PlatformShopRow[];
   compact: boolean;
   pendingRequestsByPlanKey: Record<string, number>;
@@ -50,42 +54,100 @@ export function PlansTab({
   const editingPlan = plans.find((p) => p.key === editing) ?? null;
   const [retiring, setRetiring] = useState<string | null>(null);
   const retiringPlan = plans.find((p) => p.key === retiring) ?? null;
+  const [creating, setCreating] = useState(false);
+  const [lifecycle, setLifecycle] = useState<{ mode: 'publish' | 'archive' | 'restore'; planKey: string } | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const lifecyclePlan = lifecycle
+    ? ([...plans, ...archivedPlans].find((p) => p.key === lifecycle.planKey) ?? null)
+    : null;
 
-  // The span that leaves no orphan on the last row. Four tiers at span 4 puts
-  // three across and strands the fourth alone, which is what shipped first;
-  // 2x2 compares just as well and does not look broken. Four across was the
-  // other option and is worse — these cards carry twelve module pills and six
-  // limit tiles, and at a quarter of the width they wrap into columns of soup.
-  const span = plans.length === 1 ? 12 : plans.length === 2 || plans.length === 4 ? 6 : 4;
+  // The span that leaves no orphan on the last row -- counting the ghost
+  // "new plan" cell, which takes a normal grid slot. Three plans + ghost = 4
+  // slots = 2x2; four across is worse -- these cards carry twelve module
+  // pills and six limit tiles, and at a quarter of the width they wrap into
+  // columns of soup.
+  const slots = plans.length + 1;
+  const span = slots === 1 ? 12 : slots === 2 || slots === 4 ? 6 : 4;
 
   return (
     <View>
       <BentoGrid>
-        {plans.map((plan, i) => (
-          <BentoCell key={plan.id} span={span}>
-            <PlanCard
-              plan={plan}
-              accent={planColor(plan.key, i)}
-              // Stored, not effective: this card is about the plan RECORD --
-              // how many subscriptions still point here and how much money it
-              // brings in -- not about who is currently enforced under it.
-              // Keyed off effective plan, a retired tier's card would read "0
-              // stores" forever, which is exactly wrong for the strip below
-              // that still needs to say how many are moving.
-              shopsOn={shops.filter((s) => s.storedPlanKey === plan.key).length}
-              revenue={plan.priceCents * shops.filter((s) => s.storedPlanKey === plan.key && s.status === 'active').length}
-              successorName={plans.find((p) => p.key === plan.successorPlanKey)?.name ?? null}
-              onEdit={() => setEditing(plan.key)}
-              onRetire={() => setRetiring(plan.key)}
-            />
-          </BentoCell>
-        ))}
+        {plans.map((plan, i) => {
+          // Stored, not effective: this card is about the plan RECORD --
+          // how many subscriptions still point here and how much money it
+          // brings in -- not about who is currently enforced under it.
+          // Keyed off effective plan, a retired tier's card would read "0
+          // stores" forever, which is exactly wrong for the strip below
+          // that still needs to say how many are moving. It is also the
+          // count archive_plan checks, which is what lets canArchivePlan
+          // mirror the server guard exactly.
+          const storedShopsOn = shops.filter((s) => s.storedPlanKey === plan.key).length;
+          return (
+            <BentoCell key={plan.id} span={span}>
+              <PlanCard
+                plan={plan}
+                accent={planColor(plan.key, i)}
+                shopsOn={storedShopsOn}
+                revenue={plan.priceCents * shops.filter((s) => s.storedPlanKey === plan.key && s.status === 'active').length}
+                successorName={plans.find((p) => p.key === plan.successorPlanKey)?.name ?? null}
+                onEdit={() => setEditing(plan.key)}
+                onRetire={() => setRetiring(plan.key)}
+                onPublish={canPublishPlan(plan) ? () => setLifecycle({ mode: 'publish', planKey: plan.key }) : null}
+                onArchive={
+                  canArchivePlan(plan, { storedShopsOn, postTrialPlanKey, plans })
+                    ? () => setLifecycle({ mode: 'archive', planKey: plan.key })
+                    : null
+                }
+              />
+            </BentoCell>
+          );
+        })}
+
+        <BentoCell span={span}>
+          <Pressable onPress={() => setCreating(true)} style={styles.ghost}>
+            <Text style={styles.ghostPlus}>＋</Text>
+            <Text style={styles.ghostTitle}>New plan</Text>
+            <Text style={styles.ghostHint}>Starts hidden — publish it when it&apos;s ready</Text>
+          </Pressable>
+        </BentoCell>
       </BentoGrid>
 
       <Caveat tone="context">
         Editing a tier changes entitlements for every store on it at once. Removing a module makes that data read-only
         for them immediately; lowering a cap keeps their existing records and blocks new ones.
       </Caveat>
+
+      {/* The way back through the active=false door. Rows offer Restore and
+          nothing else -- no Edit, which is what keeps updated_at an honest
+          "archived" date. */}
+      {archivedPlans.length > 0 ? (
+        <Card variant="bento" style={styles.archStrip}>
+          <Pressable onPress={() => setShowArchived((v) => !v)} style={styles.archHead}>
+            <Text style={styles.archCaret}>{showArchived ? '▾' : '▸'}</Text>
+            <Text style={styles.archTitle}>Archived · {archivedPlans.length}</Text>
+          </Pressable>
+          {showArchived
+            ? archivedPlans.map((p) => (
+                <View key={p.id} style={styles.archRow}>
+                  <View style={styles.archInfo}>
+                    <Text style={styles.archName} numberOfLines={1}>
+                      {p.name} <Text style={styles.archKey}>{p.key}</Text>
+                    </Text>
+                    <Text style={styles.archMeta} numberOfLines={1}>
+                      {p.priceCents === 0 ? '$0' : `${formatCents(p.priceCents)}/${p.billingInterval ?? 'month'}`}
+                      {' · archived '}
+                      {new Date(p.updatedAt).toLocaleDateString()}
+                      {p.successorPlanKey
+                        ? ` · was retired into ${plans.find((a) => a.key === p.successorPlanKey)?.name ?? p.successorPlanKey}`
+                        : ''}
+                    </Text>
+                  </View>
+                  <PlatformButton label="Restore" onPress={() => setLifecycle({ mode: 'restore', planKey: p.key })} />
+                </View>
+              ))
+            : null}
+        </Card>
+      ) : null}
 
       {/* A modal, not an inline swap: the editor is a form, and dropping a form
           into a row-laid-out card list mangled both. */}
@@ -123,6 +185,27 @@ export function PlansTab({
           />
         </PlatformModal>
       ) : null}
+
+      {creating ? (
+        <PlatformModal title="New plan" compact={compact} onClose={() => setCreating(false)}>
+          <PlanEditor plan={null} shopsOn={0} shops={shops} onClose={() => setCreating(false)} onDone={onDone} />
+        </PlatformModal>
+      ) : null}
+
+      {lifecycle && lifecyclePlan ? (
+        <PlatformModal
+          title={`${{ publish: 'Publish', archive: 'Archive', restore: 'Restore' }[lifecycle.mode]} ${lifecyclePlan.name}`}
+          compact={compact}
+          onClose={() => setLifecycle(null)}
+        >
+          <PlanLifecycleModal
+            mode={lifecycle.mode}
+            plan={lifecyclePlan}
+            onClose={() => setLifecycle(null)}
+            onDone={onDone}
+          />
+        </PlatformModal>
+      ) : null}
     </View>
   );
 }
@@ -146,6 +229,8 @@ function PlanCard({
   successorName,
   onEdit,
   onRetire,
+  onPublish,
+  onArchive,
 }: {
   plan: Plan;
   accent: string;
@@ -154,6 +239,8 @@ function PlanCard({
   successorName: string | null;
   onEdit: () => void;
   onRetire: () => void;
+  onPublish: (() => void) | null;
+  onArchive: (() => void) | null;
 }) {
   // Past the date the countdown has nothing left to count -- said outright
   // rather than as "0 days", which would read as a countdown still running.
@@ -181,6 +268,10 @@ function PlanCard({
         </View>
         <View style={styles.headButtons}>
           <PlatformButton label="Edit" onPress={onEdit} />
+          {/* Handlers arrive null when the matching server guard would
+              reject -- the same only-offer-what-the-server-takes rule the
+              Retire button below already follows. */}
+          {onPublish ? <PlatformButton label="Publish" onPress={onPublish} /> : null}
           {/* Retire only where the server will actually take it: retire_plan
               rejects any plan whose is_public is already false (Trial, or
               anything already retiring) -- offering the button there is
@@ -190,6 +281,7 @@ function PlanCard({
           {plan.retireAt || plan.isPublic ? (
             <PlatformButton label={plan.retireAt ? 'Republish' : 'Retire'} onPress={onRetire} />
           ) : null}
+          {onArchive ? <PlatformButton label="Archive" onPress={onArchive} /> : null}
         </View>
       </View>
 
@@ -312,4 +404,21 @@ const styles = StyleSheet.create({
   // things rather than six absent limits. The glyph already says it.
   limitValue: { fontSize: 14, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
   limitLabel: { fontSize: 9.5, color: theme.bentoMuted, marginTop: 1 },
+
+  // Deliberately not a Card: the dashed outline says "a slot, not a tier",
+  // which is the one job edge decoration has on this grid.
+  ghost: { flex: 1, borderWidth: 1.5, borderStyle: 'dashed', borderColor: theme.bentoLine, borderRadius: BENTO_RADIUS, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 26, minHeight: 150 },
+  ghostPlus: { fontSize: 22, fontWeight: '800', color: theme.bentoMuted },
+  ghostTitle: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk2 },
+  ghostHint: { fontSize: 10.5, color: theme.bentoMuted2, textAlign: 'center', maxWidth: 200 },
+
+  archStrip: { marginTop: 14, paddingVertical: 6, paddingHorizontal: 16 },
+  archHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
+  archCaret: { fontSize: 9, color: theme.bentoMuted2 },
+  archTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, color: theme.bentoMuted2, textTransform: 'uppercase' },
+  archRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 11, borderTopWidth: 1, borderTopColor: theme.bentoLine },
+  archInfo: { flexShrink: 1 },
+  archName: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  archKey: { fontSize: 11, fontWeight: '400', color: theme.bentoMuted },
+  archMeta: { fontSize: 10.5, color: theme.bentoMuted, marginTop: 1 },
 });
