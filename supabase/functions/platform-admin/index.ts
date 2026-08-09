@@ -397,6 +397,21 @@ Deno.serve(async (req) => {
           planPayload.is_public = false;
         }
 
+        if (!body.create) {
+          // Without this, an edit-shaped call with an unknown key would
+          // INSERT (upsert semantics) a row born with the column default
+          // is_public = true -- the exact public-before-reviewed path create
+          // mode exists to close. Editing creates nothing.
+          if (!before) {
+            return errorResponse(400, 'unknown', 'No such plan. Pass create: true to create one.');
+          }
+          // updated_at is the archived strip's "archived" date, and the strip
+          // offers no Edit -- keep that honest server-side too.
+          if (!before.active) {
+            return errorResponse(409, 'plan_archived', `${before.name} is archived. Restore it before editing.`);
+          }
+        }
+
         const { data: after, error } = await adminClient
           .from('plans')
           .upsert({ ...planPayload, updated_at: new Date().toISOString() }, { onConflict: 'key' })
@@ -786,8 +801,13 @@ Deno.serve(async (req) => {
         // retire_plan refuses an inactive successor at set time; this closes
         // the same hole from the other side -- an in-flight retirement must
         // not sweep its stores onto an archived plan on the retire date.
+        // Active pointers only: an archived plan's successor pointer is inert
+        // -- the archive guard proved it had zero subscriptions, and being
+        // retired or hidden it can never gain any -- so it must not block,
+        // and the client's canArchivePlan (which scans active plans) stays an
+        // exact mirror.
         const { data: pointing, error: pointingError } = await adminClient
-          .from('plans').select('name').eq('successor_plan_key', body.planKey);
+          .from('plans').select('name').eq('successor_plan_key', body.planKey).eq('active', true);
         if (pointingError) return errorResponse(500, 'unknown', pointingError.message);
         if (pointing && pointing.length > 0) {
           return errorResponse(

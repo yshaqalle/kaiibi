@@ -66,9 +66,13 @@ the payload and the audit shape are identical. When set:
 - the insert forces `is_public = false` — not accepted from the client at
   all, so "created hidden" is a server property, not a portal convention
 
-Edit mode is untouched: `is_public` stays off the allowlist there, so the
-existing "no second door to publishing" property holds — publishing goes through
-`publish_plan` and its guards or not at all.
+Edit mode keeps `is_public` off the allowlist, so the existing "no second
+door to publishing" property holds — publishing goes through `publish_plan`
+and its guards or not at all. Two guards tighten it: an edit-shaped call
+with an unknown key is a 400 rather than an insert (upsert semantics would
+otherwise mint a row born `is_public = true`, the exact path create mode
+closes), and editing an archived plan is a 409 — `updated_at` is the
+archived strip's "archived" date, and the strip offers no Edit.
 
 ### `publish_plan` — `{ planKey }`
 
@@ -95,10 +99,13 @@ Sets `active = false`, nothing else. Rejects when:
   neither do we
 - it is `platform_settings.post_trial_plan_key` — lapsed stores resolve through
   that key on every entitlement read
-- **any plan's `successor_plan_key` names it** — an in-flight retirement would
-  sweep its stores onto an inactive plan on the retire date. (`retire_plan`
-  already refuses an inactive successor at set time; this closes the same hole
-  from the other side.)
+- **any active plan's `successor_plan_key` names it** — an in-flight
+  retirement would sweep its stores onto an inactive plan on the retire
+  date. An archived plan's own pointer is inert (it archived at zero
+  subscriptions and, being retired or hidden, can never gain any), so it
+  does not block; the scan filters to active rows, keeping the client's
+  active-plans mirror exact. (`retire_plan` already refuses an inactive
+  successor at set time; this closes the same hole from the other side.)
 - **the key is `trial`** — the provisioning trigger selects it by key at every
   shop creation; archiving it breaks signup platform-wide
 

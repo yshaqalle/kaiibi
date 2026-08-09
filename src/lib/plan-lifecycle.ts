@@ -43,6 +43,9 @@ export function canArchivePlan(
     plan.key !== ctx.postTrialPlanKey &&
     ctx.storedShopsOn === 0 &&
     // An in-flight retirement must not sweep stores onto an archived plan.
+    // Callers pass ACTIVE plans: an archived plan's successor pointer is
+    // inert (zero subscriptions, and retired/hidden plans can never gain
+    // any), and archive_plan's scan filters to active rows to match.
     !ctx.plans.some((p) => p.successorPlanKey === plan.key)
   );
 }
