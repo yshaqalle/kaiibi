@@ -168,7 +168,7 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'set_plan': {
         if (!body.shopId || !body.planKey) return errorResponse(400, 'unknown', 'shopId and planKey are required.');
-        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key, name, retire_at').eq('key', body.planKey).maybeSingle();
+        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key, name, retire_at, active').eq('key', body.planKey).maybeSingle();
         if (planError) return errorResponse(500, 'unknown', planError.message);
         if (!plan) return errorResponse(400, 'unknown', 'No such plan.');
         // Same hole approve_plan_change was hardened against: a retiring plan
@@ -182,6 +182,14 @@ Deno.serve(async (req) => {
             'plan_retiring',
             `${plan.name} is being retired, so stores cannot be moved onto it. Move them to its successor instead.`
           );
+        }
+        // An archived retired plan is already caught by the retire_at guard
+        // above (nothing but republish clears retire_at), but an archived
+        // never-launched draft has retire_at = null and would slip through --
+        // pointing a subscription at an inactive plan by a path that skips
+        // every archive_plan guard.
+        if (!plan.active) {
+          return errorResponse(409, 'plan_archived', `${plan.name} is archived, so stores cannot be moved onto it.`);
         }
 
         const before = await loadSubscription(body.shopId);
@@ -890,7 +898,7 @@ Deno.serve(async (req) => {
         // we are shutting down. Declining still works; only approval is refused.
         if (action === 'approve_plan_change') {
           const { data: requestedPlan, error: requestedPlanError } = await adminClient
-            .from('plans').select('name, retire_at').eq('id', request.requested_plan_id).maybeSingle();
+            .from('plans').select('name, retire_at, active').eq('id', request.requested_plan_id).maybeSingle();
           // Fail closed: if this read errors, `requestedPlan` would otherwise
           // be undefined and the retiring-plan guard below would silently not
           // fire, approving the move as if the plan were fine. A guard that
@@ -903,6 +911,11 @@ Deno.serve(async (req) => {
               'plan_retiring',
               `${requestedPlan.name} is being retired, so stores cannot be moved onto it. Decline this and move them to its successor instead.`
             );
+          }
+          // Same reasoning as set_plan's active guard: an archived
+          // never-retired draft passes the retire_at check above.
+          if (requestedPlan && !requestedPlan.active) {
+            return errorResponse(409, 'plan_archived', `${requestedPlan.name} is archived, so stores cannot be moved onto it. Decline this request.`);
           }
         }
 
