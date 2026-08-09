@@ -20,9 +20,6 @@ export function useHardwareKeyboard(): boolean | null {
     const module = getHardwareKeyboardModule();
     if (Platform.OS === 'web' || !module) return;
 
-    // Re-read on mount as well as subscribing: the answer can have changed
-    // between module load and this screen appearing.
-    setAttached(read());
     const subscription = module.addListener('onChange', (event) => setAttached(event.attached));
     return () => subscription.remove();
   }, []);

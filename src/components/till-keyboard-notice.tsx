@@ -4,6 +4,7 @@ import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
 import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
 
 // A keyboard is plugged into this till and the store has not switched scanning
 // on. Usually that is a shop that bought a scanner, connected it, and never
@@ -21,14 +22,15 @@ import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
 // someone holding a keyboard tablet is a bug they can see.
 export function TillKeyboardNotice() {
   const router = useRouter();
-  const { activeLocation, can } = useAuth();
+  const { can } = useAuth();
   const attached = useHardwareKeyboard();
+  const scanner = useScannerSettings();
   const note = useCaveatDismissal('till.keyboard-detected', 'v1');
 
   // `=== true` and not truthiness: `null` means detection could not answer, and
   // an unknown answer must never produce advice.
   if (attached !== true) return null;
-  if (activeLocation?.hardwareScannerEnabled) return null;
+  if (scanner.hardwareSetting) return null;
   // Nobody who cannot act on it should be told about it.
   if (!can('settings.access')) return null;
   if (note.dismissed) return null;

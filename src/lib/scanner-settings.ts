@@ -7,6 +7,8 @@ export type ScannerSettings = {
   resolveCodes: boolean;
   /** Replace the system keyboard with our own on this device. */
   onScreenKeypad: boolean;
+  /** The raw store setting, before detection is applied. */
+  hardwareSetting: boolean;
 };
 
 /**
@@ -40,5 +42,6 @@ export function resolveScannerSettings({
     hardware: hardwareSetting && (keyboardAttached ?? true),
     resolveCodes: camera || hardwareSetting,
     onScreenKeypad: hardwareSetting && keyboardAttached === true,
+    hardwareSetting,
   };
 }

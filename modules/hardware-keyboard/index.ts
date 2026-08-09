@@ -12,14 +12,18 @@ export declare class HardwareKeyboardModule extends NativeModule<HardwareKeyboar
 // native half is missing -- which is the ordinary case for a JS bundle loaded
 // into a binary built before this module existed. That must degrade to "we
 // cannot answer", not take the app down on import.
-let cached: HardwareKeyboardModule | null | undefined;
+//
+// Only a SUCCESSFUL lookup is cached. Caching a failure too would mean one
+// early miss -- e.g. called before the native side finishes registering --
+// disables detection for the rest of the process with no way to recover.
+let cached: HardwareKeyboardModule | undefined;
 
 export function getHardwareKeyboardModule(): HardwareKeyboardModule | null {
   if (cached === undefined) {
     try {
       cached = requireNativeModule<HardwareKeyboardModule>('HardwareKeyboard');
     } catch {
-      cached = null;
+      return null;
     }
   }
   return cached;

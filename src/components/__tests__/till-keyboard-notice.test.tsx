@@ -14,8 +14,16 @@ let mockDismissed = false;
 jest.mock('@/hooks/use-hardware-keyboard', () => ({ useHardwareKeyboard: () => mockAttached }));
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
-    activeLocation: { hardwareScannerEnabled: mockSettingOn },
     can: () => mockPermitted,
+  }),
+}));
+jest.mock('@/hooks/use-scanner-settings', () => ({
+  useScannerSettings: () => ({
+    camera: false,
+    hardware: mockSettingOn,
+    resolveCodes: mockSettingOn,
+    onScreenKeypad: false,
+    hardwareSetting: mockSettingOn,
   }),
 }));
 jest.mock('@/hooks/use-caveat-dismissal', () => ({

@@ -28,6 +28,7 @@ export function SearchRow({
   showScanButton,
   onScanPress,
   showSearchIcon = false,
+  size = 'desk',
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -39,6 +40,12 @@ export function SearchRow({
   onScanPress?: () => void;
   /** POS draws a leading glyph; Inventory does not. Keeps both looking as they do. */
   showSearchIcon?: boolean;
+  /**
+   * `counter` is the POS register: a bigger field and a bigger scan target,
+   * because it is read at arm's length in shop lighting and pressed at a
+   * counter rather than at a desk. `desk` is Inventory's.
+   */
+  size?: 'desk' | 'counter';
 }) {
   const [keypadOpen, setKeypadOpen] = useState(false);
 
@@ -49,10 +56,17 @@ export function SearchRow({
     if (!useKeypad) setKeypadOpen(false);
   }, [useKeypad]);
 
-  const icon = showSearchIcon ? <Text style={styles.icon}>⌕</Text> : null;
+  const counter = size === 'counter';
+  const icon = showSearchIcon ? (
+    <Text style={[styles.icon, counter && styles.iconCounter]}>⌕</Text>
+  ) : null;
   const scanButton = showScanButton ? (
-    <Pressable onPress={onScanPress} style={styles.scanButton} accessibilityLabel="Scan a barcode">
-      <Text style={styles.scanGlyph}>⛶</Text>
+    <Pressable
+      onPress={onScanPress}
+      style={[styles.scanButton, counter && styles.scanButtonCounter]}
+      accessibilityLabel="Scan a barcode"
+    >
+      <Text style={[styles.scanGlyph, counter && styles.scanGlyphCounter]}>⛶</Text>
     </Pressable>
   ) : null;
 
@@ -65,7 +79,7 @@ export function SearchRow({
           onChangeText={onChange}
           placeholder={placeholder}
           placeholderTextColor={theme.bentoMuted2}
-          style={[styles.field, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan]}
+          style={[styles.field, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
           onSubmitEditing={onSubmit}
           // A wedge scanner fires this on its trailing Enter; keeping focus
           // means the next scan lands here too instead of nowhere.
@@ -85,7 +99,7 @@ export function SearchRow({
         {icon}
         <Pressable
           onPress={() => setKeypadOpen(true)}
-          style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan]}
+          style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
           accessibilityRole="search"
         >
           {value ? (
@@ -94,6 +108,9 @@ export function SearchRow({
             // Says what it is: a thing you tap, with no cursor of its own.
             <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
           )}
+          {/* Our own caret: this is a Pressable, not a text input, so there is
+              no system caret to show that it is receiving keys. */}
+          {keypadOpen ? <View style={styles.caret} /> : null}
         </Pressable>
         {scanButton}
       </View>
@@ -134,12 +151,18 @@ const styles = StyleSheet.create({
   fieldTappable: { borderStyle: 'dashed' },
   fieldWithScan: { paddingRight: 46 },
   fieldWithIcon: { paddingLeft: 34 },
+  // POS: bigger field, read at arm's length in shop lighting rather than at a
+  // desk. Layered over `field` (and `fieldWithIcon`/`fieldWithScan`), so the
+  // desk sizes above stay visible and this doesn't need to repeat them.
+  fieldCounter: { height: 52, paddingLeft: 42, paddingRight: 54, fontSize: 15 },
   icon: { position: 'absolute', left: 13, fontSize: 15, color: theme.bentoMuted2, zIndex: 1 },
+  iconCounter: { left: 16, fontSize: 18 },
   live: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 12, paddingLeft: 2 },
   liveDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.bentoProfit },
   liveLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: theme.bentoProfit },
   text: { fontSize: 13, fontWeight: '600', color: theme.bentoInk },
   prompt: { fontSize: 13, color: theme.bentoMuted2 },
+  caret: { width: 2, height: 16, backgroundColor: theme.bentoSeries1 },
   scanButton: {
     position: 'absolute',
     right: 6,
@@ -150,5 +173,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scanGlyph: { fontSize: 15, lineHeight: 15, color: theme.bentoSurface },
+  // Bigger than Inventory's, and black: scanning is the fastest way to find a
+  // product here, and this is pressed at a counter rather than at a desk.
+  scanButtonCounter: { height: 40, width: 40, borderRadius: 20, right: 6 },
+  scanGlyph: {
+    fontSize: 15,
+    lineHeight: 15,
+    color: theme.bentoSurface,
+    // The ⛶ glyph has generous font metrics and drifts off-centre in the
+    // circle on Android without these.
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  scanGlyphCounter: { fontSize: 17, lineHeight: 17 },
 });

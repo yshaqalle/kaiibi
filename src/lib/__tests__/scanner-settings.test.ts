@@ -52,4 +52,13 @@ describe('resolveScannerSettings', () => {
     const s = resolveScannerSettings({ camera: false, hardwareSetting: false, keyboardAttached: true });
     expect(s.resolveCodes).toBe(false);
   });
+
+  // The raw store setting, independent of detection -- a caller that needs to
+  // know what the store asked for rather than what this device can do.
+  it('passes hardwareSetting through unchanged, regardless of detection', () => {
+    for (const keyboardAttached of [true, false, null]) {
+      expect(resolveScannerSettings({ ...base, hardwareSetting: true, keyboardAttached }).hardwareSetting).toBe(true);
+      expect(resolveScannerSettings({ ...base, hardwareSetting: false, keyboardAttached }).hardwareSetting).toBe(false);
+    }
+  });
 });

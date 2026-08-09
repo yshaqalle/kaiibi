@@ -1,4 +1,4 @@
-import { Text, TextInput } from 'react-native';
+import { StyleSheet, Text, TextInput } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { SearchRow } from '@/components/search-row';
@@ -97,5 +97,47 @@ describe('SearchRow', () => {
 
     rerender(true);
     expect(tree.root.findAllByType(SearchKeypad)).toHaveLength(0);
+  });
+
+  // POS's field is deliberately bigger than Inventory's -- read at arm's
+  // length in shop lighting rather than at a desk. This locks the relative
+  // size in so a future edit to the shared row can't silently flatten it.
+  it('makes the counter field taller than the desk field', () => {
+    const fieldHeight = (tree: ReactTestRenderer) => {
+      const field = tree.root.findAllByType(TextInput)[0];
+      const flat = StyleSheet.flatten(field.props.style);
+      return flat.height;
+    };
+
+    let deskTree: ReactTestRenderer | undefined;
+    act(() => {
+      deskTree = create(
+        <SearchRow
+          value=""
+          onChange={jest.fn()}
+          onSubmit={jest.fn()}
+          placeholder="Search"
+          useKeypad={false}
+          showScanButton={false}
+        />,
+      );
+    });
+
+    let counterTree: ReactTestRenderer | undefined;
+    act(() => {
+      counterTree = create(
+        <SearchRow
+          value=""
+          onChange={jest.fn()}
+          onSubmit={jest.fn()}
+          placeholder="Search"
+          useKeypad={false}
+          showScanButton={false}
+          size="counter"
+        />,
+      );
+    });
+
+    expect(fieldHeight(counterTree!)).toBeGreaterThan(fieldHeight(deskTree!));
   });
 });

@@ -572,6 +572,7 @@ export default function PosScreen() {
         showScanButton={scanner.camera}
         onScanPress={() => setScannerOpen(true)}
         showSearchIcon
+        size="counter"
       />
       <ScanFeedbackBanner feedback={scanFeedback} />
       {unknownCode && (
