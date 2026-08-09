@@ -1,0 +1,814 @@
+<title>Kaiibi — Help &amp; support: one form for bugs, questions, billing and ideas</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every --d-* value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,.h2sub code,td code,li code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:20px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;}
+  .frameHead.now b{color:var(--mut);}
+  .frameHead.next b{color:var(--blue);}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;min-width:392px;}
+  .frame.dim{background:#dededf;}
+  .pair{display:grid;gap:26px;}
+  @media (min-width:1000px){ .pair{grid-template-columns:1fr 1fr;} }
+  .pair > div{min-width:0;}
+  .trio{display:grid;gap:26px;}
+  @media (min-width:1080px){ .trio{grid-template-columns:1fr 1fr 1fr;} }
+  .trio > div{min-width:0;}
+
+  /* ---------- generic bento card ---------- */
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .card + .card{margin-top:14px;}
+
+  /* ---------- the ☰ sheet ---------- */
+  .menuSheet{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:12px;
+    padding:6px 0;max-width:230px;margin-left:auto;overflow:hidden;}
+  .menuRow{display:flex;align-items:center;gap:9px;padding:12px 14px;font-size:14px;font-weight:700;color:var(--d-ink);}
+  .menuRow .gl{font-size:15px;width:17px;text-align:center;}
+  .menuRow.newRow{background:var(--accentWash);}
+  .menuRow.newRow .lbl{color:var(--accentInk);}
+  .menuDiv{height:1px;background:var(--d-ln);}
+  .topbar{display:flex;align-items:center;justify-content:flex-end;gap:14px;
+    background:var(--d-sf);border-bottom:1px solid var(--d-ln);border-radius:12px 12px 0 0;padding:11px 16px;margin-bottom:10px;}
+  .locPill{border:1px solid var(--d-rule);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:700;color:var(--d-ink2);}
+  .burger{background:var(--d-soft);border-radius:8px;padding:6px 10px;font-size:15px;line-height:1;}
+
+  /* ---------- the support sheet ---------- */
+  .sheet{background:var(--d-sf);border-radius:26px;overflow:hidden;}
+  .sheetHead{padding:18px 20px 14px;border-bottom:1px solid var(--d-ln);
+    display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .sheetTitle{font-size:19px;font-weight:800;letter-spacing:-.4px;color:var(--d-ink);margin:0;}
+  .sheetSub{font-size:12.5px;color:var(--d-mut);margin:3px 0 0;max-width:46ch;}
+  .x{font-size:15px;color:var(--d-mut);flex-shrink:0;line-height:1;padding-top:3px;}
+  .sheetBody{padding:16px 20px 4px;max-height:none;}
+  .sheetFoot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+    padding:14px 20px;border-top:1px solid var(--d-ln);background:var(--d-sf);}
+
+  .lab{font-size:9.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut2);margin:18px 0 8px;}
+  .lab:first-child{margin-top:0;}
+  .lab .opt{font-weight:700;letter-spacing:.4px;text-transform:none;color:var(--d-mut2);opacity:.75;}
+
+  /* identity strip */
+  .who{background:var(--d-soft);border-radius:16px;padding:13px 15px;display:flex;gap:12px;align-items:flex-start;}
+  .avatar{width:38px;height:38px;border-radius:19px;background:var(--accentWash);color:var(--accentInk);
+    display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;flex-shrink:0;}
+  .whoText{min-width:0;flex:1;}
+  .whoName{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .whoLine{font-size:11.5px;color:var(--d-mut);}
+  .auto{margin-top:9px;padding-top:9px;border-top:1px solid var(--d-rule);font-size:10.5px;color:var(--d-mut2);}
+  .auto b{font-weight:800;color:var(--d-mut);}
+
+  /* category chips */
+  .cats{display:flex;flex-wrap:wrap;gap:7px;}
+  .cat{border:1px solid var(--d-rule);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:700;
+    color:var(--d-ink2);display:inline-flex;align-items:center;gap:6px;background:var(--d-sf);}
+  .cat .gl{font-size:12px;}
+  .cat.on{background:var(--accentWash);border-color:transparent;color:var(--accentInk);font-weight:800;}
+
+  /* fields */
+  .in{border:1px solid var(--d-rule);border-radius:12px;padding:11px 13px;font-size:13.5px;color:var(--d-ink);background:var(--d-sf);}
+  .in.ph{color:var(--d-mut2);}
+  .in.area{min-height:96px;white-space:pre-wrap;}
+  .in.area.tall{min-height:120px;}
+  .caret{display:inline-block;width:1.5px;height:14px;background:var(--c1);vertical-align:-2px;margin-left:1px;}
+  .hint{font-size:11px;color:var(--d-mut2);margin-top:6px;}
+  .count{font-size:10.5px;color:var(--d-mut2);float:right;}
+
+  /* attachments */
+  .drop{border:1.5px dashed var(--d-rule);border-radius:16px;padding:18px;text-align:center;color:var(--d-mut2);}
+  .drop b{display:block;font-size:12.5px;font-weight:800;color:var(--d-ink2);margin-bottom:2px;}
+  .drop span{font-size:11px;}
+  .attRow{display:flex;gap:9px;flex-wrap:wrap;}
+  .thumb{width:78px;height:78px;border-radius:12px;background:var(--d-soft);border:1px solid var(--d-ln);
+    position:relative;display:flex;align-items:flex-end;padding:6px;overflow:hidden;}
+  .thumb .img{position:absolute;inset:0;background:
+    repeating-linear-gradient(135deg,#e9e9ee 0 7px,#f4f4f7 7px 14px);}
+  .thumb .nm{position:relative;font-size:9px;font-weight:700;color:var(--d-mut);background:rgba(255,255,255,.85);
+    border-radius:5px;padding:1px 4px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .thumb .rm{position:absolute;top:4px;right:4px;width:17px;height:17px;border-radius:9px;background:var(--d-ink);
+    color:#fff;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:800;}
+  .fileRow{display:flex;align-items:center;gap:9px;border:1px solid var(--d-ln);border-radius:12px;padding:9px 11px;flex:1;min-width:190px;}
+  .fileRow .ic{font-size:15px;}
+  .fileRow .fn{font-size:12px;font-weight:700;color:var(--d-ink2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .fileRow .sz{font-size:10.5px;color:var(--d-mut2);}
+  .fileRow .rm{font-size:11px;color:var(--d-mut2);font-weight:800;}
+  .bar{height:4px;border-radius:999px;background:var(--d-ln);overflow:hidden;margin-top:6px;}
+  .bar i{display:block;height:100%;background:var(--c1);border-radius:999px;}
+
+  /* radios */
+  .radios{display:flex;gap:9px;flex-wrap:wrap;}
+  .radio{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--d-rule);border-radius:12px;
+    padding:9px 13px;font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .radio .dot{width:14px;height:14px;border-radius:7px;border:1.5px solid var(--d-rule);flex-shrink:0;}
+  .radio.on{border-color:var(--c1);color:var(--d-ink);}
+  .radio.on .dot{border-color:var(--c1);background:radial-gradient(circle,var(--c1) 0 4px,transparent 4px);}
+  .radio .sub{font-weight:600;color:var(--d-mut2);font-size:11px;}
+
+  /* buttons */
+  .btn{border:1px solid var(--d-rule);background:var(--d-sf);color:var(--d-ink2);border-radius:999px;
+    padding:9px 17px;font-size:12.5px;font-weight:800;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;}
+  .btn.primary{background:var(--d-ink);border-color:var(--d-ink);color:#fff;}
+  .btn.primary.off{background:var(--d-soft);border-color:var(--d-ln);color:var(--d-mut2);}
+  .btn.ghost{border-color:transparent;color:var(--d-mut);}
+  .btn.sm{padding:6px 13px;font-size:11.5px;}
+  .btnRow{display:flex;gap:8px;align-items:center;}
+  .link{font-size:12px;font-weight:800;color:var(--accentInk);}
+
+  /* chips / status */
+  .chip{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 9px;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;display:inline-block;}
+  .chip.open{background:var(--accentWash);color:var(--accentInk);}
+  .chip.answered{background:#d9efe4;color:#007a38;}
+  .chip.closed{background:var(--d-soft);color:var(--d-mut2);}
+  .chip.warnChip{background:#fdf4e3;color:var(--warn);}
+  .chip.newChip{background:#fbeaec;color:#d12339;}
+
+  /* request list rows */
+  .reqRow{display:flex;align-items:center;gap:11px;padding:12px 0;border-top:1px solid var(--d-rule);}
+  .reqRow:first-of-type{border-top:none;}
+  .reqMain{flex:1;min-width:0;}
+  .reqSubj{font-size:13px;font-weight:700;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .reqMeta{font-size:10.5px;color:var(--d-mut2);}
+  .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--d-mut);
+    background:var(--d-soft);padding:1px 5px;border-radius:4px;}
+
+  /* success state */
+  .tick{width:52px;height:52px;border-radius:26px;background:#d9efe4;color:#007a38;
+    display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;margin:0 auto 14px;}
+  .doneWrap{text-align:center;padding:26px 20px 8px;}
+  .doneTitle{font-size:18px;font-weight:800;color:var(--d-ink);letter-spacing:-.3px;}
+  .doneSub{font-size:12.5px;color:var(--d-mut);max-width:40ch;margin:6px auto 0;}
+  .refBig{display:inline-block;margin-top:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+    font-size:13px;font-weight:700;color:var(--d-ink2);background:var(--d-soft);border-radius:10px;padding:8px 14px;}
+
+  /* caveat */
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:16px;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav.wrong{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .cav.partial{border-color:var(--warn);background:#FDF4E3;color:#7A4E04;}
+  .cav .cavIcon{font-size:13px;line-height:1.35;}
+  .cav .cavText{font-size:12px;line-height:1.45;}
+  .cav .cavText b{font-weight:800;}
+
+  /* platform console frame */
+  .pillRow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
+  .tabPill{border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-mut);background:transparent;}
+  .tabPill.on{background:var(--d-sf);color:var(--d-ink);font-weight:800;}
+  .cardHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:12px;}
+  .cardTitle{font-size:15px;font-weight:800;color:var(--d-ink);letter-spacing:-.2px;}
+  .kpiRow{display:flex;gap:24px;flex-wrap:wrap;}
+  .kpi .v{font-size:22px;font-weight:800;color:var(--d-ink);letter-spacing:-.6px;font-variant-numeric:tabular-nums;}
+  .kpi .l{font-size:10.5px;color:var(--d-mut);}
+  .kpi .h{font-size:10px;color:var(--d-mut2);}
+  .eyeSm{font-size:10.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut);}
+  .bigTitle{font-size:26px;font-weight:800;letter-spacing:-1px;color:var(--d-ink);margin:2px 0 2px;}
+  .blurb{font-size:13px;color:var(--d-mut);margin:0 0 16px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:800;}
+  td b{font-weight:700;}
+  .tblWrap{overflow-x:auto;}
+
+  ul.tight{margin:10px 0 0;padding-left:20px;font-size:13.5px;color:var(--ink2);}
+  ul.tight li{margin-bottom:7px;}
+  ol.q{margin:14px 0 0;padding-left:22px;font-size:14px;}
+  ol.q li{margin-bottom:14px;}
+  ol.q b{display:block;font-weight:800;}
+  ol.q span{color:var(--ink2);font-size:13.5px;}
+  hr{border:none;border-top:1px solid var(--ln);margin:44px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · design mockup · 9 Aug 2026</p>
+<h1>Help &amp; support</h1>
+<p class="lede">One sheet, reachable from the ☰ on every screen, that turns "something is wrong and I don't
+know who to tell" into a ticket the platform can act on — with the shop, the person, the plan and the device
+already attached so nobody has to ask "which store are you?" first.</p>
+
+<div class="verdict">
+  <div class="vx good"><b>The form asks five things, not fifteen</b>
+    <p>Who you are, what plan you're on, what device you're holding and where you were standing are all already
+    known — they get attached, not asked. The person types a category, a subject, the story, and optionally drags
+    in a screenshot.</p></div>
+  <div class="vx good"><b>It is ungated</b>
+    <p>Settings in the ☰ is hidden from anyone without <code>settings.access</code>. Help is not. A cashier who
+    can't ring up a sale is exactly the person who most needs to reach us, and today their ☰ contains one item:
+    Sign out.</p></div>
+  <div class="vx mid"><b>The open question is what happens after Send</b>
+    <p>A form that goes nowhere visible is a black hole — people send once, hear nothing, and never send again.
+    Section 5 proposes the smallest thing that isn't a black hole. It is also the part that costs the most to
+    build, so it is the scope decision to make before anything is planned.</p></div>
+</div>
+
+<!-- ===================================================================== -->
+<section>
+<h2>1 · Getting there — the ☰ menu</h2>
+<p class="h2sub">The same three-line menu exists in three shells: <code>admin-sidebar.tsx</code> (wide),
+<code>admin-tabs.web.tsx</code> (mobile web) and <code>admin-tabs.tsx</code> (native). All three carry the same
+two rows today. All three get the same third row.</p>
+
+<div class="pair doc">
+  <div>
+    <p class="frameHead now"><b>Now</b> <i>owner</i></p>
+    <div class="frame">
+      <div class="topbar"><span class="locPill">Main branch ▾</span><span class="burger">☰</span></div>
+      <div class="menuSheet">
+        <div class="menuRow"><span class="gl">⚙</span><span class="lbl">Settings</span></div>
+        <div class="menuDiv"></div>
+        <div class="menuRow"><span class="gl"></span><span class="lbl">Sign out</span></div>
+      </div>
+      <p class="hint" style="text-align:right;margin-top:10px;">A cashier sees only "Sign out" — Settings is
+      gated on <code>settings.access</code>.</p>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead next"><b>Next</b> <i>same menu, every role</i></p>
+    <div class="frame">
+      <div class="topbar"><span class="locPill">Main branch ▾</span><span class="burger">☰</span></div>
+      <div class="menuSheet">
+        <div class="menuRow"><span class="gl">⚙</span><span class="lbl">Settings</span></div>
+        <div class="menuRow newRow"><span class="gl">✉</span><span class="lbl">Help &amp; support</span>
+          <span class="chip open" style="margin-left:auto;">1</span></div>
+        <div class="menuDiv"></div>
+        <div class="menuRow"><span class="gl"></span><span class="lbl">Sign out</span></div>
+      </div>
+      <p class="hint" style="text-align:right;margin-top:10px;">The count is unread replies. No replies, no chip
+      — see §5.</p>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:20px;"><b>Why under the ☰ and not in Settings' sidebar.</b> Settings is a
+destination you go to on purpose, and it is permission-gated; support is something you reach for at the moment
+something breaks, from whatever screen you were on when it broke. Putting it in the ☰ means it is two taps from
+the POS mid-sale, which is where the bug reports that matter actually happen. A Settings row would still be
+worth adding later as a signpost, but it can't be the only door.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>2 · The sheet, empty</h2>
+<p class="h2sub">One scrolling sheet, not a wizard. Five short things to give, read top to bottom, with the
+identity block first so it's clear from the outset that we already know who is writing.</p>
+
+<div class="doc" style="max-width:520px;">
+  <div class="scroller"><div class="frame">
+    <div class="sheet">
+      <div class="sheetHead">
+        <div>
+          <p class="sheetTitle">Help &amp; support</p>
+          <p class="sheetSub">Tell us what's going on. We read every message and usually reply the same working
+          day.</p>
+        </div>
+        <span class="x">✕</span>
+      </div>
+      <div class="sheetBody">
+
+        <p class="lab">Sent as</p>
+        <div class="who">
+          <div class="avatar">AH</div>
+          <div class="whoText">
+            <div class="whoName">Amina Hassan · Owner</div>
+            <div class="whoLine">Hooyo Grocery · Growth plan · Main branch</div>
+            <div class="whoLine">amina@hooyogrocery.so · +252 63 442 1180</div>
+            <div class="auto"><b>Attached automatically:</b> app 1.4.2 (build 118) · Android tablet ·
+            you were on POS · store id <code style="font-size:9.5px;">…4f21</code></div>
+          </div>
+        </div>
+
+        <p class="lab">What's this about?</p>
+        <div class="cats">
+          <span class="cat"><span class="gl">🐞</span>Something's broken</span>
+          <span class="cat"><span class="gl">💬</span>I need help using it</span>
+          <span class="cat"><span class="gl">💳</span>Billing or payment</span>
+          <span class="cat"><span class="gl">✨</span>Feature request</span>
+          <span class="cat"><span class="gl">🗒</span>Something else</span>
+        </div>
+
+        <p class="lab">Subject</p>
+        <div class="in ph">A short line — "Scanner stops after a refund"</div>
+
+        <p class="lab">Details</p>
+        <div class="in area ph">Pick a category above and we'll tell you what's most useful to include.</div>
+
+        <p class="lab">Attachments <span class="opt">— optional</span></p>
+        <div class="drop">
+          <b>Add a screenshot or file</b>
+          <span>Drag one in, or tap to choose. Up to 5 files, 10 MB each.</span>
+        </div>
+
+        <p class="lab">Reply to me on</p>
+        <div class="radios">
+          <span class="radio on"><span class="dot"></span>WhatsApp <span class="sub">+252 63 442 1180</span></span>
+          <span class="radio"><span class="dot"></span>Email <span class="sub">amina@hooyogrocery.so</span></span>
+          <span class="radio"><span class="dot"></span>In the app only</span>
+        </div>
+
+        <div style="height:16px;"></div>
+      </div>
+      <div class="sheetFoot">
+        <span class="link">Your requests (2) ›</span>
+        <span class="btnRow"><span class="btn ghost">Cancel</span><span class="btn primary off">Send</span></span>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<p class="note" style="margin-top:20px;"><b>Send is off until a category, a subject and details are all there.</b>
+Three required things, and the disabled button is the only thing telling you so — no red text on an untouched
+form. The validation message appears under whichever field is empty the first time Send is pressed.</p>
+
+<p class="note"><b>No priority picker.</b> Everyone chooses "urgent" — a self-declared priority field measures
+frustration, not impact. Urgency is inferred instead: <em>Billing or payment</em> and <em>Something's broken</em>
+from a shop whose POS is down are what a triage view sorts to the top (§6).</p>
+
+<p class="note"><b>"Reply to me on" is a real choice here, not a nicety.</b> WhatsApp is how these shops already
+talk to their customers — the codebase ships WhatsApp receipt sharing — and an emailed reply to a shop owner in
+Hargeisa may simply never be read. Defaulting to WhatsApp when a phone number is on the profile, and hiding that
+option when it isn't, is the difference between a reply that lands and one that doesn't.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>3 · The sheet, filled — and how the category changes it</h2>
+<p class="h2sub">The category is the only field that changes the form. It swaps the Details label and its
+prompt, so people are told what's useful <em>before</em> they type instead of being asked for it in a reply two
+days later.</p>
+
+<div class="pair doc">
+  <div>
+    <p class="frameHead next"><b>Something's broken</b> <i>bug</i></p>
+    <div class="scroller"><div class="frame">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div><p class="sheetTitle">Help &amp; support</p></div>
+          <span class="x">✕</span>
+        </div>
+        <div class="sheetBody">
+          <p class="lab">What's this about?</p>
+          <div class="cats">
+            <span class="cat on"><span class="gl">🐞</span>Something's broken</span>
+            <span class="cat"><span class="gl">💬</span>I need help</span>
+            <span class="cat"><span class="gl">💳</span>Billing</span>
+            <span class="cat"><span class="gl">✨</span>Feature</span>
+            <span class="cat"><span class="gl">🗒</span>Else</span>
+          </div>
+
+          <p class="lab">Subject</p>
+          <div class="in">Scanner stops reading after a refund</div>
+
+          <p class="lab">What happened? <span class="count">318 / 4000</span></p>
+          <div class="in area tall">Refunded one item on register 2, then tried to scan the next customer's
+basket. The scanner beeps but nothing lands in the cart. Closing the POS tab and coming back fixes it until the
+next refund. Started after the update on Tuesday. Screenshot of the empty cart attached.<span class="caret"></span></div>
+          <p class="hint">Helps most: what you did, what you expected, what happened instead — and whether it
+          happens every time.</p>
+
+          <p class="lab">Attachments</p>
+          <div class="attRow" style="margin-bottom:9px;">
+            <div class="thumb"><span class="img"></span><span class="rm">✕</span><span class="nm">cart-empty.png</span></div>
+            <div class="thumb"><span class="img"></span><span class="rm">✕</span><span class="nm">IMG_0431.jpg</span></div>
+            <div class="fileRow"><span class="ic">📄</span><span class="fn">register-2-log.txt</span>
+              <span class="sz">1.2 MB</span><span class="rm">✕</span></div>
+          </div>
+          <div class="fileRow" style="min-width:0;">
+            <span class="ic">⬆</span>
+            <div style="flex:1;min-width:0;">
+              <div class="fn">refund-video.mp4 <span class="sz">— uploading, 6.4 of 9.1 MB</span></div>
+              <div class="bar"><i style="width:70%"></i></div>
+            </div>
+          </div>
+          <p class="hint">3 of 5 files. Screenshots, photos, PDFs and short clips.</p>
+
+          <p class="lab">Reply to me on</p>
+          <div class="radios">
+            <span class="radio on"><span class="dot"></span>WhatsApp</span>
+            <span class="radio"><span class="dot"></span>Email</span>
+            <span class="radio"><span class="dot"></span>In app</span>
+          </div>
+          <div style="height:16px;"></div>
+        </div>
+        <div class="sheetFoot">
+          <span class="link">Your requests (2) ›</span>
+          <span class="btnRow"><span class="btn ghost">Cancel</span><span class="btn primary">Send</span></span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+
+  <div>
+    <p class="frameHead next"><b>Billing or payment</b> <i>the urgent one</i></p>
+    <div class="scroller"><div class="frame">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div><p class="sheetTitle">Help &amp; support</p></div>
+          <span class="x">✕</span>
+        </div>
+        <div class="sheetBody">
+          <p class="lab">What's this about?</p>
+          <div class="cats">
+            <span class="cat"><span class="gl">🐞</span>Broken</span>
+            <span class="cat"><span class="gl">💬</span>Help</span>
+            <span class="cat on"><span class="gl">💳</span>Billing or payment</span>
+            <span class="cat"><span class="gl">✨</span>Feature</span>
+            <span class="cat"><span class="gl">🗒</span>Else</span>
+          </div>
+
+          <div class="cav context">
+            <span class="cavIcon">ⓘ</span>
+            <span class="cavText"><b>Your plan: Growth, renews 2 Sep.</b> A ZAAD or eDahab payment is matched by
+            hand, so if you've just paid, attach the confirmation SMS and we'll clear it faster.</span>
+          </div>
+
+          <p class="lab">Subject</p>
+          <div class="in">Paid on ZAAD but still showing as unpaid</div>
+
+          <p class="lab">What do you need? <span class="count">142 / 4000</span></p>
+          <div class="in area">Sent 45,000 SLSH from 063 442 1180 on Thursday morning. Reference in the
+screenshot. The app still says our plan lapses in 2 days.<span class="caret"></span></div>
+          <p class="hint">Helps most: the amount, the number you sent from, and the confirmation reference.</p>
+
+          <p class="lab">Attachments</p>
+          <div class="attRow">
+            <div class="thumb"><span class="img"></span><span class="rm">✕</span><span class="nm">zaad-sms.png</span></div>
+          </div>
+          <p class="hint">1 of 5 files.</p>
+
+          <p class="lab">Reply to me on</p>
+          <div class="radios">
+            <span class="radio on"><span class="dot"></span>WhatsApp</span>
+            <span class="radio"><span class="dot"></span>Email</span>
+            <span class="radio"><span class="dot"></span>In app</span>
+          </div>
+          <div style="height:16px;"></div>
+        </div>
+        <div class="sheetFoot">
+          <span class="link">Your requests (2) ›</span>
+          <span class="btnRow"><span class="btn ghost">Cancel</span><span class="btn primary">Send</span></span>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<div class="tblWrap">
+<table>
+  <tr><th>Category</th><th>Details label</th><th>The prompt underneath</th><th>Extra</th></tr>
+  <tr><td><b>Something's broken</b></td><td>What happened?</td>
+    <td>What you did, what you expected, what happened instead — and whether it happens every time.</td>
+    <td>Also attaches the last screen you were on.</td></tr>
+  <tr><td><b>I need help using it</b></td><td>What are you trying to do?</td>
+    <td>What you're trying to get done, and where you got stuck.</td><td>—</td></tr>
+  <tr><td><b>Billing or payment</b></td><td>What do you need?</td>
+    <td>The amount, the number you sent from, and the confirmation reference.</td>
+    <td>Shows the plan/renewal caveat above the field.</td></tr>
+  <tr><td><b>Feature request</b></td><td>What would you like it to do?</td>
+    <td>What you'd use it for. Knowing the job it does for you shapes what we build.</td><td>—</td></tr>
+  <tr><td><b>Something else</b></td><td>Tell us more</td><td>Anything at all.</td><td>—</td></tr>
+</table>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>4 · Sent</h2>
+<p class="h2sub">Same sheet, swapped body. It names a reference, says when to expect an answer, and says where
+the answer will arrive — the three things that stop someone sending the same message again tomorrow.</p>
+
+<div class="pair doc">
+  <div>
+    <p class="frameHead next"><b>Confirmation</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="doneWrap">
+          <div class="tick">✓</div>
+          <p class="doneTitle">Sent. We've got it.</p>
+          <p class="doneSub">We'll reply on WhatsApp at +252 63 442 1180, usually the same working day. Your
+          reply also appears here under <b>Your requests</b>.</p>
+          <span class="refBig">KB-2481</span>
+        </div>
+        <div class="sheetFoot" style="justify-content:center;">
+          <span class="btnRow"><span class="btn">Your requests</span><span class="btn primary">Done</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead next"><b>Send failed</b> <i>offline, mid-shift</i></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div><p class="sheetTitle">Help &amp; support</p></div><span class="x">✕</span>
+        </div>
+        <div class="sheetBody">
+          <div class="cav wrong" style="margin-top:0;">
+            <span class="cavIcon">⚠</span>
+            <span class="cavText"><b>That didn't send.</b> Your message is saved on this device — try again
+            when you're back online, or reach us on WhatsApp at +252 63 000 0000.</span>
+          </div>
+          <p class="lab">Subject</p>
+          <div class="in">Scanner stops reading after a refund</div>
+          <p class="lab">What happened?</p>
+          <div class="in area">Refunded one item on register 2, then tried to scan the next customer's
+basket…</div>
+          <div style="height:16px;"></div>
+        </div>
+        <div class="sheetFoot">
+          <span class="link">Your requests (2) ›</span>
+          <span class="btnRow"><span class="btn ghost">Cancel</span><span class="btn primary">Try again</span></span>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px;font-size:12.5px;">Nothing typed is ever lost to a failed send. The
+    draft survives closing the sheet and closing the app; attachments are re-picked, since file URIs don't
+    outlive a restart.</p>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>5 · Your requests — the part that decides the scope</h2>
+<p class="h2sub">The cheapest version of this feature is a form that posts and forgets. It also trains people
+not to use it. This is the smallest thing that isn't a black hole: a list, a status, and a reply you can read
+and answer.</p>
+
+<div class="pair doc">
+  <div>
+    <p class="frameHead next"><b>List</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div><p class="sheetTitle">Your requests</p>
+            <p class="sheetSub">Everything you've sent us, newest first.</p></div>
+          <span class="x">✕</span>
+        </div>
+        <div class="sheetBody" style="padding-bottom:14px;">
+          <div class="reqRow">
+            <div class="reqMain">
+              <div class="reqSubj">Paid on ZAAD but still showing as unpaid</div>
+              <div class="reqMeta"><span class="ref">KB-2481</span> · Billing · sent 2 hours ago</div>
+            </div>
+            <span class="chip open">Open</span>
+          </div>
+          <div class="reqRow">
+            <div class="reqMain">
+              <div class="reqSubj">Scanner stops reading after a refund</div>
+              <div class="reqMeta"><span class="ref">KB-2477</span> · Bug · replied yesterday</div>
+            </div>
+            <span class="chip answered">1 reply</span>
+          </div>
+          <div class="reqRow">
+            <div class="reqMain">
+              <div class="reqSubj">Can we print two receipts at once?</div>
+              <div class="reqMeta"><span class="ref">KB-2390</span> · Feature · closed 12 Jul</div>
+            </div>
+            <span class="chip closed">Closed</span>
+          </div>
+        </div>
+        <div class="sheetFoot">
+          <span class="btn sm">‹ Back</span>
+          <span class="btn primary sm">New request</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead next"><b>One thread</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sheetHead">
+          <div><p class="sheetTitle">Scanner stops reading after a refund</p>
+            <p class="sheetSub"><span class="ref">KB-2477</span> · Bug · sent 8 Aug</p></div>
+          <span class="x">✕</span>
+        </div>
+        <div class="sheetBody">
+          <div class="who" style="border-radius:16px;">
+            <div class="avatar">AH</div>
+            <div class="whoText">
+              <div class="whoName" style="font-size:12px;">You · 8 Aug, 14:20</div>
+              <div class="whoLine" style="color:var(--d-ink2);margin-top:3px;">Refunded one item on register 2,
+              then tried to scan the next customer's basket…</div>
+              <div class="attRow" style="margin-top:9px;">
+                <div class="thumb" style="width:56px;height:56px;"><span class="img"></span></div>
+                <div class="thumb" style="width:56px;height:56px;"><span class="img"></span></div>
+              </div>
+            </div>
+          </div>
+          <div class="who" style="margin-top:10px;background:var(--accentWash);">
+            <div class="avatar" style="background:#fff;color:var(--accentInk);">KB</div>
+            <div class="whoText">
+              <div class="whoName" style="font-size:12px;color:var(--accentInk);">Kaiibi support · 8 Aug, 17:05</div>
+              <div class="whoLine" style="color:var(--accentInk);margin-top:3px;">Found it — the refund sheet was
+              holding keyboard focus. Fixed in 1.4.3, which is rolling out tonight. Could you confirm tomorrow?</div>
+            </div>
+          </div>
+          <p class="lab">Reply</p>
+          <div class="in area ph">Write back…</div>
+          <div style="height:14px;"></div>
+        </div>
+        <div class="sheetFoot">
+          <span class="btn sm">‹ All requests</span>
+          <span class="btnRow"><span class="btn sm">Attach</span><span class="btn primary sm">Send reply</span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx mid"><b>Scope call to make</b>
+    <p><b>A —</b> Form only. Submit, confirm, done; replies happen entirely over WhatsApp or email. Smallest
+    build, no list, no thread, no unread chip. <b>B —</b> Form + list + read-only replies. You can see status and
+    read what we said, but you answer over WhatsApp. <b>C —</b> Everything drawn above, including replying in the
+    app. Recommendation: <b>B</b> — it kills the black hole for roughly a third of C's cost, and the reply box is
+    an additive change later.</p></div>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>6 · Where it lands — a Support tab in the platform console</h2>
+<p class="h2sub">A ticket nobody sees is worse than no ticket. The operator console already has a Requests tab
+for plan changes; this is its sibling, in the same language.</p>
+
+<div class="doc">
+  <div class="scroller"><div class="frame" style="min-width:760px;">
+    <p class="eyeSm">Kaiibi operator</p>
+    <p class="bigTitle">Support</p>
+    <p class="blurb">What stores are telling us: what's broken, who is stuck, and what they're asking for.</p>
+    <div class="pillRow">
+      <span class="tabPill">Overview</span><span class="tabPill">Stores</span><span class="tabPill">Requests</span>
+      <span class="tabPill on">Support</span><span class="tabPill">Plans</span><span class="tabPill">Audit log</span>
+      <span class="tabPill">Operators</span><span class="tabPill">Settings</span>
+    </div>
+
+    <div class="card">
+      <div class="kpiRow">
+        <div class="kpi"><div class="v">7</div><div class="l">Open</div><div class="h">3 unanswered &gt; 24h</div></div>
+        <div class="kpi"><div class="v">2</div><div class="l">Billing</div><div class="h">money waiting on us</div></div>
+        <div class="kpi"><div class="v">4h 10m</div><div class="l">Median first reply</div><div class="h">last 30 days</div></div>
+        <div class="kpi"><div class="v">19</div><div class="l">Feature requests</div><div class="h">all time</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="cardHead">
+        <span class="cardTitle">Open requests</span>
+        <span class="btnRow"><span class="chip">All</span><span class="chip open">Bug 3</span>
+          <span class="chip warnChip">Billing 2</span><span class="chip">Help 1</span><span class="chip">Feature 1</span></span>
+      </div>
+      <div class="reqRow">
+        <div class="reqMain">
+          <div class="reqSubj">Paid on ZAAD but still showing as unpaid</div>
+          <div class="reqMeta"><span class="ref">KB-2481</span> · Hooyo Grocery · Growth · Amina Hassan (Owner) ·
+          2h ago · 1 attachment</div>
+        </div>
+        <span class="chip newChip">Unanswered</span>
+        <span class="chip warnChip">Billing</span>
+      </div>
+      <div class="reqRow">
+        <div class="reqMain">
+          <div class="reqSubj">Scanner stops reading after a refund</div>
+          <div class="reqMeta"><span class="ref">KB-2477</span> · Hooyo Grocery · Growth · Android tablet ·
+          app 1.4.2 · 3 attachments</div>
+        </div>
+        <span class="chip answered">Answered</span>
+        <span class="chip open">Bug</span>
+      </div>
+      <div class="reqRow">
+        <div class="reqMain">
+          <div class="reqSubj">Cashier can't see the till total at close</div>
+          <div class="reqMeta"><span class="ref">KB-2479</span> · Berbera Hardware · Starter · Yusuf Ali (Cashier) ·
+          1d ago</div>
+        </div>
+        <span class="chip newChip">Unanswered</span>
+        <span class="chip open">Bug</span>
+      </div>
+      <div class="cav partial">
+        <span class="cavIcon">⚠</span>
+        <span class="cavText"><b>Three requests are past a day with no first reply.</b> Two of them are billing —
+        a store waiting on a payment match is a store deciding whether to keep paying.</span>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<p class="note" style="margin-top:20px;">Opening a row reuses <code>ShopDrawer</code>'s shape: the message, the
+attachments, the auto-attached device and version context, the store's plan and payment history in the same
+panel — so the person answering never has to leave to find out who they're talking to. Replying writes to the
+audit log like every other operator action.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>7 · What this is made of</h2>
+
+<div class="tblWrap">
+<table>
+  <tr><th>Piece</th><th>Shape</th><th>Notes</th></tr>
+  <tr><td><b>Menu row</b></td><td>Three edits — <code>admin-sidebar.tsx</code>,
+    <code>admin-tabs.web.tsx</code>, <code>admin-tabs.tsx</code></td>
+    <td>Ungated, unlike the Settings row beside it.</td></tr>
+  <tr><td><b>The sheet</b></td><td><code>src/components/support/support-sheet.tsx</code> over
+    <code>AppModal</code></td><td>Bento surfaces: <code>bentoSurface</code> card at
+    <code>BENTO_RADIUS</code>, <code>bentoSoft</code> identity strip, <code>bentoAccentWash</code> for the
+    chosen category. No hexes.</td></tr>
+  <tr><td><b>Table</b></td><td><code>support_requests</code> + <code>support_messages</code></td>
+    <td>Row-level security: you read your own; operators read all. Category, subject, body, status, reference,
+    contact preference, and a JSON context blob for version/platform/screen.</td></tr>
+  <tr><td><b>Attachments</b></td><td>A new private bucket, <em>not</em> <code>product-images</code></td>
+    <td><code>product-images</code> is public and its insert policy demands <code>inventory.edit</code>,
+    <code>settings.access</code> or <code>staff.manage</code> (0024, 20260820000300) — the exact permissions a
+    stuck cashier lacks. A screenshot may also show customer names and totals, so public read is wrong on its
+    own.</td></tr>
+  <tr><td><b>Reference</b></td><td><code>KB-####</code>, a sequence</td>
+    <td>Short enough to read down a phone line, which is how half of these will be followed up.</td></tr>
+  <tr><td><b>Operator side</b></td><td>New <code>Support</code> tab in <code>src/app/platform/index.tsx</code></td>
+    <td>Mirrors <code>requests-tab.tsx</code>. Replies go through <code>callPlatformAdmin</code> so they land in
+    the audit log.</td></tr>
+</table>
+</div>
+
+<p class="note" style="margin-top:18px;"><b>Deliberately not in v1:</b> a help-article search box above the form
+(nothing to search yet), ticket assignment between operators (there is one operator), CSAT ratings, canned
+replies, and any kind of live chat. Each is additive later; none earns its build now.</p>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>8 · Open questions</h2>
+<ol class="q">
+  <li><b>How far does v1 go — A, B or C?</b>
+    <span>See §5. The recommendation is B: form, list, read-only replies; answering happens over WhatsApp.</span></li>
+  <li><b>Is WhatsApp really the reply channel?</b>
+    <span>The whole "Reply to me on" row rests on it. If replies will only ever be email, that row shrinks to a
+    single confirmation line and the phone number stops mattering.</span></li>
+  <li><b>Do we notify, and how?</b>
+    <span>The unread chip on the ☰ needs a poll or a realtime subscription. Push would need the notification
+    infrastructure that <code>docs/backlog/2026-08-01-notification-delivery.md</code> says doesn't exist yet.</span></li>
+  <li><b>Five categories, or fewer?</b>
+    <span>Billing earns its place because payments are matched by hand. "Something else" may be swallowing what
+    should be its own category — worth revisiting after a month of real traffic.</span></li>
+  <li><b>Video attachments?</b>
+    <span>A short clip is the single most useful bug attachment and the single most expensive one on a metered
+    Somaliland connection. Proposal: allow it, cap at 10 MB, and warn before an upload over 5 MB.</span></li>
+</ol>
+</section>
+
+<hr>
+<p class="note" style="margin-top:22px;color:var(--mut);font-size:12.5px;">Mockup only — no code written. Frames
+render the light palette because the app pins <code>Colors.light</code>; the page around them follows your
+system theme.</p>
+
+</div>
