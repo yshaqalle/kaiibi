@@ -24,6 +24,9 @@ type Action =
   | 'upsert_plan'
   | 'retire_plan'
   | 'republish_plan'
+  | 'publish_plan'
+  | 'archive_plan'
+  | 'restore_plan'
   | 'set_platform_settings'
   | 'approve_plan_change'
   | 'decline_plan_change'
@@ -700,6 +703,41 @@ Deno.serve(async (req) => {
         // deliberate setting, and silently moving the platform's fallback back
         // would relocate lapsed stores nobody asked to move. The portal says so.
         await audit('republish_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
+      case 'publish_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        // The same tripwire republish_plan's retire_at guard provides, but
+        // publish has no retirement state to hide behind: `trial` is $0,
+        // carries every module and has no limits, and the store-facing chooser
+        // lists on is_public alone. One benign-looking call would make the
+        // whole product free, so the key is refused by name.
+        if (body.planKey === 'trial') {
+          return errorResponse(400, 'unknown', 'The trial plan is assigned by trigger and can never be published.');
+        }
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (!before.active) {
+          return errorResponse(409, 'plan_archived', `${before.name} is archived. Restore it before publishing.`);
+        }
+        // Republish is the verb for a retiring plan -- it clears retire_at and
+        // successor_plan_key in the same write. Publishing here instead would
+        // mint a public-but-retiring plan, a state nothing else can produce.
+        if (before.retire_at) {
+          return errorResponse(409, 'plan_retiring', `${before.name} is being retired. Republish it instead — that clears the retirement.`);
+        }
+        if (before.is_public) return errorResponse(400, 'unknown', `${before.name} is already public.`);
+
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ is_public: true, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('publish_plan', null, before, after);
         return ok({ plan: after });
       }
 
