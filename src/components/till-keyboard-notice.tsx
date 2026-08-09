@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 
-import { Caveat } from '@/components/ui/caveat';
+import { DeviceNotice } from '@/components/ui/device-notice';
 import { useAuth } from '@/hooks/use-auth';
 import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
@@ -22,7 +22,7 @@ import { useScannerSettings } from '@/hooks/use-scanner-settings';
 // someone holding a keyboard tablet is a bug they can see.
 export function TillKeyboardNotice() {
   const router = useRouter();
-  const { can } = useAuth();
+  const { can, activeLocation } = useAuth();
   const attached = useHardwareKeyboard();
   const scanner = useScannerSettings();
   const note = useCaveatDismissal('till.keyboard-detected', 'v1');
@@ -36,16 +36,22 @@ export function TillKeyboardNotice() {
   if (note.dismissed) return null;
 
   return (
-    <Caveat
-      tone="context"
+    <DeviceNotice
+      glyph="⌨"
       onDismiss={note.dismiss}
       action={{
-        label: 'Open scanning settings',
-        onPress: () => router.push({ pathname: '/settings', params: { nav: 'locations' } }),
+        // Names the store so the reader knows where they'll land — the button
+        // used to open the Locations panel and leave them to find the row.
+        label: activeLocation ? `Set up scanning for ${activeLocation.name}` : 'Set up scanning',
+        onPress: () =>
+          router.push({
+            pathname: '/settings',
+            params: activeLocation ? { nav: 'locations', location: activeLocation.id } : { nav: 'locations' },
+          }),
       }}
     >
       A keyboard or barcode scanner is connected to this device. If it&apos;s a scanner, turn on
       scanning for this store to use it.
-    </Caveat>
+    </DeviceNotice>
   );
 }
