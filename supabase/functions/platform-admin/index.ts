@@ -326,6 +326,12 @@ Deno.serve(async (req) => {
         // one hop. `is_public` is the other half of that same state (retiring
         // clears it, republishing restores it), and `active` has no editor at
         // all. The portal's plan editor sends only the columns below.
+        // Tradeoff worth naming: excluding `is_public` also means there is no
+        // API path left to CREATE a non-public plan. Creation through this
+        // action still works -- the column defaults to true -- but
+        // 20260818000000 documents `is_public = false` as the state for
+        // one-off negotiated deals, and that state is only reachable today by
+        // writing the row directly, not through this endpoint.
         const editable = ['key', 'name', 'description', 'price_cents', 'currency', 'billing_interval', 'modules', 'limits', 'sort_order'] as const;
         const planPayload: Record<string, unknown> = {};
         for (const column of editable) {
@@ -358,6 +364,19 @@ Deno.serve(async (req) => {
         const { data: plan, error: planError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
         if (planError) return errorResponse(500, 'unknown', planError.message);
         if (!plan) return errorResponse(400, 'unknown', 'No such plan.');
+        // The other half of republish_plan's `!before.retire_at` guard below,
+        // not a redundant check: retiring a plan no store can choose is not a
+        // meaningful operation. Without this, retire_plan(trial -> pro) passes
+        // every other guard here (trial is not the fallback, so no
+        // postTrialPlanKey is required) and sets trial.retire_at; a second call,
+        // republish_plan(trial), then passes the other guard and sets
+        // trial.is_public = true. `trial` is $0, carries every module, and its
+        // `limits '{}'` means unlimited (20260818000000's own comment) -- two
+        // audited calls would put a free unlimited-everything tier in front of
+        // listPlans(), which filters on is_public and active alone.
+        if (!plan.is_public) {
+          return errorResponse(400, 'unknown', 'That plan is not offered to stores, so there is nothing to retire.');
+        }
 
         const { data: successor, error: successorError } = await adminClient
           .from('plans').select('*').eq('key', body.successorPlanKey).maybeSingle();
@@ -455,6 +474,13 @@ Deno.serve(async (req) => {
           successor_plan_key: body.successorPlanKey,
           updated_at: now,
         };
+        // `isFallback &&` here is redundant by invariant, not by accident: the
+        // guard above already rejects `!isFallback && body.postTrialPlanKey`, so
+        // a truthy body.postTrialPlanKey surviving to this line implies
+        // isFallback is already true. Kept as belt-and-braces rather than
+        // re-derived -- this single term is what both the settings-write
+        // condition below (`if (settingsUpdate)`) and the audit ternary two
+        // blocks down (`settingsUpdate ? ... : ...`) key off of.
         const settingsUpdate = isFallback && body.postTrialPlanKey
           ? { post_trial_plan_key: body.postTrialPlanKey, updated_at: now }
           : null;
@@ -465,6 +491,12 @@ Deno.serve(async (req) => {
         // which is recoverable. The other order leaves the platform's fallback
         // pointing at a retired plan with no record of how it got there.
         // The `after` side is therefore the intended state, not a re-read.
+        //
+        // Each early return below that follows this row writes a SECOND audit
+        // row before returning -- action 'retire_plan_failed' -- naming the
+        // step that failed. A log reader who only sees this first row cannot
+        // tell a completed retirement from a partial one; the failure row is
+        // what makes that distinguishable without inferring it from silence.
         await audit(
           'retire_plan',
           null,
@@ -480,12 +512,35 @@ Deno.serve(async (req) => {
         // platform coherent; doing it last would leave the retired plan named
         // as the fallback, and every lapsed store would silently pick up the
         // successor's full module set the moment the date passed.
+        //
+        // This ordering has its own residual, though, and it is not a no-op:
+        // if settings succeeds here and the plan update just below then fails,
+        // the platform is left with settings already pointing at the NEW
+        // fallback while the OLD plan is still un-retired (is_public still
+        // true) -- every lapsed store is over-granted the new fallback's
+        // entitlements immediately, not just once the retire date passes. It
+        // is recoverable: retry the same request once the underlying failure
+        // is fixed. But a naive retry with the same body is rejected by the
+        // not-the-fallback guard above, because isFallback now reads false --
+        // the operator has to drop postTrialPlanKey from the retry to get
+        // past it. Strictly better than what this replaces (the old ordering
+        // could leave the retired plan named as the fallback with no bound on
+        // how long, rather than a bounded window ending at the next retry),
+        // but it is a real residual, not nothing.
         if (settingsUpdate) {
           const { error: settingsError } = await adminClient
             .from('platform_settings')
             .update(settingsUpdate)
             .eq('id', true);
-          if (settingsError) return errorResponse(500, 'unknown', settingsError.message);
+          if (settingsError) {
+            await audit(
+              'retire_plan_failed',
+              null,
+              { step: 'settings_write', planKey: body.planKey, attempted: settingsUpdate },
+              { error: settingsError.message }
+            );
+            return errorResponse(500, 'unknown', settingsError.message);
+          }
         }
 
         const { data: after, error } = await adminClient
@@ -494,7 +549,15 @@ Deno.serve(async (req) => {
           .eq('key', body.planKey)
           .select('*')
           .single();
-        if (error) return errorResponse(500, 'unknown', error.message);
+        if (error) {
+          await audit(
+            'retire_plan_failed',
+            null,
+            { step: 'plan_write', planKey: body.planKey, attempted: planUpdate },
+            { error: error.message }
+          );
+          return errorResponse(500, 'unknown', error.message);
+        }
 
         // Anything that pointed at this plan now points past it, so no chain is
         // ever two hops long. Without this, retiring A->B and later B->C would
@@ -504,7 +567,19 @@ Deno.serve(async (req) => {
           .from('plans')
           .update({ successor_plan_key: body.successorPlanKey, updated_at: now })
           .eq('successor_plan_key', body.planKey);
-        if (repointError) return errorResponse(500, 'unknown', repointError.message);
+        if (repointError) {
+          // The two-hop chain shop_effective_plan() cannot resolve: the target
+          // is retired and pointed at its successor, but a dependant is still
+          // pointed at the now-retired target. The pre-mutation row above
+          // claims `repointed` landed; this row says plainly that it did not.
+          await audit(
+            'retire_plan_failed',
+            null,
+            { step: 'repoint_write', planKey: body.planKey, attempted: { successor_plan_key: body.successorPlanKey } },
+            { error: repointError.message }
+          );
+          return errorResponse(500, 'unknown', repointError.message);
+        }
 
         return ok({ plan: after });
       }
