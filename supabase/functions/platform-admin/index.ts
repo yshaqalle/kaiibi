@@ -52,6 +52,11 @@ type RequestBody = {
   };
   override?: { kind: 'module' | 'limit'; key: string; value?: unknown; expiresAt?: string | null };
   plan?: Record<string, unknown>;
+  // upsert_plan only. When set, the upsert must INSERT: an existing key is a
+  // 409 rather than a silent overwrite, the key shape is validated, and the
+  // row is forced non-public so a new plan can never appear in the store
+  // picker before an operator has looked at its card and published it.
+  create?: boolean;
   // retire_plan / republish_plan. successorPlanKey is where the stores on this
   // plan land when retireAt passes; postTrialPlanKey is only used when the plan
   // being retired is the platform-wide fallback (see the case below).
@@ -352,14 +357,12 @@ Deno.serve(async (req) => {
         // a retirement with no successor validation, which is exactly how a
         // two-hop chain gets created -- and shop_effective_plan() follows only
         // one hop. `is_public` is the other half of that same state (retiring
-        // clears it, republishing restores it), and `active` has no editor at
-        // all. The portal's plan editor sends only the columns below.
-        // Tradeoff worth naming: excluding `is_public` also means there is no
-        // API path left to CREATE a non-public plan. Creation through this
-        // action still works -- the column defaults to true -- but
-        // 20260818000000 documents `is_public = false` as the state for
-        // one-off negotiated deals, and that state is only reachable today by
-        // writing the row directly, not through this endpoint.
+        // clears it, republishing restores it) and is likewise never accepted
+        // here: publishing goes through publish_plan and its guards or not at
+        // all. Create mode is the one place this handler touches the column,
+        // and only to force it FALSE -- a new plan is born hidden as a server
+        // property, not a portal convention. `active` belongs to
+        // archive_plan / restore_plan for the same reason.
         const editable = ['key', 'name', 'description', 'price_cents', 'currency', 'billing_interval', 'modules', 'limits', 'sort_order'] as const;
         const planPayload: Record<string, unknown> = {};
         for (const column of editable) {
@@ -368,6 +371,21 @@ Deno.serve(async (req) => {
 
         const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', key).maybeSingle();
         if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+
+        if (body.create) {
+          // The key becomes the audit and billing identifier and can never
+          // change, so a typo'd shape is refused rather than lived with.
+          if (!/^[a-z][a-z0-9_]*$/.test(key)) {
+            return errorResponse(400, 'unknown', 'Plan keys are lowercase letters, digits and underscores, starting with a letter.');
+          }
+          // Without this, typing `standard` into the create sheet would
+          // silently rewrite Standard for every store on it.
+          if (before) {
+            return errorResponse(409, 'key_exists', `A plan with key \`${key}\` already exists.`);
+          }
+          planPayload.is_public = false;
+        }
+
         const { data: after, error } = await adminClient
           .from('plans')
           .upsert({ ...planPayload, updated_at: new Date().toISOString() }, { onConflict: 'key' })
