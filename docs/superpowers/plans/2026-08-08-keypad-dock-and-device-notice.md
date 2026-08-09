@@ -8,6 +8,8 @@
 
 **Tech Stack:** Expo SDK 57 / React Native 0.86, expo-router, jest + react-test-renderer. Mockup: [docs/design/scanner-keypad-dock-fix.html](../../design/scanner-keypad-dock-fix.html). Original feature spec: [2026-08-08-scanner-detection-keypad-design.md](../specs/2026-08-08-scanner-detection-keypad-design.md).
 
+> **Rebased 2026-08-08 (evening):** the caret-placement fix (a `BlinkingCaret` Animated component and a `valueRow` wrapper in `search-row.tsx`, with its own tests) landed on this branch after this plan was first written. Task 1's code blocks already incorporate it — do NOT "restore" the plain `<View style={styles.caret}/>` caret or the always-visible prompt; if the file and this plan ever disagree on anything *other than* what a task explicitly changes, the file wins.
+
 ## Global Constraints
 
 - Never hardcode a hex in a screen or component — every colour is a token off `Colors.light` (pinned as `const theme = Colors.light`).
@@ -52,6 +54,17 @@ function findPressables(tree: ReactTestRenderer) {
   return tree.root.findAll((node) => typeof node.props?.onPress === 'function', { deep: true });
 }
 
+// The caret has no type of its own (it may be an Animated.View), so it is
+// found by its one unmistakable trait: a 2pt-wide bar. `deep: false`
+// collapses the Animated.View wrapper chain -- every layer carries the same
+// style prop, and deep matching would count one caret three times.
+function findCarets(tree: ReactTestRenderer) {
+  return tree.root.findAll((node) => {
+    const flat = StyleSheet.flatten(node.props?.style);
+    return flat?.width === 2 && flat?.height === 16;
+  }, { deep: false });
+}
+
 function row(useKeypad: boolean, value: string, onChange: jest.Mock, keypadOpen = false, onKeypadOpenChange: (open: boolean) => void = jest.fn()) {
   return (
     <SearchRow
@@ -74,6 +87,11 @@ function render(useKeypad: boolean, value = '', keypadOpen = false, onKeypadOpen
   const labels = () => tree!.root.findAllByType(Text).map((t) => t.props.children);
   return { tree: tree!, onChange, labels };
 }
+
+// The caret blinks on a real 550ms Animated loop; under real timers it
+// outlives the test environment and crashes the worker at teardown.
+beforeAll(() => jest.useFakeTimers());
+afterAll(() => jest.useRealTimers());
 
 describe('SearchRow', () => {
   it('is an ordinary text field on a device with no keyboard attached', () => {
@@ -124,6 +142,37 @@ describe('SearchRow', () => {
 
   it('makes no such promise on a device with no scanner', () => {
     expect(render(false).labels()).not.toContain('Scanner ready');
+  });
+
+  // ---- Caret tests carried over from the caret-placement fix (commit
+  // 69aab51's sibling work): rendering with keypadOpen instead of pressing,
+  // since the row is now controlled. The behaviour they lock is unchanged. ----
+
+  // The caret is drawn by hand -- a Pressable has no system caret -- and it
+  // must sit where a caret sits: on the text row, after the last character,
+  // not wherever the field's column layout happens to drop it.
+  it('draws the caret beside the text, on the same row', () => {
+    const { tree } = render(true, 'coca co', true);
+    const carets = findCarets(tree);
+    expect(carets).toHaveLength(1);
+    // The caret's own wrapper (BlinkingCaret) carries no style; the layout
+    // assertion belongs to the nearest styled ancestor -- the value row.
+    let holder = carets[0].parent!;
+    while (!StyleSheet.flatten(holder.props?.style)) holder = holder.parent!;
+    expect(StyleSheet.flatten(holder.props.style).flexDirection).toBe('row');
+    expect(holder.findAllByType(Text).map((t) => t.props.children)).toContain('coca co');
+  });
+
+  // With the keypad open the field is live, like a focused TextInput: an empty
+  // live field shows a bare caret, not advice to tap a thing already tapped.
+  it('replaces the prompt with a bare caret while the keypad is open and empty', () => {
+    const { labels, tree } = render(true, '', true);
+    expect(labels()).not.toContain('Tap to type, or scan');
+    expect(findCarets(tree)).toHaveLength(1);
+  });
+
+  it('shows no caret while the keypad is closed', () => {
+    expect(findCarets(render(true, 'shea').tree)).toHaveLength(0);
   });
 
   // POS's field is deliberately bigger than Inventory's -- read at arm's
@@ -207,11 +256,33 @@ Remove the `SearchKeypad` import and add the hook export. Replace the component'
 
 ```tsx
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 
 const theme = Colors.light;
+
+// A hard on/off blink -- two zero-duration steps, not a fade -- because a
+// caret is a state indicator, not an animation. Slow enough not to nag from
+// the corner of the eye across a whole sale.
+function BlinkingCaret() {
+  // Lazy state, not a ref: the value is needed during render for the style,
+  // and reading a ref's .current in render is off-limits to the compiler.
+  const [opacity] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0, duration: 0, delay: 550, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 0, delay: 550, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return <Animated.View style={[styles.caret, { opacity }]} />;
+}
 
 /**
  * Keypad open/closed, owned by the SCREEN rather than the row: the keypad
@@ -322,15 +393,23 @@ export function SearchRow({
           style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
           accessibilityRole="search"
         >
-          {value ? (
-            <Text style={styles.text} numberOfLines={1}>{value}</Text>
-          ) : (
-            // Says what it is: a thing you tap, with no cursor of its own.
-            <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
-          )}
-          {/* Our own caret: this is a Pressable, not a text input, so there is
-              no system caret to show that it is receiving keys. */}
-          {keypadOpen ? <View style={styles.caret} /> : null}
+          {/* A row of its own, so the caret lands after the last character --
+              as a direct child of the column field it dropped to the bottom-left
+              corner, reading as an artifact rather than a caret. */}
+          <View style={styles.valueRow}>
+            {value ? (
+              <Text style={styles.text} numberOfLines={1}>{value}</Text>
+            ) : keypadOpen ? null : (
+              // Says what it is: a thing you tap, with no cursor of its own.
+              // Gone once the keypad is open: an empty live field shows a bare
+              // caret, like a focused TextInput, not advice to tap a thing
+              // already tapped.
+              <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
+            )}
+            {/* Our own caret: this is a Pressable, not a text input, so there is
+                no system caret to show that it is receiving keys. */}
+            {keypadOpen ? <BlinkingCaret /> : null}
+          </View>
         </Pressable>
         {scanButton}
       </View>

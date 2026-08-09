@@ -649,6 +649,23 @@ Deno.serve(async (req) => {
           return errorResponse(409, 'already_decided', `That request was already ${request.status}.`);
         }
 
+        // Same class of problem as already_decided: a decision made against
+        // state that has since changed. plan_change_requests' insert policy
+        // never checked is_public, so requests to move ONTO a plan survive its
+        // retirement -- and approving one would move a store onto the very plan
+        // we are shutting down. Declining still works; only approval is refused.
+        if (action === 'approve_plan_change') {
+          const { data: requestedPlan } = await adminClient
+            .from('plans').select('name, retire_at').eq('id', request.requested_plan_id).maybeSingle();
+          if (requestedPlan?.retire_at) {
+            return errorResponse(
+              409,
+              'plan_retiring',
+              `${requestedPlan.name} is being retired, so stores cannot be moved onto it. Decline this and move them to its successor instead.`
+            );
+          }
+        }
+
         const before = await loadSubscription(request.shop_id);
         let after = before;
 
