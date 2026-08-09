@@ -110,7 +110,12 @@ export function PlansTab({
           <PlanRetireModal
             plan={retiringPlan}
             plans={plans}
-            shopsOn={shops.filter((s) => s.planKey === retiringPlan.key).length}
+            // Stored, not effective, matching every other count on this tab
+            // (see the card's shopsOn above): a plan past its retire date is
+            // exactly when republishing brings stores keyed off planKey back
+            // to zero here, which is the false "0 stores on it" this sheet
+            // must not say.
+            shopsOn={shops.filter((s) => s.storedPlanKey === retiringPlan.key).length}
             pendingRequests={pendingRequestsByPlanKey[retiringPlan.key] ?? 0}
             postTrialPlanKey={postTrialPlanKey}
             onClose={() => setRetiring(null)}
@@ -176,7 +181,15 @@ function PlanCard({
         </View>
         <View style={styles.headButtons}>
           <PlatformButton label="Edit" onPress={onEdit} />
-          <PlatformButton label={plan.retireAt ? 'Republish' : 'Retire'} onPress={onRetire} />
+          {/* Retire only where the server will actually take it: retire_plan
+              rejects any plan whose is_public is already false (Trial, or
+              anything already retiring) -- offering the button there is
+              asking for a click that always errors. Republish stays
+              regardless of isPublic: a retired plan IS non-public by
+              definition and has to stay reachable to bring back. */}
+          {plan.retireAt || plan.isPublic ? (
+            <PlatformButton label={plan.retireAt ? 'Republish' : 'Retire'} onPress={onRetire} />
+          ) : null}
         </View>
       </View>
 

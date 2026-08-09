@@ -412,6 +412,16 @@ Deno.serve(async (req) => {
         // `limits '{}'` means unlimited (20260818000000's own comment) -- two
         // audited calls would put a free unlimited-everything tier in front of
         // listPlans(), which filters on is_public and active alone.
+        //
+        // retire_at checked BEFORE is_public, same ordering and same reason as
+        // the successor guards below: retiring clears is_public in the same
+        // write that sets retire_at, so a plan that is already retiring fails
+        // the is_public check first and gets told there is "nothing to
+        // retire" -- true of `trial`, false and misleading of a plan an
+        // operator just retired themselves.
+        if (plan.retire_at) {
+          return errorResponse(400, 'unknown', 'That plan is already being retired.');
+        }
         if (!plan.is_public) {
           return errorResponse(400, 'unknown', 'That plan is not offered to stores, so there is nothing to retire.');
         }
@@ -619,6 +629,16 @@ Deno.serve(async (req) => {
           // is retired and pointed at its successor, but a dependant is still
           // pointed at the now-retired target. The pre-mutation row above
           // claims `repointed` landed; this row says plainly that it did not.
+          //
+          // Not recoverable from the UI as a retry of this same call -- the
+          // plan write above already succeeded, so body.planKey is retired
+          // and no longer a valid `retire_plan` target. Whoever reads this
+          // audit row: republish the intermediate plan (undoes its retire_at,
+          // restores is_public), then retire it again with successorPlanKey
+          // set to the FINAL destination -- the one this failed write was
+          // trying to repoint the dependant to. That collapses the chain back
+          // to one hop directly, rather than leaving the dependant to be
+          // fixed by a second, separate repoint.
           await audit(
             'retire_plan_failed',
             null,

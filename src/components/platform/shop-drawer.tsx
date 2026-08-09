@@ -427,7 +427,11 @@ function daysBetween(fromIso: string, toIso: string): number {
 // Calendar-month arithmetic on a yyyy-mm-dd string. Clamps the day so paying on
 // the 31st cannot roll a one-month period into the month after next — a
 // customer who pays on 31 January is covered to 28 February, not 3 March.
-function addMonths(iso: string, months: number): string {
+// Exported for `billing-period.test.ts`, which proves periodMonths('year')
+// === 12 but nothing composes that with this to check a yearly plan actually
+// lands a year later -- a pure date helper is a reasonable thing to export
+// for the test that closes that gap.
+export function addMonths(iso: string, months: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   const target = new Date(Date.UTC(y, m - 1 + months, 1));
   const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();

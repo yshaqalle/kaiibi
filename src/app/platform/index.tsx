@@ -39,7 +39,7 @@ const theme = Colors.light;
 // Kaiibi's operator console, in the bento language.
 //
 // The sidebar is kept rather than replaced with accounting.tsx's shell
-// wholesale: bento is a SURFACE system, and six destinations an operator
+// wholesale: bento is a SURFACE system, and seven destinations an operator
 // ping-pongs between while working a single shop is what a persistent rail is
 // for. What changed is the surfaces — no border down its edge, and the active
 // item is now the only white thing in it rather than the only grey one, which

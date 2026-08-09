@@ -61,7 +61,14 @@ export function ShopsTab({
       }
       if (!q) return true;
       return (
-        shop.shopName.toLowerCase().includes(q) || shop.planKey.includes(q) || shop.status.includes(q)
+        shop.shopName.toLowerCase().includes(q) ||
+        shop.planKey.includes(q) ||
+        // A store still billed on a retired tier is displayed under its
+        // successor (see the Store column below) -- without this, searching
+        // the tier it is actually PAYING for finds nothing, while the MRR
+        // tile above is pricing it off exactly that plan.
+        shop.storedPlanKey.includes(q) ||
+        shop.status.includes(q)
       );
     });
   }, [shops, search, status]);
@@ -94,17 +101,26 @@ export function ShopsTab({
       key: 'shop',
       header: 'Store',
       render: (shop) => (
-        // The arrow only means something while the move is still ahead of them.
-        // Once `retire_at` passes, `planName` has already resolved to the
-        // successor and `retiringTo` names that same plan, so drawing it would
-        // render "Starter -> Starter" forever -- `retire_at` is never cleared
-        // by time, only by an operator republishing.
+        // Two different divergences share this one line, in order:
+        // - BEFORE `retire_at`: `retiringTo` names the successor while
+        //   `planName` is still the current tier -- "current -> future".
+        //   Once the date passes, `planName` has already resolved to the
+        //   successor and `retiringTo` names that same plan, so drawing it
+        //   would render "Starter -> Starter" forever -- `retire_at` is never
+        //   cleared by time, only by an operator republishing.
+        // - AFTER `retire_at`: `planName` (effective) has hopped to the
+        //   successor but `storedPlanKey` -- what the store is still actually
+        //   billed -- has not, so showing `planName` alone hides exactly the
+        //   plan the MRR tile above is pricing this row off. "billed ->
+        //   entitled" fills that gap the same way the pre-date arrow does.
         <NameCell
           title={shop.shopName}
           meta={
             shop.retiringTo && shop.retiringTo !== shop.planName
               ? `${shop.planName} → ${shop.retiringTo}`
-              : shop.planName
+              : shop.storedPlanKey !== shop.planKey
+                ? `${shop.storedPlanName} → ${shop.planName}`
+                : shop.planName
           }
         />
       ),

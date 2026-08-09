@@ -159,9 +159,12 @@ export function PlanRetireModal({
       {pendingRequests > 0 ? (
         <View style={styles.caveat}>
           <Caveat tone="wrong" action={{ label: 'Cancel this', onPress: onClose }}>
-            {`${pendingRequests} store${
-              pendingRequests === 1 ? ' has' : 's have'
-            } asked to move onto ${plan.name}. Those requests can no longer be approved once it is retiring — decline them and move those stores to ${successorName} instead.`}
+            {`${pendingRequests} store${pendingRequests === 1 ? ' has' : 's have'} asked to move onto ${plan.name}. Those requests can no longer be approved once it is retiring — decline them${
+              // successorName is '' when there are no candidates at all (see
+              // the empty-candidates message above) -- without this guard the
+              // sentence ends "...move those stores to  instead."
+              successorName ? ` and move those stores to ${successorName} instead.` : '.'
+            }`}
           </Caveat>
         </View>
       ) : null}

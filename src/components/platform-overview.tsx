@@ -166,10 +166,17 @@ export function PlatformOverview({
     return { label: start.toLocaleDateString('en-GB', { month: 'short' }), value: cents };
   });
 
+  // Stored, not effective, and for the same reason "Revenue by plan" beside it
+  // already is: this donut and that bar chart are both answering "what are
+  // stores SUBSCRIBED to", not "what is the server enforcing" -- keying the
+  // donut off planKey while the bars use storedPlanKey let a retired tier show
+  // 0 stores here and a full bar of revenue three inches away. Entitlement
+  // figures (usage, at-cap) elsewhere on this tab stay on the effective plan,
+  // because those genuinely are about what is enforced.
   const planSlices = plans.map((plan, i) => ({
     key: plan.key,
     label: plan.name,
-    value: shops.filter((s) => s.planKey === plan.key).length,
+    value: shops.filter((s) => s.storedPlanKey === plan.key).length,
     color: planColor(plan.key, i),
   }));
 
