@@ -1,4 +1,5 @@
 import type { LimitResource, SubscriptionStatus } from '@/lib/entitlements';
+import type { Plan } from '@/lib/subscriptions';
 import { supabase } from '@/lib/supabase';
 
 // The back-office data layer. Reads come straight from the tables under the
@@ -13,6 +14,9 @@ export type PlatformShopRow = {
   createdAt: string;
   planKey: string;
   planName: string;
+  // The successor's NAME when this store's plan is retiring, else null. Drives
+  // the "Retiring plan" filter and the row's countdown badge.
+  retiringTo: string | null;
   status: SubscriptionStatus;
   trialEndsAt: string | null;
   currentPeriodEnd: string | null;
@@ -121,10 +125,29 @@ export async function getPlatformAccess(): Promise<{ isAdmin: boolean; pendingMf
   return { isAdmin: full.data === true, pendingMfa: pending.data === true && full.data !== true };
 }
 
+// The client-side twin of shop_effective_plan()'s successor hop, in the same
+// spirit as deriveStatus() below: the server remains the authority for
+// enforcement, and this exists so the portal's list can be sorted, filtered and
+// costed without one RPC per row.
+//
+// One hop, matching the SQL exactly. retire_plan re-points anything aimed at a
+// plan it retires, so a two-hop chain should never exist -- and if one somehow
+// does, stopping beats looping in a function that runs per row.
+export function resolveRetiredPlan<
+  T extends { key: string; retireAt: string | null; successorPlanKey: string | null },
+>(planKey: string, plans: T[], now: number = Date.now()): string {
+  const current = plans.find((p) => p.key === planKey);
+  if (!current?.retireAt || !current.successorPlanKey) return planKey;
+  if (new Date(current.retireAt).getTime() > now) return planKey;
+  // An unknown successor means this build has not seen that plan row. Falling
+  // back to the original key shows something stale rather than nothing at all.
+  return plans.some((p) => p.key === current.successorPlanKey) ? current.successorPlanKey : planKey;
+}
+
 // One row per shop for the list, joined client-side from three narrow reads.
 // A view would be tidier, but it would need its own policy and would be a
 // second place for the operator/shop-member read split to drift.
-export async function listPlatformShops(): Promise<PlatformShopRow[]> {
+export async function listPlatformShops(plans: Plan[]): Promise<PlatformShopRow[]> {
   const [shopsRes, subsRes, usageRes, locationsRes] = await Promise.all([
     supabase.from('shops').select('id, name, owner_id, created_at').order('created_at', { ascending: false }),
     supabase.from('shop_subscriptions').select('shop_id, plan_id, trial_ends_at, current_period_end, grace_until, manual_status, plans(key, name, limits)'),
@@ -147,13 +170,28 @@ export async function listPlatformShops(): Promise<PlatformShopRow[]> {
 
   return (shopsRes.data ?? []).map((shop: any) => {
     const sub = subs.get(shop.id);
+
+    // What the store is ON versus what actually APPLIES. Past retire_at the
+    // server enforces the successor's modules and limits, so showing the
+    // subscription's own joined plan here would put the wrong name, the wrong
+    // price in MRR, and the wrong denominators on every usage bar.
+    const storedKey = sub?.plans?.key ?? 'free';
+    const effectiveKey = resolveRetiredPlan(storedKey, plans);
+    const effectivePlan = plans.find((p) => p.key === effectiveKey);
+    const storedPlan = plans.find((p) => p.key === storedKey);
+    const retiringTo =
+      storedPlan?.retireAt && storedPlan.successorPlanKey
+        ? (plans.find((p) => p.key === storedPlan.successorPlanKey)?.name ?? null)
+        : null;
+
     return {
       shopId: shop.id,
       shopName: shop.name,
       ownerId: shop.owner_id,
       createdAt: shop.created_at,
-      planKey: sub?.plans?.key ?? 'free',
-      planName: sub?.plans?.name ?? 'Free',
+      planKey: effectiveKey,
+      planName: effectivePlan?.name ?? sub?.plans?.name ?? 'Free',
+      retiringTo,
       // Derived client-side with the same rules as shop_effective_status(). The
       // server remains the authority for enforcement; this is just so the list
       // can be sorted and filtered without one RPC per row.
@@ -162,7 +200,7 @@ export async function listPlatformShops(): Promise<PlatformShopRow[]> {
       currentPeriodEnd: sub?.current_period_end ?? null,
       manualStatus: sub?.manual_status ?? 'active',
       usage: usage.get(shop.id) ?? {},
-      limits: sub?.plans?.limits ?? {},
+      limits: effectivePlan?.limits ?? sub?.plans?.limits ?? {},
       contactPhone: primary.get(shop.id)?.contact_phone ?? null,
       city: primary.get(shop.id)?.city ?? null,
     };

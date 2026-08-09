@@ -86,9 +86,11 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    const [shopRows, planRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
-      listPlatformShops(),
-      listAllPlans(),
+    // Plans first, alone: listPlatformShops needs them to resolve a retired
+    // plan to its successor, so it cannot run in the same batch.
+    const planRows = await listAllPlans();
+    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
+      listPlatformShops(planRows),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
