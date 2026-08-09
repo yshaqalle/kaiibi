@@ -209,6 +209,22 @@ Deno.serve(async (req) => {
         const p = body.payment;
         const before = await loadSubscription(body.shopId);
 
+        // The fairness rule the drawer already applies, enforced where it
+        // cannot be edited around: paid time starts when free time ends. A
+        // store that pays 40 days into a 90-day trial buys a month AFTER the
+        // trial, not a month that overlaps days they already had. endTrialNow
+        // is the deliberate opt-out, for a store that asks to convert early.
+        if (p.coversTo && !p.endTrialNow && before?.trial_ends_at) {
+          const trialEnd = new Date(before.trial_ends_at);
+          if (trialEnd > new Date() && new Date(p.coversTo) < trialEnd) {
+            return errorResponse(
+              400,
+              'covers_to_before_trial_end',
+              `Cover cannot end before their trial does on ${trialEnd.toISOString().slice(0, 10)}. Tick "start paying today" if they asked to convert early.`
+            );
+          }
+        }
+
         const { error: payError } = await adminClient.from('subscription_payments').insert({
           shop_id: body.shopId,
           provider: 'manual',
