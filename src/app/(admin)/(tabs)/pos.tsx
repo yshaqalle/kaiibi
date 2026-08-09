@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,7 +16,8 @@ import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
-import { SearchRow } from '@/components/search-row';
+import { SearchKeypad } from '@/components/search-keypad';
+import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
@@ -139,6 +140,12 @@ export default function PosScreen() {
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
+  const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  const splitRef = useRef<ScrollView>(null);
+  // Compact POS puts the cart ABOVE the browse pane, so the search row's
+  // content-relative y is the pane's y plus the row's y within the pane.
+  const browsePaneY = useRef(0);
+  const searchRowY = useRef(0);
   // Same three gates Inventory applies. A cashier without `inventory.edit`
   // simply sees the error -- the products insert policy would refuse them
   // anyway, and offering a form that can't be saved is worse than not offering
@@ -560,20 +567,32 @@ export default function PosScreen() {
   const cartListProps = compact ? {} : { style: styles.cartList };
 
   const browsePaneEl = (
-    <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
+    <View
+      style={[styles.browsePane, compact && styles.browsePaneCompact]}
+      onLayout={(e) => { browsePaneY.current = e.nativeEvent.layout.y; }}
+    >
       <TillKeyboardNotice />
 
-      <SearchRow
-        value={search}
-        onChange={setSearch}
-        onSubmit={handleSearchSubmit}
-        placeholder="Search or scan a product"
-        useKeypad={scanner.onScreenKeypad}
-        showScanButton={scanner.camera}
-        onScanPress={() => setScannerOpen(true)}
-        showSearchIcon
-        size="counter"
-      />
+      <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
+        <SearchRow
+          value={search}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
+          placeholder="Search or scan a product"
+          useKeypad={scanner.onScreenKeypad}
+          showScanButton={scanner.camera}
+          onScanPress={() => setScannerOpen(true)}
+          showSearchIcon
+          size="counter"
+          keypadOpen={keypadOpen}
+          onKeypadOpenChange={(open) => {
+            setKeypadOpen(open);
+            // `scrollTo` exists only when Split is the compact ScrollView; on
+            // wide layouts nothing scrolls and the row is always visible.
+            if (open && compact) splitRef.current?.scrollTo({ y: Math.max(0, browsePaneY.current + searchRowY.current - 12), animated: true });
+          }}
+        />
+      </View>
       <ScanFeedbackBanner feedback={scanFeedback} />
       {unknownCode && (
         <Pressable onPress={() => { setScannerOpen(false); setShowAddProduct(true); }} style={styles.addFromScan}>
@@ -836,7 +855,7 @@ export default function PosScreen() {
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <View style={styles.registerBarWrap}>{registerBarEl}</View>
-      <Split style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
+      <Split ref={splitRef as never} style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
         {compact ? (
           <>
             {cartPaneEl}
@@ -849,6 +868,17 @@ export default function PosScreen() {
           </>
         )}
       </Split>
+      {/* A flex sibling of the Split, under BOTH panes: the dock belongs to
+          the screen, not the search column — the cart stays visible and
+          tappable so a cashier can scan or take payment mid-typing. */}
+      {keypadOpen && scanner.onScreenKeypad ? (
+        <SearchKeypad
+          value={search}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
+          onClose={() => setKeypadOpen(false)}
+        />
+      ) : null}
       {shop && registerSheet === 'open' && (
         <OpenRegisterSheet
           registers={registers}
