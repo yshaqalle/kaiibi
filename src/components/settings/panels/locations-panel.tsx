@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
@@ -27,12 +27,26 @@ export function LocationsPanel({
   shopId,
   locations,
   onChange,
+  initialLocationId,
 }: {
   shopId: string;
   locations: ShopLocation[];
   onChange: () => Promise<void>;
+  /** Deep-link: open this store's editor on arrival. See TillKeyboardNotice. */
+  initialLocationId?: string;
 }) {
   const [editing, setEditing] = useState<ShopLocation | 'new' | null>(null);
+  // Consumed at most once: Settings loads locations async, so the named store
+  // can arrive a beat after mount — but closing the editor must not reopen it.
+  const [consumedInitial, setConsumedInitial] = useState(false);
+  useEffect(() => {
+    if (consumedInitial || !initialLocationId) return;
+    const match = locations.find((location) => location.id === initialLocationId);
+    if (match) {
+      setEditing(match);
+      setConsumedInitial(true);
+    }
+  }, [consumedInitial, initialLocationId, locations]);
   const [error, setError] = useState<string | null>(null);
   const { limitFor, usageOf } = useAuth();
 

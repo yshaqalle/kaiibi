@@ -655,8 +655,14 @@ Deno.serve(async (req) => {
         // retirement -- and approving one would move a store onto the very plan
         // we are shutting down. Declining still works; only approval is refused.
         if (action === 'approve_plan_change') {
-          const { data: requestedPlan } = await adminClient
+          const { data: requestedPlan, error: requestedPlanError } = await adminClient
             .from('plans').select('name, retire_at').eq('id', request.requested_plan_id).maybeSingle();
+          // Fail closed: if this read errors, `requestedPlan` would otherwise
+          // be undefined and the retiring-plan guard below would silently not
+          // fire, approving the move as if the plan were fine. A guard that
+          // disables itself on an infrastructure error is worse than no guard,
+          // because it reads as protection.
+          if (requestedPlanError) return errorResponse(500, 'unknown', requestedPlanError.message);
           if (requestedPlan?.retire_at) {
             return errorResponse(
               409,

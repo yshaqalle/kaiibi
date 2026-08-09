@@ -51,7 +51,7 @@ export default function SettingsScreen() {
   // panel it is talking about -- see TillKeyboardNotice. Read once, as the
   // initial value: after that the reader owns which panel is open, and a
   // re-render must not yank them back.
-  const params = useLocalSearchParams<{ nav?: string }>();
+  const params = useLocalSearchParams<{ nav?: string; location?: string }>();
   const [activeNav, setActiveNav] = useState<SettingsNavId>(
     isSettingsNavId(params.nav) ? params.nav : 'profile',
   );
@@ -187,7 +187,14 @@ export default function SettingsScreen() {
       case 'business':
         return <BusinessPanel shop={shop} onSaved={refreshShop} />;
       case 'locations':
-        return <LocationsPanel shopId={shop.id} locations={allLocations} onChange={async () => { await reload(); await refreshShop(); }} />;
+        return (
+          <LocationsPanel
+            shopId={shop.id}
+            locations={allLocations}
+            onChange={async () => { await reload(); await refreshShop(); }}
+            initialLocationId={typeof params.location === 'string' ? params.location : undefined}
+          />
+        );
       case 'receipt':
         return <ReceiptPanel shop={shop} onSaved={refreshShop} />;
       case 'catalog':
