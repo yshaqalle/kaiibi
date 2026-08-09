@@ -29,6 +29,14 @@ export type Plan = {
   // `isPublic` does that, and the two are set together by `retire_plan`.
   retireAt: string | null;
   successorPlanKey: string | null;
+  // False is archived: the terminal state the portal uses instead of delete.
+  // Only the portal ever sees inactive rows (listPlansForPlatform); every
+  // store-facing listing keeps filtering them out.
+  active: boolean;
+  // Surfaced for the portal's archived strip: archiving is by construction
+  // the last write to an archived row (the strip offers no Edit), so this is
+  // honestly "when it was archived" there.
+  updatedAt: string;
   sortOrder: number;
 };
 
@@ -46,6 +54,8 @@ function mapPlanRow(row: any): Plan {
     isPublic: row.is_public,
     retireAt: row.retire_at ?? null,
     successorPlanKey: row.successor_plan_key ?? null,
+    active: row.active,
+    updatedAt: row.updated_at,
     sortOrder: row.sort_order,
   };
 }
@@ -58,6 +68,19 @@ export async function listAllPlans(): Promise<Plan[]> {
     .from('plans')
     .select('*')
     .eq('active', true)
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(mapPlanRow);
+}
+
+// Every row there is, archived included -- portal only. The archived strip on
+// the Plans tab is the way back through the active=false door; a listing that
+// filtered on active would make archiving irreversible from the UI.
+// Store-facing code keeps listPlans/listAllPlans and their filters.
+export async function listPlansForPlatform(): Promise<Plan[]> {
+  const { data, error } = await supabase
+    .from('plans')
+    .select('*')
     .order('sort_order', { ascending: true });
   if (error) throw error;
   return (data ?? []).map(mapPlanRow);

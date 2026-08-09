@@ -80,12 +80,29 @@ flag, so Android is the strongest *functional* check of the three natives.
 - Tablets render the **sidebar** layout (nav at the top of the tree, y≈150–200),
   phones render **bottom tabs** (y≈2230). That difference is the tablet assertion.
 
-## iOS — screenshots, and a permission wall
+## iOS — Maestro (full interaction), plus simctl for screenshots
 
 Booted sims are found with `xcrun simctl list devices booted`. Bundle id
 `com.kaiibisteam.kaiibi`.
 
-Works today:
+**Maestro is installed** (2026-08-09, `~/.maestro/bin`) and drives iOS
+simulators and Android emulators from one YAML flow language:
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+export PATH="$JAVA_HOME/bin:$HOME/.maestro/bin:$PATH"
+maestro --device <udid-or-serial> test flow.yaml
+```
+
+Flow steps that work against this app: `launchApp`, `tapOn: "Label"`,
+`scrollUntilVisible`, `inputText`, `assertVisible` / `assertNotVisible`. On a
+failure Maestro saves a screenshot per step under `~/.maestro/tests/` — read
+the last one before theorising. Its `takeScreenshot` step is flaky; use
+`simctl io <udid> screenshot` instead. Note `assertVisible` defaults to 100%
+visibility, so an element half-hidden behind a dock or fold fails the assert
+even though the flow genuinely worked — check the step screenshot.
+
+`simctl` still covers the basics:
 
 ```bash
 xcrun simctl io <udid> screenshot out.png     # then Read the png
@@ -93,33 +110,27 @@ xcrun simctl launch <udid> com.kaiibisteam.kaiibi
 xcrun simctl terminate <udid> com.kaiibisteam.kaiibi
 ```
 
-**Tapping is not available.** There is no `simctl` tap, `idb`/`appium`/`maestro`
-are not installed, and the AppleScript route fails with *"osascript is not
-allowed assistive access"*. Do not write iOS steps that assume a tap.
-
 **Deep links are unreliable on iOS.** `simctl openurl` succeeded once on the
-iPhone but on the iPad raised a SpringBoard *"Open in 'Ka Iibi'?"* alert — which
-needs a tap, which we do not have, and which then blocks the screen. Terminating
-first does not avoid it. Use `openurl`, screenshot, and if you see that alert,
-recover with `simctl launch` and drive the run from wherever the app opens.
+iPhone but on the iPad raised a SpringBoard *"Open in 'Ka Iibi'?"* alert that
+blocks the screen; recover with `simctl launch`. With Maestro available,
+prefer `tapOn` navigation over deep links on iOS.
 
-So an iOS run verifies **layout, rendering and data** at iPhone and iPad
-geometry — the thing the simulator is actually needed for — while interaction
-coverage comes from web and Android. Say that in the report rather than implying
-the flows were exercised.
+**A stale .app hides native modules, same as Android.** Compare the installed
+binary's date (`xcrun simctl get_app_container <udid> <bundle> ` → `ls` the
+executable) against the module's commit; rebuild with `npx expo run:ios
+--device <udid> --no-bundler`. Different sims carry different builds — on
+2026-08-09 the iOS 18.3 devices had an Aug 7 binary while the iOS 26.5
+iPhone 17 Pro Max had the current one. Check the one you are driving.
 
-### Unlocking full iOS interaction
-
-Both are the user's call, and either is enough. Ask; do not install anything
-unprompted.
-
-1. **Grant Accessibility** to the terminal or VS Code under System Settings →
-   Privacy & Security → Accessibility. AppleScript can then click and type into
-   the Simulator window, and this file should gain that driver.
-2. **Install Maestro** (see `maestro.mobile.dev` for the current installer) — one
-   YAML flow language covering iOS simulators and Android emulators both. It
-   needs a JDK, and this machine has no standalone one, so `JAVA_HOME` has to
-   point at Android Studio's JBR the way `scripts/android-emu.sh` already does.
+**GCKeyboard connects lazily in the simulator.** The Connect Hardware Keyboard
+setting (GUI; also `defaults write com.apple.iphonesimulator
+ConnectHardwareKeyboard -bool true` + Simulator restart) is not enough:
+`GCKeyboard` stays nil until a *physical host keystroke* reaches the sim, and
+Maestro/XCTest-synthesized input never crosses that bridge. So the
+hardware-keyboard world cannot be entered on iOS by automation alone — either
+the user presses one real key with the sim focused, or (for a layout /
+interaction pass only) temporarily force the detection hook's return in JS on
+the live dev server and revert immediately, saying so in the report.
 ### Android traps found while testing the scanner till (2026-08-09)
 
 - **A stale APK hides native modules silently.** JS from Metro is always

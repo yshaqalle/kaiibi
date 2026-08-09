@@ -58,6 +58,8 @@ function makePlan(overrides: Partial<Plan> & { key: string }): Plan {
     isPublic: true,
     retireAt: null,
     successorPlanKey: null,
+    active: true,
+    updatedAt: '2026-01-01T00:00:00.000Z',
     sortOrder: 0,
     ...overrides,
   };

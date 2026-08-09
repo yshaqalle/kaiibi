@@ -150,6 +150,18 @@ begin
     null;
   end;
 
+  -- ------------------------------------ archive invariants the guards rest on
+  -- archive_plan (active = false) exists because DELETE must stay impossible
+  -- while any subscription row points at the plan. Prove the restrict actually
+  -- bites: the verify shop's subscription points at `trial`, so deleting it
+  -- must fail loudly rather than strip entitlements.
+  begin
+    delete from public.plans where key = 'trial';
+    raise exception 'FAIL: deleting a plan with live subscriptions was allowed';
+  exception when foreign_key_violation then
+    null;
+  end;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback_marker';
 exception

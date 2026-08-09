@@ -24,6 +24,9 @@ type Action =
   | 'upsert_plan'
   | 'retire_plan'
   | 'republish_plan'
+  | 'publish_plan'
+  | 'archive_plan'
+  | 'restore_plan'
   | 'set_platform_settings'
   | 'approve_plan_change'
   | 'decline_plan_change'
@@ -52,6 +55,11 @@ type RequestBody = {
   };
   override?: { kind: 'module' | 'limit'; key: string; value?: unknown; expiresAt?: string | null };
   plan?: Record<string, unknown>;
+  // upsert_plan only. When set, the upsert must INSERT: an existing key is a
+  // 409 rather than a silent overwrite, the key shape is validated, and the
+  // row is forced non-public so a new plan can never appear in the store
+  // picker before an operator has looked at its card and published it.
+  create?: boolean;
   // retire_plan / republish_plan. successorPlanKey is where the stores on this
   // plan land when retireAt passes; postTrialPlanKey is only used when the plan
   // being retired is the platform-wide fallback (see the case below).
@@ -160,7 +168,7 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'set_plan': {
         if (!body.shopId || !body.planKey) return errorResponse(400, 'unknown', 'shopId and planKey are required.');
-        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key, name, retire_at').eq('key', body.planKey).maybeSingle();
+        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key, name, retire_at, active').eq('key', body.planKey).maybeSingle();
         if (planError) return errorResponse(500, 'unknown', planError.message);
         if (!plan) return errorResponse(400, 'unknown', 'No such plan.');
         // Same hole approve_plan_change was hardened against: a retiring plan
@@ -174,6 +182,14 @@ Deno.serve(async (req) => {
             'plan_retiring',
             `${plan.name} is being retired, so stores cannot be moved onto it. Move them to its successor instead.`
           );
+        }
+        // An archived retired plan is already caught by the retire_at guard
+        // above (nothing but republish clears retire_at), but an archived
+        // never-launched draft has retire_at = null and would slip through --
+        // pointing a subscription at an inactive plan by a path that skips
+        // every archive_plan guard.
+        if (!plan.active) {
+          return errorResponse(409, 'plan_archived', `${plan.name} is archived, so stores cannot be moved onto it.`);
         }
 
         const before = await loadSubscription(body.shopId);
@@ -352,14 +368,12 @@ Deno.serve(async (req) => {
         // a retirement with no successor validation, which is exactly how a
         // two-hop chain gets created -- and shop_effective_plan() follows only
         // one hop. `is_public` is the other half of that same state (retiring
-        // clears it, republishing restores it), and `active` has no editor at
-        // all. The portal's plan editor sends only the columns below.
-        // Tradeoff worth naming: excluding `is_public` also means there is no
-        // API path left to CREATE a non-public plan. Creation through this
-        // action still works -- the column defaults to true -- but
-        // 20260818000000 documents `is_public = false` as the state for
-        // one-off negotiated deals, and that state is only reachable today by
-        // writing the row directly, not through this endpoint.
+        // clears it, republishing restores it) and is likewise never accepted
+        // here: publishing goes through publish_plan and its guards or not at
+        // all. Create mode is the one place this handler touches the column,
+        // and only to force it FALSE -- a new plan is born hidden as a server
+        // property, not a portal convention. `active` belongs to
+        // archive_plan / restore_plan for the same reason.
         const editable = ['key', 'name', 'description', 'price_cents', 'currency', 'billing_interval', 'modules', 'limits', 'sort_order'] as const;
         const planPayload: Record<string, unknown> = {};
         for (const column of editable) {
@@ -368,6 +382,36 @@ Deno.serve(async (req) => {
 
         const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', key).maybeSingle();
         if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+
+        if (body.create) {
+          // The key becomes the audit and billing identifier and can never
+          // change, so a typo'd shape is refused rather than lived with.
+          if (!/^[a-z][a-z0-9_]*$/.test(key)) {
+            return errorResponse(400, 'unknown', 'Plan keys are lowercase letters, digits and underscores, starting with a letter.');
+          }
+          // Without this, typing `standard` into the create sheet would
+          // silently rewrite Standard for every store on it.
+          if (before) {
+            return errorResponse(409, 'key_exists', `A plan with key \`${key}\` already exists.`);
+          }
+          planPayload.is_public = false;
+        }
+
+        if (!body.create) {
+          // Without this, an edit-shaped call with an unknown key would
+          // INSERT (upsert semantics) a row born with the column default
+          // is_public = true -- the exact public-before-reviewed path create
+          // mode exists to close. Editing creates nothing.
+          if (!before) {
+            return errorResponse(400, 'unknown', 'No such plan. Pass create: true to create one.');
+          }
+          // updated_at is the archived strip's "archived" date, and the strip
+          // offers no Edit -- keep that honest server-side too.
+          if (!before.active) {
+            return errorResponse(409, 'plan_archived', `${before.name} is archived. Restore it before editing.`);
+          }
+        }
+
         const { data: after, error } = await adminClient
           .from('plans')
           .upsert({ ...planPayload, updated_at: new Date().toISOString() }, { onConflict: 'key' })
@@ -685,6 +729,127 @@ Deno.serve(async (req) => {
         return ok({ plan: after });
       }
 
+      case 'publish_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        // The same tripwire republish_plan's retire_at guard provides, but
+        // publish has no retirement state to hide behind: `trial` is $0,
+        // carries every module and has no limits, and the store-facing chooser
+        // lists on is_public alone. One benign-looking call would make the
+        // whole product free, so the key is refused by name.
+        if (body.planKey === 'trial') {
+          return errorResponse(400, 'unknown', 'The trial plan is assigned by trigger and can never be published.');
+        }
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (!before.active) {
+          return errorResponse(409, 'plan_archived', `${before.name} is archived. Restore it before publishing.`);
+        }
+        // Republish is the verb for a retiring plan -- it clears retire_at and
+        // successor_plan_key in the same write. Publishing here instead would
+        // mint a public-but-retiring plan, a state nothing else can produce.
+        if (before.retire_at) {
+          return errorResponse(409, 'plan_retiring', `${before.name} is being retired. Republish it instead — that clears the retirement.`);
+        }
+        if (before.is_public) return errorResponse(400, 'unknown', `${before.name} is already public.`);
+
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ is_public: true, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('publish_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
+      case 'archive_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        // The provisioning trigger selects `trial` by key at every shop
+        // creation; archiving it would break signup platform-wide.
+        if (body.planKey === 'trial') {
+          return errorResponse(400, 'unknown', 'The trial plan is selected by the signup trigger and can never be archived.');
+        }
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (!before.active) return errorResponse(400, 'unknown', `${before.name} is already archived.`);
+        // Off the picker first: retire it, or it was never published.
+        if (before.is_public) {
+          return errorResponse(409, 'plan_public', `${before.name} is still in the store-facing picker. Retire it first.`);
+        }
+        // All rows, any status -- plan_id's on-delete-restrict makes no status
+        // distinction and neither does this. A lapsed store's subscription row
+        // still names the plan it will return to.
+        const { count, error: subsError } = await adminClient
+          .from('shop_subscriptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('plan_id', before.id);
+        if (subsError) return errorResponse(500, 'unknown', subsError.message);
+        if ((count ?? 0) > 0) {
+          return errorResponse(409, 'plan_in_use', `${count} subscription${count === 1 ? ' still points' : 's still point'} at ${before.name}. Move them first.`);
+        }
+        // Lapsed stores resolve through post_trial_plan_key on every
+        // entitlement read; archiving that plan strands all of them.
+        const { data: settings, error: settingsError } = await adminClient
+          .from('platform_settings').select('post_trial_plan_key').eq('id', true).maybeSingle();
+        if (settingsError) return errorResponse(500, 'unknown', settingsError.message);
+        if (settings?.post_trial_plan_key === body.planKey) {
+          return errorResponse(409, 'plan_is_fallback', `${before.name} is the post-trial fallback plan. Point the fallback elsewhere first.`);
+        }
+        // retire_plan refuses an inactive successor at set time; this closes
+        // the same hole from the other side -- an in-flight retirement must
+        // not sweep its stores onto an archived plan on the retire date.
+        // Active pointers only: an archived plan's successor pointer is inert
+        // -- the archive guard proved it had zero subscriptions, and being
+        // retired or hidden it can never gain any -- so it must not block,
+        // and the client's canArchivePlan (which scans active plans) stays an
+        // exact mirror.
+        const { data: pointing, error: pointingError } = await adminClient
+          .from('plans').select('name').eq('successor_plan_key', body.planKey).eq('active', true);
+        if (pointingError) return errorResponse(500, 'unknown', pointingError.message);
+        if (pointing && pointing.length > 0) {
+          return errorResponse(
+            409,
+            'plan_is_successor',
+            `${pointing.map((p) => p.name).join(', ')} retire${pointing.length === 1 ? 's' : ''} into ${before.name}. Republish or re-point ${pointing.length === 1 ? 'it' : 'them'} first.`
+          );
+        }
+
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ active: false, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('archive_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
+      case 'restore_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (before.active) return errorResponse(400, 'unknown', `${before.name} is not archived.`);
+
+        // active = true and nothing else: is_public and retire_at are
+        // untouched, so the plan comes back exactly as it went away -- hidden,
+        // and still retired if it was -- and restoring can never surprise the
+        // store-facing picker.
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ active: true, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('restore_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
       case 'set_platform_settings': {
         if (!body.settings) return errorResponse(400, 'unknown', 'settings is required.');
 
@@ -753,7 +918,7 @@ Deno.serve(async (req) => {
         // we are shutting down. Declining still works; only approval is refused.
         if (action === 'approve_plan_change') {
           const { data: requestedPlan, error: requestedPlanError } = await adminClient
-            .from('plans').select('name, retire_at').eq('id', request.requested_plan_id).maybeSingle();
+            .from('plans').select('name, retire_at, active').eq('id', request.requested_plan_id).maybeSingle();
           // Fail closed: if this read errors, `requestedPlan` would otherwise
           // be undefined and the retiring-plan guard below would silently not
           // fire, approving the move as if the plan were fine. A guard that
@@ -766,6 +931,11 @@ Deno.serve(async (req) => {
               'plan_retiring',
               `${requestedPlan.name} is being retired, so stores cannot be moved onto it. Decline this and move them to its successor instead.`
             );
+          }
+          // Same reasoning as set_plan's active guard: an archived
+          // never-retired draft passes the retire_at check above.
+          if (requestedPlan && !requestedPlan.active) {
+            return errorResponse(409, 'plan_archived', `${requestedPlan.name} is archived, so stores cannot be moved onto it. Decline this request.`);
           }
         }
 

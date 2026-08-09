@@ -30,7 +30,7 @@ import {
   type PlatformShopRow,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
-import { listAllPlans, type Plan } from '@/lib/subscriptions';
+import { listPlansForPlatform, type Plan } from '@/lib/subscriptions';
 import { AppModal } from '@/components/ui/app-modal';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -68,6 +68,7 @@ export default function PlatformHome() {
   const [tab, setTab] = useState<Tab>('overview');
   const [shops, setShops] = useState<PlatformShopRow[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [archivedPlans, setArchivedPlans] = useState<Plan[]>([]);
   const [audit, setAudit] = useState<PlatformAuditRow[]>([]);
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
@@ -95,16 +96,24 @@ export default function PlatformHome() {
     // resolve a retired plan to its successor, and needs post_trial_plan_key to
     // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
     // run in the same batch as the shops read.
-    const [planRows, settingsRow] = await Promise.all([listAllPlans(), getPlatformSettings()]);
+    const [planRows, settingsRow] = await Promise.all([listPlansForPlatform(), getPlatformSettings()]);
+    // Active only, everywhere but the Plans tab's archived strip: the overview
+    // donut indexes colours by array position, the retire/fallback pickers and
+    // set_plan must never offer an archived plan, and listPlatformShops
+    // resolves successors -- which are never archived (archive_plan refuses a
+    // referenced plan). Today's behaviour, unchanged, with the archived rows
+    // carried separately.
+    const activePlans = planRows.filter((p) => p.active);
     const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
-      listPlatformShops(planRows, settingsRow.postTrialPlanKey),
+      listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
       listSubscriptionPayments(),
     ]);
     setShops(shopRows);
-    setPlans(planRows);
+    setPlans(activePlans);
+    setArchivedPlans(planRows.filter((p) => !p.active));
     setAudit(auditRows);
     setOperators(operatorRows);
     setRequests(requestRows);
@@ -145,6 +154,7 @@ export default function PlatformHome() {
   ) : tab === 'plans' ? (
     <PlansTab
       plans={plans}
+      archivedPlans={archivedPlans}
       shops={shops}
       compact={compact}
       pendingRequestsByPlanKey={requests.reduce<Record<string, number>>(

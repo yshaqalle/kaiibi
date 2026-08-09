@@ -51,3 +51,6 @@ example
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/
+
+# Google Play service account key — never commit
+google-service-account.json

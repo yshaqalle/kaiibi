@@ -1,0 +1,542 @@
+<title>Kaiibi Platform — plan lifecycle: create, publish, archive</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every --d-* value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,.h2sub code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:20px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;}
+  .frameHead.now b{color:var(--mut);}
+  .frameHead.next b{color:var(--blue);}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;min-width:392px;}
+  .pair{display:grid;gap:26px;}
+  @media (min-width:1000px){ .pair{grid-template-columns:1fr 1fr;} }
+  .pair > div{min-width:0;}
+
+  /* ---------- bento card ---------- */
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .card + .card{margin-top:14px;}
+  .head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;}
+  .nameRow{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap;}
+  .dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+  .pname{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--d-ink);}
+  .btn{border:1px solid var(--d-rule);background:var(--d-sf);color:var(--d-ink2);border-radius:999px;
+    padding:6px 13px;font-size:12px;font-weight:800;white-space:nowrap;display:inline-block;}
+  .btn.warnBtn{border-color:var(--warn);color:var(--warn);}
+  .btn.accentBtn{border-color:var(--c1);color:var(--c1);}
+  .btnRow{display:flex;gap:7px;flex-shrink:0;}
+
+  .chip{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 9px;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;}
+  .chip.warnChip{background:#fdf4e3;color:var(--warn);}
+  .chip.accentChip{background:var(--accentWash);color:var(--accentInk);}
+
+  .priceRow{display:flex;align-items:baseline;gap:3px;margin-top:12px;}
+  .price{font-size:28px;font-weight:800;letter-spacing:-1px;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .per{font-size:12px;font-weight:700;color:var(--d-mut);}
+
+  .stats{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap;}
+  .sv{font-size:17px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .sl{font-size:10.5px;color:var(--d-mut);}
+
+  .subhead{font-size:9.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut2);margin:18px 0 8px;}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;}
+  .pill{background:var(--d-soft);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--d-mut2);}
+  .pill.on{color:var(--d-ink2);background:#e6edff;}
+
+  /* the tier grid, shrunk: two cards + the ghost cell side by side */
+  .grid{display:grid;gap:12px;}
+  @media (min-width:760px){ .grid{grid-template-columns:1fr 1fr 1fr;} }
+  .grid .card{margin:0;}
+
+  /* ghost "new plan" cell */
+  .ghost{border:1.5px dashed var(--d-rule);border-radius:26px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;gap:6px;padding:26px 18px;min-height:150px;color:var(--d-mut2);}
+  .ghost .plus{font-size:22px;font-weight:800;line-height:1;color:var(--d-mut);}
+  .ghost b{font-size:12.5px;font-weight:800;color:var(--d-ink2);}
+  .ghost span{font-size:10.5px;text-align:center;max-width:22ch;}
+
+  /* archived strip */
+  .archStrip{margin-top:14px;background:var(--d-sf);border-radius:20px;padding:6px 16px;}
+  .archHead{display:flex;align-items:center;gap:8px;padding:10px 0;font-size:11px;font-weight:800;
+    letter-spacing:.6px;color:var(--d-mut2);text-transform:uppercase;}
+  .archHead .caret{font-size:9px;}
+  .archRow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 0;border-top:1px solid var(--d-rule);}
+  .archName{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .archName code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;
+    color:var(--d-mut);background:var(--d-soft);padding:1px 5px;border-radius:4px;margin-left:6px;}
+  .archMeta{font-size:10.5px;color:var(--d-mut);}
+
+  /* ---------- caveat ---------- */
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:16px;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav.wrong{border-color:#D27631;background:#FFFBEB;color:#8A5A05;}
+  .cav .g{font-size:13px;flex-shrink:0;line-height:1.4;}
+  .cav p{margin:0;font-size:12px;line-height:1.5;}
+  .cav .act{display:inline-block;margin-top:7px;font-size:12px;font-weight:800;text-decoration:underline;}
+
+  /* ---------- modal ---------- */
+  .modalWrap{background:var(--d-pg);border-radius:20px;padding:16px;}
+  .modal{background:var(--d-sf);border-radius:26px;padding:20px;box-shadow:0 10px 30px rgba(11,11,13,.13);}
+  .modalTitle{font-size:17px;font-weight:800;letter-spacing:-.3px;margin:0 0 4px;}
+  .modalMeta{font-size:11px;color:var(--d-mut);margin:0 0 4px;}
+  .secLabel{font-size:9.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut2);margin:18px 0 8px;}
+  .field{border:1px solid var(--d-rule);border-radius:12px;padding:9px 12px;font-size:13px;color:var(--d-ink);
+    background:var(--d-sf);}
+  .field.ph{color:var(--d-mut2);}
+  .field.need{border-color:var(--warn);}
+  .field.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;}
+  .fieldRow{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .fl{font-size:9.5px;font-weight:800;letter-spacing:.6px;color:var(--d-mut2);margin-bottom:5px;display:block;}
+  .selRow{display:flex;gap:7px;flex-wrap:wrap;}
+  .sel{border:1px solid var(--d-rule);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-mut);}
+  .sel.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .footRow{display:flex;align-items:center;gap:14px;margin-top:16px;}
+  .primary{background:var(--d-ink);color:#fff;border-radius:999px;padding:9px 17px;font-size:12.5px;font-weight:800;}
+  .primary.danger{background:var(--warn);}
+  .cancel{font-size:12px;font-weight:700;color:var(--d-mut);}
+
+  /* guard checklist inside the archive sheet */
+  .guards{margin:0;padding:0;list-style:none;display:grid;gap:7px;}
+  .guards li{display:flex;gap:9px;font-size:12px;color:var(--d-ink2);align-items:baseline;}
+  .guards .ok{color:var(--profit);font-weight:800;flex-shrink:0;}
+
+  /* ---------- table ---------- */
+  .tblWrap{overflow-x:auto;margin-top:18px;border:1px solid var(--ln);border-radius:12px;}
+  table{border-collapse:collapse;width:100%;min-width:660px;font-size:13.5px;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+    background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{font-weight:700;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;white-space:nowrap;}
+  .tag.new{background:#e6edff;color:#1b47b8;}
+  .tag.fix{background:#fdf4e3;color:#8a5a05;}
+  @media (prefers-color-scheme: dark){
+    .tag.new{background:#1b2a52;color:#a8c0ff;}
+    .tag.fix{background:#3a2e12;color:#e0b96a;}
+  }
+  :root[data-theme="dark"] .tag.new{background:#1b2a52;color:#a8c0ff;}
+  :root[data-theme="dark"] .tag.fix{background:#3a2e12;color:#e0b96a;}
+  :root[data-theme="light"] .tag.new{background:#e6edff;color:#1b47b8;}
+  :root[data-theme="light"] .tag.fix{background:#fdf4e3;color:#8a5a05;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi · Platform portal</p>
+<h1>Finishing the plan lifecycle: create, publish, archive</h1>
+<p class="lede">
+  Retirement shipped. What's left is the two ends of a tier's life: bringing a new one into the world
+  without it going live half-built, and putting a fully-drained one away without deleting it.
+  Every frame is pinned to <code>Colors.light</code>, the palette the app actually renders.
+</p>
+
+<div class="verdict">
+  <div class="vx mid">
+    <b>Create — server ready, no door</b>
+    <p><code>upsert_plan</code> already creates on an unknown key. But <code>PlanEditor</code> is only reachable
+    from an existing card's Edit button, and a plan created through it would be born with
+    <code>is_public = true</code> — live in every store's plan picker before its modules are even ticked.</p>
+  </div>
+  <div class="vx bad">
+    <b>Archive — no path at all</b>
+    <p><code>active = false</code> is the schema's designed end state ("the portal deactivates plans instead of
+    deleting them") but <code>active</code> is deliberately outside <code>upsert_plan</code>'s allowlist and nothing
+    else writes it. And since every plan query filters <code>active = true</code>, an archived plan would vanish
+    from the portal itself — a one-way door unless the portal learns to list them.</p>
+  </div>
+  <div class="vx good">
+    <b>Delete — never, and that stays</b>
+    <p><code>shop_subscriptions.plan_id</code> is <code>on delete restrict</code> on purpose. Nothing below adds a
+    delete. Archive is the terminal state; the row, its audit trail and its revenue history stay.</p>
+  </div>
+</div>
+
+<section>
+  <h2>1 · The door in: a ghost cell in the tier grid</h2>
+  <p class="h2sub">
+    Not a button in the header — a dashed cell at the end of the grid, exactly where the new card will
+    appear once it exists. The grid is the comparison view; the empty slot says "a fourth tier goes here"
+    better than any toolbar control. (Span math already handles 4: the grid reflows to 2×2.)
+  </p>
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>plans-tab.tsx — no create control anywhere</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="grid">
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c1)"></span><span class="pname">Free</span></div></div>
+            <div class="priceRow"><span class="price">Free</span></div>
+            <div class="stats"><div><div class="sv" style="color:var(--c1)">14</div><div class="sl">stores</div></div></div>
+          </div>
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c2)"></span><span class="pname">Standard</span></div></div>
+            <div class="priceRow"><span class="price">$19.00</span><span class="per">/month</span></div>
+            <div class="stats"><div><div class="sv" style="color:var(--c2)">31</div><div class="sl">stores</div></div></div>
+          </div>
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c3)"></span><span class="pname">Pro</span></div></div>
+            <div class="priceRow"><span class="price">$39.00</span><span class="per">/month</span></div>
+            <div class="stats"><div><div class="sv" style="color:var(--c3)">9</div><div class="sl">stores</div></div></div>
+          </div>
+        </div>
+        <p style="margin:12px 2px 0;font-size:11px;color:var(--d-mut2);">…and the row ends. Adding a tier means writing the row in SQL.</p>
+      </div></div>
+    </div>
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>+ ghost cell, same grid</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="grid">
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c2)"></span><span class="pname">Standard</span></div></div>
+            <div class="priceRow"><span class="price">$19.00</span><span class="per">/month</span></div>
+            <div class="stats"><div><div class="sv" style="color:var(--c2)">31</div><div class="sl">stores</div></div></div>
+          </div>
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c3)"></span><span class="pname">Pro</span></div></div>
+            <div class="priceRow"><span class="price">$39.00</span><span class="per">/month</span></div>
+            <div class="stats"><div><div class="sv" style="color:var(--c3)">9</div><div class="sl">stores</div></div></div>
+          </div>
+          <div class="ghost">
+            <span class="plus">＋</span>
+            <b>New plan</b>
+            <span>Starts hidden — publish it when it's ready</span>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:16px;">
+    The ghost cell takes a normal grid slot, so the orphan-avoiding span math in
+    <code>plans-tab.tsx:59</code> counts it as a card: three plans + ghost = 4 slots = 2×2.
+  </p>
+</section>
+
+<section>
+  <h2>2 · The create sheet — PlanEditor with a mode</h2>
+  <p class="h2sub">
+    The same editor, three differences: the key is a field instead of a footnote, the blast-radius caveat
+    is gone (nobody is on a plan that doesn't exist), and the footer says what really happens — the plan
+    is created <em>hidden</em>. That last part needs one server change: <code>upsert_plan</code> accepts
+    <code>is_public</code> on <strong>insert only</strong>, closing the gap its own comment documents
+    ("no API path left to create a non-public plan").
+  </p>
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>edit mode — key is a footnote</i></p>
+      <div class="scroller"><div class="frame modalWrap">
+        <div class="modal">
+          <p class="modalTitle">Edit Standard</p>
+          <div class="fieldRow">
+            <div><span class="fl">Name</span><div class="field" style="min-width:200px;">Standard</div></div>
+            <div><span class="fl">Price (USD)</span><div class="field" style="width:112px;">19</div></div>
+          </div>
+          <p class="modalMeta" style="margin-top:8px;">key <code>standard</code> — not editable, 31 stores depend on it</p>
+          <p class="secLabel">MODULES</p>
+          <div class="selRow">
+            <span class="sel on">Point of sale</span><span class="sel on">Inventory</span>
+            <span class="sel on">Dashboard</span><span class="sel">Payroll</span><span class="sel">Promotions</span>
+          </div>
+          <p class="secLabel">REASON</p>
+          <div class="field ph need">Reason (required — goes into the audit log)</div>
+          <div class="footRow"><span class="primary">Save plan</span><span class="cancel">Cancel</span></div>
+        </div>
+      </div></div>
+    </div>
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>create mode — same component</i></p>
+      <div class="scroller"><div class="frame modalWrap">
+        <div class="modal">
+          <p class="modalTitle">New plan</p>
+          <div class="fieldRow">
+            <div><span class="fl">Key — permanent</span><div class="field mono" style="width:130px;">starter</div></div>
+            <div><span class="fl">Name</span><div class="field" style="min-width:160px;">Starter</div></div>
+            <div><span class="fl">Price (USD)</span><div class="field" style="width:100px;">9</div></div>
+          </div>
+          <p class="modalMeta" style="margin-top:8px;">
+            lowercase letters, digits, <code>_</code> — becomes the audit and billing identifier and can never change
+          </p>
+          <p class="secLabel">MODULES</p>
+          <div class="selRow">
+            <span class="sel on">Point of sale</span><span class="sel on">Inventory</span>
+            <span class="sel">Dashboard</span><span class="sel">Payroll</span><span class="sel">Promotions</span>
+          </div>
+          <p class="secLabel">LIMITS — BLANK MEANS UNLIMITED</p>
+          <div class="fieldRow">
+            <div><span class="fl">Stores</span><div class="field" style="width:92px;">1</div></div>
+            <div><span class="fl">Products</span><div class="field" style="width:92px;">200</div></div>
+            <div><span class="fl">Team members</span><div class="field ph" style="width:92px;">∞</div></div>
+          </div>
+          <div class="cav context">
+            <span class="g">ℹ</span>
+            <p>Created hidden. No store can see or pick it until you publish it from its card —
+            build it, check it, then flip it on.</p>
+          </div>
+          <p class="secLabel">REASON</p>
+          <div class="field ph need">Reason (required — goes into the audit log)</div>
+          <div class="footRow"><span class="primary">Create hidden plan</span><span class="cancel">Cancel</span></div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+  <p class="note" style="margin-top:16px;">
+    Key validation lives on the server too: <code>^[a-z][a-z0-9_]*$</code>, and creating over an existing key is
+    rejected outright in create mode — the editor sends a <code>create: true</code> flag so <code>upsert_plan</code>
+    can refuse to silently overwrite Standard because someone typed <code>standard</code>.
+  </p>
+</section>
+
+<section>
+  <h2>3 · Publishing a hidden plan</h2>
+  <p class="h2sub">
+    A hidden plan's card gains a Publish button next to Edit. One confirm, one line about what it does.
+    This is a new <code>publish_plan</code> action, not a relaxed <code>republish_plan</code> — republish's
+    <code>retire_at</code> guard is the only thing standing between a benign-looking call and making
+    <code>trial</code> ($0, every module, no limits) publicly pickable. Publish gets the same tripwire:
+    it refuses the <code>trial</code> key by name.
+  </p>
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>"Not public" chip, no action</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <div class="head">
+            <div class="nameRow">
+              <span class="dot" style="background:var(--c4)"></span><span class="pname">Starter</span>
+              <span class="chip">Not public</span>
+            </div>
+            <div class="btnRow"><span class="btn">Edit</span></div>
+          </div>
+          <div class="priceRow"><span class="price">$9.00</span><span class="per">/month</span></div>
+          <div class="stats"><div><div class="sv" style="color:var(--c4)">0</div><div class="sl">stores</div></div></div>
+        </div>
+        <p style="margin:10px 2px 0;font-size:11px;color:var(--d-mut2);">A hidden plan is stuck hidden. (Retire is correctly absent — the server rejects retiring a non-public plan.)</p>
+      </div></div>
+    </div>
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>action: publish_plan</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <div class="head">
+            <div class="nameRow">
+              <span class="dot" style="background:var(--c4)"></span><span class="pname">Starter</span>
+              <span class="chip">Not public</span>
+            </div>
+            <div class="btnRow"><span class="btn">Edit</span><span class="btn accentBtn">Publish</span></div>
+          </div>
+          <div class="priceRow"><span class="price">$9.00</span><span class="per">/month</span></div>
+          <div class="stats"><div><div class="sv" style="color:var(--c4)">0</div><div class="sl">stores</div></div></div>
+        </div>
+        <div class="modalWrap" style="margin-top:12px;">
+          <div class="modal">
+            <p class="modalTitle">Publish Starter</p>
+            <p class="modalMeta">Appears in every store's plan picker immediately, at $9.00/month with the 2 modules and 2 limits it has right now.</p>
+            <p class="secLabel">REASON</p>
+            <div class="field ph need">Reason (required — goes into the audit log)</div>
+            <div class="footRow"><span class="primary">Publish</span><span class="cancel">Cancel</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>4 · Archive — the end of the line, and the way back</h2>
+  <p class="h2sub">
+    Archive appears on a card only when the server would accept it (the same rule Retire already follows):
+    the plan is off the picker, no subscription rows point at it, nothing else depends on it. Archived
+    plans drop out of the grid into a collapsed strip below it — visible, restorable, out of the way.
+  </p>
+  <div class="pair">
+    <div>
+      <p class="frameHead next"><b>Proposed — the card, fully drained</b><i>action: archive_plan</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <div class="head">
+            <div class="nameRow">
+              <span class="dot" style="background:var(--c1)"></span><span class="pname">Free</span>
+              <span class="chip warnChip">⚠ Retired</span>
+            </div>
+            <div class="btnRow"><span class="btn">Edit</span><span class="btn warnBtn">Republish</span><span class="btn">Archive</span></div>
+          </div>
+          <div class="priceRow"><span class="price">Free</span></div>
+          <div class="stats">
+            <div><div class="sv" style="color:var(--c1)">0</div><div class="sl">stores</div></div>
+            <div><div class="sv">—</div><div class="sl">monthly revenue</div></div>
+          </div>
+        </div>
+        <div class="modalWrap" style="margin-top:12px;">
+          <div class="modal">
+            <p class="modalTitle">Archive Free</p>
+            <p class="modalMeta">Puts the plan away. It leaves this tab for the Archived list below the grid — nothing is deleted, and Restore brings it back retired, exactly as it is now.</p>
+            <p class="secLabel">SAFE TO ARCHIVE</p>
+            <ul class="guards">
+              <li><span class="ok">✓</span>0 subscriptions still point at it</li>
+              <li><span class="ok">✓</span>Not the post-trial fallback plan</li>
+              <li><span class="ok">✓</span>No retiring plan names it as successor</li>
+            </ul>
+            <p class="secLabel">REASON</p>
+            <div class="field ph need">Reason (required — goes into the audit log)</div>
+            <div class="footRow"><span class="primary danger">Archive plan</span><span class="cancel">Cancel</span></div>
+          </div>
+        </div>
+      </div></div>
+    </div>
+    <div>
+      <p class="frameHead next"><b>Proposed — below the grid</b><i>action: restore_plan</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="grid" style="grid-template-columns:1fr 1fr;">
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c2)"></span><span class="pname">Standard</span></div></div>
+            <div class="priceRow"><span class="price">$19.00</span><span class="per">/month</span></div>
+          </div>
+          <div class="card">
+            <div class="head"><div class="nameRow"><span class="dot" style="background:var(--c3)"></span><span class="pname">Pro</span></div></div>
+            <div class="priceRow"><span class="price">$39.00</span><span class="per">/month</span></div>
+          </div>
+        </div>
+        <div class="archStrip">
+          <div class="archHead"><span class="caret">▸</span> Archived · 2</div>
+          <div class="archRow">
+            <div>
+              <div class="archName">Free<code>free</code></div>
+              <div class="archMeta">$0 · archived 12 Sep 2026 · was retired into Standard</div>
+            </div>
+            <span class="btn">Restore</span>
+          </div>
+          <div class="archRow">
+            <div>
+              <div class="archName">Legacy Pro<code>pro_2025</code></div>
+              <div class="archMeta">$29.00/month · archived 3 May 2026</div>
+            </div>
+            <span class="btn">Restore</span>
+          </div>
+        </div>
+        <p style="margin:12px 2px 0;font-size:11px;color:var(--d-mut2);">
+          Restore sets <code>active = true</code> and nothing else: the plan comes back retired and
+          non-public, so restoring can never surprise the store-facing picker.
+        </p>
+      </div></div>
+    </div>
+  </div>
+  <div class="cav wrong" style="max-width:74ch;">
+    <span class="g">⚠</span>
+    <p>The strip is why archive can ship at all: every plan query today filters <code>active = true</code>,
+    so without a portal path that lists inactive plans, archiving is a one-way door with no handle on the
+    other side. The platform's plan fetch has to switch to listing all plans and splitting on
+    <code>active</code> client-side.</p>
+  </div>
+</section>
+
+<section>
+  <h2>What this costs in code</h2>
+  <div class="tblWrap"><table>
+    <thead><tr><th>Where</th><th>Change</th><th></th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>platform-admin/index.ts</code></td>
+        <td>Accept <code>is_public</code> and a <code>create</code> flag in <code>upsert_plan</code> — insert only,
+        reject an existing key in create mode, validate the key shape</td>
+        <td><span class="tag fix">CHANGE</span></td>
+      </tr>
+      <tr>
+        <td><code>platform-admin/index.ts</code></td>
+        <td>New <code>publish_plan</code>: sets <code>is_public = true</code>; refuses <code>trial</code>, refuses
+        already-public and retiring plans</td>
+        <td><span class="tag new">NEW</span></td>
+      </tr>
+      <tr>
+        <td><code>platform-admin/index.ts</code></td>
+        <td>New <code>archive_plan</code> / <code>restore_plan</code>: flip <code>active</code>; archive guards on
+        subscription count, fallback key, successor references</td>
+        <td><span class="tag new">NEW</span></td>
+      </tr>
+      <tr>
+        <td><code>lib/subscriptions.ts</code></td>
+        <td>Platform plan listing includes <code>active = false</code> rows (store-facing <code>listPlans</code>
+        untouched)</td>
+        <td><span class="tag fix">CHANGE</span></td>
+      </tr>
+      <tr>
+        <td><code>plan-editor.tsx</code></td>
+        <td>Create mode: key field, no blast-radius caveat, "Create hidden plan" footer</td>
+        <td><span class="tag fix">CHANGE</span></td>
+      </tr>
+      <tr>
+        <td><code>plans-tab.tsx</code></td>
+        <td>Ghost cell, Publish and Archive buttons with their visibility rules, archived strip</td>
+        <td><span class="tag new">NEW</span></td>
+      </tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>Open decisions</h2>
+  <div class="verdict">
+    <div class="vx mid">
+      <b>Does Archive require Retired first?</b>
+      <p>The sheet above only requires <em>drained</em> (0 subscriptions), which also covers a hidden plan
+      that never launched. Requiring a full retirement first would be stricter but makes killing an
+      unlaunched draft absurd — retire it to whom? Proposed rule: 0 subscriptions + not public is enough.</p>
+    </div>
+    <div class="vx mid">
+      <b>Billing interval and currency in the create sheet?</b>
+      <p>The editor today never touches them; every plan is monthly USD. The create sheet above inherits
+      that and leaves both to their column defaults. Adding the fields is trivial later; adding them now is
+      two more ways to misconfigure a plan nobody has asked to vary yet.</p>
+    </div>
+  </div>
+</section>
+
+</div>
