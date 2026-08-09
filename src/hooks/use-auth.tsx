@@ -37,11 +37,16 @@ type AuthState = {
   // For routes/nav items valid under more than one permission (e.g. /people,
   // which needs customers.view OR any People-manager permission).
   canAny: (permissions: Permission[]) => boolean;
-  // This user's own shop_members row -- null for an admin (owns the shop
-  // instead of belonging to it) and while unresolved. Powers the
-  // self-service /me tab, which is reachable by active membership alone,
-  // not any Permission (see src/lib/permissions.ts's ROUTE_PERMISSIONS
-  // comment).
+  // This user's own shop_members row -- null only while unresolved. Powers the
+  // self-service /me tab, which is reachable by active membership alone, not
+  // any Permission (see src/lib/permissions.ts's ROUTE_PERMISSIONS comment).
+  //
+  // This used to be null for the owner, who owned the shop instead of belonging
+  // to it. Migration 20260823000000 gives them a row like everyone else -- their
+  // authority still comes from shops.owner_id, but they can now be scheduled and
+  // handed a register, which the foreign keys on those tables require. So the
+  // /me tab, the People nav item and the POS's `sessionMember ?? myMembership`
+  // fallback all resolve for an owner now where they previously did not.
   myMembership: StaffMember | null;
   // The stores THIS USER may operate at -- their assigned store, or all of the
   // shop's when unassigned (see migration 20260812000000). Inactive ones are

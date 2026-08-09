@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,7 +19,7 @@ import { SecurityPanel } from '@/components/settings/panels/security-panel';
 import { RolesPanel } from '@/components/settings/panels/roles-panel';
 import { BusinessPanel } from '@/components/settings/panels/business-panel';
 import { VendorsPanel } from '@/components/settings/panels/vendors-panel';
-import { SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
+import { isSettingsNavId, SETTINGS_NAV, SettingsNavList, SettingsSidebar, type SettingsNavId } from '@/components/settings/settings-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { useAuth } from '@/hooks/use-auth';
 import { createBrand, deleteBrand, listBrands, renameBrand, updateBrand, uploadBrandImage } from '@/lib/brands';
@@ -31,6 +32,7 @@ import { listPromotions } from '@/lib/promotions';
 import { countStaffByRole, listRoles } from '@/lib/staff';
 import { createTag, deleteTag, listTags, renameTag, updateTagColor } from '@/lib/tags';
 import { listLocations } from '@/lib/locations';
+import { primaryLocationOf } from '@/lib/location-selection';
 import { listRegisters, registerSessionCounts } from '@/lib/registers';
 import { listVendors } from '@/lib/vendors';
 import type { Brand, Category, Currency, Product, Promotion, Register, Role, ShopLocation, Vendor } from '@/types/models';
@@ -45,7 +47,14 @@ export default function SettingsScreen() {
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
 
-  const [activeNav, setActiveNav] = useState<SettingsNavId>('profile');
+  // Seeded from the URL so something elsewhere can send the reader to the
+  // panel it is talking about -- see TillKeyboardNotice. Read once, as the
+  // initial value: after that the reader owns which panel is open, and a
+  // re-render must not yank them back.
+  const params = useLocalSearchParams<{ nav?: string; location?: string }>();
+  const [activeNav, setActiveNav] = useState<SettingsNavId>(
+    isSettingsNavId(params.nav) ? params.nav : 'profile',
+  );
   const [menuOpen, setMenuOpen] = useState(false);
 
   const [brandRows, setBrandRows] = useState<Brand[]>([]);
@@ -178,7 +187,14 @@ export default function SettingsScreen() {
       case 'business':
         return <BusinessPanel shop={shop} onSaved={refreshShop} />;
       case 'locations':
-        return <LocationsPanel shopId={shop.id} locations={allLocations} onChange={async () => { await reload(); await refreshShop(); }} />;
+        return (
+          <LocationsPanel
+            shopId={shop.id}
+            locations={allLocations}
+            onChange={async () => { await reload(); await refreshShop(); }}
+            initialLocationId={typeof params.location === 'string' ? params.location : undefined}
+          />
+        );
       case 'receipt':
         return <ReceiptPanel shop={shop} onSaved={refreshShop} />;
       case 'catalog':
@@ -276,7 +292,14 @@ export default function SettingsScreen() {
             cashiers={cashiers}
             onAdd={(name) =>
               runOrShowError(async () => {
-                await createCashier(shop.id, name);
+                // A cashier row has to name a store (NOT NULL since
+                // 20260815000000). Settings has no store picker for cashiers
+                // and nothing reads the column back, so new profiles land at
+                // the primary store -- the same store the migration backfilled
+                // the existing rows to.
+                const location = primaryLocationOf(allLocations);
+                if (!location) throw new Error('Add a store under Store locations before adding cashiers.');
+                await createCashier(shop.id, location.id, name);
                 await reload();
               })
             }

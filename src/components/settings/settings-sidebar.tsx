@@ -24,6 +24,19 @@ export type SettingsNavId =
   | 'cashiers'
   | 'registers';
 
+// Listed rather than derived from SETTINGS_NAV: this guard validates a value
+// arriving from a URL, and it should keep working if the sidebar is ever
+// filtered by permission or reordered.
+const SETTINGS_NAV_IDS: SettingsNavId[] = [
+  'profile', 'security', 'billing', 'notifications', 'business', 'locations',
+  'roles', 'vendors', 'receipt', 'catalog', 'inventory', 'promotions',
+  'payments', 'tax', 'loyalty', 'cashiers', 'registers',
+];
+
+export function isSettingsNavId(value: unknown): value is SettingsNavId {
+  return typeof value === 'string' && (SETTINGS_NAV_IDS as string[]).includes(value);
+}
+
 type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
 type NavGroup = { group: string; items: NavItem[] };
 

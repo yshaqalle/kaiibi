@@ -4,9 +4,15 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { read as readWorkbook, utils as xlsxUtils } from 'xlsx';
 
-import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
+import { parseCsvText, type ParsedCsv } from '@/lib/csv';
 import { shareCsv } from '@/lib/export-file';
-import { downloadRejectedRowsCsv, type ImportReport } from '@/lib/import-shared';
+import {
+  downloadRejectedRowsCsv,
+  missingRequiredColumns,
+  templateCsvText,
+  type ImportReport,
+  type TemplateColumn,
+} from '@/lib/import-shared';
 import { AppModal } from '@/components/ui/app-modal';
 
 const EXCEL_MIME_TYPES = [
@@ -22,7 +28,7 @@ const PICKER_MIME_TYPES = ['text/csv', 'text/comma-separated-values', ...EXCEL_M
 export type ImportEntityConfig<T> = {
   title: string;
   filenamePrefix: string;
-  templateColumns: { header: string; required: boolean }[];
+  templateColumns: TemplateColumn[];
   exampleRows: Record<string, string>[];
   run: (parsed: ParsedCsv) => Promise<ImportReport<T>>;
   // What one accepted `T` represents -- 'row' for products/customers, where
@@ -87,8 +93,8 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   const close = () => { reset(); onClose(); };
 
   const downloadTemplate = async () => {
-    const columns = config.templateColumns.map((c) => ({ header: c.header, value: (row: Record<string, string>) => row[c.header] ?? '' }));
-    await shareCsv(rowsToCsv(config.exampleRows, columns), `${config.filenamePrefix}-template.csv`, `${config.title} template`);
+    const content = templateCsvText(config.templateColumns, config.exampleRows);
+    await shareCsv(content, `${config.filenamePrefix}-template.csv`, `${config.title} template`);
   };
 
   const pickFile = async () => {
@@ -100,7 +106,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
     try {
       const text = await readPickedFileAsCsvText(asset.uri, asset.name, asset.mimeType);
       const csv = parseCsvText(text);
-      const missing = config.templateColumns.filter((c) => c.required && !csv.headers.includes(c.header));
+      const missing = missingRequiredColumns(config.templateColumns, csv.headers);
       if (missing.length > 0) {
         setError(`Missing required column${missing.length > 1 ? 's' : ''}: ${missing.map((c) => c.header).join(', ')}.`);
         return;

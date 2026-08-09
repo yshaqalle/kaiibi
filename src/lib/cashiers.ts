@@ -15,10 +15,15 @@ export async function listCashiers(shopId: string): Promise<Cashier[]> {
   return (data ?? []).map(mapCashierRow);
 }
 
-export async function createCashier(shopId: string, name: string): Promise<void> {
+// `location_id` is NOT NULL since migration 20260815000000 and has no default,
+// so the insert must carry one or Postgres rejects the row (23502). The name
+// itself stays unique per SHOP, not per location -- listCashiers and the POS
+// picker are both shop-wide, so the location is which store the profile was
+// registered at, not a scope that lets two stores reuse a name.
+export async function createCashier(shopId: string, locationId: string, name: string): Promise<void> {
   const { error } = await supabase
     .from('cashiers')
-    .upsert({ shop_id: shopId, name }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
+    .upsert({ shop_id: shopId, location_id: locationId, name }, { onConflict: 'shop_id,name', ignoreDuplicates: true });
   if (error) throw error;
 }
 

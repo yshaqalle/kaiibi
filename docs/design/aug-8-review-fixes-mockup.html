@@ -1,0 +1,286 @@
+<title>Kaiibi — three review fixes, before and after</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --loss-wash:#fbeaec; --loss-ink:#d12339;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .rule{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);
+    border-radius:12px;padding:16px 18px;background:var(--sf);margin:18px 0 0;max-width:70ch;}
+  .rule b{display:block;font-size:14px;margin-bottom:4px;}
+  .rule p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  /* ---- frames ---- */
+  .gallery{display:grid;gap:30px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start;margin-top:22px;}
+  .shot{min-width:0;}
+  .frameHead{margin:0 0 9px;display:flex;align-items:center;gap:8px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .shot > .note{margin-top:11px;font-size:12.5px;}
+  .tag{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;}
+  .tag.now{background:var(--pg2);color:var(--mut);}
+  .tag.new{background:#e6edff;color:#1b47b8;}
+  :root[data-theme="dark"] .tag.new{background:#1c2c55;color:#9db6ff;}
+  @media (prefers-color-scheme: dark){ .tag.new{background:#1c2c55;color:#9db6ff;} }
+  :root[data-theme="light"] .tag.new{background:#e6edff;color:#1b47b8;}
+
+  .doc{background:var(--d-pg);border:1px solid var(--ln);border-radius:22px;padding:16px;
+    color:var(--d-ink);font-size:13px;line-height:1.45;}
+  .card{background:var(--d-sf);border-radius:16px;padding:14px;}
+  .card + .card{margin-top:10px;}
+
+  /* ---- rota CSV ---- */
+  .csv{width:100%;border-collapse:collapse;font-size:11.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .csv th{font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--d-mut);
+    text-align:left;padding:5px 8px;border-bottom:1px solid var(--d-rule);font-weight:700;}
+  .csv td{padding:5px 8px;border-bottom:1px solid var(--d-ln);color:var(--d-ink2);white-space:nowrap;}
+  .csv td.hand{color:var(--d-mut2);font-style:italic;}
+  .csv td.bad{color:var(--loss);font-weight:700;}
+  .csv td.good{color:var(--profit);font-weight:700;}
+  .csvWrap{overflow-x:auto;}
+  .banner{margin-top:10px;border-radius:11px;padding:9px 11px;font-size:11.5px;font-weight:600;}
+  .banner.err{background:var(--loss-wash);color:var(--loss-ink);}
+  .banner.ok{background:#d9efe4;color:#007a38;}
+
+  /* ---- photo row ---- */
+  .fieldLabel{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--d-mut);margin:0 0 7px;}
+  .photoRow{display:flex;gap:8px;}
+  .btn{flex:1;border-radius:12px;padding:11px 0;text-align:center;font-size:12.5px;font-weight:700;}
+  .btn.cta{background:var(--d-ink);color:var(--d-sf);}
+  .btn.plain{background:var(--d-soft);color:var(--d-ink);border:1px solid var(--d-rule);}
+  .fieldErr{margin-top:8px;font-size:11.5px;color:var(--loss);font-weight:600;}
+  .pressHint{margin-top:8px;font-size:10.5px;color:var(--d-mut2);}
+
+  /* ---- search row ---- */
+  .search{position:relative;background:var(--d-sf);border:1.5px dashed var(--d-rule);
+    border-radius:14px;height:46px;display:flex;align-items:center;padding:0 46px 0 14px;}
+  .search .txt{font-size:13px;font-weight:600;color:var(--d-ink);}
+  .search .scan{position:absolute;right:6px;top:50%;transform:translateY(-50%);
+    width:32px;height:32px;border-radius:16px;background:var(--d-ink);color:var(--d-sf);
+    display:flex;align-items:center;justify-content:center;font-size:15px;}
+  .caret{width:2px;height:16px;background:var(--c1);}
+  .caret.stray{position:absolute;left:14px;bottom:4px;}
+  .caret.inline{display:inline-block;vertical-align:-2px;margin-left:2px;animation:blink 1.1s step-end infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  @media (prefers-reduced-motion: reduce){ .caret.inline{animation:none;} }
+  .ready{display:flex;align-items:center;gap:6px;margin-top:7px;padding-left:2px;}
+  .readyDot{width:7px;height:7px;border-radius:3.5px;background:var(--profit);}
+  .readyTxt{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--profit);}
+  .callout{position:absolute;pointer-events:none;border:1.5px solid var(--loss);border-radius:6px;}
+
+  footer{margin-top:64px;font-size:12.5px;color:var(--mut);}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Design review — branch aug-8-fixes</p>
+  <h1>Three fixes, before and after</h1>
+  <p class="lede">
+    The deep review left three items open. Each section shows the screen as it behaves on the
+    branch today, next to the proposed behavior. Nothing here is implemented yet — this page is
+    the discussion.
+  </p>
+
+  <!-- ================================================================ -->
+  <section>
+    <h2>1 · The "All stores" rota template rejects its own rows</h2>
+    <p class="note">
+      With <b>All stores</b> selected, the downloaded template stamps every row with the
+      <em>primary</em> store's name — including rows for staff assigned only to another store.
+      The manager fills in times, uploads the same file back, and the importer refuses the rows
+      the app itself wrote. <code>schedule-tab.tsx:196</code> computes the store once;
+      <code>parseScheduleRows</code> then enforces per-member assignment on re-upload.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><span class="tag now">Current</span><b>Template says Main; import says no</b><i>rota-template.csv</i></p>
+        <div class="doc">
+          <div class="card">
+            <div class="csvWrap">
+            <table class="csv">
+              <tr><th>Name</th><th>Store</th><th>Date</th><th>Start</th><th>End</th></tr>
+              <tr><td>Dawit Bekele</td><td>Main</td><td>2026-08-10</td><td class="hand">09:00</td><td class="hand">17:00</td></tr>
+              <tr><td>Amina Hassan</td><td class="bad">Main</td><td>2026-08-10</td><td class="hand">10:00</td><td class="hand">18:00</td></tr>
+              <tr><td>Amina Hassan</td><td class="bad">Main</td><td>2026-08-11</td><td class="hand">10:00</td><td class="hand">18:00</td></tr>
+            </table>
+            </div>
+            <div class="banner err">Row 3: Amina Hassan is not assigned to Main.</div>
+          </div>
+        </div>
+        <p class="note">Amina is assigned to <b>Annex</b> only. The template wrote "Main" for her
+          anyway, so her rows bounce even though the manager only added the italic times —
+          exactly what the template promises is safe.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><span class="tag new">Proposed</span><b>Each row carries the member's own store</b><i>rota-template.csv</i></p>
+        <div class="doc">
+          <div class="card">
+            <div class="csvWrap">
+            <table class="csv">
+              <tr><th>Name</th><th>Store</th><th>Date</th><th>Start</th><th>End</th></tr>
+              <tr><td>Dawit Bekele</td><td>Main</td><td>2026-08-10</td><td class="hand">09:00</td><td class="hand">17:00</td></tr>
+              <tr><td>Amina Hassan</td><td class="good">Annex</td><td>2026-08-10</td><td class="hand">10:00</td><td class="hand">18:00</td></tr>
+              <tr><td>Amina Hassan</td><td class="good">Annex</td><td>2026-08-11</td><td class="hand">10:00</td><td class="hand">18:00</td></tr>
+            </table>
+            </div>
+            <div class="banner ok">3 shifts imported.</div>
+          </div>
+        </div>
+        <p class="note"><code>scheduleTemplateRows</code> picks the store per member: a
+          restricted member gets their sole assigned store; an unrestricted member keeps the
+          board's store (primary under "All stores"). The round trip closes.</p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <b>Open question for a member assigned to several stores</b>
+      <p>Amina-with-two-stores has no single right answer. Proposal: use the first assigned
+      store and leave the cell for the manager to correct — the import error for a wrong guess
+      already names the fix. Alternative: leave the cell blank and require a store; that fails
+      louder but breaks "only add times".</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section>
+    <h2>2 · "Take photo" on a till that has no camera</h2>
+    <p class="note">
+      The shared contract comment (<code>camera-photo-button-shared.ts</code>) promises the
+      button "renders nothing" on a camera-less device, and three call sites lay out their
+      photo rows trusting that. The web build honors it; the native build never checks — the
+      button renders as the primary action and every press ends in an error. One of the two
+      halves has to move.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><span class="tag now">Current</span><b>Renders, then fails on press</b><i>product-form · camera-less till</i></p>
+        <div class="doc">
+          <div class="card">
+            <p class="fieldLabel">Product photo</p>
+            <div class="photoRow">
+              <div class="btn cta">Take photo</div>
+              <div class="btn plain">Choose photo</div>
+            </div>
+            <p class="fieldErr">This device has no camera.</p>
+            <p class="pressHint">…but only after the cashier has already pressed the black button.</p>
+          </div>
+        </div>
+        <p class="note">The strongest visual weight on the row belongs to an action this
+          device can never complete.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><span class="tag new">Proposed — option A</span><b>The button owns its existence</b><i>product-form · camera-less till</i></p>
+        <div class="doc">
+          <div class="card">
+            <p class="fieldLabel">Product photo</p>
+            <div class="photoRow">
+              <div class="btn plain">Choose photo</div>
+            </div>
+          </div>
+        </div>
+        <p class="note">Native asks the OS whether a camera exists (as web already does) and
+          renders nothing without one. "Choose photo" sits alone at full width — the layout the
+          call-site comments already describe.</p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <b>Option B — keep the behavior, fix the words</b>
+      <p>Visually identical to "Current". Native keeps its deliberate show-and-explain press
+      (per <code>photo-picker.ts</code>), and the shared contract plus the three call-site
+      comments are rewritten to say so. Zero UI risk, but the dead-end primary button on the
+      till stays. A is the better product; B is the smaller change.</p>
+    </div>
+  </section>
+
+  <!-- ================================================================ -->
+  <section>
+    <h2>3 · The keypad caret draws under the text, not after it</h2>
+    <p class="note">
+      New in <code>d2f1323</code>: the keypad-driven search field draws its own caret, since a
+      <code>Pressable</code> has no system caret. But the caret <code>View</code> is a column
+      sibling of the text inside a default-column <code>Pressable</code> — nothing lays them
+      out in a row — so it lands at the bottom-left of the field, under the text.
+      <b>Needs a simulator screenshot to confirm</b>; this is read from the styles.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><span class="tag now">Current (from code)</span><b>A stray tick at the bottom-left</b><i>pos · keypad open</i></p>
+        <div class="doc">
+          <div class="card">
+            <div class="search">
+              <span class="txt">coca co</span>
+              <span class="caret stray"></span>
+              <span class="scan">⛶</span>
+            </div>
+            <div class="ready"><span class="readyDot"></span><span class="readyTxt">Scanner ready</span></div>
+          </div>
+        </div>
+        <p class="note">The 2×16 bar sits where the column layout puts it: below the text,
+          against the left edge. It reads as a rendering artifact, not a caret.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><span class="tag new">Proposed</span><b>A caret where the typing is</b><i>pos · keypad open</i></p>
+        <div class="doc">
+          <div class="card">
+            <div class="search">
+              <span class="txt">coca co<span class="caret inline"></span></span>
+              <span class="scan">⛶</span>
+            </div>
+            <div class="ready"><span class="readyDot"></span><span class="readyTxt">Scanner ready</span></div>
+          </div>
+        </div>
+        <p class="note">Row layout inside the field, caret immediately after the last
+          character. A slow blink says "receiving keys" — with the blink dropped for
+          reduced-motion users.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Mockup only — no code changed. Frames use the light bento tokens from
+    src/constants/theme.ts, as the app pins Colors.light.
+  </footer>
+</div>

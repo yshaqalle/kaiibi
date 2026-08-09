@@ -131,6 +131,25 @@ begin
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
 
+  -- ------------------------------------ retirement invariants the guards rest on
+  -- The FK is what lets the resolver skip an existence check on the successor.
+  begin
+    update public.plans
+    set retire_at = now() + interval '30 days', successor_plan_key = 'no_such_plan'
+    where key = 'free';
+    raise exception 'FAIL: a successor that does not exist was accepted';
+  exception when foreign_key_violation then
+    null;
+  end;
+
+  -- One hop is only safe if nothing can point at itself.
+  begin
+    update public.plans set successor_plan_key = 'free' where key = 'free';
+    raise exception 'FAIL: a plan was allowed to succeed itself';
+  exception when check_violation then
+    null;
+  end;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback_marker';
 exception

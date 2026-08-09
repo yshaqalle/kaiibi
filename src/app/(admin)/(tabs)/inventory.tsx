@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -16,11 +16,14 @@ import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
+import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
 import { ProductTile } from '@/components/product-tile';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { ScanResultBar } from '@/components/scan-result-bar';
+import { SearchKeypad } from '@/components/search-keypad';
+import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
@@ -31,7 +34,7 @@ import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
-import { PRODUCTS_EXAMPLE_ROW, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
+import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -171,6 +174,12 @@ export default function InventoryScreen() {
   // a product. Null both when there's no such code and when they can't.
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const scanner = useScannerSettings();
+  const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  const scrollRef = useRef<ScrollView>(null);
+  // Content-relative y of the search row, captured on layout so opening the
+  // keypad can bring the row into view — the dock shrinks the viewport, and a
+  // row tapped near the bottom would otherwise end up under the dock.
+  const searchRowY = useRef(0);
 
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
@@ -310,7 +319,7 @@ export default function InventoryScreen() {
         title: 'products',
         filenamePrefix: 'products',
         templateColumns: PRODUCTS_TEMPLATE_COLUMNS,
-        exampleRows: [PRODUCTS_EXAMPLE_ROW],
+        exampleRows: PRODUCTS_EXAMPLE_ROWS,
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>
@@ -387,7 +396,7 @@ export default function InventoryScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
         <View style={styles.header}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>INVENTORY</Text>
@@ -541,31 +550,28 @@ export default function InventoryScreen() {
             ))}
         </View>
 
-        <View style={styles.searchWrap}>
-          <TextInput
+        <TillKeyboardNotice />
+
+        <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
+          <SearchRow
             value={search}
-            onChangeText={setSearch}
+            onChange={setSearch}
+            onSubmit={handleSearchSubmit}
             // The full list of searchable fields doesn't fit a phone -- it
             // truncated mid-word at "barcod...", which reads as a bug rather
-            // than as a hint. The narrow form still says the two things that
-            // matter: you can search, and you can scan.
+            // than as a hint.
             placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
-            placeholderTextColor="#999999"
-            style={[styles.search, scanner.camera && styles.searchWithScan]}
-            onSubmitEditing={handleSearchSubmit}
-            blurOnSubmit={false}
-            returnKeyType="search"
-            autoCapitalize="none"
-            autoCorrect={false}
+            useKeypad={scanner.onScreenKeypad}
+            showScanButton={scanner.camera}
+            onScanPress={() => setScannerOpen(true)}
+            keypadOpen={keypadOpen}
+            onKeypadOpenChange={(open) => {
+              setKeypadOpen(open);
+              // Bring the row to the top of the shrunken viewport so what you
+              // type is visible while you type it.
+              if (open) scrollRef.current?.scrollTo({ y: Math.max(0, searchRowY.current - 12), animated: true });
+            }}
           />
-          {/* Not gated on `canEdit` or the plan cap: looking a product up by
-              scanning it is a read, which `inventory.view` already covers, and
-              it stays useful to a shop that's out of room to add more. */}
-          {scanner.camera && (
-            <Pressable onPress={() => setScannerOpen(true)} style={styles.scanInSearch} accessibilityLabel="Scan a barcode">
-              <Text style={styles.scanInSearchText}>⛶</Text>
-            </Pressable>
-          )}
         </View>
         <ScanFeedbackBanner feedback={scanFeedback} />
         {unknownCode && (
@@ -644,6 +650,18 @@ export default function InventoryScreen() {
           </Card>
         )}
       </ScrollView>
+
+      {/* A flex sibling, not an overlay: the ScrollView shrinks above it, so
+          the grid stays scrollable to its last row with the keypad open —
+          exactly what the system keyboard does. See the dock-fix mockup. */}
+      {keypadOpen && scanner.onScreenKeypad ? (
+        <SearchKeypad
+          value={search}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
+          onClose={() => setKeypadOpen(false)}
+        />
+      ) : null}
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
           wherever the app opens one. */}
@@ -794,44 +812,6 @@ const styles = StyleSheet.create({
   strip: { marginBottom: 14 },
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  // The gap below the field lives HERE, not on the input. The scan button is
-  // absolutely positioned and centred by this wrapper, so a margin on the input
-  // made the wrapper 58px tall around a 44px field and pushed the button ~7px
-  // below the field's real centre.
-  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 14 },
-  // White on the grey page, like every card here — NOT bentoSoft, which is two
-  // points off bentoPage and made the field dissolve into the background. An
-  // input is a surface you act on, so it belongs in the same layer as the
-  // cards, with the same firmer edge the table rows use.
-  search: {
-    backgroundColor: theme.bentoSurface,
-    borderWidth: 1,
-    borderColor: theme.bentoRule,
-    borderRadius: 14,
-    height: 44,
-    paddingHorizontal: 14,
-    color: theme.bentoInk,
-  },
-  // Only when the button is actually there, so a store without scanning keeps
-  // the full-width field.
-  searchWithScan: { paddingRight: 46 },
-  // Solid black: scanning is the fastest way to find a product on this screen,
-  // and black is what the rest of the app already means by "the primary action
-  // here". A grey circle on a white field read as decoration.
-  scanInSearch: {
-    position: 'absolute',
-    right: 6,
-    height: 32,
-    width: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: theme.bentoInk,
-  },
-  // lineHeight pinned to the glyph size and no larger: ⛶ carries generous font
-  // metrics, and letting the line box grow drops it off centre inside the
-  // circle no matter what the flex centring says.
-  scanInSearchText: { fontSize: 15, lineHeight: 15, color: theme.bentoSurface, includeFontPadding: false, textAlignVertical: 'center' },
   stockError: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginBottom: 12 },
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },

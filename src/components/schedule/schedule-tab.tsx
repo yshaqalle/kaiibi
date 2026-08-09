@@ -21,7 +21,7 @@ import {
   type ShiftDraft,
 } from '@/lib/scheduling';
 import { hasMultipleLocations } from '@/lib/location-selection';
-import { SCHEDULE_EXAMPLE_ROWS, SCHEDULE_TEMPLATE_COLUMNS } from '@/lib/schedule-import';
+import { SCHEDULE_EXAMPLE_ROWS, SCHEDULE_TEMPLATE_COLUMNS, scheduleTemplateRows } from '@/lib/schedule-import';
 import { createShift, createShifts, deleteShift, listShiftsForWeek, runScheduleImport, updateShift } from '@/lib/shifts';
 import type { CsvColumn } from '@/lib/csv';
 import { onLeaveMemberIds } from '@/lib/shift-hours';
@@ -174,6 +174,7 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   // it back. A format you can only write by hand isn't one people use.
   const exportColumns: CsvColumn<Shift>[] = [
     { header: 'Date', value: (shift) => shift.date },
+    { header: 'Staff Name', value: (shift) => members.find((m) => m.id === shift.shopMemberId)?.fullName ?? '' },
     { header: 'Staff Email', value: (shift) => members.find((m) => m.id === shift.shopMemberId)?.email ?? '' },
     { header: 'Start', value: (shift) => shift.start },
     { header: 'End', value: (shift) => shift.end },
@@ -181,19 +182,32 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
     { header: 'Note', value: (shift) => shift.note ?? '' },
   ];
 
-  const importConfig: ImportEntityConfig<ShiftDraft> | null =
-    shop && members.length > 0
-      ? {
-          title: 'schedule',
-          filenamePrefix: 'schedule',
-          templateColumns: SCHEDULE_TEMPLATE_COLUMNS,
-          exampleRows: SCHEDULE_EXAMPLE_ROWS,
-          run: (parsed) => runScheduleImport(shop.id, parsed, { members, locations }),
-          unitLabel: 'shift',
-        }
-      : null;
-
+  // The template is this week's rota with the times taken out: the people on
+  // the board, against the days on the board, at the store the board is
+  // showing. Falls back to the documented example only when there is nobody to
+  // build it from -- a shop that has not added anyone yet, or one whose people
+  // here are all inactive (scheduleTemplateRows leaves those out, so the check
+  // is on the rows it produced, not on the roster it was handed).
+  //
+  // Not gated on `members.length > 0` any more. It was, and since the modal is
+  // only mounted when this is non-null, pressing Import with an empty roster
+  // did nothing at all -- no modal, no message, no way to tell it had been
+  // pressed.
   const days = weekDaysFrom(monday);
+  // The store cell is resolved per member inside scheduleTemplateRows -- one
+  // name stamped on everyone bounced restricted staff off their own template.
+  const templateRows = scheduleTemplateRows(visibleMembers, days, { locationId, locations });
+  const importConfig: ImportEntityConfig<ShiftDraft> | null = shop
+    ? {
+        title: 'schedule',
+        filenamePrefix: 'schedule',
+        templateColumns: SCHEDULE_TEMPLATE_COLUMNS,
+        exampleRows: templateRows.length > 0 ? templateRows : SCHEDULE_EXAMPLE_ROWS,
+        run: (parsed) => runScheduleImport(shop.id, parsed, { members, locations }),
+        unitLabel: 'shift',
+      }
+    : null;
+
   // selectedDay is only ever moved by tapping a day chip -- paging the week
   // with ‹ / › re-anchors `days` but leaves selectedDay wherever it was, so a
   // stored value from a previous week would silently point outside the week

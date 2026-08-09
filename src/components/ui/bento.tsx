@@ -50,18 +50,41 @@ const MIN_CARD = 240;
 // row, and a 1/5 is a sliver whatever the screen.
 const STEPS = [1 / 3, 1 / 2, 1];
 
+const GAP = 14;
+
 /**
  * The share of the grid a cell takes. Exported for its tests: this is the one
  * rule the whole responsive behaviour rests on, and it is pure, so it is worth
  * pinning at the widths real devices actually produce.
+ *
+ * `gridWidth` is the width the grid REPORTS, which is a gutter wider than the
+ * page it sits on -- see `styles.grid`. Two corrections follow from that, and
+ * both were paid for on a 440pt phone, where Revenue, Revenue vs. expenses and
+ * the profit waterfall all rendered at 58% of the screen with the other 42%
+ * empty beside them:
+ *
+ *   - The floor is about the CARD, and a cell spends a full gutter on padding,
+ *     so 7/12 of a 418pt grid is a 243.8pt cell holding a 229.8pt card. Testing
+ *     the cell let that through by 3.8pt and cost 10.2pt.
+ *   - A partial width is only worth taking if a partner FITS beside it. The
+ *     rule resolves each cell alone, so the 7 kept 58% while the 5 next to it
+ *     stepped up to full width and wrapped away -- leaving the 7 with a hole
+ *     rather than a pairing. Requiring the remainder to clear the floor too is
+ *     the same question asked on behalf of the neighbour, and it needs no
+ *     knowledge of who that neighbour is.
  */
 export function bentoCellFraction(span: number, gridWidth: number): number {
   const clamped = Math.max(1, Math.min(12, Math.round(span)));
   const asked = clamped / 12;
+  const fits = (fraction: number) => fraction * gridWidth - GAP >= MIN_CARD;
+  // A full-width cell has no remainder to seat anyone in, and is the last
+  // resort anyway.
+  const usable = (fraction: number) => fraction >= 1 || (fits(fraction) && fits(1 - fraction));
+
   // The design's own proportion first: on a wide grid nothing else applies.
-  if (asked * gridWidth >= MIN_CARD) return asked;
+  if (usable(asked)) return asked;
   for (const step of STEPS) {
-    if (step > asked && step * gridWidth >= MIN_CARD) return step;
+    if (step > asked && usable(step)) return step;
   }
   return 1;
 }
@@ -85,10 +108,13 @@ export function bentoCellFraction(span: number, gridWidth: number): number {
 function useEstimatedGridWidth(): number {
   const { width } = useWindowDimensions();
   const hasSidebar = Platform.OS === 'web' ? width >= TABLET_BREAKPOINT : isTabletDevice();
-  return Math.max(1, width - (hasSidebar ? SIDEBAR_WIDTH : 0) - 36);
+  // `+ GAP` so the estimate is in the same units the measurement will arrive
+  // in: the grid hangs half a gutter off each side of the page (see
+  // `styles.grid`), so the width it reports is a gutter wider than the page.
+  // Without this the first paint is computed against a narrower grid than the
+  // real one and can visibly reflow one frame later.
+  return Math.max(1, width - (hasSidebar ? SIDEBAR_WIDTH : 0) - 36 + GAP);
 }
-
-const GAP = 14;
 
 export function BentoGrid({
   children,

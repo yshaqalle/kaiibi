@@ -38,8 +38,9 @@ import { createCustomer, getCustomersStatsBatch, getCustomerStats, listCustomerP
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
 import { groupHasAny, PERMISSION_GROUPS } from '@/lib/permission-groups';
 import { listRoles, listStaff, setStaffLocations, updateStaffMember, updateStaffPay } from '@/lib/staff';
+import { TEAM_EXPORT_COLUMNS_BASIC, TEAM_EXPORT_COLUMNS_WITH_PAY } from '@/lib/staff-export';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
-import { formatPayRateLong, payRateUnitLabel } from '@/lib/pay-rate';
+import { formatPayRateLong } from '@/lib/pay-rate';
 import { usualStore } from '@/lib/customer-segments';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { membersActiveToday, onLeaveMemberIds as onLeaveMembers } from '@/lib/shift-hours';
@@ -109,25 +110,6 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
   { header: 'Tags', value: (c) => c.tags.join('; ') },
   { header: 'Notes', value: (c) => c.notes ?? '' },
   { header: 'Points', value: (c) => String(c.pointsBalance) },
-];
-
-const TEAM_EXPORT_COLUMNS_BASIC: CsvColumn<StaffMember>[] = [
-  { header: 'Name', value: (m) => m.fullName ?? '' },
-  { header: 'Email', value: (m) => m.email ?? '' },
-  { header: 'Phone', value: (m) => m.phone ?? '' },
-  { header: 'Role', value: (m) => m.roleName },
-  { header: 'Status', value: (m) => (m.active ? 'Active' : 'Disabled') },
-  { header: 'Hire Date', value: (m) => m.hireDate ?? '' },
-];
-
-const TEAM_EXPORT_COLUMNS_WITH_PAY: CsvColumn<StaffMember>[] = [
-  ...TEAM_EXPORT_COLUMNS_BASIC,
-  { header: 'Pay Type', value: (m) => m.payType ?? '' },
-  { header: 'Pay Rate', value: (m) => (m.payRateCents != null ? formatCents(m.payRateCents) : '') },
-  // The file leaves the app and loses every bit of context that would
-  // otherwise say what the number means, so the unit travels with it.
-  { header: 'Pay Rate Unit', value: (m) => payRateUnitLabel(m.payType) },
-  { header: 'Pay Cadence', value: (m) => m.payCadence },
 ];
 
 export default function PeopleScreen() {
@@ -569,8 +551,15 @@ function CustomerDetailPane({
         }
         right={
           <>
+            {/* Keyed by customer so switching person REMOUNTS the card and its
+                internal state (open modal, expanded preview) cannot outlive the
+                customer it belonged to. The prefix is what makes it a valid key
+                rather than just a scoping trick: this and "Points history" are
+                siblings in one fragment, and keying both on the bare id gave two
+                children the same key -- which React is free to resolve by
+                dropping one. */}
             <ListCard
-              key={customer.id}
+              key={`purchases-${customer.id}`}
               title="Purchase history"
               scope={stats ? `${stats.visitCount} orders` : undefined}
               subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
@@ -599,7 +588,7 @@ function CustomerDetailPane({
                 quietly changing an old one. */}
             {loyaltyOn && (
               <ListCard
-                key={customer.id}
+                key={`points-${customer.id}`}
                 title="Points history"
                 scope={`${customer.pointsBalance.toLocaleString()} balance`}
                 subtitle={`${customer.firstName} ${customer.lastName ?? ''}`.trim()}
@@ -1027,6 +1016,10 @@ function TeamDetailPane({
             <Avatar photoUrl={member.photoUrl} name={member.fullName} size={40} />
             <Text style={tabStyles.detName}>{member.fullName ?? member.email ?? 'Staff member'}</Text>
             <Badge variant="bento" label={!member.active ? 'Disabled' : onLeave ? 'On leave' : 'Active'} tone={!member.active ? 'default' : onLeave ? 'warning' : 'success'} />
+            {/* Not read off roleName: the owner's role is only a label and they
+                can move themselves onto another one, but they are still the
+                owner and the actions below still won't disable them. */}
+            {member.userId === shop?.ownerId && <Badge variant="bento" label="Owner" tone="default" />}
             <Text style={tabStyles.detMeta}>
               {member.roleName}
               {memberStores ? ` · ${memberStores}` : ''}
@@ -1167,6 +1160,7 @@ function TeamDetailPane({
           roles={roles}
           locations={locations}
           canManagePayroll={canManagePayroll}
+          isOwner={member.userId === shop?.ownerId}
           onClose={() => setEditingMember(false)}
           onSave={async ({ locationIds, ...input }) => {
             await updateStaffMember({ shopId: shop.id, memberId: member.id, ...input });

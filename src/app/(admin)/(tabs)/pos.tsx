@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
-import { useCallback, useEffect, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -16,6 +16,9 @@ import { DiscountEditor } from '@/components/discount-editor';
 import { QuantityStepper } from '@/components/quantity-stepper';
 import { ReceiptModal } from '@/components/receipt-modal';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { SearchKeypad } from '@/components/search-keypad';
+import { SearchRow, useSearchKeypadState } from '@/components/search-row';
+import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
@@ -137,6 +140,12 @@ export default function PosScreen() {
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
+  const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  const splitRef = useRef<ScrollView>(null);
+  // Compact POS puts the cart ABOVE the browse pane, so the search row's
+  // content-relative y is the pane's y plus the row's y within the pane.
+  const browsePaneY = useRef(0);
+  const searchRowY = useRef(0);
   // Same three gates Inventory applies. A cashier without `inventory.edit`
   // simply sees the error -- the products insert policy would refuse them
   // anyway, and offering a form that can't be saved is worse than not offering
@@ -558,28 +567,31 @@ export default function PosScreen() {
   const cartListProps = compact ? {} : { style: styles.cartList };
 
   const browsePaneEl = (
-    <View style={[styles.browsePane, compact && styles.browsePaneCompact]}>
-      <View style={styles.searchWrap}>
-        <Text style={styles.searchIcon}>⌕</Text>
-        <TextInput
+    <View
+      style={[styles.browsePane, compact && styles.browsePaneCompact]}
+      onLayout={(e) => { browsePaneY.current = e.nativeEvent.layout.y; }}
+    >
+      <TillKeyboardNotice />
+
+      <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
+        <SearchRow
           value={search}
-          onChangeText={setSearch}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
           placeholder="Search or scan a product"
-          placeholderTextColor="#9B9B9B"
-          style={styles.search}
-          onSubmitEditing={handleSearchSubmit}
-          // A wedge scanner fires this on its trailing Enter; keeping focus
-          // means the next scan lands here too instead of nowhere.
-          blurOnSubmit={false}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
+          useKeypad={scanner.onScreenKeypad}
+          showScanButton={scanner.camera}
+          onScanPress={() => setScannerOpen(true)}
+          showSearchIcon
+          size="counter"
+          keypadOpen={keypadOpen}
+          onKeypadOpenChange={(open) => {
+            setKeypadOpen(open);
+            // `scrollTo` exists only when Split is the compact ScrollView; on
+            // wide layouts nothing scrolls and the row is always visible.
+            if (open && compact) splitRef.current?.scrollTo({ y: Math.max(0, browsePaneY.current + searchRowY.current - 12), animated: true });
+          }}
         />
-        {scanner.camera && (
-          <Pressable onPress={() => setScannerOpen(true)} style={styles.scanInSearch} accessibilityLabel="Scan a barcode">
-            <Text style={styles.scanInSearchText}>⛶</Text>
-          </Pressable>
-        )}
       </View>
       <ScanFeedbackBanner feedback={scanFeedback} />
       {unknownCode && (
@@ -843,7 +855,7 @@ export default function PosScreen() {
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <View style={styles.registerBarWrap}>{registerBarEl}</View>
-      <Split style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
+      <Split ref={splitRef as never} style={[styles.split, compact && styles.splitCompact]} {...splitProps}>
         {compact ? (
           <>
             {cartPaneEl}
@@ -856,6 +868,17 @@ export default function PosScreen() {
           </>
         )}
       </Split>
+      {/* A flex sibling of the Split, under BOTH panes: the dock belongs to
+          the screen, not the search column — the cart stays visible and
+          tappable so a cashier can scan or take payment mid-typing. */}
+      {keypadOpen && scanner.onScreenKeypad ? (
+        <SearchKeypad
+          value={search}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
+          onClose={() => setKeypadOpen(false)}
+        />
+      ) : null}
       {shop && registerSheet === 'open' && (
         <OpenRegisterSheet
           registers={registers}
@@ -958,24 +981,6 @@ const styles = StyleSheet.create({
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },
   browsePane: { flex: 2, padding: 18 },
   browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 10 },
-  // The gap below lives on the wrapper, not the input: the scan button is
-  // absolutely positioned and centred by this, so a margin on the field would
-  // push it below the field's real centre.
-  searchWrap: { position: 'relative', justifyContent: 'center', marginBottom: 14 },
-  searchIcon: { position: 'absolute', left: 16, color: theme.bentoMuted2, fontSize: 18, zIndex: 1 },
-  // White with a firm edge, like the cards — an input is a surface you act on,
-  // and a soft grey field disappears into the grey page.
-  search: {
-    backgroundColor: theme.bentoSurface,
-    borderWidth: 1,
-    borderColor: theme.bentoRule,
-    borderRadius: 14,
-    height: 52,
-    paddingLeft: 42,
-    paddingRight: 54,
-    fontSize: 15,
-    color: theme.bentoInk,
-  },
   categoryScroll: { flexGrow: 0, flexShrink: 0 },
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 16 },
   categoryScrollCompact: { flexGrow: 0, flexShrink: 0 },
@@ -1056,10 +1061,6 @@ const styles = StyleSheet.create({
   scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   clearAll: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
   clearAllText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
-  // Bigger than Inventory's, and black: scanning is the fastest way to find a
-  // product here, and this is pressed at a counter rather than at a desk.
-  scanInSearch: { position: 'absolute', right: 6, height: 40, width: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.bentoInk },
-  scanInSearchText: { fontSize: 17, lineHeight: 17, color: theme.bentoSurface, includeFontPadding: false, textAlignVertical: 'center' },
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },

@@ -14,6 +14,10 @@ import type { ShopLocation, StaffMember } from '@/types/models';
 
 export const SCHEDULE_TEMPLATE_COLUMNS: { header: string; required: boolean }[] = [
   { header: 'Date', required: true },
+  // The parser has always accepted a name as the fallback identity; listing it
+  // makes that visible, and a file of names reads like a rota to the person
+  // filling it in, where a file of email addresses reads like a database.
+  { header: 'Staff Name', required: false },
   { header: 'Staff Email', required: true },
   { header: 'Start', required: true },
   { header: 'End', required: true },
@@ -23,6 +27,57 @@ export const SCHEDULE_TEMPLATE_COLUMNS: { header: string; required: boolean }[] 
   { header: 'Note', required: false },
 ];
 
+// The rota a manager actually wants to be handed: their own people, against the
+// week they are looking at, with the dates and the store already written in.
+// All they add is times, and only on the days someone works -- the blank ones
+// are skipped by parseScheduleRows rather than reported as errors.
+//
+// Every column this fills is a column that would otherwise be typed by hand,
+// and Date, Staff Email and Store are exactly the three that produce rejections
+// when they are.
+//
+// The store is resolved per member, not once for the file: under "All stores"
+// the board's store is the primary, but parseScheduleRows rejects any store a
+// member is not assigned to -- one store name stamped on everyone hands the
+// manager rejections for rows they never touched. A member assigned to several
+// stores but not the board's gets their first assigned store; a wrong guess is
+// not silent, because the import error names the store and the fix.
+export function scheduleTemplateRows(
+  members: readonly StaffMember[],
+  days: readonly string[],
+  board: { locationId: string | null; locations: readonly ShopLocation[] }
+): Record<string, string>[] {
+  const activeLocations = board.locations.filter((location) => location.active);
+  const boardLocation = board.locationId
+    ? (activeLocations.find((location) => location.id === board.locationId) ?? null)
+    : (activeLocations.find((location) => location.isPrimary) ?? activeLocations[0] ?? null);
+
+  const storeFor = (member: StaffMember): string => {
+    // An empty locationIds means every store (migration 20260814000000).
+    if (member.locationIds.length === 0) return boardLocation?.name ?? '';
+    if (boardLocation && member.locationIds.includes(boardLocation.id)) return boardLocation.name;
+    return activeLocations.find((location) => location.id === member.locationIds[0])?.name ?? '';
+  };
+
+  // Grouped by person rather than by day: filling this in is one person's week
+  // at a time, so their seven rows belong together.
+  return members
+    .filter((member) => member.active)
+    .flatMap((member) =>
+      days.map((date) => ({
+        Date: date,
+        'Staff Name': member.fullName ?? '',
+        'Staff Email': member.email ?? '',
+        Start: '',
+        End: '',
+        Store: storeFor(member),
+        Note: '',
+      }))
+    );
+}
+
+// The fallback when a shop has nobody to build a template from, and the shape
+// the format is documented by.
 export const SCHEDULE_EXAMPLE_ROWS: Record<string, string>[] = [
   { Date: '2026-08-10', 'Staff Email': 'hamse@example.com', Start: '09:00', End: '17:00', Store: 'Main', Note: '' },
   // Two rows, same person, same day: that is a split day. No special syntax,
@@ -89,6 +144,14 @@ export function parseScheduleRows(
     const end = normalizeCell(raw['End']);
     const storeName = normalizeCell(raw['Store']);
     const note = normalizeCell(raw['Note']);
+
+    // A pre-filled template is a grid -- everyone against every day of the week
+    // -- and the days a person is not working are left empty. Empty is an
+    // answer, not a mistake: twelve people over a week is 84 rows, and a
+    // manager who fills twenty of them must see twenty imported, not sixty-four
+    // rejections. Half-filled still falls through to the time checks below,
+    // because a start with no end is someone who got distracted.
+    if (!start && !end) return;
 
     if (!date) return reject('Date is required.');
     if (!isValidDateColumn(date)) return reject(`Date "${date}" is not a real date in YYYY-MM-DD form (e.g. 2026-08-10).`);

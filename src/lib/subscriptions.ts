@@ -24,6 +24,11 @@ export type Plan = {
   // one-offs. The shop-facing screen only ever lists public plans; the portal
   // needs them all, or it cannot resolve what a trialing shop actually has.
   isPublic: boolean;
+  // When the stores still on this plan move to `successorPlanKey`. Null means
+  // the plan is not being retired. Setting it does NOT hide the plan --
+  // `isPublic` does that, and the two are set together by `retire_plan`.
+  retireAt: string | null;
+  successorPlanKey: string | null;
   sortOrder: number;
 };
 
@@ -39,6 +44,8 @@ function mapPlanRow(row: any): Plan {
     modules: row.modules ?? [],
     limits: row.limits ?? {},
     isPublic: row.is_public,
+    retireAt: row.retire_at ?? null,
+    successorPlanKey: row.successor_plan_key ?? null,
     sortOrder: row.sort_order,
   };
 }

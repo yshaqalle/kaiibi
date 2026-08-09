@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { OpeningHoursEditor } from '@/components/settings/opening-hours-editor';
@@ -27,12 +27,26 @@ export function LocationsPanel({
   shopId,
   locations,
   onChange,
+  initialLocationId,
 }: {
   shopId: string;
   locations: ShopLocation[];
   onChange: () => Promise<void>;
+  /** Deep-link: open this store's editor on arrival. See TillKeyboardNotice. */
+  initialLocationId?: string;
 }) {
   const [editing, setEditing] = useState<ShopLocation | 'new' | null>(null);
+  // Consumed at most once: Settings loads locations async, so the named store
+  // can arrive a beat after mount — but closing the editor must not reopen it.
+  const [consumedInitial, setConsumedInitial] = useState(false);
+  useEffect(() => {
+    if (consumedInitial || !initialLocationId) return;
+    const match = locations.find((location) => location.id === initialLocationId);
+    if (match) {
+      setEditing(match);
+      setConsumedInitial(true);
+    }
+  }, [consumedInitial, initialLocationId, locations]);
   const [error, setError] = useState<string | null>(null);
   const { limitFor, usageOf } = useAuth();
 
@@ -348,7 +362,8 @@ function LocationEditorModal({
                 <Text style={modalStyles.toggleTitle}>This store has a barcode scanner</Text>
                 <Text style={modalStyles.toggleHint}>
                   For the USB or Bluetooth kind that plugs into the till. Turn this on only if one is connected here —
-                  it makes the register watch the keyboard for scans.
+                  it makes the register watch the keyboard for scans. Each device checks for itself, so tills without a
+                  scanner are unaffected.
                 </Text>
               </View>
               <Switch value={hardwareScannerEnabled} onValueChange={setHardwareScannerEnabled} />

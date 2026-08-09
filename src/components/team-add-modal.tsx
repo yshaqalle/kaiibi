@@ -1,10 +1,12 @@
-import * as ImagePicker from 'expo-image-picker';
 import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CameraPhotoButton } from '@/components/camera-photo-button';
 import { OptionPicker } from '@/components/option-picker';
 import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
+import { useLocalPhotoUri } from '@/hooks/use-local-photo-uri';
+import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
 import { provisionStaff, updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import type { Role } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
@@ -31,7 +33,7 @@ export function TeamAddModal({
   const [roleId, setRoleId] = useState<string | null>(null);
   // A local file/blob uri once picked, never a remote one -- there is nothing
   // to re-upload until this changes.
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useLocalPhotoUri(null);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,12 +52,18 @@ export function TeamAddModal({
     }
   }, [visible, roles]);
 
-  const pickPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (!picked.canceled) setPhotoUri(picked.assets[0].uri);
+  // Staff are usually standing right there when they are added, so the fastest
+  // route to an avatar is the camera, not a library the photo isn't in yet.
+  // Both routes land here.
+  //
+  // The shared `error` is the right slot for a photo failure in THIS modal: it
+  // renders above the scroll, in view, unlike the edit modal's.
+  const applyPhotoPick = (picked: PhotoPick) => {
+    if (picked.status === 'picked') setPhotoUri(picked.uri);
+    if (picked.status === 'failed') setError(picked.message);
   };
+
+  const pickPhoto = async () => applyPhotoPick(await pickPhotoFromLibrary());
 
   const submit = async () => {
     if (!fullName.trim() || !email.trim() || !roleId) return;
@@ -155,6 +163,16 @@ export function TeamAddModal({
                   >
                     <Text style={styles.photoPickerText}>Click to upload a photo</Text>
                   </Pressable>
+                  {/* Absent on a device with no camera -- the button decides
+                      that itself, per browser and per device. */}
+                  <CameraPhotoButton
+                    onCapture={(uri) => applyPhotoPick({ status: 'picked', uri })}
+                    onError={(message) => applyPhotoPick({ status: 'failed', message })}
+                    style={styles.cameraButton}
+                    accessibilityLabel="Take a staff photo with the camera"
+                  >
+                    <Text style={styles.cameraButtonText}>📷</Text>
+                  </CameraPhotoButton>
                 </View>
                 <Text style={[styles.fieldLabel, { marginTop: 10 }]}>FULL NAME</Text>
                 <TextInput value={fullName} onChangeText={setFullName} placeholder="Full name" placeholderTextColor="#999999" style={styles.input} />
@@ -226,6 +244,8 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bentoSoft,
   },
   photoPickerText: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted },
+  cameraButton: { width: 56, height: 56, borderRadius: 12, backgroundColor: theme.bentoSoft, borderWidth: 1, borderColor: theme.bentoLine, alignItems: 'center', justifyContent: 'center' },
+  cameraButtonText: { fontSize: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },

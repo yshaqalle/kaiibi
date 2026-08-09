@@ -20,7 +20,10 @@ const theme = Colors.light;
 // grid entirely and takes the full width; only the stat strip above it is
 // glanced at.
 
-type StatusFilter = 'all' | SubscriptionStatus;
+// 'retiring' is not a subscription status — it is a plan-lifecycle fact — but
+// it belongs in the same control because it answers the same question the
+// operator is asking: which stores need me to do something?
+type StatusFilter = 'all' | 'retiring' | SubscriptionStatus;
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -29,6 +32,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'grace', label: 'Grace' },
   { key: 'expired', label: 'Expired' },
   { key: 'suspended', label: 'Suspended' },
+  { key: 'retiring', label: 'Retiring plan' },
 ];
 
 export function ShopsTab({
@@ -50,10 +54,21 @@ export function ShopsTab({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return shops.filter((shop) => {
-      if (status !== 'all' && shop.status !== status) return false;
+      if (status === 'retiring') {
+        if (!shop.retiringTo) return false;
+      } else if (status !== 'all' && shop.status !== status) {
+        return false;
+      }
       if (!q) return true;
       return (
-        shop.shopName.toLowerCase().includes(q) || shop.planKey.includes(q) || shop.status.includes(q)
+        shop.shopName.toLowerCase().includes(q) ||
+        shop.planKey.includes(q) ||
+        // A store still billed on a retired tier is displayed under its
+        // successor (see the Store column below) -- without this, searching
+        // the tier it is actually PAYING for finds nothing, while the MRR
+        // tile above is pricing it off exactly that plan.
+        shop.storedPlanKey.includes(q) ||
+        shop.status.includes(q)
       );
     });
   }, [shops, search, status]);
@@ -62,10 +77,13 @@ export function ShopsTab({
     const by = (s: SubscriptionStatus) => shops.filter((shop) => shop.status === s).length;
     // Monthly recurring revenue: only shops actually paying right now. Trials
     // and lapsed shops are excluded on purpose — counting them is how a
-    // dashboard tells you the business is doing better than it is.
+    // dashboard tells you the business is doing better than it is. Priced off
+    // storedPlanKey, not planKey's effective plan -- a store whose plan
+    // retired keeps paying its stored price until it actually changes tier,
+    // and the successor's price has not billed it yet.
     const mrr = shops
       .filter((s) => s.status === 'active')
-      .reduce((sum, s) => sum + (plans.find((p) => p.key === s.planKey)?.priceCents ?? 0), 0);
+      .reduce((sum, s) => sum + (plans.find((p) => p.key === s.storedPlanKey)?.priceCents ?? 0), 0);
     return {
       all: shops.length,
       trialing: by('trialing'),
@@ -73,6 +91,7 @@ export function ShopsTab({
       grace: by('grace'),
       expired: by('expired'),
       suspended: by('suspended'),
+      retiring: shops.filter((shop) => shop.retiringTo != null).length,
       mrr,
     };
   }, [shops, plans]);
@@ -81,7 +100,30 @@ export function ShopsTab({
     {
       key: 'shop',
       header: 'Store',
-      render: (shop) => <NameCell title={shop.shopName} meta={shop.planName} />,
+      render: (shop) => (
+        // Two different divergences share this one line, in order:
+        // - BEFORE `retire_at`: `retiringTo` names the successor while
+        //   `planName` is still the current tier -- "current -> future".
+        //   Once the date passes, `planName` has already resolved to the
+        //   successor and `retiringTo` names that same plan, so drawing it
+        //   would render "Starter -> Starter" forever -- `retire_at` is never
+        //   cleared by time, only by an operator republishing.
+        // - AFTER `retire_at`: `planName` (effective) has hopped to the
+        //   successor but `storedPlanKey` -- what the store is still actually
+        //   billed -- has not, so showing `planName` alone hides exactly the
+        //   plan the MRR tile above is pricing this row off. "billed ->
+        //   entitled" fills that gap the same way the pre-date arrow does.
+        <NameCell
+          title={shop.shopName}
+          meta={
+            shop.retiringTo && shop.retiringTo !== shop.planName
+              ? `${shop.planName} → ${shop.retiringTo}`
+              : shop.storedPlanKey !== shop.planKey
+                ? `${shop.storedPlanName} → ${shop.planName}`
+                : shop.planName
+          }
+        />
+      ),
     },
     {
       key: 'status',
@@ -155,9 +197,13 @@ export function ShopsTab({
               <BentoTile label="On trial" value={String(counts.trialing)} />
               <BentoTile label="Grace" value={String(counts.grace)} tone={counts.grace > 0 ? 'warn' : 'default'} />
               <BentoTile label="Expired" value={String(counts.expired)} tone={counts.expired > 0 ? 'warn' : 'default'} />
-              {/* Present even at zero. The filter row below counts six states;
-                  a strip that counts five leaves shops unaccounted for and the
-                  two rows quietly disagree. */}
+              {/* Present even at zero. One tile per subscription status below
+                  -- Paying, On trial, Grace, Expired, Suspended -- matching the
+                  filter row's five status pills ('All' needs no tile of its
+                  own). 'Retiring plan' is a sixth filter with none: it is a
+                  plan-lifecycle fact, not a subscription status, so a store can
+                  be both retiring and, say, Paying -- counting it here would
+                  double-count rather than complete the strip. */}
               <BentoTile
                 label="Suspended"
                 value={String(counts.suspended)}

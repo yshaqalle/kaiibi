@@ -7,6 +7,7 @@ import { PlatformModal } from '@/components/platform/kit';
 import { AuditTab, OperatorsTab } from '@/components/platform/log-tabs';
 import { PlansTab } from '@/components/platform/plans-tab';
 import { RequestsTab } from '@/components/platform/requests-tab';
+import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
 import { TabPills } from '@/components/ui/tab-pills';
@@ -16,6 +17,7 @@ import { webDataAttr } from '@/lib/web-data-attr';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import {
+  getPlatformSettings,
   listAuditLog,
   listOperators,
   listPendingPlanRequests,
@@ -24,6 +26,7 @@ import {
   type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
+  type PlatformSettings,
   type PlatformShopRow,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
@@ -36,7 +39,7 @@ const theme = Colors.light;
 // Kaiibi's operator console, in the bento language.
 //
 // The sidebar is kept rather than replaced with accounting.tsx's shell
-// wholesale: bento is a SURFACE system, and six destinations an operator
+// wholesale: bento is a SURFACE system, and seven destinations an operator
 // ping-pongs between while working a single shop is what a persistent rail is
 // for. What changed is the surfaces — no border down its edge, and the active
 // item is now the only white thing in it rather than the only grey one, which
@@ -46,7 +49,7 @@ const theme = Colors.light;
 // bento screen uses, and the header row is the accounting recipe exactly:
 // eyebrow, 26px title, blurb, controls right.
 
-type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
+type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators' | 'settings';
 
 // The blurb says what the tab is FOR. Overview's is computed from the data and
 // published up by the tab itself, so the sentence an operator reads first is
@@ -58,6 +61,7 @@ const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'plans', label: 'Plans', blurb: 'What each tier includes, withholds, and caps — and who is on it.' },
   { key: 'audit', label: 'Audit log', blurb: 'Every operator action, who took it, and why. Append-only.' },
   { key: 'operators', label: 'Operators', blurb: 'Who can reach this portal at all.' },
+  { key: 'settings', label: 'Settings', blurb: 'Trial length, grace period, and where a lapsed store lands.' },
 ];
 
 export default function PlatformHome() {
@@ -68,6 +72,7 @@ export default function PlatformHome() {
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
+  const [settings, setSettings] = useState<PlatformSettings | null>(null);
   // When the data on screen was fetched. Passed to the Overview so every
   // figure is measured against one instant, and so nothing reads the clock
   // during render.
@@ -86,9 +91,13 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    const [shopRows, planRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
-      listPlatformShops(),
-      listAllPlans(),
+    // Plans and settings first, alone: listPlatformShops needs the plans to
+    // resolve a retired plan to its successor, and needs post_trial_plan_key to
+    // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
+    // run in the same batch as the shops read.
+    const [planRows, settingsRow] = await Promise.all([listAllPlans(), getPlatformSettings()]);
+    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
+      listPlatformShops(planRows, settingsRow.postTrialPlanKey),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
@@ -100,6 +109,7 @@ export default function PlatformHome() {
     setOperators(operatorRows);
     setRequests(requestRows);
     setPayments(paymentRows);
+    setSettings(settingsRow);
     setLoadedAt(Date.now());
     setLoading(false);
   }, []);
@@ -133,12 +143,24 @@ export default function PlatformHome() {
   ) : tab === 'requests' ? (
     <RequestsTab requests={requests} shops={shops} onDone={reload} />
   ) : tab === 'plans' ? (
-    <PlansTab plans={plans} shops={shops} compact={compact} onDone={reload} />
+    <PlansTab
+      plans={plans}
+      shops={shops}
+      compact={compact}
+      pendingRequestsByPlanKey={requests.reduce<Record<string, number>>(
+        (acc, r) => ({ ...acc, [r.planKey]: (acc[r.planKey] ?? 0) + 1 }),
+        {}
+      )}
+      postTrialPlanKey={settings?.postTrialPlanKey ?? 'free'}
+      onDone={reload}
+    />
   ) : tab === 'audit' ? (
     <AuditTab rows={audit} shops={shops} />
-  ) : (
+  ) : tab === 'operators' ? (
     <OperatorsTab operators={operators} />
-  );
+  ) : settings ? (
+    <SettingsTab settings={settings} plans={plans} onDone={reload} />
+  ) : null;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>

@@ -1,0 +1,484 @@
+<title>Kaiibi — search, touch and scan on the same till</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .rule{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);
+    border-radius:12px;padding:16px 18px;background:var(--sf);margin:18px 0 0;max-width:70ch;}
+  .rule b{display:block;font-size:14px;margin-bottom:4px;}
+  .rule p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:16px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;}
+  td b{font-weight:700;}
+  .no{color:var(--mut);}
+
+  /* ---- frames ---- */
+  .gallery{display:grid;gap:30px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start;margin-top:22px;}
+  .shot{min-width:0;}
+  .frameHead{margin:0 0 9px;}
+  .frameHead b{font-size:14px;font-weight:800;display:block;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .shot > .note{margin-top:11px;font-size:12.5px;}
+
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:22px;padding:15px 13px 0;
+    color:var(--d-ink);font-size:14px;line-height:1.5;width:100%;max-width:352px;
+    display:flex;flex-direction:column;min-height:500px;overflow:hidden;}
+  .frame .body{flex:1;}
+
+  .fhead{margin-bottom:13px;}
+  .fhead .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10px;letter-spacing:.1em;}
+  .fhead h4{margin:0;font-size:22px;font-weight:800;letter-spacing:-.038em;}
+  .fhead p{margin:3px 0 0;font-size:12px;color:var(--d-mut);}
+
+  .filters{display:flex;gap:7px;margin-bottom:11px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 12px;
+    font-size:11.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* 44px tall, button inset 6px right — inventory.tsx styles.search exactly. */
+  .search{background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;height:44px;
+    padding:0 6px 0 13px;font-size:13px;color:var(--d-mut2);margin-bottom:12px;display:flex;
+    justify-content:space-between;align-items:center;gap:9px;}
+  .search .txt{flex:1;min-width:0;overflow:hidden;white-space:nowrap;}
+  .search .txt.typed{color:var(--d-ink);font-weight:600;}
+  .search.tappable{border-style:dashed;}
+  .caret{display:inline-block;width:2px;height:16px;background:var(--c1);vertical-align:-3px;
+    margin-left:1px;animation:blink 1.1s steps(1,end) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  @media (prefers-reduced-motion: reduce){ .caret{animation:none;} }
+  .scanBtn{background:var(--d-ink);color:#fff;border:none;border-radius:16px;width:32px;height:32px;
+    display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;flex:none;}
+
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--profit);margin:-4px 0 12px 2px;}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:var(--profit);flex:none;}
+
+  /* caveat, drawn as the app draws it: 4px left rule, 16px radius */
+  .cav{border-radius:16px;padding:12px 14px 12px 13px;font-size:12px;line-height:1.5;
+    margin-bottom:12px;border-left:4px solid;display:flex;gap:9px;align-items:flex-start;}
+  .cav.context{background:#eef4ff;border-left-color:#2f6bff;color:#1b3f9e;}
+  .cav .x{margin-left:auto;color:inherit;opacity:.5;flex:none;font-size:13px;}
+  .cav a{color:inherit;font-weight:800;text-decoration:underline;display:inline-block;margin-top:5px;}
+
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
+  .tile{background:var(--d-sf);border-radius:16px;padding:9px;}
+  .tile .sw{height:42px;border-radius:10px;background:var(--d-soft);margin-bottom:7px;}
+  .tile .n{font-size:11.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25;}
+  .tile .p{font-size:11px;color:var(--d-mut);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .tile.dim{opacity:.3;}
+
+  /* POS bits */
+  .cart{background:var(--d-sf);border-radius:20px;padding:14px;margin-bottom:12px;}
+  .cart .ct{font-size:15px;font-weight:800;margin:0 0 10px;}
+  .cline{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;color:var(--d-ink2);}
+  .cline b{font-variant-numeric:tabular-nums;}
+  .ctot{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--d-ln);
+    margin-top:8px;padding-top:9px;font-weight:800;}
+  .ctot span:last-child{font-size:20px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+
+  /* ---- input docks ---- */
+  .dock{margin:13px -13px 0;padding:10px 11px 12px;background:var(--d-soft);border-top:1px solid var(--d-ln);}
+  .dockCap{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut2);margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;}
+
+  .oskb{background:#d1d3d9;border-radius:10px;padding:9px 7px;display:grid;gap:6px;}
+  .oskb .r{display:flex;gap:5px;justify-content:center;}
+  .oskb .k{background:#fff;border-radius:5px;height:29px;flex:1;box-shadow:0 1px 0 #8e9096;}
+  .oskb .k.wide{flex:2.6;} .oskb .k.dim{background:#adb0b8;box-shadow:0 1px 0 #82858c;}
+
+  .kb{display:grid;gap:6px;}
+  .kb .r{display:flex;gap:5px;}
+  .kb button{flex:1;min-width:0;height:34px;border-radius:8px;border:1px solid var(--d-rule);
+    background:var(--d-sf);color:var(--d-ink);font-family:inherit;font-size:13.5px;font-weight:700;
+    cursor:pointer;padding:0;line-height:1;}
+  .kb button:active{background:var(--d-soft);}
+  .kb button:focus-visible{outline:2px solid var(--c1);outline-offset:1px;}
+  .kb button.num{font-size:12.5px;color:var(--d-ink2);}
+  .kb button.util{background:var(--d-soft);color:var(--d-ink2);font-size:11px;letter-spacing:.02em;}
+  .kb button.wide{flex:2.4;}
+  .kb button.go{background:var(--d-ink);color:#fff;border-color:var(--d-ink);flex:1.5;font-size:11.5px;}
+  .kb .spacer{flex:.5;}
+
+  .copy{background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:16px 18px;margin-top:16px;}
+  .copy dt{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;margin-top:14px;}
+  .copy dt:first-child{margin-top:0;}
+  .copy dd{margin:5px 0 0;font-size:13.5px;color:var(--ink2);}
+  .copy dd q{font-style:normal;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Scanner · Search · Touch — implementation reference</p>
+  <h1>One till, three ways in</h1>
+  <p class="lede">
+    A shop runs on whatever devices it has. A couple of phones, a tablet on the counter, maybe
+    one till with a barcode scanner wired to it. Scanning is the fast path on that one device —
+    it must never become the price the other twenty pay, and it must never take typing away
+    from the device that has it.
+  </p>
+
+  <div class="rule">
+    <b>The rule this is built on</b>
+    <p>
+      Search and touch always work, on every device, whatever else is attached. If a scanner
+      happens to be there, it is added on top — never traded against.
+    </p>
+  </div>
+
+  <section>
+    <h2>What the device is asked, and what follows</h2>
+    <p class="note">
+      One question, answered per device rather than per store: is a physical keyboard attached
+      right now? A HID barcode scanner is a keyboard as far as the OS is concerned — which is
+      also why iOS hides its on-screen keyboard on that device, and why the till that scans is
+      the one till that cannot type without help from us.
+    </p>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr><th>Detected</th><th>Store setting</th><th>Wedge listener</th><th>Search field</th><th>Typing</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>Attached</b></td><td>On</td>
+            <td>Mounted, holds focus</td><td>Display only</td><td>Kaiibi keypad</td>
+          </tr>
+          <tr>
+            <td><b>Attached</b></td><td>Off</td>
+            <td class="no">Not mounted</td><td>Normal field</td><td>System keyboard, plus the prompt below</td>
+          </tr>
+          <tr>
+            <td><b>Absent</b></td><td>On</td>
+            <td class="no">Not mounted</td><td>Normal field</td><td>System keyboard</td>
+          </tr>
+          <tr>
+            <td><b>Unknown</b><br><span class="no">API unavailable</span></td><td>On</td>
+            <td>Mounted — setting wins</td><td>Normal field</td><td>System keyboard</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:14px">
+      <b>Unknown</b> is the safety valve and never produces the keypad. The wedge can afford
+      optimism — an unused invisible input costs nothing. Replacing the system keyboard with
+      ours on a device we merely suspect has a keyboard would take typing away from someone who
+      had it, so only a confirmed answer earns that.
+    </p>
+  </section>
+
+  <section>
+    <h2>Every state, drawn</h2>
+
+    <div class="gallery">
+
+      <div class="shot">
+        <p class="frameHead"><b>1 · No keyboard attached</b><i>most phones and tablets</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search">
+              <span class="txt">Search or scan a product</span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <div class="tiles">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+          <div class="dock">
+            <p class="dockCap"><span>iOS keyboard</span><span>not ours to draw</span></p>
+            <div class="oskb" aria-hidden="true">
+              <div class="r"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+              <div class="r"><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k"></span></div>
+              <div class="r"><span class="k dim"></span><span class="k"></span><span class="k"></span><span class="k"></span><span class="k dim"></span></div>
+              <div class="r"><span class="k dim"></span><span class="k wide"></span><span class="k dim"></span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          Untouched. Nothing new mounts, no code path changes — this is the app exactly as it
+          ships today, and it is what the large majority of devices get.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>2 · Scanner till, keypad closed</b><i>attached · setting on</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search tappable">
+              <span class="txt">Tap to type, or scan</span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <p class="live"><span class="dot"></span>Scanner ready</p>
+            <div class="tiles">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The resting state of the scanner till: full screen for the product grid, nothing
+          covering it. The field is a <code>Pressable</code>, not a <code>TextInput</code> — its
+          placeholder says so, and the dashed edge marks it as a thing you tap rather than a
+          thing with a cursor in it.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>3 · Scanner till, typing</b><i>the state that did not exist</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search">
+              <span class="txt typed">shea<span class="caret"></span></span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <p class="live"><span class="dot"></span>Scanner ready</p>
+            <div class="tiles">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+          <div class="dock">
+            <p class="dockCap"><span>Kaiibi keypad</span><span>QWERTY</span></p>
+            <div class="kb" id="kb1"></div>
+          </div>
+        </div>
+        <p class="note">
+          <b>Scanner ready stays lit while typing.</b> That is the whole design in one detail —
+          the keypad writes into the search text directly, so the field never needs focus, the
+          wedge keeps it, and a barcode scanned mid-word still resolves. Scan and type at once,
+          not in turns.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>4 · Keyboard attached, scanning off</b><i>owner only · dismissible</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="cav context">
+              <span>ⓘ</span>
+              <span>
+                A keyboard or barcode scanner is connected to this device. If it's a scanner,
+                turn on scanning for this store to use it.
+                <a href="#">Open scanning settings →</a>
+              </span>
+              <span class="x">✕</span>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search">
+              <span class="txt">Search or scan a product</span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <div class="tiles">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The shop that bought a scanner, plugged it in, and never found the setting. It hedges
+          on purpose — detection cannot tell a scanner from a keyboard case, so it names what is
+          known and lets the person who can see the cable decide. Hidden from anyone without
+          <code>settings.access</code>, and dismissal sticks per device.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>5 · POS, same treatment</b><i>attached · setting on</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Register</p><h4>POS</h4>
+            </div>
+            <div class="cart">
+              <p class="ct">Current sale</p>
+              <div class="cline"><span>Shea butter 200g</span><b>$7.50</b></div>
+              <div class="cline"><span>Rose water</span><b>$5.00</b></div>
+              <div class="ctot"><span>Total</span><span>$12.50</span></div>
+            </div>
+            <div class="search">
+              <span class="txt typed">bla<span class="caret"></span></span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <p class="live"><span class="dot"></span>Scanner ready</p>
+          </div>
+          <div class="dock">
+            <p class="dockCap"><span>Kaiibi keypad</span><span>QWERTY</span></p>
+            <div class="kb" id="kb2"></div>
+          </div>
+        </div>
+        <p class="note">
+          Identical component, identical rules. POS is where the speed argument bites hardest —
+          a cashier mid-sale can scan the next item without closing the keypad or losing what
+          they have typed.
+        </p>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <h2>Keypad anatomy</h2>
+    <p class="note">
+      Five rows. Digits sit on top rather than behind a mode switch, because barcodes get typed
+      here as often as names. Short rows are centred so a key keeps the same width on every row
+      and the hand can trust it.
+    </p>
+    <p class="note">
+      <b>Not included, deliberately:</b> shift, symbols, emoji, autocorrect, the predictive bar,
+      language switching. Product search is case-insensitive and matches name, SKU, brand,
+      category, tag and barcode — every one of those would be weight with nothing on the other
+      end. Keys measure ~34px on a 440pt phone, under the 44px touch target: acceptable for
+      search, and it would not be for anything that moved money.
+    </p>
+    <div style="max-width:400px;margin-top:18px">
+      <div class="dock" style="margin:0;border-radius:14px;border:1px solid var(--ln)">
+        <p class="dockCap"><span>Kaiibi keypad</span><span>QWERTY · 34px keys</span></p>
+        <div class="kb" id="kb3"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Copy deck</h2>
+    <p class="note">Every new string, in one place.</p>
+    <dl class="copy">
+      <dt>Search placeholder — scanner till, keypad closed</dt>
+      <dd><q>Tap to type, or scan</q> — says what the field does now that it has no cursor.</dd>
+
+      <dt>Live scan indicator</dt>
+      <dd><q>Scanner ready</q> — present tense, and true while typing. Green, but paired with the word, never colour alone.</dd>
+
+      <dt>Keyboard attached, scanning off</dt>
+      <dd><q>A keyboard or barcode scanner is connected to this device. If it's a scanner, turn on scanning for this store to use it.</q> Action: <q>Open scanning settings</q></dd>
+
+      <dt>Store setting hint (existing, one sentence added)</dt>
+      <dd><q>…Turn this on only if one is connected here — it makes the register watch the keyboard for scans. Each device checks for itself, so tills without a scanner are unaffected.</q></dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>What gets built</h2>
+    <div class="tableWrap">
+      <table>
+        <thead><tr><th>Piece</th><th>Where</th><th>Job</th></tr></thead>
+        <tbody>
+          <tr><td><code>hardware-keyboard</code></td><td><code>modules/</code></td><td>Local Expo module. iOS <code>GCKeyboard</code>, Android <code>InputDevice</code>. Live connect/disconnect</td></tr>
+          <tr><td><code>useHardwareKeyboard</code></td><td><code>src/hooks/</code></td><td><code>true</code> / <code>false</code> / <code>null</code> — null means the platform could not answer</td></tr>
+          <tr><td><code>useScannerSettings</code></td><td><code>src/hooks/</code></td><td>Gains <code>onScreenKeypad</code>; <code>hardware</code> now gated on detection</td></tr>
+          <tr><td><code>applyKey</code></td><td><code>src/lib/keypad.ts</code></td><td>Pure text reducer — char, space, delete, clear. Where the tests live</td></tr>
+          <tr><td><code>SearchKeypad</code></td><td><code>src/components/</code></td><td>Controlled, presentational. Holds no text of its own</td></tr>
+          <tr><td><code>SearchRow</code></td><td><code>src/components/</code></td><td>The field / keypad branch, written once and used by both screens</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" style="margin-top:14px">
+      The module is native code, so it needs a rebuild — a JS reload will not pick it up. That
+      is what the <b>Unknown</b> row is for: a stale build reports null, the setting wins, and
+      the app behaves exactly as it does today.
+    </p>
+  </section>
+</div>
+
+<script>
+  const QWERTY = [
+    ['1','2','3','4','5','6','7','8','9','0'],
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l'],
+    ['z','x','c','v','b','n','m'],
+  ];
+
+  function spacer(){ const s = document.createElement('span'); s.className = 'spacer'; return s; }
+  function key(label, cls){
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (cls) b.className = cls;
+    return b;
+  }
+
+  function buildKeypad(mount){
+    mount.textContent = '';
+    QWERTY.forEach(keys => {
+      const r = document.createElement('div');
+      r.className = 'r';
+      // Short rows centre rather than stretch, so a key is the same width everywhere.
+      const short = keys.length < QWERTY[0].length;
+      if (short) r.appendChild(spacer());
+      keys.forEach(k => r.appendChild(key(k.toUpperCase(), /[0-9]/.test(k) ? 'num' : '')));
+      if (short) r.appendChild(spacer());
+      mount.appendChild(r);
+    });
+
+    const last = document.createElement('div');
+    last.className = 'r';
+    last.appendChild(key('Clear', 'util'));
+    last.appendChild(key('space', 'util wide'));
+    last.appendChild(key('⌫', 'util'));
+    last.appendChild(key('Done', 'go'));
+    mount.appendChild(last);
+  }
+
+  ['kb1','kb2','kb3'].forEach(id => buildKeypad(document.getElementById(id)));
+</script>

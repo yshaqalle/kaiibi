@@ -19,6 +19,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-loyalty.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-refunds.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-owner-membership.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -175,6 +177,29 @@ Note the deliberate limit: the paid-equals-refunded guarantee holds for sales
 refunded entirely **after** that migration. Prior refunds are read from the
 stored rows and never recomputed, so an old partial refund is never silently
 "corrected" months later.
+
+## What `verify-owner-membership.sql` covers
+
+The owner of a shop had no `shop_members` row — adminship was `shops.owner_id`
+and nothing else. `shifts.shop_member_id` and `registers.shop_member_id` are
+foreign keys into that table, so there was nothing to point at: the owner could
+not be scheduled or handed a till, which is most of the People feature in a
+one-person shop. Migration 20260823000000 gives them an ordinary row.
+
+1. A new shop seeds `Cashier`, `Manager` and `Owner` — nothing had seeded roles
+   since 0020, so a shop created after it had none at all.
+2. It seeds exactly one active owner membership, named from the profile (or the
+   signup metadata, since the shop can exist before the profile row does), on
+   the `Owner` role, assigned to no store and therefore to all of them.
+3. The owner occupies a staff seat like anyone else.
+4. Free still fits the owner **plus two employees** — which is why its cap went
+   2 → 3, and Standard's 10 → 11. The seat after that is still refused.
+5. The owner cannot be deactivated or deleted, but their *role* can still be
+   changed: it is a label, and `user_has_shop_permission()` answers true for an
+   owner before it ever reads one.
+6. Deleting a shop still cascades through that guard rather than tripping it.
+7. **The owner can be given a shift** — the question the whole migration exists
+   to answer.
 
 ## Concurrency
 

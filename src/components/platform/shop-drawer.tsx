@@ -6,6 +6,7 @@ import { limitLabel } from '@/components/platform/labels';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
+import { periodMonths } from '@/lib/billing-period';
 import { LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
 import { callPlatformAdmin, type PlatformShopRow } from '@/lib/platform';
 import type { Plan } from '@/lib/subscriptions';
@@ -31,7 +32,12 @@ export function ShopDrawer({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [planKey, setPlanKey] = useState(shop.planKey);
+  // Seeded from the STORED key, not the effective one. Past a retirement date
+  // the two are equal for nobody-has-touched-it stores and the button below
+  // would be permanently disabled -- with no way left in the UI to commit
+  // set_plan and bring shop_subscriptions.plan_id in line with the plan the
+  // store is actually being enforced under.
+  const [planKey, setPlanKey] = useState(shop.storedPlanKey);
   const [days, setDays] = useState('14');
 
   const run = async (action: string, payload: Record<string, unknown>) => {
@@ -145,7 +151,7 @@ export function ShopDrawer({
       <ActionRow style={styles.row}>
         <PlatformButton
           label="Change plan"
-          disabled={busy || !reason.trim() || planKey === shop.planKey}
+          disabled={busy || !reason.trim() || planKey === shop.storedPlanKey}
           onPress={() => run('set_plan', { planKey })}
         />
         <View style={styles.inlineDays}>
@@ -294,7 +300,11 @@ function RecordPayment({
   busy: boolean;
   onRun: (action: string, payload: Record<string, unknown>) => Promise<void>;
 }) {
-  const plan = plans.find((p) => p.key === shop.planKey);
+  // Stored, not effective: this defaults the amount and billing interval to
+  // what the store is actually being charged, which is its stored plan even
+  // when a retirement has moved its entitlements onto a successor already.
+  const plan = plans.find((p) => p.key === shop.storedPlanKey);
+  const months = periodMonths(plan?.billingInterval ?? null);
   const today = new Date().toISOString().slice(0, 10);
   // Paid time starts when free time ends. Taking the latest of their current
   // cover, their trial end, and today matters most for a shop that pays partway
@@ -311,7 +321,7 @@ function RecordPayment({
   const [ref, setRef] = useState('');
   const [paidAt, setPaidAt] = useState(today);
   const [coversFrom, setCoversFrom] = useState(from);
-  const [coversTo, setCoversTo] = useState(addMonths(from, 1));
+  const [coversTo, setCoversTo] = useState(addMonths(from, months));
   // Off by default: the fair thing is to honour the free days a shop was
   // promised. On, it converts them today and they give up the remainder.
   const [startNow, setStartNow] = useState(false);
@@ -328,7 +338,7 @@ function RecordPayment({
     setStartNow(next);
     const start = next ? today : from;
     setCoversFrom(start);
-    setCoversTo(addMonths(start, 1));
+    setCoversTo(addMonths(start, months));
   };
 
   const submit = () =>
@@ -417,7 +427,11 @@ function daysBetween(fromIso: string, toIso: string): number {
 // Calendar-month arithmetic on a yyyy-mm-dd string. Clamps the day so paying on
 // the 31st cannot roll a one-month period into the month after next — a
 // customer who pays on 31 January is covered to 28 February, not 3 March.
-function addMonths(iso: string, months: number): string {
+// Exported for `billing-period.test.ts`, which proves periodMonths('year')
+// === 12 but nothing composes that with this to check a yearly plan actually
+// lands a year later -- a pure date helper is a reasonable thing to export
+// for the test that closes that gap.
+export function addMonths(iso: string, months: number): string {
   const [y, m, d] = iso.split('-').map(Number);
   const target = new Date(Date.UTC(y, m - 1 + months, 1));
   const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();

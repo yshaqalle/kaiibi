@@ -1,7 +1,20 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Platform, StyleSheet, TextInput } from 'react-native';
 
 import { normalizeBarcode } from '@/lib/barcode';
+
+// How long after losing focus the sink waits before deciding nobody else wanted
+// it. A tap on a real field delivers the sink's blur and that field's focus as
+// two separate native events, and not always in that order, so an immediate
+// check would sometimes see an empty caret and steal it back.
+const YIELD_GRACE_MS = 150;
+
+// The sink cannot see the moment a field it yielded to is dismissed -- it
+// blurred long before, so no event of its own fires -- and React Native has no
+// focus-changed subscription to listen to. Without this poll, one tap on the
+// search box would leave scanning dead until the screen remounted. Slow enough
+// to be free, quick enough that a scan right after a keyboard closes lands.
+const RECLAIM_MS = 700;
 
 // Catches a Bluetooth barcode scanner on a phone or tablet when nothing is
 // focused -- the native counterpart to the web's global key listener.
@@ -17,15 +30,30 @@ import { normalizeBarcode } from '@/lib/barcode';
 // (`hardwareScannerEnabled`, default off). Two reasons it must not be on by
 // default:
 //
-//   - `showSoftInputOnFocus={false}` suppresses the on-screen keyboard on
-//     ANDROID ONLY. On iOS the prop does nothing; what saves us there is that
-//     iOS hides the soft keyboard by itself whenever a hardware keyboard is
-//     paired -- which is exactly the situation this exists for, and only that
-//     situation. With no scanner paired, mounting this would pop the keyboard
-//     over the register for no reason.
+//   - `showSoftInputOnFocus={false}` suppresses the on-screen keyboard. It is
+//     NOT the iOS no-op it is often described as: RN implements it there by
+//     hanging an empty `UIView` off the field's `inputView`, which in its own
+//     words "hides keyboard, but keeps blinking cursor". Worth knowing because
+//     Fabric's `prepareForRecycle` clears `inputAccessoryView` and not
+//     `inputView`, and `_setShowSoftInputOnFocus:` only runs when the prop
+//     CHANGES -- so a recycled view can in principle carry the empty input view
+//     to the next TextInput that inherits it, which would look like a caret with
+//     no keyboard. Never observed here; if it ever is, gate this prop to
+//     Android, where the sink also genuinely needs it.
+//
+//     On iOS what saves us anyway is that the OS hides the soft keyboard by
+//     itself whenever a hardware keyboard is paired -- which is exactly the
+//     situation this exists for, and only that situation. With no scanner
+//     paired, mounting this pops the keyboard over the register for no reason.
 //   - It takes focus. Anything else that wants the keyboard has to win it back,
 //     which is why every caller unmounts this while a modal is open rather than
 //     leaving the two to fight.
+//
+// Within a screen it cannot unmount, so it yields instead: it only ever takes
+// focus from NOBODY. That is the same rule the web listener follows by
+// ignoring keydown when an INPUT is focused (see use-barcode-wedge.ts) -- a
+// field the user tapped owns the keyboard, and the scan it receives is handled
+// by that field's own onSubmitEditing.
 //
 // Scanners in SPP / BLE-serial mode are not keyboards and send nothing here;
 // they need a vendor SDK and are out of scope. Users must set the scanner to
@@ -36,12 +64,26 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
   const onScanRef = useRef(onScan);
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
+  // The one rule, in one place: take the caret only when nothing else holds it.
+  const claimFocus = useCallback(() => {
+    if (TextInput.State.currentlyFocusedInput() != null) return;
+    inputRef.current?.focus();
+  }, []);
+
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     // A frame's grace: focusing during the first layout pass loses the focus
     // again on some Android devices.
-    const timer = setTimeout(() => inputRef.current?.focus(), 0);
-    return () => clearTimeout(timer);
-  }, []);
+    const mounted = setTimeout(claimFocus, 0);
+    const reclaim = setInterval(claimFocus, RECLAIM_MS);
+    return () => {
+      clearTimeout(mounted);
+      clearInterval(reclaim);
+    };
+  }, [claimFocus]);
+
+  const yieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (yieldTimer.current) clearTimeout(yieldTimer.current); }, []);
 
   // Web has a real global listener (useBarcodeWedge) and does not need -- or
   // want -- a focus-stealing input.
@@ -69,7 +111,17 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
       onSubmitEditing={flush}
       // Without this the field blurs on submit and the next scan goes nowhere.
       blurOnSubmit={false}
-      onBlur={() => { inputRef.current?.focus(); }}
+      // Losing focus means one of two opposite things, so the answer waits
+      // until it can tell them apart. The keyboard was dismissed and nothing
+      // took over — take it back, or the next scan goes nowhere. Or the user
+      // tapped a real field — and snatching it back from there is what made
+      // the keyboard unusable on Inventory and the POS for any store with a
+      // scanner switched on: the field focused, this blurred, this re-focused,
+      // and the caret left before a character could land.
+      onBlur={() => {
+        if (yieldTimer.current) clearTimeout(yieldTimer.current);
+        yieldTimer.current = setTimeout(claimFocus, YIELD_GRACE_MS);
+      }}
       showSoftInputOnFocus={false}
       caretHidden
       autoCorrect={false}

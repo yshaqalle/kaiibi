@@ -1,7 +1,7 @@
-import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CameraPhotoButton } from '@/components/camera-photo-button';
 import { CategoryChip } from '@/components/category-chip';
 import { MultiOptionPicker, OptionPicker } from '@/components/option-picker';
 import { DateInput } from '@/components/date-input';
@@ -9,6 +9,8 @@ import { PayFields, payFieldsInitial, payFieldsToCents, type PayFieldsValue } fr
 import { Avatar } from '@/components/ui/avatar';
 import { Colors } from '@/constants/theme';
 import { isValidRateInput } from '@/lib/pay-rate';
+import { useLocalPhotoUri } from '@/hooks/use-local-photo-uri';
+import { pickPhotoFromLibrary, type PhotoPick } from '@/lib/photo-picker';
 import { updateStaffPhoto, uploadStaffPhoto } from '@/lib/staff';
 import { deleteImageByPublicUrl } from '@/lib/storage';
 import type { Role, ShopLocation, StaffMember } from '@/types/models';
@@ -36,11 +38,16 @@ type TeamMemberEditModalProps = {
   roles: Role[];
   locations: ShopLocation[];
   canManagePayroll: boolean;
+  // The shop's owner is on the roster like anyone else (migration
+  // 20260823000000), but disabling them would cost them their own /me tab,
+  // schedule and register while they still own the shop, and no screen puts
+  // them back. The database refuses it; this is so nobody meets that error.
+  isOwner?: boolean;
   onClose: () => void;
   onSave: (input: MemberEdits) => Promise<void>;
 };
 
-export function TeamMemberEditModal({ visible, shopId, member, roles, locations, canManagePayroll, onClose, onSave }: TeamMemberEditModalProps) {
+export function TeamMemberEditModal({ visible, shopId, member, roles, locations, canManagePayroll, isOwner = false, onClose, onSave }: TeamMemberEditModalProps) {
   const [fullName, setFullName] = useState(member.fullName ?? '');
   const [email, setEmail] = useState(member.email ?? '');
   const [phone, setPhone] = useState(member.phone ?? '');
@@ -52,17 +59,24 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
   // The existing remote URL to start, a local uri once a new photo is picked
   // -- distinguishing the two is what tells save() whether there is anything
   // new to upload.
-  const [photoUri, setPhotoUri] = useState<string | null>(member.photoUrl);
+  const [photoUri, setPhotoUri] = useLocalPhotoUri(member.photoUrl);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
-  const pickPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) return;
-    const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.8 });
-    if (!picked.canceled) setPhotoUri(picked.assets[0].uri);
+  // Its own message rather than the shared `error` below, which sits at the
+  // foot of the scroll next to Save -- a refused camera is answered next to the
+  // button that asked for it.
+  const applyPhotoPick = (picked: PhotoPick) => {
+    if (picked.status === 'picked') {
+      setPhotoUri(picked.uri);
+      setPhotoError(null);
+    }
+    if (picked.status === 'failed') setPhotoError(picked.message);
   };
+
+  const pickPhoto = async () => applyPhotoPick(await pickPhotoFromLibrary());
 
   const save = async () => {
     if (!fullName.trim() || !email.trim() || !roleId) {
@@ -162,7 +176,18 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
               >
                 <Text style={styles.photoPickerText}>Click to upload a photo</Text>
               </Pressable>
+              {/* Absent on a device with no camera -- the button decides that
+                  itself, per browser and per device. */}
+              <CameraPhotoButton
+                onCapture={(uri) => applyPhotoPick({ status: 'picked', uri })}
+                onError={(message) => applyPhotoPick({ status: 'failed', message })}
+                style={styles.cameraButton}
+                accessibilityLabel="Take a staff photo with the camera"
+              >
+                <Text style={styles.cameraButtonText}>📷</Text>
+              </CameraPhotoButton>
             </View>
+            {photoError && <Text style={styles.photoError}>{photoError}</Text>}
             <Text style={styles.label}>FULL NAME</Text>
             <TextInput value={fullName} onChangeText={setFullName} style={styles.input} />
             <Text style={styles.label}>EMAIL</Text>
@@ -213,10 +238,14 @@ export function TeamMemberEditModal({ visible, shopId, member, roles, locations,
               </>
             )}
             <Text style={styles.label}>STATUS</Text>
-            <View style={styles.chips}>
-              <CategoryChip label="Active" active={active} onPress={() => setActive(true)} />
-              <CategoryChip label="Disabled" active={!active} onPress={() => setActive(false)} />
-            </View>
+            {isOwner ? (
+              <Text style={styles.hint}>Always active — this is the shop owner.</Text>
+            ) : (
+              <View style={styles.chips}>
+                <CategoryChip label="Active" active={active} onPress={() => setActive(true)} />
+                <CategoryChip label="Disabled" active={!active} onPress={() => setActive(false)} />
+              </View>
+            )}
             {canManagePayroll && (
               <>
                 <Text style={styles.label}>HIRE DATE</Text>
@@ -257,6 +286,9 @@ const styles = StyleSheet.create({
     backgroundColor: theme.bentoSoft,
   },
   photoPickerText: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted },
+  cameraButton: { width: 56, height: 56, borderRadius: 12, backgroundColor: theme.bentoSoft, borderWidth: 1, borderColor: theme.bentoLine, alignItems: 'center', justifyContent: 'center' },
+  cameraButtonText: { fontSize: 20 },
+  photoError: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 8 },
   input: { backgroundColor: '#F2F2F2', height: 42, borderRadius: 10, paddingHorizontal: 12, color: '#111111' },
   chips: { flexDirection: 'row', gap: 8, paddingBottom: 2 },
   save: { backgroundColor: '#111111', borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignSelf: 'flex-start', marginTop: 20 },

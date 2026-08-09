@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { planColor } from '@/components/platform-charts';
 import { PlanEditor } from '@/components/platform/plan-editor';
+import { PlanRetireModal } from '@/components/platform/plan-retire-modal';
 import { Chip, PlatformButton, PlatformModal } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
 import { Card } from '@/components/card';
@@ -34,15 +35,21 @@ export function PlansTab({
   plans,
   shops,
   compact,
+  pendingRequestsByPlanKey,
+  postTrialPlanKey,
   onDone,
 }: {
   plans: Plan[];
   shops: PlatformShopRow[];
   compact: boolean;
+  pendingRequestsByPlanKey: Record<string, number>;
+  postTrialPlanKey: string;
   onDone: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const editingPlan = plans.find((p) => p.key === editing) ?? null;
+  const [retiring, setRetiring] = useState<string | null>(null);
+  const retiringPlan = plans.find((p) => p.key === retiring) ?? null;
 
   // The span that leaves no orphan on the last row. Four tiers at span 4 puts
   // three across and strands the fourth alone, which is what shipped first;
@@ -59,9 +66,17 @@ export function PlansTab({
             <PlanCard
               plan={plan}
               accent={planColor(plan.key, i)}
-              shopsOn={shops.filter((s) => s.planKey === plan.key).length}
-              revenue={plan.priceCents * shops.filter((s) => s.planKey === plan.key && s.status === 'active').length}
+              // Stored, not effective: this card is about the plan RECORD --
+              // how many subscriptions still point here and how much money it
+              // brings in -- not about who is currently enforced under it.
+              // Keyed off effective plan, a retired tier's card would read "0
+              // stores" forever, which is exactly wrong for the strip below
+              // that still needs to say how many are moving.
+              shopsOn={shops.filter((s) => s.storedPlanKey === plan.key).length}
+              revenue={plan.priceCents * shops.filter((s) => s.storedPlanKey === plan.key && s.status === 'active').length}
+              successorName={plans.find((p) => p.key === plan.successorPlanKey)?.name ?? null}
               onEdit={() => setEditing(plan.key)}
+              onRetire={() => setRetiring(plan.key)}
             />
           </BentoCell>
         ))}
@@ -85,8 +100,42 @@ export function PlansTab({
           />
         </PlatformModal>
       ) : null}
+
+      {retiringPlan ? (
+        <PlatformModal
+          title={retiringPlan.retireAt ? `Republish ${retiringPlan.name}` : `Retire ${retiringPlan.name}`}
+          compact={compact}
+          onClose={() => setRetiring(null)}
+        >
+          <PlanRetireModal
+            plan={retiringPlan}
+            plans={plans}
+            // Stored, not effective, matching every other count on this tab
+            // (see the card's shopsOn above): a plan past its retire date is
+            // exactly when republishing brings stores keyed off planKey back
+            // to zero here, which is the false "0 stores on it" this sheet
+            // must not say.
+            shopsOn={shops.filter((s) => s.storedPlanKey === retiringPlan.key).length}
+            pendingRequests={pendingRequestsByPlanKey[retiringPlan.key] ?? 0}
+            postTrialPlanKey={postTrialPlanKey}
+            onClose={() => setRetiring(null)}
+            onDone={onDone}
+          />
+        </PlatformModal>
+      ) : null}
     </View>
   );
+}
+
+// Whole days, rounded up: "retires in 0 days" on the morning of the last day is
+// wrong in the direction that matters. Can go negative past the date -- callers
+// treat that as "already retired" rather than clamping to zero, because
+// retire_at is never cleared by the passage of time, only by an operator
+// republishing (the same reasoning shops-tab.tsx's row arrow already carries).
+// Clamping here would make a plan that stayed retired for a year read "retires
+// in 0 days" forever.
+function daysUntilRetire(retireAt: string): number {
+  return Math.ceil((new Date(retireAt).getTime() - Date.now()) / 86_400_000);
 }
 
 function PlanCard({
@@ -94,14 +143,23 @@ function PlanCard({
   accent,
   shopsOn,
   revenue,
+  successorName,
   onEdit,
+  onRetire,
 }: {
   plan: Plan;
   accent: string;
   shopsOn: number;
   revenue: number;
+  successorName: string | null;
   onEdit: () => void;
+  onRetire: () => void;
 }) {
+  // Past the date the countdown has nothing left to count -- said outright
+  // rather than as "0 days", which would read as a countdown still running.
+  const daysLeft = plan.retireAt ? daysUntilRetire(plan.retireAt) : null;
+  const retired = daysLeft != null && daysLeft <= 0;
+
   // A bare bento card rather than `BentoCard`: the head here is a colour dot,
   // the tier name and two controls, which is not the title/scope-pill shape
   // BentoCard exists to standardise.
@@ -113,9 +171,26 @@ function PlanCard({
           <Text style={styles.name} numberOfLines={1}>
             {plan.name}
           </Text>
-          {!plan.isPublic ? <Chip label="Not public" /> : null}
+          {/* The glyph, not just the amber: bentoWarn is a status colour and
+              colour alone is never the signal. */}
+          {daysLeft != null ? (
+            <Chip label={retired ? '⚠ Retired' : `⚠ Retires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`} />
+          ) : !plan.isPublic ? (
+            <Chip label="Not public" />
+          ) : null}
         </View>
-        <PlatformButton label="Edit" onPress={onEdit} />
+        <View style={styles.headButtons}>
+          <PlatformButton label="Edit" onPress={onEdit} />
+          {/* Retire only where the server will actually take it: retire_plan
+              rejects any plan whose is_public is already false (Trial, or
+              anything already retiring) -- offering the button there is
+              asking for a click that always errors. Republish stays
+              regardless of isPublic: a retired plan IS non-public by
+              definition and has to stay reachable to bring back. */}
+          {plan.retireAt || plan.isPublic ? (
+            <PlatformButton label={plan.retireAt ? 'Republish' : 'Retire'} onPress={onRetire} />
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.priceRow}>
@@ -140,6 +215,25 @@ function PlanCard({
           <Text style={styles.statLabel}>modules</Text>
         </View>
       </View>
+
+      {plan.retireAt && successorName ? (
+        <View style={styles.retireStrip}>
+          <Text style={styles.retireGlyph}>→</Text>
+          <Text style={styles.retireText}>
+            {retired ? (
+              <>
+                Hidden from the plan picker. Since {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
+                {shopsOn === 1 ? '' : 's'} still here {shopsOn === 1 ? 'has' : 'have'} moved to {successorName}.
+              </>
+            ) : (
+              <>
+                Hidden from the plan picker. On {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
+                {shopsOn === 1 ? '' : 's'} still here move to {successorName}.
+              </>
+            )}
+          </Text>
+        </View>
+      ) : null}
 
       {/* Every module shown, not just the included ones — what a tier leaves
           out is what sells the tier above it, and that is invisible if excluded
@@ -182,7 +276,14 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 9, height: 9, borderRadius: 3 },
-  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk },
+  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk, flexShrink: 1 },
+  headButtons: { flexDirection: 'row', gap: 7, flexShrink: 0 },
+  // The amber wash has no token: bentoWarn is the ink, and a soft tile
+  // (`bentoSoft`) behind amber text reads as disabled rather than as a warning.
+  // Kept local rather than invented as a token for one use.
+  retireStrip: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 14, padding: 12, backgroundColor: '#fdf4e3', borderRadius: BENTO_RADIUS_TILE },
+  retireGlyph: { fontSize: 13, color: theme.bentoWarn, fontWeight: '800' },
+  retireText: { flex: 1, fontSize: 11.5, lineHeight: 17, fontWeight: '700', color: theme.bentoWarn },
 
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3, marginTop: 12 },
   price: { fontSize: 28, fontWeight: '800', letterSpacing: -1, color: theme.bentoInk, fontVariant: ['tabular-nums'] },
