@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,7 +22,8 @@ import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField
 import { ProductTile } from '@/components/product-tile';
 import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
 import { ScanResultBar } from '@/components/scan-result-bar';
-import { SearchRow } from '@/components/search-row';
+import { SearchKeypad } from '@/components/search-keypad';
+import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
@@ -173,6 +174,12 @@ export default function InventoryScreen() {
   // a product. Null both when there's no such code and when they can't.
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const scanner = useScannerSettings();
+  const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  const scrollRef = useRef<ScrollView>(null);
+  // Content-relative y of the search row, captured on layout so opening the
+  // keypad can bring the row into view — the dock shrinks the viewport, and a
+  // row tapped near the bottom would otherwise end up under the dock.
+  const searchRowY = useRef(0);
 
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
@@ -389,7 +396,7 @@ export default function InventoryScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} refreshControl={pullToRefresh}>
         <View style={styles.header}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>INVENTORY</Text>
@@ -545,18 +552,27 @@ export default function InventoryScreen() {
 
         <TillKeyboardNotice />
 
-        <SearchRow
-          value={search}
-          onChange={setSearch}
-          onSubmit={handleSearchSubmit}
-          // The full list of searchable fields doesn't fit a phone -- it
-          // truncated mid-word at "barcod...", which reads as a bug rather
-          // than as a hint.
-          placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
-          useKeypad={scanner.onScreenKeypad}
-          showScanButton={scanner.camera}
-          onScanPress={() => setScannerOpen(true)}
-        />
+        <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
+          <SearchRow
+            value={search}
+            onChange={setSearch}
+            onSubmit={handleSearchSubmit}
+            // The full list of searchable fields doesn't fit a phone -- it
+            // truncated mid-word at "barcod...", which reads as a bug rather
+            // than as a hint.
+            placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
+            useKeypad={scanner.onScreenKeypad}
+            showScanButton={scanner.camera}
+            onScanPress={() => setScannerOpen(true)}
+            keypadOpen={keypadOpen}
+            onKeypadOpenChange={(open) => {
+              setKeypadOpen(open);
+              // Bring the row to the top of the shrunken viewport so what you
+              // type is visible while you type it.
+              if (open) scrollRef.current?.scrollTo({ y: Math.max(0, searchRowY.current - 12), animated: true });
+            }}
+          />
+        </View>
         <ScanFeedbackBanner feedback={scanFeedback} />
         {unknownCode && (
           <Pressable onPress={() => setShowAddModal(true)} style={styles.addFromScan}>
@@ -634,6 +650,18 @@ export default function InventoryScreen() {
           </Card>
         )}
       </ScrollView>
+
+      {/* A flex sibling, not an overlay: the ScrollView shrinks above it, so
+          the grid stays scrollable to its last row with the keypad open —
+          exactly what the system keyboard does. See the dock-fix mockup. */}
+      {keypadOpen && scanner.onScreenKeypad ? (
+        <SearchKeypad
+          value={search}
+          onChange={setSearch}
+          onSubmit={handleSearchSubmit}
+          onClose={() => setKeypadOpen(false)}
+        />
+      ) : null}
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
           wherever the app opens one. */}
