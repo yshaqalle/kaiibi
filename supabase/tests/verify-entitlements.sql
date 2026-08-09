@@ -16,6 +16,7 @@ declare
   v_location_id uuid;
   v_free_id     uuid;
   v_pro_id      uuid;
+  v_std_id      uuid;
   v_status      text;
   v_plan_key    text;
   v_limit       integer;
@@ -334,6 +335,63 @@ begin
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
+
+  -- ------------------------------------------------- 14. retiring a plan
+  -- The whole retirement design rests on this function, so it is proved here
+  -- rather than trusted. Note what is NOT asserted to change: status. A store
+  -- on a retired plan is not lapsed and must never read as such.
+  select id into v_std_id from public.plans where key = 'standard';
+
+  update public.shop_subscriptions
+  set plan_id = v_free_id,
+      trial_ends_at = now() - interval '100 days',
+      grace_until   = now() - interval '93 days',
+      current_period_end = null
+  where shop_id = v_shop_id;
+
+  -- Retirement in the FUTURE changes nothing at all.
+  update public.plans
+  set retire_at = now() + interval '30 days', successor_plan_key = 'standard'
+  where key = 'free';
+
+  if (public.shop_effective_plan(v_shop_id)).key <> 'free' then
+    raise exception 'FAIL: a plan retiring in 30 days already moved its stores (got %)',
+      (public.shop_effective_plan(v_shop_id)).key;
+  end if;
+  if public.shop_has_module(v_shop_id, 'accounting') then
+    raise exception 'FAIL: a store got the successor''s modules before the date';
+  end if;
+
+  -- Past the date, the successor applies.
+  update public.plans set retire_at = now() - interval '1 day' where key = 'free';
+
+  if (public.shop_effective_plan(v_shop_id)).key <> 'standard' then
+    raise exception 'FAIL: a retired plan did not resolve to its successor (got %)',
+      (public.shop_effective_plan(v_shop_id)).key;
+  end if;
+  if not public.shop_has_module(v_shop_id, 'accounting') then
+    raise exception 'FAIL: the successor''s modules did not apply after the date';
+  end if;
+
+  -- Status is untouched by retirement. This is the assertion most likely to
+  -- catch a well-meaning change to shop_effective_status().
+  if public.shop_effective_status(v_shop_id) <> 'expired' then
+    raise exception 'FAIL: retirement changed the store''s status to %',
+      public.shop_effective_status(v_shop_id);
+  end if;
+
+  -- Republishing restores everyone, because nothing was destroyed.
+  update public.plans set retire_at = null, successor_plan_key = null where key = 'free';
+
+  if (public.shop_effective_plan(v_shop_id)).key <> 'free' then
+    raise exception 'FAIL: republishing did not restore the original plan (got %)',
+      (public.shop_effective_plan(v_shop_id)).key;
+  end if;
+
+  -- The subscription row was never rewritten -- that is the entire point.
+  if (select plan_id from public.shop_subscriptions where shop_id = v_shop_id) <> v_free_id then
+    raise exception 'FAIL: retirement rewrote plan_id instead of resolving at read time';
+  end if;
 
   raise notice 'ALL CHECKS PASSED';
   -- Deliberate rollback: everything above was throwaway.
