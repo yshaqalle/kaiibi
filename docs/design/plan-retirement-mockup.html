@@ -1,0 +1,689 @@
+<title>Kaiibi Platform — retiring a plan</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every --d-* value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8;
+    /* The cream palette — Settings is NOT converted to bento. */
+    --k-bg:#FAF9F5; --k-sf:#FFFFFF; --k-el:#F0F0F3; --k-ln:#EFEEE9;
+    --k-warnRule:#D27631; --k-warnBg:#FFFBEB; --k-warnInk:#8A5A05;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,.h2sub code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:20px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;}
+  .frameHead.now b{color:var(--mut);}
+  .frameHead.next b{color:var(--blue);}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;min-width:392px;}
+  .pair{display:grid;gap:26px;}
+  @media (min-width:1000px){ .pair{grid-template-columns:1fr 1fr;} }
+  .pair > div{min-width:0;}
+
+  /* ---------- bento card ---------- */
+  .card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .card + .card{margin-top:14px;}
+  .head{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .nameRow{display:flex;align-items:center;gap:8px;min-width:0;flex-wrap:wrap;}
+  .dot{width:9px;height:9px;border-radius:3px;flex-shrink:0;}
+  .pname{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--d-ink);}
+  .btn{border:1px solid var(--d-rule);background:var(--d-sf);color:var(--d-ink2);border-radius:999px;
+    padding:6px 13px;font-size:12px;font-weight:800;white-space:nowrap;display:inline-block;}
+  .btn.warnBtn{border-color:var(--warn);color:var(--warn);}
+  .btnRow{display:flex;gap:7px;flex-shrink:0;}
+
+  .chip{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 9px;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;}
+  .chip.warnChip{background:#fdf4e3;color:var(--warn);}
+  .chip.accentChip{background:var(--accentWash);color:var(--accentInk);}
+
+  .priceRow{display:flex;align-items:baseline;gap:3px;margin-top:12px;}
+  .price{font-size:28px;font-weight:800;letter-spacing:-1px;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .per{font-size:12px;font-weight:700;color:var(--d-mut);}
+
+  .stats{display:flex;gap:22px;margin-top:14px;flex-wrap:wrap;}
+  .sv{font-size:17px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .sof{font-size:12px;font-weight:700;color:var(--d-mut2);}
+  .sl{font-size:10.5px;color:var(--d-mut);}
+
+  .subhead{font-size:9.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut2);margin:18px 0 8px;}
+  .pills{display:flex;flex-wrap:wrap;gap:6px;}
+  .pill{background:var(--d-soft);border-radius:999px;padding:4px 10px;font-size:11px;font-weight:700;color:var(--d-mut2);}
+  .pill.on{color:var(--d-ink2);}
+  .limits{display:flex;flex-wrap:wrap;gap:8px;}
+  .lim{background:var(--d-soft);border-radius:18px;padding:9px 11px;min-width:84px;flex-grow:1;}
+  .lv{font-size:14px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .ll{font-size:9.5px;color:var(--d-mut);margin-top:1px;}
+
+  /* successor strip inside the plan card */
+  .succ{display:flex;align-items:center;gap:9px;margin-top:14px;padding:10px 12px;
+    background:#fdf4e3;border-radius:18px;}
+  .succ .g{font-size:13px;color:var(--warn);flex-shrink:0;}
+  .succ p{margin:0;font-size:11.5px;color:var(--warn);font-weight:700;line-height:1.45;}
+  .succ p span{font-weight:800;}
+
+  /* ---------- caveat ---------- */
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:16px;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav.wrong{border-color:var(--k-warnRule);background:var(--k-warnBg);color:var(--k-warnInk);}
+  .cav .g{font-size:13px;flex-shrink:0;line-height:1.4;}
+  .cav p{margin:0;font-size:12px;line-height:1.5;}
+  .cav .act{display:inline-block;margin-top:7px;font-size:12px;font-weight:800;text-decoration:underline;}
+
+  /* ---------- modal ---------- */
+  .modalWrap{background:var(--d-pg);border-radius:20px;padding:16px;}
+  .modal{background:var(--d-sf);border-radius:26px;padding:20px;box-shadow:0 10px 30px rgba(11,11,13,.13);}
+  .modalTitle{font-size:17px;font-weight:800;letter-spacing:-.3px;margin:0 0 4px;}
+  .modalMeta{font-size:11px;color:var(--d-mut);margin:0 0 4px;}
+  .secLabel{font-size:9.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut2);margin:18px 0 8px;}
+  .field{border:1px solid var(--d-rule);border-radius:12px;padding:9px 12px;font-size:13px;color:var(--d-ink);
+    background:var(--d-sf);}
+  .field.ph{color:var(--d-mut2);}
+  .field.need{border-color:var(--warn);}
+  .fieldRow{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .fl{font-size:9.5px;font-weight:800;letter-spacing:.6px;color:var(--d-mut2);margin-bottom:5px;display:block;}
+  .selRow{display:flex;gap:7px;flex-wrap:wrap;}
+  .sel{border:1px solid var(--d-rule);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-mut);}
+  .sel.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .sel.dis{opacity:.42;text-decoration:line-through;}
+  .footRow{display:flex;align-items:center;gap:14px;margin-top:16px;}
+  .primary{background:var(--d-ink);color:#fff;border-radius:999px;padding:9px 17px;font-size:12.5px;font-weight:800;}
+  .primary.danger{background:var(--warn);}
+  .cancel{font-size:12px;font-weight:700;color:var(--d-mut);}
+  .ghostBox{border:1px dashed var(--d-rule);border-radius:20px;padding:30px 20px;text-align:center;
+    color:var(--d-mut2);font-size:12.5px;}
+
+  /* ---------- filter row / shops ---------- */
+  .filters{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px;}
+  .shopRow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 4px;border-bottom:1px solid var(--d-rule);}
+  .shopRow:last-child{border-bottom:0;}
+  .shopName{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .shopMeta{font-size:10.5px;color:var(--d-mut);}
+  .badge{font-size:10px;font-weight:800;border-radius:999px;padding:3px 9px;background:var(--d-soft);color:var(--d-mut2);}
+  .badge.warnB{background:#fdf4e3;color:var(--warn);}
+  .badge.okB{background:#d9efe4;color:#007a38;}
+
+  /* ---------- cream (Settings) ---------- */
+  .cream{background:var(--k-bg);border-radius:16px;padding:16px;color:#11110f;}
+  .csec{background:var(--k-sf);border:1px solid var(--k-ln);border-radius:12px;padding:15px;}
+  .csec + .csec{margin-top:12px;}
+  .csecTitle{font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:#6b6a63;margin:0 0 10px;}
+  .planPick{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid var(--k-ln);}
+  .planPick:last-child{border-bottom:0;}
+  .planPick b{font-size:13px;font-weight:800;display:block;}
+  .planPick span{font-size:11px;color:#6b6a63;}
+  .ask{border:1px solid var(--k-ln);border-radius:999px;padding:6px 13px;font-size:11.5px;font-weight:800;color:#11110f;}
+  .statusCard{background:var(--k-el);border-radius:12px;padding:13px 15px;}
+  .statusCard b{display:block;font-size:12px;font-weight:800;letter-spacing:.08em;margin-bottom:3px;}
+  .statusCard p{margin:0;font-size:12px;color:#4a4944;}
+
+  /* ---------- table ---------- */
+  .tblWrap{overflow-x:auto;margin-top:18px;border:1px solid var(--ln);border-radius:12px;}
+  table{border-collapse:collapse;width:100%;min-width:660px;font-size:13.5px;}
+  th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);
+    background:var(--pg2);}
+  tr:last-child td{border-bottom:0;}
+  td b{font-weight:700;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;white-space:nowrap;}
+  .tag.new{background:#e6edff;color:#1b47b8;}
+  .tag.fix{background:#fdf4e3;color:#8a5a05;}
+  .tag.chk{background:#e9e9ee;color:#55555e;}
+  @media (prefers-color-scheme: dark){
+    .tag.new{background:#1b2a52;color:#a8c0ff;}
+    .tag.fix{background:#3a2e12;color:#e0b96a;}
+    .tag.chk{background:#26262e;color:#a0a0aa;}
+  }
+  :root[data-theme="dark"] .tag.new{background:#1b2a52;color:#a8c0ff;}
+  :root[data-theme="dark"] .tag.fix{background:#3a2e12;color:#e0b96a;}
+  :root[data-theme="dark"] .tag.chk{background:#26262e;color:#a0a0aa;}
+  :root[data-theme="light"] .tag.new{background:#e6edff;color:#1b47b8;}
+  :root[data-theme="light"] .tag.fix{background:#fdf4e3;color:#8a5a05;}
+  :root[data-theme="light"] .tag.chk{background:#e9e9ee;color:#55555e;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi · Platform portal</p>
+<h1>Retiring a plan</h1>
+<p class="lede">
+  Turning off a tier so no new store can pick it, giving the stores already on it a month and a
+  warning, and moving them to a named successor when the month runs out. Every frame below is
+  pinned to <code>Colors.light</code>, the palette the app actually renders.
+</p>
+
+<div class="verdict">
+  <div class="vx bad">
+    <b>The gap today</b>
+    <p><code>plans.is_public</code> already exists and <code>listPlans()</code> already filters on it — but nothing in the portal can set it. Retiring Free meant editing hardcoded copy and shipping a build (commit <code>0be1bae</code>), which is exactly what putting plans in a table was meant to avoid.</p>
+  </div>
+  <div class="vx good">
+    <b>Already correct — don't touch it</b>
+    <p>The trial credit works. <code>RecordPayment</code> starts the paid period at the latest of today, current cover, and trial end, and the "give up their free days" toggle is off by default. Two small hardening fixes are listed at the end; the behaviour itself stays.</p>
+  </div>
+</div>
+
+<!-- ============================================================ -->
+<section>
+  <h2>1 · The plan card</h2>
+  <p class="h2sub">
+    <code>src/components/platform/plans-tab.tsx</code> — the "Not public" chip already renders, but
+    there is no control that can produce it. The proposed card replaces that dead chip with a live
+    countdown and says where the stores go.
+  </p>
+
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>plans-tab.tsx:108</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <div class="head">
+            <div class="nameRow">
+              <span class="dot" style="background:var(--c2)"></span>
+              <span class="pname">Free</span>
+            </div>
+            <div class="btnRow"><span class="btn">Edit</span></div>
+          </div>
+          <div class="priceRow"><span class="price">Free</span></div>
+          <div class="stats">
+            <div><div class="sv" style="color:var(--c2)">218</div><div class="sl">stores</div></div>
+            <div><div class="sv">—</div><div class="sl">monthly revenue</div></div>
+            <div><div class="sv">2<span class="sof">/12</span></div><div class="sl">modules</div></div>
+          </div>
+          <p class="subhead">WHAT'S INCLUDED</p>
+          <div class="pills">
+            <span class="pill on">Till</span><span class="pill on">Inventory</span>
+            <span class="pill">✕ Customers</span><span class="pill">✕ Dashboard</span>
+            <span class="pill">✕ Accounting</span><span class="pill">✕ Payroll</span>
+          </div>
+          <p class="subhead">LIMITS</p>
+          <div class="limits">
+            <div class="lim"><div class="lv">1</div><div class="ll">Stores</div></div>
+            <div class="lim"><div class="lv">50</div><div class="ll">Products</div></div>
+            <div class="lim"><div class="lv">2</div><div class="ll">Staff</div></div>
+            <div class="lim"><div class="lv">100</div><div class="ll">Customers</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        No way to stop offering this. The only lever is <b>Edit</b>, which can strip the modules
+        one at a time — leaving a tier that is still listed, still choosable, and now useless.
+      </p>
+    </div>
+
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>+ Retire, countdown, successor</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <div class="head">
+            <div class="nameRow">
+              <span class="dot" style="background:var(--c2)"></span>
+              <span class="pname">Free</span>
+              <span class="chip warnChip">⚠ Retires in 23 days</span>
+            </div>
+            <div class="btnRow">
+              <span class="btn">Edit</span>
+              <span class="btn warnBtn">Republish</span>
+            </div>
+          </div>
+          <div class="priceRow"><span class="price">Free</span></div>
+          <div class="stats">
+            <div><div class="sv" style="color:var(--c2)">218</div><div class="sl">stores</div></div>
+            <div><div class="sv">—</div><div class="sl">monthly revenue</div></div>
+            <div><div class="sv">2<span class="sof">/12</span></div><div class="sl">modules</div></div>
+          </div>
+
+          <div class="succ">
+            <span class="g">→</span>
+            <p>Hidden from the plan picker since 8 Aug. On <span>31 Aug</span> the
+              <span>218 stores</span> still here move to <span>Starter</span>.</p>
+          </div>
+
+          <p class="subhead">WHAT'S INCLUDED</p>
+          <div class="pills">
+            <span class="pill on">Till</span><span class="pill on">Inventory</span>
+            <span class="pill">✕ Customers</span><span class="pill">✕ Dashboard</span>
+            <span class="pill">✕ Accounting</span><span class="pill">✕ Payroll</span>
+          </div>
+          <p class="subhead">LIMITS</p>
+          <div class="limits">
+            <div class="lim"><div class="lv">1</div><div class="ll">Stores</div></div>
+            <div class="lim"><div class="lv">50</div><div class="ll">Products</div></div>
+            <div class="lim"><div class="lv">2</div><div class="ll">Staff</div></div>
+            <div class="lim"><div class="lv">100</div><div class="ll">Customers</div></div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        A plan that isn't retiring shows <b>Retire</b> where <b>Republish</b> sits, and no amber
+        strip. The chip carries a glyph as well as the amber — <code>bentoWarn</code> is a status
+        colour, and colour alone is never the signal.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>2 · The retire sheet</h2>
+  <p class="h2sub">
+    New. It reuses <code>PlatformModal</code> and the mandatory-reason field every platform action
+    already has, and computes the blast radius the same way <code>PlanEditor</code> does.
+  </p>
+
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>no equivalent</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="ghostBox">
+          There is no retire flow.<br />
+          <span style="font-size:11.5px">Removing a tier from sale is a code edit to
+          <code>landing-plans.tsx</code> plus two i18n files, then a deploy.</span>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        And the edit only hides the marketing copy. The tier stays in
+        <code>listPlans()</code>, so it is still offered inside the app on the billing screen.
+      </p>
+    </div>
+
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>action: retire_plan</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="modalWrap">
+          <div class="modal">
+            <p class="modalTitle">Retire Free</p>
+            <p class="modalMeta">key <code>free</code> — 218 stores depend on it</p>
+
+            <p class="secLabel">MOVE THEM TO</p>
+            <div class="selRow">
+              <span class="sel on">Starter</span>
+              <span class="sel">Standard · $18/mo</span>
+              <span class="sel">Pro · $45/mo</span>
+              <span class="sel dis">Trial</span>
+            </div>
+
+            <p class="secLabel">THEY MOVE ON</p>
+            <div class="fieldRow">
+              <div><span class="fl">DATE</span><div class="field">31 Aug 2026</div></div>
+              <div><span class="fl">WINDOW</span><div class="field ph">30 days</div></div>
+            </div>
+
+            <div class="cav wrong">
+              <span class="g">⚠</span>
+              <div>
+                <p><b>Free is the fallback for lapsed stores.</b>
+                  <code>post_trial_plan_key</code> points at it, so retiring it without naming a new
+                  floor would drop every expired store onto Starter's entitlements for nothing.
+                  Retiring Free sets the fallback to <b>Starter</b> in the same action.</p>
+              </div>
+            </div>
+
+            <div class="cav context">
+              <span class="g">ⓘ</span>
+              <div>
+                <p>Hidden from the picker straight away. Nothing changes for the 218 stores until
+                  31 Aug — they keep Till and Inventory, and you can move any of them sooner from
+                  Stores. Republishing before that date undoes all of it.</p>
+              </div>
+            </div>
+
+            <p class="secLabel">REASON</p>
+            <div class="field need ph">Reason (required — goes into the audit log)</div>
+
+            <div class="footRow">
+              <span class="primary danger">Retire plan</span>
+              <span class="cancel">Cancel</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        <b>Trial</b> is struck through: it is <code>is_public: false</code> and assigned by trigger,
+        so it can never be a successor. A plan that is itself retiring is struck through for the
+        same reason — the resolver follows one hop only, so chains are refused at the door rather
+        than looped over at read time.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>3 · Finding the stores still on it</h2>
+  <p class="h2sub">
+    <code>src/components/platform/shops-tab.tsx</code> — one more filter, so moving a store early
+    with the existing <code>set_plan</code> action is a visible task instead of a per-store hunt.
+  </p>
+
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>shops-tab.tsx</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="filters">
+          <span class="sel on">All</span><span class="sel">Trialing</span>
+          <span class="sel">Active</span><span class="sel">Grace</span>
+          <span class="sel">Expired</span><span class="sel">Suspended</span>
+        </div>
+        <div class="card">
+          <div class="shopRow">
+            <div><div class="shopName">Hodan Mini Market</div><div class="shopMeta">Free · Hargeisa</div></div>
+            <span class="badge">expired</span>
+          </div>
+          <div class="shopRow">
+            <div><div class="shopName">Suuqa Waaheen Stores</div><div class="shopMeta">Free · Hargeisa</div></div>
+            <span class="badge">expired</span>
+          </div>
+          <div class="shopRow">
+            <div><div class="shopName">Berbera Fresh</div><div class="shopMeta">Standard · Berbera</div></div>
+            <span class="badge okB">active</span>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        Nothing distinguishes a store on a dying plan from one on a healthy one.
+      </p>
+    </div>
+
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>+ one segment</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="filters">
+          <span class="sel">All</span><span class="sel">Trialing</span>
+          <span class="sel">Active</span><span class="sel">Grace</span>
+          <span class="sel">Expired</span><span class="sel">Suspended</span>
+          <span class="sel on">⚠ Retiring plan · 218</span>
+        </div>
+        <div class="card">
+          <div class="shopRow">
+            <div><div class="shopName">Hodan Mini Market</div>
+              <div class="shopMeta">Free → Starter on 31 Aug · Hargeisa</div></div>
+            <span class="badge warnB">23 days</span>
+          </div>
+          <div class="shopRow">
+            <div><div class="shopName">Suuqa Waaheen Stores</div>
+              <div class="shopMeta">Free → Starter on 31 Aug · Hargeisa</div></div>
+            <span class="badge warnB">23 days</span>
+          </div>
+          <div class="shopRow">
+            <div><div class="shopName">Xamar Electronics</div>
+              <div class="shopMeta">Free → Starter on 31 Aug · Mogadishu</div></div>
+            <span class="badge warnB">23 days</span>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        The count on the segment is the whole point: it goes to zero as you work, and a retirement
+        that lands with it still at 218 is one you were warned about.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>4 · What the shop owner sees</h2>
+  <p class="h2sub">
+    <code>src/components/settings/panels/billing-panel.tsx</code> — <b>cream, not bento.</b>
+    Settings has not been converted, so this frame uses <code>background</code> /
+    <code>surface</code> / <code>border</code> and the <code>Caveat</code> <code>wrong</code> tone
+    as it renders today. Half-applying bento tokens here is the red flag, not the fix.
+  </p>
+
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current</b><i>billing-panel.tsx</i></p>
+      <div class="scroller"><div class="frame" style="background:var(--k-bg)">
+        <div class="cream">
+          <div class="csec">
+            <p class="csecTitle">Your plan</p>
+            <div class="statusCard">
+              <b>FREE</b>
+              <p>You're on the free plan. Upgrade any time.</p>
+            </div>
+          </div>
+          <div class="csec">
+            <p class="csecTitle">Move to another plan</p>
+            <div class="planPick">
+              <div><b>Free</b><span>Run your till and your stock list, at one store.</span></div>
+              <span class="ask">Current</span>
+            </div>
+            <div class="planPick">
+              <div><b>Standard</b><span>$18 / month</span></div>
+              <span class="ask">Ask to move</span>
+            </div>
+            <div class="planPick">
+              <div><b>Pro</b><span>$45 / month</span></div>
+              <span class="ask">Ask to move</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        Free is listed and choosable. A store can move <i>onto</i> a plan you are trying to shut
+        down, right up until the day it disappears from under them with no notice.
+      </p>
+    </div>
+
+    <div>
+      <p class="frameHead next"><b>Proposed</b><i>+ warning, Free delisted</i></p>
+      <div class="scroller"><div class="frame" style="background:var(--k-bg)">
+        <div class="cream">
+          <div class="csec">
+            <p class="csecTitle">Your plan</p>
+            <div class="statusCard">
+              <b>FREE</b>
+              <p>You're on the free plan.</p>
+            </div>
+            <div class="cav wrong" style="margin-top:12px">
+              <span class="g">⚠</span>
+              <div>
+                <p><b>The Free plan is ending on 31 August.</b> On that day this store moves to
+                  Starter, which keeps your till and your products. Nothing you have entered will
+                  be deleted. Move sooner if you'd rather pick for yourself.</p>
+                <span class="act">See what changes</span>
+              </div>
+            </div>
+          </div>
+          <div class="csec">
+            <p class="csecTitle">Move to another plan</p>
+            <div class="planPick">
+              <div><b>Starter</b><span>Free · where you'll move on 31 August</span></div>
+              <span class="ask">Ask to move</span>
+            </div>
+            <div class="planPick">
+              <div><b>Standard</b><span>$18 / month</span></div>
+              <span class="ask">Ask to move</span>
+            </div>
+            <div class="planPick">
+              <div><b>Pro</b><span>$45 / month</span></div>
+              <span class="ask">Ask to move</span>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        Free vanishes from the list the moment you retire it — <code>listPlans()</code> already
+        filters <code>is_public</code>, so that half needs no new code. The banner is
+        <code>wrong</code> tone and carries an action, which is the rule: a <code>wrong</code>
+        caveat with nothing to do trains people to ignore the whole family.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>5 · The trial credit — working, two fixes</h2>
+  <p class="h2sub">
+    <code>src/components/platform/shop-drawer.tsx</code>. This already does what was asked. Shown
+    so the fixes are legible against it, not because it is broken.
+  </p>
+
+  <div class="pair">
+    <div>
+      <p class="frameHead now"><b>Current — correct</b><i>shop-drawer.tsx:296</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <p class="modalTitle" style="font-size:15px">Record payment</p>
+          <div style="display:flex;align-items:flex-start;gap:9px;margin:12px 0 6px">
+            <span style="width:17px;height:17px;border:1.5px solid var(--d-rule);border-radius:5px;flex-shrink:0"></span>
+            <span style="font-size:12.5px;font-weight:700">Start paying today — ends their trial now</span>
+          </div>
+          <p style="font-size:11.5px;color:var(--d-mut);margin:0 0 14px">
+            Their <b>41 remaining free days</b> are kept — the paid period starts when the trial
+            ends, and they count toward MRR from then.
+          </p>
+          <div class="selRow" style="margin-bottom:12px">
+            <span class="sel on">ZAAD</span><span class="sel">eDahab</span>
+            <span class="sel">Cash</span><span class="sel">Bank</span>
+          </div>
+          <div class="fieldRow">
+            <div><span class="fl">COVERS FROM</span><div class="field">18 Sep 2026</div></div>
+            <div><span class="fl">COVERS TO</span><div class="field">18 Oct 2026</div></div>
+          </div>
+          <div class="selRow" style="margin-top:10px">
+            <span class="sel">+1 month</span><span class="sel">+3 months</span>
+            <span class="sel">+6 months</span><span class="sel">+12 months</span>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        Cover starts 18 Sep — the trial end — not today. The toggle is off by default and warns
+        that turning it on gives up the free days.
+      </p>
+    </div>
+
+    <div>
+      <p class="frameHead next"><b>Two hardening fixes</b><i>behaviour unchanged</i></p>
+      <div class="scroller"><div class="frame">
+        <div class="card">
+          <p class="subhead" style="margin-top:0">FIX 1 — PERIOD LENGTH FOLLOWS THE PLAN</p>
+          <p style="font-size:12.5px;color:var(--d-ink2);margin:0 0 10px">
+            <code>addMonths(from, 1)</code> is hardcoded at three call sites. On a
+            <code>year</code> plan the operator is handed a one-month period and has to notice.
+          </p>
+          <div class="fieldRow">
+            <div><span class="fl">COVERS FROM</span><div class="field">18 Sep 2026</div></div>
+            <div><span class="fl">COVERS TO</span><div class="field">18 Sep 2027</div></div>
+            <span class="chip accentChip" style="margin-bottom:10px">billing_interval: year</span>
+          </div>
+
+          <p class="subhead">FIX 2 — THE FLOOR MOVES TO THE SERVER</p>
+          <p style="font-size:12.5px;color:var(--d-ink2);margin:0 0 10px">
+            <code>record_payment</code> writes <code>coversTo</code> verbatim. The fairness rule
+            lives in one React component, so a hand-edited date silently burns the free days.
+          </p>
+          <div class="cav wrong" style="margin-top:0">
+            <span class="g">⚠</span>
+            <div>
+              <p>Cover can't start before their trial ends on 18 Sep. Tick "start paying today"
+                if they asked to convert early.</p>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note" style="margin-top:12px">
+        Fix 2 is a clamp in the edge function, not a UI change — the message shown is what the
+        drawer renders when the server refuses the date.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section>
+  <h2>What this costs in code</h2>
+  <p class="h2sub">Eleven items. Two migrations, three edge-function guards, five UI touches, two fixes.</p>
+
+  <div class="tblWrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>Where</th><th>What</th><th>Kind</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>A1</td><td><code>migrations/</code></td><td><b>Two columns on <code>plans</code></b> — <code>retire_at</code>, <code>successor_plan_key</code>, with a check that one implies the other</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A2</td><td><code>shop_effective_plan()</code></td><td><b>One hop</b> — a plan past its <code>retire_at</code> resolves to its successor. No cron, no bulk update, instantly reversible</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A3</td><td><code>platform-admin/index.ts</code></td><td><b><code>retire_plan</code> / <code>republish_plan</code></b>, with the fallback guard when the plan is <code>post_trial_plan_key</code></td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A4</td><td><code>lib/subscriptions.ts</code></td><td><b>Map the two columns</b> onto <code>Plan</code>. <code>listPlans()</code> needs no change</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A5</td><td><code>lib/platform.ts</code></td><td><b>Resolve through the successor</b> in <code>listPlatformShops()</code> — it joins <code>plans</code> off the subscription, so MRR and usage bars would otherwise show the dead plan</td><td><span class="tag fix">easy to miss</span></td></tr>
+        <tr><td>A6</td><td><code>plans-tab.tsx</code></td><td><b>Retire / Republish + countdown</b> — section 1</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A7</td><td><code>shops-tab.tsx</code></td><td><b>The "Retiring plan" segment</b> — section 3</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A8</td><td><code>billing-panel.tsx</code></td><td><b>The warning banner</b>, cream palette — section 4</td><td><span class="tag new">new</span></td></tr>
+        <tr><td>A9</td><td><code>platform-admin/index.ts</code></td><td><b>Reject a pending request onto a retiring plan.</b> The insert policy never checked <code>is_public</code>, so <code>approve_plan_change</code> would move a store onto the plan you are shutting down</td><td><span class="tag fix">easy to miss</span></td></tr>
+        <tr><td>B1</td><td><code>shop-drawer.tsx</code></td><td><b><code>addMonths</code> follows <code>billing_interval</code></b>, three call sites. Latent — no plan uses <code>year</code> yet</td><td><span class="tag fix">fix</span></td></tr>
+        <tr><td>B2</td><td><code>platform-admin/index.ts</code></td><td><b>Clamp <code>covers_to</code></b> to at least the trial end unless <code>endTrialNow</code></td><td><span class="tag fix">fix</span></td></tr>
+        <tr><td>—</td><td><code>tests/verify-entitlements.sql</code></td><td>Retire a plan; assert modules hold before the date and switch after; assert republishing restores them</td><td><span class="tag chk">proof</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p class="note" style="margin-top:18px">
+    <b>Deliberately not included.</b> <code>landing-plans.tsx</code> stays hardcoded. Its own
+    comment says static copy is the choice while prices are unannounced, and retiring a plan in the
+    portal will not touch that page — the two can drift, and that is a known cost rather than an
+    oversight.
+  </p>
+</section>
+
+<section>
+  <h2>The one open decision</h2>
+  <div class="verdict">
+    <div class="vx mid">
+      <b>Where do lapsed stores land once Free is gone?</b>
+      <p><code>shop_effective_status</code> is dates-only, so a Free store already derives to
+        <code>expired</code> and reaches Free by falling through
+        <code>platform_settings.post_trial_plan_key</code>. Retire Free with Standard as successor
+        and every lapsed store on the platform quietly gains Standard's entitlements. The frames
+        above assume a new <b>Starter</b> floor — a smaller free tier — set in the same action.
+        If the floor should be something else, sections 2 and 4 change.</p>
+    </div>
+  </div>
+</section>
+
+</div>
