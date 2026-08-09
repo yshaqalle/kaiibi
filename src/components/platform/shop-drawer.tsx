@@ -6,6 +6,7 @@ import { limitLabel } from '@/components/platform/labels';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
+import { periodMonths } from '@/lib/billing-period';
 import { LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
 import { callPlatformAdmin, type PlatformShopRow } from '@/lib/platform';
 import type { Plan } from '@/lib/subscriptions';
@@ -295,6 +296,7 @@ function RecordPayment({
   onRun: (action: string, payload: Record<string, unknown>) => Promise<void>;
 }) {
   const plan = plans.find((p) => p.key === shop.planKey);
+  const months = periodMonths(plan?.billingInterval ?? null);
   const today = new Date().toISOString().slice(0, 10);
   // Paid time starts when free time ends. Taking the latest of their current
   // cover, their trial end, and today matters most for a shop that pays partway
@@ -311,7 +313,7 @@ function RecordPayment({
   const [ref, setRef] = useState('');
   const [paidAt, setPaidAt] = useState(today);
   const [coversFrom, setCoversFrom] = useState(from);
-  const [coversTo, setCoversTo] = useState(addMonths(from, 1));
+  const [coversTo, setCoversTo] = useState(addMonths(from, months));
   // Off by default: the fair thing is to honour the free days a shop was
   // promised. On, it converts them today and they give up the remainder.
   const [startNow, setStartNow] = useState(false);
@@ -328,7 +330,7 @@ function RecordPayment({
     setStartNow(next);
     const start = next ? today : from;
     setCoversFrom(start);
-    setCoversTo(addMonths(start, 1));
+    setCoversTo(addMonths(start, months));
   };
 
   const submit = () =>
