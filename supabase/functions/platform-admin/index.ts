@@ -741,6 +741,87 @@ Deno.serve(async (req) => {
         return ok({ plan: after });
       }
 
+      case 'archive_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        // The provisioning trigger selects `trial` by key at every shop
+        // creation; archiving it would break signup platform-wide.
+        if (body.planKey === 'trial') {
+          return errorResponse(400, 'unknown', 'The trial plan is selected by the signup trigger and can never be archived.');
+        }
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (!before.active) return errorResponse(400, 'unknown', `${before.name} is already archived.`);
+        // Off the picker first: retire it, or it was never published.
+        if (before.is_public) {
+          return errorResponse(409, 'plan_public', `${before.name} is still in the store-facing picker. Retire it first.`);
+        }
+        // All rows, any status -- plan_id's on-delete-restrict makes no status
+        // distinction and neither does this. A lapsed store's subscription row
+        // still names the plan it will return to.
+        const { count, error: subsError } = await adminClient
+          .from('shop_subscriptions')
+          .select('id', { count: 'exact', head: true })
+          .eq('plan_id', before.id);
+        if (subsError) return errorResponse(500, 'unknown', subsError.message);
+        if ((count ?? 0) > 0) {
+          return errorResponse(409, 'plan_in_use', `${count} subscription${count === 1 ? ' still points' : 's still point'} at ${before.name}. Move them first.`);
+        }
+        // Lapsed stores resolve through post_trial_plan_key on every
+        // entitlement read; archiving that plan strands all of them.
+        const { data: settings, error: settingsError } = await adminClient
+          .from('platform_settings').select('post_trial_plan_key').eq('id', true).maybeSingle();
+        if (settingsError) return errorResponse(500, 'unknown', settingsError.message);
+        if (settings?.post_trial_plan_key === body.planKey) {
+          return errorResponse(409, 'plan_is_fallback', `${before.name} is the post-trial fallback plan. Point the fallback elsewhere first.`);
+        }
+        // retire_plan refuses an inactive successor at set time; this closes
+        // the same hole from the other side -- an in-flight retirement must
+        // not sweep its stores onto an archived plan on the retire date.
+        const { data: pointing, error: pointingError } = await adminClient
+          .from('plans').select('name').eq('successor_plan_key', body.planKey);
+        if (pointingError) return errorResponse(500, 'unknown', pointingError.message);
+        if (pointing && pointing.length > 0) {
+          return errorResponse(
+            409,
+            'plan_is_successor',
+            `${pointing.map((p) => p.name).join(', ')} retire${pointing.length === 1 ? 's' : ''} into ${before.name}. Republish or re-point ${pointing.length === 1 ? 'it' : 'them'} first.`
+          );
+        }
+
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ active: false, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('archive_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
+      case 'restore_plan': {
+        if (!body.planKey) return errorResponse(400, 'unknown', 'planKey is required.');
+        const { data: before, error: beforeError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(400, 'unknown', 'No such plan.');
+        if (before.active) return errorResponse(400, 'unknown', `${before.name} is not archived.`);
+
+        // active = true and nothing else: is_public and retire_at are
+        // untouched, so the plan comes back exactly as it went away -- hidden,
+        // and still retired if it was -- and restoring can never surprise the
+        // store-facing picker.
+        const { data: after, error } = await adminClient
+          .from('plans')
+          .update({ active: true, updated_at: new Date().toISOString() })
+          .eq('key', body.planKey)
+          .select('*')
+          .single();
+        if (error) return errorResponse(500, 'unknown', error.message);
+        await audit('restore_plan', null, before, after);
+        return ok({ plan: after });
+      }
+
       case 'set_platform_settings': {
         if (!body.settings) return errorResponse(400, 'unknown', 'settings is required.');
 
