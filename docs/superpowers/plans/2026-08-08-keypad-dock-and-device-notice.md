@@ -1190,17 +1190,21 @@ git commit -m "chore: give the hardware-keyboard podspec its real summary and ve
 
 ---
 
-### Task 9: Verify on the simulator — the gate for the whole branch
+### Task 9: Verify in the running app — the gate for the whole branch
 
-Native layout bugs are settled by screenshots, not code reading (and a stale bundle can fake a failure — reload before judging). The iOS simulator can fake the scanner: **I/O → Keyboard → Connect Hardware Keyboard** raises `GCKeyboardDidConnect` exactly like a real HID scanner.
+Native layout bugs are settled by screenshots, not code reading (and a stale bundle can fake a failure — reload before judging). **Drive this through the `testing-kaiibi` skill** (`.claude/skills/testing-kaiibi/SKILL.md`): `search-row.tsx` is a shared component under both POS and Inventory, so this is a cross-cutting change — `test pos inventory settings`. Platform notes that matter here:
+
+- **iOS taps are not available on this machine** (see the skill's `references/drivers.md`, including the one-time unlock). iPhone/iPad verify *layout* by screenshot: toggle **I/O → Keyboard → Connect Hardware Keyboard** — it raises `GCKeyboardDidConnect` exactly like a real HID scanner — and screenshot the dashed-field / "Scanner ready" / dock states.
+- **Android** (`scripts/droid.sh`: `find`/`tap`/`type`/`goto`/`shot`) is where the interactive flow actually gets walked — the same `SearchRow`/`SearchKeypad`/dock code renders there.
+- **Web proves the null world only**: detection answers `null` on web by design, so the keypad must *never* appear — an ordinary `TextInput` with the system keyboard is the pass condition there.
 
 **Files:** none.
 
-- [ ] **Step 1: Launch on an iPhone-size simulator**
+- [ ] **Step 1: Launch via the testing skill**
 
-Run: `npm run ios` (or attach to the running Metro — the dev server picks edits up instantly).
+Invoke `testing-kaiibi` with `test pos inventory settings`. Metro is usually already up on 8081 with live simulators — check before starting a second dev server.
 
-- [ ] **Step 2: Walk the checklist, screenshotting each state**
+- [ ] **Step 2: Walk the checklist, screenshotting each state (interactive steps on Android; layout screenshots on iOS)**
 
 1. Settings → Store locations → the store → "This store has a barcode scanner" ON.
 2. Toggle simulator hardware keyboard ON → Inventory shows the dashed field + "Scanner ready".
