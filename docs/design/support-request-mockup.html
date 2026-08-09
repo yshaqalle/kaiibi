@@ -151,6 +151,32 @@
   .bar{height:4px;border-radius:999px;background:var(--d-ln);overflow:hidden;margin-top:6px;}
   .bar i{display:block;height:100%;background:var(--c1);border-radius:999px;}
 
+  /* WhatsApp: brand mark, but the dark teal so white/ink stays legible on it */
+  .waIcon{width:13px;height:13px;fill:currentColor;flex-shrink:0;vertical-align:-2px;}
+  .btn.wa{border-color:#128c7e;color:#128c7e;}
+  .ctxV .waBtn{display:inline-flex;align-items:center;gap:5px;border:1px solid #128c7e;color:#128c7e;
+    border-radius:999px;padding:3px 9px;font-size:11px;font-weight:800;margin-left:7px;}
+
+  /* document furniture: which half of the system a section belongs to */
+  .toc{display:grid;gap:14px;margin-top:26px;}
+  @media (min-width:760px){ .toc{grid-template-columns:1fr 1fr 1fr;} }
+  .tocCol{border:1px solid var(--ln);border-radius:14px;padding:14px 16px;background:var(--sf);}
+  .tocCol b{display:block;font-size:10.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--mut);margin-bottom:9px;}
+  .tocCol.store b{color:var(--ink2);}
+  .tocCol.plat b{color:var(--blue);}
+  .tocCol a{display:block;font-size:13.5px;color:var(--ink2);text-decoration:none;padding:3px 0;
+    border-radius:4px;}
+  .tocCol a:hover,.tocCol a:focus-visible{color:var(--blue);text-decoration:underline;}
+  .tocCol a em{font-style:normal;color:var(--mut);}
+  .partRule{display:flex;align-items:center;gap:14px;margin:64px 0 -18px;}
+  .partRule span{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+    white-space:nowrap;}
+  .partRule i{flex:1;height:1px;background:var(--ln);font-style:normal;}
+  .partRule.store span{color:var(--mut);}
+  .partRule.plat span{color:var(--blue);}
+  .partRule small{font-weight:600;letter-spacing:0;text-transform:none;font-size:12.5px;color:var(--mut);}
+
   /* radios */
   .radios{display:flex;gap:9px;flex-wrap:wrap;}
   .radio{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--d-rule);border-radius:12px;
@@ -178,6 +204,7 @@
   .chip.closed{background:var(--d-soft);color:var(--d-mut2);}
   .chip.warnChip{background:#fdf4e3;color:var(--warn);}
   .chip.newChip{background:#fbeaec;color:#d12339;}
+  .chip.wantsWa{background:#e2f3ef;color:#0b6b60;display:inline-flex;align-items:center;gap:4px;}
 
   /* request list rows */
   .reqRow{display:flex;align-items:center;gap:11px;padding:12px 0;border-top:1px solid var(--d-rule);}
@@ -296,9 +323,30 @@ first.</p>
     Section 10 is honest about what that costs given no push infrastructure exists yet.</p></div>
 </div>
 
+<div class="toc">
+  <div class="tocCol store"><b>The store's side</b>
+    <a href="#s1">1 · Getting there — the ☰ menu</a>
+    <a href="#s2">2 · The sheet, empty</a>
+    <a href="#s3">3 · Filled, and the two dropdowns</a>
+    <a href="#s4">4 · Sent</a>
+    <a href="#s5">5 · Your messages</a>
+  </div>
+  <div class="tocCol plat"><b>The platform's side</b>
+    <a href="#s6">6 · The Support tab</a>
+    <a href="#s7">7 · Answering one</a>
+    <a href="#s8">8 · Starting one</a>
+  </div>
+  <div class="tocCol"><b>Building it</b>
+    <a href="#s9">9 · What this is made of</a>
+    <a href="#s10">10 · Open questions</a>
+  </div>
+</div>
+
 <!-- ===================================================================== -->
 <section>
-<h2>1 · Getting there — the ☰ menu</h2>
+<p class="partRule store"><span>Part one — the store's side</span><i></i>
+  <small>What a shop owner or cashier sees</small></p>
+<h2 id="s1">1 · Getting there — the ☰ menu</h2>
 <p class="h2sub">The same three-line menu exists in three shells: <code>admin-sidebar.tsx</code> (wide),
 <code>admin-tabs.web.tsx</code> (mobile web) and <code>admin-tabs.tsx</code> (native). All three carry the same
 two rows today. All three get the same third row.</p>
@@ -343,7 +391,7 @@ worth adding later as a signpost, but it can't be the only door.</p>
 
 <!-- ===================================================================== -->
 <section>
-<h2>2 · The sheet, empty</h2>
+<h2 id="s2">2 · The sheet, empty</h2>
 <p class="h2sub">One scrolling sheet, not a wizard. Five short things to give, read top to bottom, with the
 identity block first so it's clear from the outset that we already know who is writing.</p>
 
@@ -401,10 +449,13 @@ identity block first so it's clear from the outset that we already know who is w
 
         <p class="lab">Reply to me on</p>
         <div class="radios">
-          <span class="radio on"><span class="dot"></span>WhatsApp <span class="sub">+252 63 442 1180</span></span>
+          <span class="radio on"><span class="dot"></span>In the app <span class="sub">here, under Your messages</span></span>
+          <span class="radio"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg><span class="dot"></span>WhatsApp <span class="sub">+252 63 442 1180</span></span>
           <span class="radio"><span class="dot"></span>Email <span class="sub">amina@hooyogrocery.so</span></span>
-          <span class="radio"><span class="dot"></span>In the app only</span>
         </div>
+        <p class="hint">In the app is the default — it's the one channel that always works and always keeps the
+        record. Picking WhatsApp doesn't change where the reply is written; it tells us to nudge you there
+        too.</p>
 
         <div style="height:16px;"></div>
       </div>
@@ -424,15 +475,19 @@ form. The validation message appears under whichever field is empty the first ti
 frustration, not impact. Urgency is inferred instead: <em>Billing or payment</em> and <em>Something's broken</em>
 from a shop whose POS is down are what a triage view sorts to the top (§6).</p>
 
-<p class="note"><b>"Reply to me on" is a real choice here, not a nicety.</b> WhatsApp is how these shops already
-talk to their customers — the codebase ships WhatsApp receipt sharing — and an emailed reply to a shop owner in
-Hargeisa may simply never be read. Defaulting to WhatsApp when a phone number is on the profile, and hiding that
-option when it isn't, is the difference between a reply that lands and one that doesn't.</p>
+<p class="note"><b>In the app is the default, and WhatsApp is a flag rather than a channel.</b> Every reply is
+written into the thread no matter what — that's what keeps one record of what was said. Choosing WhatsApp adds
+a marker the operator sees, and gives them a one-click way to open that chat and paste the same answer
+(§7). Kaiibi never sends a WhatsApp message itself, so nothing here promises delivery we can't make.</p>
+
+<p class="note">It still earns its place: WhatsApp is how these shops already talk to their customers — the
+codebase ships WhatsApp receipt sharing — and a shop owner in Hargeisa whose till is frozen is not going to sit
+watching an in-app inbox. The option is hidden when the profile carries no phone number.</p>
 </section>
 
 <!-- ===================================================================== -->
 <section>
-<h2>3 · The sheet, filled — and how the category changes it</h2>
+<h2 id="s3">3 · The sheet, filled — and how the category changes it</h2>
 <p class="h2sub">Two levels. The category says <em>what kind of thing</em> this is; the dropdown under it says
 <em>where</em>. Together they set the Details label and its prompt, so people are told what's useful
 <em>before</em> they type instead of being asked for it in a reply two days later.</p>
@@ -490,9 +545,9 @@ next refund. Started after the update on Tuesday. Screenshot of the empty cart a
 
           <p class="lab">Reply to me on</p>
           <div class="radios">
-            <span class="radio on"><span class="dot"></span>WhatsApp</span>
+            <span class="radio on"><span class="dot"></span>In the app</span>
+            <span class="radio"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg><span class="dot"></span>WhatsApp</span>
             <span class="radio"><span class="dot"></span>Email</span>
-            <span class="radio"><span class="dot"></span>In app</span>
           </div>
           <div style="height:16px;"></div>
         </div>
@@ -550,10 +605,11 @@ screenshot. The app still says our plan lapses in 2 days.<span class="caret"></s
 
           <p class="lab">Reply to me on</p>
           <div class="radios">
-            <span class="radio on"><span class="dot"></span>WhatsApp</span>
+            <span class="radio"><span class="dot"></span>In the app</span>
+            <span class="radio on"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg><span class="dot"></span>WhatsApp</span>
             <span class="radio"><span class="dot"></span>Email</span>
-            <span class="radio"><span class="dot"></span>In app</span>
           </div>
+          <p class="hint">Nudge me there too — my till is down.</p>
           <div style="height:16px;"></div>
         </div>
         <div class="sheetFoot">
@@ -605,9 +661,9 @@ before they start on the till.</div>
 
           <p class="lab">Reply to me on</p>
           <div class="radios">
-            <span class="radio on"><span class="dot"></span>WhatsApp</span>
+            <span class="radio on"><span class="dot"></span>In the app</span>
+            <span class="radio"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg><span class="dot"></span>WhatsApp</span>
             <span class="radio"><span class="dot"></span>Email</span>
-            <span class="radio"><span class="dot"></span>In app</span>
           </div>
           <div style="height:16px;"></div>
         </div>
@@ -679,7 +735,7 @@ support.</p>
 
 <!-- ===================================================================== -->
 <section>
-<h2>4 · Sent</h2>
+<h2 id="s4">4 · Sent</h2>
 <p class="h2sub">Same sheet, swapped body. It names a reference, says when to expect an answer, and says where
 the answer will arrive — the three things that stop someone sending the same message again tomorrow.</p>
 
@@ -691,8 +747,8 @@ the answer will arrive — the three things that stop someone sending the same m
         <div class="doneWrap">
           <div class="tick">✓</div>
           <p class="doneTitle">Sent. We've got it.</p>
-          <p class="doneSub">We'll reply on WhatsApp at +252 63 442 1180, usually the same working day. Your
-          reply also appears here under <b>Your messages</b>.</p>
+          <p class="doneSub">We'll answer here under <b>Your messages</b>, usually the same working day —
+          you'll see a mark on the ☰ when we do. You asked us to nudge you on WhatsApp too, so we will.</p>
           <span class="refBig">KB-2481</span>
         </div>
         <div class="sheetFoot" style="justify-content:center;">
@@ -736,7 +792,7 @@ basket…</div>
 
 <!-- ===================================================================== -->
 <section>
-<h2>5 · Your messages — the store's side of the thread</h2>
+<h2 id="s5">5 · Your messages — the store's side of the thread</h2>
 <p class="h2sub">The list holds both directions: what you sent us, and what we sent you. A conversation we
 started looks the same as one you started, because it is the same object — it just opens with our message
 instead of yours.</p>
@@ -846,7 +902,9 @@ instead of yours.</p>
 
 <!-- ===================================================================== -->
 <section>
-<h2>6 · The operator side — a Support tab in the platform console</h2>
+<p class="partRule plat"><span>Part two — the platform's side</span><i></i>
+  <small>What an operator sees in the console at /platform</small></p>
+<h2 id="s6">6 · The Support tab in the operator console</h2>
 <p class="h2sub">A ticket nobody sees is worse than no ticket. The console already has a Requests tab for plan
 changes; this is its sibling, in the same language — and unlike that one, it can start conversations as well as
 answer them.</p>
@@ -890,6 +948,7 @@ answer them.</p>
           <div class="reqMeta"><span class="ref">KB-2481</span> · Hooyo Grocery · Growth · Amina Hassan (Owner) ·
           2h ago · 1 attachment</div>
         </div>
+        <span class="chip wantsWa"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg>Wants WhatsApp</span>
         <span class="chip newChip">Needs a reply</span>
         <span class="chip warnChip">Billing</span>
       </div>
@@ -937,7 +996,7 @@ Sorting by "whose move" rather than by age is what keeps a one-operator queue ho
 
 <!-- ===================================================================== -->
 <section>
-<h2>7 · Answering one</h2>
+<h2 id="s7">7 · Answering one</h2>
 <p class="h2sub">Opening a row gives the conversation on the left and who you're talking to on the right — plan,
 payments, device, what they were doing. The person answering never has to leave to find out who they're
 answering.</p>
@@ -971,14 +1030,16 @@ automatically. I've applied it and your Growth plan now renews on 2 Oct. Sorry f
             <span class="btn sm">📎 Attach</span>
             <span class="btnRow">
               <span class="btn sm">Send &amp; close</span>
+              <span class="btn sm wa"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg>Send &amp; open WhatsApp</span>
               <span class="btn primary sm">Send reply</span>
             </span>
           </div>
           <div class="cav context">
             <span class="cavIcon">ⓘ</span>
-            <span class="cavText"><b>They asked to be answered on WhatsApp.</b> Sending posts the reply into the
-            thread and shows their number so you can send the same thing there — Kaiibi does not send WhatsApp
-            messages itself.</span>
+            <span class="cavText"><b>They asked to be nudged on WhatsApp too.</b> Send writes the reply into the
+            thread as always; <b>Send &amp; open WhatsApp</b> does that and then opens their chat with this reply
+            already in the box, so you paste nothing. Kaiibi never sends the WhatsApp message itself — you do,
+            from your own account.</span>
           </div>
         </div>
 
@@ -987,7 +1048,8 @@ automatically. I've applied it and your Growth plan now renews on 2 Oct. Sorry f
             <div class="ctxHead">Who this is</div>
             <div class="ctxRow"><span class="ctxK">Store</span><span class="ctxV">Hooyo Grocery</span></div>
             <div class="ctxRow"><span class="ctxK">Person</span><span class="ctxV">Amina Hassan · Owner</span></div>
-            <div class="ctxRow"><span class="ctxK">WhatsApp</span><span class="ctxV">+252 63 442 1180</span></div>
+            <div class="ctxRow"><span class="ctxK">WhatsApp</span><span class="ctxV">+252 63 442 1180
+              <span class="waBtn"><svg class="waIcon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.75.46 3.45 1.32 4.95L2 22l5.25-1.38a9.9 9.9 0 0 0 4.79 1.22h.01c5.46 0 9.91-4.45 9.91-9.91S17.5 2 12.04 2Zm0 18.15h-.01a8.23 8.23 0 0 1-4.19-1.15l-.3-.18-3.12.82.83-3.04-.2-.31a8.19 8.19 0 0 1-1.26-4.38c0-4.54 3.7-8.23 8.25-8.23a8.19 8.19 0 0 1 8.24 8.24c0 4.54-3.7 8.23-8.24 8.23Zm4.52-6.16c-.25-.12-1.47-.72-1.69-.81-.23-.08-.39-.12-.56.13-.16.24-.64.8-.79.97-.14.16-.29.18-.54.06-.25-.13-1.05-.39-1.99-1.23-.74-.66-1.23-1.47-1.38-1.72-.14-.25-.01-.38.11-.5.11-.11.25-.29.37-.43.13-.15.17-.25.25-.41.08-.17.04-.31-.02-.43-.06-.12-.56-1.34-.76-1.84-.2-.48-.4-.42-.56-.43h-.47c-.17 0-.43.06-.66.31-.22.25-.86.85-.86 2.07 0 1.22.89 2.4 1.01 2.56.12.17 1.75 2.67 4.23 3.74.59.26 1.05.41 1.41.52.59.19 1.13.16 1.56.1.48-.07 1.47-.6 1.68-1.18.21-.58.21-1.08.14-1.18-.06-.11-.22-.17-.47-.29Z"/></svg>Open chat</span></span></div>
             <div class="ctxRow"><span class="ctxK">Email</span><span class="ctxV">amina@hooyogrocery.so</span></div>
           </div>
           <div class="ctx">
@@ -1023,7 +1085,7 @@ you want an append-only record of.</p>
 
 <!-- ===================================================================== -->
 <section>
-<h2>8 · Starting one — reaching out to a store</h2>
+<h2 id="s8">8 · Starting one — reaching out to a store</h2>
 <p class="h2sub">The other direction, and the reason this section exists at all. Same composer as the store's,
 with the fields flipped: instead of an identity block telling us who you are, a recipient row asking who you
 want.</p>
@@ -1127,7 +1189,7 @@ want.</p>
 
 <!-- ===================================================================== -->
 <section>
-<h2>9 · What this is made of</h2>
+<h2 id="s9">9 · What this is made of</h2>
 
 <div class="tblWrap">
 <table>
@@ -1158,6 +1220,11 @@ want.</p>
     <code>settings.access</code> or <code>staff.manage</code> (0024, 20260820000300) — the exact permissions a
     stuck cashier lacks. A screenshot may also show customer names and totals, so public read is wrong on its
     own. Signed URLs, and operators need read access to a bucket stores can write to.</td></tr>
+  <tr><td><b>WhatsApp hand-off</b></td><td>A <code>wa.me</code> link, not an integration</td>
+    <td><code>Linking.openURL('https://wa.me/&lt;e164&gt;?text=&lt;encoded reply&gt;')</code> — opens the
+    operator's own WhatsApp with the message ready to send. No Business API, no support number to provision, no
+    delivery guarantee to make. The reply is already in the thread before the link opens, so a failed hand-off
+    loses nothing.</td></tr>
   <tr><td><b>Reference</b></td><td><code>KB-####</code>, a sequence</td>
     <td>Short enough to read down a phone line, which is how half of these will be followed up.</td></tr>
   <tr><td><b>Operator tab</b></td><td>New <code>Support</code> tab in <code>src/app/platform/index.tsx</code> +
@@ -1180,7 +1247,7 @@ operator), CSAT ratings, canned replies, and live chat. Each is additive later; 
 
 <!-- ===================================================================== -->
 <section>
-<h2>10 · Open questions</h2>
+<h2 id="s10">10 · Open questions</h2>
 <ol class="q">
   <li><b>How does a store find out a message arrived?</b>
     <span>The biggest one now that we can start conversations. Cheapest is a count fetched when the app opens
@@ -1189,11 +1256,12 @@ operator), CSAT ratings, canned replies, and live chat. Each is additive later; 
     <code>docs/backlog/2026-08-01-notification-delivery.md</code> says doesn't exist yet. Proposal: realtime plus
     a one-line banner on the next app open, and accept that anything genuinely urgent still goes out over
     WhatsApp.</span></li>
-  <li><b>Is WhatsApp really the reply channel?</b>
-    <span>The "Reply to me on" row and the operator's "they asked for WhatsApp" caveat both rest on it. Worth
-    confirming: does Kaiibi actually send from a support number today, or is that aspirational? If it's
-    aspirational the row still works — it just records a preference nobody acts on yet, which is worse than not
-    asking.</span></li>
+  <li><b>Whose WhatsApp account does "Open chat" use?</b>
+    <span>Settled that the app never sends the message — the button just opens a
+    <code>wa.me/&lt;number&gt;</code> link with the reply pre-filled, so it works today with no integration and
+    no support number to provision. What's left is whose phone or WhatsApp Web session that is. One operator
+    means one personal account for now, which is fine and worth knowing is a thing to replace later rather than
+    a thing that quietly scales.</span></li>
   <li><b>Can a store reply to an announcement?</b>
     <span>As drawn, yes — every thread has a reply box. That's right for "your payment cleared" and wrong for
     "we're down for maintenance tonight" sent to fifty stores. If broadcast ever lands (§8), it needs a
