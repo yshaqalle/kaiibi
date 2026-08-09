@@ -16,6 +16,7 @@ import { webDataAttr } from '@/lib/web-data-attr';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import {
+  getPlatformSettings,
   listAuditLog,
   listOperators,
   listPendingPlanRequests,
@@ -24,6 +25,7 @@ import {
   type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
+  type PlatformSettings,
   type PlatformShopRow,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
@@ -68,6 +70,7 @@ export default function PlatformHome() {
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
+  const [settings, setSettings] = useState<PlatformSettings | null>(null);
   // When the data on screen was fetched. Passed to the Overview so every
   // figure is measured against one instant, and so nothing reads the clock
   // during render.
@@ -89,12 +92,13 @@ export default function PlatformHome() {
     // Plans first, alone: listPlatformShops needs them to resolve a retired
     // plan to its successor, so it cannot run in the same batch.
     const planRows = await listAllPlans();
-    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
+    const [shopRows, auditRows, operatorRows, requestRows, paymentRows, settingsRow] = await Promise.all([
       listPlatformShops(planRows),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
       listSubscriptionPayments(),
+      getPlatformSettings(),
     ]);
     setShops(shopRows);
     setPlans(planRows);
@@ -102,6 +106,7 @@ export default function PlatformHome() {
     setOperators(operatorRows);
     setRequests(requestRows);
     setPayments(paymentRows);
+    setSettings(settingsRow);
     setLoadedAt(Date.now());
     setLoading(false);
   }, []);
@@ -135,7 +140,17 @@ export default function PlatformHome() {
   ) : tab === 'requests' ? (
     <RequestsTab requests={requests} shops={shops} onDone={reload} />
   ) : tab === 'plans' ? (
-    <PlansTab plans={plans} shops={shops} compact={compact} onDone={reload} />
+    <PlansTab
+      plans={plans}
+      shops={shops}
+      compact={compact}
+      pendingRequestsByPlanKey={requests.reduce<Record<string, number>>(
+        (acc, r) => ({ ...acc, [r.planKey]: (acc[r.planKey] ?? 0) + 1 }),
+        {}
+      )}
+      postTrialPlanKey={settings?.postTrialPlanKey ?? 'free'}
+      onDone={reload}
+    />
   ) : tab === 'audit' ? (
     <AuditTab rows={audit} shops={shops} />
   ) : (

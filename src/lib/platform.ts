@@ -106,6 +106,29 @@ export async function listPendingPlanRequests(): Promise<PendingPlanRequest[]> {
   }));
 }
 
+export type PlatformSettings = {
+  defaultTrialDays: number;
+  defaultGraceDays: number;
+  postTrialPlanKey: string;
+};
+
+// The singleton row from 20260818000000. Readable by any authenticated user by
+// policy — the trial countdown needs default_grace_days to say when writes stop
+// — so this needs no operator check of its own.
+export async function getPlatformSettings(): Promise<PlatformSettings> {
+  const { data, error } = await supabase
+    .from('platform_settings')
+    .select('default_trial_days, default_grace_days, post_trial_plan_key')
+    .eq('id', true)
+    .single();
+  if (error) throw error;
+  return {
+    defaultTrialDays: data.default_trial_days,
+    defaultGraceDays: data.default_grace_days,
+    postTrialPlanKey: data.post_trial_plan_key,
+  };
+}
+
 export type PlatformOperator = {
   userId: string;
   role: 'owner' | 'support' | 'billing';

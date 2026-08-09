@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { planColor } from '@/components/platform-charts';
 import { PlanEditor } from '@/components/platform/plan-editor';
+import { PlanRetireModal } from '@/components/platform/plan-retire-modal';
 import { Chip, PlatformButton, PlatformModal } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
 import { Card } from '@/components/card';
@@ -34,15 +35,21 @@ export function PlansTab({
   plans,
   shops,
   compact,
+  pendingRequestsByPlanKey,
+  postTrialPlanKey,
   onDone,
 }: {
   plans: Plan[];
   shops: PlatformShopRow[];
   compact: boolean;
+  pendingRequestsByPlanKey: Record<string, number>;
+  postTrialPlanKey: string;
   onDone: () => Promise<void>;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const editingPlan = plans.find((p) => p.key === editing) ?? null;
+  const [retiring, setRetiring] = useState<string | null>(null);
+  const retiringPlan = plans.find((p) => p.key === retiring) ?? null;
 
   // The span that leaves no orphan on the last row. Four tiers at span 4 puts
   // three across and strands the fourth alone, which is what shipped first;
@@ -61,7 +68,9 @@ export function PlansTab({
               accent={planColor(plan.key, i)}
               shopsOn={shops.filter((s) => s.planKey === plan.key).length}
               revenue={plan.priceCents * shops.filter((s) => s.planKey === plan.key && s.status === 'active').length}
+              successorName={plans.find((p) => p.key === plan.successorPlanKey)?.name ?? null}
               onEdit={() => setEditing(plan.key)}
+              onRetire={() => setRetiring(plan.key)}
             />
           </BentoCell>
         ))}
@@ -85,8 +94,32 @@ export function PlansTab({
           />
         </PlatformModal>
       ) : null}
+
+      {retiringPlan ? (
+        <PlatformModal
+          title={retiringPlan.retireAt ? `Republish ${retiringPlan.name}` : `Retire ${retiringPlan.name}`}
+          compact={compact}
+          onClose={() => setRetiring(null)}
+        >
+          <PlanRetireModal
+            plan={retiringPlan}
+            plans={plans}
+            shopsOn={shops.filter((s) => s.planKey === retiringPlan.key).length}
+            pendingRequests={pendingRequestsByPlanKey[retiringPlan.key] ?? 0}
+            postTrialPlanKey={postTrialPlanKey}
+            onClose={() => setRetiring(null)}
+            onDone={onDone}
+          />
+        </PlatformModal>
+      ) : null}
     </View>
   );
+}
+
+// Whole days, rounded up: "retires in 0 days" on the morning of the last day is
+// wrong in the direction that matters.
+function daysUntilRetire(retireAt: string): number {
+  return Math.max(0, Math.ceil((new Date(retireAt).getTime() - Date.now()) / 86_400_000));
 }
 
 function PlanCard({
@@ -94,13 +127,17 @@ function PlanCard({
   accent,
   shopsOn,
   revenue,
+  successorName,
   onEdit,
+  onRetire,
 }: {
   plan: Plan;
   accent: string;
   shopsOn: number;
   revenue: number;
+  successorName: string | null;
   onEdit: () => void;
+  onRetire: () => void;
 }) {
   // A bare bento card rather than `BentoCard`: the head here is a colour dot,
   // the tier name and two controls, which is not the title/scope-pill shape
@@ -113,9 +150,18 @@ function PlanCard({
           <Text style={styles.name} numberOfLines={1}>
             {plan.name}
           </Text>
-          {!plan.isPublic ? <Chip label="Not public" /> : null}
+          {/* The glyph, not just the amber: bentoWarn is a status colour and
+              colour alone is never the signal. */}
+          {plan.retireAt ? (
+            <Chip label={`⚠ Retires in ${daysUntilRetire(plan.retireAt)} days`} />
+          ) : !plan.isPublic ? (
+            <Chip label="Not public" />
+          ) : null}
         </View>
-        <PlatformButton label="Edit" onPress={onEdit} />
+        <View style={styles.headButtons}>
+          <PlatformButton label="Edit" onPress={onEdit} />
+          <PlatformButton label={plan.retireAt ? 'Republish' : 'Retire'} onPress={onRetire} />
+        </View>
       </View>
 
       <View style={styles.priceRow}>
@@ -140,6 +186,16 @@ function PlanCard({
           <Text style={styles.statLabel}>modules</Text>
         </View>
       </View>
+
+      {plan.retireAt && successorName ? (
+        <View style={styles.retireStrip}>
+          <Text style={styles.retireGlyph}>→</Text>
+          <Text style={styles.retireText}>
+            Hidden from the plan picker. On {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
+            {shopsOn === 1 ? '' : 's'} still here move to {successorName}.
+          </Text>
+        </View>
+      ) : null}
 
       {/* Every module shown, not just the included ones — what a tier leaves
           out is what sells the tier above it, and that is invisible if excluded
@@ -183,6 +239,13 @@ const styles = StyleSheet.create({
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 9, height: 9, borderRadius: 3 },
   name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk },
+  headButtons: { flexDirection: 'row', gap: 7, flexShrink: 0 },
+  // The amber wash has no token: bentoWarn is the ink, and a soft tile
+  // (`bentoSoft`) behind amber text reads as disabled rather than as a warning.
+  // Kept local rather than invented as a token for one use.
+  retireStrip: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginTop: 14, padding: 12, backgroundColor: '#fdf4e3', borderRadius: BENTO_RADIUS_TILE },
+  retireGlyph: { fontSize: 13, color: theme.bentoWarn, fontWeight: '800' },
+  retireText: { flex: 1, fontSize: 11.5, lineHeight: 17, fontWeight: '700', color: theme.bentoWarn },
 
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 3, marginTop: 12 },
   price: { fontSize: 28, fontWeight: '800', letterSpacing: -1, color: theme.bentoInk, fontVariant: ['tabular-nums'] },
