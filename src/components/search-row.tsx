@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { SearchKeypad } from '@/components/search-keypad';
 import { Colors } from '@/constants/theme';
 
 const theme = Colors.light;
@@ -29,6 +28,23 @@ function BlinkingCaret() {
 }
 
 /**
+ * Keypad open/closed, owned by the SCREEN rather than the row: the keypad
+ * renders as a bottom dock at the screen root (a flex sibling of the
+ * ScrollView), which the row cannot reach from inside the scroll flow.
+ *
+ * The unplug rule lives here so both screens inherit it: the scanner can be
+ * unplugged with the keypad open, and closing rather than merely hiding means
+ * plugging it back in does not silently reopen a keypad nobody asked for.
+ */
+export function useSearchKeypadState(useKeypad: boolean) {
+  const [keypadOpen, setKeypadOpen] = useState(false);
+  useEffect(() => {
+    if (!useKeypad) setKeypadOpen(false);
+  }, [useKeypad]);
+  return { keypadOpen, setKeypadOpen };
+}
+
+/**
  * The search box, in its two worlds.
  *
  * With no hardware keyboard attached this is exactly what it has always been:
@@ -51,6 +67,8 @@ export function SearchRow({
   onScanPress,
   showSearchIcon = false,
   size = 'desk',
+  keypadOpen,
+  onKeypadOpenChange,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -68,16 +86,10 @@ export function SearchRow({
    * counter rather than at a desk. `desk` is Inventory's.
    */
   size?: 'desk' | 'counter';
+  /** From `useSearchKeypadState`. The screen renders the dock; the row only shows the caret. */
+  keypadOpen: boolean;
+  onKeypadOpenChange: (open: boolean) => void;
 }) {
-  const [keypadOpen, setKeypadOpen] = useState(false);
-
-  // The scanner can be unplugged with the keypad open. Closing rather than
-  // merely hiding means plugging it back in does not silently reopen a keypad
-  // nobody asked for, over the product grid.
-  useEffect(() => {
-    if (!useKeypad) setKeypadOpen(false);
-  }, [useKeypad]);
-
   const counter = size === 'counter';
   const icon = showSearchIcon ? (
     <Text style={[styles.icon, counter && styles.iconCounter]}>⌕</Text>
@@ -120,7 +132,7 @@ export function SearchRow({
       <View style={styles.wrap}>
         {icon}
         <Pressable
-          onPress={() => setKeypadOpen(true)}
+          onPress={() => onKeypadOpenChange(true)}
           style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
           accessibilityRole="search"
         >
@@ -152,15 +164,6 @@ export function SearchRow({
             which is the promise the whole design turns on. */}
         <Text style={styles.liveLabel}>Scanner ready</Text>
       </View>
-
-      {keypadOpen ? (
-        <SearchKeypad
-          value={value}
-          onChange={onChange}
-          onSubmit={onSubmit}
-          onClose={() => setKeypadOpen(false)}
-        />
-      ) : null}
     </>
   );
 }
