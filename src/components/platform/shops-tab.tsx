@@ -91,7 +91,19 @@ export function ShopsTab({
       key: 'shop',
       header: 'Store',
       render: (shop) => (
-        <NameCell title={shop.shopName} meta={shop.retiringTo ? `${shop.planName} → ${shop.retiringTo}` : shop.planName} />
+        // The arrow only means something while the move is still ahead of them.
+        // Once `retire_at` passes, `planName` has already resolved to the
+        // successor and `retiringTo` names that same plan, so drawing it would
+        // render "Starter -> Starter" forever -- `retire_at` is never cleared
+        // by time, only by an operator republishing.
+        <NameCell
+          title={shop.shopName}
+          meta={
+            shop.retiringTo && shop.retiringTo !== shop.planName
+              ? `${shop.planName} → ${shop.retiringTo}`
+              : shop.planName
+          }
+        />
       ),
     },
     {
