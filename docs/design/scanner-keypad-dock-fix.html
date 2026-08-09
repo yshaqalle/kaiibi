@@ -1,0 +1,436 @@
+<title>Kaiibi — the keypad docks, and the notice leaves the caveat family</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .rule{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);
+    border-radius:12px;padding:16px 18px;background:var(--sf);margin:18px 0 0;max-width:70ch;}
+  .rule b{display:block;font-size:14px;margin-bottom:4px;}
+  .rule p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:16px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;}
+  td b{font-weight:700;}
+  .no{color:var(--mut);}
+
+  /* ---- frames ---- */
+  .gallery{display:grid;gap:30px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));align-items:start;margin-top:22px;}
+  .shot{min-width:0;}
+  .frameHead{margin:0 0 9px;}
+  .frameHead b{font-size:14px;font-weight:800;display:block;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .shot > .note{margin-top:11px;font-size:12.5px;}
+
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:22px;padding:15px 13px 0;
+    color:var(--d-ink);font-size:14px;line-height:1.5;width:100%;max-width:352px;
+    display:flex;flex-direction:column;height:540px;overflow:hidden;position:relative;}
+  .frame .body{flex:1;min-height:0;}
+
+  .fhead{margin-bottom:13px;}
+  .fhead .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10px;letter-spacing:.1em;}
+  .fhead h4{margin:0;font-size:22px;font-weight:800;letter-spacing:-.038em;}
+  .fhead p{margin:3px 0 0;font-size:12px;color:var(--d-mut);}
+
+  .filters{display:flex;gap:7px;margin-bottom:11px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 12px;
+    font-size:11.5px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  .search{background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;height:44px;
+    padding:0 6px 0 13px;font-size:13px;color:var(--d-mut2);margin-bottom:12px;display:flex;
+    justify-content:space-between;align-items:center;gap:9px;}
+  .search .txt{flex:1;min-width:0;overflow:hidden;white-space:nowrap;}
+  .search .txt.typed{color:var(--d-ink);font-weight:600;}
+  .search.tappable{border-style:dashed;}
+  .caret{display:inline-block;width:2px;height:16px;background:var(--c1);vertical-align:-3px;
+    margin-left:1px;animation:blink 1.1s steps(1,end) infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  @media (prefers-reduced-motion: reduce){ .caret{animation:none;} }
+  .scanBtn{background:var(--d-ink);color:#fff;border:none;border-radius:16px;width:32px;height:32px;
+    display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;flex:none;}
+
+  .live{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;
+    letter-spacing:.06em;text-transform:uppercase;color:var(--profit);margin:-4px 0 12px 2px;}
+  .live .dot{width:7px;height:7px;border-radius:50%;background:var(--profit);flex:none;}
+
+  .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;}
+  .tile{background:var(--d-sf);border-radius:16px;padding:9px;}
+  .tile .sw{height:42px;border-radius:10px;background:var(--d-soft);margin-bottom:7px;}
+  .tile .n{font-size:11.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25;}
+  .tile .p{font-size:11px;color:var(--d-mut);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .tile.dim{opacity:.3;}
+
+  /* ---- keypad dock ---- */
+  .dock{margin:13px -13px 0;padding:10px 11px 12px;background:var(--d-soft);border-top:1px solid var(--d-ln);}
+  .dock.inline{margin:0 0 12px;border:1px solid var(--d-ln);border-radius:14px;}
+  .dockCap{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut2);margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;}
+  .kb{display:grid;gap:6px;}
+  .kb .r{display:flex;gap:5px;}
+  .kb button{flex:1;min-width:0;height:34px;border-radius:8px;border:1px solid var(--d-rule);
+    background:var(--d-sf);font-size:12.5px;font-weight:700;color:var(--d-ink);padding:0;}
+  .kb .sp{border:0;background:none;}
+  .kb button.util{background:var(--d-soft);color:var(--d-ink2);font-size:10.5px;}
+  .kb button.space{flex:2.4;}
+  .kb button.done{flex:1.5;background:var(--d-ink);border-color:var(--d-ink);color:#fff;font-size:11px;font-weight:800;}
+  .kbCapWide{max-width:400px;margin:0 auto;}
+
+  /* the fold: the hard bottom edge of the viewport in frame 1 */
+  .fold{position:absolute;left:0;right:0;bottom:0;border-top:2px dashed var(--loss);
+    background:color-mix(in srgb, var(--d-pg) 40%, transparent);padding:5px 13px 7px;
+    font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--loss);
+    backdrop-filter:blur(1px);}
+  .cut{opacity:.35;filter:saturate(.6);}
+
+  /* caveat as the app draws it today */
+  .cav{border-radius:16px;padding:12px 14px 12px 13px;font-size:12px;line-height:1.5;
+    margin-bottom:12px;border-left:4px solid;display:flex;gap:9px;align-items:flex-start;}
+  .cav.context{background:#eef4ff;border-left-color:#2f6bff;color:#1b3f9e;}
+  .cav .x{margin-left:auto;color:inherit;opacity:.5;flex:none;font-size:13px;}
+  .cav a{color:inherit;font-weight:800;text-decoration:underline;display:inline-block;margin-top:5px;}
+
+  /* the device notice: its own small family, not a caveat */
+  .devnote{background:var(--d-sf);border-radius:16px;padding:12px 13px;font-size:12px;line-height:1.5;
+    color:var(--d-ink2);margin-bottom:12px;display:flex;gap:10px;align-items:flex-start;}
+  .devnote .glyph{flex:none;width:26px;height:26px;border-radius:8px;background:var(--d-soft);
+    display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .devnote .x{margin-left:auto;color:var(--d-mut2);flex:none;font-size:13px;}
+  .devnote .act{display:inline-block;margin-top:7px;background:var(--d-ink);color:#fff;border-radius:999px;
+    padding:5px 11px;font-size:11px;font-weight:800;text-decoration:none;}
+
+  .swatchRow{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-top:18px;}
+  .swatch{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px 14px 6px;}
+  .swatch > i{display:block;font-style:normal;font-size:11px;color:var(--mut);margin-bottom:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+
+  .frameWide{max-width:720px;height:auto;padding-bottom:0;}
+  .split{display:grid;grid-template-columns:1.4fr 1fr;gap:12px;flex:1;min-height:0;}
+  .cart{background:var(--d-sf);border-radius:20px;padding:14px;align-self:start;}
+  .cart .ct{font-size:15px;font-weight:800;margin:0 0 10px;}
+  .cline{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;color:var(--d-ink2);}
+  .cline b{font-variant-numeric:tabular-nums;}
+  .ctot{display:flex;justify-content:space-between;align-items:baseline;border-top:1px solid var(--d-ln);
+    margin-top:8px;padding-top:9px;font-weight:800;}
+  .ctot span:last-child{font-size:18px;letter-spacing:-.02em;font-variant-numeric:tabular-nums;}
+
+  dl{margin:16px 0 0;max-width:72ch;}
+  dt{font-weight:800;font-size:13.5px;margin-top:14px;}
+  dd{margin:2px 0 0;font-size:13.5px;color:var(--ink2);}
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">Kaiibi · scanner till · fix pass</p>
+  <h1>The keypad docks, and the notice leaves the caveat family</h1>
+  <p class="lede">
+    The branch review found two places where the build drifted from the approved design.
+    The keypad — drawn as a bottom dock in the approved mockup — renders <em>inline in the
+    scroll flow</em>, directly under the search row, so on a phone its lower rows can fall
+    below the fold. And the till notice wears <code>Caveat tone="context"</code> with an
+    action, which the Caveat contract explicitly forbids. This page shows both fixes.
+  </p>
+
+  <!-- ================= 1 · the dock ================= -->
+  <section>
+    <h2>1 · The keypad becomes a real dock</h2>
+    <p class="note">
+      Not an overlay, and not a scroll-into-view patch: the keypad moves out of the scroll
+      flow entirely and becomes a <b>flex sibling below the ScrollView</b>, inside the same
+      <code>SafeAreaView</code>. The list shrinks to make room — exactly what the system
+      keyboard does — so nothing is ever hidden behind the dock and no content inset maths
+      is needed. This is the shape the approved mockup drew in its frame&nbsp;3.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>A · Today — inline, mid-scroll</b><i>the bug</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search tappable">
+              <span class="txt typed">shea<span class="caret"></span></span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <p class="live"><span class="dot"></span>Scanner ready</p>
+            <div class="dock inline">
+              <p class="dockCap"><span>Kaiibi keypad</span><span>rendered in the scroll flow</span></p>
+              <div class="kb">
+                <div class="r"><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>0</button></div>
+                <div class="r"><button>Q</button><button>W</button><button>E</button><button>R</button><button>T</button><button>Y</button><button>U</button><button>I</button><button>O</button><button>P</button></div>
+                <div class="r cut"><button>A</button><button>S</button><button>D</button><button>F</button><button>G</button><button>H</button><button>J</button><button>K</button><button>L</button></div>
+                <div class="r cut"><button>Z</button><button>X</button><button>C</button><button>V</button><button>B</button><button>N</button><button>M</button></div>
+                <div class="r cut"><button class="util">Clear</button><button class="util space">space</button><button class="util">⌫</button><button class="done">Done</button></div>
+              </div>
+            </div>
+            <div class="tiles cut">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+          <p class="fold">▼ the fold — everything below needs a scroll nobody was told about</p>
+        </div>
+        <p class="note">
+          The keypad opens wherever the search row happens to sit — under the header and
+          filter chips, above the grid it shoves down. Scrolled low on a phone, rows
+          A&ndash;M and <b>Done</b> land below the fold and the tap reads as dead. It also
+          isn't full-bleed: it renders inside the page padding, so its "dock" border
+          floats mid-page.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>B · Fixed — docked at the screen root</b><i>flex sibling of the ScrollView</i></p>
+        <div class="frame">
+          <div class="body">
+            <div class="fhead">
+              <p class="eyebrow">Inventory</p><h4>Inventory</h4>
+              <p>What you carry, what it cost.</p>
+            </div>
+            <div class="filters"><span class="on">All</span><span>Low stock 4</span><span>No cost 1</span></div>
+            <div class="search tappable">
+              <span class="txt typed">shea<span class="caret"></span></span>
+              <span class="scanBtn">⛶</span>
+            </div>
+            <p class="live"><span class="dot"></span>Scanner ready</p>
+            <div class="tiles">
+              <div class="tile"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+              <div class="tile dim"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+            </div>
+          </div>
+          <div class="dock">
+            <p class="dockCap"><span>Kaiibi keypad</span><span>QWERTY</span></p>
+            <div class="kb">
+              <div class="r"><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>0</button></div>
+              <div class="r"><button>Q</button><button>W</button><button>E</button><button>R</button><button>T</button><button>Y</button><button>U</button><button>I</button><button>O</button><button>P</button></div>
+              <div class="r"><span class="sp" style="flex:.5"></span><button>A</button><button>S</button><button>D</button><button>F</button><button>G</button><button>H</button><button>J</button><button>K</button><button>L</button><span class="sp" style="flex:.5"></span></div>
+              <div class="r"><span class="sp" style="flex:1.5"></span><button>Z</button><button>X</button><button>C</button><button>V</button><button>B</button><button>N</button><button>M</button><span class="sp" style="flex:1.5"></span></div>
+              <div class="r"><button class="util">Clear</button><button class="util space">space</button><button class="util">⌫</button><button class="done">Done</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The dock pins to the bottom of the screen, full-bleed with its top border, above
+          the home indicator. The ScrollView shrinks above it — the grid stays scrollable
+          to its last row with the keypad open. Opening the keypad also scrolls the search
+          row into view, so what you type is always visible while you type it.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <b>Why a sibling, not an overlay or a Modal</b>
+      <p>
+        An absolutely-positioned overlay hides the last rows of the grid and needs inset
+        maths to undo it; a Modal would steal every tap, and the whole design promise is
+        that the grid, the scanner and the keypad all work at once. A flex sibling gets the
+        system-keyboard behaviour for free: list shrinks, everything stays reachable.
+      </p>
+    </div>
+  </section>
+
+  <!-- ================= 2 · wide POS ================= -->
+  <section>
+    <h2>2 · On a wide till, the dock spans — the keys don't</h2>
+    <p class="note">
+      POS on a tablet is the most likely scanner till. The dock's surface runs the full
+      width under both panes, but the keys cap at a phone-ish width and centre — stretched
+      to tablet width they become a piano, and the hand loses the row shape it just learned
+      on the phone.
+    </p>
+
+    <div class="gallery">
+      <div class="shot" style="grid-column:1/-1;">
+        <p class="frameHead"><b>C · POS, wide — keypad open mid-sale</b><i>dock spans · keys cap ≈ 560pt and centre</i></p>
+        <div class="frame frameWide">
+          <div class="split">
+            <div>
+              <div class="search tappable" style="height:52px;">
+                <span class="txt typed">rose<span class="caret"></span></span>
+                <span class="scanBtn" style="width:40px;height:40px;border-radius:20px;">⛶</span>
+              </div>
+              <p class="live"><span class="dot"></span>Scanner ready</p>
+              <div class="tiles">
+                <div class="tile dim"><div class="sw"></div><div class="n">Shea butter 200g</div><div class="p">$7.50 · 12</div></div>
+                <div class="tile"><div class="sw"></div><div class="n">Rose water</div><div class="p">$5.00 · 5</div></div>
+                <div class="tile dim"><div class="sw"></div><div class="n">Black seed oil</div><div class="p">$3.00 · 1</div></div>
+              </div>
+            </div>
+            <div class="cart">
+              <p class="ct">Current sale</p>
+              <div class="cline"><span>Shea butter 200g × 2</span><b>$15.00</b></div>
+              <div class="cline"><span>Black seed oil × 1</span><b>$3.00</b></div>
+              <div class="ctot"><span>Total</span><span>$18.00</span></div>
+            </div>
+          </div>
+          <div class="dock">
+            <div class="kbCapWide">
+              <p class="dockCap"><span>Kaiibi keypad</span><span>QWERTY</span></p>
+              <div class="kb">
+                <div class="r"><button>1</button><button>2</button><button>3</button><button>4</button><button>5</button><button>6</button><button>7</button><button>8</button><button>9</button><button>0</button></div>
+                <div class="r"><button>Q</button><button>W</button><button>E</button><button>R</button><button>T</button><button>Y</button><button>U</button><button>I</button><button>O</button><button>P</button></div>
+                <div class="r"><span class="sp" style="flex:.5"></span><button>A</button><button>S</button><button>D</button><button>F</button><button>G</button><button>H</button><button>J</button><button>K</button><button>L</button><span class="sp" style="flex:.5"></span></div>
+                <div class="r"><span class="sp" style="flex:1.5"></span><button>Z</button><button>X</button><button>C</button><button>V</button><button>B</button><button>N</button><button>M</button><span class="sp" style="flex:1.5"></span></div>
+                <div class="r"><button class="util">Clear</button><button class="util space">space</button><button class="util">⌫</button><button class="done">Done</button></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The cart stays visible and tappable with the keypad open — a cashier can scan the
+          next item, tap a tile, or take payment without closing anything. The dock sits
+          under both panes because it belongs to the screen, not to the search column.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 3 · the notice ================= -->
+  <section>
+    <h2>3 · The notice stops borrowing the caveat</h2>
+    <p class="note">
+      <code>Caveat</code> is the sentence that travels with a <em>number</em>, and its
+      contract says a <code>context</code> caveat must never carry an action. The till
+      notice is about a cable, not a figure, and its action is its whole point — so it
+      gets its own small component, <code>DeviceNotice</code>, rather than a fourth tone
+      that would dilute what the tones mean.
+    </p>
+
+    <div class="swatchRow">
+      <div class="swatch">
+        <i>today — a context caveat wearing an action it must not have</i>
+        <div class="cav context">
+          <span>ⓘ</span>
+          <span>
+            A keyboard or barcode scanner is connected to this device. If it&rsquo;s a
+            scanner, turn on scanning for this store to use it.
+            <a href="#">Open scanning settings</a>
+          </span>
+          <span class="x">✕</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <i>fixed — DeviceNotice: white card, soft glyph well, pill action</i>
+        <div class="devnote">
+          <span class="glyph">⌨</span>
+          <span>
+            A keyboard or barcode scanner is connected to this device. If it&rsquo;s a
+            scanner, turn on scanning for this store to use it.
+            <a class="act" href="#">Set up scanning for Hargeisa Main</a>
+          </span>
+          <span class="x">✕</span>
+        </div>
+      </div>
+    </div>
+
+    <dl>
+      <dt>Same gates, same copy, different clothes</dt>
+      <dd>
+        Confirmed keyboard + setting off + can act on settings + not dismissed — none of
+        that changes. The hedged copy stays word for word: detection still cannot tell a
+        scanner from a keyboard case, and the reader can see the cable.
+      </dd>
+      <dt>The action now lands where the fix lives</dt>
+      <dd>
+        Today the button opens the Locations <em>panel</em> and leaves you to find the
+        right store. It now deep-links into the active store&rsquo;s editor —
+        <code>/settings?nav=locations&amp;location=&lt;id&gt;</code> — with the scanning
+        toggle on screen, and the label names the store so the reader knows where
+        they&rsquo;ll land.
+      </dd>
+      <dt>Visually a cousin, not a sibling</dt>
+      <dd>
+        No 4px tone rule and no tint — that pair is the caveat family&rsquo;s uniform and
+        it stays theirs. A plain white card with a soft glyph well reads as &ldquo;the
+        device is telling you something&rdquo;, one step quieter than a data warning.
+      </dd>
+    </dl>
+  </section>
+
+  <!-- ================= 4 · what doesn't change ================= -->
+  <section>
+    <h2>4 · Decided, deferred, and deliberately untouched</h2>
+    <div class="tableWrap"><table>
+      <tr><th>Item</th><th>What happens</th><th>Why</th></tr>
+      <tr>
+        <td><b>Keypad placement</b></td>
+        <td>Docks at the screen root, both screens</td>
+        <td>Matches the approved mockup; the inline render was the divergence</td>
+      </tr>
+      <tr>
+        <td><b>Till notice</b></td>
+        <td>New <code>DeviceNotice</code>, deep-linked action</td>
+        <td>Honours the Caveat contract instead of amending it</td>
+      </tr>
+      <tr>
+        <td><b>Module cosmetics</b></td>
+        <td>Podspec summary/description written, version pinned to 0.1.0 to match Gradle</td>
+        <td>Template leftovers</td>
+      </tr>
+      <tr>
+        <td><b>Hook tests</b></td>
+        <td>Web branch and unmount/unsubscribe covered</td>
+        <td>The two untested branches the review named</td>
+      </tr>
+      <tr>
+        <td><b>&ldquo;Scanner ready&rdquo;</b></td>
+        <td class="no">Unchanged</td>
+        <td>Approved copy, and it only shows where the store itself asserted scanning</td>
+      </tr>
+      <tr>
+        <td><b>GCKeyboard wrong-false</b></td>
+        <td class="no">Deferred — needs a real scanner in hand</td>
+        <td>Whether HID scanners always register as <code>GCKeyboard</code> is empirical;
+            if one doesn&rsquo;t, confirmed-false becomes null in the gate</td>
+      </tr>
+      <tr>
+        <td><b>Keyboards for other fields</b></td>
+        <td class="no">Out of scope, as speced</td>
+        <td>A general keypad is a different feature; noting the gap is the plan&rsquo;s job,
+            filling it isn&rsquo;t this branch&rsquo;s</td>
+      </tr>
+    </table></div>
+  </section>
+</div>

@@ -35,11 +35,30 @@ export const SCHEDULE_TEMPLATE_COLUMNS: { header: string; required: boolean }[] 
 // Every column this fills is a column that would otherwise be typed by hand,
 // and Date, Staff Email and Store are exactly the three that produce rejections
 // when they are.
+//
+// The store is resolved per member, not once for the file: under "All stores"
+// the board's store is the primary, but parseScheduleRows rejects any store a
+// member is not assigned to -- one store name stamped on everyone hands the
+// manager rejections for rows they never touched. A member assigned to several
+// stores but not the board's gets their first assigned store; a wrong guess is
+// not silent, because the import error names the store and the fix.
 export function scheduleTemplateRows(
   members: readonly StaffMember[],
   days: readonly string[],
-  storeName: string
+  board: { locationId: string | null; locations: readonly ShopLocation[] }
 ): Record<string, string>[] {
+  const activeLocations = board.locations.filter((location) => location.active);
+  const boardLocation = board.locationId
+    ? (activeLocations.find((location) => location.id === board.locationId) ?? null)
+    : (activeLocations.find((location) => location.isPrimary) ?? activeLocations[0] ?? null);
+
+  const storeFor = (member: StaffMember): string => {
+    // An empty locationIds means every store (migration 20260814000000).
+    if (member.locationIds.length === 0) return boardLocation?.name ?? '';
+    if (boardLocation && member.locationIds.includes(boardLocation.id)) return boardLocation.name;
+    return activeLocations.find((location) => location.id === member.locationIds[0])?.name ?? '';
+  };
+
   // Grouped by person rather than by day: filling this in is one person's week
   // at a time, so their seven rows belong together.
   return members
@@ -51,7 +70,7 @@ export function scheduleTemplateRows(
         'Staff Email': member.email ?? '',
         Start: '',
         End: '',
-        Store: storeName,
+        Store: storeFor(member),
         Note: '',
       }))
     );

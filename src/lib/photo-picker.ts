@@ -1,4 +1,6 @@
+import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 
 // The one place that knows how a photo gets into the app.
 //
@@ -60,10 +62,29 @@ export async function takePhotoWithCamera(): Promise<PhotoPick> {
   }
 }
 
-// Note there is no `cameraCaptureAvailable` flag here. Whether a camera can be
-// offered is not a platform question -- a desktop browser may or may not have a
-// webcam, and one can be plugged in mid-session -- so it is answered by
-// CameraPhotoButton, which renders nothing when there is no camera to use.
+// Whether this device can offer a camera capture at all. The native half of
+// CameraPhotoButton renders nothing when this answers false -- the contract in
+// camera-photo-button-shared.ts. The web half does not use this: a browser's
+// answer comes from enumerating media devices and can change mid-session when
+// a webcam is plugged in, so it does its own watching.
+export async function deviceHasCamera(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    // The manifest feature this app declares OPTIONAL, so Play ships it to
+    // camera-less tills (plugins/with-camera-optional.js) -- which makes this
+    // exactly the feature to ask the device about.
+    try {
+      return await Device.hasPlatformFeatureAsync('android.hardware.camera.any');
+    } catch {
+      // Cannot answer -> keep the button: the press-time catch in
+      // takePhotoWithCamera still explains, a wrongly hidden button is mute.
+      return true;
+    }
+  }
+  // Every real iOS device has a camera; the one iOS "device" without one is
+  // the simulator, which is what isDevice excludes -- the same answer
+  // barcode-scanner-modal leans on for its 'unavailable' state.
+  return Device.isDevice;
+}
 
 // Gives a `blob:` object URL back to the browser. A web capture or web library
 // pick mints one per photo, and the browser holds the bytes alive until the

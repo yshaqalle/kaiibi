@@ -360,7 +360,7 @@ describe('schedule import', () => {
   // have to survive the round trip as nothing at all, not as five rejections.
   it('imports a pre-filled week template with only some days filled in', async () => {
     const week = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14'];
-    const filled = scheduleTemplateRows([member], week, mainStore.name).map((row) =>
+    const filled = scheduleTemplateRows([member], week, { locationId: mainStore.id, locations: [mainStore] }).map((row) =>
       row.Date === '2026-08-10' || row.Date === '2026-08-12' ? { ...row, Start: '09:00', End: '17:00' } : row
     );
 

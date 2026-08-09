@@ -1,10 +1,32 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { SearchKeypad } from '@/components/search-keypad';
 import { Colors } from '@/constants/theme';
 
 const theme = Colors.light;
+
+// A hard on/off blink -- two zero-duration steps, not a fade -- because a
+// caret is a state indicator, not an animation. Slow enough not to nag from
+// the corner of the eye across a whole sale.
+function BlinkingCaret() {
+  // Lazy state, not a ref: the value is needed during render for the style,
+  // and reading a ref's .current in render is off-limits to the compiler.
+  const [opacity] = useState(() => new Animated.Value(1));
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0, duration: 0, delay: 550, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 0, delay: 550, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return <Animated.View style={[styles.caret, { opacity }]} />;
+}
 
 /**
  * The search box, in its two worlds.
@@ -102,15 +124,23 @@ export function SearchRow({
           style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
           accessibilityRole="search"
         >
-          {value ? (
-            <Text style={styles.text} numberOfLines={1}>{value}</Text>
-          ) : (
-            // Says what it is: a thing you tap, with no cursor of its own.
-            <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
-          )}
-          {/* Our own caret: this is a Pressable, not a text input, so there is
-              no system caret to show that it is receiving keys. */}
-          {keypadOpen ? <View style={styles.caret} /> : null}
+          {/* A row of its own, so the caret lands after the last character --
+              as a direct child of the column field it dropped to the bottom-left
+              corner, reading as an artifact rather than a caret. */}
+          <View style={styles.valueRow}>
+            {value ? (
+              <Text style={styles.text} numberOfLines={1}>{value}</Text>
+            ) : keypadOpen ? null : (
+              // Says what it is: a thing you tap, with no cursor of its own.
+              // Gone once the keypad is open: an empty live field shows a bare
+              // caret, like a focused TextInput, not advice to tap a thing
+              // already tapped.
+              <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
+            )}
+            {/* Our own caret: this is a Pressable, not a text input, so there is
+                no system caret to show that it is receiving keys. */}
+            {keypadOpen ? <BlinkingCaret /> : null}
+          </View>
         </Pressable>
         {scanButton}
       </View>
@@ -160,7 +190,10 @@ const styles = StyleSheet.create({
   live: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 12, paddingLeft: 2 },
   liveDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: theme.bentoProfit },
   liveLabel: { fontSize: 10.5, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: theme.bentoProfit },
-  text: { fontSize: 13, fontWeight: '600', color: theme.bentoInk },
+  // `flexShrink` on the row, so a long value truncates inside the field
+  // instead of pushing the caret out past the scan button.
+  valueRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, gap: 2 },
+  text: { fontSize: 13, fontWeight: '600', color: theme.bentoInk, flexShrink: 1 },
   prompt: { fontSize: 13, color: theme.bentoMuted2 },
   caret: { width: 2, height: 16, backgroundColor: theme.bentoSeries1 },
   scanButton: {

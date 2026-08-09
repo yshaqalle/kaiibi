@@ -225,7 +225,7 @@ describe('scheduleTemplateRows', () => {
   const week = ['2026-08-10', '2026-08-11', '2026-08-12'];
 
   it('writes one row per person per day, with the dates and store filled in', () => {
-    const rows = scheduleTemplateRows([member()], week, 'Main');
+    const rows = scheduleTemplateRows([member()], week, { locationId: 'loc1', locations: [location()] });
     expect(rows).toEqual([
       { Date: '2026-08-10', 'Staff Name': 'Hamse Jibril', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: 'Main', Note: '' },
       { Date: '2026-08-11', 'Staff Name': 'Hamse Jibril', 'Staff Email': 'hamse@example.com', Start: '', End: '', Store: 'Main', Note: '' },
@@ -236,7 +236,7 @@ describe('scheduleTemplateRows', () => {
   // A whole person's week together, rather than a whole day's staff together:
   // filling this in means going down one column for one person at a time.
   it('groups a person’s week together', () => {
-    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'amina@example.com' })], week, 'Main');
+    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'amina@example.com' })], week, { locationId: 'loc1', locations: [location()] });
     expect(rows.map((r) => r['Staff Email'])).toEqual([
       'hamse@example.com', 'hamse@example.com', 'hamse@example.com',
       'amina@example.com', 'amina@example.com', 'amina@example.com',
@@ -244,15 +244,59 @@ describe('scheduleTemplateRows', () => {
   });
 
   it('leaves out people who are no longer active', () => {
-    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'gone@example.com', active: false })], week, 'Main');
+    const rows = scheduleTemplateRows([member(), member({ id: 'm2', email: 'gone@example.com', active: false })], week, { locationId: 'loc1', locations: [location()] });
     expect(rows.every((r) => r['Staff Email'] === 'hamse@example.com')).toBe(true);
   });
 
   // Name is the parser's fallback identity, so someone with no email address
   // still gets usable rows instead of rows that can only be rejected.
   it('still writes rows for someone with no email', () => {
-    const rows = scheduleTemplateRows([member({ email: null })], week, 'Main');
+    const rows = scheduleTemplateRows([member({ email: null })], week, { locationId: 'loc1', locations: [location()] });
     expect(rows[0]).toMatchObject({ 'Staff Name': 'Hamse Jibril', 'Staff Email': '' });
+  });
+});
+
+describe('scheduleTemplateRows — which store a row gets', () => {
+  const week = ['2026-08-10'];
+  const main = location();
+  const annex = location({ id: 'loc2', name: 'Annex', isPrimary: false });
+
+  // The round trip that used to fail: under "All stores" the board store is
+  // the primary, but the importer rejects any store a member is not assigned
+  // to -- so her rows must carry HER store, not the board's.
+  it('writes a restricted member their own store under an all-stores board', () => {
+    const amina = member({ id: 'm2', email: 'amina@example.com', fullName: 'Amina Hassan', locationIds: ['loc2'] });
+    const rows = scheduleTemplateRows([member(), amina], week, { locationId: null, locations: [main, annex] });
+    expect(rows[0].Store).toBe('Main');
+    expect(rows[1].Store).toBe('Annex');
+  });
+
+  it('keeps the board store for a member assigned to it', () => {
+    const both = member({ locationIds: ['loc2', 'loc1'] });
+    const rows = scheduleTemplateRows([both], week, { locationId: 'loc1', locations: [main, annex] });
+    expect(rows[0].Store).toBe('Main');
+  });
+
+  // A wrong guess here is not silent: the import error names the store and the
+  // fix. First-assigned is the guess most often right.
+  it('falls back to the first assigned store for a multi-store member off the board', () => {
+    const third = location({ id: 'loc3', name: 'Depot', isPrimary: false });
+    const roamer = member({ locationIds: ['loc2', 'loc3'] });
+    const rows = scheduleTemplateRows([roamer], week, { locationId: null, locations: [main, annex, third] });
+    expect(rows[0].Store).toBe('Annex');
+  });
+
+  it('produces rows the importer accepts once times are added', () => {
+    const amina = member({ id: 'm2', email: 'amina@example.com', fullName: 'Amina Hassan', locationIds: ['loc2'] });
+    const rows = scheduleTemplateRows([amina], week, { locationId: null, locations: [main, annex] })
+      .map((row) => ({ ...row, Start: '10:00', End: '18:00' }));
+    const { drafts, rejected } = parseScheduleRows(csv(rows), {
+      members: [amina],
+      locations: [main, annex],
+      existingShifts: [],
+    });
+    expect(rejected).toHaveLength(0);
+    expect(drafts[0].locationId).toBe('loc2');
   });
 });
 

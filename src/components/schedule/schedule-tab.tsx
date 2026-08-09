@@ -20,7 +20,7 @@ import {
   type Shift,
   type ShiftDraft,
 } from '@/lib/scheduling';
-import { hasMultipleLocations, primaryLocationOf } from '@/lib/location-selection';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import { SCHEDULE_EXAMPLE_ROWS, SCHEDULE_TEMPLATE_COLUMNS, scheduleTemplateRows } from '@/lib/schedule-import';
 import { createShift, createShifts, deleteShift, listShiftsForWeek, runScheduleImport, updateShift } from '@/lib/shifts';
 import type { CsvColumn } from '@/lib/csv';
@@ -193,9 +193,10 @@ export function ScheduleTab({ setHeaderActions }: { setHeaderActions: HeaderActi
   // only mounted when this is non-null, pressing Import with an empty roster
   // did nothing at all -- no modal, no message, no way to tell it had been
   // pressed.
-  const templateStore = locationId ? storeName(locationId) : (primaryLocationOf(locations)?.name ?? '');
   const days = weekDaysFrom(monday);
-  const templateRows = scheduleTemplateRows(visibleMembers, days, templateStore);
+  // The store cell is resolved per member inside scheduleTemplateRows -- one
+  // name stamped on everyone bounced restricted staff off their own template.
+  const templateRows = scheduleTemplateRows(visibleMembers, days, { locationId, locations });
   const importConfig: ImportEntityConfig<ShiftDraft> | null = shop
     ? {
         title: 'schedule',

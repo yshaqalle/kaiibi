@@ -12,6 +12,17 @@ function findPressables(tree: ReactTestRenderer) {
   return tree.root.findAll((node) => typeof node.props?.onPress === 'function', { deep: true });
 }
 
+// The caret has no type of its own (it may be an Animated.View), so it is
+// found by its one unmistakable trait: a 2pt-wide bar. `deep: false`
+// collapses the Animated.View wrapper chain -- every layer carries the same
+// style prop, and deep matching would count one caret three times.
+function findCarets(tree: ReactTestRenderer) {
+  return tree.root.findAll((node) => {
+    const flat = StyleSheet.flatten(node.props?.style);
+    return flat?.width === 2 && flat?.height === 16;
+  }, { deep: false });
+}
+
 function row(useKeypad: boolean, value: string, onChange: jest.Mock) {
   return (
     <SearchRow
@@ -35,6 +46,11 @@ function render(useKeypad: boolean, value = '') {
   const labels = () => tree!.root.findAllByType(Text).map((t) => t.props.children);
   return { tree: tree!, onChange, rerender, labels };
 }
+
+// The caret blinks on a real 550ms Animated loop; under real timers it
+// outlives the test environment and crashes the worker at teardown.
+beforeAll(() => jest.useFakeTimers());
+afterAll(() => jest.useRealTimers());
 
 describe('SearchRow', () => {
   it('is an ordinary text field on a device with no keyboard attached', () => {
@@ -97,6 +113,35 @@ describe('SearchRow', () => {
 
     rerender(true);
     expect(tree.root.findAllByType(SearchKeypad)).toHaveLength(0);
+  });
+
+  // The caret is drawn by hand -- a Pressable has no system caret -- and it
+  // must sit where a caret sits: on the text row, after the last character,
+  // not wherever the field's column layout happens to drop it.
+  it('draws the caret beside the text, on the same row', () => {
+    const { tree } = render(true, 'coca co');
+    act(() => { findPressables(tree)[0].props.onPress(); });
+    const carets = findCarets(tree);
+    expect(carets).toHaveLength(1);
+    // The caret's own wrapper (BlinkingCaret) carries no style; the layout
+    // assertion belongs to the nearest styled ancestor -- the value row.
+    let holder = carets[0].parent!;
+    while (!StyleSheet.flatten(holder.props?.style)) holder = holder.parent!;
+    expect(StyleSheet.flatten(holder.props.style).flexDirection).toBe('row');
+    expect(holder.findAllByType(Text).map((t) => t.props.children)).toContain('coca co');
+  });
+
+  // With the keypad open the field is live, like a focused TextInput: an empty
+  // live field shows a bare caret, not advice to tap a thing already tapped.
+  it('replaces the prompt with a bare caret while the keypad is open and empty', () => {
+    const { tree, labels } = render(true);
+    act(() => { findPressables(tree)[0].props.onPress(); });
+    expect(labels()).not.toContain('Tap to type, or scan');
+    expect(findCarets(tree)).toHaveLength(1);
+  });
+
+  it('shows no caret while the keypad is closed', () => {
+    expect(findCarets(render(true, 'shea').tree)).toHaveLength(0);
   });
 
   // POS's field is deliberately bigger than Inventory's -- read at arm's

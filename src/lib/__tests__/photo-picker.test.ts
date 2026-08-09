@@ -1,12 +1,22 @@
+import * as Device from 'expo-device';
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 
-import { PHOTO_QUALITY, pickPhotoFromLibrary, releasePhotoUri, takePhotoWithCamera } from '@/lib/photo-picker';
+import { PHOTO_QUALITY, deviceHasCamera, pickPhotoFromLibrary, releasePhotoUri, takePhotoWithCamera } from '@/lib/photo-picker';
 
 jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(),
   requestCameraPermissionsAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),
   launchCameraAsync: jest.fn(),
+}));
+
+// A getter, not a value: babel's wildcard-import interop copies plain values
+// at require time, so only an accessor lets a test flip isDevice per case.
+let mockIsDevice = true;
+jest.mock('expo-device', () => ({
+  get isDevice() { return mockIsDevice; },
+  hasPlatformFeatureAsync: jest.fn(),
 }));
 
 const mocked = ImagePicker as jest.Mocked<typeof ImagePicker>;
@@ -137,5 +147,44 @@ describe('releasePhotoUri', () => {
     releasePhotoUri('https://cdn.example/photo.jpg');
     releasePhotoUri(null);
     expect(revoke).not.toHaveBeenCalled();
+  });
+});
+
+describe('deviceHasCamera', () => {
+  const mockedDevice = Device as jest.Mocked<typeof Device>;
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    mockIsDevice = true;
+  });
+
+  // The manifest feature this app declares optional
+  // (plugins/with-camera-optional.js) is exactly the thing to ask for.
+  it('asks Android for any camera feature at all', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockedDevice.hasPlatformFeatureAsync.mockResolvedValue(false);
+    expect(await deviceHasCamera()).toBe(false);
+    expect(mockedDevice.hasPlatformFeatureAsync).toHaveBeenCalledWith('android.hardware.camera.any');
+
+    mockedDevice.hasPlatformFeatureAsync.mockResolvedValue(true);
+    expect(await deviceHasCamera()).toBe(true);
+  });
+
+  // If the answer cannot be had, keep the button: the press-time catch in
+  // takePhotoWithCamera still explains, where a wrongly hidden button is mute.
+  it('keeps the button when Android cannot answer', async () => {
+    jest.replaceProperty(Platform, 'OS', 'android');
+    mockedDevice.hasPlatformFeatureAsync.mockRejectedValue(new Error('no module'));
+    expect(await deviceHasCamera()).toBe(true);
+  });
+
+  // Every real iOS device has a camera; the one iOS "device" without one is
+  // the simulator, which is what isDevice excludes -- the same answer
+  // barcode-scanner-modal already relies on.
+  it('answers iOS from isDevice', async () => {
+    expect(await deviceHasCamera()).toBe(true);
+    mockIsDevice = false;
+    expect(await deviceHasCamera()).toBe(false);
+    expect(mockedDevice.hasPlatformFeatureAsync).not.toHaveBeenCalled();
   });
 });
