@@ -20,7 +20,10 @@ const theme = Colors.light;
 // grid entirely and takes the full width; only the stat strip above it is
 // glanced at.
 
-type StatusFilter = 'all' | SubscriptionStatus;
+// 'retiring' is not a subscription status — it is a plan-lifecycle fact — but
+// it belongs in the same control because it answers the same question the
+// operator is asking: which stores need me to do something?
+type StatusFilter = 'all' | 'retiring' | SubscriptionStatus;
 
 const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -29,6 +32,7 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'grace', label: 'Grace' },
   { key: 'expired', label: 'Expired' },
   { key: 'suspended', label: 'Suspended' },
+  { key: 'retiring', label: 'Retiring plan' },
 ];
 
 export function ShopsTab({
@@ -50,7 +54,11 @@ export function ShopsTab({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return shops.filter((shop) => {
-      if (status !== 'all' && shop.status !== status) return false;
+      if (status === 'retiring') {
+        if (!shop.retiringTo) return false;
+      } else if (status !== 'all' && shop.status !== status) {
+        return false;
+      }
       if (!q) return true;
       return (
         shop.shopName.toLowerCase().includes(q) || shop.planKey.includes(q) || shop.status.includes(q)
@@ -73,6 +81,7 @@ export function ShopsTab({
       grace: by('grace'),
       expired: by('expired'),
       suspended: by('suspended'),
+      retiring: shops.filter((shop) => shop.retiringTo != null).length,
       mrr,
     };
   }, [shops, plans]);
@@ -81,7 +90,9 @@ export function ShopsTab({
     {
       key: 'shop',
       header: 'Store',
-      render: (shop) => <NameCell title={shop.shopName} meta={shop.planName} />,
+      render: (shop) => (
+        <NameCell title={shop.shopName} meta={shop.retiringTo ? `${shop.planName} → ${shop.retiringTo}` : shop.planName} />
+      ),
     },
     {
       key: 'status',
