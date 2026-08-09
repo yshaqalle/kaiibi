@@ -12,6 +12,8 @@ expo-env.d.ts
 .playwright-mcp/
 # Native
 .kotlin/
+# Local Expo modules are tracked; their Gradle output is not.
+modules/*/android/build/
 *.orig.*
 *.jks
 *.p8
