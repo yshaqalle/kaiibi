@@ -1,5 +1,5 @@
-import { Text } from 'react-native';
-import { act, create } from 'react-test-renderer';
+import { Platform, Text } from 'react-native';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
 
@@ -9,12 +9,13 @@ const listeners: ((event: { attached: boolean }) => void)[] = [];
 // over an out-of-scope `let`/`var` unless the name starts with `mock`.
 let mockAttached = false;
 let mockModulePresent = true;
+let mockReads = 0;
 
 jest.mock('../../../modules/hardware-keyboard', () => ({
   getHardwareKeyboardModule: () =>
     mockModulePresent
       ? {
-          isAttached: () => mockAttached,
+          isAttached: () => { mockReads += 1; return mockAttached; },
           addListener: (_name: string, fn: (event: { attached: boolean }) => void) => {
             listeners.push(fn);
             return { remove: () => { listeners.length = 0; } };
@@ -35,7 +36,7 @@ function render() {
 }
 
 describe('useHardwareKeyboard', () => {
-  beforeEach(() => { listeners.length = 0; mockAttached = false; mockModulePresent = true; });
+  beforeEach(() => { listeners.length = 0; mockAttached = false; mockModulePresent = true; mockReads = 0; });
 
   it('reports what the device says on mount', () => {
     mockAttached = true;
@@ -54,5 +55,27 @@ describe('useHardwareKeyboard', () => {
   it('answers null when the native module is missing', () => {
     mockModulePresent = false;
     expect(render().at(-1)).toBeNull();
+  });
+
+  // Web has no native module and no hardware-keyboard concept the app trusts;
+  // the answer is null — unknown — and the module must never be touched.
+  it('answers null on web without touching the module', () => {
+    const original = Platform.OS;
+    Object.defineProperty(Platform, 'OS', { value: 'web', configurable: true });
+    try {
+      expect(render().at(-1)).toBeNull();
+      expect(mockReads).toBe(0);
+      expect(listeners).toHaveLength(0);
+    } finally {
+      Object.defineProperty(Platform, 'OS', { value: original, configurable: true });
+    }
+  });
+
+  it('stops listening when the screen unmounts', () => {
+    let tree: ReactTestRenderer | undefined;
+    act(() => { tree = create(<Probe onValue={() => {}} />); });
+    expect(listeners).toHaveLength(1);
+    act(() => { tree!.unmount(); });
+    expect(listeners).toHaveLength(0);
   });
 });
