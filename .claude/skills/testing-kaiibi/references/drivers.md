@@ -120,3 +120,26 @@ unprompted.
    YAML flow language covering iOS simulators and Android emulators both. It
    needs a JDK, and this machine has no standalone one, so `JAVA_HOME` has to
    point at Android Studio's JBR the way `scripts/android-emu.sh` already does.
+### Android traps found while testing the scanner till (2026-08-09)
+
+- **A stale APK hides native modules silently.** JS from Metro is always
+  current, but a local Expo module only exists once the APK is rebuilt — and
+  kaiibi's null-fallbacks make the gap look like correct behaviour rather than
+  an error. Compare `dumpsys package com.kaiibisteam.kaiibi | grep
+  lastUpdateTime` against the module's commit date before trusting a "feature
+  not present" result. Rebuild needs BOTH exports:
+  `JAVA_HOME=<Android Studio JBR>` and `ANDROID_HOME=~/Library/Android/sdk`,
+  then `cd android && ./gradlew assembleDebug` and
+  `./scripts/android-emu.sh install <target>`.
+- **The emulators count as scanner tills.** Their `qwerty2` input device is
+  non-virtual and alphabetic, so `useHardwareKeyboard` answers `true` — the
+  hardware-keyboard/keypad world is fully drivable on Android. On iOS the
+  equivalent (I/O ▸ Keyboard ▸ Connect Hardware Keyboard) is GUI-only; there
+  is no `simctl` for it, so that world stays unreachable on iOS here.
+- **RN `Switch` is invisible to uiautomator.** It exposes no labelled node;
+  find the row's label text, then `tapxy` at the switch's geometry (x ≈ 910 on
+  the phone, right-hand edge of the modal on tablets), and screenshot to
+  confirm the flip — the tap reports success either way.
+- **Modal editors scroll separately.** `ui` only dumps rendered nodes, so a
+  control below a modal's fold does not exist yet: `input swipe` inside the
+  modal, then re-`find`.

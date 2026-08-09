@@ -334,3 +334,27 @@ own state.
   The location editor gets opened by an owner on their own phone as often as on
   the till, so it would report about the wrong device most of the time.
 - A general on-screen keyboard component for use anywhere else in the app.
+
+## As built — 2026-08-09 addendum
+
+The first implementation drifted from this spec in one place: the keypad
+rendered inline in the scroll flow instead of the "one mount at the bottom"
+specified under *Screen changes*. The fix pass (mockup:
+[scanner-keypad-dock-fix.html](../../design/scanner-keypad-dock-fix.html),
+plan: [2026-08-08-keypad-dock-and-device-notice.md](../plans/2026-08-08-keypad-dock-and-device-notice.md))
+restored the spec's shape and added three details this spec predates:
+
+- Keypad open/closed state lives in `useSearchKeypadState` (exported from
+  `search-row.tsx`), which owns the close-on-unplug rule for both screens.
+- On wide tills the dock surface spans the screen but the keys cap at 560pt
+  and centre, so tablet keys keep the phone row shape.
+- The "keyboard attached, scanning off" prompt renders through `DeviceNotice`
+  (not `Caveat`, whose `context` tone forbids an action), and its action
+  deep-links into the active store's editor via
+  `/settings?nav=locations&location=<id>`.
+
+Verified in the running app 2026-08-09: web (null world), Android phone
+(keypad, dock, notice, deep-link, end to end) and 11" tablet (key cap);
+iPhone/iPad rendering by screenshot. Still pending real hardware: whether any
+HID scanner fails to register with `GCKeyboard` — see the plan's deferred
+section for the protocol.
