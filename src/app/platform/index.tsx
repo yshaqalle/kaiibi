@@ -7,6 +7,7 @@ import { PlatformModal } from '@/components/platform/kit';
 import { AuditTab, OperatorsTab } from '@/components/platform/log-tabs';
 import { PlansTab } from '@/components/platform/plans-tab';
 import { RequestsTab } from '@/components/platform/requests-tab';
+import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
 import { TabPills } from '@/components/ui/tab-pills';
@@ -48,7 +49,7 @@ const theme = Colors.light;
 // bento screen uses, and the header row is the accounting recipe exactly:
 // eyebrow, 26px title, blurb, controls right.
 
-type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators';
+type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators' | 'settings';
 
 // The blurb says what the tab is FOR. Overview's is computed from the data and
 // published up by the tab itself, so the sentence an operator reads first is
@@ -60,6 +61,7 @@ const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'plans', label: 'Plans', blurb: 'What each tier includes, withholds, and caps — and who is on it.' },
   { key: 'audit', label: 'Audit log', blurb: 'Every operator action, who took it, and why. Append-only.' },
   { key: 'operators', label: 'Operators', blurb: 'Who can reach this portal at all.' },
+  { key: 'settings', label: 'Settings', blurb: 'Trial length, grace period, and where a lapsed store lands.' },
 ];
 
 export default function PlatformHome() {
@@ -154,9 +156,11 @@ export default function PlatformHome() {
     />
   ) : tab === 'audit' ? (
     <AuditTab rows={audit} shops={shops} />
-  ) : (
+  ) : tab === 'operators' ? (
     <OperatorsTab operators={operators} />
-  );
+  ) : settings ? (
+    <SettingsTab settings={settings} plans={plans} onDone={reload} />
+  ) : null;
 
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>

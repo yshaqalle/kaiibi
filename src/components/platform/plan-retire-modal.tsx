@@ -92,7 +92,7 @@ export function PlanRetireModal({
         </Text>
         <View style={styles.caveat}>
           <Caveat tone="context">
-            {`Putting ${plan.name} back on sale. This only restores it as a choice — no store's subscription was ever moved, so anyone still on it simply keeps reading its entitlements. Where lapsed stores land is a separate setting and is not restored by this; check it in Settings if you changed it when retiring.`}
+            {`Putting ${plan.name} back on sale. This only restores it as a choice — no store's subscription was ever moved, so anyone still on it simply keeps reading its entitlements. Where lapsed stores land is a separate setting and is not restored by this; check it in the Settings tab if you changed it when retiring.`}
           </Caveat>
         </View>
 
