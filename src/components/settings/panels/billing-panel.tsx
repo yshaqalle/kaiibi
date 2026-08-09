@@ -8,6 +8,7 @@ import { daysUntil, LIMIT_RESOURCES, MODULES } from '@/lib/entitlements';
 import {
   cancelPlanChangeRequest,
   getMyPlanChangeRequest,
+  listAllPlans,
   listPlans,
   requestPlanChange,
   type Plan,
@@ -22,6 +23,10 @@ import {
 export function BillingPanel() {
   const { entitlements, subscriptionStatus, shop, can } = useAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
+  // The store's own plan may have been retired, in which case listPlans() no
+  // longer returns it — and that is precisely the plan we have to warn about.
+  const [myPlan, setMyPlan] = useState<Plan | null>(null);
+  const [successorName, setSuccessorName] = useState<string | null>(null);
   const [request, setRequest] = useState<PlanChangeRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
@@ -41,10 +46,17 @@ export function BillingPanel() {
 
   useEffect(() => {
     let active = true;
-    Promise.all([listPlans().catch(() => [] as Plan[]), shop ? getMyPlanChangeRequest(shop.id).catch(() => null) : null])
-      .then(([planRows, requestRow]) => {
+    Promise.all([
+      listPlans().catch(() => [] as Plan[]),
+      listAllPlans().catch(() => [] as Plan[]),
+      shop ? getMyPlanChangeRequest(shop.id).catch(() => null) : null,
+    ])
+      .then(([planRows, allPlanRows, requestRow]) => {
         if (!active) return;
         setPlans(planRows);
+        const mine = allPlanRows.find((p) => p.key === entitlements.planKey) ?? null;
+        setMyPlan(mine);
+        setSuccessorName(allPlanRows.find((p) => p.key === mine?.successorPlanKey)?.name ?? null);
         setRequest(requestRow);
       })
       // A failure here costs the comparison table, not the panel: the shop's
@@ -56,7 +68,7 @@ export function BillingPanel() {
     return () => {
       active = false;
     };
-  }, [shop]);
+  }, [shop, entitlements.planKey]);
 
   const ask = async (plan: Plan) => {
     if (!shop) return;
@@ -114,6 +126,15 @@ export function BillingPanel() {
             </Text>
           </View>
         )}
+        {myPlan?.retireAt && successorName ? (
+          <View style={styles.retireBanner}>
+            <Text style={styles.retireBannerText}>
+              The {myPlan.name} plan is ending on {new Date(myPlan.retireAt).toLocaleDateString()}. On that day this
+              store moves to {successorName}, and nothing you have entered will be deleted. Have a look at the other
+              plans below if you would rather pick for yourself.
+            </Text>
+          </View>
+        ) : null}
       </Section>
 
       <Section title="What you're using">
@@ -285,5 +306,12 @@ const styles = StyleSheet.create({
     padding: 14, marginBottom: 12, gap: 10, alignItems: 'flex-start',
   },
   requestBannerText: { color: '#1B4FA8', fontSize: 12.5, lineHeight: 19 },
+  // Same shape as requestBanner, amber rather than blue. A pending request is
+  // neutral news; a plan ending under you is not.
+  retireBanner: {
+    backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#F0D9A0', borderRadius: 10,
+    padding: 14, marginBottom: 12, gap: 10, alignItems: 'flex-start',
+  },
+  retireBannerText: { color: '#8A5A05', fontSize: 12.5, lineHeight: 19 },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginTop: 10 },
 });
