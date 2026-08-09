@@ -35,7 +35,7 @@
 - Produces: `SearchRow` prop changes — `keypadOpen: boolean` and `onKeypadOpenChange: (open: boolean) => void` are new required props **when `useKeypad` is true**; `SearchRow` no longer renders `SearchKeypad`. All other props unchanged.
 - Consumes: nothing new.
 
-- [ ] **Step 1: Rewrite the failing tests**
+- [x] **Step 1: Rewrite the failing tests**
 
 Replace the keypad-related tests in `src/components/__tests__/search-row.test.tsx`. The component keeps its "no TextInput in keypad mode" promise but no longer mounts `SearchKeypad`; the open/close/unplug behaviour moves to the hook. Full new test file:
 
@@ -243,12 +243,12 @@ describe('useSearchKeypadState', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npm test -- src/components/__tests__/search-row.test.tsx`
 Expected: FAIL — `useSearchKeypadState` is not exported; `onKeypadOpenChange` prop unknown; keypad tests find `SearchKeypad` mounted.
 
-- [ ] **Step 3: Rewrite `SearchRow`**
+- [x] **Step 3: Rewrite `SearchRow`**
 
 In `src/components/search-row.tsx`:
 
@@ -428,12 +428,12 @@ export function SearchRow({
 
 (Keep the existing `styles` object exactly as it is.)
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npm test -- src/components/__tests__/search-row.test.tsx`
 Expected: PASS. Note: the two screens now fail to typecheck (missing new props) — that is Tasks 2–3, so do **not** run `npx tsc --noEmit` yet.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/search-row.tsx src/components/__tests__/search-row.test.tsx
@@ -454,7 +454,7 @@ On a tablet the dock's surface should span the screen but the keys must not stre
 - Consumes: nothing new. `SearchKeypad` props are unchanged.
 - Produces: dock DOM shape gains one inner `View` (`styles.inner`) that wraps all rows.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to the existing `describe` in `src/components/__tests__/search-keypad.test.tsx`:
 
@@ -474,12 +474,12 @@ Append to the existing `describe` in `src/components/__tests__/search-keypad.tes
 
 Add `StyleSheet` to the test's `react-native` import if it isn't there, and reuse the file's existing `render()` helper (if its helper takes props, pass the same ones the neighbouring tests pass).
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- src/components/__tests__/search-keypad.test.tsx`
 Expected: FAIL — no node carries `maxWidth: 560`.
 
-- [ ] **Step 3: Add the inner wrapper**
+- [x] **Step 3: Add the inner wrapper**
 
 In `src/components/search-keypad.tsx`, wrap everything inside the dock in one `View`:
 
@@ -508,12 +508,12 @@ And in styles, move `gap` from `dock` to `inner`:
   inner: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: 6 },
 ```
 
-- [ ] **Step 4: Run the whole keypad suite to verify it passes**
+- [x] **Step 4: Run the whole keypad suite to verify it passes**
 
 Run: `npm test -- src/components/__tests__/search-keypad.test.tsx`
 Expected: PASS, including the pre-existing key-width tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/search-keypad.tsx src/components/__tests__/search-keypad.test.tsx
@@ -531,7 +531,7 @@ git commit -m "feat: cap keypad key width so wide tills keep the phone row shape
 - Consumes: `useSearchKeypadState`, new `SearchRow` props, `SearchKeypad` (all from Tasks 1–2).
 - Produces: nothing later tasks use.
 
-- [ ] **Step 1: Wire the state and refs**
+- [x] **Step 1: Wire the state and refs**
 
 In the component body (near the other `useState` calls; `scanner` already exists via `useScannerSettings()`):
 
@@ -546,7 +546,7 @@ In the component body (near the other `useState` calls; `scanner` already exists
 
 Add `useRef` to the react import if missing.
 
-- [ ] **Step 2: Update the SearchRow usage**
+- [x] **Step 2: Update the SearchRow usage**
 
 Replace the `<SearchRow …/>` at ~line 548 (the wrapper `View` is a direct child of the ScrollView content, so its layout `y` is content-relative):
 
@@ -574,7 +574,7 @@ Replace the `<SearchRow …/>` at ~line 548 (the wrapper `View` is a direct chil
         </View>
 ```
 
-- [ ] **Step 3: Dock the keypad at the screen root**
+- [x] **Step 3: Dock the keypad at the screen root**
 
 Give the ScrollView the ref (~line 392):
 
@@ -600,14 +600,14 @@ Immediately after the matching `</ScrollView>` (~line 636), still inside the `Sa
 
 Add `useSearchKeypadState` to the `@/components/search-row` import and keep the existing `SearchKeypad` import path `@/components/search-keypad` (add it — Inventory did not import it before).
 
-- [ ] **Step 4: Typecheck and run the suites**
+- [x] **Step 4: Typecheck and run the suites**
 
 Run: `npx tsc --noEmit`
 Expected: errors only in `pos.tsx` (fixed next task) — none in `inventory.tsx`.
 Run: `npm test -- src/components`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "src/app/(admin)/(tabs)/inventory.tsx"
@@ -627,7 +627,7 @@ Same treatment, one wrinkle: on a phone the cart renders ABOVE the browse pane i
 - Consumes: `useSearchKeypadState`, new `SearchRow` props, `SearchKeypad`.
 - Produces: nothing later tasks use.
 
-- [ ] **Step 1: Wire state and refs**
+- [x] **Step 1: Wire state and refs**
 
 In the component body:
 
@@ -640,7 +640,7 @@ In the component body:
   const searchRowY = useRef(0);
 ```
 
-- [ ] **Step 2: Update browsePaneEl**
+- [x] **Step 2: Update browsePaneEl**
 
 ```tsx
   const browsePaneEl = (
@@ -673,7 +673,7 @@ In the component body:
       {/* ScanFeedbackBanner and the rest unchanged */}
 ```
 
-- [ ] **Step 3: Dock at the root**
+- [x] **Step 3: Dock at the root**
 
 Give `Split` the ref and render the dock after it (~lines 839–851). `Split` is `ScrollView | View`; a `ScrollView` ref is only used behind the `compact` guard above, so type the ref prop with a cast:
 
@@ -706,14 +706,14 @@ Give `Split` the ref and render the dock after it (~lines 839–851). `Split` is
 
 Add imports: `useSearchKeypadState` from `@/components/search-row`, `SearchKeypad` from `@/components/search-keypad`, `useRef` if missing.
 
-- [ ] **Step 4: Typecheck and full test run**
+- [x] **Step 4: Typecheck and full test run**
 
 Run: `npx tsc --noEmit`
 Expected: clean.
 Run: `npm test`
 Expected: PASS across the repo.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add "src/app/(admin)/(tabs)/pos.tsx"
@@ -736,7 +736,7 @@ git commit -m "feat: dock the search keypad at POS's screen root"
 - Produces: the notice's action now pushes `{ pathname: '/settings', params: { nav: 'locations', location: <activeLocation.id> } }` — Task 6 consumes the `location` param.
 - Consumes: `useAuth().activeLocation` (already exists: `{ id: string; name: string; … } | null`).
 
-- [ ] **Step 1: Extend the failing tests**
+- [x] **Step 1: Extend the failing tests**
 
 In `src/components/__tests__/till-keyboard-notice.test.tsx`, capture the router mock and add two tests. Change the router mock at the top to:
 
@@ -784,12 +784,12 @@ Add to the suite (and `mockPush.mockClear()` in the existing `beforeEach`):
 
 Add `Text` to the test's `react-native` imports.
 
-- [ ] **Step 2: Run to verify the new tests fail**
+- [x] **Step 2: Run to verify the new tests fail**
 
 Run: `npm test -- src/components/__tests__/till-keyboard-notice.test.tsx`
 Expected: the two new tests FAIL (Caveat found; no "Set up scanning" pressable); the six existing gate tests still PASS.
 
-- [ ] **Step 3: Create `DeviceNotice`**
+- [x] **Step 3: Create `DeviceNotice`**
 
 `src/components/ui/device-notice.tsx`:
 
@@ -881,7 +881,7 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Swap it into the till notice**
+- [x] **Step 4: Swap it into the till notice**
 
 `src/components/till-keyboard-notice.tsx` — replace the `Caveat` import and the returned JSX (the file-head comment and all four gates stay exactly as they are). New imports and return:
 
@@ -927,12 +927,12 @@ And the return:
 
 (`useCaveatDismissal` keeps its name and storage key `'till.keyboard-detected', 'v1'` — renaming the hook would orphan existing dismissals.)
 
-- [ ] **Step 5: Run the suite**
+- [x] **Step 5: Run the suite**
 
 Run: `npm test -- src/components/__tests__/till-keyboard-notice.test.tsx`
 Expected: PASS, all eight tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/ui/device-notice.tsx src/components/till-keyboard-notice.tsx src/components/__tests__/till-keyboard-notice.test.tsx
@@ -952,7 +952,7 @@ git commit -m "feat: give the till notice its own DeviceNotice instead of a mis-
 - Consumes: the `location` URL param produced by Task 5.
 - Produces: `LocationsPanel` gains optional prop `initialLocationId?: string`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/components/settings/panels/__tests__/locations-panel.test.tsx`:
 
@@ -1026,12 +1026,12 @@ describe('LocationsPanel deep-link', () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `npm test -- src/components/settings/panels/__tests__/locations-panel.test.tsx`
 Expected: FAIL — `initialLocationId` is not a prop; no editor opens.
 
-- [ ] **Step 3: Implement the panel side**
+- [x] **Step 3: Implement the panel side**
 
 In `src/components/settings/panels/locations-panel.tsx`, extend the signature and seed/react to the id. `useEffect` joins the react import:
 
@@ -1064,7 +1064,7 @@ export function LocationsPanel({
 
 (The rest of the component is unchanged.)
 
-- [ ] **Step 4: Implement the settings side**
+- [x] **Step 4: Implement the settings side**
 
 In `src/app/(admin)/settings.tsx` (~line 54), widen the params type:
 
@@ -1086,14 +1086,14 @@ And the `'locations'` case (~line 190):
         );
 ```
 
-- [ ] **Step 5: Run tests and typecheck**
+- [x] **Step 5: Run tests and typecheck**
 
 Run: `npm test -- src/components/settings/panels/__tests__/locations-panel.test.tsx`
 Expected: PASS.
 Run: `npx tsc --noEmit`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/settings/panels/locations-panel.tsx "src/app/(admin)/settings.tsx" src/components/settings/panels/__tests__/locations-panel.test.tsx
@@ -1109,7 +1109,7 @@ git commit -m "feat: deep-link the till notice into the named store's editor"
 
 **Interfaces:** none — tests only; the hook is unchanged.
 
-- [ ] **Step 1: Write the two failing-or-passing tests**
+- [x] **Step 1: Write the two failing-or-passing tests**
 
 Append inside the existing `describe` (the file's mock already tracks `listeners`; add a call counter to the `isAttached` mock by changing that line to `isAttached: () => { mockReads += 1; return mockAttached; }`, declaring `let mockReads = 0;` beside the other `mock` variables, and resetting `mockReads = 0;` in the `beforeEach`):
 
@@ -1139,12 +1139,12 @@ Append inside the existing `describe` (the file's mock already tracks `listeners
 
 Add `Platform` to the `react-native` import and `type ReactTestRenderer` to the `react-test-renderer` import.
 
-- [ ] **Step 2: Run — these should pass against the current hook**
+- [x] **Step 2: Run — these should pass against the current hook**
 
 Run: `npm test -- src/hooks/__tests__/use-hardware-keyboard.test.tsx`
 Expected: PASS (the hook already handles both branches; the tests close the coverage gap the review named). If either FAILS, the hook has a real bug — stop and investigate rather than bending the test.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/hooks/__tests__/use-hardware-keyboard.test.tsx
@@ -1160,7 +1160,7 @@ git commit -m "test: cover the hardware-keyboard hook's web and unmount branches
 
 **Interfaces:** none.
 
-- [ ] **Step 1: Replace the template strings and pin the version**
+- [x] **Step 1: Replace the template strings and pin the version**
 
 The podspec still carries the Expo module template's placeholders, and its `1.0.0` disagrees with `android/build.gradle`'s `0.1.0`. Change the top of the spec to:
 
@@ -1176,12 +1176,12 @@ Pod::Spec.new do |s|
 
 (Everything from `s.platforms` down is unchanged.)
 
-- [ ] **Step 2: Verify nothing else references the old version**
+- [x] **Step 2: Verify nothing else references the old version**
 
 Run: `grep -rn "1.0.0" modules/hardware-keyboard/`
 Expected: no matches.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add modules/hardware-keyboard/ios/HardwareKeyboard.podspec
@@ -1200,11 +1200,11 @@ Native layout bugs are settled by screenshots, not code reading (and a stale bun
 
 **Files:** none.
 
-- [ ] **Step 1: Launch via the testing skill**
+- [x] **Step 1: Launch via the testing skill**
 
 Invoke `testing-kaiibi` with `test pos inventory settings`. Metro is usually already up on 8081 with live simulators — check before starting a second dev server.
 
-- [ ] **Step 2: Walk the checklist, screenshotting each state (interactive steps on Android; layout screenshots on iOS)**
+- [x] **Step 2: Walk the checklist, screenshotting each state (interactive steps on Android; layout screenshots on iOS)**
 
 1. Settings → Store locations → the store → "This store has a barcode scanner" ON.
 2. Toggle simulator hardware keyboard ON → Inventory shows the dashed field + "Scanner ready".
@@ -1215,7 +1215,7 @@ Invoke `testing-kaiibi` with `test pos inventory settings`. Metro is usually alr
 7. Toggle the store setting OFF, keyboard still attached → the DeviceNotice card shows (white card, ⌨ well, "Set up scanning for <store>" pill) → tapping it lands **inside that store's editor** with the scanner toggle on screen.
 8. Toggle simulator hardware keyboard OFF with the keypad open → keypad closes, field reverts to a normal TextInput.
 
-- [ ] **Step 3: Commit nothing — this task produces evidence, not code**
+- [x] **Step 3: Commit nothing — this task produces evidence, not code**
 
 If any step fails, fix under the task that owns that surface before merging.
 
