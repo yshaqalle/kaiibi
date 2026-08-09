@@ -143,7 +143,7 @@ export function PlanRetireModal({
           </ActionRow>
           <View style={styles.caveat}>
             <Caveat tone="wrong" action={{ label: 'Cancel this', onPress: onClose }}>
-              {`${plan.name} is where lapsed stores land, and they get there by falling through the setting rather than by being on the plan. Retiring it without naming a new home would hand every expired store on the platform ${successorName}'s features for nothing.`}
+              {`${plan.name} is where lapsed stores land, and they get there by falling through the setting rather than by being on the plan. Pick their new home above — leave it and they keep falling through ${plan.name} to ${successorName}, getting its features for nothing.`}
             </Caveat>
           </View>
         </>
