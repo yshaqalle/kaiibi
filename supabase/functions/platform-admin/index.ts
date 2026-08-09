@@ -160,9 +160,21 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'set_plan': {
         if (!body.shopId || !body.planKey) return errorResponse(400, 'unknown', 'shopId and planKey are required.');
-        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key').eq('key', body.planKey).maybeSingle();
+        const { data: plan, error: planError } = await adminClient.from('plans').select('id, key, name, retire_at').eq('key', body.planKey).maybeSingle();
         if (planError) return errorResponse(500, 'unknown', planError.message);
         if (!plan) return errorResponse(400, 'unknown', 'No such plan.');
+        // Same hole approve_plan_change was hardened against: a retiring plan
+        // is on its way out precisely so no more stores land on it. Without
+        // this, an operator (or a client calling this endpoint directly) could
+        // move a store onto a plan mid-sunset by a path that skips the queue
+        // entirely.
+        if (plan.retire_at) {
+          return errorResponse(
+            409,
+            'plan_retiring',
+            `${plan.name} is being retired, so stores cannot be moved onto it. Move them to its successor instead.`
+          );
+        }
 
         const before = await loadSubscription(body.shopId);
         const { data: after, error } = await adminClient
@@ -376,6 +388,16 @@ Deno.serve(async (req) => {
         if (body.planKey === body.successorPlanKey) {
           return errorResponse(400, 'unknown', 'A plan cannot succeed itself.');
         }
+        // Checked on the request body, not on a DB read, and before isFallback
+        // is even computed: at check time the plan being retired still has
+        // retire_at = null, so a DB-state check here would pass
+        // {planKey:'free', postTrialPlanKey:'free'} right up until the write --
+        // the settings write becomes a no-op and the plan write retires it
+        // anyway, leaving post_trial_plan_key naming a retired plan. The exact
+        // state this whole block exists to make unreachable.
+        if (body.postTrialPlanKey && body.postTrialPlanKey === body.planKey) {
+          return errorResponse(400, 'unknown', 'A plan cannot be its own fallback.');
+        }
 
         const { data: plan, error: planError } = await adminClient.from('plans').select('*').eq('key', body.planKey).maybeSingle();
         if (planError) return errorResponse(500, 'unknown', planError.message);
@@ -447,12 +469,21 @@ Deno.serve(async (req) => {
           );
         }
         if (isFallback && body.postTrialPlanKey) {
+          // is_public selected and checked here for the same reason the
+          // successor guard above checks it: without it, postTrialPlanKey:
+          // 'trial' passes every other check here, and `trial` is $0, carries
+          // every module, and its `limits '{}'` means unlimited -- one call
+          // would hand every lapsed store on the platform the entire product,
+          // permanently.
           const { data: fallback, error: fallbackError } = await adminClient
-            .from('plans').select('key, active, retire_at').eq('key', body.postTrialPlanKey).maybeSingle();
+            .from('plans').select('key, active, retire_at, is_public').eq('key', body.postTrialPlanKey).maybeSingle();
           if (fallbackError) return errorResponse(500, 'unknown', fallbackError.message);
           if (!fallback) return errorResponse(400, 'unknown', 'No such fallback plan.');
           if (!fallback.active || fallback.retire_at) {
             return errorResponse(400, 'unknown', 'The fallback plan must be one that is staying.');
+          }
+          if (!fallback.is_public) {
+            return errorResponse(400, 'unknown', 'The fallback plan must be one that is offered to stores.');
           }
         }
 
@@ -636,10 +667,40 @@ Deno.serve(async (req) => {
 
       case 'set_platform_settings': {
         if (!body.settings) return errorResponse(400, 'unknown', 'settings is required.');
+
+        // Allowlist, not a spread -- same reasoning as upsert_plan's. A bare
+        // spread let post_trial_plan_key be pointed at ANY plan with no check
+        // at all, including a retiring one: the exact entitlement hole
+        // retire_plan's fallback guard exists to close, reopened through a
+        // second door that skipped the guard entirely. `id` is the singleton
+        // primary key and is not settable; `updated_at` is set below.
+        const editableSettings = ['default_trial_days', 'default_grace_days', 'post_trial_plan_key'] as const;
+        const settingsPayload: Record<string, unknown> = {};
+        for (const column of editableSettings) {
+          if (column in body.settings) settingsPayload[column] = body.settings[column];
+        }
+
+        // Same rules as retire_plan's fallback guard: must exist, be active,
+        // be staying, and be offered to stores. Checked here too because this
+        // is the OTHER path that writes post_trial_plan_key, and a lapsed
+        // store's entitlements come from whatever this column names.
+        if (typeof settingsPayload.post_trial_plan_key === 'string') {
+          const { data: fallback, error: fallbackError } = await adminClient
+            .from('plans').select('key, active, retire_at, is_public').eq('key', settingsPayload.post_trial_plan_key).maybeSingle();
+          if (fallbackError) return errorResponse(500, 'unknown', fallbackError.message);
+          if (!fallback) return errorResponse(400, 'unknown', 'No such fallback plan.');
+          if (!fallback.active || fallback.retire_at) {
+            return errorResponse(400, 'unknown', 'The fallback plan must be one that is staying.');
+          }
+          if (!fallback.is_public) {
+            return errorResponse(400, 'unknown', 'The fallback plan must be one that is offered to stores.');
+          }
+        }
+
         const { data: before } = await adminClient.from('platform_settings').select('*').eq('id', true).maybeSingle();
         const { data: after, error } = await adminClient
           .from('platform_settings')
-          .update({ ...body.settings, updated_at: new Date().toISOString() })
+          .update({ ...settingsPayload, updated_at: new Date().toISOString() })
           .eq('id', true)
           .select('*')
           .single();

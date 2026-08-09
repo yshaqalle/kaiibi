@@ -36,7 +36,13 @@ export function PlanRetireModal({
   // never chosen, so it can never be a destination either.
   const candidates = plans.filter((p) => p.key !== plan.key && p.isPublic && !p.retireAt);
   const [successor, setSuccessor] = useState<string | null>(candidates[0]?.key ?? null);
-  const [fallback, setFallback] = useState<string | null>(candidates[0]?.key ?? null);
+  // Starts unset, deliberately, unlike successor above. Seeding this from
+  // candidates[0] would mean an operator retiring the fallback plan and
+  // accepting defaults silently moves every lapsed store on the platform onto
+  // whatever plan happens to sort first -- immediately, with no 30-day window
+  // and no way to undo it from this sheet. A blank Chip row forces the
+  // deliberate pick this guard exists to require.
+  const [fallback, setFallback] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +57,6 @@ export function PlanRetireModal({
   const run = async () => {
     if (!reason.trim()) {
       setError('A reason is required for every change.');
-      return;
-    }
-    if (!republishing && !successor) {
-      setError('Choose where these stores go.');
       return;
     }
     setBusy(true);
@@ -90,9 +92,7 @@ export function PlanRetireModal({
         </Text>
         <View style={styles.caveat}>
           <Caveat tone="context">
-            {`Putting ${plan.name} back on sale. The ${shopsOn} store${
-              shopsOn === 1 ? '' : 's'
-            } on it stay exactly where they are — nothing was ever moved. Where lapsed stores land is a separate setting and is not restored by this; check it in Settings if you changed it when retiring.`}
+            {`Putting ${plan.name} back on sale. This only restores it as a choice — no store's subscription was ever moved, so anyone still on it simply keeps reading its entitlements. Where lapsed stores land is a separate setting and is not restored by this; check it in Settings if you changed it when retiring.`}
           </Caveat>
         </View>
 
@@ -122,16 +122,23 @@ export function PlanRetireModal({
       </Text>
 
       <SectionLabel>Move them to</SectionLabel>
-      <ActionRow>
-        {candidates.map((p) => (
-          <Chip
-            key={p.key}
-            label={p.priceCents === 0 ? p.name : `${p.name} · ${(p.priceCents / 100).toFixed(0)}/${p.billingInterval ?? 'month'}`}
-            active={successor === p.key}
-            onPress={() => setSuccessor(p.key)}
-          />
-        ))}
-      </ActionRow>
+      {candidates.length === 0 ? (
+        <Text style={styles.meta}>
+          No other plan is public and staying, so there is nowhere to move these stores yet. Publish or un-retire
+          another plan first.
+        </Text>
+      ) : (
+        <ActionRow>
+          {candidates.map((p) => (
+            <Chip
+              key={p.key}
+              label={p.priceCents === 0 ? p.name : `${p.name} · ${(p.priceCents / 100).toFixed(0)}/${p.billingInterval ?? 'month'}`}
+              active={successor === p.key}
+              onPress={() => setSuccessor(p.key)}
+            />
+          ))}
+        </ActionRow>
+      )}
 
       {isFallback ? (
         <>
@@ -143,7 +150,7 @@ export function PlanRetireModal({
           </ActionRow>
           <View style={styles.caveat}>
             <Caveat tone="wrong" action={{ label: 'Cancel this', onPress: onClose }}>
-              {`${plan.name} is where lapsed stores land, and they get there by falling through the setting rather than by being on the plan. Pick their new home above — leave it and they keep falling through ${plan.name} to ${successorName}, getting its features for nothing.`}
+              {`${plan.name} is where lapsed stores land, and they get there by falling through the setting rather than by being on the plan — so the 30-day grace below does not cover them. The moment you confirm, every lapsed and suspended store on the platform moves to whichever plan you pick above. Retiring is blocked until you pick one.`}
             </Caveat>
           </View>
         </>
@@ -178,7 +185,7 @@ export function PlanRetireModal({
       <ActionRow style={styles.footer}>
         <PlatformButton
           label={busy ? 'Saving…' : 'Retire plan'}
-          disabled={busy || !reason.trim() || !successor}
+          disabled={busy || !reason.trim() || !successor || (isFallback && !fallback)}
           danger
           onPress={run}
         />
