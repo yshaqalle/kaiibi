@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, TextInput } from 'react-native';
 
 import { normalizeBarcode } from '@/lib/barcode';
@@ -64,14 +65,55 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
   const onScanRef = useRef(onScan);
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
+  // Tab screens stay mounted behind the active one, so POS and Inventory each
+  // keep a live sink at all times -- and an invisible screen's sink holding
+  // the caret means every scan lands on the screen the cashier ISN'T looking
+  // at. Only the screen in front may claim; on the way to the back, the sink
+  // lets go while still mounted, so the blur round-trips and the front
+  // screen's sink finds a free caret rather than a foreign owner.
+  const [screenActive, setScreenActive] = useState(false);
+  const screenActiveRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      screenActiveRef.current = true;
+      setScreenActive(true);
+      return () => {
+        screenActiveRef.current = false;
+        setScreenActive(false);
+        if (inputRef.current?.isFocused()) inputRef.current.blur();
+      };
+    }, [])
+  );
+
   // The one rule, in one place: take the caret only when nothing else holds it.
+  //
+  // "Holds it" cannot be read straight off `currentlyFocusedInput()`, because
+  // that cache lies in exactly one case: a TextInput unmounted while focused --
+  // a modal's field, dismissed by a Save button -- sends its blur to a native
+  // view already being torn down, so the answering blur event never arrives
+  // and the cache keeps the dead field forever. Trusting it left every sink in
+  // the app blocked until a full restart: scans went nowhere and the trailing
+  // Enter clicked whatever view the OS had moved focus to instead.
+  //
+  // A live focused field always has its native view attached; the dead one's
+  // `getNativeRef()` returns null. That is the tiebreak. Where the method
+  // doesn't exist (older architectures), assume live -- which is simply the
+  // old behavior: yield.
   const claimFocus = useCallback(() => {
-    if (TextInput.State.currentlyFocusedInput() != null) return;
+    // Never while the screen is behind another -- the yield timer below can
+    // fire after the tab switch that caused the blur it is answering.
+    if (!screenActiveRef.current) return;
+    const focused = TextInput.State.currentlyFocusedInput();
+    if (focused != null) {
+      const ref = (focused as unknown as { getNativeRef?: () => unknown }).getNativeRef;
+      const stillMounted = typeof ref !== 'function' || ref.call(focused) != null;
+      if (stillMounted) return;
+    }
     inputRef.current?.focus();
   }, []);
 
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (Platform.OS === 'web' || !screenActive) return;
     // A frame's grace: focusing during the first layout pass loses the focus
     // again on some Android devices.
     const mounted = setTimeout(claimFocus, 0);
@@ -80,7 +122,7 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
       clearTimeout(mounted);
       clearInterval(reclaim);
     };
-  }, [claimFocus]);
+  }, [claimFocus, screenActive]);
 
   const yieldTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (yieldTimer.current) clearTimeout(yieldTimer.current); }, []);
@@ -92,18 +134,26 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
   const flush = () => {
     const code = normalizeBarcode(bufferRef.current);
     bufferRef.current = '';
+    // The native field still holds the scan's text -- nothing else empties it,
+    // so without this the next scan's events would arrive prefixed with this
+    // one and every code after the first would resolve to nothing.
+    inputRef.current?.clear();
     if (code) onScanRef.current(code);
   };
 
   return (
     <TextInput
       ref={inputRef}
-      // Controlled empty, with the real text accumulated in a ref: leaving the
-      // value in state would re-render the whole screen on every character of
-      // every scan.
-      value=""
+      // Uncontrolled, deliberately. A controlled `value=""` only resets the
+      // native text when a render happens to commit mid-burst -- usually never,
+      // so each event's payload is the WHOLE accumulated text, and appending
+      // payloads to a buffer turns one scanned code into every prefix of
+      // itself glued together. The field is invisible, so the text piling up
+      // in it costs nothing; `flush` clears it between scans.
       onChangeText={(text) => {
-        bufferRef.current += text;
+        // Full text, not a delta: that is `onChangeText`'s contract. Replace,
+        // never append.
+        bufferRef.current = text;
         // Some scanners deliver the whole code in one event including its
         // terminator, and never fire onSubmitEditing at all.
         if (/[\r\n\t]$/.test(text)) flush();
