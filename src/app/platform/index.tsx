@@ -89,16 +89,17 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    // Plans first, alone: listPlatformShops needs them to resolve a retired
-    // plan to its successor, so it cannot run in the same batch.
-    const planRows = await listAllPlans();
-    const [shopRows, auditRows, operatorRows, requestRows, paymentRows, settingsRow] = await Promise.all([
-      listPlatformShops(planRows),
+    // Plans and settings first, alone: listPlatformShops needs the plans to
+    // resolve a retired plan to its successor, and needs post_trial_plan_key to
+    // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
+    // run in the same batch as the shops read.
+    const [planRows, settingsRow] = await Promise.all([listAllPlans(), getPlatformSettings()]);
+    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
+      listPlatformShops(planRows, settingsRow.postTrialPlanKey),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
       listSubscriptionPayments(),
-      getPlatformSettings(),
     ]);
     setShops(shopRows);
     setPlans(planRows);

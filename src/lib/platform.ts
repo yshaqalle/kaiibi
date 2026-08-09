@@ -14,6 +14,14 @@ export type PlatformShopRow = {
   createdAt: string;
   planKey: string;
   planName: string;
+  // What shop_subscriptions.plan_id still points at -- never rewritten by
+  // retirement, so this is what the store is actually being billed and is the
+  // key money (MRR, per-plan revenue) must be priced off. `planKey`/`planName`
+  // above are the effective plan the server enforces; entitlements, limits and
+  // usage denominators belong there instead. See the comment in
+  // listPlatformShops for why the two diverge.
+  storedPlanKey: string;
+  storedPlanName: string;
   // The successor's NAME when this store's plan is retiring, else null. Drives
   // the "Retiring plan" filter and the row's countdown badge.
   retiringTo: string | null;
@@ -170,7 +178,11 @@ export function resolveRetiredPlan<
 // One row per shop for the list, joined client-side from three narrow reads.
 // A view would be tidier, but it would need its own policy and would be a
 // second place for the operator/shop-member read split to drift.
-export async function listPlatformShops(plans: Plan[]): Promise<PlatformShopRow[]> {
+//
+// `postTrialPlanKey` is platform_settings' fallback -- the caller already loads
+// it for the trial countdown, and shop_effective_plan() needs it for exactly
+// the same expired/suspended branch this function mirrors below.
+export async function listPlatformShops(plans: Plan[], postTrialPlanKey: string): Promise<PlatformShopRow[]> {
   const [shopsRes, subsRes, usageRes, locationsRes] = await Promise.all([
     supabase.from('shops').select('id, name, owner_id, created_at').order('created_at', { ascending: false }),
     supabase.from('shop_subscriptions').select('shop_id, plan_id, trial_ends_at, current_period_end, grace_until, manual_status, plans(key, name, limits)'),
@@ -193,15 +205,29 @@ export async function listPlatformShops(plans: Plan[]): Promise<PlatformShopRow[
 
   return (shopsRes.data ?? []).map((shop: any) => {
     const sub = subs.get(shop.id);
+    // Derived client-side with the same rules as shop_effective_status(). The
+    // server remains the authority for enforcement; this is just so the list
+    // can be sorted and filtered without one RPC per row.
+    const status = deriveStatus(sub);
 
-    // What the store is ON versus what actually APPLIES. Past retire_at the
-    // server enforces the successor's modules and limits, so showing the
-    // subscription's own joined plan here would put the wrong name, the wrong
-    // price in MRR, and the wrong denominators on every usage bar.
+    // What the subscription row still points at. Never rewritten by
+    // retirement, so this is what the store is actually being billed --
+    // money must be priced off this, not off the effective plan below.
     const storedKey = sub?.plans?.key ?? 'free';
-    const effectiveKey = resolveRetiredPlan(storedKey, plans);
-    const effectivePlan = plans.find((p) => p.key === effectiveKey);
     const storedPlan = plans.find((p) => p.key === storedKey);
+
+    // What actually applies, mirroring shop_effective_plan()'s own branch
+    // (20260824000100): a trialing/active/grace store is entitled off its own
+    // subscription, but an expired or suspended one falls back to
+    // platform_settings.post_trial_plan_key regardless of what its
+    // subscription still says. Feeding the wrong base into the retirement hop
+    // would show a suspended store the dead plan's limits while the server
+    // enforces the fallback's -- so this base has to split the same way before
+    // resolveRetiredPlan ever runs.
+    const baseKey = status === 'trialing' || status === 'active' || status === 'grace' ? storedKey : postTrialPlanKey;
+    const effectiveKey = resolveRetiredPlan(baseKey, plans);
+    const effectivePlan = plans.find((p) => p.key === effectiveKey);
+
     const retiringTo =
       storedPlan?.retireAt && storedPlan.successorPlanKey
         ? (plans.find((p) => p.key === storedPlan.successorPlanKey)?.name ?? null)
@@ -214,11 +240,10 @@ export async function listPlatformShops(plans: Plan[]): Promise<PlatformShopRow[
       createdAt: shop.created_at,
       planKey: effectiveKey,
       planName: effectivePlan?.name ?? sub?.plans?.name ?? 'Free',
+      storedPlanKey: storedKey,
+      storedPlanName: storedPlan?.name ?? sub?.plans?.name ?? 'Free',
       retiringTo,
-      // Derived client-side with the same rules as shop_effective_status(). The
-      // server remains the authority for enforcement; this is just so the list
-      // can be sorted and filtered without one RPC per row.
-      status: deriveStatus(sub),
+      status,
       trialEndsAt: sub?.trial_ends_at ?? null,
       currentPeriodEnd: sub?.current_period_end ?? null,
       manualStatus: sub?.manual_status ?? 'active',

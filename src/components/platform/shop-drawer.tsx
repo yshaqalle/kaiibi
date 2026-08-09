@@ -32,7 +32,12 @@ export function ShopDrawer({
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [planKey, setPlanKey] = useState(shop.planKey);
+  // Seeded from the STORED key, not the effective one. Past a retirement date
+  // the two are equal for nobody-has-touched-it stores and the button below
+  // would be permanently disabled -- with no way left in the UI to commit
+  // set_plan and bring shop_subscriptions.plan_id in line with the plan the
+  // store is actually being enforced under.
+  const [planKey, setPlanKey] = useState(shop.storedPlanKey);
   const [days, setDays] = useState('14');
 
   const run = async (action: string, payload: Record<string, unknown>) => {
@@ -146,7 +151,7 @@ export function ShopDrawer({
       <ActionRow style={styles.row}>
         <PlatformButton
           label="Change plan"
-          disabled={busy || !reason.trim() || planKey === shop.planKey}
+          disabled={busy || !reason.trim() || planKey === shop.storedPlanKey}
           onPress={() => run('set_plan', { planKey })}
         />
         <View style={styles.inlineDays}>
@@ -295,7 +300,10 @@ function RecordPayment({
   busy: boolean;
   onRun: (action: string, payload: Record<string, unknown>) => Promise<void>;
 }) {
-  const plan = plans.find((p) => p.key === shop.planKey);
+  // Stored, not effective: this defaults the amount and billing interval to
+  // what the store is actually being charged, which is its stored plan even
+  // when a retirement has moved its entitlements onto a successor already.
+  const plan = plans.find((p) => p.key === shop.storedPlanKey);
   const months = periodMonths(plan?.billingInterval ?? null);
   const today = new Date().toISOString().slice(0, 10);
   // Paid time starts when free time ends. Taking the latest of their current

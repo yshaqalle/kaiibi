@@ -70,10 +70,13 @@ export function ShopsTab({
     const by = (s: SubscriptionStatus) => shops.filter((shop) => shop.status === s).length;
     // Monthly recurring revenue: only shops actually paying right now. Trials
     // and lapsed shops are excluded on purpose — counting them is how a
-    // dashboard tells you the business is doing better than it is.
+    // dashboard tells you the business is doing better than it is. Priced off
+    // storedPlanKey, not planKey's effective plan -- a store whose plan
+    // retired keeps paying its stored price until it actually changes tier,
+    // and the successor's price has not billed it yet.
     const mrr = shops
       .filter((s) => s.status === 'active')
-      .reduce((sum, s) => sum + (plans.find((p) => p.key === s.planKey)?.priceCents ?? 0), 0);
+      .reduce((sum, s) => sum + (plans.find((p) => p.key === s.storedPlanKey)?.priceCents ?? 0), 0);
     return {
       all: shops.length,
       trialing: by('trialing'),
@@ -178,9 +181,13 @@ export function ShopsTab({
               <BentoTile label="On trial" value={String(counts.trialing)} />
               <BentoTile label="Grace" value={String(counts.grace)} tone={counts.grace > 0 ? 'warn' : 'default'} />
               <BentoTile label="Expired" value={String(counts.expired)} tone={counts.expired > 0 ? 'warn' : 'default'} />
-              {/* Present even at zero. The filter row below counts six states;
-                  a strip that counts five leaves shops unaccounted for and the
-                  two rows quietly disagree. */}
+              {/* Present even at zero. One tile per subscription status below
+                  -- Paying, On trial, Grace, Expired, Suspended -- matching the
+                  filter row's five status pills ('All' needs no tile of its
+                  own). 'Retiring plan' is a sixth filter with none: it is a
+                  plan-lifecycle fact, not a subscription status, so a store can
+                  be both retiring and, say, Paying -- counting it here would
+                  double-count rather than complete the strip. */}
               <BentoTile
                 label="Suspended"
                 value={String(counts.suspended)}

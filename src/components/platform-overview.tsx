@@ -73,11 +73,16 @@ export function PlatformOverview({
   );
 
   const paying = [...billing, ...committed];
-  // MRR is what is billing NOW. Committed money is shown beside it rather than
-  // folded in, because a figure that mixes "collecting today" with "collecting
-  // from November" answers neither question.
-  const mrr = billing.reduce((sum, s) => sum + priceOf(s.planKey), 0);
-  const committedMrr = committed.reduce((sum, s) => sum + priceOf(s.planKey), 0);
+  // MRR is what is billing NOW -- priced off storedPlanKey, what the
+  // subscription row still points at, not planKey's effective plan. A store
+  // whose plan retired keeps paying its stored price until it actually changes
+  // tier; pricing this off the effective plan would bill it at the successor's
+  // rate on the retirement date despite nothing having billed it yet.
+  // Committed money is shown beside MRR rather than folded in, because a
+  // figure that mixes "collecting today" with "collecting from November"
+  // answers neither question.
+  const mrr = billing.reduce((sum, s) => sum + priceOf(s.storedPlanKey), 0);
+  const committedMrr = committed.reduce((sum, s) => sum + priceOf(s.storedPlanKey), 0);
   const arpu = paying.length > 0 ? Math.round((mrr + committedMrr) / paying.length) : 0;
 
   const monthStart = new Date(now);
@@ -295,7 +300,10 @@ export function PlatformOverview({
               {plans
                 .filter((p) => p.priceCents > 0)
                 .map((plan, i) => {
-                  const onPaying = paying.filter((s) => s.planKey === plan.key).length;
+                  // Stored, not effective -- a store whose plan retired to
+                  // this one still belongs on its OLD tile until it is
+                  // actually billed at the new rate.
+                  const onPaying = paying.filter((s) => s.storedPlanKey === plan.key).length;
                   const revenue = onPaying * plan.priceCents;
                   const share = mrr > 0 ? (revenue / mrr) * 100 : 0;
                   return (

@@ -66,8 +66,14 @@ export function PlansTab({
             <PlanCard
               plan={plan}
               accent={planColor(plan.key, i)}
-              shopsOn={shops.filter((s) => s.planKey === plan.key).length}
-              revenue={plan.priceCents * shops.filter((s) => s.planKey === plan.key && s.status === 'active').length}
+              // Stored, not effective: this card is about the plan RECORD --
+              // how many subscriptions still point here and how much money it
+              // brings in -- not about who is currently enforced under it.
+              // Keyed off effective plan, a retired tier's card would read "0
+              // stores" forever, which is exactly wrong for the strip below
+              // that still needs to say how many are moving.
+              shopsOn={shops.filter((s) => s.storedPlanKey === plan.key).length}
+              revenue={plan.priceCents * shops.filter((s) => s.storedPlanKey === plan.key && s.status === 'active').length}
               successorName={plans.find((p) => p.key === plan.successorPlanKey)?.name ?? null}
               onEdit={() => setEditing(plan.key)}
               onRetire={() => setRetiring(plan.key)}
@@ -117,9 +123,14 @@ export function PlansTab({
 }
 
 // Whole days, rounded up: "retires in 0 days" on the morning of the last day is
-// wrong in the direction that matters.
+// wrong in the direction that matters. Can go negative past the date -- callers
+// treat that as "already retired" rather than clamping to zero, because
+// retire_at is never cleared by the passage of time, only by an operator
+// republishing (the same reasoning shops-tab.tsx's row arrow already carries).
+// Clamping here would make a plan that stayed retired for a year read "retires
+// in 0 days" forever.
 function daysUntilRetire(retireAt: string): number {
-  return Math.max(0, Math.ceil((new Date(retireAt).getTime() - Date.now()) / 86_400_000));
+  return Math.ceil((new Date(retireAt).getTime() - Date.now()) / 86_400_000);
 }
 
 function PlanCard({
@@ -139,6 +150,11 @@ function PlanCard({
   onEdit: () => void;
   onRetire: () => void;
 }) {
+  // Past the date the countdown has nothing left to count -- said outright
+  // rather than as "0 days", which would read as a countdown still running.
+  const daysLeft = plan.retireAt ? daysUntilRetire(plan.retireAt) : null;
+  const retired = daysLeft != null && daysLeft <= 0;
+
   // A bare bento card rather than `BentoCard`: the head here is a colour dot,
   // the tier name and two controls, which is not the title/scope-pill shape
   // BentoCard exists to standardise.
@@ -152,8 +168,8 @@ function PlanCard({
           </Text>
           {/* The glyph, not just the amber: bentoWarn is a status colour and
               colour alone is never the signal. */}
-          {plan.retireAt ? (
-            <Chip label={`⚠ Retires in ${daysUntilRetire(plan.retireAt)} days`} />
+          {daysLeft != null ? (
+            <Chip label={retired ? '⚠ Retired' : `⚠ Retires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`} />
           ) : !plan.isPublic ? (
             <Chip label="Not public" />
           ) : null}
@@ -191,8 +207,17 @@ function PlanCard({
         <View style={styles.retireStrip}>
           <Text style={styles.retireGlyph}>→</Text>
           <Text style={styles.retireText}>
-            Hidden from the plan picker. On {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
-            {shopsOn === 1 ? '' : 's'} still here move to {successorName}.
+            {retired ? (
+              <>
+                Hidden from the plan picker. Since {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
+                {shopsOn === 1 ? '' : 's'} still here {shopsOn === 1 ? 'has' : 'have'} moved to {successorName}.
+              </>
+            ) : (
+              <>
+                Hidden from the plan picker. On {new Date(plan.retireAt).toLocaleDateString()} the {shopsOn} store
+                {shopsOn === 1 ? '' : 's'} still here move to {successorName}.
+              </>
+            )}
           </Text>
         </View>
       ) : null}
@@ -238,7 +263,7 @@ const styles = StyleSheet.create({
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
   dot: { width: 9, height: 9, borderRadius: 3 },
-  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk },
+  name: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk, flexShrink: 1 },
   headButtons: { flexDirection: 'row', gap: 7, flexShrink: 0 },
   // The amber wash has no token: bentoWarn is the ink, and a soft tile
   // (`bentoSoft`) behind amber text reads as disabled rather than as a warning.
