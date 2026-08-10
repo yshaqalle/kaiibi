@@ -89,6 +89,10 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
 
   const retryProblem = () => {
     if (!problem) return;
+    // Cleared first so the retry is visible: the spinner below is suppressed
+    // while a problem is on screen, and a "Try again" that leaves the caveat
+    // sitting there looks like it did nothing.
+    setProblem(null);
     if (problem.retry === 'load') void load();
     else if (problem.retry === 'send') void send();
     else void openAttachment(problem.retry.attachment);
@@ -106,7 +110,10 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
       </Text>
 
       {messages === null ? (
-        <ActivityIndicator style={styles.loading} />
+        // No spinner under a failure: nothing is still loading once the load
+        // has answered with an error, and a spinner that never stops reads as
+        // a frozen screen rather than a failed one.
+        problem === null && <ActivityIndicator style={styles.loading} />
       ) : (
         messages.map((message) => (
           <View
