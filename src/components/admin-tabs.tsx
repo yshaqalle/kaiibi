@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportBanner } from '@/components/support/support-banner';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
@@ -165,6 +166,17 @@ export default function AdminTabs() {
       {/* A sibling of the menu, not a child of it: the menu closes as this
           opens, and a modal nested inside a dismissed one goes with it. */}
       <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
+      {/* Under the header, over the tabs, driving the same `supportOpen` the ☰
+          row does. tone="dark" and a slot painted with the header's own
+          background, for one reason: this View is transparent and the root
+          theme behind it follows the DEVICE colour scheme (src/app/_layout.tsx),
+          so the banner would otherwise sit on white or black depending on a
+          setting this shell ignores everywhere else. Painting it makes the
+          banner the bottom edge of the fixed dark chrome above, which is the
+          ground the dark accent pair is solved against. */}
+      <View style={[styles.bannerSlot, { backgroundColor: colors.background }]}>
+        <SupportBanner tone="dark" onOpen={() => setSupportOpen(true)} />
+      </View>
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting
@@ -235,6 +247,10 @@ const styles = StyleSheet.create({
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8 },
   menuIcon: { fontSize: 16 },
   settingsIcon: { fontSize: 15 },
+  // Padding matches the header's, so the banner lines up with the ☰ above it;
+  // the bar's own margins supply the rest, so this is zero-height on the
+  // ordinary day when there is nothing unread.
+  bannerSlot: { paddingHorizontal: 16 },
   slot: { flex: 1 },
   menuBackdrop: { flex: 1 },
   menuSheet: { position: 'absolute', right: 16, minWidth: 160, borderRadius: 12, borderWidth: 1, paddingVertical: 6, overflow: 'hidden' },

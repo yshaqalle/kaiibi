@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SupportCompose } from '@/components/support/support-compose';
+import { syncSupportUnread } from '@/components/support/support-menu-item';
 import { SupportThreadView } from '@/components/support/support-thread-view';
 import { AppModal } from '@/components/ui/app-modal';
 import { Caveat } from '@/components/ui/caveat';
@@ -45,6 +46,11 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
       .then((next) => {
         setThreads(next);
         setListProblem(false);
+        // The ☰ badge and the banner count exactly this list. Handing it over
+        // rather than letting them refetch is what drops both the moment a
+        // thread is marked read -- reading writes no message, so the realtime
+        // subscription behind them has nothing to report.
+        syncSupportUnread(next);
         return next;
       })
       .catch(() => {

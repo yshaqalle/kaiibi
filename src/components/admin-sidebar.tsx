@@ -5,8 +5,10 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportBanner } from '@/components/support/support-banner';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
@@ -124,6 +126,15 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
             <Text style={styles.menuIcon}>☰</Text>
           </Pressable>
         </View>
+        {/* Under the top bar, over whatever screen is mounted, and driving the
+            same `supportOpen` the ☰ row does. The slot carries its own ground
+            rather than inheriting one: this View is transparent and the root
+            theme behind it follows the DEVICE colour scheme (src/app/
+            _layout.tsx), so a banner left to inherit would sit on white or
+            black depending on a setting this shell otherwise ignores. */}
+        <View style={styles.bannerSlot}>
+          <SupportBanner onOpen={() => setSupportOpen(true)} />
+        </View>
         {children}
       </View>
       <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
@@ -213,6 +224,10 @@ const styles = StyleSheet.create({
   // gap matches admin-tabs.web.tsx's mobileHeaderRight, so the switcher/☰ pair
   // is spaced identically either side of the breakpoint.
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 14, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  // Horizontal padding matches topBar's, so the banner lines up with the ☰
+  // above it. Padding only, and the bar's own margins supply the rest, so this
+  // is zero-height on the ordinary day when there is nothing unread.
+  bannerSlot: { paddingHorizontal: 16, backgroundColor: Colors.light.bentoSurface },
   menuButton: { paddingVertical: 7, paddingHorizontal: 10, borderRadius: 8, backgroundColor: '#F5F5F2' },
   menuIcon: { fontSize: 16, color: '#111111' },
   menuBackdrop: { flex: 1 },

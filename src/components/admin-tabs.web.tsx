@@ -7,8 +7,10 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportBanner } from '@/components/support/support-banner';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { SupportSheet } from '@/components/support/support-sheet';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
@@ -136,6 +138,12 @@ export default function AdminTabs() {
         {/* A sibling of the menu, not a child of it: the menu closes as this
             opens, and a modal nested inside a dismissed one goes with it. */}
         <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
+        {/* Under the header, over the screen, driving the same `supportOpen`
+            the ☰ row does. Carries its own ground -- see the same slot in
+            admin-sidebar.tsx. */}
+        <View style={styles.bannerSlot}>
+          <SupportBanner onOpen={() => setSupportOpen(true)} />
+        </View>
         <View style={styles.mobileSlot}><Slot /></View>
         <View style={styles.bottomNav}>
           {visibleNavItems.map((item) => {
@@ -193,6 +201,9 @@ const styles = StyleSheet.create({
   menuItemIcon: { fontSize: 15, color: '#111111' },
   menuItemText: { fontSize: 14, fontWeight: '700', color: '#111111' },
   menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#ECECEC' },
+  // Padding matches mobileHeader's, so the banner lines up with the ☰ above
+  // it; zero-height when there is nothing unread. See admin-sidebar.tsx.
+  bannerSlot: { paddingHorizontal: 16, backgroundColor: Colors.light.bentoSurface },
   mobileSlot: { flex: 1 },
   bottomNav: { flexDirection: 'row', borderTopWidth: 1, borderTopColor: '#ECECEC', backgroundColor: '#FFFFFF', paddingBottom: 12, paddingTop: 10 },
   bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 4 },
