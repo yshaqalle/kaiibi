@@ -12,19 +12,28 @@ do $$
 declare
   v_operator uuid := gen_random_uuid();
   v_owner    uuid := gen_random_uuid();
+  -- Somebody who has never written to support. The profiles policy added by
+  -- 20260825000300 is only narrow if this person stays invisible.
+  v_quiet    uuid := gen_random_uuid();
   v_shop_id  uuid;
   v_count    integer;
   v_raised   boolean;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at) values
     (v_operator, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'op-'   || v_operator || '@example.test', '', now(), now(), now()),
-    (v_owner,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'shop-' || v_owner    || '@example.test', '', now(), now(), now());
+    (v_owner,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'shop-' || v_owner    || '@example.test', '', now(), now(), now()),
+    (v_quiet,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'quiet-'|| v_quiet    || '@example.test', '', now(), now(), now());
 
   insert into public.shops (owner_id, name) values (v_owner, 'Portal Verify Shop') returning id into v_shop_id;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_id, 'Main', true);
   insert into public.products (shop_id, name, price_cents) values (v_shop_id, 'Portal Verify Product', 999);
 
   insert into public.platform_admins (user_id, role, note) values (v_operator, 'owner', 'verify');
+
+  -- The owner writes in; the quiet user never does. That difference is the
+  -- whole of the profiles policy below.
+  insert into public.support_threads (shop_id, opened_by, author_user_id, category, subject)
+    values (v_shop_id, 'shop', v_owner, 'billing', 'Portal Verify Thread');
 
   -- ------------------------------------------------- 1. MFA is not optional
   -- A stolen password gets an aal1 session. That must be worth nothing.
@@ -72,6 +81,21 @@ begin
   if v_count <> 0 then raise exception 'FAIL: an operator can read shifts'; end if;
   select count(*) into v_count from public.shop_members;
   if v_count <> 0 then raise exception 'FAIL: an operator can read the staff roster'; end if;
+
+  -- ...and exactly one profile beyond their own: the person who wrote to
+  -- support (20260825000300). The console has to be able to say WHO is stuck,
+  -- not only which shop, and answering a thread without a name or a number to
+  -- call back is most of the job missing. Writing to support is what puts a
+  -- profile in reach, so everyone who never has stays invisible -- if the
+  -- second count below ever returns a row, that policy stopped being narrow.
+  select count(*) into v_count from public.profiles where id = v_owner;
+  if v_count <> 1 then
+    raise exception 'FAIL: an operator cannot read the profile of a support author';
+  end if;
+  select count(*) into v_count from public.profiles where id = v_quiet;
+  if v_count <> 0 then
+    raise exception 'FAIL: an operator read the profile of someone who never wrote to support';
+  end if;
 
   -- ------------------------------ 4. no self-service privilege escalation
   -- Every mutation must go through the platform-admin edge function, which

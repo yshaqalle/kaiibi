@@ -295,6 +295,127 @@ export async function listOperators(): Promise<PlatformOperator[]> {
   }));
 }
 
+// One row per conversation for the operator queue.
+//
+// No `planName`: the only honest value here would come from a subscription join
+// this query deliberately does not pay for, and a field the producer always
+// leaves empty is a placeholder that type-checks. The console already holds
+// `PlatformShopRow[]` and already joins by shopId for the store's name, exactly
+// as PendingPlanRequest and RequestsTab do — the plan is one more column of
+// that same join, resolved where the data is.
+export type PlatformSupportThread = {
+  id: string;
+  reference: string;
+  shopId: string;
+  shopName: string;
+  subject: string;
+  category: string;
+  area: string | null;
+  areaOther: string | null;
+  status: 'open' | 'closed';
+  openedBy: 'shop' | 'platform';
+  contactPreference: 'in_app' | 'whatsapp' | 'email';
+  clientContext: Record<string, string>;
+  lastMessageAt: string;
+  platformReadAt: string | null;
+  shopReadAt: string | null;
+  // Null on a thread we started. Kept beside the name so the reply panel can
+  // tell "nobody wrote this" apart from "we could not read who did".
+  authorUserId: string | null;
+  authorName: string | null;
+  authorPhone: string | null;
+  messageCount: number;
+  attachmentCount: number;
+  lastAuthorKind: 'shop' | 'platform';
+};
+
+// Four states, each naming WHOSE MOVE IT IS. Sorting a one-operator queue by
+// age buries an answered thread under an unanswered one; sorting by this does
+// not. 'unread_by_them' is the one that matters for a message we started --
+// an outbound message nobody has opened is a message that never happened.
+export function supportQueueState(
+  thread: PlatformSupportThread
+): 'needs_reply' | 'waiting_on_them' | 'unread_by_them' | 'closed' {
+  if (thread.status === 'closed') return 'closed';
+  if (thread.lastAuthorKind === 'shop') return 'needs_reply';
+  // A stamp older than the message it would cover is the store having read the
+  // PREVIOUS reply. Comparing rather than counting is what makes that survive
+  // a thread being replied to twice.
+  if (!thread.shopReadAt || Date.parse(thread.shopReadAt) < Date.parse(thread.lastMessageAt)) {
+    return 'unread_by_them';
+  }
+  return 'waiting_on_them';
+}
+
+// The whole queue, with enough of each thread to triage it without opening it.
+//
+// The author's name comes from a SECOND read rather than an embed:
+// support_threads.author_user_id points at auth.users, and profiles.id points
+// at auth.users too, which is not a relationship PostgREST can traverse -- an
+// embed here fails at the API, not at the type. Two narrow reads, joined in
+// memory, is the same shape listPlatformShops already uses.
+export async function listSupportThreads(): Promise<PlatformSupportThread[]> {
+  const { data, error } = await supabase
+    .from('support_threads')
+    .select(
+      'id, reference, shop_id, author_user_id, subject, category, area, area_other, status, opened_by, contact_preference, client_context, last_message_at, platform_read_at, shop_read_at, shops(name), support_messages(author_kind, created_at, support_attachments(id))'
+    )
+    .order('last_message_at', { ascending: false });
+  if (error) throw error;
+  const rows = data ?? [];
+
+  // Skipped entirely when every thread is one we started -- `in` on an empty
+  // list is a request that can only return nothing.
+  const authorIds = [...new Set(rows.map((row: any) => row.author_user_id).filter(Boolean))] as string[];
+  const authors = new Map<string, { full_name: string | null; phone: string | null }>();
+  if (authorIds.length > 0) {
+    const { data: profiles, error: profilesError } = await supabase
+      .from('profiles')
+      .select('id, full_name, phone')
+      .in('id', authorIds);
+    if (profilesError) throw profilesError;
+    for (const profile of profiles ?? []) authors.set(profile.id, profile);
+  }
+
+  return rows.map((row: any) => {
+    const messages = (row.support_messages ?? []) as {
+      author_kind: 'shop' | 'platform';
+      created_at: string;
+      support_attachments: unknown[];
+    }[];
+    // PostgREST does not order an embedded resource, so the last element of
+    // what it returns is not the last message. Getting this wrong puts a thread
+    // in the wrong queue, which is the one thing this list exists to get right.
+    const sorted = [...messages].sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+    const author = row.author_user_id ? authors.get(row.author_user_id) : undefined;
+    return {
+      id: row.id,
+      reference: row.reference,
+      shopId: row.shop_id,
+      shopName: row.shops?.name ?? 'Unknown store',
+      subject: row.subject,
+      category: row.category,
+      area: row.area,
+      areaOther: row.area_other,
+      status: row.status,
+      openedBy: row.opened_by,
+      contactPreference: row.contact_preference,
+      clientContext: row.client_context ?? {},
+      lastMessageAt: row.last_message_at,
+      platformReadAt: row.platform_read_at,
+      shopReadAt: row.shop_read_at,
+      authorUserId: row.author_user_id ?? null,
+      authorName: author?.full_name ?? null,
+      authorPhone: author?.phone ?? null,
+      messageCount: sorted.length,
+      attachmentCount: sorted.reduce((sum, m) => sum + (m.support_attachments?.length ?? 0), 0),
+      // A thread whose messages we cannot see at all still belongs in a queue,
+      // and the end that opened it is the only end that can have written last.
+      lastAuthorKind: sorted[sorted.length - 1]?.author_kind ?? row.opened_by,
+    };
+  });
+}
+
 export type PlatformActionError = { error: string; message: string };
 
 // Every mutation. `reason` is mandatory at the API too, not just here -- an

@@ -10,6 +10,7 @@ import { RequestsTab } from '@/components/platform/requests-tab';
 import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
+import { SupportTab } from '@/components/platform/support-tab';
 import { TabPills } from '@/components/ui/tab-pills';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
@@ -23,11 +24,13 @@ import {
   listPendingPlanRequests,
   listPlatformShops,
   listSubscriptionPayments,
+  listSupportThreads,
   type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
   type PlatformSettings,
   type PlatformShopRow,
+  type PlatformSupportThread,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listPlansForPlatform, type Plan } from '@/lib/subscriptions';
@@ -49,7 +52,7 @@ const theme = Colors.light;
 // bento screen uses, and the header row is the accounting recipe exactly:
 // eyebrow, 26px title, blurb, controls right.
 
-type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators' | 'settings';
+type Tab = 'overview' | 'shops' | 'requests' | 'support' | 'plans' | 'audit' | 'operators' | 'settings';
 
 // The blurb says what the tab is FOR. Overview's is computed from the data and
 // published up by the tab itself, so the sentence an operator reads first is
@@ -58,6 +61,7 @@ const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'overview', label: 'Overview', blurb: 'Is the business growing, is money arriving, who needs a conversation today.' },
   { key: 'shops', label: 'Stores', blurb: 'Every business on Kaiibi, what they pay, and what they are using.' },
   { key: 'requests', label: 'Requests', blurb: 'Tier changes waiting on a decision. Approving one moves what a store can do.' },
+  { key: 'support', label: 'Support', blurb: 'Every conversation with a store — what is broken, who is stuck, and anything we need to tell them.' },
   { key: 'plans', label: 'Plans', blurb: 'What each tier includes, withholds, and caps — and who is on it.' },
   { key: 'audit', label: 'Audit log', blurb: 'Every operator action, who took it, and why. Append-only.' },
   { key: 'operators', label: 'Operators', blurb: 'Who can reach this portal at all.' },
@@ -73,6 +77,7 @@ export default function PlatformHome() {
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
+  const [supportThreads, setSupportThreads] = useState<PlatformSupportThread[]>([]);
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   // When the data on screen was fetched. Passed to the Overview so every
   // figure is measured against one instant, and so nothing reads the clock
@@ -104,12 +109,13 @@ export default function PlatformHome() {
     // referenced plan). Today's behaviour, unchanged, with the archived rows
     // carried separately.
     const activePlans = planRows.filter((p) => p.active);
-    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
+    const [shopRows, auditRows, operatorRows, requestRows, paymentRows, threadRows] = await Promise.all([
       listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
       listAuditLog(),
       listOperators(),
       listPendingPlanRequests(),
       listSubscriptionPayments(),
+      listSupportThreads(),
     ]);
     setShops(shopRows);
     setPlans(activePlans);
@@ -118,6 +124,7 @@ export default function PlatformHome() {
     setOperators(operatorRows);
     setRequests(requestRows);
     setPayments(paymentRows);
+    setSupportThreads(threadRows);
     setSettings(settingsRow);
     setLoadedAt(Date.now());
     setLoading(false);
@@ -151,6 +158,17 @@ export default function PlatformHome() {
     <ShopsTab shops={shops} plans={plans} compact={compact} selected={selected} onSelect={setSelected} />
   ) : tab === 'requests' ? (
     <RequestsTab requests={requests} shops={shops} onDone={reload} />
+  ) : tab === 'support' ? (
+    <SupportTab
+      threads={supportThreads}
+      shops={shops}
+      now={loadedAt}
+      // Deliberately inert until the reply panel and the outbound composer
+      // land: both are rendered from inside support-tab.tsx, so wiring a modal
+      // here now would be a second owner of the same surface.
+      onOpen={() => {}}
+      onCompose={() => {}}
+    />
   ) : tab === 'plans' ? (
     <PlansTab
       plans={plans}
