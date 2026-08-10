@@ -137,7 +137,12 @@ export default function AdminTabs() {
                 <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
               </>
             )}
+            {/* tone="dark": this sheet paints with Colors.dark (see `colors`
+                above) and overrides every other row's text to colors.text;
+                without this the row would render bentoInk (near-black) on a
+                black sheet -- see support-menu-item.tsx. */}
             <SupportMenuItem
+              tone="dark"
               onPress={() => {
                 setMenuOpen(false);
                 setSupportOpen(true);
