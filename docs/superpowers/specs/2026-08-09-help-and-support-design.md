@@ -309,7 +309,9 @@ represented solely by a small number someone has to notice.
 |---|---|
 | `src/lib/support-taxonomy.ts` | Categories, areas, labels, prompts — one source for both sides |
 | `src/lib/support.ts` | Store-side queries, inserts, attachment upload, unread count |
+| `src/lib/support-draft.ts` | Persists the unsent draft so it survives a closed sheet and a killed app |
 | `src/components/support/support-sheet.tsx` | The modal shell and its three views |
+| `src/components/support/support-banner.tsx` | The one-line "you have a message" bar (§5) |
 | `src/components/support/support-compose.tsx` | The form |
 | `src/components/support/support-thread.tsx` | One conversation + reply box (shared with the console) |
 | `src/components/support/support-menu-item.tsx` | The ☰ row + unread badge, used by all three shells |
