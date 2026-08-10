@@ -118,9 +118,7 @@ describe('buildClientContext', () => {
 });
 
 describe('whatsAppLink', () => {
-  // wa.me takes digits only -- a leading + or any spacing gives a dead link
-  // rather than an error, which is the worst kind of failure here.
-  it('strips everything but digits from the number', () => {
+  it('delegates number normalisation to lib/whatsapp', () => {
     expect(whatsAppLink('+252 63 442 1180', 'hi')).toBe('https://wa.me/252634421180?text=hi');
   });
 

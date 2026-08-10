@@ -14,8 +14,10 @@ export const SUPPORT_EMAIL = 'info@kaiibi.com';
  *
  * There is no such number anywhere in the codebase today, so every contact CTA
  * falls back to email — see `supportHref` below. When you set this, write it
- * FULLY QUALIFIED (`+252…`): `lib/whatsapp.ts` only strips non-digits, while
- * `platform.ts`'s `whatsappLink` also expands the local `063…` convention, and
- * a qualified number means the two can never disagree.
+ * FULLY QUALIFIED (`+252…`): every caller resolves numbers through the one
+ * helper in `lib/whatsapp.ts` (`platform.ts` re-exports it), which does more
+ * than strip non-digits — it swaps a leading 0 for 252 and assumes 252 for
+ * anything nine digits or shorter. A qualified number is the only form none of
+ * that guessing applies to.
  */
 export const SUPPORT_WHATSAPP: string | null = null;

@@ -33,10 +33,12 @@ declare
   v_ref_b text;
   v_secret_path text;
   v_store_path text;
-  -- Recognisable rather than meaningful: check 12 has to tell the rows one
-  -- unfiltered update reached from the ones it did not, and now() would collide
-  -- with every other stamp the script writes in the same transaction.
-  v_sentinel timestamptz := timestamptz '2001-09-11 00:00:00+00';
+  v_read_at timestamptz;
+  v_last_at timestamptz;
+  v_thread public.support_threads;
+  -- The clock of a tablet that is badly wrong, which is the case check 13 is
+  -- about. Far enough out that no server stamp can be mistaken for it.
+  v_future timestamptz := now() + interval '10 years';
 begin
   ------------------------------------------------------------------
   -- Fixture
@@ -87,9 +89,17 @@ begin
   ------------------------------------------------------------------
   raise notice '=== 3. A message advances last_message_at and marks its own end read ===';
   ------------------------------------------------------------------
+  -- Only last_message_at is pushed back. The read stamps are already null on a
+  -- thread nobody has written to, and shop_read_at can no longer be set to a
+  -- chosen value by anyone (check 13) -- writing null here would come back as
+  -- now() and quietly turn the assertion below into a tautology.
   update public.support_threads
-     set last_message_at = now() - interval '1 day', shop_read_at = null, platform_read_at = null
+     set last_message_at = now() - interval '1 day'
    where id = v_cashier_thread;
+
+  perform 1 from public.support_threads
+    where id = v_cashier_thread and shop_read_at is null and platform_read_at is null;
+  if not found then raise exception 'FAIL: a fresh thread is not unread at both ends'; end if;
 
   insert into public.support_messages (thread_id, author_kind, author_user_id, body)
     values (v_cashier_thread, 'shop', v_cashier_id, 'It beeps but nothing lands in the cart.')
@@ -455,16 +465,163 @@ begin
   -- either way. A bare update reads nothing, so the update policy's own using
   -- clause is the only thing standing between it and every thread in the table
   -- -- including other shops'.
-  update public.support_threads set shop_read_at = v_sentinel;
+  --
+  -- Read by row_count and by the store thread's still-null stamp, rather than by
+  -- planting a recognisable timestamp: since check 13 the server writes this
+  -- column itself, and its now() is the same value for every row this one
+  -- transaction touches, so "was this row reached" cannot be asked of the value.
+  -- The store thread is the only row here nobody has marked read, which is what
+  -- makes it the witness.
+  update public.support_threads set shop_read_at = now();
+  get diagnostics v_count = row_count;
+  -- The cashier's own two: the scanner thread and the "how do I void a sale"
+  -- one. Exact, so an update that reaches too few fails as loudly as one that
+  -- reaches too many.
+  if v_count <> 2 then
+    raise exception 'FAIL: an unfiltered update reached % thread(s), expected the cashier''s 2', v_count;
+  end if;
 
   perform set_config('role', 'postgres', true);
-  perform 1 from public.support_threads where id = v_store_thread and shop_read_at = v_sentinel;
+  perform 1 from public.support_threads where id = v_store_thread and shop_read_at is not null;
   if found then raise exception 'FAIL: an unfiltered update reached a thread the member cannot see'; end if;
-  -- The control: the statement did run, and did mark what it was allowed to.
-  perform 1 from public.support_threads where id = v_cashier_thread and shop_read_at = v_sentinel;
-  if not found then raise exception 'FAIL: the unfiltered update touched nothing at all'; end if;
   perform set_config('role', 'authenticated', true);
   raise notice 'OK: shop_read_at only, and only on a thread they can see';
+
+  ------------------------------------------------------------------
+  raise notice '=== 13. The server, not the tablet, stamps shop_read_at ===';
+  ------------------------------------------------------------------
+  -- markThreadRead() runs on shared shop tablets whose clocks are often wrong,
+  -- and the unread badge is last_message_at > shop_read_at with last_message_at
+  -- always server now(). A device an hour fast marks every reply an operator
+  -- writes in the next hour as read before it is written: the badge never rises
+  -- and a genuine answer is lost silently. (A slow clock only leaves the badge
+  -- stuck on, which the next reply clears.) So a stamp from the future must not
+  -- survive the write, and the sent value is the client's own shape.
+  update public.support_threads set shop_read_at = v_future where id = v_cashier_thread;
+  get diagnostics v_count = row_count;
+  if v_count <> 1 then raise exception 'FAIL: the mark-read update matched no row'; end if;
+
+  perform set_config('role', 'postgres', true);
+  select shop_read_at into v_read_at from public.support_threads where id = v_cashier_thread;
+  if v_read_at is distinct from now() then
+    raise exception 'FAIL: shop_read_at is % and not the server clock', v_read_at;
+  end if;
+
+  -- The other half of the rule, and the reason the trigger is conditional: an
+  -- operator's reply rewrites this row and deliberately leaves shop_read_at
+  -- where it was. That gap IS the unread signal, so a trigger that stamped
+  -- every update would close it on arrival -- the same answer lost, reached
+  -- through the trigger rather than through the clock. The store thread is
+  -- unread by anyone, so a stamp shows up as a value where there was none.
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_store_thread, 'platform', null, 'Nothing further needed from you.');
+
+  select shop_read_at, last_message_at into v_read_at, v_last_at
+    from public.support_threads where id = v_store_thread;
+  if v_read_at is not null then
+    raise exception 'FAIL: an operator reply marked itself read for the store';
+  end if;
+  if v_last_at < now() - interval '1 minute' then
+    raise exception 'FAIL: an operator reply did not move last_message_at';
+  end if;
+  raise notice 'OK: the server clock wins, and an operator reply stays unread';
+
+  ------------------------------------------------------------------
+  raise notice '=== 14. A message body has a length the column enforces ===';
+  ------------------------------------------------------------------
+  -- validateDraft() refuses more than 4000 characters, but that is a courtesy
+  -- to the person typing: a member holds an insert grant on `body` and can send
+  -- a request this app never composed. Asserted through a client session and as
+  -- postgres both, because the operator's side writes through service_role and
+  -- a reply nobody can read to the end is no better than an unbounded request.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+      values (v_own_thread, 'shop', v_cashier_id, repeat('x', 4001));
+    raise exception 'FAIL: a member stored a 4001-character body';
+  exception when check_violation then null;
+  end;
+
+  -- The control: one character less is an ordinary message, so #14 is testing
+  -- the limit and not a table that refuses long text on some other ground.
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_own_thread, 'shop', v_cashier_id, repeat('x', 4000));
+
+  perform set_config('role', 'postgres', true);
+  begin
+    insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+      values (v_own_thread, 'platform', null, repeat('x', 4001));
+    raise exception 'FAIL: the operator side stored a 4001-character body';
+  exception when check_violation then null;
+  end;
+  raise notice 'OK: 4000 accepted, 4001 refused at both ends';
+
+  ------------------------------------------------------------------
+  raise notice '=== 15. Opening a thread writes its first message, or neither ===';
+  ------------------------------------------------------------------
+  -- Two client round trips can land the thread and lose the message, and the
+  -- store is then worse off than with no thread at all: the screen says it
+  -- failed, they retry, and the subject-only orphan sits at the top of their
+  -- list with a fresh last_message_at, undeletable (no client holds delete) and
+  -- unanswerable (an operator opens a request with no body).
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  select * into v_thread from public.open_support_thread(
+    v_shop_id, 'help', '  Voiding a sale  ', '  It asks for a manager PIN.  ',
+    'pos', null, 'whatsapp', '{"platform": "android"}'::jsonb);
+
+  -- The author is auth.uid() read inside a definer function, never an argument:
+  -- the insert policy that pins it is not consulted for these rows at all, so
+  -- an author parameter would be one member writing in another's name.
+  if v_thread.author_user_id <> v_cashier_id then
+    raise exception 'FAIL: the thread was opened in somebody else''s name';
+  end if;
+  if v_thread.opened_by <> 'shop' or v_thread.status <> 'open'
+     or v_thread.reference !~ '^KB-[0-9]+$' then
+    raise exception 'FAIL: the rpc did not open an ordinary, open shop thread';
+  end if;
+  if v_thread.subject <> 'Voiding a sale' then
+    raise exception 'FAIL: subject stored untrimmed: %', v_thread.subject;
+  end if;
+  -- The row comes back after the touch trigger rather than as inserted, or
+  -- unreadCount() shows a badge of 1 on a request its own author just sent.
+  if v_thread.shop_read_at is null or v_thread.shop_read_at < v_thread.last_message_at then
+    raise exception 'FAIL: a brand new thread comes back unread to its author';
+  end if;
+
+  select count(*) into v_count from public.support_messages
+   where thread_id = v_thread.id and body = 'It asks for a manager PIN.';
+  if v_count <> 1 then raise exception 'FAIL: the first message is missing (% rows)', v_count; end if;
+
+  -- A definer function is the one path with no policy behind it, so it makes
+  -- the membership test itself.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_outsider_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  begin
+    perform public.open_support_thread(v_shop_id, 'help', 'Not my shop', 'Let me in.');
+    raise exception 'FAIL: an outsider opened a thread in this shop';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- The failure the two-request version could not survive, forced: the thread
+  -- row is already written when the message is refused (#14).
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  begin
+    perform public.open_support_thread(v_shop_id, 'help', 'Half a request', repeat('x', 4001));
+    raise exception 'FAIL: a 4001-character first message was accepted';
+  exception when check_violation then null;
+  end;
+
+  perform set_config('role', 'postgres', true);
+  select count(*) into v_count from public.support_threads
+   where shop_id = v_shop_id and subject in ('Half a request', 'Not my shop');
+  if v_count <> 0 then raise exception 'FAIL: a refused open left % orphan thread(s)', v_count; end if;
+  raise notice 'OK: both rows or neither, and only for a member of that shop';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

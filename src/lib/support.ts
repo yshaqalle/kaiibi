@@ -3,9 +3,11 @@ import { needsAreaOther, type SupportCategory } from '@/lib/support-taxonomy';
 
 export type ContactPreference = 'in_app' | 'whatsapp' | 'email';
 
-// Matches the column's check constraint (migration 20260825000000). Trimming
-// here and rejecting there means the same limit is enforced twice on purpose:
-// the client message is kind, the column is the rule.
+// The same number as support_messages.body's length check (migration
+// 20260825000000). Enforced twice on purpose: the column is the rule, since a
+// member holds an insert grant on `body` and can send a request this file never
+// composed; this copy exists only so the person gets a sentence instead of a
+// constraint violation.
 const DETAILS_MAX = 4000;
 
 export type SupportDraft = {
@@ -60,6 +62,11 @@ export function validateDraft(draft: SupportDraft): DraftValidation {
   if (!draft.details.trim()) {
     return { ok: false, field: 'details', message: 'Tell us what is going on — even a sentence helps.' };
   }
+  // Measured untrimmed while the insert stores the trimmed string, so a body
+  // that only fits once its trailing whitespace is gone is refused. Deliberate:
+  // the message asks them to shorten something they are looking at, and
+  // counting characters they cannot see would make it a lie in the other
+  // direction. The gap is whitespace only, and never a rejected write.
   if (draft.details.length > DETAILS_MAX) {
     return {
       ok: false,
@@ -159,40 +166,31 @@ export async function listMessages(threadId: string): Promise<SupportMessage[]> 
   }));
 }
 
+// One request, because the thread and its first message are one thing: two
+// round trips can land the thread and lose the message, and what the store is
+// left with then is a subject-only thread pinned to the top of their list that
+// they cannot delete and we cannot answer. No author argument -- the RPC reads
+// auth.uid() itself (migration 20260825000000).
 export async function createThread(
   shopId: string,
-  userId: string,
   draft: SupportDraft,
   context: Record<string, string>
 ): Promise<SupportThread> {
   const validation = validateDraft(draft);
   if (!validation.ok) throw new Error(validation.message);
 
-  const { data, error } = await supabase
-    .from('support_threads')
-    .insert({
-      shop_id: shopId,
-      opened_by: 'shop',
-      author_user_id: userId,
-      category: draft.category,
-      area: draft.area,
-      area_other: draft.areaOther.trim() || null,
-      subject: draft.subject.trim(),
-      contact_preference: draft.contactPreference,
-      client_context: context,
-    })
-    .select('*')
-    .single();
+  const { data, error } = await supabase.rpc('open_support_thread', {
+    p_shop_id: shopId,
+    p_category: draft.category,
+    p_subject: draft.subject.trim(),
+    p_details: draft.details.trim(),
+    p_area: draft.area,
+    p_area_other: draft.areaOther.trim() || null,
+    p_contact_preference: draft.contactPreference,
+    p_client_context: context,
+  });
   if (error) throw error;
-
-  const first = await postReply(data.id, draft.details.trim(), userId);
-
-  // The reply fires support_messages_touch_thread, which moves last_message_at
-  // and shop_read_at on the row we already hold -- so returning `data` as it
-  // came back would hand the caller a thread that unreadCount() reads as unread
-  // the instant its author wrote it. Both stamps are the trigger's now(), which
-  // is the same transaction timestamp the message's created_at default took.
-  return { ...toThread(data), lastMessageAt: first.createdAt, shopReadAt: first.createdAt };
+  return toThread(data);
 }
 
 export async function postReply(threadId: string, body: string, userId: string): Promise<SupportMessage> {
@@ -207,10 +205,17 @@ export async function postReply(threadId: string, body: string, userId: string):
 
 // The only column a store may update on a thread; the grant behind this is
 // column-level for that reason (migration 20260825000000).
+//
+// The request carries no device time. These are shared tablets with poor time
+// sync, and a clock running fast would stamp this thread as read into the
+// future, so the operator's next reply arrives already-read and never raises
+// the badge. A before-update trigger overwrites whatever arrives here with
+// now(); 'now' is Postgres' own spelling of the transaction clock, so the
+// column is server-stamped in the reading where the trigger is missing too.
 export async function markThreadRead(threadId: string): Promise<void> {
   const { error } = await supabase
     .from('support_threads')
-    .update({ shop_read_at: new Date().toISOString() })
+    .update({ shop_read_at: 'now' })
     .eq('id', threadId);
   if (error) throw error;
 }

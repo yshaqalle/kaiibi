@@ -91,7 +91,13 @@ create table public.support_messages (
   thread_id uuid not null references public.support_threads(id) on delete cascade,
   author_kind text not null check (author_kind in ('shop', 'platform')),
   author_user_id uuid references auth.users(id) on delete set null,
-  body text not null check (length(btrim(body)) > 0),
+  -- The 4000 is the same number DETAILS_MAX names in src/lib/support.ts, and it
+  -- is here so that number is a rule rather than a suggestion: the client holds
+  -- an insert grant on `body`, so a limit that lives only in validateDraft() is
+  -- one hand-rolled request away from an unbounded row. It binds an operator's
+  -- reply through service_role too, which is intended -- a reply nobody can read
+  -- to the end is not a better answer than a short one.
+  body text not null check (length(btrim(body)) > 0 and length(body) <= 4000),
   created_at timestamptz not null default now()
 );
 
@@ -367,6 +373,101 @@ create policy "mark your own thread read"
 
 revoke update on public.support_threads from authenticated;
 grant update (shop_read_at) on public.support_threads to authenticated;
+
+-- ...and the VALUE in that column is the server's, never the caller's. This
+-- runs on shared shop tablets whose clocks drift, and the unread count is
+-- last_message_at > shop_read_at where last_message_at is always now(). A
+-- tablet an hour fast marks every operator reply of the next hour as already
+-- read before it is written: the badge never rises and a real answer is lost,
+-- which is the one failure this feature cannot have. (A slow clock is only a
+-- badge that stays on until the next reply, so the asymmetry is the point --
+-- there is no correctness to be had from trusting the device in either
+-- direction, but one direction is silent.) Every other stamp here is now().
+--
+-- WHEN, rather than assigning on every update: touch_support_thread() rewrites
+-- this row for each message and deliberately leaves shop_read_at alone when the
+-- author was an operator. Stamping unconditionally would mark the store as
+-- having read the reply that just arrived -- the same lost answer, reached
+-- through the trigger instead of through the clock.
+create or replace function public.stamp_shop_read_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.shop_read_at := now();
+  return new;
+end;
+$$;
+
+create trigger support_threads_stamp_shop_read_at
+  before update on public.support_threads
+  for each row
+  when (new.shop_read_at is distinct from old.shop_read_at)
+  execute function public.stamp_shop_read_at();
+
+-- Opening a thread writes two rows -- the thread, and the message saying what
+-- is actually wrong -- and a client that sends them as two requests can land
+-- the first and lose the second on a bad connection. What the store gets then
+-- is worse than an empty conversation: the screen reports failure, they try
+-- again, and the subject-only orphan sits at the TOP of their list on a fresh
+-- last_message_at, undeletable (no client holds delete here) and unanswerable
+-- (an operator opens a request with no body). One transaction is the only place
+-- that cannot half-happen.
+--
+-- The author is read from auth.uid() inside rather than taken as an argument.
+-- A definer function writes with the owner's rights, so the insert policy that
+-- pins author_user_id = auth.uid() is not consulted for these rows at all --
+-- an author parameter would be any member opening a thread in a colleague's
+-- name. The membership test and the fixed opened_by/addressed_user_id are that
+-- same policy restated for the one path that bypasses it.
+create or replace function public.open_support_thread(
+  p_shop_id uuid,
+  p_category text,
+  p_subject text,
+  p_details text,
+  p_area text default null,
+  p_area_other text default null,
+  p_contact_preference text default 'in_app',
+  p_client_context jsonb default '{}'::jsonb
+)
+returns public.support_threads
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_author uuid := auth.uid();
+  v_thread public.support_threads;
+begin
+  if v_author is null or not public.is_shop_member(p_shop_id) then
+    -- insufficient_privilege so the caller sees the refusal RLS would have
+    -- given them, rather than a generic failure they might retry forever.
+    raise exception 'not a member of this shop' using errcode = 'insufficient_privilege';
+  end if;
+
+  insert into public.support_threads (
+    shop_id, opened_by, author_user_id, category, area, area_other,
+    subject, contact_preference, client_context
+  ) values (
+    p_shop_id, 'shop', v_author, p_category, p_area, nullif(btrim(p_area_other), ''),
+    btrim(p_subject), coalesce(p_contact_preference, 'in_app'),
+    coalesce(p_client_context, '{}'::jsonb)
+  )
+  returning * into v_thread;
+
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_thread.id, 'shop', v_author, btrim(p_details));
+
+  -- Re-read: support_messages_touch_thread moved last_message_at and
+  -- shop_read_at after the row above was captured, and returning the stale copy
+  -- hands the caller a thread that unreadCount() reads as unread the instant
+  -- its own author wrote it.
+  select * into v_thread from public.support_threads where id = v_thread.id;
+  return v_thread;
+end;
+$$;
+revoke execute on function public.open_support_thread(uuid, text, text, text, text, text, text, jsonb) from public;
+grant execute on function public.open_support_thread(uuid, text, text, text, text, text, text, jsonb) to authenticated;
 
 ------------------------------------------------------------------
 -- Attachments bucket
