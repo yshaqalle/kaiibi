@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SupportCompose } from '@/components/support/support-compose';
-import { syncSupportUnread } from '@/components/support/support-menu-item';
 import { SupportThreadView } from '@/components/support/support-thread-view';
 import { AppModal } from '@/components/ui/app-modal';
 import { Caveat } from '@/components/ui/caveat';
 import { BENTO_RADIUS, Colors } from '@/constants/theme';
 import { isUnread, listMyThreads, unreadCount, type SupportThread } from '@/lib/support';
+import { syncSupportUnread } from '@/lib/support-unread';
 
 const theme = Colors.light;
 

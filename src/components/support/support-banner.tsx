@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { useSupportUnread } from '@/components/support/support-menu-item';
 import { Colors } from '@/constants/theme';
+import { useSupportUnread } from '@/lib/support-unread';
 
 // A number on a menu nobody opened is not a delivery mechanism -- the ☰ badge
 // only reaches someone who was already going to look. This is the one line over
