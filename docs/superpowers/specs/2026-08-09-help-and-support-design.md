@@ -345,3 +345,18 @@ to `src/app/platform/index.tsx` for the tab, one to `shop-drawer.tsx` for **Mess
   a thing to replace later, not a thing that quietly scales.
 - **Attachments are re-picked after a restart**, since file URIs don't survive one.
 - **No broadcast.** By choice, §2.3.
+
+### Changed during implementation
+
+- **The sheet keeps its own keyboard inset.** Device verification found the modal window does
+  not follow `adjustResize` on Android and never resizes on iOS, so Send sat past the end of the
+  scrollable range for as long as anyone was typing. The sheet is now wrapped in a
+  `KeyboardAvoidingView` and its ScrollView carries `keyboardShouldPersistTaps`.
+- **Category chips wrap to four rows on a phone, not two** — seven on an iPhone, where the font
+  is wider. Nothing clips; the form is simply longer than §3 assumed.
+- **"Help & support" wraps to two lines in the ☰ menu on iOS**, where the label needs marginally
+  more than the shells' `minWidth: 160` leaves it. Legible, unfixed, recorded here so the next
+  person to open those shells knows it is known.
+- **The dark unread banner is still unseen.** Producing one needs an operator reply, so it was
+  outside the store-side pass. Its wash measures 1.37:1 against the black header, which is a
+  card edge nobody will perceive; its text measures 7.40:1 on that wash and is fine.
