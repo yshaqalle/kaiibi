@@ -103,6 +103,44 @@ export function SearchRow({
       <Text style={[styles.scanGlyph, counter && styles.scanGlyphCounter]}>⛶</Text>
     </Pressable>
   ) : null;
+  // A scanned code fills this box and, on Inventory, IS the result -- it is
+  // what narrows the list to the thing just scanned. So it cannot auto-clear,
+  // and until this existed there was no way out of it either: in keypad mode
+  // the field is a Pressable with no caret to backspace, and the keypad's own
+  // Clear key is behind a tap that raises the whole dock.
+  //
+  // A sibling of the field rather than a child, exactly as the scan button is,
+  // so pressing it in keypad mode clears the text WITHOUT opening the keypad
+  // and without the field ever asking for focus -- which is what would cost the
+  // wedge the caret and kill scanning.
+  const clearButton = value.length > 0 ? (
+    <Pressable
+      onPress={() => onChange('')}
+      style={[
+        styles.clearButton,
+        counter && styles.clearButtonCounter,
+        // With no scan button beside it, it takes the outer slot instead.
+        !showScanButton && (counter ? styles.clearButtonAloneCounter : styles.clearButtonAlone),
+      ]}
+      accessibilityRole="button"
+      accessibilityLabel="Clear search"
+      // Fingers at a counter, not a mouse at a desk: the glyph is small on
+      // purpose (the scan button stays the loud one) but the target is not.
+      hitSlop={8}
+    >
+      <Text style={[styles.clearGlyph, counter && styles.clearGlyphCounter]}>×</Text>
+    </Pressable>
+  ) : null;
+  // Two controls at the right end need more room than one. Applied LAST in
+  // every style array below, because `fieldCounter` carries a paddingRight of
+  // its own that would otherwise win.
+  const trailingRoom = !clearButton
+    ? null
+    : showScanButton
+      ? (counter ? styles.fieldWithBothCounter : styles.fieldWithBoth)
+      // Alone, the × sits where the scan button would have, so the room the
+      // scan button needs is exactly right. `fieldCounter` already leaves it.
+      : (counter ? null : styles.fieldWithScan);
 
   if (!useKeypad) {
     return (
@@ -113,7 +151,7 @@ export function SearchRow({
           onChangeText={onChange}
           placeholder={placeholder}
           placeholderTextColor={theme.bentoMuted2}
-          style={[styles.field, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
+          style={[styles.field, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter, trailingRoom]}
           onSubmitEditing={onSubmit}
           // A wedge scanner fires this on its trailing Enter; keeping focus
           // means the next scan lands here too instead of nowhere.
@@ -122,6 +160,7 @@ export function SearchRow({
           autoCapitalize="none"
           autoCorrect={false}
         />
+        {clearButton}
         {scanButton}
       </View>
     );
@@ -133,7 +172,7 @@ export function SearchRow({
         {icon}
         <Pressable
           onPress={() => onKeypadOpenChange(true)}
-          style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter]}
+          style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter, trailingRoom]}
           accessibilityRole="search"
         >
           {/* A row of its own, so the caret lands after the last character --
@@ -154,6 +193,7 @@ export function SearchRow({
             {keypadOpen ? <BlinkingCaret /> : null}
           </View>
         </Pressable>
+        {clearButton}
         {scanButton}
       </View>
 
@@ -184,6 +224,10 @@ const styles = StyleSheet.create({
   fieldTappable: { borderStyle: 'dashed' },
   fieldWithScan: { paddingRight: 46 },
   fieldWithIcon: { paddingLeft: 34 },
+  // Room for the × as well as the scan button, so a long code truncates before
+  // it reaches either.
+  fieldWithBoth: { paddingRight: 78 },
+  fieldWithBothCounter: { paddingRight: 92 },
   // POS: bigger field, read at arm's length in shop lighting rather than at a
   // desk. Layered over `field` (and `fieldWithIcon`/`fieldWithScan`), so the
   // desk sizes above stay visible and this doesn't need to repeat them.
@@ -222,4 +266,33 @@ const styles = StyleSheet.create({
     textAlignVertical: 'center',
   },
   scanGlyphCounter: { fontSize: 17, lineHeight: 17 },
+  // Quiet next to the scan button, deliberately: scanning is the action on this
+  // row and clearing is the undo. Soft fill rather than ink, and inside the
+  // field's own edge rather than beside it.
+  clearButton: {
+    position: 'absolute',
+    right: 44,
+    height: 28,
+    width: 28,
+    borderRadius: 14,
+    backgroundColor: theme.bentoSoft,
+    borderWidth: 1,
+    borderColor: theme.bentoLine,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clearButtonCounter: { right: 52, height: 34, width: 34, borderRadius: 17 },
+  clearButtonAlone: { right: 6 },
+  clearButtonAloneCounter: { right: 6 },
+  clearGlyph: {
+    fontSize: 15,
+    lineHeight: 15,
+    fontWeight: '600',
+    color: theme.bentoMuted,
+    // Same metrics fix the ⛶ glyph needs above: without these the × drifts off
+    // centre in its circle on Android.
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  clearGlyphCounter: { fontSize: 17, lineHeight: 17 },
 });

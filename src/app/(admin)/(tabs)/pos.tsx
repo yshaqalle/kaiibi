@@ -251,6 +251,10 @@ export default function PosScreen() {
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
   const handleScannedCode = async (raw: string) => {
+    // Same rule as Inventory: the offer to create a product belongs to the scan
+    // that raised it, and nothing else on this screen clears it.
+    setUnknownCode(null);
+
     const outcome = posScanOutcome(products, cart, raw);
     switch (outcome.kind) {
       case 'add':
@@ -948,7 +952,15 @@ export default function PosScreen() {
       {shop && (
         <ProductModal
           visible={showAddProduct}
-          onClose={() => { setShowAddProduct(false); setUnknownCode(null); }}
+          // As on Inventory: closing the form clears what the scan that opened
+          // it left on the screen behind. The cart is untouched -- that is the
+          // sale, not scan residue.
+          onClose={() => {
+            setShowAddProduct(false);
+            setUnknownCode(null);
+            setSearch('');
+            setScanFeedback(null);
+          }}
           shopId={shop.id}
           defaultLocationId={activeLocation?.id ?? null}
           defaults={unknownCode ? { barcode: unknownCode } : undefined}

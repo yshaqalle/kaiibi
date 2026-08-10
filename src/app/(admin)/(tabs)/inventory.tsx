@@ -184,6 +184,12 @@ export default function InventoryScreen() {
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
   const handleScannedCode = async (raw: string) => {
+    // The last scan's offer to create a product is about the last scan. Left
+    // standing it invites someone to add a product under a barcode they are no
+    // longer holding -- and it is the ONE control on the screen that survives
+    // its own result banner, so it reads as current long after it isn't.
+    setUnknownCode(null);
+
     const resolution = resolveBarcode(products, raw);
     if (resolution.status === 'match') {
       // Filtering the list to the code as well as pinning the result keeps the
@@ -722,7 +728,18 @@ export default function InventoryScreen() {
       {shop && canEdit && (
         <ProductModal
           visible={showAddModal}
-          onClose={() => { setShowAddModal(false); setUnknownCode(null); }}
+          // Done ends the whole episode, not just the form. Whatever the last
+          // scan left behind -- the code in the search box, the result banner,
+          // the pinned row, the offer to create -- was context for a decision
+          // that has now been made, and leaving any of it up means the next
+          // scan lands on a screen still showing the last one.
+          onClose={() => {
+            setShowAddModal(false);
+            setUnknownCode(null);
+            setSearch('');
+            setPinnedProduct(null);
+            setScanFeedback(null);
+          }}
           shopId={shop.id}
           defaultLocationId={stockLocationId}
           // Prefilled when this was opened from a scan that matched nothing, so

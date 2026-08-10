@@ -1,0 +1,339 @@
+<title>Kaiibi — clearing a scanned code out of the search box</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .rule{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);
+    border-radius:12px;padding:16px 18px;background:var(--sf);margin:18px 0 0;max-width:70ch;}
+  .rule b{display:block;font-size:14px;margin-bottom:4px;}
+  .rule p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:16px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;}
+  td b{font-weight:700;}
+  .no{color:var(--mut);}
+
+  /* ---- frames ---- */
+  .gallery{display:grid;gap:30px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));align-items:start;margin-top:22px;}
+  .shot{min-width:0;}
+  .frameHead{margin:0 0 9px;}
+  .frameHead b{font-size:14px;font-weight:800;display:block;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .shot > .note{margin-top:11px;font-size:12.5px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:20px;padding:18px;}
+
+  /* ---- the search row itself: every number is the StyleSheet value ---- */
+  .row{position:relative;display:flex;align-items:center;margin-bottom:14px;}
+  .field{
+    background:var(--d-sf);border:1px solid var(--d-rule);border-radius:14px;
+    height:44px;width:100%;padding:0 14px;display:flex;align-items:center;
+    font-size:13px;color:var(--d-ink);
+  }
+  .field.counter{height:52px;padding-left:42px;font-size:15px;}
+  .field.withIcon{padding-left:34px;}
+  .field.withScan{padding-right:46px;}
+  .field.counter.withScan{padding-right:54px;}
+  /* the proposal: room for two controls instead of one */
+  .field.withBoth{padding-right:78px;}
+  .field.counter.withBoth{padding-right:92px;}
+  .field.tappable{border-style:dashed;}
+
+  .icon{position:absolute;left:13px;font-size:15px;color:var(--d-mut2);z-index:1;}
+  .icon.counter{left:16px;font-size:18px;}
+
+  .scan{position:absolute;right:6px;height:32px;width:32px;border-radius:16px;
+    background:var(--d-ink);color:var(--d-sf);display:flex;align-items:center;justify-content:center;
+    font-size:15px;line-height:1;}
+  .scan.counter{height:40px;width:40px;border-radius:20px;font-size:17px;}
+
+  .clear{position:absolute;right:44px;height:28px;width:28px;border-radius:14px;
+    background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);
+    display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;font-weight:600;}
+  .clear.counter{right:52px;height:34px;width:34px;border-radius:17px;font-size:16px;}
+  /* no scan button on this row -- the clear takes the outer slot */
+  .clear.only{right:6px;}
+
+  .ph{color:var(--d-mut2);}
+  .val{font-weight:600;color:var(--d-ink);}
+  .caret{display:inline-block;width:2px;height:16px;background:var(--c1);margin-left:2px;vertical-align:-3px;}
+  .live{display:flex;align-items:center;gap:6px;margin-top:-8px;margin-bottom:12px;padding-left:2px;}
+  .liveDot{width:7px;height:7px;border-radius:4px;background:var(--profit);}
+  .liveLabel{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--profit);}
+
+  /* a couple of result rows, so the frame reads as a screen and not a swatch */
+  .list{background:var(--d-sf);border-radius:14px;overflow:hidden;}
+  .li{display:flex;justify-content:space-between;gap:12px;padding:11px 14px;border-bottom:1px solid var(--d-ln);}
+  .li:last-child{border-bottom:0;}
+  .li b{font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .li span{font-size:12px;color:var(--d-mut);}
+  .empty{padding:26px 14px;text-align:center;font-size:12.5px;color:var(--d-mut2);}
+
+  .flag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;margin-bottom:9px;}
+  .flag.bad{background:#fdecee;color:var(--loss);}
+  .flag.good{background:#e6f4ec;color:var(--profit);}
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">Inventory &amp; POS · search row</p>
+  <h1>A scanned barcode goes into the search box and cannot get out</h1>
+  <p class="lede">
+    On Inventory a scan deliberately <em>fills</em> the search box — finding the product is the
+    whole job of a scan on that screen. But nothing empties it again. The cashier is left
+    looking at a one-product list with <code>5901234123457</code> in the box and no visible way
+    back to the full inventory.
+  </p>
+
+  <div class="rule">
+    <b>The proposal, in one line</b>
+    <p>
+      A <b>×</b> button inside the field, left of the scan button, present only while there is
+      text. It clears the value and nothing else.
+    </p>
+  </div>
+
+  <section>
+    <h2>Today</h2>
+    <p class="note">
+      Both modes of <code>SearchRow</code>, after scanning one product on Inventory. Neither
+      offers a way out that does not involve deleting thirteen digits by hand.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>No hardware scanner</b><i>TextInput + camera or soft keyboard</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field withScan"><span class="val">5901234123457</span></div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>18 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag bad">the problem</span><br>
+          Tap into the field, hold backspace thirteen times. On a tablet at a counter that is a
+          two-handed operation mid-sale.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Hardware scanner attached</b><i>Pressable + on-screen keypad</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field tappable withScan"><span class="val">5901234123457</span></div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="live"><span class="liveDot"></span><span class="liveLabel">Scanner ready</span></div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>18 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag bad">worse</span><br>
+          This field is not a text input at all — it is a <code>Pressable</code>, so there is no
+          caret and no select-all. The keypad has a <code>Clear</code> key, but reaching it means
+          tapping the field to raise a whole keypad dock just to empty it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Proposed</h2>
+    <p class="note">
+      One control, both modes, both sizes. Grey rather than black: the scan button stays the
+      loud thing on the row, because scanning is the action and clearing is the undo.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>Inventory — desk size</b><i>size="desk", 44pt row</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field withBoth"><span class="val">5901234123457</span></div>
+            <div class="clear">×</div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>18 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">28pt circle at <code>right: 44</code>, clearing the 32pt scan button with
+          6pt to spare. Field padding goes 46 → 78.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>POS — counter size</b><i>size="counter", 52pt row</i></p>
+        <div class="frame">
+          <div class="row">
+            <span class="icon counter">⌕</span>
+            <div class="field counter withIcon withBoth"><span class="val">5901234123457</span></div>
+            <div class="clear counter">×</div>
+            <div class="scan counter">⛶</div>
+          </div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>£4.20</span></div>
+          </div>
+        </div>
+        <p class="note">Everything one step bigger, as the rest of this row already is: 34pt at
+          <code>right: 52</code>, padding 54 → 92. Pressed at a counter, not at a desk.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Keypad open</b><i>hardware scanner, mid-edit</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field tappable withBoth"><span class="val">5901234123457</span><span class="caret"></span></div>
+            <div class="clear">×</div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="live"><span class="liveDot"></span><span class="liveLabel">Scanner ready</span></div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>18 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">
+          The × is a sibling of the field, not a child of it — same as the scan button — so
+          tapping it clears the text <em>without</em> opening the keypad, and without the field
+          ever asking for focus. The wedge keeps the caret.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Empty</b><i>value === "" — unchanged</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field withScan"><span class="ph">Search by name, SKU or barcode</span></div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="list">
+            <div class="li"><b>Ceylon tea, 250g</b><span>18 in stock</span></div>
+            <div class="li"><b>Arabica beans, 1kg</b><span>6 in stock</span></div>
+            <div class="li"><b>Paper cups, 50</b><span>2 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">No text, no ×. The row is exactly what it is today, and the placeholder
+          keeps its full width.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Camera off for this store</b><i>showScanButton false</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field withScan"><span class="val">arabica</span></div>
+            <div class="clear only">×</div>
+          </div>
+          <div class="list">
+            <div class="li"><b>Arabica beans, 1kg</b><span>6 in stock</span></div>
+          </div>
+        </div>
+        <p class="note">With no scan button to sit beside, the × takes the outer slot at
+          <code>right: 6</code>. One rule: the × is always the inner control when both are up.</p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>A search that found nothing</b><i>the case that needs it most</i></p>
+        <div class="frame">
+          <div class="row">
+            <div class="field withBoth"><span class="val">5901234123499</span></div>
+            <div class="clear">×</div>
+            <div class="scan">⛶</div>
+          </div>
+          <div class="empty">No products match this search.</div>
+        </div>
+        <p class="note">
+          <span class="flag good">the whole point</span><br>
+          An empty list gives the reader nothing to tap. Before this change the only affordance
+          on screen was the one that got them here.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it does, and what it deliberately does not</h2>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Question</th><th>Answer</th></tr>
+        <tr>
+          <td><b>What does × clear?</b></td>
+          <td>The search value, via the <code>onChange('')</code> the row already takes. Nothing else.
+            The screen's own filters — category, stock filter, sort — are separate controls and
+            keep their state.</td>
+        </tr>
+        <tr>
+          <td><b>Does it close the keypad?</b></td>
+          <td>No. Clearing is usually the start of typing something else, and closing a dock the
+            user is mid-way through using would cost more taps than it saves.</td>
+        </tr>
+        <tr>
+          <td><b>Does it clear the POS scan banner?</b></td>
+          <td>No. <code>scanFeedback</code> and the <code>+ Add a product with barcode …</code> prompt are
+            their own state with their own lifetimes (the banner self-clears after 3.5s). One
+            control, one job.</td>
+        </tr>
+        <tr>
+          <td><b>Why not auto-clear after a scan?</b></td>
+          <td>Because on Inventory the filled box <em>is</em> the result — it is what narrows the list to
+            the scanned product. Auto-clearing would undo the scan.</td>
+        </tr>
+        <tr>
+          <td><b>Accessibility</b></td>
+          <td><code>accessibilityLabel="Clear search"</code>, <code>accessibilityRole="button"</code>. The glyph is
+            <code>×</code> (U+00D7), not a lowercase x, and it is never the only signal — the label carries it.</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Alternative considered</h2>
+    <p class="note">
+      <b>× replaces the scan button while there is text.</b> Tempting — no new padding, no
+      crowding. Rejected: it removes the scan button exactly when the next scan is most likely,
+      which is right after the last one. A cashier working through a delivery scans the next item
+      without clearing the previous one first, and the whole row is designed around that not
+      being interrupted.
+    </p>
+  </section>
+</div>
