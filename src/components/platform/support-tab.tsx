@@ -23,6 +23,7 @@ import {
   SUPPORT_CATEGORIES,
   categoryMeta,
   isSupportCategory,
+  type OperatorCategory,
 } from '@/lib/support-taxonomy';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -225,6 +226,254 @@ export function SupportTab({
       )}
     </View>
   );
+}
+
+// Who at the store an outbound thread belongs to.
+//
+// Held as a mode rather than as the id it resolves to: the id is only knowable
+// once a store is chosen, and a uuid in state would survive the operator
+// clearing the store — addressing the next store's thread to the last store's
+// owner, which the edge function would refuse and, if it ever stopped refusing,
+// would be this feature's one promise broken.
+type Recipient = 'store' | 'owner';
+
+// support_messages.body's own ceiling (20260825000000), restated by
+// platform-admin so the check violation becomes a sentence. Restated a third
+// time here for one reason only: a 4100-character message that has to reach the
+// server to be refused is a message the operator has to write twice.
+const MESSAGE_MAX = 4000;
+
+// Code points, because that is what Postgres length() counts and what the edge
+// function measures against. Plain .length is UTF-16 units, which counts every
+// emoji twice.
+const bodyLength = (text: string) => [...text].length;
+
+/**
+ * Starting a conversation, rather than answering one.
+ *
+ * The same object either way — a thread — so this is the reply panel with its
+ * fields flipped: a recipient instead of an identity strip, because the one
+ * thing an outbound message has to get right is who at the store can read it.
+ *
+ * ONE STORE AT A TIME. The recipient row would take several as easily as one,
+ * and must not: "message every store on Starter" is a broadcast, which is a
+ * different feature with different failure modes — an announcement hundreds of
+ * stores cannot reply to, turning the unread badge into noise people learn to
+ * dismiss — and it needs a reply-disabled thread type that does not exist.
+ */
+export function SupportComposeModal({
+  shops,
+  initialShopId,
+  onDone,
+  onClose,
+}: {
+  shops: PlatformShopRow[];
+  /** Pre-filled when the composer was opened from a store's drawer. */
+  initialShopId: string | null;
+  /** Reloads the console, so the new thread appears in the queue behind this. */
+  onDone: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [shopId, setShopId] = useState<string | null>(initialShopId);
+  const [search, setSearch] = useState('');
+  const [recipient, setRecipient] = useState<Recipient>('store');
+  const [category, setCategory] = useState<OperatorCategory>('billing');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // `busy` alone is not a guard: two presses landing before the state has
+  // re-rendered the button both see it enabled, and open_support is an insert
+  // with nothing on the server to collapse the second into the first — the
+  // store would get the same message twice, in two separate conversations.
+  const sendInFlight = useRef(false);
+
+  const matches = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    // Nothing until they type. This console lists every store on Kaiibi, and a
+    // recipient field that opens with an arbitrary six of them invites picking
+    // whichever one looks closest.
+    if (!q) return [];
+    return shops.filter((shop) => shop.shopName.toLowerCase().includes(q)).slice(0, 6);
+  }, [shops, search]);
+
+  const chosen = shops.find((shop) => shop.shopId === shopId) ?? null;
+  const body = message.trim();
+  const tooLong = bodyLength(body) > MESSAGE_MAX;
+
+  const send = async (): Promise<void> => {
+    if (!chosen) {
+      setError('Pick a store first.');
+      return;
+    }
+    if (!subject.trim() || !body) {
+      setError('A subject and a message are both needed.');
+      return;
+    }
+    if (tooLong) {
+      setError(`That message is ${bodyLength(body)} characters; the limit is ${MESSAGE_MAX}.`);
+      return;
+    }
+    if (sendInFlight.current) return;
+    sendInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      // The message body is passed as `reason`. platform-admin requires one on
+      // every action, and for support the body IS the justification, so the
+      // audit log records what was actually said rather than a second sentence
+      // about it.
+      //
+      // addressedUserId null means "the store", which the policy in
+      // 20260825000000 reads as holders of settings.access — not everyone at
+      // the shop. An id makes the thread that person's alone. The owner's is
+      // the only id this console can name (see RECIPIENTS).
+      await callPlatformAdmin(
+        'open_support',
+        {
+          shopId: chosen.shopId,
+          support: {
+            category,
+            subject: subject.trim(),
+            addressedUserId: recipient === 'owner' ? chosen.ownerId : null,
+          },
+        },
+        body
+      );
+      await onDone();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That message did not send.');
+    } finally {
+      sendInFlight.current = false;
+      setBusy(false);
+    }
+  };
+
+  return (
+    <View>
+      <Text style={composeStyles.label}>To</Text>
+      {chosen ? (
+        <Pressable
+          onPress={() => {
+            setShopId(null);
+            // Back to the store, not left on the last store's owner: the
+            // recipient is a choice about a shop that is no longer picked.
+            setRecipient('store');
+          }}
+          style={composeStyles.token}
+        >
+          <Text style={composeStyles.tokenText}>{chosen.shopName}  ✕</Text>
+        </Pressable>
+      ) : (
+        <>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search stores…"
+            placeholderTextColor={theme.bentoMuted2}
+            style={composeStyles.input}
+          />
+          {matches.map((shop) => (
+            <Pressable
+              key={shop.shopId}
+              onPress={() => {
+                setShopId(shop.shopId);
+                setSearch('');
+              }}
+              style={composeStyles.match}
+            >
+              <Text style={composeStyles.matchText}>{shop.shopName}</Text>
+            </Pressable>
+          ))}
+        </>
+      )}
+
+      {chosen && (
+        <>
+          <Text style={composeStyles.label}>Who at the store</Text>
+          <View style={composeStyles.chips}>
+            {RECIPIENTS.map((option) => (
+              <Chip
+                key={option.key}
+                label={option.label}
+                active={recipient === option.key}
+                onPress={() => setRecipient(option.key)}
+              />
+            ))}
+          </View>
+          {/* The choice is a privacy guarantee, so it is spelled out rather
+              than left to two words on a chip. Neither option means "everyone
+              who works here", and an operator who believes it does will write
+              a billing message a cashier is meant never to see. */}
+          <Caveat tone="context">{recipientNote(recipient, chosen.shopName)}</Caveat>
+        </>
+      )}
+
+      <Text style={composeStyles.label}>What&apos;s this about?</Text>
+      <View style={composeStyles.chips}>
+        {OPERATOR_CATEGORIES.map((option) => (
+          <Chip
+            key={option.key}
+            label={`${option.glyph} ${option.label}`}
+            active={category === option.key}
+            onPress={() => setCategory(option.key)}
+          />
+        ))}
+      </View>
+
+      <Text style={composeStyles.label}>Subject</Text>
+      <TextInput value={subject} onChangeText={setSubject} style={composeStyles.input} />
+
+      <Text style={composeStyles.label}>Message</Text>
+      <TextInput
+        value={message}
+        onChangeText={setMessage}
+        multiline
+        style={[composeStyles.input, composeStyles.area]}
+      />
+      {tooLong && (
+        <Text style={composeStyles.overflow}>
+          {`${bodyLength(body)} of ${MESSAGE_MAX} characters. The rest will not send.`}
+        </Text>
+      )}
+
+      {error && (
+        <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => void send() }}>
+          {error}
+        </Caveat>
+      )}
+
+      <View style={composeStyles.actions}>
+        {/* Quiet, so exactly one filled pill in the row names the ordinary
+            thing to do. PlatformButton's default already is the filled one. */}
+        <PlatformButton label="Cancel" quiet onPress={onClose} />
+        <PlatformButton label={busy ? 'Sending…' : 'Send'} onPress={() => void send()} disabled={busy || tooLong} />
+      </View>
+    </View>
+  );
+}
+
+// The two recipients this console can actually name.
+//
+// There is no third option and no member picker, because an operator cannot
+// read a shop's roster: `shop_members` carries no policy for is_platform_admin()
+// and verify-platform-portal.sql asserts that it stays that way — the staff
+// list is one of the things a stolen operator account must not open. The
+// owner's id rides on PlatformShopRow, which is why that one person can be
+// named at all, and open_support accepts it without a roster lookup for the
+// same reason. Offering names we would have to guess at is offering choices the
+// edge function is going to refuse.
+const RECIPIENTS: readonly { key: Recipient; label: string }[] = [
+  { key: 'store', label: 'Everyone who runs it' },
+  { key: 'owner', label: 'The owner only' },
+];
+
+function recipientNote(recipient: Recipient, shopName: string): string {
+  if (recipient === 'owner') {
+    return `Only the owner of ${shopName} can open this. Nobody else there sees it — not even colleagues who can reach Settings — and it stays theirs even if they leave the shop.`;
+  }
+  return `Anyone at ${shopName} who can reach Settings can read this and reply — the owner, and whoever they have trusted with the books. A cashier or a manager without that access will not see it at all.`;
 }
 
 function Kpi({ value, label, hint }: { value: string; label: string; hint: string }) {
@@ -754,6 +1003,40 @@ const styles = StyleSheet.create({
   stateUrgent: { backgroundColor: theme.bentoDownWash },
   stateText: { fontSize: 10.5, fontWeight: '800', color: theme.bentoMuted2 },
   stateTextUrgent: { color: theme.bentoDownInk },
+});
+
+const composeStyles = StyleSheet.create({
+  label: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    color: theme.bentoMuted2,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: theme.bentoRule,
+    borderRadius: 12,
+    padding: 11,
+    fontSize: 13.5,
+    color: theme.bentoInk,
+  },
+  area: { minHeight: 110, textAlignVertical: 'top' },
+  match: { paddingVertical: 9, borderTopWidth: 1, borderTopColor: theme.bentoRule },
+  matchText: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  token: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.bentoAccentWash,
+    borderRadius: 999,
+    paddingVertical: 5,
+    paddingHorizontal: 12,
+  },
+  tokenText: { fontSize: 12, fontWeight: '800', color: theme.bentoAccentInk },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  overflow: { fontSize: 11.5, fontWeight: '700', color: theme.bentoLoss, marginTop: 6 },
+  actions: { flexDirection: 'row', gap: 8, marginTop: 18, justifyContent: 'flex-end' },
 });
 
 const panelStyles = StyleSheet.create({

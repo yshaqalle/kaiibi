@@ -10,7 +10,7 @@ import { RequestsTab } from '@/components/platform/requests-tab';
 import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
-import { SupportTab } from '@/components/platform/support-tab';
+import { SupportComposeModal, SupportTab } from '@/components/platform/support-tab';
 import { Caveat } from '@/components/ui/caveat';
 import { TabPills } from '@/components/ui/tab-pills';
 import { useAuth } from '@/hooks/use-auth';
@@ -88,6 +88,12 @@ export default function PlatformHome() {
   // during render.
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [selected, setSelected] = useState<string | null>(null);
+  // The outbound composer, opened from two places — the Support tab's New
+  // message button and a store's drawer. One piece of state rather than a
+  // `visible` flag beside a shop id, so "open, addressed to nobody" is the only
+  // empty state there is and the two cannot disagree. Null shopId is a composer
+  // opened with no store picked yet, which is what New message does.
+  const [composing, setComposing] = useState<{ shopId: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   // Set when a load throws. support_threads and its profiles read are days
   // old next to the other five queries' months, so this is the read most
@@ -194,10 +200,7 @@ export default function PlatformHome() {
       truncated={supportTruncated}
       compact={compact}
       onDone={reload}
-      // Deliberately inert until the outbound composer lands: it is rendered
-      // from inside support-tab.tsx, so wiring a modal here now would be a
-      // second owner of the same surface.
-      onCompose={() => {}}
+      onCompose={() => setComposing({ shopId: null })}
     />
   ) : tab === 'plans' ? (
     <PlansTab
@@ -293,7 +296,29 @@ export default function PlatformHome() {
           scrolling to find what you had just clicked. */}
       {selectedShop ? (
         <PlatformModal title={selectedShop.shopName} compact={compact} onClose={() => setSelected(null)}>
-          <ShopDrawer shop={selectedShop} plans={plans} onDone={reload} />
+          <ShopDrawer
+            shop={selectedShop}
+            plans={plans}
+            onDone={reload}
+            // Closes the drawer as it opens the composer: two stacked modals on
+            // a tablet leave the operator dismissing a sheet they cannot see
+            // the edges of, and the composer carries the store forward anyway.
+            onMessage={() => {
+              setSelected(null);
+              setComposing({ shopId: selectedShop.shopId });
+            }}
+          />
+        </PlatformModal>
+      ) : null}
+
+      {composing ? (
+        <PlatformModal title="New message" compact={compact} onClose={() => setComposing(null)}>
+          <SupportComposeModal
+            shops={shops}
+            initialShopId={composing.shopId}
+            onDone={reload}
+            onClose={() => setComposing(null)}
+          />
         </PlatformModal>
       ) : null}
     </SafeAreaView>
