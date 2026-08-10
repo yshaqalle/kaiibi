@@ -83,7 +83,13 @@ export function AttachmentPicker({
     });
   };
 
-  const remove = (index: number) => onChange(files.filter((_, i) => i !== index));
+  const remove = (index: number) => {
+    // Removing one is the fix both refusals ask for -- "remove one to add
+    // another", or make room for something smaller -- so a caveat left up
+    // after it would be telling them to do the thing they just did.
+    setProblem(null);
+    onChange(files.filter((_, i) => i !== index));
+  };
 
   return (
     <View>

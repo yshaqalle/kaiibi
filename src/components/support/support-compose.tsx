@@ -55,6 +55,9 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
   // otherwise the 'Try again' button is a button that files a second copy of
   // the same report and leaves the first unanswerable.
   const openedThread = useRef<SupportThread | null>(null);
+  // Which of `files` already reached the thread above, so a retry after a
+  // failed upload does not put the ones that worked on it a second time.
+  const linked = useRef(new Set<PendingAttachment>());
 
   // Restore once, then persist on every change. Nothing typed is lost to a
   // failed send, a closed sheet, or a killed app.
@@ -81,8 +84,10 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
     // Editing after a part-finished send means the words have changed, and the
     // thread already opened carries the old ones -- so it is no longer the
     // thread this send is trying to finish, and resuming into it would drop
-    // the edit silently.
+    // the edit silently. The next send opens a new thread, which needs its own
+    // copies of the files.
     openedThread.current = null;
+    linked.current.clear();
   }, [draft]);
 
   const meta = draft.category ? categoryMeta(draft.category) : null;
@@ -146,8 +151,13 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
           .single();
         if (error) throw error;
 
-        for (const file of files) {
-          const path = attachmentPath(shop.id, thread.id, file.fileName, Date.now());
+        for (const [index, file] of files.entries()) {
+          if (linked.current.has(file)) continue;
+          // `Date.now() + index` rather than Date.now(): the timestamp is only
+          // there to keep paths unique, uploads use upsert:false, and two files
+          // of the same name picked from different folders can finish inside
+          // the same millisecond -- which would fail the second one.
+          const path = attachmentPath(shop.id, thread.id, file.fileName, Date.now() + index);
           await uploadAttachment(path, file);
           const { error: linkError } = await supabase.from('support_attachments').insert({
             message_id: message.id,
@@ -157,11 +167,13 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
             content_type: file.contentType,
           });
           if (linkError) throw linkError;
+          linked.current.add(file);
         }
       }
 
       clearStoredDraft();
       openedThread.current = null;
+      linked.current.clear();
       setDraft(EMPTY_DRAFT);
       setFiles([]);
       onSent(thread.reference);
