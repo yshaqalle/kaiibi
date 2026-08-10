@@ -107,7 +107,7 @@ function NoAccessScreen() {
       </Text>
       {/* This screen is the one place a person can be completely stuck: their role
           grants nothing, so there is no shell, no ☰, and no other route out. */}
-      <Pressable onPress={() => setSupportOpen(true)}>
+      <Pressable onPress={() => setSupportOpen(true)} accessibilityRole="button" accessibilityLabel="Contact support">
         <Text style={styles.noAccessSupport}>Contact support</Text>
       </Pressable>
       <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
@@ -129,11 +129,16 @@ function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean
   const router = useRouter();
   const meta = MODULES.find((m) => m.key === module);
   const [supportOpen, setSupportOpen] = useState(false);
+  const [unresolvedSupportOpen, setUnresolvedSupportOpen] = useState(false);
 
   // The lookup failed, so we genuinely don't know what this shop is entitled
   // to. Access stays closed -- the server would refuse the writes anyway -- but
   // telling a possibly-paid-up customer that this "isn't on your plan" would be
   // a false accusation dressed up as an upsell.
+  //
+  // The copy calls this transient, but there is no retry: a failed entitlement
+  // fetch leaves `resolved` false until the next full auth reload, so this is
+  // as much a dead end as the other two branches and needs the same way out.
   if (!resolved) {
     return (
       <View style={styles.noAccess}>
@@ -142,6 +147,14 @@ function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean
           We couldn&apos;t check your plan just now, so this screen is on hold. This is a problem on our side, not
           with your account.
         </Text>
+        <Pressable
+          onPress={() => setUnresolvedSupportOpen(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Contact support"
+        >
+          <Text style={styles.noAccessSupport}>Contact support</Text>
+        </Pressable>
+        <SupportSheet visible={unresolvedSupportOpen} onClose={() => setUnresolvedSupportOpen(false)} />
       </View>
     );
   }
@@ -157,7 +170,7 @@ function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean
       </Text>
       {/* This screen is the one place a shop can be completely stuck: the module
           is walled off, so there is no shell, no ☰, and no other route out. */}
-      <Pressable onPress={() => setSupportOpen(true)}>
+      <Pressable onPress={() => setSupportOpen(true)} accessibilityRole="button" accessibilityLabel="Contact support">
         <Text style={styles.noAccessSupport}>Contact support</Text>
       </Pressable>
       <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
