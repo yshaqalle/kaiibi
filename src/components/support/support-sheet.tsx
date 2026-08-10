@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SupportCompose } from '@/components/support/support-compose';
 import { SupportThreadView } from '@/components/support/support-thread-view';
@@ -86,7 +86,19 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
 
   return (
     <AppModal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <View style={styles.backdrop}>
+      {/* A modal window does not follow the Activity's adjustResize on Android,
+          and never resizes at all on iOS, so the sheet keeps its full height
+          under the keyboard and the ScrollView's bottom sits behind it. On both
+          phones that put Send -- the last thing in the form -- past the end of
+          the scrollable range while anyone is typing, which is every moment
+          they would want it. Measured on a Pixel 8 and an iPhone 16 Pro.
+
+          `padding` on Android too, not the 'height' usually paired with it:
+          this View is the dimming backdrop as well as the layout box, and
+          padding is inside the background, so the dimming stays full-bleed
+          either way. One value that was checked on both beats two that were
+          each checked on one. */}
+      <KeyboardAvoidingView style={styles.backdrop} behavior="padding">
         <View style={styles.sheet}>
           <View style={styles.head}>
             <View style={styles.headText}>
@@ -115,7 +127,10 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={styles.body}>
+          {/* Without this the first tap on Send is spent dismissing the
+              keyboard, which reads as a dead button on a form someone has just
+              finished typing into. Matches every other modal ScrollView here. */}
+          <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
             {view.name === 'compose' && (
               <SupportCompose
                 onSent={(reference) => {
@@ -198,7 +213,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
             )}
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </AppModal>
   );
 }
