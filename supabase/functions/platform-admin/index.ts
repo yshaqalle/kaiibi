@@ -30,6 +30,9 @@ type Action =
   | 'set_platform_settings'
   | 'approve_plan_change'
   | 'decline_plan_change'
+  | 'open_support'
+  | 'reply_support'
+  | 'close_support'
   | 'delete_shop';
 
 type RequestBody = {
@@ -68,9 +71,32 @@ type RequestBody = {
   postTrialPlanKey?: string;
   settings?: Record<string, unknown>;
   requestId?: string;
+  // Support. `reason` carries the message body for open_support and
+  // reply_support -- see the note on those cases.
+  support?: {
+    threadId?: string;
+    addressedUserId?: string | null;
+    category?: string;
+    subject?: string;
+  };
   // The shop's exact name, retyped by the operator. Only used by delete_shop.
   confirmName?: string;
 };
+
+// OPERATOR_CATEGORIES in src/lib/support-taxonomy.ts, restated because a Deno
+// function cannot import from the app bundle. The database constrains these too
+// (20260825000100); checking here as well is what turns a check violation --
+// which surfaces as a bare 500 -- into a sentence naming the bad value.
+const OPERATOR_CATEGORIES = ['billing', 'account', 'problem', 'changed', 'other'];
+
+// support_messages.body's own ceiling (20260825000000). Same reasoning as the
+// category list: the constraint is the guarantee, this is the error message.
+const MESSAGE_MAX = 4000;
+
+// Code points, because that is what Postgres length() counts. Plain .length is
+// UTF-16 units, which counts every emoji twice -- a reply the column would
+// accept refused with a character count the operator can see is wrong.
+const messageLength = (text: string) => [...text].length;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -966,6 +992,177 @@ Deno.serve(async (req) => {
 
         await audit(action, request.shop_id, before, after);
         return ok({ subscription: after });
+      }
+
+      // The audit log's rule is that every action carries a reason (see the
+      // guard near the top of this file). For support, the message body IS the
+      // reason: asking an operator to justify each reply separately would be
+      // absurd, and passing the body keeps the log recording what was actually
+      // said rather than carving out an exemption.
+      //
+      // Every check below is the only check. These three cases write through
+      // the service-role client, which bypasses RLS entirely, so the policies
+      // that make a store's own writes safe (20260825000000) are not consulted
+      // for a single one of these rows.
+      case 'open_support': {
+        if (!body.shopId) return errorResponse(400, 'unknown', 'shopId is required.');
+        const subject = body.support?.subject?.trim();
+        const category = body.support?.category?.trim();
+        if (!subject) return errorResponse(400, 'unknown', 'A subject is required.');
+        if (!category) return errorResponse(400, 'unknown', 'A category is required.');
+        if (!OPERATOR_CATEGORIES.includes(category)) {
+          return errorResponse(400, 'unknown', `\`${category}\` is not a category an operator can use.`);
+        }
+        const messageBody = reason.trim();
+        if (messageLength(messageBody) > MESSAGE_MAX) {
+          return errorResponse(400, 'message_too_long', `That message is ${messageLength(messageBody)} characters; the limit is ${MESSAGE_MAX}.`);
+        }
+
+        // shop_id is a foreign key, so an unknown one is refused either way --
+        // but as a 500 quoting a constraint name. The owner is read here too,
+        // for the addressee check below.
+        const { data: shop, error: shopError } = await adminClient
+          .from('shops')
+          .select('id, owner_id')
+          .eq('id', body.shopId)
+          .maybeSingle();
+        if (shopError) return errorResponse(500, 'unknown', shopError.message);
+        if (!shop) return errorResponse(400, 'unknown', 'No such shop.');
+
+        // addressed_user_id is who the thread BELONGS to, and
+        // support_thread_is_visible() hands the thread to whoever it names with
+        // no membership test of its own -- deliberately, so a cashier keeps
+        // reading their own thread after they leave. That makes a mistyped id
+        // here a stranger reading this shop's support conversation, which is
+        // the one promise this feature makes. Checked against the shop's staff
+        // where the mistake is still cheap.
+        const addressedUserId = body.support?.addressedUserId ?? null;
+        if (addressedUserId && addressedUserId !== shop.owner_id) {
+          const { data: member, error: memberError } = await adminClient
+            .from('shop_members')
+            .select('user_id')
+            .eq('shop_id', body.shopId)
+            .eq('user_id', addressedUserId)
+            .eq('active', true)
+            .maybeSingle();
+          if (memberError) return errorResponse(500, 'unknown', memberError.message);
+          if (!member) return errorResponse(400, 'unknown', 'That person does not work at this shop.');
+        }
+
+        const { data: opened, error: threadError } = await adminClient
+          .from('support_threads')
+          .insert({
+            shop_id: body.shopId,
+            opened_by: 'platform',
+            // Null: the thread is from Kaiibi, not from whichever operator
+            // happened to type it. author_user_id on the MESSAGE below is where
+            // the individual is recorded.
+            author_user_id: null,
+            addressed_user_id: addressedUserId,
+            category,
+            subject,
+          })
+          .select('*')
+          .single();
+        if (threadError) return errorResponse(500, 'unknown', threadError.message);
+
+        const { error: messageError } = await adminClient.from('support_messages').insert({
+          thread_id: opened.id,
+          author_kind: 'platform',
+          author_user_id: actorId,
+          body: messageBody,
+        });
+        if (messageError) {
+          // Two inserts, no transaction across them (each is its own PostgREST
+          // request). Leaving the thread behind is worse than failing outright:
+          // a subject with no body sits at the top of the store's list on a
+          // fresh last_message_at, unanswerable and undeletable by them -- the
+          // exact orphan open_support_thread() exists to prevent on the store
+          // side. Rolled back by hand instead, and the caller hears the
+          // original failure either way.
+          await adminClient.from('support_threads').delete().eq('id', opened.id);
+          return errorResponse(500, 'unknown', messageError.message);
+        }
+
+        // Re-read rather than return `opened`: support_messages_touch_thread
+        // moved last_message_at and platform_read_at after the row above was
+        // captured, and the stale copy has platform_read_at null -- an
+        // operator's own outbound thread reading as unread in their own queue.
+        const { data: thread, error: rereadError } = await adminClient
+          .from('support_threads')
+          .select('*')
+          .eq('id', opened.id)
+          .single();
+        if (rereadError) return errorResponse(500, 'unknown', rereadError.message);
+
+        await audit('open_support', body.shopId, null, thread);
+        return ok({ thread });
+      }
+
+      case 'reply_support': {
+        const threadId = body.support?.threadId;
+        if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+        const messageBody = reason.trim();
+        if (messageLength(messageBody) > MESSAGE_MAX) {
+          return errorResponse(400, 'message_too_long', `That message is ${messageLength(messageBody)} characters; the limit is ${MESSAGE_MAX}.`);
+        }
+
+        const { data: thread, error: loadError } = await adminClient
+          .from('support_threads')
+          .select('*')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (loadError) return errorResponse(500, 'unknown', loadError.message);
+        if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        // author_kind 'platform' is what makes the trigger mark this read for
+        // us and leave it unread for the shop -- it is the whole unread rule,
+        // not a label, so it is set here and never taken from the request.
+        const { data: message, error: messageError } = await adminClient
+          .from('support_messages')
+          .insert({
+            thread_id: threadId,
+            author_kind: 'platform',
+            author_user_id: actorId,
+            body: messageBody,
+          })
+          .select('*')
+          .single();
+        if (messageError) return errorResponse(500, 'unknown', messageError.message);
+
+        await audit('reply_support', thread.shop_id, null, message);
+        return ok({ message });
+      }
+
+      case 'close_support': {
+        const threadId = body.support?.threadId;
+        if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+
+        const { data: before, error: beforeError } = await adminClient
+          .from('support_threads')
+          .select('*')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(404, 'unknown', 'No such conversation.');
+        // Same guard as approve_plan_change's already_decided, and for the same
+        // reason: two operators with the queue open, both clicking. Closing
+        // twice writes a second audit row whose reason is a different
+        // operator's words against a change that did not happen.
+        if (before.status === 'closed') {
+          return errorResponse(409, 'already_closed', 'That conversation is already closed.');
+        }
+
+        const { data: after, error: updateError } = await adminClient
+          .from('support_threads')
+          .update({ status: 'closed' })
+          .eq('id', threadId)
+          .select('*')
+          .single();
+        if (updateError) return errorResponse(500, 'unknown', updateError.message);
+
+        await audit('close_support', before.shop_id, before, after);
+        return ok({ thread: after });
       }
 
       case 'delete_shop': {
