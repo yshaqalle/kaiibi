@@ -374,6 +374,16 @@ export function SupportComposeModal({
         </Pressable>
       ) : (
         <>
+          {/* The drawer hands over an id, not a row, so a store the console
+              reloaded away from — or never held — lands here as an empty search
+              box. Unexplained, that reads as "I opened the wrong thing", and the
+              operator closes a composer that was addressed correctly. */}
+          {shopId ? (
+            <Caveat tone="wrong" action={{ label: 'Search for it', onPress: () => setShopId(null) }}>
+              That store is not in the list this console has loaded, so it could not be filled in
+              here. Find it by name below, or reload the console and start again.
+            </Caveat>
+          ) : null}
           <TextInput
             value={search}
             onChangeText={setSearch}
@@ -441,7 +451,7 @@ export function SupportComposeModal({
       />
       {tooLong && (
         <Text style={composeStyles.overflow}>
-          {`${bodyLength(body)} of ${MESSAGE_MAX} characters. The rest will not send.`}
+          {`${bodyLength(body)} of ${MESSAGE_MAX} characters. Shorten it by ${bodyLength(body) - MESSAGE_MAX} to send.`}
         </Text>
       )}
 

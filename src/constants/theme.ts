@@ -52,8 +52,10 @@ export const Colors = {
     // tiles, the P&L total row and the selected-row inset all sit on the soft
     // grey, so white is the flattering surface and the wrong one to test on.
     //
-    // The previous values failed WCAG AA for normal text: #8b8b93 read 3.38:1
-    // and #a8a8b0 just 2.36:1 -- and muted2 is what chart axis labels wear, so
+    // The previous values failed WCAG AA for normal text: on that soft grey
+    // #8b8b93 read 3.13:1 and #a8a8b0 just 2.19:1 (3.38:1 and 2.36:1 on the
+    // white this pair is NOT solved against, which is the flattery the note
+    // above is warning about) -- and muted2 is what chart axis labels wear, so
     // the least readable token was carrying the numbers on every chart. These
     // are the same cool hue re-stepped in OKLab holding hue and chroma; only
     // lightness moved, and the two steps stay 1.33:1 apart so the hierarchy
@@ -96,7 +98,7 @@ export const Colors = {
     // StatementRow prints the minus sign; that labelling is load-bearing.
     //
     // Also re-stepped against `bentoSoft`. The old green was the subtle one:
-    // #0f9d58 reads 3.34:1 there, which clears the 3:1 large-text bar and so
+    // #0f9d58 reads 3.25:1 there, which clears the 3:1 large-text bar and so
     // was legal on the 19px bold net-profit total, while failing the 4.5:1
     // normal-text bar on the 15px StatementRow directly above it -- one token
     // passing and failing inside a single card. Darkening it removes the size
@@ -125,16 +127,16 @@ export const Colors = {
     // The badge always carries an arrow as well as the colour — same rule as
     // `bentoProfit`/`bentoLoss` above, and for the same deutan reason.
     bentoUpWash: '#d9efe4',
-    bentoUpInk: '#007a38', // 4.94:1 on its wash
+    bentoUpInk: '#007a38', // 4.53:1 on its wash
     bentoDownWash: '#fbeaec',
-    bentoDownInk: '#d12339', // 4.72:1 on its wash
+    bentoDownInk: '#d12339', // 4.51:1 on its wash
     // The same pill shape in the neutral case — a figure being carried beside
     // a status one, with no status of its own. `bentoSoft` would be the
     // obvious choice and is wrong here: it is the tile fill, so a soft pill on
     // a soft tile disappears. This is `bentoSeries1` washed to the same
     // lightness as the pair above.
     bentoAccentWash: '#e6edff',
-    bentoAccentInk: '#1b47b8', // 7.35:1 on its wash
+    bentoAccentInk: '#1b47b8', // 6.79:1 on its wash
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series

@@ -1,6 +1,7 @@
 import { Text, TextInput } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
+import { Chip } from '@/components/platform/kit';
 import { SupportComposeModal } from '@/components/platform/support-tab';
 import { callPlatformAdmin, type PlatformShopRow } from '@/lib/platform';
 
@@ -77,6 +78,25 @@ function fields(tree: ReactTestRenderer) {
   return tree.root.findAllByType(TextInput);
 }
 
+/**
+ * The labels of the chip row sitting under a heading.
+ *
+ * Scoped by position rather than by type alone: the recipients and the five
+ * categories are all Chips, so counting every Chip in the composer counts both
+ * rows, and filtering them by the labels under test would assume the answer the
+ * count is there to check.
+ */
+function chipsUnder(tree: ReactTestRenderer, heading: string): string[] {
+  const label = tree.root.findAllByType(Text).find((t) => flat(t.props.children) === heading);
+  if (!label) throw new Error(`no heading "${heading}"`);
+  const siblings = label.parent!.children.filter(
+    (child): child is ReactTestInstance => typeof child !== 'string'
+  );
+  const row = siblings[siblings.indexOf(label) + 1];
+  if (!row) throw new Error(`nothing follows "${heading}"`);
+  return row.findAllByType(Chip).map((chip) => String(chip.props.label));
+}
+
 function type(input: ReactTestInstance, value: string): void {
   act(() => {
     input.props.onChangeText(value);
@@ -116,6 +136,15 @@ describe('picking the store', () => {
 
   it('opens with the store already filled in when it came from that store', () => {
     expect(texts(renderComposer('shop-1')).some((t) => t.startsWith('Hooyo Market'))).toBe(true);
+  });
+
+  // The drawer hands over an id, and the console can have reloaded without that
+  // store between the two. Falling back to the search box in silence looks
+  // exactly like a composer opened from nowhere.
+  it('says so when the store it was opened for is not in the loaded list', () => {
+    const tree = renderComposer('shop-closed-since');
+    expect(texts(tree).some((t) => t.startsWith('That store is not in the list'))).toBe(true);
+    expect(texts(tree)).toContain('Search for it →');
   });
 
   it('shows nothing until the operator types', () => {
@@ -199,10 +228,14 @@ describe('who at the store can read it', () => {
   // Only the owner's id rides on PlatformShopRow. An operator cannot read a
   // shop's roster at all -- shop_members carries no policy for them -- so a
   // picker of named people is a picker this console cannot fill.
+  // Counted, not just looked for: a third chip -- a member picker filled from a
+  // roster this console cannot read, or "everyone at the shop", which no policy
+  // implements -- would leave both of these present and the promise broken.
   it('offers exactly two recipients', () => {
-    const shown = texts(renderComposer('shop-1'));
-    expect(shown).toContain('Everyone who runs it');
-    expect(shown).toContain('The owner only');
+    expect(chipsUnder(renderComposer('shop-1'), 'Who at the store')).toEqual([
+      'Everyone who runs it',
+      'The owner only',
+    ]);
   });
 });
 
@@ -287,11 +320,20 @@ describe('sending', () => {
   it('refuses a message the column would reject, without spending the request', async () => {
     const tree = renderComposer('shop-1');
     write(tree, 'Long', 'a'.repeat(4001));
+
+    // The button is the barrier an operator meets; the guard inside send() is
+    // the second line behind it, reachable only by calling the handler as the
+    // press below does. Asserting the guard alone would pass just as happily
+    // with a Send that stayed live and sent a request the server refuses.
+    expect(labelled(tree, 'Send')?.props.disabled).toBe(true);
+
     press(tree, 'Send');
     await act(async () => {});
 
     expect(callPlatformAdminMock).not.toHaveBeenCalled();
-    expect(texts(tree).some((t) => t.includes('4001 of 4000 characters'))).toBe(true);
+    expect(
+      texts(tree).some((t) => t.includes('4001 of 4000 characters. Shorten it by 1 to send.'))
+    ).toBe(true);
   });
 
   // Order matters, not just that both happen: a composer still on screen while

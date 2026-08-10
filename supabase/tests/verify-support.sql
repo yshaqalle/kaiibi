@@ -25,6 +25,7 @@ declare
   v_manager_role uuid;
   v_cashier_thread uuid;
   v_store_thread uuid;
+  v_owner_thread uuid;
   v_own_thread uuid;
   v_msg_id uuid;
   v_count integer;
@@ -185,6 +186,62 @@ begin
    where id = v_manager_role;
   perform set_config('role', 'authenticated', true);
   raise notice 'OK: store-addressed reaches settings.access holders only';
+
+  ------------------------------------------------------------------
+  raise notice '=== 6b. A thread we addressed to ONE person is only theirs ===';
+  ------------------------------------------------------------------
+  -- The other branch of the composer, and the promise its caveat makes in
+  -- words: "Nobody else there sees it -- not even colleagues who can reach
+  -- Settings" (recipientNote, src/components/platform/support-tab.tsx). Check 6
+  -- above exercises addressed_user_id null only, so the settings.access branch
+  -- could widen to cover an addressed thread and every check in this file would
+  -- still pass while the sentence on screen became false.
+  --
+  -- The manager is the witness and holds settings.access for the assertion:
+  -- refusing them WITHOUT it would prove nothing, since they are refused for
+  -- lacking the permission rather than for the thread being someone else's.
+  perform set_config('role', 'postgres', true);
+  insert into public.support_threads
+    (shop_id, opened_by, author_user_id, addressed_user_id, category, subject)
+    values (v_shop_id, 'platform', null, v_owner_id, 'billing', 'Your card was declined')
+    returning id into v_owner_thread;
+
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_owner_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into v_count from public.support_threads where id = v_owner_thread;
+  if v_count <> 1 then raise exception 'FAIL: the addressee cannot read a thread addressed to them'; end if;
+
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  select count(*) into v_count from public.support_threads where id = v_owner_thread;
+  if v_count <> 0 then raise exception 'FAIL: a cashier can read a thread addressed to the owner'; end if;
+
+  perform set_config('role', 'postgres', true);
+  update public.roles set permissions = permissions || array['settings.access']
+   where id = v_manager_role;
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_manager_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*) into v_count from public.support_threads where id = v_owner_thread;
+  if v_count <> 0 then
+    raise exception 'FAIL: settings.access opened a thread addressed to one person';
+  end if;
+
+  -- The control, through the same session in the same breath: this manager's
+  -- settings.access is live right now, so the refusal above is the
+  -- addressed_user_id and not a permission that failed to apply.
+  select count(*) into v_count from public.support_threads where id = v_store_thread;
+  if v_count <> 1 then
+    raise exception 'FAIL: the manager''s settings.access did not take effect at all';
+  end if;
+
+  perform set_config('role', 'postgres', true);
+  update public.roles set permissions = array_remove(permissions, 'settings.access')
+   where id = v_manager_role;
+  perform set_config('role', 'authenticated', true);
+  raise notice 'OK: an addressed thread is the addressee''s alone, settings.access or not';
 
   ------------------------------------------------------------------
   raise notice '=== 7. Someone from another shop sees nothing ===';
