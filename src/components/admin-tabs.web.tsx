@@ -8,6 +8,7 @@ import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
+import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
@@ -132,6 +133,9 @@ export default function AdminTabs() {
             </View>
           </Pressable>
         </AppModal>
+        {/* A sibling of the menu, not a child of it: the menu closes as this
+            opens, and a modal nested inside a dismissed one goes with it. */}
+        <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
         <View style={styles.mobileSlot}><Slot /></View>
         <View style={styles.bottomNav}>
           {visibleNavItems.map((item) => {

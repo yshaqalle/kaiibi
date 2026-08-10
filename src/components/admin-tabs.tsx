@@ -10,6 +10,7 @@ import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
 import { LocationSwitcher } from '@/components/location-switcher';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
+import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
@@ -161,6 +162,9 @@ export default function AdminTabs() {
           </View>
         </Pressable>
       </AppModal>
+      {/* A sibling of the menu, not a child of it: the menu closes as this
+          opens, and a modal nested inside a dismissed one goes with it. */}
+      <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
       <View style={styles.slot}>
         {/* blurEffect="none" stops iOS from compositing backgroundColor with a
             system blur material, which otherwise pulls in dark-mode tinting

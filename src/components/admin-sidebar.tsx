@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
 import { SupportMenuItem } from '@/components/support/support-menu-item';
+import { SupportSheet } from '@/components/support/support-sheet';
 import { useAuth } from '@/hooks/use-auth';
 import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
@@ -162,6 +163,9 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
           </View>
         </Pressable>
       </AppModal>
+      {/* A sibling of the menu, not a child of it: the menu closes as this
+          opens, and a modal nested inside a dismissed one goes with it. */}
+      <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
     </View>
   );
 }
