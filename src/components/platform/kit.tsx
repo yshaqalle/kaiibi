@@ -24,11 +24,19 @@ export function PlatformButton({
   onPress,
   disabled,
   danger,
+  quiet,
 }: {
   label: string;
   onPress: () => void;
   disabled?: boolean;
   danger?: boolean;
+  /**
+   * The third variant, for one shape only: a row where several controls commit
+   * the same text and exactly one of them is the ordinary thing to do. `danger`
+   * cannot say that — nothing is being destroyed — and three filled pills side
+   * by side name no default at all.
+   */
+  quiet?: boolean;
 }) {
   return (
     <Pressable
@@ -37,11 +45,19 @@ export function PlatformButton({
       style={({ hovered, pressed }) => [
         styles.button,
         danger && styles.buttonDanger,
+        quiet && styles.buttonQuiet,
         disabled && styles.buttonDisabled,
         !disabled && (hovered || pressed) && styles.buttonActive,
       ]}
     >
-      <Text style={[styles.buttonText, danger && styles.buttonTextDanger, disabled && styles.buttonTextDisabled]}>
+      <Text
+        style={[
+          styles.buttonText,
+          danger && styles.buttonTextDanger,
+          quiet && styles.buttonTextQuiet,
+          disabled && styles.buttonTextDisabled,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -169,9 +185,11 @@ const styles = StyleSheet.create({
   },
   buttonActive: { opacity: 0.85 },
   buttonDanger: { backgroundColor: 'transparent', borderColor: `${theme.bentoLoss}44` },
+  buttonQuiet: { backgroundColor: 'transparent', borderColor: theme.bentoRule },
   buttonDisabled: { backgroundColor: theme.bentoSoft, borderColor: theme.bentoLine },
   buttonText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   buttonTextDanger: { color: theme.bentoLoss },
+  buttonTextQuiet: { color: theme.bentoInk },
   buttonTextDisabled: { color: theme.bentoMuted2 },
 
   chip: {

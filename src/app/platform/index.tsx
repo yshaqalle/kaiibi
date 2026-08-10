@@ -191,10 +191,11 @@ export default function PlatformHome() {
       shops={shops}
       now={loadedAt}
       truncated={supportTruncated}
-      // Deliberately inert until the reply panel and the outbound composer
-      // land: both are rendered from inside support-tab.tsx, so wiring a modal
-      // here now would be a second owner of the same surface.
-      onOpen={() => {}}
+      compact={compact}
+      onDone={reload}
+      // Deliberately inert until the outbound composer lands: it is rendered
+      // from inside support-tab.tsx, so wiring a modal here now would be a
+      // second owner of the same surface.
       onCompose={() => {}}
     />
   ) : tab === 'plans' ? (
