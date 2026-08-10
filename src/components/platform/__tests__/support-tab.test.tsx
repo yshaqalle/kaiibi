@@ -40,11 +40,18 @@ function thread(over: Partial<PlatformSupportThread> & { id: string }): Platform
 
 const SHOPS = [{ shopId: 'shop-1', shopName: 'Hooyo Market', planName: 'Growth' } as PlatformShopRow];
 
-function render(threads: PlatformSupportThread[], now: number = NOON) {
+function render(threads: PlatformSupportThread[], now: number = NOON, truncated = false) {
   let tree: ReactTestRenderer | undefined;
   act(() => {
     tree = create(
-      <SupportTab threads={threads} shops={SHOPS} now={now} onOpen={jest.fn()} onCompose={jest.fn()} />
+      <SupportTab
+        threads={threads}
+        shops={SHOPS}
+        now={now}
+        truncated={truncated}
+        onOpen={jest.fn()}
+        onCompose={jest.fn()}
+      />
     );
   });
   return tree!.root
@@ -99,5 +106,18 @@ describe('SupportTab', () => {
       }),
     ]);
     expect(texts).toContain('0 unanswered > 24h');
+  });
+
+  // listSupportThreads caps the queue at 200 rows so the console load stays
+  // fast; a cap that bites silently reads as a short queue instead of a
+  // truncated one, so the operator has to be told.
+  it('says so when the 200-row queue cap has been hit', () => {
+    const texts = render([thread({ id: 'a' })], NOON, true);
+    expect(texts.some((t) => t.startsWith('Showing the 200 most recently active conversations.'))).toBe(true);
+  });
+
+  it('says nothing about the cap when the queue is under it', () => {
+    const texts = render([thread({ id: 'a' })], NOON, false);
+    expect(texts.some((t) => t.startsWith('Showing the 200 most recently active conversations.'))).toBe(false);
   });
 });

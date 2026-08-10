@@ -3,26 +3,38 @@
 // mock also backs the listSupportThreads mapping tests at the bottom: those
 // rows are the shape PostgREST hands back, so everything from that boundary
 // inward is the real function.
+//
+// Author profiles come through the support_author_profiles() rpc rather than
+// a plain `.from('profiles')` select (20260825000400 -- the table's select
+// grant is column-unrestricted, so a row-scoped policy alone would hand back
+// more than the name and phone the console shows). `rpc` is mocked
+// separately from `from` for that reason.
 jest.mock('@/lib/supabase', () => {
   const tables: Record<string, any[]> = {};
+  const rpcResults: Record<string, any[]> = {};
   const client = {
     from: (table: string) => {
       const builder: any = {
         select: () => builder,
         order: () => builder,
+        limit: () => builder,
         in: () => builder,
         then: (resolve: any, reject: any) =>
           Promise.resolve({ data: tables[table] ?? [], error: null }).then(resolve, reject),
       };
       return builder;
     },
+    rpc: (fn: string) => Promise.resolve({ data: rpcResults[fn] ?? [], error: null }),
   };
-  return { supabase: client, __tables: tables };
+  return { supabase: client, __tables: tables, __rpcResults: rpcResults };
 });
 
 import { listSupportThreads, supportQueueState, type PlatformSupportThread } from '@/lib/platform';
 
-const { __tables: tables } = jest.requireMock('@/lib/supabase') as { __tables: Record<string, any[]> };
+const { __tables: tables, __rpcResults: rpcResults } = jest.requireMock('@/lib/supabase') as {
+  __tables: Record<string, any[]>;
+  __rpcResults: Record<string, any[]>;
+};
 
 function thread(over: Partial<PlatformSupportThread>): PlatformSupportThread {
   return {
@@ -86,6 +98,7 @@ describe('supportQueueState', () => {
 describe('listSupportThreads', () => {
   beforeEach(() => {
     for (const key of Object.keys(tables)) delete tables[key];
+    for (const key of Object.keys(rpcResults)) delete rpcResults[key];
   });
 
   it('reads the last author and the attachment count out of the messages it embeds', async () => {
@@ -116,9 +129,10 @@ describe('listSupportThreads', () => {
         ],
       },
     ];
-    tables.profiles = [{ id: 'user-1', full_name: 'Amina', phone: '634000000' }];
+    rpcResults.support_author_profiles = [{ id: 'user-1', full_name: 'Amina', phone: '634000000' }];
 
-    const [thread] = await listSupportThreads();
+    const { threads: [thread], truncated } = await listSupportThreads();
+    expect(truncated).toBe(false);
 
     expect(thread.lastAuthorKind).toBe('platform');
     expect(thread.messageCount).toBe(2);
@@ -152,11 +166,40 @@ describe('listSupportThreads', () => {
       },
     ];
 
-    const [thread] = await listSupportThreads();
+    const { threads: [thread] } = await listSupportThreads();
 
     expect(thread.lastAuthorKind).toBe('platform');
     expect(thread.authorName).toBeNull();
     expect(thread.clientContext).toEqual({});
     expect(supportQueueState(thread)).toBe('unread_by_them');
+  });
+
+  // The query's own .limit(200) is real Postgres behaviour a mock can't
+  // exercise, so this pins the other half: the app-level signal that decides
+  // whether the operator gets told the queue was cut off.
+  it('reports truncated once the row count reaches the queue cap', async () => {
+    tables.support_threads = Array.from({ length: 200 }, (_, i) => ({
+      id: `thread-${i}`,
+      reference: `KB-${i}`,
+      shop_id: 'shop-1',
+      author_user_id: null,
+      subject: 'Subject',
+      category: 'billing',
+      area: null,
+      area_other: null,
+      status: 'open',
+      opened_by: 'shop',
+      contact_preference: 'in_app',
+      client_context: null,
+      last_message_at: '2026-08-09T12:00:00.000Z',
+      platform_read_at: null,
+      shop_read_at: null,
+      shops: null,
+      support_messages: [],
+    }));
+
+    const { threads, truncated } = await listSupportThreads();
+    expect(threads).toHaveLength(200);
+    expect(truncated).toBe(true);
   });
 });

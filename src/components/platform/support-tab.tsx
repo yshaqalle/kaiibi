@@ -41,6 +41,7 @@ export function SupportTab({
   threads,
   shops,
   now,
+  truncated,
   onOpen,
   onCompose,
 }: {
@@ -52,6 +53,12 @@ export function SupportTab({
    * against one instant, and so nothing reads the clock during render.
    */
   now: number;
+  /**
+   * True when listSupportThreads' 200-row cap came back full. A queue that
+   * quietly dropped its oldest rows reads as a short queue unless something
+   * says otherwise, and a silently truncated one is worse than a slow one.
+   */
+  truncated: boolean;
   onOpen: (thread: PlatformSupportThread) => void;
   onCompose: () => void;
 }) {
@@ -152,6 +159,12 @@ export function SupportTab({
         {stale.length > 0 && (
           <Caveat tone="partial">
             {`${stale.length} ${stale.length === 1 ? 'conversation is' : 'conversations are'} past a day with no reply. A store waiting on a payment match is a store deciding whether to keep paying.`}
+          </Caveat>
+        )}
+
+        {truncated && (
+          <Caveat tone="partial">
+            {'Showing the 200 most recently active conversations. Older, untouched threads are not in this list.'}
           </Caveat>
         )}
       </BentoCard>

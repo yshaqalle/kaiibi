@@ -11,6 +11,7 @@ import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
 import { SupportTab } from '@/components/platform/support-tab';
+import { Caveat } from '@/components/ui/caveat';
 import { TabPills } from '@/components/ui/tab-pills';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
@@ -78,6 +79,9 @@ export default function PlatformHome() {
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
   const [supportThreads, setSupportThreads] = useState<PlatformSupportThread[]>([]);
+  // True when the queue's own 200-row cap (src/lib/platform.ts) came back
+  // full. Told to the operator rather than left to look like a short queue.
+  const [supportTruncated, setSupportTruncated] = useState(false);
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   // When the data on screen was fetched. Passed to the Overview so every
   // figure is measured against one instant, and so nothing reads the clock
@@ -85,6 +89,11 @@ export default function PlatformHome() {
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a load throws. support_threads and its profiles read are days
+  // old next to the other five queries' months, so this is the read most
+  // likely to fail first -- and a thrown error with nothing catching it used
+  // to leave every tab, not just Support, on a spinner with no explanation.
+  const [error, setError] = useState<string | null>(null);
   // Published by the Overview once it has counted the money. Held here so it
   // can sit in the header beside the title.
   const [headline, setHeadline] = useState<string | null>(null);
@@ -97,37 +106,49 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    // Plans and settings first, alone: listPlatformShops needs the plans to
-    // resolve a retired plan to its successor, and needs post_trial_plan_key to
-    // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
-    // run in the same batch as the shops read.
-    const [planRows, settingsRow] = await Promise.all([listPlansForPlatform(), getPlatformSettings()]);
-    // Active only, everywhere but the Plans tab's archived strip: the overview
-    // donut indexes colours by array position, the retire/fallback pickers and
-    // set_plan must never offer an archived plan, and listPlatformShops
-    // resolves successors -- which are never archived (archive_plan refuses a
-    // referenced plan). Today's behaviour, unchanged, with the archived rows
-    // carried separately.
-    const activePlans = planRows.filter((p) => p.active);
-    const [shopRows, auditRows, operatorRows, requestRows, paymentRows, threadRows] = await Promise.all([
-      listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
-      listAuditLog(),
-      listOperators(),
-      listPendingPlanRequests(),
-      listSubscriptionPayments(),
-      listSupportThreads(),
-    ]);
-    setShops(shopRows);
-    setPlans(activePlans);
-    setArchivedPlans(planRows.filter((p) => !p.active));
-    setAudit(auditRows);
-    setOperators(operatorRows);
-    setRequests(requestRows);
-    setPayments(paymentRows);
-    setSupportThreads(threadRows);
-    setSettings(settingsRow);
-    setLoadedAt(Date.now());
-    setLoading(false);
+    setError(null);
+    try {
+      // Plans and settings first, alone: listPlatformShops needs the plans to
+      // resolve a retired plan to its successor, and needs post_trial_plan_key to
+      // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
+      // run in the same batch as the shops read.
+      const [planRows, settingsRow] = await Promise.all([listPlansForPlatform(), getPlatformSettings()]);
+      // Active only, everywhere but the Plans tab's archived strip: the overview
+      // donut indexes colours by array position, the retire/fallback pickers and
+      // set_plan must never offer an archived plan, and listPlatformShops
+      // resolves successors -- which are never archived (archive_plan refuses a
+      // referenced plan). Today's behaviour, unchanged, with the archived rows
+      // carried separately.
+      const activePlans = planRows.filter((p) => p.active);
+      const [shopRows, auditRows, operatorRows, requestRows, paymentRows, supportResult] = await Promise.all([
+        listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
+        listAuditLog(),
+        listOperators(),
+        listPendingPlanRequests(),
+        listSubscriptionPayments(),
+        listSupportThreads(),
+      ]);
+      setShops(shopRows);
+      setPlans(activePlans);
+      setArchivedPlans(planRows.filter((p) => !p.active));
+      setAudit(auditRows);
+      setOperators(operatorRows);
+      setRequests(requestRows);
+      setPayments(paymentRows);
+      setSupportThreads(supportResult.threads);
+      setSupportTruncated(supportResult.truncated);
+      setSettings(settingsRow);
+      setLoadedAt(Date.now());
+    } catch (err) {
+      // Surfaced, not swallowed: an operator staring at a blank console has no
+      // way to tell "no data" from "something broke" unless this says which.
+      setError(err instanceof Error ? err.message : 'Something went wrong loading the console.');
+    } finally {
+      // Always runs, thrown or not -- the bug this fixes was every tab, not
+      // only Support, stuck on a permanent spinner because one read among six
+      // failed above this line.
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -141,6 +162,12 @@ export default function PlatformHome() {
 
   const body = loading ? (
     <ActivityIndicator style={styles.spinner} />
+  ) : error ? (
+    <View style={styles.errorState}>
+      <Caveat tone="wrong" action={{ label: 'Try again', onPress: reload }}>
+        {`Could not load the console: ${error}`}
+      </Caveat>
+    </View>
   ) : tab === 'overview' ? (
     <PlatformOverview
       shops={shops}
@@ -163,6 +190,7 @@ export default function PlatformHome() {
       threads={supportThreads}
       shops={shops}
       now={loadedAt}
+      truncated={supportTruncated}
       // Deliberately inert until the reply panel and the outbound composer
       // land: both are rendered from inside support-tab.tsx, so wiring a modal
       // here now would be a second owner of the same surface.
@@ -435,4 +463,5 @@ const styles = StyleSheet.create({
   blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3, maxWidth: 680 },
 
   spinner: { marginTop: 40 },
+  errorState: { marginTop: 40 },
 });

@@ -353,14 +353,32 @@ export function supportQueueState(
 // support_threads.author_user_id points at auth.users, and profiles.id points
 // at auth.users too, which is not a relationship PostgREST can traverse -- an
 // embed here fails at the API, not at the type. Two narrow reads, joined in
-// memory, is the same shape listPlatformShops already uses.
-export async function listSupportThreads(): Promise<PlatformSupportThread[]> {
+// memory, is the same shape listPlatformShops already uses. That second read
+// goes through support_author_profiles() (20260825000400) rather than a plain
+// select on `profiles`: the table's select grant is column-unrestricted, so a
+// row-scoped policy alone would have hand back role and password_changed_at
+// along with the name and phone the console shows. The function returns only
+// those three.
+//
+// The 200-row cap, and support_threads_recent_idx (20260825000400) that makes
+// it a cheap query rather than a slow one: this list has no status filter, so
+// closed threads never age out of it, and an operator's console loading
+// every message and attachment on every thread ever opened does not stay fast
+// forever. `truncated` tells the caller when the cap actually bit, so a queue
+// that quietly dropped its oldest rows is never mistaken for a short one.
+const SUPPORT_QUEUE_LIMIT = 200;
+
+export async function listSupportThreads(): Promise<{
+  threads: PlatformSupportThread[];
+  truncated: boolean;
+}> {
   const { data, error } = await supabase
     .from('support_threads')
     .select(
       'id, reference, shop_id, author_user_id, subject, category, area, area_other, status, opened_by, contact_preference, client_context, last_message_at, platform_read_at, shop_read_at, shops(name), support_messages(author_kind, created_at, support_attachments(id))'
     )
-    .order('last_message_at', { ascending: false });
+    .order('last_message_at', { ascending: false })
+    .limit(SUPPORT_QUEUE_LIMIT);
   if (error) throw error;
   const rows = data ?? [];
 
@@ -369,15 +387,14 @@ export async function listSupportThreads(): Promise<PlatformSupportThread[]> {
   const authorIds = [...new Set(rows.map((row: any) => row.author_user_id).filter(Boolean))] as string[];
   const authors = new Map<string, { full_name: string | null; phone: string | null }>();
   if (authorIds.length > 0) {
-    const { data: profiles, error: profilesError } = await supabase
-      .from('profiles')
-      .select('id, full_name, phone')
-      .in('id', authorIds);
+    const { data: profiles, error: profilesError } = await supabase.rpc('support_author_profiles', {
+      p_author_ids: authorIds,
+    });
     if (profilesError) throw profilesError;
     for (const profile of profiles ?? []) authors.set(profile.id, profile);
   }
 
-  return rows.map((row: any) => {
+  const threads = rows.map((row: any) => {
     const messages = (row.support_messages ?? []) as {
       author_kind: 'shop' | 'platform';
       created_at: string;
@@ -414,6 +431,11 @@ export async function listSupportThreads(): Promise<PlatformSupportThread[]> {
       lastAuthorKind: sorted[sorted.length - 1]?.author_kind ?? row.opened_by,
     };
   });
+
+  // Exactly SUPPORT_QUEUE_LIMIT rows is the signal: the query cannot ask
+  // Postgres "was there a 201st" without fetching it, and a cap that bites
+  // silently is worse than one the operator is told about.
+  return { threads, truncated: threads.length === SUPPORT_QUEUE_LIMIT };
 }
 
 export type PlatformActionError = { error: string; message: string };
