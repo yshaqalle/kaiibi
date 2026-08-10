@@ -348,6 +348,26 @@ grant insert (thread_id, author_kind, author_user_id, body)
 grant insert (message_id, storage_path, file_name, byte_size, content_type)
   on public.support_attachments to authenticated;
 
+-- Marking a thread read is the ONLY thing a store may change about it, and the
+-- narrowing is a COLUMN grant rather than a clause in the policy for the same
+-- reason as the insert grants above: a with-check constrains the columns it
+-- names and leaves the rest of the row to whatever the client sent. Under a
+-- table-wide update grant this policy is a member rewriting the subject of a
+-- thread an operator has already answered, reopening one we closed, or setting
+-- platform_read_at so their own request reads as seen and leaves the queue.
+--
+-- The COLUMNS form of the visibility rule and not the by-id wrapper: this is
+-- one of support_threads' own policies, so the row is in hand, and the with
+-- check gets the row as it will be rather than as it was.
+create policy "mark your own thread read"
+  on public.support_threads for update
+  to authenticated
+  using (public.support_thread_is_visible(shop_id, opened_by, author_user_id, addressed_user_id))
+  with check (public.support_thread_is_visible(shop_id, opened_by, author_user_id, addressed_user_id));
+
+revoke update on public.support_threads from authenticated;
+grant update (shop_read_at) on public.support_threads to authenticated;
+
 ------------------------------------------------------------------
 -- Attachments bucket
 ------------------------------------------------------------------

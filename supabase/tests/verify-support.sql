@@ -33,6 +33,10 @@ declare
   v_ref_b text;
   v_secret_path text;
   v_store_path text;
+  -- Recognisable rather than meaningful: check 12 has to tell the rows one
+  -- unfiltered update reached from the ones it did not, and now() would collide
+  -- with every other stamp the script writes in the same transaction.
+  v_sentinel timestamptz := timestamptz '2001-09-11 00:00:00+00';
 begin
   ------------------------------------------------------------------
   -- Fixture
@@ -399,6 +403,68 @@ begin
   exception when check_violation then
     raise notice 'OK: the path check survives an update';
   end;
+
+  ------------------------------------------------------------------
+  raise notice '=== 12. A member can mark a thread read and change nothing else ===';
+  ------------------------------------------------------------------
+  -- markThreadRead() (src/lib/support.ts) is the only write a store makes to a
+  -- thread after opening it, and the update policy that allows it would allow
+  -- every other column too if the grant were table-wide -- the policy names no
+  -- columns. So each half is asserted separately: the one column that must
+  -- move, and the three that must not.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  update public.support_threads set shop_read_at = now() where id = v_cashier_thread;
+  get diagnostics v_count = row_count;
+  if v_count <> 1 then raise exception 'FAIL: the author cannot mark their own thread read'; end if;
+
+  -- Rewriting the subject of a thread an operator has already answered.
+  begin
+    update public.support_threads set subject = 'Rewritten' where id = v_cashier_thread;
+    raise exception 'FAIL: a member rewrote the subject';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- Reopening what we closed -- or closing their own so it leaves the queue.
+  begin
+    update public.support_threads set status = 'closed' where id = v_cashier_thread;
+    raise exception 'FAIL: a member changed the status';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- The other end's read stamp. Writable, this reads as "an operator has seen
+  -- it" on a request nobody has looked at.
+  begin
+    update public.support_threads set platform_read_at = now() where id = v_cashier_thread;
+    raise exception 'FAIL: a member wrote platform_read_at';
+  exception when insufficient_privilege then null;
+  end;
+
+  -- The client's own shape: shop_read_at is the one column they hold, so a
+  -- thread they cannot see must be unreachable through it. Silently zero rows
+  -- rather than an error -- which is why this is counted.
+  update public.support_threads set shop_read_at = now() where id = v_store_thread;
+  get diagnostics v_count = row_count;
+  if v_count <> 0 then raise exception 'FAIL: a member marked a thread they cannot see as read'; end if;
+
+  -- And the same question asked of the POLICY rather than of the grant. The
+  -- statement above cannot tell a narrow update policy from `using (true)`: its
+  -- WHERE reads the row, so the SELECT policy picks the targets and answers it
+  -- either way. A bare update reads nothing, so the update policy's own using
+  -- clause is the only thing standing between it and every thread in the table
+  -- -- including other shops'.
+  update public.support_threads set shop_read_at = v_sentinel;
+
+  perform set_config('role', 'postgres', true);
+  perform 1 from public.support_threads where id = v_store_thread and shop_read_at = v_sentinel;
+  if found then raise exception 'FAIL: an unfiltered update reached a thread the member cannot see'; end if;
+  -- The control: the statement did run, and did mark what it was allowed to.
+  perform 1 from public.support_threads where id = v_cashier_thread and shop_read_at = v_sentinel;
+  if not found then raise exception 'FAIL: the unfiltered update touched nothing at all'; end if;
+  perform set_config('role', 'authenticated', true);
+  raise notice 'OK: shop_read_at only, and only on a thread they can see';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
