@@ -208,7 +208,10 @@ one-person shop. Migration 20260823000000 gives them an ordinary row.
 Support threads are the one place a member writes to us rather than to their
 shop, so the read policy is per-author instead of per-shop. The cashier in this
 script is a real `shop_members` row on the seeded Cashier role — a stranger
-would pass 6 and 8 for the wrong reason.
+would pass 6 and 8 for the wrong reason. There is a second, non-owner member
+for the same kind of reason: `user_has_shop_permission()` answers true for an
+owner before it reads a role, so a permission branch asserted only through the
+owner is never actually consulted.
 
 1. `KB-####` references are unique and increasing.
 2. A thread defaults to open with a reference.
@@ -220,7 +223,9 @@ would pass 6 and 8 for the wrong reason.
    must not be reporting them to their manager.
 5. The author still reads their own.
 6. A thread *we* address to the store reaches `settings.access` holders and not
-   the cashier — billing belongs to whoever runs the shop.
+   the cashier — billing belongs to whoever runs the shop. Asserted through a
+   Manager who is refused, granted `settings.access`, and then admitted with
+   nothing else about them changing, so it is the permission deciding.
 7. A member of another shop reads nothing.
 8. A member cannot insert a thread claiming `opened_by = 'platform'`, which
    would otherwise let them borrow the wider read policy that grant carries —
@@ -228,6 +233,22 @@ would pass 6 and 8 for the wrong reason.
    `RETURNING`. That control is not decoration: `insert … returning` runs the
    select policy against a row no snapshot can see yet, so a visibility rule
    written as a lookup by id refuses every create the client makes.
+9. A member cannot write the columns only we set. A with-check policy
+   constrains the columns it names and nothing else, so `reference`, `status`,
+   the read stamps and `created_at` are held back by **column-level** insert
+   grants instead. Plus the trigger's own half: a message inserted with a
+   three-year-old `created_at` still sorts as arriving now, rather than sinking
+   its thread to the bottom of the operator's queue.
+10. **An uploaded file is exactly as private as the thread it is on.** Check 4
+    for storage: the cashier uploads to `<shop_id>/<thread_id>/`, and the owner
+    can neither list it, read it, nor delete it — with the store-addressed
+    thread as the control proving the owner is not simply locked out of the
+    bucket. Also asserts an unrelated `product-images` object stays readable:
+    `storage.objects` is one table for every bucket, so a policy that casts a
+    path segment to uuid must never reach a path that isn't one.
+11. An attachment row cannot name a file outside its own thread's folder.
+    Storage RLS stops the member downloading it, but an operator renders the
+    thread through `service_role`, which bypasses storage RLS entirely.
 
 ## Concurrency
 
