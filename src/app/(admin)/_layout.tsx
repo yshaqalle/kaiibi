@@ -1,6 +1,9 @@
 import { Redirect, Stack, usePathname, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { SupportSheet } from '@/components/support/support-sheet';
+import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { moduleForPath, MODULES, type Module } from '@/lib/entitlements';
@@ -94,6 +97,7 @@ export default function AdminLayout() {
 // endless redirect or a blank shell.
 function NoAccessScreen() {
   const router = useRouter();
+  const [supportOpen, setSupportOpen] = useState(false);
   return (
     <View style={styles.noAccess}>
       <Text style={styles.noAccessTitle}>No access yet</Text>
@@ -101,6 +105,12 @@ function NoAccessScreen() {
         Your account isn&apos;t allowed to open any part of this shop. Ask the shop owner to give your role
         some permissions.
       </Text>
+      {/* This screen is the one place a person can be completely stuck: their role
+          grants nothing, so there is no shell, no ☰, and no other route out. */}
+      <Pressable onPress={() => setSupportOpen(true)}>
+        <Text style={styles.noAccessSupport}>Contact support</Text>
+      </Pressable>
+      <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
       <Pressable onPress={() => signOut().then(() => router.replace(Platform.OS === 'web' ? '/signup' : '/login'))}>
         <Text style={styles.noAccessSignOut}>Sign out</Text>
       </Pressable>
@@ -118,6 +128,7 @@ function NoAccessScreen() {
 function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean }) {
   const router = useRouter();
   const meta = MODULES.find((m) => m.key === module);
+  const [supportOpen, setSupportOpen] = useState(false);
 
   // The lookup failed, so we genuinely don't know what this shop is entitled
   // to. Access stays closed -- the server would refuse the writes anyway -- but
@@ -144,6 +155,12 @@ function UpgradeScreen({ module, resolved }: { module: Module; resolved: boolean
         Anything you already added is safe and still here — it just can&apos;t be changed until your plan covers
         this again.
       </Text>
+      {/* This screen is the one place a shop can be completely stuck: the module
+          is walled off, so there is no shell, no ☰, and no other route out. */}
+      <Pressable onPress={() => setSupportOpen(true)}>
+        <Text style={styles.noAccessSupport}>Contact support</Text>
+      </Pressable>
+      <SupportSheet visible={supportOpen} onClose={() => setSupportOpen(false)} />
       <Pressable onPress={() => router.push('/settings')} style={styles.upgradeButton}>
         <Text style={styles.upgradeButtonText}>See plans</Text>
       </Pressable>
@@ -156,6 +173,7 @@ const styles = StyleSheet.create({
   noAccessTitle: { color: '#111111', fontSize: 18, fontWeight: '800', textAlign: 'center' },
   noAccessBody: { color: '#777777', fontSize: 13, textAlign: 'center', maxWidth: 320, lineHeight: 19 },
   noAccessSignOut: { color: '#111111', fontSize: 12, fontWeight: '800', marginTop: 8 },
+  noAccessSupport: { fontSize: 13.5, fontWeight: '800', color: Colors.light.bentoAccentInk, marginBottom: 14 },
   upgradeLock: { fontSize: 30, marginBottom: 2 },
   upgradeReassure: { color: '#9A6412', fontSize: 12, textAlign: 'center', maxWidth: 320, lineHeight: 18, marginTop: 2 },
   upgradeButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 11, marginTop: 10 },
