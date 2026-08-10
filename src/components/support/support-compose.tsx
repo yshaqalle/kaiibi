@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AttachmentPicker } from '@/components/support/attachment-picker';
+import { supportStyles } from '@/components/support/support-styles';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -241,7 +242,7 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
 
   return (
     <View>
-      <Text style={styles.label}>Sent as</Text>
+      <Text style={[supportStyles.label, styles.label]}>Sent as</Text>
       <View style={styles.who}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{personInitials(personName, email)}</Text>
@@ -259,7 +260,7 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
         </View>
       </View>
 
-      <Text style={styles.label}>What&apos;s this about?</Text>
+      <Text style={[supportStyles.label, styles.label]}>What&apos;s this about?</Text>
       <View style={styles.chips}>
         {SUPPORT_CATEGORIES.map((category) => {
           const on = draft.category === category.key;
@@ -281,7 +282,7 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
 
       {meta?.areaLabel && (
         <>
-          <Text style={styles.label}>{meta.areaLabel}</Text>
+          <Text style={[supportStyles.label, styles.label]}>{meta.areaLabel}</Text>
           <View style={styles.chips}>
             {meta.areas.map((area) => {
               const on = draft.area === area.key;
@@ -304,13 +305,13 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
 
       {showAreaOther && (
         <View style={styles.reveal}>
-          <Text style={styles.label}>Then what is it about?</Text>
+          <Text style={[supportStyles.label, styles.label]}>Then what is it about?</Text>
           <TextInput
             value={draft.areaOther}
             onChangeText={(areaOther) => setDraft((d) => ({ ...d, areaOther }))}
             placeholder="A few words"
             placeholderTextColor={theme.bentoMuted2}
-            style={styles.input}
+            style={[supportStyles.input, styles.input]}
           />
           <Text style={styles.hint}>This is how we find out what belongs on the list above.</Text>
         </View>
@@ -325,30 +326,30 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
         </Caveat>
       )}
 
-      <Text style={styles.label}>Subject</Text>
+      <Text style={[supportStyles.label, styles.label]}>Subject</Text>
       <TextInput
         value={draft.subject}
         onChangeText={(subject) => setDraft((d) => ({ ...d, subject }))}
         placeholder="A short line — &quot;Scanner stops after a refund&quot;"
         placeholderTextColor={theme.bentoMuted2}
-        style={styles.input}
+        style={[supportStyles.input, styles.input]}
       />
 
-      <Text style={styles.label}>{meta?.detailsLabel ?? 'Details'}</Text>
+      <Text style={[supportStyles.label, styles.label]}>{meta?.detailsLabel ?? 'Details'}</Text>
       <TextInput
         value={draft.details}
         onChangeText={(details) => setDraft((d) => ({ ...d, details }))}
         placeholder={meta ? '' : 'Pick a category above and we will tell you what is most useful to include.'}
         placeholderTextColor={theme.bentoMuted2}
         multiline
-        style={[styles.input, styles.area]}
+        style={[supportStyles.input, styles.input, styles.area]}
       />
       {meta && <Text style={styles.hint}>{meta.detailsHint}</Text>}
 
-      <Text style={styles.label}>Attachments — optional</Text>
+      <Text style={[supportStyles.label, styles.label]}>Attachments — optional</Text>
       <AttachmentPicker files={files} onChange={setFiles} />
 
-      <Text style={styles.label}>Reply to me on</Text>
+      <Text style={[supportStyles.label, styles.label]}>Reply to me on</Text>
       <View style={styles.chips}>
         {(
           [
@@ -400,10 +401,10 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
       <Pressable
         onPress={send}
         disabled={!complete || sending}
-        style={[styles.send, (!complete || sending) && styles.sendOff]}
+        style={[supportStyles.send, styles.send, (!complete || sending) && supportStyles.sendOff]}
         accessibilityRole="button"
       >
-        <Text style={[styles.sendText, (!complete || sending) && styles.sendTextOff]}>
+        <Text style={[supportStyles.sendText, styles.sendText, (!complete || sending) && supportStyles.sendTextOff]}>
           {sending ? 'Sending…' : 'Send'}
         </Text>
       </Pressable>
@@ -412,15 +413,9 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
 }
 
 const styles = StyleSheet.create({
-  label: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: theme.bentoMuted2,
-    marginTop: 18,
-    marginBottom: 8,
-  },
+  // Only what genuinely differs from support-styles.ts lives here: this
+  // form's label sits further from the block above it than a reply's does.
+  label: { marginTop: 18 },
   who: { flexDirection: 'row', gap: 12, backgroundColor: theme.bentoSoft, borderRadius: 16, padding: 13 },
   avatar: {
     width: 38,
@@ -459,25 +454,9 @@ const styles = StyleSheet.create({
   chipSub: { fontSize: 10.5, color: theme.bentoMuted2, marginTop: 1 },
   chipSubOn: { color: theme.bentoAccentInk },
   reveal: { borderLeftWidth: 2, borderLeftColor: theme.bentoAccentWash, paddingLeft: 11 },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.bentoRule,
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 13,
-    fontSize: 13.5,
-    color: theme.bentoInk,
-  },
+  input: { paddingVertical: 11, paddingHorizontal: 13 },
   area: { minHeight: 96, textAlignVertical: 'top' },
   hint: { fontSize: 11, color: theme.bentoMuted2, marginTop: 6 },
-  send: {
-    marginTop: 20,
-    backgroundColor: theme.bentoInk,
-    borderRadius: 999,
-    paddingVertical: 13,
-    alignItems: 'center',
-  },
-  sendOff: { backgroundColor: theme.bentoSoft },
-  sendText: { fontSize: 13.5, fontWeight: '800', color: theme.bentoSurface },
-  sendTextOff: { color: theme.bentoMuted2 },
+  send: { marginTop: 20, paddingVertical: 13 },
+  sendText: { fontSize: 13.5 },
 });

@@ -110,10 +110,15 @@ export function buildClientContext(input: ClientContextInput): Record<string, st
 // best-effort URL when nothing dialable is left.
 export { whatsappLink as whatsAppLink } from '@/lib/whatsapp';
 
+// Exported so the ☰ badge (`unreadCount`, below) and the thread list's Unread
+// pill compute the same thing from the same expression -- two copies of this
+// predicate is how a pill and a badge quietly disagree.
+export function isUnread(thread: SupportThread): boolean {
+  return !thread.shopReadAt || Date.parse(thread.lastMessageAt) > Date.parse(thread.shopReadAt);
+}
+
 export function unreadCount(threads: SupportThread[]): number {
-  return threads.filter(
-    (thread) => !thread.shopReadAt || Date.parse(thread.lastMessageAt) > Date.parse(thread.shopReadAt)
-  ).length;
+  return threads.filter(isUnread).length;
 }
 
 function toThread(row: any): SupportThread {

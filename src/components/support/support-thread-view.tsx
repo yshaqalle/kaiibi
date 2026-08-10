@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { supportStyles } from '@/components/support/support-styles';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
+import { openExternalUrl } from '@/lib/external-url';
 import { listMessages, markThreadRead, postReply, type SupportMessage, type SupportThread } from '@/lib/support';
 import { signedUrlFor } from '@/lib/support-attachments';
 
@@ -25,6 +27,12 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
   const [reply, setReply] = useState('');
   const [problem, setProblem] = useState<Problem | null>(null);
   const [sending, setSending] = useState(false);
+  // `disabled` alone is not a guard: two press events landing before the
+  // `sending` state has re-rendered the button both see it enabled, and
+  // `postReply` is a plain insert with nothing on the server to collapse the
+  // second one into the first. Checked and set synchronously, so the second
+  // press is turned away before either await starts.
+  const sendInFlight = useRef(false);
 
   // A promise chain rather than async/await: react-hooks/set-state-in-effect
   // reads a setState after an `await` as a synchronous one and fails the effect
@@ -59,7 +67,8 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
   }, [load]);
 
   const send = async (): Promise<void> => {
-    if (!reply.trim() || !session) return;
+    if (!reply.trim() || !session || sendInFlight.current) return;
+    sendInFlight.current = true;
     setSending(true);
     setProblem(null);
     try {
@@ -67,7 +76,13 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
       setReply('');
       // Reloads rather than appending: this also re-marks the thread read, so
       // your own reply -- which moves last_message_at forward -- does not raise
-      // the badge against you.
+      // the badge against you. Unless that particular read-mark is the thing
+      // that fails: it is swallowed inside load() (see the comment there), so
+      // a reply that posts but whose read-mark does not lands with the badge
+      // up against its own author until the thread is reopened. Considered
+      // and accepted rather than missed -- reopening is the same retry load()
+      // already gives every other failed read-mark, and a second special case
+      // here would only buy back a rare, low-cost miss.
       await load();
     } catch (error) {
       setProblem({
@@ -75,13 +90,20 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
         retry: 'send',
       });
     } finally {
+      sendInFlight.current = false;
       setSending(false);
     }
   };
 
   const openAttachment = async (storagePath: string): Promise<void> => {
     try {
-      await Linking.openURL(await signedUrlFor(storagePath));
+      // Signed first, then handed to the wrapper rather than
+      // `Linking.openURL` directly: on web a blocked/failed `window.open`
+      // sometimes reuses the *current* tab instead of a new one, which here
+      // would navigate away from the sheet mid-conversation and take an
+      // unsent reply and any picked attachments with it.
+      const url = await signedUrlFor(storagePath);
+      openExternalUrl(url);
     } catch {
       setProblem({ message: 'Could not open that file.', retry: { attachment: storagePath } });
     }
@@ -139,22 +161,24 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
 
       {thread.status === 'open' && (
         <>
-          <Text style={styles.label}>Reply</Text>
+          <Text style={[supportStyles.label, styles.label]}>Reply</Text>
           <TextInput
             value={reply}
             onChangeText={setReply}
             placeholder="Write back…"
             placeholderTextColor={theme.bentoMuted2}
             multiline
-            style={styles.input}
+            style={[supportStyles.input, styles.input]}
           />
           <Pressable
             onPress={send}
             disabled={!reply.trim() || sending}
-            style={[styles.send, (!reply.trim() || sending) && styles.sendOff]}
+            style={[supportStyles.send, styles.send, (!reply.trim() || sending) && supportStyles.sendOff]}
             accessibilityRole="button"
           >
-            <Text style={[styles.sendText, (!reply.trim() || sending) && styles.sendTextOff]}>
+            <Text
+              style={[supportStyles.sendText, styles.sendText, (!reply.trim() || sending) && supportStyles.sendTextOff]}
+            >
               {sending ? 'Sending…' : 'Send reply'}
             </Text>
           </Pressable>
@@ -183,27 +207,11 @@ const styles = StyleSheet.create({
   body: { fontSize: 13, color: theme.bentoInk2, marginTop: 4 },
   bodyUs: { color: theme.bentoAccentInk },
   attachment: { fontSize: 12, fontWeight: '700', color: theme.bentoAccentInk, marginTop: 8 },
-  label: {
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    color: theme.bentoMuted2,
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: theme.bentoRule,
-    borderRadius: 12,
-    padding: 12,
-    minHeight: 80,
-    fontSize: 13.5,
-    color: theme.bentoInk,
-    textAlignVertical: 'top',
-  },
-  send: { marginTop: 12, backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 12, alignItems: 'center' },
-  sendOff: { backgroundColor: theme.bentoSoft },
-  sendText: { fontSize: 13, fontWeight: '800', color: theme.bentoSurface },
-  sendTextOff: { color: theme.bentoMuted2 },
+  // Only what genuinely differs from support-styles.ts lives here: this
+  // form's label sits closer to the bubbles above it than compose's does, and
+  // its input is a fixed-height reply box rather than a growing field.
+  label: { marginTop: 12 },
+  input: { padding: 12, minHeight: 80, textAlignVertical: 'top' },
+  send: { marginTop: 12, paddingVertical: 12 },
+  sendText: { fontSize: 13 },
 });

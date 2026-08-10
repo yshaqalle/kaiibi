@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SupportCompose } from '@/components/support/support-compose';
@@ -6,7 +6,7 @@ import { SupportThreadView } from '@/components/support/support-thread-view';
 import { AppModal } from '@/components/ui/app-modal';
 import { Caveat } from '@/components/ui/caveat';
 import { BENTO_RADIUS, Colors } from '@/constants/theme';
-import { listMyThreads, unreadCount, type SupportThread } from '@/lib/support';
+import { isUnread, listMyThreads, unreadCount, type SupportThread } from '@/lib/support';
 
 const theme = Colors.light;
 
@@ -20,6 +20,19 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
   const [view, setView] = useState<View_>({ name: 'compose' });
   const [threads, setThreads] = useState<SupportThread[]>([]);
   const [listProblem, setListProblem] = useState(false);
+
+  // `threads` and the sheet's own mount survive close/open, so on reopen the
+  // list is tappable immediately -- someone can navigate into a thread and
+  // start typing a reply before the opening-view effect's `listMyThreads`
+  // lands. Without this, that fetch resolving afterwards forces `list` or
+  // `compose` under them, unmounting the reply box and the words in it, which
+  // nothing else persists. Set by every user-initiated view change below,
+  // checked by the effect, cleared on close so the next open starts fresh.
+  const userActed = useRef(false);
+  const go = (next: View_) => {
+    userActed.current = true;
+    setView(next);
+  };
 
   // Returns the threads so the caller can decide something from them without
   // reading state it has just set; null means the fetch failed, which is not
@@ -47,6 +60,10 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
   useEffect(() => {
     if (!visible) return;
     void load().then((next) => {
+      // Skipped once the person has already acted: this fetch was already in
+      // flight when they tapped into the list or a thread, and landing now
+      // would yank them back out to `list` or `compose` regardless.
+      if (userActed.current) return;
       // Opening straight into the list when something is waiting: a person who
       // opens this with an unread reply came to read it, not to write again.
       setView(next && unreadCount(next) > 0 ? { name: 'list' } : { name: 'compose' });
@@ -56,6 +73,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
   const unread = unreadCount(threads);
 
   const close = () => {
+    userActed.current = false;
     setView({ name: 'compose' });
     onClose();
   };
@@ -79,7 +97,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
                   way into the list is the screen shown straight after a send.
                   A reply you have already read would be unreachable. */}
               {view.name === 'compose' && threads.length > 0 && (
-                <Pressable onPress={() => setView({ name: 'list' })} hitSlop={6} accessibilityRole="button">
+                <Pressable onPress={() => go({ name: 'list' })} hitSlop={6} accessibilityRole="button">
                   <Text style={styles.headLink}>
                     Your messages{unread > 0 ? ` · ${unread} unread` : ''} →
                   </Text>
@@ -96,7 +114,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
               <SupportCompose
                 onSent={(reference) => {
                   void load();
-                  setView({ name: 'sent', reference });
+                  go({ name: 'sent', reference });
                 }}
               />
             )}
@@ -112,7 +130,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
                   mark on the ☰ when we do.
                 </Text>
                 <Text style={styles.reference}>{view.reference}</Text>
-                <Pressable onPress={() => setView({ name: 'list' })} style={styles.doneButton} accessibilityRole="button">
+                <Pressable onPress={() => go({ name: 'list' })} style={styles.doneButton} accessibilityRole="button">
                   <Text style={styles.doneButtonText}>Your messages</Text>
                 </Pressable>
               </View>
@@ -127,11 +145,11 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
                 )}
                 {threads.length === 0 && !listProblem && <Text style={styles.empty}>Nothing yet.</Text>}
                 {threads.map((thread) => {
-                  const unread = !thread.shopReadAt || Date.parse(thread.lastMessageAt) > Date.parse(thread.shopReadAt);
+                  const unread = isUnread(thread);
                   return (
                     <Pressable
                       key={thread.id}
-                      onPress={() => setView({ name: 'thread', thread })}
+                      onPress={() => go({ name: 'thread', thread })}
                       style={styles.row}
                       accessibilityRole="button"
                     >
@@ -152,7 +170,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
                     </Pressable>
                   );
                 })}
-                <Pressable onPress={() => setView({ name: 'compose' })} style={styles.newButton} accessibilityRole="button">
+                <Pressable onPress={() => go({ name: 'compose' })} style={styles.newButton} accessibilityRole="button">
                   <Text style={styles.newButtonText}>New request</Text>
                 </Pressable>
               </View>
@@ -168,7 +186,7 @@ export function SupportSheet({ visible, onClose }: { visible: boolean; onClose: 
                   // and saying otherwise would hide a reply behind a row that
                   // looks handled.
                   void load();
-                  setView({ name: 'list' });
+                  go({ name: 'list' });
                 }}
               />
             )}
