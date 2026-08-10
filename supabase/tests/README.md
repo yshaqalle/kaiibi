@@ -243,12 +243,19 @@ owner is never actually consulted.
     for storage: the cashier uploads to `<shop_id>/<thread_id>/`, and the owner
     can neither list it, read it, nor delete it — with the store-addressed
     thread as the control proving the owner is not simply locked out of the
-    bucket. Also asserts an unrelated `product-images` object stays readable:
-    `storage.objects` is one table for every bucket, so a policy that casts a
-    path segment to uuid must never reach a path that isn't one.
-11. An attachment row cannot name a file outside its own thread's folder.
-    Storage RLS stops the member downloading it, but an operator renders the
-    thread through `service_role`, which bypasses storage RLS entirely.
+    bucket. The cashier also cannot *write* into that thread's folder: shop-wide
+    upload against thread-scoped read would let them hand the owner a file from
+    someone with no access to the conversation. And two malformed objects are
+    seeded first — a `product-images` staff photo (`<shop_id>/staff/<file>`) and
+    one written as `postgres` inside `support-attachments` itself — because
+    `storage.objects` is one table for every bucket and a policy that casts a
+    path segment to uuid takes every listing in the project down with it the
+    first time it meets a segment that isn't one. Both are asserted by path
+    rather than by a row count, which any bucket's public policy would satisfy.
+11. An attachment row cannot name a file outside its own thread's folder, on
+    update as well as insert. Storage RLS stops the member downloading it, but
+    an operator renders the thread through `service_role`, which bypasses
+    storage RLS entirely.
 
 ## Concurrency
 

@@ -153,6 +153,10 @@ create trigger support_messages_touch_thread
 -- read and delete off <shop_id>/<thread_id>/, so a row pointing at another
 -- thread's folder describes a file its own reader is refused. Keeping the row
 -- and the object on the same path is what makes the two rules one rule.
+--
+-- A before-INSERT-only trigger would check the path once and then stop being
+-- true: nothing here grants a client update on this table today, but the check
+-- is only worth having if it survives the day somebody adds one.
 create or replace function public.check_support_attachment_path()
 returns trigger
 language plpgsql
@@ -188,7 +192,7 @@ $$;
 revoke execute on function public.check_support_attachment_path() from public;
 
 create trigger support_attachments_check_path
-  before insert on public.support_attachments
+  before insert or update of storage_path on public.support_attachments
   for each row execute function public.check_support_attachment_path();
 
 ------------------------------------------------------------------
@@ -356,6 +360,35 @@ insert into storage.buckets (id, name, public)
 values ('support-attachments', 'support-attachments', false)
 on conflict (id) do nothing;
 
+-- A path segment is a string somebody else chose, and `text::uuid` on a bad one
+-- raises rather than answering false. That is survivable in a with-check, where
+-- the only row being tested is the one being written; it is not survivable in a
+-- using clause, which a select runs over every row of storage.objects -- one
+-- table for every bucket in the project. A single malformed object inside
+-- support-attachments would take listing down for everybody, operators
+-- included, and a policy is the wrong place to learn that.
+--
+-- The insert policy below cannot be relied on to prevent that, because it binds
+-- `authenticated` and nothing else: the operator side of this feature writes
+-- through service_role, which bypasses RLS entirely. So the cast is made total
+-- here instead of being trusted upstream. `strict` keeps a null segment (a file
+-- with too few folders) out of the exception block entirely.
+create or replace function public.uuid_or_null(p_text text)
+returns uuid
+language plpgsql
+immutable
+strict
+parallel safe
+as $$
+begin
+  return p_text::uuid;
+exception when invalid_text_representation then
+  return null;
+end;
+$$;
+revoke execute on function public.uuid_or_null(text) from public;
+grant execute on function public.uuid_or_null(text) to authenticated;
+
 -- The path is <shop_id>/<thread_id>/<file>, and both segments are load-bearing.
 --
 -- Shop-wide membership is the right test for WRITING (you may only put a file
@@ -366,17 +399,18 @@ on conflict (id) do nothing;
 -- the same secret, leaked through the other door. So reads and deletes ask the
 -- thread, through the same rule the tables use.
 --
--- Insert also pins the shape, which is what lets the two policies below cast
--- segment 2 at all: a select policy is evaluated against every row in the
--- bucket, so one object saved under a non-uuid folder would raise on the cast
--- and break listing for everybody, operators included.
+-- Insert asks the thread too, and not merely the shop. Shop-wide write against
+-- thread-scoped read is a member dropping a file into a colleague's private
+-- thread folder: they cannot read it back or remove it, but whoever the thread
+-- does belong to is handed a file from someone with no business being there.
+-- The thread always exists before its first upload, so this costs nothing.
 create policy "members upload their shop's support attachments"
   on storage.objects for insert
   to authenticated
   with check (
     bucket_id = 'support-attachments'
-    and public.is_shop_member((storage.foldername(name))[1]::uuid)
-    and (storage.foldername(name))[2]::uuid is not null
+    and public.is_shop_member(public.uuid_or_null((storage.foldername(name))[1]))
+    and public.can_see_support_thread(public.uuid_or_null((storage.foldername(name))[2]))
   );
 
 create policy "members read support attachments on a thread they can see"
@@ -386,7 +420,7 @@ create policy "members read support attachments on a thread they can see"
     bucket_id = 'support-attachments'
     and (
       public.is_platform_admin()
-      or public.can_see_support_thread((storage.foldername(name))[2]::uuid)
+      or public.can_see_support_thread(public.uuid_or_null((storage.foldername(name))[2]))
     )
   );
 
@@ -398,5 +432,5 @@ create policy "members delete support attachments on a thread they can see"
   to authenticated
   using (
     bucket_id = 'support-attachments'
-    and public.can_see_support_thread((storage.foldername(name))[2]::uuid)
+    and public.can_see_support_thread(public.uuid_or_null((storage.foldername(name))[2]))
   );

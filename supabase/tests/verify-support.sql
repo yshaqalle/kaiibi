@@ -276,6 +276,15 @@ begin
   insert into storage.objects (bucket_id, name, owner)
     values ('product-images', v_shop_id || '/staff/photo-1.jpg', v_owner_id);
 
+  -- And the same hazard from INSIDE the bucket, where bucket_id no longer
+  -- excuses the cast. Written as postgres on purpose: the insert policy only
+  -- binds authenticated, and the operator half of this feature writes through
+  -- service_role, so "the insert policy pins the shape" is not a guarantee that
+  -- reaches this row. One object like it must not cost every member their
+  -- listing.
+  insert into storage.objects (bucket_id, name, owner)
+    values ('support-attachments', 'aaa/notes/leftover.png', v_owner_id);
+
   perform set_config('request.jwt.claims',
     json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
   perform set_config('role', 'authenticated', true);
@@ -291,6 +300,27 @@ begin
   exception when insufficient_privilege then
     raise notice 'OK: an attachment outside a thread folder is refused';
   end;
+
+  -- Writing into a colleague's thread folder. The cashier cannot read this
+  -- thread (#6) and could not read the file back, so nothing leaks TO them --
+  -- the harm runs the other way: the owner opens their billing thread and finds
+  -- an attachment from someone with no access to it. Shop-wide write under
+  -- thread-scoped read is what allows that.
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+      values ('support-attachments', v_shop_id || '/' || v_store_thread || '/planted.png', v_cashier_id);
+    raise exception 'FAIL: a member planted a file in a thread they cannot see';
+  exception when insufficient_privilege then
+    raise notice 'OK: a member cannot plant a file in someone else''s thread folder';
+  end;
+
+  -- The malformed object seeded above is inside this bucket, so this listing is
+  -- the one that raises if the cast is not total.
+  select count(*) into v_count from storage.objects where bucket_id = 'support-attachments';
+  if v_count <> 1 then
+    raise exception 'FAIL: a member listing the bucket saw % object(s), expected only their own', v_count;
+  end if;
+  raise notice 'OK: a malformed object does not break listing for a member';
 
   perform set_config('request.jwt.claims',
     json_build_object('sub', v_owner_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
@@ -321,10 +351,14 @@ begin
   get diagnostics v_deleted = row_count;
   if v_deleted <> 1 then raise exception 'FAIL: the author cannot delete their own attachment'; end if;
 
-  -- Unfiltered on purpose: this is the read that makes every policy on
-  -- storage.objects run against the staff photo above.
-  select count(*) into v_count from storage.objects;
-  if v_count < 1 then raise exception 'FAIL: the staff photo is not readable'; end if;
+  -- Named, not counted. `count(*) from storage.objects` is satisfied by any row
+  -- the public product-images policy lets through, so it passes whatever this
+  -- migration does; asking for the staff photo by path is what makes it an
+  -- assertion about the non-uuid segment 2 rather than about the table being
+  -- non-empty.
+  select count(*) into v_count from storage.objects
+   where bucket_id = 'product-images' and name = v_shop_id || '/staff/photo-1.jpg';
+  if v_count <> 1 then raise exception 'FAIL: the staff photo is not readable'; end if;
   raise notice 'OK: the owner can neither read nor delete it; the author can do both';
 
   ------------------------------------------------------------------
@@ -352,6 +386,19 @@ begin
   insert into public.support_attachments (message_id, storage_path, file_name, byte_size)
     values (v_msg_id, v_shop_id || '/' || v_own_thread || '/receipt.png', 'receipt.png', 10);
   raise notice 'OK: the message''s own thread folder is accepted';
+
+  -- A check that only fires on insert is a check that stops being true the day
+  -- somebody grants update. No client holds update on this table today, so this
+  -- runs as postgres -- the trigger is the thing under test, not the grant.
+  perform set_config('role', 'postgres', true);
+  begin
+    update public.support_attachments
+       set storage_path = gen_random_uuid() || '/' || v_own_thread || '/moved.png'
+     where message_id = v_msg_id;
+    raise exception 'FAIL: storage_path was moved to another shop by an update';
+  exception when check_violation then
+    raise notice 'OK: the path check survives an update';
+  end;
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
