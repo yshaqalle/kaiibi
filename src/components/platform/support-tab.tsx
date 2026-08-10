@@ -7,12 +7,14 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
+import { formatCents, formatForeignCents } from '@/lib/currency';
 import { openExternalUrl } from '@/lib/external-url';
 import {
   callPlatformAdmin,
   supportQueueState,
   type PlatformShopRow,
   type PlatformSupportThread,
+  type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listMessages, whatsAppLink, type SupportMessage } from '@/lib/support';
 import { signedUrlFor } from '@/lib/support-attachments';
@@ -55,6 +57,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 export function SupportTab({
   threads,
   shops,
+  payments,
   now,
   truncated,
   compact,
@@ -63,6 +66,13 @@ export function SupportTab({
 }: {
   threads: PlatformSupportThread[];
   shops: PlatformShopRow[];
+  /**
+   * Every payment the console loaded. Billing is the largest support category
+   * and "has my payment gone through" is the question behind most of it, so the
+   * rail answers it from data already on the screen rather than sending the
+   * operator to the Stores tab mid-reply.
+   */
+  payments: SubscriptionPaymentRow[];
   /**
    * When the rows on screen were fetched. Passed in rather than read here so
    * the "past a day" count and the caveat that explains it are measured
@@ -206,6 +216,7 @@ export function SupportTab({
             key={opened.id}
             thread={opened}
             shop={shops.find((s) => s.shopId === opened.shopId)}
+            payments={payments.filter((p) => p.shopId === opened.shopId)}
             wide={!compact}
             onDone={onDone}
             onClose={() => setOpenedId(null)}
@@ -235,11 +246,15 @@ type SendOptions = { close?: boolean; whatsApp?: boolean };
 // 'close' carries its own reason rather than re-reading the draft: by the time
 // a close can fail the reply is already on the server and the box has been
 // emptied, and platform-admin refuses an action with no reason.
+//
+// The hand-off is NOT in here. A browser that refuses to open the chat mostly
+// does it without throwing (see handOffChat), so a retry conditioned on a
+// caught error would be offered for the rare failure and withheld for the
+// usual one. Its affordance is unconditional instead.
 type Retry =
   | { kind: 'load' }
   | { kind: 'send'; opts: SendOptions }
   | { kind: 'close'; reason: string }
-  | { kind: 'handOff'; text: string }
   | { kind: 'attachment'; path: string };
 
 type Problem = { message: string; retry: Retry };
@@ -256,6 +271,7 @@ type Problem = { message: string; retry: Retry };
 function SupportThreadPanel({
   thread,
   shop,
+  payments,
   wide,
   onDone,
   onClose,
@@ -266,6 +282,8 @@ function SupportThreadPanel({
    * deleted since. The money rows read "—" rather than guessing at a tier.
    */
   shop: PlatformShopRow | undefined;
+  /** This store's payments only; the panel picks the most recent itself. */
+  payments: SubscriptionPaymentRow[];
   wide: boolean;
   onDone: () => Promise<void>;
   onClose: () => void;
@@ -274,6 +292,10 @@ function SupportThreadPanel({
   const [reply, setReply] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // The reply whose WhatsApp chat we have tried to open, held so the note that
+  // offers a second, in-gesture attempt can carry the same text. Null until a
+  // hand-off send has actually landed.
+  const [handedOff, setHandedOff] = useState<string | null>(null);
   // `busy` alone is not a guard: two presses landing before the state has
   // re-rendered the buttons both see them enabled, and reply_support is an
   // insert with nothing on the server to collapse the second into the first.
@@ -324,18 +346,21 @@ function SupportThreadPanel({
   // already in the box — so a hand-off that never opens costs a paste and
   // nothing else, because the thread already has the record.
   //
-  // Guarded separately for that same reason: a throw here reported as a failed
-  // send would be a lie about the one thing this ordering exists to protect.
-  const handOff = (text: string): void => {
+  // Nothing here can tell whether it worked. Called from `send` this runs two
+  // awaits after the operator's press, and a link click outside a user gesture
+  // is what Chrome and Safari block — SILENTLY, no throw, no return value. So
+  // this is best-effort only, and the note under the buttons offers the same
+  // hand-off from a real press, where the browser has no reason to refuse it.
+  const handOffChat = (text: string): void => {
     const link = whatsAppLink(thread.authorPhone, text);
     if (!link) return;
     try {
       openExternalUrl(link);
     } catch {
-      setProblem({
-        message: 'The reply is on the thread, but WhatsApp did not open.',
-        retry: { kind: 'handOff', text },
-      });
+      // Deliberately not reported. A caught throw is the rarer half of the same
+      // failure and has the same fix, which is already on screen; raising a
+      // caveat only for this half would tell the operator nothing in the case
+      // that actually happens.
     }
   };
 
@@ -349,6 +374,10 @@ function SupportThreadPanel({
     sendInFlight.current = true;
     setBusy(true);
     setProblem(null);
+    // Dropped before the send, not after it: the note names one reply, and
+    // leaving the last one's up would offer to open a chat pre-filled with a
+    // message the operator has already sent.
+    setHandedOff(null);
     try {
       // The body is passed as `reason`. platform-admin requires one on every
       // action, and for support the body IS the justification — see the comment
@@ -361,7 +390,10 @@ function SupportThreadPanel({
       setReply('');
 
       const closed = opts.close === true && (await closeThread(body));
-      if (opts.whatsApp) handOff(body);
+      if (opts.whatsApp) {
+        setHandedOff(body);
+        handOffChat(body);
+      }
 
       await load();
       await onDone();
@@ -406,7 +438,6 @@ function SupportThreadPanel({
     if (retry.kind === 'load') void load();
     else if (retry.kind === 'send') void send(retry.opts);
     else if (retry.kind === 'close') void closeThread(retry.reason);
-    else if (retry.kind === 'handOff') handOff(retry.text);
     else void openAttachment(retry.path);
   };
 
@@ -415,6 +446,13 @@ function SupportThreadPanel({
   // to message someone we cannot reach is worse than not offering.
   const chatLink = whatsAppLink(thread.authorPhone);
   const cover = shop ? coverEnd(shop) : null;
+  // Max by date rather than [0]: listSubscriptionPayments happens to sort
+  // newest first, but "the last payment" is a claim this row makes on its own
+  // and a re-ordered query elsewhere must not be able to make it a false one.
+  const lastPayment = payments.reduce<SubscriptionPaymentRow | null>(
+    (latest, p) => (latest && Date.parse(latest.paidAt) >= Date.parse(p.paidAt) ? latest : p),
+    null
+  );
 
   return (
     <View style={[panelStyles.wrap, wide && panelStyles.wrapWide]}>
@@ -488,9 +526,16 @@ function SupportThreadPanel({
         </View>
 
         {thread.contactPreference === 'whatsapp' && (
-          <Caveat tone="context">
+          <Caveat tone="context">{whatsAppNote(thread, chatLink)}</Caveat>
+        )}
+        {handedOff !== null && (
+          // Unconditional after a hand-off send, and it stays. The automatic
+          // attempt above cannot report whether the chat opened, so the only
+          // honest thing to show is the way to open it again — and this press
+          // IS the user gesture the blocked one lacked.
+          <Caveat tone="context" action={{ label: 'Open WhatsApp', onPress: () => handOffChat(handedOff) }}>
             {
-              'They asked to be nudged on WhatsApp too. Send writes the reply into the thread as always; Send & open WhatsApp does that and then opens their chat with this reply already in the box. Kaiibi never sends the WhatsApp message itself — you do, from your own account.'
+              'The reply is on the thread either way. Their chat should have opened in a new tab with it already written — if nothing appeared, your browser blocked it.'
             }
           </Caveat>
         )}
@@ -519,6 +564,14 @@ function SupportThreadPanel({
           <RailRow k="Status" v={shop ? <SubscriptionStatusPill status={shop.status} /> : '—'} />
           {cover && <RailRow k={cover.label === 'renews' ? 'Renews' : 'Trial ends'} v={fmtDate(cover.ends)} />}
           {shop?.manualStatus === 'suspended' && <RailRow k="Access" v="Suspended by us" />}
+          {/* The money question a store actually asks. Same shape as "Sent
+              from": a row saying there is nothing, rather than no row at all,
+              because a missing row reads as a rail that failed to load. */}
+          <RailRow
+            k="Last payment"
+            v={lastPayment ? `${paymentAmount(lastPayment)} · ${fmtDate(lastPayment.paidAt)}` : 'None recorded'}
+          />
+          {lastPayment && <RailRow k="Matched" v={matchLabel(lastPayment, cover)} />}
         </Rail>
 
         <Rail title="Sent from">
@@ -584,13 +637,15 @@ const CONTEXT_LABELS: Record<string, string> = {
   locationName: 'Branch',
 };
 
-// `authorUserId` is what separates the two nulls. A thread we started has no
-// author at all; a thread they started whose name we could not read is a
-// profile we failed to resolve, and telling the operator "we started this" in
-// that case would be a lie about who is waiting.
+// Who is waiting. `openedBy` is the discriminator, NOT the null author:
+// `support_threads.author_user_id` is `on delete set null`, so a store-opened
+// thread whose author has since been deleted arrives with the same empty
+// author a thread we started does — and "We started this" over somebody else's
+// question is the exact lie this label exists to prevent. The queue row asks
+// `openedBy` for the same reason.
 function personLabel(thread: PlatformSupportThread): string {
+  if (thread.openedBy === 'platform') return 'We started this';
   if (thread.authorName) return thread.authorName;
-  if (!thread.authorUserId) return 'We started this';
   return 'Name not on file';
 }
 
@@ -602,6 +657,51 @@ function authorLabel(thread: PlatformSupportThread, message: SupportMessage): st
   if (message.authorKind === 'platform') return 'Kaiibi support';
   if (message.authorUserId && message.authorUserId === thread.authorUserId) return personLabel(thread);
   return 'The store';
+}
+
+// The note under the send row, gated on the same fact the button is. Copy
+// explaining a control that is not on screen sends the operator looking for it,
+// and "they asked for WhatsApp" is still something they have to know in the
+// case where we cannot hand them a chat.
+function whatsAppNote(thread: PlatformSupportThread, chatLink: string | null): string {
+  if (chatLink) {
+    return 'They asked to be nudged on WhatsApp too. Send writes the reply into the thread as always; Send & open WhatsApp does that and then opens their chat with this reply already in the box. Kaiibi never sends the WhatsApp message itself — you do, from your own account.';
+  }
+  if (!thread.authorPhone) {
+    return 'They asked to be nudged on WhatsApp, but there is no number on file for them, so there is no chat to open from here. Your reply in the thread is the only way they hear from us.';
+  }
+  return `They asked to be nudged on WhatsApp, but the number on file (${thread.authorPhone}) is not one we can dial, so there is no chat to open from here. Your reply in the thread is the only way they hear from us.`;
+}
+
+// The payment carries its own currency and every plan is priced in USD today,
+// but printing a dollar sign over a shilling amount is the kind of wrong an
+// operator quotes straight back to the store.
+function paymentAmount(payment: SubscriptionPaymentRow): string {
+  return payment.currency === 'USD'
+    ? formatCents(payment.amountCents)
+    : formatForeignCents(payment.amountCents, payment.currency);
+}
+
+// Whether their access is actually standing on the money they last sent.
+//
+// The payment row alone does not answer that: recording money only moves the
+// period when the payment carried a cover date, and an extended trial or a
+// second payment can move that period somewhere else afterwards. Compared by
+// day rather than by instant — record_payment copies covers_to into
+// current_period_end verbatim, so a difference in the time of day means the two
+// were written by different actions, not that they disagree.
+function matchLabel(payment: SubscriptionPaymentRow, cover: { ends: string | null } | null): string {
+  if (!payment.coversTo) return 'No — it bought no cover';
+  if (!cover?.ends) return 'Cannot tell — no cover on file';
+  if (sameDay(payment.coversTo, cover.ends)) return `Yes — covers to ${fmtDate(payment.coversTo)}`;
+  return `No — their cover ends ${fmtDate(cover.ends)}`;
+}
+
+function sameDay(a: string, b: string): boolean {
+  const x = new Date(a);
+  const y = new Date(b);
+  if (Number.isNaN(x.getTime()) || Number.isNaN(y.getTime())) return false;
+  return x.toISOString().slice(0, 10) === y.toISOString().slice(0, 10);
 }
 
 // A thread's category comes from either taxonomy — the store's eight or the

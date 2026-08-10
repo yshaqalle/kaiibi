@@ -189,6 +189,7 @@ export default function PlatformHome() {
     <SupportTab
       threads={supportThreads}
       shops={shops}
+      payments={payments}
       now={loadedAt}
       truncated={supportTruncated}
       compact={compact}

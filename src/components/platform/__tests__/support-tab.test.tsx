@@ -3,7 +3,12 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { SupportTab } from '@/components/platform/support-tab';
 import { openExternalUrl } from '@/lib/external-url';
-import { callPlatformAdmin, type PlatformShopRow, type PlatformSupportThread } from '@/lib/platform';
+import {
+  callPlatformAdmin,
+  type PlatformShopRow,
+  type PlatformSupportThread,
+  type SubscriptionPaymentRow,
+} from '@/lib/platform';
 import { listMessages, type SupportMessage } from '@/lib/support';
 
 // The tab imports @/lib/platform for supportQueueState, which imports the live
@@ -72,6 +77,20 @@ const SHOPS = [
   } as PlatformShopRow,
 ];
 
+function payment(over: Partial<SubscriptionPaymentRow> & { id: string }): SubscriptionPaymentRow {
+  return {
+    shopId: 'shop-1',
+    amountCents: 1200,
+    currency: 'USD',
+    method: 'zaad',
+    paidAt: '2026-08-02T09:00:00.000Z',
+    // The shop above renews on 2 Nov 2026, so this is a payment their cover is
+    // actually standing on.
+    coversTo: '2026-11-02T12:00:00.000Z',
+    ...over,
+  };
+}
+
 function message(over: Partial<SupportMessage> & { id: string }): SupportMessage {
   return {
     threadId: 't',
@@ -108,13 +127,19 @@ function press(tree: ReactTestRenderer, label: string): void {
   });
 }
 
-function renderTab(threads: PlatformSupportThread[], now: number = NOON, truncated = false): ReactTestRenderer {
+function renderTab(
+  threads: PlatformSupportThread[],
+  now: number = NOON,
+  truncated = false,
+  payments: SubscriptionPaymentRow[] = []
+): ReactTestRenderer {
   let tree: ReactTestRenderer | undefined;
   act(() => {
     tree = create(
       <SupportTab
         threads={threads}
         shops={SHOPS}
+        payments={payments}
         now={now}
         truncated={truncated}
         compact={false}
@@ -132,8 +157,11 @@ function render(threads: PlatformSupportThread[], now: number = NOON, truncated 
 
 // Opens the panel the way an operator does -- by pressing the row -- so the
 // modal wiring is under test too, and flushes the message load it starts.
-async function openPanel(one: PlatformSupportThread): Promise<ReactTestRenderer> {
-  const tree = renderTab([one]);
+async function openPanel(
+  one: PlatformSupportThread,
+  payments: SubscriptionPaymentRow[] = []
+): Promise<ReactTestRenderer> {
+  const tree = renderTab([one], NOON, false, payments);
   // Prefix, not equality: a thread we started has "(we started this)" appended
   // to its subject in the row.
   const row = tree.root
@@ -237,12 +265,56 @@ describe('the reply panel rail', () => {
     expect(shown).toContain('2 Nov 2026');
   });
 
-  // Two different nulls. `authorUserId` is what tells them apart, and calling
-  // an unreadable profile "we started this" would be a lie about who is
-  // waiting.
+  // Two different empty authors. `openedBy` is what tells them apart, and
+  // calling a store's own question "we started this" would be a lie about who
+  // is waiting.
   it('tells a thread we started apart from a name we could not read', async () => {
     expect(texts(await openPanel(thread({ id: 'a', openedBy: 'platform' })))).toContain('We started this');
     expect(texts(await openPanel(thread({ id: 'b', authorUserId: 'u1' })))).toContain('Name not on file');
+  });
+
+  // support_threads.author_user_id is `on delete set null`, so a store-opened
+  // thread whose author has since been deleted arrives looking exactly like one
+  // we opened ourselves. Only `openedBy` survives that.
+  it('does not claim we started a thread whose author has been deleted', async () => {
+    const tree = await openPanel(thread({ id: 'a', openedBy: 'shop', authorUserId: null, authorName: null }));
+    expect(texts(tree)).not.toContain('We started this');
+    expect(texts(tree)).toContain('Name not on file');
+  });
+
+  // Billing is the biggest category on this queue, and "has my payment gone
+  // through" is what most of it is asking. Leaving the panel to answer it is
+  // what this row exists to stop.
+  it('shows the last payment and whether their cover stands on it', async () => {
+    const tree = await openPanel(thread({ id: 'a' }), [payment({ id: 'p1' })]);
+    expect(texts(tree)).toContain('$12.00 · 2 Aug 2026');
+    expect(texts(tree)).toContain('Yes — covers to 2 Nov 2026');
+  });
+
+  it('picks the most recent payment, not the first row it was handed', async () => {
+    const tree = await openPanel(thread({ id: 'a' }), [
+      payment({ id: 'old', amountCents: 500, paidAt: '2026-05-02T09:00:00.000Z' }),
+      payment({ id: 'new', amountCents: 1200, paidAt: '2026-08-02T09:00:00.000Z' }),
+    ]);
+    expect(texts(tree)).toContain('$12.00 · 2 Aug 2026');
+  });
+
+  // Money can arrive and be recorded without buying any time -- and a store
+  // whose cover did not move is exactly the one writing in about it.
+  it('says a payment bought no cover rather than implying it matched', async () => {
+    const tree = await openPanel(thread({ id: 'a' }), [payment({ id: 'p1', coversTo: null })]);
+    expect(texts(tree)).toContain('No — it bought no cover');
+  });
+
+  it('says so when their cover is standing on something else', async () => {
+    const tree = await openPanel(thread({ id: 'a' }), [
+      payment({ id: 'p1', coversTo: '2026-09-02T12:00:00.000Z' }),
+    ]);
+    expect(texts(tree)).toContain('No — their cover ends 2 Nov 2026');
+  });
+
+  it('says there is no payment rather than drawing no row at all', async () => {
+    expect(texts(await openPanel(thread({ id: 'a' })))).toContain('None recorded');
   });
 
   it('shows what they were holding when it broke', async () => {
@@ -428,9 +500,34 @@ describe('the WhatsApp hand-off', () => {
     );
   });
 
+  // The failure that actually happens. The automatic attempt runs two awaits
+  // after the operator's press, and Chrome and Safari refuse a link click
+  // outside a user gesture WITHOUT throwing -- so nothing is caught, and a
+  // panel that reported only thrown errors would look like it had succeeded.
+  it('offers the hand-off again after a send, whether or not the browser blocked it', async () => {
+    // Blocked silently: no throw, no chat, nothing to catch.
+    openExternalUrlMock.mockImplementation(() => {});
+    const tree = await openPanel(wants());
+    typeReply(tree, 'Your payment is matched.');
+    press(tree, 'Send & open WhatsApp');
+    await act(async () => {});
+
+    expect(texts(tree).some((t) => t.startsWith('The reply is on the thread either way.'))).toBe(true);
+
+    // The point of the button: this press IS a user gesture, so the same link
+    // the automatic attempt could not open now opens from the operator's click.
+    openExternalUrlMock.mockClear();
+    press(tree, 'Open WhatsApp →');
+    expect(openExternalUrlMock).toHaveBeenCalledWith(
+      `https://wa.me/252635551234?text=${encodeURIComponent('Your payment is matched.')}`
+    );
+    // The reply is committed; retrying the chat must never re-post it.
+    expect(callPlatformAdminMock).toHaveBeenCalledTimes(1);
+  });
+
   // The ordering is the point: the thread has the record whatever the browser
   // does with the link.
-  it('keeps the reply on the record when the hand-off is what fails', async () => {
+  it('keeps the reply on the record when the hand-off throws', async () => {
     openExternalUrlMock.mockImplementation(() => {
       throw new Error('popup blocked');
     });
@@ -440,7 +537,31 @@ describe('the WhatsApp hand-off', () => {
     await act(async () => {});
 
     expect(callPlatformAdminMock).toHaveBeenCalledTimes(1);
-    expect(texts(tree)).toContain('The reply is on the thread, but WhatsApp did not open.');
+    expect(texts(tree)).not.toContain('That reply did not go through.');
+    expect(labelled(tree, 'Open WhatsApp →')).toBeDefined();
+  });
+
+  it('says nothing about a hand-off the operator did not ask for', async () => {
+    const tree = await openPanel(wants());
+    typeReply(tree, 'Your payment is matched.');
+    press(tree, 'Send reply');
+    await act(async () => {});
+
+    expect(labelled(tree, 'Open WhatsApp →')).toBeUndefined();
+  });
+
+  // The copy explains the Send & open WhatsApp button, so it cannot be on
+  // screen when that button is not -- and the operator still has to know they
+  // asked for a channel we cannot give them.
+  it('does not describe a hand-off button that is not there', async () => {
+    const shown = texts(await openPanel(wants({ authorPhone: '12' })));
+    expect(shown.some((t) => t.startsWith('They asked to be nudged on WhatsApp too.'))).toBe(false);
+    expect(shown.some((t) => t.includes('the number on file (12) is not one we can dial'))).toBe(true);
+  });
+
+  it('says there is no number at all when that is the reason', async () => {
+    const shown = texts(await openPanel(wants({ authorPhone: null })));
+    expect(shown.some((t) => t.includes('there is no number on file for them'))).toBe(true);
   });
 
   it('opens a bare chat from the rail, with nothing written in it', async () => {
