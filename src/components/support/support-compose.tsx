@@ -225,13 +225,15 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
     opened.current = null;
     setDraft(EMPTY_DRAFT);
     setFiles([]);
+    // Says what to do, not what to retry. A store can only attach on the first
+    // message -- the reply box in support-thread-view.tsx has no picker -- so
+    // telling someone to reopen the thread and try again would send the one
+    // person who has just lost a file to a dead end.
     if (missed.length === 1) {
-      setMissedFiles(
-        `Sent — but we couldn't attach ${missed[0]}. Open the conversation under Your messages to try again.`
-      );
+      setMissedFiles(`Sent — but ${missed[0]} didn't attach. Reply on the conversation and we'll ask you for it.`);
     } else if (missed.length > 1) {
       setMissedFiles(
-        `Sent — but ${missed.length} files didn't attach. Open the conversation under Your messages to try again.`
+        `Sent — but ${missed.length} files didn't attach. Reply on the conversation and we'll ask you for them.`
       );
     }
     setSending(false);
