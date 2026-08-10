@@ -21,6 +21,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-refunds.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-owner-membership.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-support.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -200,6 +202,32 @@ one-person shop. Migration 20260823000000 gives them an ordinary row.
 6. Deleting a shop still cascades through that guard rather than tripping it.
 7. **The owner can be given a shift** — the question the whole migration exists
    to answer.
+
+## What `verify-support.sql` covers
+
+Support threads are the one place a member writes to us rather than to their
+shop, so the read policy is per-author instead of per-shop. The cashier in this
+script is a real `shop_members` row on the seeded Cashier role — a stranger
+would pass 6 and 8 for the wrong reason.
+
+1. `KB-####` references are unique and increasing.
+2. A thread defaults to open with a reference.
+3. Posting a message advances `last_message_at` and marks the thread read for
+   the end that wrote it and **only** that end — the asymmetry the unread count
+   is built on.
+4. **A cashier's message to us is invisible to the shop owner.** The question
+   the whole policy exists to answer: a staff member reporting their manager
+   must not be reporting them to their manager.
+5. The author still reads their own.
+6. A thread *we* address to the store reaches `settings.access` holders and not
+   the cashier — billing belongs to whoever runs the shop.
+7. A member of another shop reads nothing.
+8. A member cannot insert a thread claiming `opened_by = 'platform'`, which
+   would otherwise let them borrow the wider read policy that grant carries —
+   with a control opening an ordinary thread and replying to it, both with
+   `RETURNING`. That control is not decoration: `insert … returning` runs the
+   select policy against a row no snapshot can see yet, so a visibility rule
+   written as a lookup by id refuses every create the client makes.
 
 ## Concurrency
 
