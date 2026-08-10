@@ -32,6 +32,17 @@ function contentTypeFor(reported: string | null | undefined, fileName: string): 
   return TYPE_BY_EXTENSION[extension] ?? null;
 }
 
+// A size of 0 is not a measurement, it is a picker that didn't answer -- an
+// Android content:// provider that omits SIZE, or expo-image-picker on web.
+// "0.0 MB" reads as a fact about an empty file, and it is the same 0 that
+// walks past checkAttachment's ceiling, so it must not look measured. Files
+// under a megabyte read in KB for the same reason.
+function fileSizeLabel(byteSize: number): string {
+  if (byteSize <= 0) return 'Size unknown';
+  if (byteSize < 1024 * 1024) return `${Math.max(1, Math.round(byteSize / 1024))} KB`;
+  return `${(byteSize / 1024 / 1024).toFixed(1)} MB`;
+}
+
 // Pick, list, remove. Uploading happens on send, not here -- a file uploaded
 // the moment it is picked is a file orphaned the moment someone changes their
 // mind, and this bucket has no lifecycle rule to clean those up.
@@ -115,7 +126,7 @@ export function AttachmentPicker({
             <Text style={styles.fileName} numberOfLines={1}>
               {file.fileName}
             </Text>
-            <Text style={styles.fileSize}>{(file.byteSize / 1024 / 1024).toFixed(1)} MB</Text>
+            <Text style={styles.fileSize}>{fileSizeLabel(file.byteSize)}</Text>
           </View>
           <Pressable
             onPress={() => remove(index)}

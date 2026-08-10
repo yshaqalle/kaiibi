@@ -14,10 +14,14 @@ import {
   validateDraft,
   type ContactPreference,
   type SupportDraft,
-  type SupportThread,
 } from '@/lib/support';
 import { attachmentPath, uploadAttachment, type PendingAttachment } from '@/lib/support-attachments';
-import { clearStoredDraft, readStoredDraft, writeStoredDraft } from '@/lib/support-draft';
+import {
+  clearStoredDraft,
+  readStoredDraft,
+  writeStoredDraft,
+  type StoredDraft,
+} from '@/lib/support-draft';
 import {
   categoryMeta,
   needsAreaOther,
@@ -48,47 +52,56 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
   const [draft, setDraft] = useState<SupportDraft>(EMPTY_DRAFT);
   const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<string | null>(null);
+  const [missedFiles, setMissedFiles] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
 
-  // Opening a thread is not idempotent, so a send that got past createThread
-  // and then failed on an attachment must resume rather than start over --
-  // otherwise the 'Try again' button is a button that files a second copy of
-  // the same report and leaves the first unanswerable.
-  const openedThread = useRef<SupportThread | null>(null);
-  // Which of `files` already reached the thread above, so a retry after a
-  // failed upload does not put the ones that worked on it a second time.
-  const linked = useRef(new Set<PendingAttachment>());
+  // Opening a thread is not idempotent, so a send must never file a second copy
+  // of a report that already landed. `draft` is the exact object the thread was
+  // filed with: identity is the test, because any edit replaces it, and a thread
+  // carrying the old words is not the one this send is trying to finish.
+  const opened = useRef<{ thread: NonNullable<StoredDraft['thread']>; draft: SupportDraft } | null>(null);
+
+  // The key is per user -- shop is not a narrow enough scope for a form people
+  // write about each other in, and a shop tablet is signed in and out of all day.
+  const userId = session?.user?.id ?? null;
 
   // Restore once, then persist on every change. Nothing typed is lost to a
-  // failed send, a closed sheet, or a killed app.
-  const restored = useRef(false);
+  // failed send, a closed sheet, or a killed app. State rather than a ref
+  // because the flip has to re-run the persist below: keystrokes typed while
+  // the read was in flight would otherwise sit unpersisted until the next one.
+  const [restored, setRestored] = useState(false);
+  // The restore callback closes over the draft as it was when the effect ran,
+  // which is always the empty one; this is what it actually is by the time the
+  // read answers.
+  const latestDraft = useRef(draft);
+  useEffect(() => {
+    latestDraft.current = draft;
+  }, [draft]);
 
   useEffect(() => {
-    void readStoredDraft().then((stored) => {
-      restored.current = true;
+    if (!userId) return;
+    void readStoredDraft(userId).then((stored) => {
       // Anything typed while the read was in flight wins: the restore is a
       // convenience, and overwriting live keystrokes with it is the one way
       // this feature could itself lose what someone wrote.
-      if (stored) setDraft((current) => (current === EMPTY_DRAFT ? stored : current));
+      if (stored && latestDraft.current === EMPTY_DRAFT) {
+        opened.current = stored.thread ? { thread: stored.thread, draft: stored.draft } : null;
+        setDraft(stored.draft);
+      }
+      setRestored(true);
     });
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     // Held until the restore has answered, so the empty first render cannot
     // erase the draft it is about to be replaced by.
-    if (!restored.current) return;
-    writeStoredDraft(draft);
-  }, [draft]);
-
-  useEffect(() => {
-    // Editing after a part-finished send means the words have changed, and the
-    // thread already opened carries the old ones -- so it is no longer the
-    // thread this send is trying to finish, and resuming into it would drop
-    // the edit silently. The next send opens a new thread, which needs its own
-    // copies of the files.
-    openedThread.current = null;
-    linked.current.clear();
-  }, [draft]);
+    if (!restored || !userId) return;
+    // A send clears the stored draft and then empties this one; persisting
+    // EMPTY_DRAFT here would put the record straight back, making the clear a
+    // no-op and leaving an empty husk under this user's key.
+    if (draft === EMPTY_DRAFT) return;
+    writeStoredDraft(userId, draft, opened.current?.draft === draft ? opened.current.thread : null);
+  }, [draft, restored, userId]);
 
   const meta = draft.category ? categoryMeta(draft.category) : null;
   const showAreaOther = draft.category ? needsAreaOther(draft.category, draft.area) : false;
@@ -122,42 +135,34 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
     setProblem(null);
   };
 
-  const send = async () => {
-    const validation = validateDraft(draft);
-    if (!validation.ok) {
-      setProblem(validation.message);
-      return;
-    }
-    if (!shop || !session) return;
-
-    setSending(true);
-    setProblem(null);
+  // Deliberately cannot throw. Once the thread is open the report has arrived,
+  // and everything after this point is a qualification on a sent message rather
+  // than grounds to tell someone their words went nowhere. Returns the names of
+  // the files that did not make it.
+  const attachFiles = async (shopId: string, threadId: string): Promise<string[]> => {
+    if (files.length === 0) return [];
     try {
-      // No author argument: the RPC behind this reads auth.uid() itself.
-      const thread = openedThread.current ?? (await createThread(shop.id, draft, context));
-      openedThread.current = thread;
+      // The RPC returns the thread row and nothing else, so the id of the
+      // message it wrote alongside it still has to be asked for -- an
+      // attachment hangs off a message, not off a thread. The thread is
+      // seconds old, so the oldest message is the one just written.
+      const { data: message, error } = await supabase
+        .from('support_messages')
+        .select('id')
+        .eq('thread_id', threadId)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+      if (error) throw error;
 
-      if (files.length > 0) {
-        // The RPC returns the thread row and nothing else, so the id of the
-        // message it wrote alongside it still has to be asked for -- an
-        // attachment hangs off a message, not off a thread. The thread is
-        // seconds old, so the oldest message is the one just written.
-        const { data: message, error } = await supabase
-          .from('support_messages')
-          .select('id')
-          .eq('thread_id', thread.id)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-        if (error) throw error;
-
-        for (const [index, file] of files.entries()) {
-          if (linked.current.has(file)) continue;
+      const missed: string[] = [];
+      for (const [index, file] of files.entries()) {
+        try {
           // `Date.now() + index` rather than Date.now(): the timestamp is only
           // there to keep paths unique, uploads use upsert:false, and two files
           // of the same name picked from different folders can finish inside
           // the same millisecond -- which would fail the second one.
-          const path = attachmentPath(shop.id, thread.id, file.fileName, Date.now() + index);
+          const path = attachmentPath(shopId, threadId, file.fileName, Date.now() + index);
           await uploadAttachment(path, file);
           const { error: linkError } = await supabase.from('support_attachments').insert({
             message_id: message.id,
@@ -167,23 +172,69 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
             content_type: file.contentType,
           });
           if (linkError) throw linkError;
-          linked.current.add(file);
+        } catch {
+          // One file failing says nothing about the next one.
+          missed.push(file.fileName);
         }
       }
-
-      clearStoredDraft();
-      openedThread.current = null;
-      linked.current.clear();
-      setDraft(EMPTY_DRAFT);
-      setFiles([]);
-      onSent(thread.reference);
-    } catch (error) {
-      // The draft is deliberately left alone. Nothing typed is ever lost to a
-      // failed send -- retyping a bug report is how people stop reporting bugs.
-      setProblem(error instanceof Error ? error.message : 'That did not send. Try again in a moment.');
-    } finally {
-      setSending(false);
+      return missed;
+    } catch {
+      // Without the message id nothing could be hung off it, so none of them
+      // landed.
+      return files.map((file) => file.fileName);
     }
+  };
+
+  const send = async () => {
+    const validation = validateDraft(draft);
+    if (!validation.ok) {
+      setProblem(validation.message);
+      return;
+    }
+    if (!shop || !session || !userId) return;
+
+    setSending(true);
+    setProblem(null);
+    setMissedFiles(null);
+
+    let thread = opened.current?.draft === draft ? opened.current.thread : null;
+    if (!thread) {
+      try {
+        // No author argument: the RPC behind this reads auth.uid() itself.
+        const created = await createThread(shop.id, draft, context);
+        thread = { id: created.id, reference: created.reference };
+      } catch (error) {
+        // The draft is deliberately left alone. Nothing typed is ever lost to a
+        // failed send -- retyping a bug report is how people stop reporting bugs.
+        setProblem(error instanceof Error ? error.message : 'That did not send. Try again in a moment.');
+        setSending(false);
+        return;
+      }
+      // Stored before a single byte is uploaded. Closing the sheet mid-send
+      // unmounts this component and the refs with it; the next Send would
+      // otherwise file a second copy of a report that already landed and leave
+      // the first unanswerable.
+      opened.current = { thread, draft };
+      writeStoredDraft(userId, draft, thread);
+    }
+
+    const missed = await attachFiles(shop.id, thread.id);
+
+    clearStoredDraft(userId);
+    opened.current = null;
+    setDraft(EMPTY_DRAFT);
+    setFiles([]);
+    if (missed.length === 1) {
+      setMissedFiles(
+        `Sent — but we couldn't attach ${missed[0]}. Open the conversation under Your messages to try again.`
+      );
+    } else if (missed.length > 1) {
+      setMissedFiles(
+        `Sent — but ${missed.length} files didn't attach. Open the conversation under Your messages to try again.`
+      );
+    }
+    setSending(false);
+    onSent(thread.reference);
   };
 
   const complete = validateDraft(draft).ok;
@@ -333,6 +384,16 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
       {problem && (
         <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => void send() }}>
           {problem}
+        </Caveat>
+      )}
+
+      {/* Context, not wrong: the report is on a thread and answerable. A
+          'wrong' tone here would say the send failed, and the action that
+          follows from that is to write it out again -- which is how one
+          unattached screenshot turns into two identical threads. */}
+      {missedFiles && (
+        <Caveat tone="context" onDismiss={() => setMissedFiles(null)}>
+          {missedFiles}
         </Caveat>
       )}
 

@@ -477,9 +477,42 @@ grant execute on function public.open_support_thread(uuid, text, text, text, tex
 -- sale totals; and its insert policy requires inventory.edit, settings.access
 -- or staff.manage (0024, 20260820000300) -- precisely the permissions a stuck
 -- cashier lacks, so their upload would 403.
-insert into storage.buckets (id, name, public)
-values ('support-attachments', 'support-attachments', false)
-on conflict (id) do nothing;
+--
+-- The ceiling and the allowlist are set HERE and not only in checkAttachment().
+-- The client's byte count comes from the picker, and a content:// provider that
+-- declines to answer SIZE reports 0 -- which passes every client check there is.
+-- With these columns null the only remaining limit is the project-wide 50 MiB,
+-- so a private bucket any shop member can write to would accept a 40 MB video
+-- of anything at all. 10 MB matches MAX_BYTES in src/lib/support-attachments.ts.
+--
+-- The allowlist is what this feature asks people for: screenshots, photos, the
+-- confirmation PDF or SMS text of a payment, and a short clip of something that
+-- only makes sense moving. Anything else is a file support cannot open anyway,
+-- and application/octet-stream -- what an unrecognised pick uploads as -- is
+-- deliberately not on it.
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'support-attachments',
+  'support-attachments',
+  false,
+  10 * 1024 * 1024,
+  array[
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/heic',
+    'image/heif',
+    'application/pdf',
+    'text/plain',
+    'video/mp4',
+    'video/quicktime',
+    'video/3gpp'
+  ]
+)
+on conflict (id) do update
+  set file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
 
 -- A path segment is a string somebody else chose, and `text::uuid` on a bad one
 -- raises rather than answering false. That is survivable in a with-check, where
