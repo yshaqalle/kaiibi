@@ -62,5 +62,8 @@ const styles = StyleSheet.create({
   },
   text: { flex: 1, fontSize: 12.5, fontWeight: '700' },
   action: { fontSize: 12.5, fontWeight: '800' },
-  close: { fontSize: 13, opacity: 0.7 },
+  // Quieter than `action`, because dismissing is not what this line is for --
+  // but only to 0.85. At 0.7 the glyph blends to 3.56:1 on the light wash: legal
+  // for an icon, under the 4.5:1 this is actually rendered as, which is text.
+  close: { fontSize: 13, opacity: 0.85 },
 });

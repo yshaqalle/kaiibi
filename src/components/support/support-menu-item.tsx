@@ -61,6 +61,12 @@ let unread = 0;
 // belongs to an account, not to the app.
 let countingFor: string | null = null;
 let channel: RealtimeChannel | null = null;
+// Bumped for each channel opened, and part of its topic. removeChannel()
+// unsubscribes before the client drops the channel from its own list, so a
+// close followed by an open in the same tick -- which is what switching
+// accounts on a shared tablet does -- would be handed the dying channel back
+// under a fixed name.
+let generation = 0;
 let consumers = 0;
 const listeners = new Set<() => void>();
 
@@ -149,7 +155,7 @@ export function useSupportUnread() {
       // as not existing, and anything genuinely urgent still goes out over
       // WhatsApp by hand.
       channel = supabase
-        .channel('support-unread')
+        .channel(`support-unread-${++generation}`)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_messages' }, () => {
           void refresh();
         })
