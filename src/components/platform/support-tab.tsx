@@ -446,7 +446,7 @@ function SupportThreadPanel({
               ]}
             >
               <Text style={[panelStyles.author, message.authorKind === 'platform' && panelStyles.authorUs]}>
-                {message.authorKind === 'platform' ? 'Kaiibi support' : personLabel(thread)}
+                {authorLabel(thread, message)}
               </Text>
               <Text style={[panelStyles.body, message.authorKind === 'platform' && panelStyles.bodyUs]}>
                 {message.body}
@@ -592,6 +592,16 @@ function personLabel(thread: PlatformSupportThread): string {
   if (thread.authorName) return thread.authorName;
   if (!thread.authorUserId) return 'We started this';
   return 'Name not on file';
+}
+
+// Whose name goes on a bubble. A shop message is only the thread's author's
+// when the ids match: a colleague replying on the same thread is a different
+// person, and this list carries no name for them, so it says so rather than
+// signing their message with somebody else's name.
+function authorLabel(thread: PlatformSupportThread, message: SupportMessage): string {
+  if (message.authorKind === 'platform') return 'Kaiibi support';
+  if (message.authorUserId && message.authorUserId === thread.authorUserId) return personLabel(thread);
+  return 'The store';
 }
 
 // A thread's category comes from either taxonomy — the store's eight or the

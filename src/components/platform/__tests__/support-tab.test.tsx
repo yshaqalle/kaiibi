@@ -76,6 +76,7 @@ function message(over: Partial<SupportMessage> & { id: string }): SupportMessage
   return {
     threadId: 't',
     authorKind: 'shop',
+    authorUserId: null,
     body: over.id,
     createdAt: new Date(NOON - HOUR).toISOString(),
     attachments: [],
@@ -274,6 +275,7 @@ describe('the reply panel rail', () => {
     listMessagesMock.mockResolvedValue([
       message({
         id: 'm1',
+        authorUserId: 'u1',
         body: 'The till will not open',
         attachments: [{ id: 'a1', fileName: 'shot.png', storagePath: 'shop-1/t/shot.png', byteSize: 10 }],
       }),
@@ -282,6 +284,21 @@ describe('the reply panel rail', () => {
 
     expect(texts(tree)).toContain('The till will not open');
     expect(texts(tree)).toContain('📎 shot.png');
+    expect(texts(tree)).toContain('Hodan Ali');
+  });
+
+  // The queue carries the name of whoever OPENED the thread, and nothing else.
+  // Signing a colleague's reply with that name would have the operator
+  // answering the wrong person by name.
+  it("does not sign a colleague's message with the thread author's name", async () => {
+    listMessagesMock.mockResolvedValue([
+      message({ id: 'm1', authorUserId: 'u1', body: 'The till will not open' }),
+      message({ id: 'm2', authorUserId: 'u2', body: 'It is doing it again' }),
+    ]);
+    const tree = await openPanel(thread({ id: 'a', authorUserId: 'u1', authorName: 'Hodan Ali' }));
+
+    expect(texts(tree)).toContain('Hodan Ali');
+    expect(texts(tree)).toContain('The store');
   });
 });
 

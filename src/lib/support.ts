@@ -38,6 +38,11 @@ export type SupportMessage = {
   id: string;
   threadId: string;
   authorKind: 'shop' | 'platform';
+  // Who wrote it. Carried because a thread's messages are not all from the
+  // person who opened it -- a colleague can reply on the same thread -- and the
+  // operator's panel only knows the OPENER's name. Without this it would put
+  // that name on a message somebody else wrote.
+  authorUserId: string | null;
   body: string;
   createdAt: string;
   attachments: { id: string; fileName: string; storagePath: string; byteSize: number }[];
@@ -160,6 +165,7 @@ export async function listMessages(threadId: string): Promise<SupportMessage[]> 
     id: row.id,
     threadId: row.thread_id,
     authorKind: row.author_kind,
+    authorUserId: row.author_user_id ?? null,
     body: row.body,
     createdAt: row.created_at,
     attachments: (row.support_attachments ?? []).map((a: any) => ({
@@ -205,7 +211,15 @@ export async function postReply(threadId: string, body: string, userId: string):
     .select('*')
     .single();
   if (error) throw error;
-  return { id: data.id, threadId, authorKind: 'shop', body: data.body, createdAt: data.created_at, attachments: [] };
+  return {
+    id: data.id,
+    threadId,
+    authorKind: 'shop',
+    authorUserId: userId,
+    body: data.body,
+    createdAt: data.created_at,
+    attachments: [],
+  };
 }
 
 // The only column a store may update on a thread; the grant behind this is
