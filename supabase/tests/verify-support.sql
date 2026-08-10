@@ -20,6 +20,9 @@ declare
   v_cashier_id  uuid := gen_random_uuid();
   v_manager_id  uuid := gen_random_uuid();
   v_outsider_id uuid := gen_random_uuid();
+  -- Check 18 deletes this one, so it is nobody else's fixture.
+  v_departed_id uuid := gen_random_uuid();
+  v_departed_thread uuid;
   v_shop_id uuid;
   v_cashier_role uuid;
   v_manager_role uuid;
@@ -200,10 +203,16 @@ begin
   -- The manager is the witness and holds settings.access for the assertion:
   -- refusing them WITHOUT it would prove nothing, since they are refused for
   -- lacking the permission rather than for the thread being someone else's.
+  --
+  -- addressed_scope is stated, not left to the default: since 20260825000600
+  -- the scope is what the rule reads, and the column defaults to 'store'
+  -- because that is what a store's own insert must get. A hand-written row
+  -- here that names an addressee has to say so, exactly as
+  -- platform_open_support_thread() does (check 18 exercises that path).
   perform set_config('role', 'postgres', true);
   insert into public.support_threads
-    (shop_id, opened_by, author_user_id, addressed_user_id, category, subject)
-    values (v_shop_id, 'platform', null, v_owner_id, 'billing', 'Your card was declined')
+    (shop_id, opened_by, author_user_id, addressed_user_id, addressed_scope, category, subject)
+    values (v_shop_id, 'platform', null, v_owner_id, 'person', 'billing', 'Your card was declined')
     returning id into v_owner_thread;
 
   perform set_config('request.jwt.claims',
@@ -764,6 +773,86 @@ begin
   exception when insufficient_privilege then null;
   end;
   raise notice 'OK: both rows or neither, and service_role only';
+
+  ------------------------------------------------------------------
+  raise notice '=== 18. Deleting the addressee hides the thread, it does not publish it ===';
+  ------------------------------------------------------------------
+  -- The seam 20260825000600 closes. addressed_user_id is `on delete set null`,
+  -- and the store branch of support_thread_is_visible() used to read that null
+  -- as "this one is for the whole store" -- so removing a departed employee
+  -- from the Supabase dashboard promoted their private thread to one every
+  -- settings.access holder could read. No error, nothing logged, and the
+  -- outbound composer had already promised the operator the opposite.
+  --
+  -- A dedicated user rather than the cashier: this check deletes them, and
+  -- checks 2-17 are still holding the cashier's threads.
+  perform set_config('role', 'postgres', true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_departed_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-support-departed@example.test', '', now(), now(), now());
+  insert into public.shop_members (shop_id, user_id, role_id, full_name, active)
+    values (v_shop_id, v_departed_id, v_cashier_role, 'Deeqa Nuur', true);
+
+  -- Opened the way the console opens one, so the scope under test is the scope
+  -- the real path writes.
+  select * into v_thread from public.platform_open_support_thread(
+    v_shop_id, 'account', 'About your sign-in', 'We reset it for you.',
+    v_departed_id, v_owner_id, 'person');
+  v_departed_thread := v_thread.id;
+  if v_thread.addressed_scope <> 'person' then
+    raise exception 'FAIL: the rpc stored scope % for an addressed thread', v_thread.addressed_scope;
+  end if;
+
+  -- The control: before the deletion this really is their thread and nobody
+  -- else's, so a zero below is the deletion and not a thread that was never
+  -- visible in the first place.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_departed_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into v_count from public.support_threads where id = v_departed_thread;
+  if v_count <> 1 then raise exception 'FAIL: the addressee could not read their own thread'; end if;
+
+  -- Someone tidying up a leaver. shop_members cascades; addressed_user_id does
+  -- not -- it goes null, which is the whole hazard.
+  perform set_config('role', 'postgres', true);
+  delete from auth.users where id = v_departed_id;
+  perform 1 from public.support_threads
+    where id = v_departed_thread and addressed_user_id is null and addressed_scope = 'person';
+  if not found then
+    raise exception 'FAIL: the deletion did not leave the row this check is about';
+  end if;
+
+  update public.roles set permissions = permissions || array['settings.access']
+   where id = v_manager_role;
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_manager_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  select count(*) into v_count from public.support_threads where id = v_departed_thread;
+  if v_count <> 0 then
+    raise exception 'FAIL: deleting the addressee opened their thread to settings.access';
+  end if;
+
+  -- Same session, same breath: the permission is live right now, so the zero
+  -- above is the stored scope refusing and not a grant that never applied.
+  select count(*) into v_count from public.support_threads where id = v_store_thread;
+  if v_count <> 1 then
+    raise exception 'FAIL: the manager''s settings.access did not take effect at all';
+  end if;
+
+  -- ...and it did not fall to the owner either. The safe failure is a thread
+  -- NOBODY can read, which is visible as a problem; the unsafe one is silent.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_owner_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  select count(*) into v_count from public.support_threads where id = v_departed_thread;
+  if v_count <> 0 then
+    raise exception 'FAIL: deleting the addressee handed their thread to the owner';
+  end if;
+
+  perform set_config('role', 'postgres', true);
+  update public.roles set permissions = array_remove(permissions, 'settings.access')
+   where id = v_manager_role;
+  raise notice 'OK: a deleted addressee leaves a thread nobody reads';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

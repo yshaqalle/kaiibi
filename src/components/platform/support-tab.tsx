@@ -19,8 +19,8 @@ import {
 import { listMessages, whatsAppLink, type SupportMessage } from '@/lib/support';
 import { signedUrlFor } from '@/lib/support-attachments';
 import {
+  FILTER_CATEGORIES,
   OPERATOR_CATEGORIES,
-  SUPPORT_CATEGORIES,
   categoryMeta,
   isSupportCategory,
   type OperatorCategory,
@@ -146,10 +146,10 @@ export function SupportTab({
       >
         <View style={styles.filters}>
           <Chip label={`All ${threads.length}`} active={filter === null} onPress={() => setFilter(null)} />
-          {SUPPORT_CATEGORIES.map((category) => (
+          {FILTER_CATEGORIES.map((category) => (
             <Chip
               key={category.key}
-              label={`${category.shortLabel} ${threads.filter((t) => t.category === category.key).length}`}
+              label={`${category.label} ${threads.filter((t) => t.category === category.key).length}`}
               active={filter === category.key}
               onPress={() => setFilter(category.key)}
             />

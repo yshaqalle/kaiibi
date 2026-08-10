@@ -10,6 +10,7 @@ import {
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listMessages, type SupportMessage } from '@/lib/support';
+import { FILTER_CATEGORIES } from '@/lib/support-taxonomy';
 
 // The tab imports @/lib/platform for supportQueueState, which imports the live
 // client; that throws at require time without env vars. Same stub the settings
@@ -243,6 +244,51 @@ describe('SupportTab', () => {
   it('says nothing about the cap when the queue is under it', () => {
     const texts = render([thread({ id: 'a' })], NOON, false);
     expect(texts.some((t) => t.startsWith('Showing the 200 most recently active conversations.'))).toBe(false);
+  });
+
+  // The chips are the operator's only map of the queue, so between them they
+  // have to account for every row in it. Built from the store's taxonomy alone
+  // they did not: a thread WE opened under `account`, `problem` or `changed`
+  // sat under All and under no chip at all, and the arithmetic on screen said
+  // so — the counts visibly failed to reach the All count and there was no way
+  // to pull those conversations up.
+  it('gives every category a chip, and the chip counts sum to the All count', () => {
+    const queue = [
+      thread({ id: 'a', category: 'broken' }),
+      thread({ id: 'b', category: 'billing' }),
+      thread({ id: 'c', category: 'account', openedBy: 'platform' }),
+      thread({ id: 'd', category: 'problem', openedBy: 'platform' }),
+      thread({ id: 'e', category: 'changed', openedBy: 'platform' }),
+      thread({ id: 'f', category: 'other', openedBy: 'platform' }),
+    ];
+    const shown = render(queue);
+
+    const counts = FILTER_CATEGORIES.map((option) => {
+      const chip = shown.find((t) => t.startsWith(`${option.label} `));
+      if (chip === undefined) throw new Error(`no filter chip for ${option.key}`);
+      return Number(chip.slice(option.label.length + 1));
+    });
+
+    expect(shown).toContain(`All ${queue.length}`);
+    expect(counts.reduce((sum, n) => sum + n, 0)).toBe(queue.length);
+    // `billing` and `other` are on both taxonomies and are one stored value; a
+    // second chip for either would filter identically and count them twice,
+    // which breaks the sum above in the other direction.
+    expect(new Set(FILTER_CATEGORIES.map((option) => option.key)).size).toBe(FILTER_CATEGORIES.length);
+  });
+
+  // The sum is only worth anything if the chips also work: a chip that counts
+  // correctly and filters to nothing is the same dead end by another route.
+  it('filters the queue on a category only an operator can file', () => {
+    const tree = renderTab([
+      thread({ id: 'theirs', category: 'broken' }),
+      thread({ id: 'ours', category: 'changed', openedBy: 'platform' }),
+    ]);
+    press(tree, "Something's changed 1");
+
+    const subjects = texts(tree);
+    expect(subjects.some((t) => t.startsWith('ours'))).toBe(true);
+    expect(subjects.some((t) => t.startsWith('theirs'))).toBe(false);
   });
 });
 

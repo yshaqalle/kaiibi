@@ -1077,6 +1077,13 @@ Deno.serve(async (req) => {
             p_body: messageBody,
             p_addressed_user_id: addressedUserId,
             p_author_user_id: actorId,
+            // Sent as its own value rather than left for the database to work
+            // out from the id, because addressed_user_id is `on delete set
+            // null` and a rule that reads it later reads a different answer
+            // than the one chosen here. This is the only moment the operator's
+            // choice is unambiguous, so it is the moment it gets written down
+            // (20260825000600).
+            p_addressed_scope: addressedUserId ? 'person' : 'store',
           },
         );
         if (openError) return errorResponse(500, 'unknown', openError.message);

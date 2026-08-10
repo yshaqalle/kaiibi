@@ -180,6 +180,25 @@ export const OPERATOR_CATEGORIES: readonly { key: OperatorCategory; glyph: strin
   { key: 'other', glyph: '🗒', label: 'Something else' },
 ];
 
+/**
+ * Every category a stored thread can carry, in one list, for the operator's
+ * filter chips.
+ *
+ * The two lists above are the two things either END may file, and the queue
+ * holds both. Filtering on the store's list alone left `account`, `problem` and
+ * `changed` reachable under "All" and under no chip at all — visible as chip
+ * counts that do not add up to the All count, and invisible as three kinds of
+ * conversation an operator cannot pull up.
+ *
+ * De-duplicated on key, store list first: `billing` and `other` exist on both
+ * sides and are the same stored value, so two chips would filter identically
+ * and double-count the same threads.
+ */
+export const FILTER_CATEGORIES: readonly { key: string; label: string }[] = [
+  ...SUPPORT_CATEGORIES.map((category) => ({ key: category.key as string, label: category.shortLabel })),
+  ...OPERATOR_CATEGORIES.map((category) => ({ key: category.key as string, label: category.label })),
+].filter((category, index, all) => all.findIndex((c) => c.key === category.key) === index);
+
 const CATEGORY_KEYS: readonly string[] = SUPPORT_CATEGORIES.map((category) => category.key);
 
 export function isSupportCategory(value: unknown): value is SupportCategory {

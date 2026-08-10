@@ -357,7 +357,12 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
           [
             { key: 'in_app', label: 'In the app', sub: 'here, under Your messages' },
             ...(phone ? [{ key: 'whatsapp' as const, label: 'WhatsApp', sub: phone }] : []),
-            { key: 'email', label: 'Email', sub: email ?? '' },
+            // No 'email' chip. The value survives in the check constraint and in
+            // ContactPreference because rows already carry it, but nothing an
+            // operator can see ever shows an address: no chip in the queue row,
+            // no row in the context rail, and support_author_profiles()
+            // (20260825000400) returns id, full_name and phone deliberately.
+            // Offering it was a promise with nobody on the other end of it.
           ] as { key: ContactPreference; label: string; sub: string }[]
         ).map((option) => {
           const on = draft.contactPreference === option.key;
@@ -379,9 +384,13 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
           );
         })}
       </View>
+      {/* Two sentences because the chip beside it may not be there: with no
+          phone on file the WhatsApp chip is dropped, and a hint explaining a
+          choice nobody was offered reads as a missing control. */}
       <Text style={styles.hint}>
-        In the app always works and keeps the record. Picking WhatsApp doesn&apos;t change where the reply is
-        written — it tells us to nudge you there too.
+        {phone
+          ? 'In the app always works and keeps the record. Picking WhatsApp doesn’t change where the reply is written — it tells us to nudge you there too.'
+          : 'We write back here, under Your messages. That keeps the whole conversation in one place.'}
       </Text>
 
       {problem && (
@@ -450,9 +459,9 @@ const styles = StyleSheet.create({
   chipOn: { backgroundColor: theme.bentoAccentWash, borderColor: 'transparent' },
   chipText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
   chipTextOn: { color: theme.bentoAccentInk, fontWeight: '800' },
-  // The address the reply would actually go to. Shown rather than held in the
-  // options list unseen: "Email" is a promise this line is the evidence for,
-  // and a stale address on file is exactly the thing worth catching here.
+  // The number the nudge would actually go to. Shown rather than held in the
+  // options list unseen: WhatsApp is a promise this line is the evidence for,
+  // and a stale number on file is exactly the thing worth catching here.
   chipSub: { fontSize: 10.5, color: theme.bentoMuted2, marginTop: 1 },
   chipSubOn: { color: theme.bentoAccentInk },
   reveal: { borderLeftWidth: 2, borderLeftColor: theme.bentoAccentWash, paddingLeft: 11 },

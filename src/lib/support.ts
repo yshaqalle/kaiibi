@@ -1,6 +1,11 @@
 import { supabase } from '@/lib/supabase';
 import { needsAreaOther, type SupportCategory } from '@/lib/support-taxonomy';
 
+// 'email' is READ-ONLY history. The compose sheet no longer offers it and no
+// operator surface can act on it -- support_author_profiles() returns only
+// (id, full_name, phone) -- but rows written before it was withdrawn still
+// carry it, and support_threads.contact_preference still accepts it. Dropping
+// the member here would make those rows unrepresentable for no gain.
 export type ContactPreference = 'in_app' | 'whatsapp' | 'email';
 
 // The same number as support_messages.body's length check (migration
