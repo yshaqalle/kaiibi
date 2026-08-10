@@ -7,6 +7,7 @@ import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-na
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
 import { moduleForPath } from '@/lib/entitlements';
@@ -50,6 +51,7 @@ export default function AdminTabs() {
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const canEditShop = can('settings.access');
   const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
 
@@ -111,6 +113,13 @@ export default function AdminTabs() {
                   <View style={styles.menuDivider} />
                 </>
               )}
+              <SupportMenuItem
+                onPress={() => {
+                  setMenuOpen(false);
+                  setSupportOpen(true);
+                }}
+              />
+              <View style={styles.menuDivider} />
               <Pressable
                 onPress={() => {
                   setMenuOpen(false);

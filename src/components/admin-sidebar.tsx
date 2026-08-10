@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { useAuth } from '@/hooks/use-auth';
 import { useShopLogo } from '@/hooks/use-shop-logo';
 import { signOut } from '@/lib/auth';
@@ -72,6 +73,7 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const subtitle = shop?.categories?.[0];
   const [menuOpen, setMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const visibleNavItems = navItems.filter((item) => item.isVisible({ can, canAny, hasActiveMembership: Boolean(myMembership?.active) }));
 
   // Lets the shop logo be changed straight from the sidebar avatar, not just
@@ -141,6 +143,13 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
                 <View style={styles.menuDivider} />
               </>
             )}
+            <SupportMenuItem
+              onPress={() => {
+                setMenuOpen(false);
+                setSupportOpen(true);
+              }}
+            />
+            <View style={styles.menuDivider} />
             <Pressable
               onPress={() => {
                 setMenuOpen(false);

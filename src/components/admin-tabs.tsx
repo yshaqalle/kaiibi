@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AdminSidebar } from '@/components/admin-sidebar';
 import { Colors } from '@/constants/theme';
 import { LocationSwitcher } from '@/components/location-switcher';
+import { SupportMenuItem } from '@/components/support/support-menu-item';
 import { useAuth } from '@/hooks/use-auth';
 import { isTabletDevice } from '@/lib/device';
 import { signOut } from '@/lib/auth';
@@ -42,6 +43,7 @@ export default function AdminTabs() {
   const { shop, refreshShop, can, canAny, myMembership, hasModule } = useAuth();
   const initial = (shop?.name ?? 'K').charAt(0).toUpperCase();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const canEditShop = can('settings.access');
 
@@ -135,6 +137,13 @@ export default function AdminTabs() {
                 <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
               </>
             )}
+            <SupportMenuItem
+              onPress={() => {
+                setMenuOpen(false);
+                setSupportOpen(true);
+              }}
+            />
+            <View style={[styles.menuDivider, { backgroundColor: colors.backgroundElement }]} />
             <Pressable
               onPress={() => {
                 setMenuOpen(false);
