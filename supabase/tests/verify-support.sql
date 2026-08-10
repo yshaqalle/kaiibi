@@ -623,6 +623,91 @@ begin
   if v_count <> 0 then raise exception 'FAIL: a refused open left % orphan thread(s)', v_count; end if;
   raise notice 'OK: both rows or neither, and only for a member of that shop';
 
+  ------------------------------------------------------------------
+  raise notice '=== 16. Each end''s category list is the other end''s refusal ===';
+  ------------------------------------------------------------------
+  -- 20260825000100 split support_threads_category_check by opened_by, because
+  -- the operator's five keys (billing, account, problem, changed, other) are a
+  -- different vocabulary from the store's eight and three of them were in
+  -- neither the constraint nor any list it knew about. Both branches are pinned
+  -- here: a union would pass the first check below and fail neither of the other
+  -- two, which is exactly the regression that would go unnoticed.
+  perform set_config('role', 'postgres', true);
+  insert into public.support_threads (shop_id, opened_by, category, subject)
+    values (v_shop_id, 'platform', 'changed', 'Reports has moved');
+
+  begin
+    insert into public.support_threads (shop_id, opened_by, category, subject)
+      values (v_shop_id, 'platform', 'hardware', 'Your scanner');
+    raise exception 'FAIL: an operator opened a thread with a store-only category';
+  exception when check_violation then null;
+  end;
+
+  begin
+    insert into public.support_threads (shop_id, opened_by, author_user_id, category, subject)
+      values (v_shop_id, 'shop', v_cashier_id, 'changed', 'Something changed');
+    raise exception 'FAIL: a store opened a thread with an operator-only category';
+  exception when check_violation then null;
+  end;
+  raise notice 'OK: changed is ours only, hardware is theirs only';
+
+  ------------------------------------------------------------------
+  raise notice '=== 17. An operator opening a thread writes both rows or neither ===';
+  ------------------------------------------------------------------
+  -- The operator twin of #15 (20260825000200). platform-admin wrote the thread
+  -- and its first message as two PostgREST requests and compensated by hand for
+  -- one of the several ways that fails; the orphan it leaves behind is the same
+  -- one the store side is protected from -- a subject with no body at the top of
+  -- the store's list, unanswerable and undeletable.
+  select * into v_thread from public.platform_open_support_thread(
+    v_shop_id, 'billing', '  Your ZAAD payment cleared  ', '  Growth renews 2 Oct.  ',
+    null, v_owner_id);
+
+  if v_thread.opened_by <> 'platform' or v_thread.author_user_id is not null
+     or v_thread.status <> 'open' or v_thread.reference !~ '^KB-[0-9]+$' then
+    raise exception 'FAIL: the rpc did not open an ordinary platform thread';
+  end if;
+  if v_thread.subject <> 'Your ZAAD payment cleared' then
+    raise exception 'FAIL: subject stored untrimmed: %', v_thread.subject;
+  end if;
+  -- Read back after the touch trigger, or the operator's own outbound thread
+  -- sits unread in their own queue the moment they send it.
+  if v_thread.platform_read_at is null or v_thread.shop_read_at is not null then
+    raise exception 'FAIL: a new operator thread is not read by us and unread by them';
+  end if;
+
+  select count(*) into v_count from public.support_messages
+   where thread_id = v_thread.id and body = 'Growth renews 2 Oct.'
+     and author_kind = 'platform' and author_user_id = v_owner_id;
+  if v_count <> 1 then raise exception 'FAIL: the first message is missing (% rows)', v_count; end if;
+
+  -- The failure two requests cannot survive, forced through the message's own
+  -- length check (#14).
+  begin
+    perform public.platform_open_support_thread(
+      v_shop_id, 'billing', 'Half an announcement', repeat('x', 4001));
+    raise exception 'FAIL: a 4001-character first message was accepted';
+  exception when check_violation then null;
+  end;
+
+  select count(*) into v_count from public.support_threads
+   where shop_id = v_shop_id and subject = 'Half an announcement';
+  if v_count <> 0 then raise exception 'FAIL: a refused open left % orphan thread(s)', v_count; end if;
+
+  -- Execute is service_role's alone. A definer function has no policy behind it,
+  -- so an authenticated grant here would hand any member the forged
+  -- platform-opened thread that #8 refuses -- readable by their whole shop, or
+  -- addressed to whoever they like.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    perform public.platform_open_support_thread(v_shop_id, 'billing', 'Forged', 'From Kaiibi.');
+    raise exception 'FAIL: a member called the operator rpc';
+  exception when insufficient_privilege then null;
+  end;
+  raise notice 'OK: both rows or neither, and service_role only';
+
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
 

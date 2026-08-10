@@ -98,6 +98,13 @@ const MESSAGE_MAX = 4000;
 // accept refused with a character count the operator can see is wrong.
 const messageLength = (text: string) => [...text].length;
 
+// An id from the request body reaches Postgres as a uuid literal, and a
+// malformed one raises `invalid input syntax for type uuid` -- which arrives as
+// a bare 500 quoting a Postgres type name, the same leak the shop-exists lookup
+// below was added to avoid. Checked before the value is spent on a query.
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -1006,6 +1013,7 @@ Deno.serve(async (req) => {
       // for a single one of these rows.
       case 'open_support': {
         if (!body.shopId) return errorResponse(400, 'unknown', 'shopId is required.');
+        if (!isUuid(body.shopId)) return errorResponse(400, 'unknown', 'shopId is not an id.');
         const subject = body.support?.subject?.trim();
         const category = body.support?.category?.trim();
         if (!subject) return errorResponse(400, 'unknown', 'A subject is required.');
@@ -1037,6 +1045,9 @@ Deno.serve(async (req) => {
         // the one promise this feature makes. Checked against the shop's staff
         // where the mistake is still cheap.
         const addressedUserId = body.support?.addressedUserId ?? null;
+        if (addressedUserId && !isUuid(addressedUserId)) {
+          return errorResponse(400, 'unknown', 'addressedUserId is not an id.');
+        }
         if (addressedUserId && addressedUserId !== shop.owner_id) {
           const { data: member, error: memberError } = await adminClient
             .from('shop_members')
@@ -1049,51 +1060,26 @@ Deno.serve(async (req) => {
           if (!member) return errorResponse(400, 'unknown', 'That person does not work at this shop.');
         }
 
-        const { data: opened, error: threadError } = await adminClient
-          .from('support_threads')
-          .insert({
-            shop_id: body.shopId,
-            opened_by: 'platform',
-            // Null: the thread is from Kaiibi, not from whichever operator
-            // happened to type it. author_user_id on the MESSAGE below is where
-            // the individual is recorded.
-            author_user_id: null,
-            addressed_user_id: addressedUserId,
-            category,
-            subject,
-          })
-          .select('*')
-          .single();
-        if (threadError) return errorResponse(500, 'unknown', threadError.message);
-
-        const { error: messageError } = await adminClient.from('support_messages').insert({
-          thread_id: opened.id,
-          author_kind: 'platform',
-          author_user_id: actorId,
-          body: messageBody,
-        });
-        if (messageError) {
-          // Two inserts, no transaction across them (each is its own PostgREST
-          // request). Leaving the thread behind is worse than failing outright:
-          // a subject with no body sits at the top of the store's list on a
-          // fresh last_message_at, unanswerable and undeletable by them -- the
-          // exact orphan open_support_thread() exists to prevent on the store
-          // side. Rolled back by hand instead, and the caller hears the
-          // original failure either way.
-          await adminClient.from('support_threads').delete().eq('id', opened.id);
-          return errorResponse(500, 'unknown', messageError.message);
-        }
-
-        // Re-read rather than return `opened`: support_messages_touch_thread
-        // moved last_message_at and platform_read_at after the row above was
-        // captured, and the stale copy has platform_read_at null -- an
-        // operator's own outbound thread reading as unread in their own queue.
-        const { data: thread, error: rereadError } = await adminClient
-          .from('support_threads')
-          .select('*')
-          .eq('id', opened.id)
-          .single();
-        if (rereadError) return errorResponse(500, 'unknown', rereadError.message);
+        // One request, one transaction (20260825000200). The thread and the
+        // message it is about are the same fact, and two PostgREST calls can
+        // land the first and lose the second on a timeout, a dropped connection
+        // or a killed isolate -- leaving a subject with no body at the top of
+        // the store's list, unanswerable and undeletable by them. The rpc does
+        // the two inserts and the re-read that
+        // support_messages_touch_thread makes necessary; every rule above stays
+        // here, so none of them gets a second copy that can drift.
+        const { data: thread, error: openError } = await adminClient.rpc(
+          'platform_open_support_thread',
+          {
+            p_shop_id: body.shopId,
+            p_category: category,
+            p_subject: subject,
+            p_body: messageBody,
+            p_addressed_user_id: addressedUserId,
+            p_author_user_id: actorId,
+          },
+        );
+        if (openError) return errorResponse(500, 'unknown', openError.message);
 
         await audit('open_support', body.shopId, null, thread);
         return ok({ thread });
@@ -1102,6 +1088,7 @@ Deno.serve(async (req) => {
       case 'reply_support': {
         const threadId = body.support?.threadId;
         if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
         const messageBody = reason.trim();
         if (messageLength(messageBody) > MESSAGE_MAX) {
           return errorResponse(400, 'message_too_long', `That message is ${messageLength(messageBody)} characters; the limit is ${MESSAGE_MAX}.`);
@@ -1114,6 +1101,28 @@ Deno.serve(async (req) => {
           .maybeSingle();
         if (loadError) return errorResponse(500, 'unknown', loadError.message);
         if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        // Replying reopens a closed thread. support-thread-view.tsx renders the
+        // reply box only while status is 'open', and the touch trigger bumps
+        // last_message_at without touching shop_read_at -- so appending to a
+        // closed thread pins it to the top of the store's list, marked unread,
+        // with no way to answer it. Reopening beats refusing: an operator
+        // writing again means the conversation is alive.
+        //
+        // Before the message rather than after, because the two writes are not
+        // one transaction either way and this order fails better. A reopen that
+        // lands without its message leaves a thread that is open again but has
+        // not moved in the store's list, and the retry writes the message
+        // exactly once. The other order fails into the dead-end message this
+        // guard exists to prevent.
+        const reopened = thread.status === 'closed';
+        if (reopened) {
+          const { error: reopenError } = await adminClient
+            .from('support_threads')
+            .update({ status: 'open' })
+            .eq('id', threadId);
+          if (reopenError) return errorResponse(500, 'unknown', reopenError.message);
+        }
 
         // author_kind 'platform' is what makes the trigger mark this read for
         // us and leave it unread for the shop -- it is the whole unread rule,
@@ -1130,14 +1139,40 @@ Deno.serve(async (req) => {
           .single();
         if (messageError) return errorResponse(500, 'unknown', messageError.message);
 
-        await audit('reply_support', thread.shop_id, null, message);
-        return ok({ message });
+        // Read back only when the status moved, so the audit row's before/after
+        // say that it did. A reply that changes nothing about the thread keeps
+        // the original shape: null before, the message after.
+        let after: unknown = null;
+        if (reopened) {
+          const { data, error: afterError } = await adminClient
+            .from('support_threads')
+            .select('*')
+            .eq('id', threadId)
+            .single();
+          if (afterError) return errorResponse(500, 'unknown', afterError.message);
+          after = data;
+        }
+
+        await audit(
+          'reply_support',
+          thread.shop_id,
+          reopened ? thread : null,
+          reopened ? { thread: after, message } : message,
+        );
+        return ok(reopened ? { message, thread: after } : { message });
       }
 
       case 'close_support': {
         const threadId = body.support?.threadId;
         if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
 
+        // Read for the audit row's `before` and to tell a missing conversation
+        // from an already-closed one. It is NOT the guard: read-then-write is
+        // two statements, and two operators with the queue open both read
+        // 'open' and both write -- the second audit row carrying a different
+        // operator's words against a change that did not happen, which is the
+        // duplicate the 409 exists to prevent.
         const { data: before, error: beforeError } = await adminClient
           .from('support_threads')
           .select('*')
@@ -1145,21 +1180,22 @@ Deno.serve(async (req) => {
           .maybeSingle();
         if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
         if (!before) return errorResponse(404, 'unknown', 'No such conversation.');
-        // Same guard as approve_plan_change's already_decided, and for the same
-        // reason: two operators with the queue open, both clicking. Closing
-        // twice writes a second audit row whose reason is a different
-        // operator's words against a change that did not happen.
-        if (before.status === 'closed') {
-          return errorResponse(409, 'already_closed', 'That conversation is already closed.');
-        }
 
+        // The guard is the WHERE: one statement decides and writes, so the
+        // second operator matches no row and hears already_closed -- the same
+        // refusal approve_plan_change's already_decided gives, and now for the
+        // simultaneous case as well as the sequential one.
         const { data: after, error: updateError } = await adminClient
           .from('support_threads')
           .update({ status: 'closed' })
           .eq('id', threadId)
+          .eq('status', 'open')
           .select('*')
-          .single();
+          .maybeSingle();
         if (updateError) return errorResponse(500, 'unknown', updateError.message);
+        if (!after) {
+          return errorResponse(409, 'already_closed', 'That conversation is already closed.');
+        }
 
         await audit('close_support', before.shop_id, before, after);
         return ok({ thread: after });
