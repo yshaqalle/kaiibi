@@ -294,14 +294,19 @@ describe('sending', () => {
     expect(texts(tree).some((t) => t.includes('4001 of 4000 characters'))).toBe(true);
   });
 
-  it('closes and reloads the console only once the thread is on the server', async () => {
+  // Order matters, not just that both happen: a composer still on screen while
+  // the console refreshes is holding the draft of a message that has already
+  // been sent, and a refresh that fails would leave it there to be sent twice.
+  it('closes the moment the thread is on the server, then reloads the console', async () => {
     const tree = renderComposer('shop-1');
     write(tree, 'Your payment cleared', 'It landed this morning.');
     press(tree, 'Send');
     await act(async () => {});
 
-    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(callPlatformAdminMock).toHaveBeenCalledTimes(1);
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onClose.mock.invocationCallOrder[0]).toBeLessThan(onDone.mock.invocationCallOrder[0]);
   });
 
   it('stays open with the draft intact when the send fails', async () => {

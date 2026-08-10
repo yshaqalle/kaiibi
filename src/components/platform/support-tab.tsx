@@ -340,14 +340,21 @@ export function SupportComposeModal({
         },
         body
       );
-      await onDone();
-      onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That message did not send.');
+      return;
     } finally {
       sendInFlight.current = false;
       setBusy(false);
     }
+
+    // Past here the thread exists. Closing BEFORE the reload rather than after
+    // it: a composer left open over a failed console refresh still holds the
+    // draft of a message that has already been sent, and "Try again" on it
+    // opens the same conversation a second time. The console owns its own
+    // reload failure -- it has an error state and a Try again of its own.
+    onClose();
+    await onDone();
   };
 
   return (
