@@ -25,6 +25,7 @@ const validDraft: SupportDraft = {
 function thread(over: Partial<SupportThread>): SupportThread {
   return {
     id: 'thread-1',
+    shopId: 'shop-1',
     reference: 'KB-2481',
     subject: 'Subject',
     category: 'broken',

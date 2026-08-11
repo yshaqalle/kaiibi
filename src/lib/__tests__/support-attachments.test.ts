@@ -7,6 +7,8 @@ jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 import {
   attachmentPath,
   checkAttachment,
+  describeUploadFailure,
+  missedAttachmentNote,
   MAX_ATTACHMENTS,
   MAX_BYTES,
   WARN_BYTES,
@@ -45,6 +47,71 @@ describe('checkAttachment', () => {
     const result = checkAttachment([], file({ byteSize: WARN_BYTES + 1 }));
     expect(result.ok).toBe(true);
     expect(result.ok && result.warn).toMatch(/may take a while/i);
+  });
+
+  // The bucket's allowed_mime_types would refuse this anyway (20260825000000),
+  // but only after the upload has spent someone's data, and only as a 415.
+  it('refuses a kind of file the bucket will not hold', () => {
+    const result = checkAttachment([], file({ fileName: 'books.zip', contentType: 'application/zip' }));
+    expect(result.ok).toBe(false);
+    expect(!result.ok && result.message).toMatch(/cannot open that kind of file/i);
+  });
+
+  // uploadAttachment sends application/octet-stream for a null type, which is
+  // deliberately NOT on the bucket's list -- so "we don't know what this is" is
+  // a refusal that was going to happen, made early and in words.
+  it('refuses a file whose kind nothing could work out', () => {
+    const result = checkAttachment([], file({ fileName: 'notes', contentType: null }));
+    expect(result.ok).toBe(false);
+  });
+
+  it('still accepts the kinds this feature actually asks people for', () => {
+    expect(checkAttachment([], file({ fileName: 'receipt.pdf', contentType: 'application/pdf' })).ok).toBe(true);
+    expect(checkAttachment([], file({ fileName: 'clip.mp4', contentType: 'video/mp4' })).ok).toBe(true);
+  });
+});
+
+// Both refusals are survivable and have DIFFERENT fixes -- shrink it, or send
+// something else -- so "didn't attach" alone is what makes someone pick the
+// same unsupported file a second time.
+describe('describeUploadFailure', () => {
+  it('names the size limit when the bucket refused on size', () => {
+    expect(describeUploadFailure(new Error('The object exceeded the maximum allowed size'))).toBe('over 10 MB');
+  });
+
+  it('names the kind when the bucket refused on type', () => {
+    expect(describeUploadFailure(new Error('mime type application/zip is not supported'))).toBe(
+      'not a kind we can open'
+    );
+  });
+
+  it('falls back to something true rather than guessing', () => {
+    expect(describeUploadFailure(new Error('Network request failed'))).toBe('it did not go through');
+  });
+});
+
+describe('missedAttachmentNote', () => {
+  it('says nothing when everything landed', () => {
+    expect(missedAttachmentNote([])).toBeNull();
+  });
+
+  // Points at the reply box, which has a picker of its own now. Until
+  // 20260825000700 it could not: a store could only attach on its FIRST
+  // message, so this sentence would have been a dead end.
+  it('names the file, the reason, and where to try again', () => {
+    const note = missedAttachmentNote([{ fileName: 'till.png', reason: 'over 10 MB' }]);
+    expect(note).toContain('till.png');
+    expect(note).toContain('over 10 MB');
+    expect(note).toContain('Reply on the conversation');
+  });
+
+  it('does not stutter when several files were refused for one reason', () => {
+    const note = missedAttachmentNote([
+      { fileName: 'a.png', reason: 'over 10 MB' },
+      { fileName: 'b.png', reason: 'over 10 MB' },
+    ]);
+    expect(note).toContain('2 files');
+    expect(note?.match(/over 10 MB/g)).toHaveLength(1);
   });
 });
 

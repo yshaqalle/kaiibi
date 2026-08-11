@@ -23,6 +23,12 @@ declare
   -- Check 18 deletes this one, so it is nobody else's fixture.
   v_departed_id uuid := gen_random_uuid();
   v_departed_thread uuid;
+  -- Check 19's operator. Seeded there rather than in the fixture, because every
+  -- check before it asserts what a SHOP can see and a platform_admins row that
+  -- exists throughout would be a fixture nothing else wants.
+  v_operator_id uuid := gen_random_uuid();
+  v_operator_msg uuid;
+  v_operator_path text;
   v_shop_id uuid;
   v_cashier_role uuid;
   v_manager_role uuid;
@@ -853,6 +859,135 @@ begin
   update public.roles set permissions = array_remove(permissions, 'settings.access')
    where id = v_manager_role;
   raise notice 'OK: a deleted addressee leaves a thread nobody reads';
+
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+
+  ------------------------------------------------------------------
+  raise notice '=== 19. An operator can attach a file, and only where the thread says ===';
+  ------------------------------------------------------------------
+  -- 20260825000700. The insert policy used to require is_shop_member() on
+  -- segment 1, and an operator is deliberately not a member of any shop
+  -- (verify-platform-portal.sql asserts the whole blast radius of that), so
+  -- every upload from the console 403'd. Attachments could be opened by
+  -- everyone and sent by almost nobody.
+  --
+  -- The rule that must survive the widening is the one check 10 is about: an
+  -- attachment is exactly as private as the thread it hangs on. So this check
+  -- writes into the CASHIER'S private thread -- the one their manager and their
+  -- owner must never read -- and then asks both of them.
+  perform set_config('role', 'postgres', true);
+  perform set_config('storage.allow_delete_query', 'true', true);
+  insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
+    values (v_operator_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
+            'verify-support-operator@example.test', '', now(), now(), now());
+  insert into public.platform_admins (user_id, role, note) values (v_operator_id, 'support', 'verify');
+
+  v_operator_path := v_shop_id || '/' || v_cashier_thread || '/from-us.pdf';
+
+  -- aal1 FIRST. is_platform_admin() reads the assurance level off the caller's
+  -- own JWT, so this is the negative control that the second factor still gates
+  -- the file and not only the console screen around it.
+  --
+  -- Over-determined on purpose: the insert policy asks is_platform_admin()
+  -- directly AND reaches it again through can_see_support_thread(), so a
+  -- control that weakens only one of the two leaves this green. Weakening both
+  -- fails here, which is what makes this an assertion rather than a decoration.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_operator_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+      values ('support-attachments', v_operator_path, v_operator_id);
+    raise exception 'FAIL: an operator without a second factor uploaded a file';
+  exception when insufficient_privilege then
+    raise notice 'OK: an operator at aal1 is refused';
+  end;
+
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_operator_id, 'role', 'authenticated', 'aal', 'aal2')::text, true);
+
+  -- The shop segment must name the thread's own shop. An operator can see every
+  -- thread, so can_see_support_thread() constrains nothing for them and this is
+  -- the only thing holding segment 1 -- without it the object lands in a folder
+  -- the row's trigger will then refuse, orphaned.
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+      values ('support-attachments', gen_random_uuid() || '/' || v_cashier_thread || '/misfiled.pdf', v_operator_id);
+    raise exception 'FAIL: an operator wrote into a shop folder that is not the thread''s';
+  exception when insufficient_privilege then
+    raise notice 'OK: the shop segment must be the thread''s own';
+  end;
+
+  insert into storage.objects (bucket_id, name, owner)
+    values ('support-attachments', v_operator_path, v_operator_id);
+
+  -- The whole point of the widening, and the whole point of this check: the
+  -- file is there, and it is STILL only the cashier's.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_owner_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  select count(*) into v_count from storage.objects where name = v_operator_path;
+  if v_count <> 0 then
+    raise exception 'FAIL: the owner can read a file we sent onto a cashier''s private thread';
+  end if;
+
+  -- ...and not to a manager holding settings.access either, which is the widest
+  -- permission at a shop and the one check 6 proves does not reach this thread.
+  perform set_config('role', 'postgres', true);
+  update public.roles set permissions = permissions || array['settings.access']
+   where id = v_manager_role;
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_manager_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into v_count from storage.objects where name = v_operator_path;
+  if v_count <> 0 then
+    raise exception 'FAIL: settings.access read a file on a cashier''s private thread';
+  end if;
+
+  -- The control, in the same session and the same breath: that permission is
+  -- live right now, so the zero above is the thread rule refusing and not a
+  -- grant that never applied.
+  select count(*) into v_count from storage.objects where name = v_store_path;
+  if v_count <> 1 then
+    raise exception 'FAIL: the manager''s settings.access did not take effect at all';
+  end if;
+  perform set_config('role', 'postgres', true);
+  update public.roles set permissions = array_remove(permissions, 'settings.access')
+   where id = v_manager_role;
+
+  -- The person it was actually sent to gets it.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into v_count from storage.objects where name = v_operator_path;
+  if v_count <> 1 then raise exception 'FAIL: the cashier cannot read the file we sent them'; end if;
+
+  -- A member is still bounded by their own shop. The operator branch is an OR,
+  -- and an OR is where a widening leaks: this is the assertion that it did not
+  -- also hand every member the operator's reach.
+  begin
+    insert into storage.objects (bucket_id, name, owner)
+      values ('support-attachments', v_shop_id || '/' || v_store_thread || '/planted-again.png', v_cashier_id);
+    raise exception 'FAIL: the widened policy let a member into a thread they cannot see';
+  exception when insufficient_privilege then
+    raise notice 'OK: a member is still held to threads they can see';
+  end;
+
+  -- And the ROW the operator writes through service_role satisfies
+  -- check_support_attachment_path(), which is what makes the object and the row
+  -- describe one file rather than two.
+  perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_cashier_thread, 'platform', v_operator_id, 'Here is the statement.')
+    returning id into v_operator_msg;
+  insert into public.support_attachments (message_id, storage_path, file_name, byte_size, content_type)
+    values (v_operator_msg, v_operator_path, 'from-us.pdf', 2048, 'application/pdf');
+  raise notice 'OK: an operator''s own row passes the path trigger';
+
+  perform set_config('storage.allow_delete_query', 'true', true);
+  delete from storage.objects where name = v_operator_path;
+  raise notice 'OK: we can send a file, and it stays as private as the thread';
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);

@@ -10,6 +10,7 @@ import {
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listMessages, type SupportMessage } from '@/lib/support';
+import { uploadAttachments } from '@/lib/support-attachments';
 import { FILTER_CATEGORIES } from '@/lib/support-taxonomy';
 
 // The tab imports @/lib/platform for supportQueueState, which imports the live
@@ -23,7 +24,15 @@ jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 // builder would pass a test that a Somaliland 063 number silently fails in the
 // app.
 jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
-jest.mock('@/lib/support-attachments', () => ({ signedUrlFor: jest.fn() }));
+// requireActual, not a bare stub: attachmentPath, checkAttachment and
+// missedAttachmentNote are pure, and missedAttachmentNote in particular is the
+// sentence the operator reads when a file did not make it. Only the two calls
+// that reach the network are replaced.
+jest.mock('@/lib/support-attachments', () => ({
+  ...jest.requireActual('@/lib/support-attachments'),
+  signedUrlFor: jest.fn(),
+  uploadAttachments: jest.fn(),
+}));
 jest.mock('@/lib/support', () => ({
   ...jest.requireActual('@/lib/support'),
   listMessages: jest.fn(),
@@ -36,6 +45,7 @@ jest.mock('@/lib/platform', () => ({
 const listMessagesMock = listMessages as jest.MockedFunction<typeof listMessages>;
 const callPlatformAdminMock = callPlatformAdmin as jest.MockedFunction<typeof callPlatformAdmin>;
 const openExternalUrlMock = openExternalUrl as jest.MockedFunction<typeof openExternalUrl>;
+const uploadAttachmentsMock = uploadAttachments as jest.MockedFunction<typeof uploadAttachments>;
 
 const NOON = Date.parse('2026-08-09T12:00:00.000Z');
 const HOUR = 60 * 60 * 1000;
@@ -182,6 +192,7 @@ beforeEach(() => {
   jest.resetAllMocks();
   listMessagesMock.mockResolvedValue([]);
   callPlatformAdminMock.mockResolvedValue({});
+  uploadAttachmentsMock.mockResolvedValue({ uploaded: [], missed: [] });
 });
 
 describe('SupportTab', () => {
@@ -430,7 +441,10 @@ describe('the reply panel send controls', () => {
     expect(callPlatformAdminMock).toHaveBeenCalledTimes(1);
     expect(callPlatformAdminMock).toHaveBeenCalledWith(
       'reply_support',
-      { support: { threadId: 'a' } },
+      // An empty attachments list rather than an absent one: the payload shape
+      // is the same whether or not a file was picked, so nothing downstream has
+      // to branch on undefined.
+      { support: { threadId: 'a', attachments: [] } },
       'We have matched your payment.'
     );
   });
@@ -483,7 +497,11 @@ describe('the reply panel send controls', () => {
     // before the first has re-rendered the button, which is exactly the race
     // the in-flight ref exists for.
     const button = labelled(tree, 'Send reply');
-    act(() => {
+    // Async, because the send now awaits the upload pass before it calls
+    // platform-admin and a synchronous act() would assert before either press
+    // had got that far. The GUARD is still synchronous -- the in-flight ref is
+    // set before the first await -- which is what this test is about.
+    await act(async () => {
       button?.props.onPress();
       button?.props.onPress();
     });
@@ -504,6 +522,102 @@ describe('the reply panel send controls', () => {
 
 // WhatsApp is a hand-off, not a channel: Kaiibi never sends the message, it
 // opens the operator's own chat with the reply already written.
+// The half of "attachments both ways" nobody could send until 20260825000700.
+describe('the reply panel attachments', () => {
+  it('offers a picker beside the reply box', async () => {
+    const tree = await openPanel(thread({ id: 'a' }));
+    expect(labelled(tree, 'Add a screenshot')).toBeDefined();
+    expect(labelled(tree, 'Add a file')).toBeDefined();
+  });
+
+  // The path has to start with the STORE's shop and this thread, because that
+  // is what the storage policy reads and what the row's trigger enforces. A
+  // console that built it from anything else 403s at the bucket.
+  it('uploads under the thread it is answering and sends what landed', async () => {
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [
+        { storagePath: 'shop-1/a/1-matched.pdf', fileName: 'matched.pdf', byteSize: 2048, contentType: 'application/pdf' },
+      ],
+      missed: [],
+    });
+    const tree = await openPanel(thread({ id: 'a' }));
+    typeReply(tree, 'Your payment is matched — statement attached.');
+    press(tree, 'Send reply');
+    await act(async () => {});
+
+    expect(uploadAttachmentsMock).toHaveBeenCalledWith('shop-1', 'a', []);
+    expect(callPlatformAdminMock).toHaveBeenCalledWith(
+      'reply_support',
+      {
+        support: {
+          threadId: 'a',
+          attachments: [
+            {
+              storagePath: 'shop-1/a/1-matched.pdf',
+              fileName: 'matched.pdf',
+              byteSize: 2048,
+              contentType: 'application/pdf',
+            },
+          ],
+        },
+      },
+      'Your payment is matched — statement attached.'
+    );
+  });
+
+  // Context, not wrong. The reply IS on the thread, and a 'wrong' caveat would
+  // have the operator write the same answer again.
+  it('reports a refused file beside a reply that went', async () => {
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [],
+      missed: [{ fileName: 'clip.mov', reason: 'over 10 MB' }],
+    });
+    const tree = await openPanel(thread({ id: 'a' }));
+    typeReply(tree, 'Here is the clip.');
+    press(tree, 'Send reply');
+    await act(async () => {});
+
+    expect(callPlatformAdminMock).toHaveBeenCalledTimes(1);
+    expect(texts(tree).some((t) => t.includes('clip.mov') && t.includes('over 10 MB'))).toBe(true);
+    expect(texts(tree)).not.toContain('That reply did not go through.');
+  });
+
+  // platform-admin writes the row AFTER the message, and reports rather than
+  // raises when that half fails -- so the operator has to be told, or they
+  // believe the store has a document it does not have.
+  it('reports a file that uploaded but could not be written onto the message', async () => {
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [
+        { storagePath: 'shop-1/a/1-r.pdf', fileName: 'r.pdf', byteSize: 10, contentType: 'application/pdf' },
+      ],
+      missed: [],
+    });
+    callPlatformAdminMock.mockResolvedValue({ message: { id: 'm1' }, missedAttachments: ['r.pdf'] });
+    const tree = await openPanel(thread({ id: 'a' }));
+    typeReply(tree, 'Statement attached.');
+    press(tree, 'Send reply');
+    await act(async () => {});
+
+    expect(texts(tree).some((t) => t.includes('r.pdf'))).toBe(true);
+  });
+
+  // Send & close normally shuts the panel. Not over a caveat the operator has
+  // not read -- that is the store never being told the document did not arrive.
+  it('stays open over a refused file even when the conversation was closed', async () => {
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [],
+      missed: [{ fileName: 'clip.mov', reason: 'over 10 MB' }],
+    });
+    const tree = await openPanel(thread({ id: 'a' }));
+    typeReply(tree, 'All sorted.');
+    press(tree, 'Send & close');
+    await act(async () => {});
+
+    expect(callPlatformAdminMock.mock.calls.map((c) => c[0])).toEqual(['reply_support', 'close_support']);
+    expect(labelled(tree, 'Send reply')).toBeDefined();
+  });
+});
+
 describe('the WhatsApp hand-off', () => {
   const wants = (over: Partial<PlatformSupportThread> = {}) =>
     thread({ id: 'a', contactPreference: 'whatsapp', authorUserId: 'u1', authorPhone: '063 555 1234', ...over });
@@ -535,7 +649,10 @@ describe('the WhatsApp hand-off', () => {
 
     expect(callPlatformAdminMock).toHaveBeenCalledWith(
       'reply_support',
-      { support: { threadId: 'a' } },
+      // An empty attachments list rather than an absent one: the payload shape
+      // is the same whether or not a file was picked, so nothing downstream has
+      // to branch on undefined.
+      { support: { threadId: 'a', attachments: [] } },
       'Your payment is matched.'
     );
     expect(openExternalUrlMock).toHaveBeenCalledWith(

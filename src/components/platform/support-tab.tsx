@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 
 import { Chip, PlatformButton, PlatformModal, SectionLabel } from '@/components/platform/kit';
 import { coverEnd, fmtDate } from '@/components/platform/labels';
+import { AttachmentPicker } from '@/components/support/attachment-picker';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
@@ -17,7 +18,13 @@ import {
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listMessages, whatsAppLink, type SupportMessage } from '@/lib/support';
-import { signedUrlFor } from '@/lib/support-attachments';
+import {
+  missedAttachmentNote,
+  signedUrlFor,
+  uploadAttachments,
+  type MissedAttachment,
+  type PendingAttachment,
+} from '@/lib/support-attachments';
 import {
   FILTER_CATEGORIES,
   OPERATOR_CATEGORIES,
@@ -280,8 +287,14 @@ export function SupportComposeModal({
   const [category, setCategory] = useState<OperatorCategory>('billing');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
+  const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Set once the thread exists. The form is replaced rather than closed when a
+  // file did not make it: the conversation has been started and cannot be
+  // started again, so leaving a Send button on screen over a caveat is offering
+  // to open a second one.
+  const [sent, setSent] = useState<{ reference: string; note: string } | null>(null);
   // `busy` alone is not a guard: two presses landing before the state has
   // re-rendered the button both see it enabled, and open_support is an insert
   // with nothing on the server to collapse the second into the first — the
@@ -318,6 +331,10 @@ export function SupportComposeModal({
     sendInFlight.current = true;
     setBusy(true);
     setError(null);
+    // Declared out here so the close-or-stay decision below reads them: inside
+    // the try they would be scoped to a block that also has a `return` in it.
+    let note: string | null = null;
+    let reference: string | null = null;
     try {
       // The message body is passed as `reason`. platform-admin requires one on
       // every action, and for support the body IS the justification, so the
@@ -328,7 +345,7 @@ export function SupportComposeModal({
       // 20260825000000 reads as holders of settings.access — not everyone at
       // the shop. An id makes the thread that person's alone. The owner's is
       // the only id this console can name (see RECIPIENTS).
-      await callPlatformAdmin(
+      const opened = await callPlatformAdmin(
         'open_support',
         {
           shopId: chosen.shopId,
@@ -340,6 +357,14 @@ export function SupportComposeModal({
         },
         body
       );
+
+      // Files go up AFTER the thread exists, because the storage path is
+      // <shop_id>/<thread_id>/<file> and there is no thread id to write into
+      // before this point. Nothing below can un-send the message, so nothing
+      // below is allowed to report the message as unsent — the same shape the
+      // store's compose form has always had.
+      note = await attachOperatorFiles(chosen.shopId, opened?.thread?.id, opened?.message?.id, files, body);
+      reference = opened?.thread?.reference ?? null;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That message did not send.');
       return;
@@ -353,9 +378,26 @@ export function SupportComposeModal({
     // draft of a message that has already been sent, and "Try again" on it
     // opens the same conversation a second time. The console owns its own
     // reload failure -- it has an error state and a Try again of its own.
-    onClose();
+    if (note) setSent({ reference: reference ?? 'the conversation', note });
+    else onClose();
     await onDone();
   };
+
+  // The conversation is already open, so there is nothing left to edit and no
+  // Send to press again. Only reached when a file did not make it — a clean
+  // send closes the composer outright.
+  if (sent) {
+    return (
+      <View>
+        <Text style={composeStyles.label}>Sent</Text>
+        <Text style={composeStyles.sentRef}>{sent.reference}</Text>
+        <Caveat tone="context">{sent.note}</Caveat>
+        <View style={composeStyles.actions}>
+          <PlatformButton label="Close" onPress={onClose} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -455,6 +497,11 @@ export function SupportComposeModal({
         </Text>
       )}
 
+      {/* The half of "attachments both ways" that only we can send: a receipt,
+          a statement, a screenshot of what their till should look like. */}
+      <Text style={composeStyles.label}>Attachments — optional</Text>
+      <AttachmentPicker files={files} onChange={setFiles} />
+
       {error && (
         <Caveat tone="wrong" action={{ label: 'Try again', onPress: () => void send() }}>
           {error}
@@ -469,6 +516,51 @@ export function SupportComposeModal({
       </View>
     </View>
   );
+}
+
+/**
+ * Uploads the operator's files and asks platform-admin to write the rows.
+ *
+ * Two steps because they have different owners: the OBJECT goes straight to
+ * storage under the operator's own session (the insert policy admits
+ * is_platform_admin() since 20260825000700, which also makes the upload
+ * MFA-gated in the database), and the ROW goes through platform-admin, which is
+ * the only write path for this console and the only thing that records in the
+ * audit log what we sent a store.
+ *
+ * Returns the caveat to show, or null when everything landed. Never throws:
+ * every caller runs it after a message that has already arrived.
+ */
+async function attachOperatorFiles(
+  shopId: string,
+  threadId: string | undefined,
+  messageId: string | undefined,
+  files: PendingAttachment[],
+  reason: string
+): Promise<string | null> {
+  if (files.length === 0) return null;
+  if (!threadId || !messageId) {
+    // open_support answered without telling us which message it wrote, so
+    // there is nothing to hang these on. Said plainly rather than silently
+    // dropped: the operator picked these files for a reason.
+    return missedAttachmentNote(
+      files.map((file) => ({ fileName: file.fileName, reason: 'we could not find the message to hang it on' }))
+    );
+  }
+
+  const { uploaded, missed } = await uploadAttachments(shopId, threadId, files);
+  const all: MissedAttachment[] = [...missed];
+  if (uploaded.length > 0) {
+    try {
+      await callPlatformAdmin('attach_support', { support: { threadId, messageId, attachments: uploaded } }, reason);
+    } catch (error) {
+      // One refusal covers the batch: attach_support inserts them in a single
+      // statement, so either every row landed or none did.
+      const why = error instanceof Error ? error.message : 'it did not go through';
+      for (const file of uploaded) all.push({ fileName: file.fileName, reason: why });
+    }
+  }
+  return missedAttachmentNote(all);
 }
 
 // The two recipients this console can actually name.
@@ -556,8 +648,13 @@ function SupportThreadPanel({
 }) {
   const [messages, setMessages] = useState<SupportMessage[] | null>(null);
   const [reply, setReply] = useState('');
+  const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // A qualification on a reply that arrived. Kept apart from `problem` for the
+  // same reason the store's form does: a 'wrong' caveat says the reply failed,
+  // and what follows from that is writing it again.
+  const [attachNote, setAttachNote] = useState<string | null>(null);
   // The reply whose WhatsApp chat we have tried to open, held so the note that
   // offers a second, in-gesture attempt can carry the same text. Null until a
   // hand-off send has actually landed.
@@ -640,20 +737,42 @@ function SupportThreadPanel({
     sendInFlight.current = true;
     setBusy(true);
     setProblem(null);
+    setAttachNote(null);
     // Dropped before the send, not after it: the note names one reply, and
     // leaving the last one's up would offer to open a chat pre-filled with a
     // message the operator has already sent.
     setHandedOff(null);
     try {
+      // Uploaded BEFORE the reply, unlike the composer, because this thread
+      // already exists — so the message and its files are written in one
+      // request and the store never sees "here is your receipt" with no
+      // receipt on it. A file that will not upload is reported and the words
+      // still go, which is why this cannot throw.
+      const { uploaded, missed } = await uploadAttachments(thread.shopId, thread.id, files);
+
       // The body is passed as `reason`. platform-admin requires one on every
       // action, and for support the body IS the justification — see the comment
       // on the case in that function — so the audit log records what was
       // actually said rather than a second sentence about it.
-      await callPlatformAdmin('reply_support', { support: { threadId: thread.id } }, body);
+      const sent = await callPlatformAdmin(
+        'reply_support',
+        { support: { threadId: thread.id, attachments: uploaded } },
+        body
+      );
       // Emptied the moment the reply is on the server, and before anything that
       // can still fail below it: a draft left in the box is a draft somebody
       // presses Send on twice.
       setReply('');
+      setFiles([]);
+
+      // The rows can fail after the message has landed, and platform-admin
+      // reports that rather than raising it, for exactly the reason above.
+      const refusedRows: MissedAttachment[] = ((sent?.missedAttachments ?? []) as string[]).map((fileName) => ({
+        fileName,
+        reason: 'the file went up but we could not write it onto the message',
+      }));
+      const note = missedAttachmentNote([...missed, ...refusedRows]);
+      setAttachNote(note);
 
       const closed = opts.close === true && (await closeThread(body));
       if (opts.whatsApp) {
@@ -665,8 +784,10 @@ function SupportThreadPanel({
       await onDone();
       // Only a closed conversation leaves the queue, so only a close earns the
       // panel shutting -- and only one that actually landed, or the panel would
-      // dismiss itself over the caveat explaining why it did not.
-      if (closed) onClose();
+      // dismiss itself over the caveat explaining why it did not. A refused
+      // file is the same case: shutting over that note is the operator never
+      // learning the store did not get the document they were promised.
+      if (closed && !note) onClose();
     } catch (error) {
       setProblem({
         message: error instanceof Error ? error.message : 'That reply did not go through.',
@@ -778,6 +899,12 @@ function SupportThreadPanel({
           style={panelStyles.input}
         />
 
+        {/* The other half of "attachments both ways". A store asked to send a
+            screenshot is one thing; being able to send them the matched
+            statement back is what closes the billing conversation. */}
+        <SectionLabel>Attachments — optional</SectionLabel>
+        <AttachmentPicker files={files} onChange={setFiles} />
+
         <View style={panelStyles.actions}>
           <PlatformButton label={busy ? 'Sending…' : 'Send reply'} disabled={busy} onPress={() => void send({})} />
           {thread.contactPreference === 'whatsapp' && chatLink && (
@@ -803,6 +930,11 @@ function SupportThreadPanel({
             {
               'The reply is on the thread either way. Their chat should have opened in a new tab with it already written — if nothing appeared, your browser blocked it.'
             }
+          </Caveat>
+        )}
+        {attachNote && (
+          <Caveat tone="context" onDismiss={() => setAttachNote(null)}>
+            {attachNote}
           </Caveat>
         )}
         {problem && (
@@ -1053,6 +1185,7 @@ const composeStyles = StyleSheet.create({
   tokenText: { fontSize: 12, fontWeight: '800', color: theme.bentoAccentInk },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   overflow: { fontSize: 11.5, fontWeight: '700', color: theme.bentoLoss, marginTop: 6 },
+  sentRef: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk, marginBottom: 10 },
   actions: { flexDirection: 'row', gap: 8, marginTop: 18, justifyContent: 'flex-end' },
 });
 

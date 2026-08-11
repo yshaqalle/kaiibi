@@ -16,7 +16,12 @@ import {
   type ContactPreference,
   type SupportDraft,
 } from '@/lib/support';
-import { attachmentPath, uploadAttachment, type PendingAttachment } from '@/lib/support-attachments';
+import {
+  attachToMessage,
+  missedAttachmentNote,
+  type MissedAttachment,
+  type PendingAttachment,
+} from '@/lib/support-attachments';
 import {
   clearStoredDraft,
   readStoredDraft,
@@ -138,9 +143,9 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
 
   // Deliberately cannot throw. Once the thread is open the report has arrived,
   // and everything after this point is a qualification on a sent message rather
-  // than grounds to tell someone their words went nowhere. Returns the names of
-  // the files that did not make it.
-  const attachFiles = async (shopId: string, threadId: string): Promise<string[]> => {
+  // than grounds to tell someone their words went nowhere. Returns the files
+  // that did not make it, and why.
+  const attachFiles = async (shopId: string, threadId: string): Promise<MissedAttachment[]> => {
     if (files.length === 0) return [];
     try {
       // The RPC returns the thread row and nothing else, so the id of the
@@ -156,33 +161,11 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
         .single();
       if (error) throw error;
 
-      const missed: string[] = [];
-      for (const [index, file] of files.entries()) {
-        try {
-          // `Date.now() + index` rather than Date.now(): the timestamp is only
-          // there to keep paths unique, uploads use upsert:false, and two files
-          // of the same name picked from different folders can finish inside
-          // the same millisecond -- which would fail the second one.
-          const path = attachmentPath(shopId, threadId, file.fileName, Date.now() + index);
-          await uploadAttachment(path, file);
-          const { error: linkError } = await supabase.from('support_attachments').insert({
-            message_id: message.id,
-            storage_path: path,
-            file_name: file.fileName,
-            byte_size: file.byteSize,
-            content_type: file.contentType,
-          });
-          if (linkError) throw linkError;
-        } catch {
-          // One file failing says nothing about the next one.
-          missed.push(file.fileName);
-        }
-      }
-      return missed;
+      return await attachToMessage(shopId, threadId, message.id, files);
     } catch {
       // Without the message id nothing could be hung off it, so none of them
       // landed.
-      return files.map((file) => file.fileName);
+      return files.map((file) => ({ fileName: file.fileName, reason: 'we could not find the message to hang it on' }));
     }
   };
 
@@ -225,17 +208,11 @@ export function SupportCompose({ onSent }: { onSent: (reference: string) => void
     opened.current = null;
     setDraft(EMPTY_DRAFT);
     setFiles([]);
-    // Says what to do, not what to retry. A store can only attach on the first
-    // message -- the reply box in support-thread-view.tsx has no picker -- so
-    // telling someone to reopen the thread and try again would send the one
-    // person who has just lost a file to a dead end.
-    if (missed.length === 1) {
-      setMissedFiles(`Sent — but ${missed[0]} didn't attach. Reply on the conversation and we'll ask you for it.`);
-    } else if (missed.length > 1) {
-      setMissedFiles(
-        `Sent — but ${missed.length} files didn't attach. Reply on the conversation and we'll ask you for them.`
-      );
-    }
+    // Says what to do, and names why each file was refused. The instruction is
+    // only truthful because the reply box has a picker of its own now
+    // (20260825000700): before that, "attach it there" pointed at a screen with
+    // nothing to attach with, which is why this used to say we would ask.
+    setMissedFiles(missedAttachmentNote(missed));
     setSending(false);
     onSent(thread.reference);
   };

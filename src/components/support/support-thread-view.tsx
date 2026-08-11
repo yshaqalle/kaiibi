@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { AttachmentPicker } from '@/components/support/attachment-picker';
 import { supportStyles } from '@/components/support/support-styles';
 import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { openExternalUrl } from '@/lib/external-url';
 import { listMessages, markThreadRead, postReply, type SupportMessage, type SupportThread } from '@/lib/support';
-import { signedUrlFor } from '@/lib/support-attachments';
+import {
+  attachToMessage,
+  missedAttachmentNote,
+  signedUrlFor,
+  type PendingAttachment,
+} from '@/lib/support-attachments';
 
 // The light palette, for the same reason support-compose.tsx takes it: this
 // renders inside the support sheet, which is a bento surface.
@@ -25,7 +31,12 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
   const { session } = useAuth();
   const [messages, setMessages] = useState<SupportMessage[] | null>(null);
   const [reply, setReply] = useState('');
+  const [files, setFiles] = useState<PendingAttachment[]>([]);
   const [problem, setProblem] = useState<Problem | null>(null);
+  // A qualification on a reply that arrived, never a failure. Held apart from
+  // `problem` for that reason: a 'wrong' caveat here would read as "your reply
+  // did not send", and the action that follows from that is to write it again.
+  const [missedFiles, setMissedFiles] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   // `disabled` alone is not a guard: two press events landing before the
   // `sending` state has re-rendered the button both see it enabled, and
@@ -71,9 +82,18 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
     sendInFlight.current = true;
     setSending(true);
     setProblem(null);
+    setMissedFiles(null);
     try {
-      await postReply(thread.id, reply, session.user.id);
+      const message = await postReply(thread.id, reply, session.user.id);
       setReply('');
+      // Past here the words have arrived. Uploading cannot throw and cannot
+      // undo that, so a refused file is reported beside a sent reply rather
+      // than as a send that failed -- the alternative is somebody re-typing a
+      // message we already have, which is how one lost screenshot becomes two
+      // of the same reply.
+      const missed = await attachToMessage(thread.shopId, thread.id, message.id, files);
+      setFiles([]);
+      setMissedFiles(missedAttachmentNote(missed));
       // Reloads rather than appending: this also re-marks the thread read, so
       // your own reply -- which moves last_message_at forward -- does not raise
       // the badge against you. Unless that particular read-mark is the thing
@@ -170,6 +190,14 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
             multiline
             style={[supportStyles.input, styles.input]}
           />
+
+          {/* The whole point of a reply box that can attach: a store asked for
+              a screenshot, or one that lost a file on the first message, has
+              somewhere to put it. Before this the only picker in the product
+              was on the very first message. */}
+          <Text style={[supportStyles.label, styles.label]}>Attachments — optional</Text>
+          <AttachmentPicker files={files} onChange={setFiles} />
+
           <Pressable
             onPress={send}
             disabled={!reply.trim() || sending}
@@ -183,6 +211,12 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
             </Text>
           </Pressable>
         </>
+      )}
+
+      {missedFiles && (
+        <Caveat tone="context" onDismiss={() => setMissedFiles(null)}>
+          {missedFiles}
+        </Caveat>
       )}
 
       {problem && (

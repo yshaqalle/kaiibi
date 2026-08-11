@@ -26,6 +26,12 @@ export type SupportDraft = {
 
 export type SupportThread = {
   id: string;
+  // Carried because an attachment's storage path starts with it
+  // (<shop_id>/<thread_id>/<file>), and the reply box can attach now. Read off
+  // the thread rather than off useAuth().shop: the sheet shows every thread
+  // this person can see, and on a shared tablet the shop they are signed into
+  // is not necessarily the shop a thread was opened against.
+  shopId: string;
   reference: string;
   subject: string;
   category: SupportCategory;
@@ -134,6 +140,7 @@ export function unreadCount(threads: SupportThread[]): number {
 function toThread(row: any): SupportThread {
   return {
     id: row.id,
+    shopId: row.shop_id,
     reference: row.reference,
     subject: row.subject,
     category: row.category,

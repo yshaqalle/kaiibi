@@ -33,6 +33,7 @@ type Action =
   | 'open_support'
   | 'reply_support'
   | 'close_support'
+  | 'attach_support'
   | 'delete_shop';
 
 type RequestBody = {
@@ -75,9 +76,14 @@ type RequestBody = {
   // reply_support -- see the note on those cases.
   support?: {
     threadId?: string;
+    messageId?: string;
     addressedUserId?: string | null;
     category?: string;
     subject?: string;
+    // Files the CONSOLE has already uploaded to the bucket. Only the row is
+    // written here -- see the note on validateAttachments for why the bytes do
+    // not travel through this function.
+    attachments?: unknown;
   };
   // The shop's exact name, retyped by the operator. Only used by delete_shop.
   confirmName?: string;
@@ -105,6 +111,34 @@ const messageLength = (text: string) => [...text].length;
 const isUuid = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+// The bucket 20260825000000 created, and the two limits it carries. Restated
+// here for the same reason OPERATOR_CATEGORIES is: the bucket is the rule, this
+// copy is so a refusal is a sentence rather than a 400 quoting a bucket config.
+const SUPPORT_BUCKET = 'support-attachments';
+const MAX_SUPPORT_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const SUPPORT_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+  'text/plain',
+  'video/mp4',
+  'video/quicktime',
+  'video/3gpp',
+];
+
+// What the console claims it has uploaded.
+type AttachmentClaim = {
+  storagePath: string;
+  fileName: string;
+  byteSize: number;
+  contentType: string | null;
+};
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -123,6 +157,80 @@ function ok(payload: unknown) {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
+}
+
+// The console's claim about a file it has already put in the bucket.
+//
+// THE BYTES DO NOT COME THROUGH HERE. An operator uploads straight to storage
+// under the policy 20260825000700 widened, and only the row travels through
+// this function -- because that row belongs in the audit log, and because a
+// 10 MB file base64'd into a JSON body is ~13.4 MB crossing the wire twice.
+// What that costs is that everything below is a claim, so everything below is
+// checked. The path test is the one that matters: it is what
+// check_support_attachment_path() enforces on the row anyway, asked here so the
+// refusal names the file instead of arriving as a check violation.
+function validateAttachments(
+  raw: unknown,
+  shopId: string,
+  threadId: string
+): { ok: true; claims: AttachmentClaim[] } | { ok: false; response: Response } {
+  if (raw === undefined || raw === null) return { ok: true, claims: [] };
+  if (!Array.isArray(raw)) {
+    return { ok: false, response: errorResponse(400, 'unknown', 'attachments must be a list.') };
+  }
+  if (raw.length > MAX_SUPPORT_ATTACHMENTS) {
+    return {
+      ok: false,
+      response: errorResponse(400, 'unknown', `A message can carry ${MAX_SUPPORT_ATTACHMENTS} files; that is ${raw.length}.`),
+    };
+  }
+
+  const claims: AttachmentClaim[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'Each attachment must be an object.') };
+    }
+    const item = entry as Record<string, unknown>;
+    const storagePath = typeof item.storagePath === 'string' ? item.storagePath : '';
+    const fileName = typeof item.fileName === 'string' ? item.fileName.trim() : '';
+    const byteSize = item.byteSize;
+    const contentType = item.contentType == null ? null : String(item.contentType);
+
+    // Exactly three segments, and the first two are this thread's. The trigger
+    // accepts a deeper path whose first two segments happen to match; this does
+    // not, because attachmentPath() in the app never writes one and a shape
+    // nothing produces is a shape nobody has checked the storage rules against.
+    const parts = storagePath.split('/');
+    if (parts.length !== 3 || parts[0] !== shopId || parts[1] !== threadId || parts[2].length === 0) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'unknown', `\`${storagePath}\` is not a path on this conversation.`),
+      };
+    }
+    if (!fileName) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'Every attachment needs a file name.') };
+    }
+    if (fileName.length > 255) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'That file name is too long to store.') };
+    }
+    if (typeof byteSize !== 'number' || !Number.isInteger(byteSize) || byteSize < 0) {
+      return { ok: false, response: errorResponse(400, 'unknown', `\`${fileName}\` has no usable size.`) };
+    }
+    if (byteSize > MAX_ATTACHMENT_BYTES) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'attachment_too_large', `\`${fileName}\` is over 10 MB, which the bucket will not hold.`),
+      };
+    }
+    if (contentType !== null && !SUPPORT_MIME_TYPES.includes(contentType)) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'attachment_type', `\`${fileName}\` is a kind of file this bucket does not accept.`),
+      };
+    }
+    claims.push({ storagePath, fileName, byteSize, contentType });
+  }
+  return { ok: true, claims };
 }
 
 Deno.serve(async (req) => {
@@ -189,6 +297,51 @@ Deno.serve(async (req) => {
       ip,
     });
     if (error) throw new Error(`audit write failed: ${error.message}`);
+  };
+
+  // Turns a claim into a row, but only if the object is really there.
+  //
+  // Without this a request could write a paperclip pointing at nothing: the
+  // store opens the thread, sees `receipt.pdf`, taps it, and gets a signing
+  // error for a file that was never uploaded -- which reads as us having sent
+  // something and them having broken it. The size and type are taken from what
+  // storage actually holds rather than from what the caller said, on the same
+  // principle as author_kind being set here and never accepted from the body.
+  const resolveAttachments = async (
+    shopId: string,
+    threadId: string,
+    claims: AttachmentClaim[]
+  ): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; response: Response }> => {
+    if (claims.length === 0) return { ok: true, rows: [] };
+
+    // One listing for the folder rather than one lookup per file. The cap is
+    // far above what a conversation holds (5 files per message) and is here
+    // only so a pathological folder cannot page forever; a file past it reads
+    // as missing, which is the safe direction.
+    const { data: objects, error } = await adminClient.storage
+      .from(SUPPORT_BUCKET)
+      .list(`${shopId}/${threadId}`, { limit: 1000 });
+    if (error) return { ok: false, response: errorResponse(500, 'unknown', error.message) };
+
+    const found = new Map((objects ?? []).map((o) => [o.name, o]));
+    const rows: Record<string, unknown>[] = [];
+    for (const claim of claims) {
+      const object = found.get(claim.storagePath.split('/')[2]);
+      if (!object) {
+        return {
+          ok: false,
+          response: errorResponse(400, 'attachment_missing', `\`${claim.fileName}\` is not in the bucket — it did not finish uploading.`),
+        };
+      }
+      const metadata = (object.metadata ?? {}) as { size?: number; mimetype?: string };
+      rows.push({
+        storage_path: claim.storagePath,
+        file_name: claim.fileName,
+        byte_size: typeof metadata.size === 'number' ? metadata.size : claim.byteSize,
+        content_type: metadata.mimetype ?? claim.contentType,
+      });
+    }
+    return { ok: true, rows };
   };
 
   const loadSubscription = async (shopId: string) => {
@@ -1088,8 +1241,29 @@ Deno.serve(async (req) => {
         );
         if (openError) return errorResponse(500, 'unknown', openError.message);
 
+        // The id of the message the rpc wrote alongside the thread, so the
+        // composer can hang files off it.
+        //
+        // open_support takes no attachments of its own, and cannot: the storage
+        // path is <shop_id>/<thread_id>/<file> and the thread id does not exist
+        // until the line above. So the composer opens, uploads, then calls
+        // attach_support -- the same three steps the store's compose form has
+        // always taken, and the same failure it already handles (a message that
+        // arrived, with a caveat naming the files that did not).
+        //
+        // Its failure is NOT this action's failure. The thread is written and
+        // the store can read it; answering 500 here would have an operator
+        // retry into a duplicate conversation.
+        const { data: firstMessage } = await adminClient
+          .from('support_messages')
+          .select('id')
+          .eq('thread_id', thread.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
         await audit('open_support', body.shopId, null, thread);
-        return ok({ thread });
+        return ok({ thread, message: firstMessage ?? null });
       }
 
       case 'reply_support': {
@@ -1108,6 +1282,15 @@ Deno.serve(async (req) => {
           .maybeSingle();
         if (loadError) return errorResponse(500, 'unknown', loadError.message);
         if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        // Both attachment checks run BEFORE the message is written. A payload
+        // this function is going to refuse must not leave a reply on the thread
+        // first: the store would be told an answer had arrived and the operator
+        // would be told it had not, and the retry would post it twice.
+        const claims = validateAttachments(body.support?.attachments, thread.shop_id, threadId);
+        if (!claims.ok) return claims.response;
+        const resolved = await resolveAttachments(thread.shop_id, threadId, claims.claims);
+        if (!resolved.ok) return resolved.response;
 
         // Replying reopens a closed thread. support-thread-view.tsx renders the
         // reply box only while status is 'open', and the touch trigger bumps
@@ -1146,6 +1329,23 @@ Deno.serve(async (req) => {
           .single();
         if (messageError) return errorResponse(500, 'unknown', messageError.message);
 
+        // Written after the message because they hang off it, and reported
+        // rather than raised because by now the reply has arrived. A 500 here
+        // would tell an operator their answer failed when the store can already
+        // read it -- and the retry would send it twice, which is the one thing
+        // every guard in this case exists to prevent. The store gets the words
+        // and the operator gets a caveat naming what to send again.
+        let attachments: unknown[] = [];
+        let missedAttachments: string[] = [];
+        if (resolved.rows.length > 0) {
+          const { data: attached, error: attachError } = await adminClient
+            .from('support_attachments')
+            .insert(resolved.rows.map((row) => ({ ...row, message_id: message.id })))
+            .select('*');
+          if (attachError) missedAttachments = resolved.rows.map((row) => String(row.file_name));
+          else attachments = attached ?? [];
+        }
+
         // Read back only when the status moved, so the audit row's before/after
         // say that it did. A reply that changes nothing about the thread keeps
         // the original shape: null before, the message after.
@@ -1164,9 +1364,64 @@ Deno.serve(async (req) => {
           'reply_support',
           thread.shop_id,
           reopened ? thread : null,
-          reopened ? { thread: after, message } : message,
+          reopened ? { thread: after, message, attachments } : { message, attachments },
         );
-        return ok(reopened ? { message, thread: after } : { message });
+        return ok({ message, attachments, missedAttachments, ...(reopened ? { thread: after } : {}) });
+      }
+
+      // The composer's second step. open_support cannot carry files -- the
+      // storage path needs the thread id it is in the act of creating -- so the
+      // console opens, uploads, and links here.
+      //
+      // Deliberately NOT a general "write a support_attachments row" endpoint:
+      // it refuses any message that is not one of OURS on the named thread. An
+      // operator hanging a file off the STORE's message would make it look, in
+      // the store's own conversation, like they had sent it themselves.
+      case 'attach_support': {
+        const threadId = body.support?.threadId;
+        const messageId = body.support?.messageId;
+        if (!threadId || !messageId) return errorResponse(400, 'unknown', 'threadId and messageId are required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
+        if (!isUuid(messageId)) return errorResponse(400, 'unknown', 'messageId is not an id.');
+
+        const { data: thread, error: threadError } = await adminClient
+          .from('support_threads')
+          .select('id, shop_id')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (threadError) return errorResponse(500, 'unknown', threadError.message);
+        if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        const { data: message, error: messageError } = await adminClient
+          .from('support_messages')
+          .select('id, thread_id, author_kind')
+          .eq('id', messageId)
+          .maybeSingle();
+        if (messageError) return errorResponse(500, 'unknown', messageError.message);
+        if (!message || message.thread_id !== threadId) {
+          return errorResponse(404, 'unknown', 'No such message on that conversation.');
+        }
+        if (message.author_kind !== 'platform') {
+          return errorResponse(400, 'unknown', 'A file can only be attached to a message we wrote.');
+        }
+
+        const claims = validateAttachments(body.support?.attachments, thread.shop_id, threadId);
+        if (!claims.ok) return claims.response;
+        if (claims.claims.length === 0) return errorResponse(400, 'unknown', 'No attachments were given.');
+        const resolved = await resolveAttachments(thread.shop_id, threadId, claims.claims);
+        if (!resolved.ok) return resolved.response;
+
+        // Nothing has been written yet, so unlike the reply case a failure here
+        // is a clean refusal the operator can retry without sending anything
+        // twice.
+        const { data: attached, error: attachError } = await adminClient
+          .from('support_attachments')
+          .insert(resolved.rows.map((row) => ({ ...row, message_id: messageId })))
+          .select('*');
+        if (attachError) return errorResponse(500, 'unknown', attachError.message);
+
+        await audit('attach_support', thread.shop_id, null, attached);
+        return ok({ attachments: attached ?? [] });
       }
 
       case 'close_support': {

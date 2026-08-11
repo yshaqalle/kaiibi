@@ -1,9 +1,11 @@
+import * as ImagePicker from 'expo-image-picker';
 import { Text, TextInput } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { Chip } from '@/components/platform/kit';
 import { SupportComposeModal } from '@/components/platform/support-tab';
 import { callPlatformAdmin, type PlatformShopRow } from '@/lib/platform';
+import { uploadAttachments } from '@/lib/support-attachments';
 
 // The tab imports @/lib/platform for supportQueueState, which imports the live
 // client; that throws at require time without env vars. Same stub the reply
@@ -11,7 +13,17 @@ import { callPlatformAdmin, type PlatformShopRow } from '@/lib/platform';
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
 jest.mock('@/lib/external-url', () => ({ openExternalUrl: jest.fn() }));
-jest.mock('@/lib/support-attachments', () => ({ signedUrlFor: jest.fn() }));
+// requireActual, not a bare stub: missedAttachmentNote is the sentence an
+// operator reads when a file did not make it, and it is pure. Only the upload
+// pass, the one call here that leaves the process, is replaced.
+jest.mock('@/lib/support-attachments', () => ({
+  ...jest.requireActual('@/lib/support-attachments'),
+  signedUrlFor: jest.fn(),
+  uploadAttachments: jest.fn(),
+}));
+// The picker itself reaches the OS. Stubbed so a test can hand it a file the
+// way the photo library would.
+jest.mock('expo-image-picker', () => ({ launchImageLibraryAsync: jest.fn() }));
 // The taxonomy stays real. Half of what these tests check is that the composer
 // offers the OPERATOR's five categories, and a stubbed list would pass while
 // the console offered a store's feature-request chip to itself.
@@ -21,6 +33,10 @@ jest.mock('@/lib/platform', () => ({
 }));
 
 const callPlatformAdminMock = callPlatformAdmin as jest.MockedFunction<typeof callPlatformAdmin>;
+const uploadAttachmentsMock = uploadAttachments as jest.MockedFunction<typeof uploadAttachments>;
+const launchImageLibraryMock = ImagePicker.launchImageLibraryAsync as jest.MockedFunction<
+  typeof ImagePicker.launchImageLibraryAsync
+>;
 
 function shop(over: Partial<PlatformShopRow> & { shopId: string; shopName: string }): PlatformShopRow {
   return {
@@ -121,6 +137,7 @@ function write(tree: ReactTestRenderer, subject: string, message: string): void 
 beforeEach(() => {
   jest.resetAllMocks();
   callPlatformAdminMock.mockResolvedValue({});
+  uploadAttachmentsMock.mockResolvedValue({ uploaded: [], missed: [] });
 });
 
 describe('picking the store', () => {
@@ -361,5 +378,94 @@ describe('sending', () => {
     expect(texts(tree)).toContain('That person does not work at this shop.');
     expect(onClose).not.toHaveBeenCalled();
     expect(fields(tree)[1].props.value).toBe('It landed this morning.');
+  });
+});
+
+// The half of "attachments both ways" that only we can send: a receipt, a
+// statement, the screenshot of what their till should look like.
+describe('attaching a file to an outbound message', () => {
+  /** Picks a file the way an operator does — through the photo library. */
+  async function pickFile(tree: ReactTestRenderer): Promise<void> {
+    launchImageLibraryMock.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///tmp/statement.jpg', fileName: 'statement.jpg', fileSize: 4096, mimeType: 'image/jpeg' }],
+    } as never);
+    press(tree, 'Add a screenshot');
+    await act(async () => {});
+  }
+
+  it('offers a picker', () => {
+    const tree = renderComposer('shop-1');
+    expect(labelled(tree, 'Add a screenshot')).toBeDefined();
+    expect(labelled(tree, 'Add a file')).toBeDefined();
+  });
+
+  // open_support CANNOT carry the file: the storage path is
+  // <shop_id>/<thread_id>/<file> and the thread id does not exist until that
+  // call returns. So the order below is the design, not an accident — open,
+  // upload under the id we were given, then link.
+  it('opens the thread first, then uploads under its id, then links the row', async () => {
+    callPlatformAdminMock.mockResolvedValue({
+      thread: { id: 'thread-9', reference: 'KB-2101' },
+      message: { id: 'msg-9' },
+    });
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [
+        { storagePath: 'shop-1/thread-9/1-statement.jpg', fileName: 'statement.jpg', byteSize: 4096, contentType: 'image/jpeg' },
+      ],
+      missed: [],
+    });
+    const tree = renderComposer('shop-1');
+    await pickFile(tree);
+    write(tree, 'Your payment cleared', 'It landed this morning.');
+    press(tree, 'Send');
+    await act(async () => {});
+
+    expect(callPlatformAdminMock.mock.calls.map((c) => c[0])).toEqual(['open_support', 'attach_support']);
+    expect(uploadAttachmentsMock).toHaveBeenCalledWith('shop-1', 'thread-9', [
+      expect.objectContaining({ fileName: 'statement.jpg' }),
+    ]);
+    expect(callPlatformAdminMock.mock.calls[1][1]).toEqual({
+      support: {
+        threadId: 'thread-9',
+        messageId: 'msg-9',
+        attachments: [
+          {
+            storagePath: 'shop-1/thread-9/1-statement.jpg',
+            fileName: 'statement.jpg',
+            byteSize: 4096,
+            contentType: 'image/jpeg',
+          },
+        ],
+      },
+    });
+    // Everything landed, so the composer closes exactly as it did before.
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The conversation cannot be started twice, so the composer must not close
+  // over a caveat the operator has not read — they would never learn the store
+  // did not get the document they were promised.
+  it('stays open and names the file when the file did not make it', async () => {
+    callPlatformAdminMock.mockResolvedValue({
+      thread: { id: 'thread-9', reference: 'KB-2101' },
+      message: { id: 'msg-9' },
+    });
+    uploadAttachmentsMock.mockResolvedValue({
+      uploaded: [],
+      missed: [{ fileName: 'statement.jpg', reason: 'over 10 MB' }],
+    });
+    const tree = renderComposer('shop-1');
+    await pickFile(tree);
+    write(tree, 'Your payment cleared', 'It landed this morning.');
+    press(tree, 'Send');
+    await act(async () => {});
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(texts(tree)).toContain('KB-2101');
+    expect(texts(tree).some((t) => t.includes('statement.jpg') && t.includes('over 10 MB'))).toBe(true);
+    // No Send left on screen: the thread exists and pressing it again would
+    // open a second one.
+    expect(labelled(tree, 'Send')).toBeUndefined();
   });
 });
