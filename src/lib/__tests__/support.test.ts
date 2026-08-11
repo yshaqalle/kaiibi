@@ -37,6 +37,8 @@ function thread(over: Partial<SupportThread>): SupportThread {
     lastMessageAt: '2026-08-09T10:00:00.000Z',
     shopReadAt: '2026-08-09T10:00:00.000Z',
     createdAt: '2026-08-09T09:00:00.000Z',
+    lastMessagePreview: 'It beeps but nothing lands in the cart.',
+    lastAuthorKind: 'shop',
     ...over,
   };
 }

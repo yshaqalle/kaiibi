@@ -45,6 +45,9 @@ declare
   v_store_path text;
   v_read_at timestamptz;
   v_last_at timestamptz;
+  -- Check 20's.
+  v_preview text;
+  v_kind text;
   v_thread public.support_threads;
   -- The clock of a tablet that is badly wrong, which is the case check 13 is
   -- about. Far enough out that no server stamp can be mistaken for it.
@@ -990,6 +993,108 @@ begin
   raise notice 'OK: we can send a file, and it stays as private as the thread';
 
   perform set_config('role', 'postgres', true);
+  perform set_config('request.jwt.claims', null, true);
+
+  ------------------------------------------------------------------
+  -- 20. The row in Your messages knows who spoke last, and what they said
+  --     (migration 20260825000800)
+  --
+  -- The list groups threads by whose move it is and prints a one-line preview,
+  -- both off these two columns. If the trigger stops maintaining them the list
+  -- does not break -- it quietly files an answered thread under "Open" and drops
+  -- the line that tells you an answer arrived, which is the failure the whole
+  -- redesign exists to prevent.
+  ------------------------------------------------------------------
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_cashier_thread, 'platform', v_operator_id,
+            E'  \n Found it \n\n the refund sheet was holding focus. ' || repeat('x', 200));
+
+  select last_author_kind, last_message_preview into v_kind, v_preview
+    from public.support_threads where id = v_cashier_thread;
+
+  if v_kind is distinct from 'platform' then
+    raise exception 'FAIL: the thread does not know an operator spoke last (%)', v_kind;
+  end if;
+  -- Leading blank lines and the newlines inside the sentence are collapsed, so
+  -- the preview spends its width on words rather than on whitespace.
+  if left(v_preview, 30) <> 'Found it the refund sheet was ' then
+    raise exception 'FAIL: the preview was not normalised (%)', left(v_preview, 40);
+  end if;
+  if length(v_preview) <> 160 then
+    raise exception 'FAIL: the preview is not bounded at 160 (%)', length(v_preview);
+  end if;
+
+  -- Both ends, not just ours: a thread waiting on US is the other half of the
+  -- grouping, and it is decided by this same column.
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', v_cashier_id, 'role', 'authenticated', 'aal', 'aal1')::text, true);
+  perform set_config('role', 'authenticated', true);
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_cashier_thread, 'shop', v_cashier_id, 'Thanks, that fixed it.');
+  select last_author_kind, last_message_preview into v_kind, v_preview
+    from public.support_threads where id = v_cashier_thread;
+  if v_kind is distinct from 'shop' or v_preview <> 'Thanks, that fixed it.' then
+    raise exception 'FAIL: a reply from the shop did not move the preview (%, %)', v_kind, v_preview;
+  end if;
+
+  -- And neither column is writable by the client that reads them. shop_read_at
+  -- is the only update a member holds (20260825000000); a member who could set
+  -- these could put words in our mouth on their own list.
+  perform set_config('role', 'postgres', true);
+  if has_column_privilege('authenticated', 'public.support_threads', 'last_message_preview', 'UPDATE')
+     or has_column_privilege('authenticated', 'public.support_threads', 'last_author_kind', 'UPDATE') then
+    raise exception 'FAIL: a member can write the preview columns';
+  end if;
+  -- The control: the one column they may write is still writable, so the two
+  -- refusals above are the grant list and not a role that lost update entirely.
+  if not has_column_privilege('authenticated', 'public.support_threads', 'shop_read_at', 'UPDATE') then
+    raise exception 'FAIL: authenticated lost update on shop_read_at';
+  end if;
+  raise notice 'OK: the preview follows the last message, and only the trigger writes it';
+
+  ------------------------------------------------------------------
+  -- 21. ...and every thread that already existed got one too
+  --
+  -- The threads people are actually waiting on answers for are the OLD ones, so
+  -- a trigger that only maintains new rows would ship the redesign to a list
+  -- where every existing conversation has no preview line and reads "Open"
+  -- whoever spoke last. The backfill statement below is the one from migration
+  -- 20260825000800, run here against a thread whose columns have been cleared.
+  ------------------------------------------------------------------
+  alter table public.support_messages disable trigger support_messages_touch_thread;
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_cashier_thread, 'platform', v_operator_id, 'An older answer.'),
+           (v_cashier_thread, 'shop', v_cashier_id, E'The last\nword.');
+  alter table public.support_messages enable trigger support_messages_touch_thread;
+  update public.support_threads
+     set last_message_preview = null, last_author_kind = null
+   where id = v_cashier_thread;
+
+  update public.support_threads t
+     set last_message_preview = m.preview,
+         last_author_kind = m.author_kind
+    from (
+      select distinct on (thread_id)
+             thread_id,
+             author_kind,
+             left(btrim(regexp_replace(body, '\s+', ' ', 'g')), 160) as preview
+        from public.support_messages
+       order by thread_id, created_at desc, id desc
+    ) m
+   where m.thread_id = t.id;
+
+  select last_author_kind, last_message_preview into v_kind, v_preview
+    from public.support_threads where id = v_cashier_thread;
+  -- The two inserts above share a created_at to the microsecond, which is what
+  -- an operator opening a thread does (thread + first message in one
+  -- transaction). Whichever the tie-break picks, it must pick ONE and normalise
+  -- it -- a backfill that answered with a newline in it would put a broken row
+  -- on the list rather than no row.
+  if v_kind is null or v_preview is null or v_preview like '%' || chr(10) || '%' then
+    raise exception 'FAIL: the backfill left a thread without a usable preview (%, %)', v_kind, v_preview;
+  end if;
+  raise notice 'OK: threads that predate the column got a preview as well';
+
   perform set_config('request.jwt.claims', null, true);
 
   raise notice 'ALL CHECKS PASSED';

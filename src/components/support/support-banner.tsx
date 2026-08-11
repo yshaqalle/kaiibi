@@ -16,6 +16,14 @@ import { useSupportUnread } from '@/lib/support-unread';
 // line exists for; persisting it would turn "dismissed once" into "never shown
 // again".
 //
+// What is dismissed is a COUNT, not the banner. Remembering it as a boolean made
+// ✕ a one-way latch for the whole session: a reply arriving afterwards raised
+// the ☰ badge and left this line hidden, so the one surface that reaches
+// somebody who was not already looking at the menu went quiet exactly when it
+// had something new to say. Any change to the count is news -- a message
+// arriving, or one being read while others remain -- so any change brings the
+// line back.
+//
 // `tone` mirrors SupportMenuItem's, for the same reason: the shell owns the
 // ground this is dropped onto, and admin-tabs.tsx's is fixed dark chrome. Each
 // palette's `bentoAccentInk` is solved against its own `bentoAccentWash`, so
@@ -24,9 +32,9 @@ import { useSupportUnread } from '@/lib/support-unread';
 // header.
 export function SupportBanner({ onOpen, tone = 'light' }: { onOpen: () => void; tone?: 'light' | 'dark' }) {
   const { count } = useSupportUnread();
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const theme = tone === 'dark' ? Colors.dark : Colors.light;
-  if (dismissed || count === 0) return null;
+  if (count === 0 || count === dismissedAt) return null;
 
   return (
     <View style={[styles.bar, { backgroundColor: theme.bentoAccentWash }]}>
@@ -36,7 +44,12 @@ export function SupportBanner({ onOpen, tone = 'light' }: { onOpen: () => void; 
       <Pressable onPress={onOpen} hitSlop={8} accessibilityRole="button">
         <Text style={[styles.action, { color: theme.bentoAccentInk }]}>Read</Text>
       </Pressable>
-      <Pressable onPress={() => setDismissed(true)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Dismiss">
+      <Pressable
+        onPress={() => setDismissedAt(count)}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityLabel="Dismiss"
+      >
         <Text style={[styles.close, { color: theme.bentoAccentInk }]}>✕</Text>
       </Pressable>
     </View>

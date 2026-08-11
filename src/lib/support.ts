@@ -43,6 +43,13 @@ export type SupportThread = {
   lastMessageAt: string;
   shopReadAt: string | null;
   createdAt: string;
+  // The last message's first line and who wrote it, denormalised onto the
+  // thread by touch_support_thread() (migration 20260825000800). Null on a
+  // thread whose only message predates that migration's backfill -- and on a
+  // client running against a database that has not had it applied yet, which
+  // is the case every list has to survive rather than assume away.
+  lastMessagePreview: string | null;
+  lastAuthorKind: 'shop' | 'platform' | null;
 };
 
 export type SupportMessage = {
@@ -152,6 +159,8 @@ function toThread(row: any): SupportThread {
     lastMessageAt: row.last_message_at,
     shopReadAt: row.shop_read_at,
     createdAt: row.created_at,
+    lastMessagePreview: row.last_message_preview ?? null,
+    lastAuthorKind: row.last_author_kind ?? null,
   };
 }
 

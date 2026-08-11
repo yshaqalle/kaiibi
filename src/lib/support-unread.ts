@@ -127,6 +127,17 @@ export function syncSupportUnread(threads: SupportThread[]): void {
   publish(unreadCount(threads));
 }
 
+// Read once, at the moment the sheet opens, to decide which view it opens ON.
+// Not a hook: the sheet needs one answer at mount, and subscribing would make
+// the view it is showing change under the reader when a message arrives.
+//
+// This is the count the ☰ badge and the banner are already displaying, so the
+// sheet opens as whatever the thing they just tapped told them -- which is what
+// makes the open settled rather than a guess corrected a moment later.
+export function supportUnreadSnapshot(): number {
+  return unread;
+}
+
 // Tests only. Module state outlives every component by design, so without this
 // one test's account, channel and refcount are the next test's starting point.
 export function resetSupportUnread(): void {

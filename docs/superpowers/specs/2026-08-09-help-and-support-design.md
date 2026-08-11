@@ -386,3 +386,34 @@ to `src/app/platform/index.tsx` for the tab, one to `shop-drawer.tsx` for **Mess
   replaced the original rule of reading scope off `addressed_user_id is null`. That column is
   `on delete set null`, so deleting an addressee silently promoted an owner-only thread into one
   every `settings.access` holder could read. Migration `20260825000600`.
+
+### Changed after device use
+
+Reported from a tablet and a phone in the shop, and drawn in
+`docs/design/support-messages-redesign-mockup.html` before any of it was built.
+
+- **The sheet decides which view to open on BEFORE it paints.** It used to open on the compose
+  form and switch to the list when `listMyThreads()` landed, which reads as one tap producing two
+  screens — reported as "it tries to go to the support modal then goes to your messages". The
+  view now comes from `supportUnreadSnapshot()`, the same count the ☰ badge and the banner are
+  already showing, and nothing moves it afterwards. Where that count is stale-zero, the compose
+  header's "Your messages · N unread →" line is the correction — a line of text rather than a
+  screen that moved.
+- **Closing changes nothing.** The reset ran in the close handler, so the sheet turned back into
+  the form as it faded. The body is a keyed child now: it remounts on each open, which IS the
+  reset, and it keeps rendering what you were looking at through the dismissal.
+- **"Your messages" is grouped and each row carries its own answer.** Waiting on you → Open →
+  Closed, the same whose-move-it-is question the operator's queue is organised around. A row
+  shows an unread dot, the subject, a one-line preview prefixed by who wrote it, a relative time,
+  a status chip, the category and area, and the reference last. **"New request" is an outline
+  button under the list**, not the solid black button above it: the old screen made filing a
+  second report about the same problem the obvious move, which is how one question became three
+  threads on the live queue.
+- **`support_threads.last_message_preview` and `last_author_kind`**, written by
+  `touch_support_thread()` and backfilled — migration `20260825000800`. Denormalised rather than a
+  second query so the list stays one round trip. No new visibility surface: `support_messages`'
+  select policy is the thread's own predicate, so anyone who can read the column could already
+  read the message it came from.
+- **Dismissing the banner is remembered against the count it dismissed.** As a boolean it was a
+  one-way latch — every later message raised the ☰ badge and left the banner hidden, silencing the
+  only surface that reaches somebody who was not already opening the menu.
