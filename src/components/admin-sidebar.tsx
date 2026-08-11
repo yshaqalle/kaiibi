@@ -68,7 +68,44 @@ function SidebarNavItem({ item, focused, locked }: { item: NavItem; focused: boo
   );
 }
 
-export function AdminSidebar({ children }: { children: ReactNode }) {
+/**
+ * The web and tablet shell, at both widths.
+ *
+ * `compact` used to be a separate return in admin-tabs.web.tsx, and that is
+ * precisely what made it a bug: two structurally different trees, each with its
+ * own `<Slot />`, so crossing `TABLET_BREAKPOINT` did not reflow the screen --
+ * it destroyed it and built another. React keeps a component alive by POSITION,
+ * and the routed screen had a different address on each side of the line, so
+ * every piece of its state went with the old tree. Dragging a window past 820px
+ * (or rotating an iPad in a browser) emptied the search box, took the scanned
+ * product's result bar with it, and reset the filter, the sort and the scroll.
+ *
+ * So there is one tree now, and `children` sits at one address in it: root >
+ * slot > children, on both sides. The rail, the bar and the bottom nav change
+ * around it -- chrome may be rebuilt freely -- but the screen itself is only
+ * ever updated. The root's `flexDirection` flips row to column; that is a style,
+ * not a new element.
+ *
+ * What this canNOT fix, and what `use-inventory-session.ts` is for: switching
+ * tabs genuinely changes which route `<Slot />` renders, so the old screen must
+ * unmount. No tree shape prevents that.
+ */
+export function AdminSidebar({
+  children,
+  compact = false,
+  bottomNav = null,
+}: {
+  children: ReactNode;
+  /** Narrow web. The rail collapses into a top header plus the caller's nav. */
+  compact?: boolean;
+  /**
+   * Rendered under the screen when `compact`. Passed in rather than built here
+   * because the bottom nav carries its own emoji icon set, sized and spaced for
+   * a thumb; the rail's is image assets. Merging the two lists would change how
+   * mobile web looks, which this restructure deliberately does not.
+   */
+  bottomNav?: ReactNode;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
@@ -86,45 +123,62 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
   const { editLogo, canEditLogo: canEditShop } = useShopLogo();
 
   return (
-    <View style={styles.tabs}>
-      <View style={styles.sidebar}>
-        <View style={styles.header}>
-          <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, shop?.logoUrl && styles.avatarWithLogo]}>
-            {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
-          </Pressable>
-          <View style={styles.headerText}>
-            <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
-            {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
+    <View style={compact ? styles.rootCompact : styles.tabs}>
+      {/* Child 0: the rail, or nothing in its place. Whichever it is, the slot
+          below stays child 1 -- which is the whole point of this shape. */}
+      {compact ? null : (
+        <View style={styles.sidebar}>
+          <View style={styles.header}>
+            <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatar, shop?.logoUrl && styles.avatarWithLogo]}>
+              {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
+            </Pressable>
+            <View style={styles.headerText}>
+              <Text style={styles.shopName} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
+              {subtitle && <Text style={styles.shopSubtitle}>{subtitle}</Text>}
+            </View>
+          </View>
+          <View style={styles.nav}>
+            {visibleNavItems.map((item) => {
+              const required = moduleForPath(item.href);
+              return (
+                <SidebarNavItem
+                  key={item.href}
+                  item={item}
+                  focused={pathname === item.href}
+                  locked={Boolean(required) && !hasModule(required!)}
+                />
+              );
+            })}
+          </View>
+          <View style={styles.footer}>
+            <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
           </View>
         </View>
-        <View style={styles.nav}>
-          {visibleNavItems.map((item) => {
-            const required = moduleForPath(item.href);
-            return (
-              <SidebarNavItem
-                key={item.href}
-                item={item}
-                focused={pathname === item.href}
-                locked={Boolean(required) && !hasModule(required!)}
-              />
-            );
-          })}
-        </View>
-        <View style={styles.footer}>
-          <Text style={styles.poweredBy}>Powered by Ka Iibi</Text>
-        </View>
-      </View>
+      )}
+      {/* Child 1, a `View` at both widths, holding `children` at a fixed index.
+          Nothing above may change this element's type or position. */}
       <View style={styles.slot}>
-        <View style={[styles.topBar, { paddingTop: insets.top + 10 }]}>
+        <View style={compact ? styles.mobileHeader : [styles.topBar, { paddingTop: insets.top + 10 }]}>
+          {/* Narrow has no rail to carry the shop's identity, so the bar does. */}
+          {compact ? (
+            <View style={styles.mobileHeaderLeft}>
+              <Pressable onPress={editLogo} disabled={!canEditShop} style={[styles.avatarSmall, shop?.logoUrl && styles.avatarWithLogo]}>
+                {shop?.logoUrl ? <Image source={{ uri: shop.logoUrl }} contentFit="cover" style={styles.avatarImage} /> : <Text style={styles.avatarText}>{initial}</Text>}
+              </Pressable>
+              <Text style={styles.shopNameCompact} numberOfLines={1}>{shop?.name ?? 'Your shop'}</Text>
+            </View>
+          ) : null}
           {/* Sits next to the ☰ rather than in the sidebar header, matching the
               mobile-web and native headers: the two controls that act on the
               whole session belong together, and buried under the shop name the
               switcher read as a label rather than something you operate.
               Renders nothing for a one-location shop, which is most of them. */}
-          <LocationSwitcher />
-          <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
-            <Text style={styles.menuIcon}>☰</Text>
-          </Pressable>
+          <View style={styles.barRight}>
+            <LocationSwitcher />
+            <Pressable onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuButton}>
+              <Text style={styles.menuIcon}>☰</Text>
+            </Pressable>
+          </View>
         </View>
         {/* Under the top bar, over whatever screen is mounted, and driving the
             same `supportOpen` the ☰ row does. The slot carries its own ground
@@ -137,9 +191,14 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
         </View>
         {children}
       </View>
+      {/* Child 2: the bottom nav, or nothing. Below the slot, so it cannot
+          shift `children`'s index either. */}
+      {compact ? bottomNav : null}
       <AppModal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
         <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
-          <View style={[styles.menuSheet, { top: insets.top + 50 }]}>
+          {/* Under the bar in both worlds: the compact header is a fixed 52
+              tall and takes no inset, where the top bar grows with it. */}
+          <View style={[styles.menuSheet, { top: compact ? 56 : insets.top + 50 }]}>
             {canEditShop && (
               <>
                 <Pressable
@@ -183,6 +242,9 @@ export function AdminSidebar({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   tabs: { flex: 1, flexDirection: 'row' },
+  // The same root, stacked instead of side by side. A style, deliberately, and
+  // not a different element -- see the note on the component.
+  rootCompact: { flex: 1, flexDirection: 'column' },
   sidebar: { width: 220, flexShrink: 0, backgroundColor: '#FFFFFF', borderRightWidth: 1, borderRightColor: '#ECECEC', paddingVertical: 20 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 24 },
   // Name + category only; the location switcher moved to the top bar (see the
@@ -221,9 +283,18 @@ const styles = StyleSheet.create({
   footer: { marginTop: 'auto', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#ECECEC', gap: 8 },
   poweredBy: { color: '#BBBBBB', fontSize: 10, fontWeight: '700' },
   slot: { flex: 1 },
-  // gap matches admin-tabs.web.tsx's mobileHeaderRight, so the switcher/☰ pair
-  // is spaced identically either side of the breakpoint.
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 14, paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  // The switcher/☰ pair now sits in `barRight` at both widths, which is where
+  // the gap between them lives -- it used to be duplicated in two files.
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  // The narrow bar: a fixed height rather than a safe-area inset, which is what
+  // mobile web has always used -- a browser chrome already sits above it.
+  mobileHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', height: 52, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#ECECEC', backgroundColor: '#FFFFFF' },
+  mobileHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 12 },
+  avatarSmall: { width: 26, height: 26, borderRadius: 7, backgroundColor: '#111111', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  shopNameCompact: { color: '#111111', fontSize: 14, fontWeight: '800', flexShrink: 1 },
+  // Carries the gap the top bar used to set on itself, so the switcher/☰ pair
+  // is spaced identically at both widths.
+  barRight: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   // Horizontal padding matches topBar's, so the banner lines up with the ☰
   // above it. Padding only, and the bar's own margins supply the rest, so this
   // is zero-height on the ordinary day when there is nothing unread.

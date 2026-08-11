@@ -324,16 +324,19 @@ export default function PosScreen() {
 
   // Enter in the search box. A wedge scanner types into whatever is focused, so
   // this covers the cashier who clicked the box first, on native as well as web.
-  const handleSearchSubmit = async () => {
-    const raw = search.trim();
+  // `submitted` rather than `search`: on the scan path the row has just
+  // replaced the field, and this runs in the same tick as that replacement.
+  const handleSearchSubmit = async (submitted: string) => {
+    const raw = submitted.trim();
     if (!raw || !scanner.resolveCodes) return;
     const outcome = posScanOutcome(products, cart, raw);
     // Someone searching for "toner" and pressing Enter is not a failed scan.
     // Staying silent here is what keeps the box feeling like a search box.
     if (outcome.kind === 'unknown' && !looksLikeBarcode(raw)) return;
     const handled = await handleScannedCode(raw);
-    // Clear only on a hit: a wedge's next scan would otherwise be appended to
-    // this one. On a miss the text stays so it can be read and corrected.
+    // Clear only on a hit: an unrecognised code stays so it can be read and
+    // corrected. It is safe to leave now that the next scan REPLACES the field
+    // rather than being appended to it (see `stepFieldBurst`).
     if (handled) setSearch('');
   };
 

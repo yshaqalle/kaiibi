@@ -16,6 +16,7 @@ module.exports = {
   // swapped for the in-memory mock the library ships for exactly this.
   moduleNameMapper: {
     '\\.(css)$': '<rootDir>/jest/style-stub.js',
+    '^@/assets/.+\\.(png|jpg|jpeg|gif|webp|svg)$': '<rootDir>/jest/asset-stub.js',
     '^@react-native-async-storage/async-storage$': '@react-native-async-storage/async-storage/jest/async-storage-mock',
   },
 };

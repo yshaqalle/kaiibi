@@ -1,0 +1,433 @@
+<title>Kaiibi — typing on a till with a scanner attached</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 2px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .rule{border:1px solid var(--ln);border-left-width:4px;border-left-color:var(--blue);
+    border-radius:12px;padding:16px 18px;background:var(--sf);margin:18px 0 0;max-width:70ch;}
+  .rule b{display:block;font-size:14px;margin-bottom:4px;}
+  .rule p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .rule.warn{border-left-color:#d72b3e;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:16px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--mut);font-weight:700;}
+  td b{font-weight:700;}
+  .no{color:var(--mut);}
+
+  .gallery{display:grid;gap:30px;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start;margin-top:22px;}
+  .shot{min-width:0;}
+  .frameHead{margin:0 0 9px;}
+  .frameHead b{font-size:14px;font-weight:800;display:block;}
+  .frameHead i{font-style:normal;font-size:12px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .shot > .note{margin-top:11px;font-size:12.5px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:20px;padding:16px;}
+
+  .flag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    padding:2px 8px;border-radius:999px;margin-bottom:9px;}
+  .flag.bad{background:#fdecee;color:var(--loss);}
+  .flag.good{background:#e6f4ec;color:var(--profit);}
+  .flag.os{background:#eef2ff;color:#2f4fd7;}
+
+  /* ---- DeviceNotice, matching ui/device-notice.tsx ---- */
+  .notice{background:var(--d-sf);border-radius:16px;padding:13px;display:flex;gap:10px;
+    align-items:flex-start;margin-bottom:12px;position:relative;}
+  .well{width:26px;height:26px;border-radius:8px;background:var(--d-soft);
+    display:flex;align-items:center;justify-content:center;flex:none;}
+  .well span{font-size:13px;color:var(--d-ink2);}
+  .noticeBody{flex:1;min-width:0;}
+  .noticeText{font-size:12px;line-height:18px;color:var(--d-ink2);margin:0;}
+  .noticeAction{display:inline-block;margin-top:7px;background:var(--d-ink);color:var(--d-sf);
+    border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:700;}
+  .dismiss{color:var(--d-mut2);font-size:12px;padding-left:6px;}
+
+  /* ---- form + field ---- */
+  .card{background:var(--d-sf);border-radius:18px;padding:16px;}
+  .cardTitle{font-size:14px;font-weight:800;color:var(--d-ink);margin:0 0 12px;
+    display:flex;justify-content:space-between;align-items:center;}
+  .btnRow{display:flex;gap:7px;}
+  .btn{background:var(--d-soft);border-radius:8px;padding:5px 11px;font-size:11.5px;font-weight:700;color:var(--d-ink);}
+  .btn.dark{background:var(--d-ink);color:var(--d-sf);}
+  .btn.off{background:#cccccc;color:#ffffff;}
+  .label{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--d-mut);margin:12px 0 5px;}
+  .label:first-child{margin-top:0;}
+  .input{background:var(--d-soft);border-radius:10px;height:38px;padding:0 12px;display:flex;align-items:center;
+    font-size:12.5px;color:var(--d-ink);}
+  .input.ph{color:var(--d-mut2);}
+  .input.focused{background:var(--d-sf);border:1.5px solid var(--c1);}
+  .caretOn{display:inline-block;width:2px;height:15px;background:var(--c1);margin-left:1px;vertical-align:-3px;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+  /* ---- keypad dock, matching search-keypad.tsx ---- */
+  .dock{background:var(--d-pg);border-top:1px solid var(--d-rule);margin:14px -16px -16px;
+    padding:10px 8px;border-radius:0 0 18px 18px;}
+  .krow{display:flex;gap:5px;justify-content:center;margin-bottom:5px;}
+  .key{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:7px;
+    height:34px;flex:1;max-width:52px;display:flex;align-items:center;justify-content:center;
+    font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .key.util{background:var(--d-soft);max-width:none;flex:1.4;font-size:11.5px;}
+  .key.wide{flex:3;}
+  .key.done{background:var(--d-ink);color:var(--d-sf);flex:1.4;}
+  .dockHead{display:flex;justify-content:space-between;align-items:center;padding:0 4px 8px;}
+  .dockHead b{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--d-mut);}
+  .dockHead i{font-style:normal;font-size:11px;color:var(--d-mut2);}
+  .numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;max-width:230px;margin:0 auto;}
+  .numpad .key{max-width:none;height:40px;font-size:15px;}
+
+  .live{display:flex;align-items:center;gap:6px;margin:8px 0 10px;padding-left:2px;}
+  .liveDot{width:7px;height:7px;border-radius:4px;background:var(--profit);}
+  .liveLabel{font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--profit);}
+
+  .osSheet{background:#1c1c1e;color:#fff;border-radius:14px;padding:14px 16px;font-size:12.5px;}
+  .osSheet b{display:block;font-size:13px;margin-bottom:8px;}
+  .osRow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;
+    border-top:1px solid rgba(255,255,255,.12);}
+  .osRow:first-of-type{border-top:0;}
+  .osRow span{color:rgba(255,255,255,.62);font-size:11.5px;display:block;}
+  .toggle{width:38px;height:22px;border-radius:999px;background:rgba(255,255,255,.22);position:relative;flex:none;}
+  .toggle.on{background:#30d158;}
+  .toggle::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;}
+  .toggle.on::after{left:18px;}
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">POS &amp; Inventory · hardware scanners</p>
+  <h1>A scanner is a keyboard, so the OS takes the keyboard away</h1>
+  <p class="lede">
+    Plug an HID barcode scanner into a till and the operating system stops offering the
+    on-screen keyboard — to it, a keyboard is already attached. Scanning works; typing stops.
+    Staff can't name a product, set a price, or count a drawer. This is the OS's decision, not
+    the app's, which is what makes it worth designing around rather than fixing in code.
+  </p>
+
+  <div class="rule">
+    <b>Verified, not assumed</b>
+    <p>
+      On an Android tablet <code>show_ime_with_hard_keyboard</code> is <code>0</code> by default. Flipping it
+      to <code>1</code> with the same scanner attached brings the keyboard straight back
+      (<code>mInputShown=true</code>). iOS has the same behaviour and no setting at all.
+    </p>
+  </div>
+
+  <section>
+    <h2>Today</h2>
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>Tap a field, nothing happens</b><i>any form, scanner attached</i></p>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Add product <span class="btnRow"><span class="btn off">Save</span><span class="btn">Done</span></span></p>
+            <p class="label">PRODUCT NAME *</p>
+            <div class="input focused">&nbsp;<span class="caretOn"></span></div>
+            <p class="label">PRICE</p>
+            <div class="input ph">0.00</div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag bad">the problem</span><br>
+          The field takes focus and shows a caret, so it looks ready. No keyboard ever arrives.
+          Nothing on screen explains why, and the one person who could fix it — the owner, in
+          the tablet's own settings — has no reason to suspect the scanner.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>What already works</b><i>the search box only</i></p>
+        <div class="frame">
+          <div class="card">
+            <div class="input focused">5901234123457<span class="caretOn"></span></div>
+            <div class="live"><span class="liveDot"></span><span class="liveLabel">Scanner ready</span></div>
+            <div class="dock">
+              <div class="krow"><span class="key">1</span><span class="key">2</span><span class="key">3</span><span class="key">4</span><span class="key">5</span><span class="key">6</span></div>
+              <div class="krow"><span class="key">Q</span><span class="key">W</span><span class="key">E</span><span class="key">R</span><span class="key">T</span><span class="key">Y</span></div>
+              <div class="krow"><span class="key util">Clear</span><span class="key wide">space</span><span class="key util">⌫</span><span class="key done">Done</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The app already ships its own keyboard for this one box, for exactly this reason. The
+          gap is that it stops there — every other field in the app still asks the OS.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Part 1 — Android: name the cause, and put the switch one tap away</h2>
+    <p class="note">
+      The app can detect the attached keyboard; it cannot flip the setting (that needs
+      <code>WRITE_SECURE_SETTINGS</code>, which Play-installed apps do not get). So it says what is
+      happening and hands over to the OS — the same shape as the camera-permission path, which
+      already deep-links into Settings rather than pretending it can grant itself permission.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>The notice</b><i>DeviceNotice, top of the browse pane</i></p>
+        <div class="frame">
+          <div class="notice">
+            <span class="well"><span>⌨</span></span>
+            <div class="noticeBody">
+              <p class="noticeText">Android switches the on-screen keyboard off while a scanner is
+                connected, so staff can't type on this till. Scanning is unaffected.</p>
+              <span class="noticeAction">Open keyboard settings</span>
+            </div>
+            <span class="dismiss">✕</span>
+          </div>
+          <div class="card">
+            <div class="input ph">Tap to type, or scan</div>
+            <div class="live"><span class="liveDot"></span><span class="liveLabel">Scanner ready</span></div>
+          </div>
+        </div>
+        <p class="note">
+          Sits in the slot <code>TillKeyboardNotice</code> already occupies, and the two are mutually
+          exclusive: that one fires when a keyboard is attached and scanning is <em>off</em>, this one
+          when it is attached and scanning is <em>on</em>. Never both.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Where it lands</b><i>android.settings.HARD_KEYBOARD_SETTINGS</i></p>
+        <div class="frame">
+          <div class="osSheet">
+            <b>Physical keyboard</b>
+            <div class="osRow">
+              <div>Show on-screen keyboard<span>While a physical keyboard is active</span></div>
+              <span class="toggle on"></span>
+            </div>
+            <div class="osRow">
+              <div>Keyboard shortcuts<span>Show shortcuts list</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag os">the OS keeps control</span><br>
+          One tap, one toggle, done per till and remembered across reboots. The app never writes
+          the setting and never pretends the state is its own.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>After</b><i>same till, same scanner</i></p>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Add product <span class="btnRow"><span class="btn dark">Save</span><span class="btn">Done</span></span></p>
+            <p class="label">PRODUCT NAME *</p>
+            <div class="input focused">Ceylon tea, 250g<span class="caretOn"></span></div>
+            <div class="dock">
+              <div class="dockHead"><b>System keyboard</b><i>Gboard</i></div>
+              <div class="krow"><span class="key">Q</span><span class="key">W</span><span class="key">E</span><span class="key">R</span><span class="key">T</span><span class="key">Y</span></div>
+              <div class="krow"><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="key">F</span><span class="key">G</span><span class="key">H</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag good">verified on the emulator</span><br>
+          Typing and scanning both work, at the same time, with no app-side keypad involved.
+        </p>
+      </div>
+    </div>
+
+    <div class="rule">
+      <b>The honest limit of this part</b>
+      <p>
+        It is Android-only, it is per-device, and it needs someone with the tablet in their hands.
+        It does nothing for an iPad. That is why Part 3 exists.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Part 2 — stop the app adding to it</h2>
+    <p class="note">
+      <code>WedgeSink</code> is an invisible, permanently-focused input; its own file states the rule
+      that callers must unmount it while a modal is open "rather than leaving the two to fight."
+      POS honours that for the camera scanner, the add-product modal and the receipt — and not for
+      the register sheets, which auto-focus a text field the moment they open.
+    </p>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Screen</th><th>Unmounts the sink for</th><th>Misses</th></tr>
+        <tr>
+          <td><b>POS</b></td>
+          <td>camera scanner, add product, receipt</td>
+          <td class="no"><b>Open register sheet</b>, <b>Close register sheet</b> — both count a drawer through
+            <code>drawer-count.tsx</code>, whose first field carries <code>autoFocus</code></td>
+        </tr>
+        <tr>
+          <td><b>Inventory</b></td>
+          <td>camera scanner, add, edit, CSV import, stock transfer</td>
+          <td>— (stock-by-store has no text fields)</td>
+        </tr>
+      </table>
+    </div>
+    <p class="note">
+      A few lines, and correct whatever happens with the rest: a field that asks for focus should
+      never be competing with one that takes it back every 700ms.
+    </p>
+  </section>
+
+  <section>
+    <h2>Part 3 — iPad: the app brings its own keyboard to the forms</h2>
+    <p class="note">
+      iOS offers no setting and no API. The only route is the one the search box already takes —
+      the app draws the keyboard itself. This is the real fix, and the largest piece: it turns a
+      single-purpose search keypad into something forms can use.
+    </p>
+
+    <div class="gallery">
+      <div class="shot">
+        <p class="frameHead"><b>Text field</b><i>letters, docked under the form</i></p>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Add product <span class="btnRow"><span class="btn off">Save</span><span class="btn">Done</span></span></p>
+            <p class="label">PRODUCT NAME *</p>
+            <div class="input focused">Ceylon tea<span class="caretOn"></span></div>
+            <p class="label">SKU</p>
+            <div class="input ph">SKU-001</div>
+            <div class="dock">
+              <div class="dockHead"><b>Product name</b><i>Next → SKU</i></div>
+              <div class="krow"><span class="key">Q</span><span class="key">W</span><span class="key">E</span><span class="key">R</span><span class="key">T</span><span class="key">Y</span><span class="key">U</span></div>
+              <div class="krow"><span class="key">A</span><span class="key">S</span><span class="key">D</span><span class="key">F</span><span class="key">G</span><span class="key">H</span><span class="key">J</span></div>
+              <div class="krow"><span class="key util">Clear</span><span class="key wide">space</span><span class="key util">⌫</span><span class="key done">Next</span></div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          The dock names the field it is driving. Without that, a keyboard with no caret of its own
+          is a keyboard you cannot tell is aimed at the right box — the same reason the search row
+          draws its own caret today.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Money field</b><i>the keypad follows the field's type</i></p>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Close register <span class="btnRow"><span class="btn dark">Save</span></span></p>
+            <p class="label">COUNTED IN DRAWER</p>
+            <div class="input focused">$124.50<span class="caretOn"></span></div>
+            <div class="dock">
+              <div class="dockHead"><b>Counted in drawer</b><i>decimal</i></div>
+              <div class="numpad">
+                <span class="key">1</span><span class="key">2</span><span class="key">3</span>
+                <span class="key">4</span><span class="key">5</span><span class="key">6</span>
+                <span class="key">7</span><span class="key">8</span><span class="key">9</span>
+                <span class="key">.</span><span class="key">0</span><span class="key util">⌫</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          A money field gets digits and a point, nothing else — the same discipline the search
+          keypad already keeps ("not a general keyboard, and must not grow into one"). Letters on a
+          till float entry are a mis-key waiting to happen.
+        </p>
+      </div>
+
+      <div class="shot">
+        <p class="frameHead"><b>Scanning still lands mid-typing</b><i>the promise that must survive</i></p>
+        <div class="frame">
+          <div class="card">
+            <p class="cardTitle">Add product</p>
+            <p class="label">PRODUCT NAME *</p>
+            <div class="input focused">Ceylon te<span class="caretOn"></span></div>
+            <p class="label">BARCODE</p>
+            <div class="input">5901234123457</div>
+            <div class="live"><span class="liveDot"></span><span class="liveLabel">Scanner ready</span></div>
+          </div>
+        </div>
+        <p class="note">
+          <span class="flag good">the whole point</span><br>
+          Because the app's keypad never asks the OS for focus, the wedge keeps it: a barcode
+          scanned halfway through typing a name still fills the barcode field. A system keyboard
+          cannot do this — taking focus is exactly what breaks scanning.
+        </p>
+      </div>
+    </div>
+
+    <h3>Open questions this raises</h3>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Question</th><th>Proposed answer</th></tr>
+        <tr>
+          <td><b>Which fields get it?</b></td>
+          <td>Only where a till actually types: the product form, the register sheets, the customer
+            quick-add. Not Settings, not Accounting — those are done on a phone or a laptop, where
+            no scanner is attached and the system keyboard works.</td>
+        </tr>
+        <tr>
+          <td><b>Where does the dock live?</b></td>
+          <td>Bottom of the modal it belongs to, not the screen root — the search keypad docks at
+            the screen root because the search row cannot reach it from inside the scroll flow; a
+            form owns its own bottom edge.</td>
+        </tr>
+        <tr>
+          <td><b>Capital letters?</b></td>
+          <td>Product names need them. That means a Shift the search keypad deliberately does not
+            have — the first place this stops being the same component and becomes a bigger one.</td>
+        </tr>
+        <tr>
+          <td><b>When is it used?</b></td>
+          <td>The same gate as today: only when a keyboard is <em>confirmed</em> attached
+            (<code>onScreenKeypad</code>). A wrong <code>true</code> takes typing away from someone who had it.</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What to build, in order</h2>
+    <div class="tableWrap">
+      <table>
+        <tr><th>#</th><th>Change</th><th>Size</th><th>Who it helps</th></tr>
+        <tr><td><b>1</b></td><td>Notice + deep link to the Android setting</td><td>Small</td><td>Every Android till, today</td></tr>
+        <tr><td><b>2</b></td><td>Unmount the sink over the register sheets</td><td>A few lines</td><td>Both platforms; correctness</td></tr>
+        <tr><td><b>3</b></td><td>Keypad for form fields</td><td>Large</td><td>iPads, and Android tills whose owner never finds the toggle</td></tr>
+      </table>
+    </div>
+    <p class="note">
+      1 and 2 are worth doing whatever is decided about 3. 3 is only worth starting once someone
+      says which tills are iPads — if none are, the Android toggle is the whole answer and a second
+      keyboard is a large thing to maintain for nobody.
+    </p>
+  </section>
+</div>

@@ -147,6 +147,76 @@ function normalizedOrNull(raw: string): string | null {
   return out.length > 0 ? out : null;
 }
 
+// ---------------------------------------------------------------------------
+// The third case: a scanner typing into the SEARCH FIELD itself.
+//
+// Both machines above yield to a field the user has focused -- the global
+// listener ignores keydown once an INPUT has it, and `WedgeSink` gives the
+// caret back to any field that is tapped. That yield is right: the field owns
+// the keyboard. But it leaves the field to receive the scan as ordinary typing,
+// and typing APPENDS. So a second scan into a box still showing the first reads
+// as 88094472559728809447255972 -- one code that matches nothing, growing by
+// thirteen digits per scan, and the box cannot be scanned clean again because
+// every attempt makes it longer.
+//
+// Emptying the box after each scan is not the answer: on Inventory the code IS
+// the filter showing the result, which is why it is deliberately kept there.
+// The question is not when to clear but which part of the field the SCANNER
+// typed -- and that is the same discriminator as everywhere else above: speed.
+//
+// Unlike `stepWedge` this reads whole-field values rather than keystrokes,
+// because that is all a `TextInput` reports and all it reports on both
+// platforms. The previous value is passed in rather than remembered, so a value
+// the SCREEN sets (a camera scan, a wedge scan that landed while nothing was
+// focused) cannot leave this machine describing a field that has since changed
+// underneath it.
+
+export type FieldBurstState = {
+  /** The characters appended so far without a human-sized pause. */
+  burst: string;
+  lastChangeAt: number;
+};
+
+export function initialFieldBurstState(): FieldBurstState {
+  return { burst: '', lastChangeAt: 0 };
+}
+
+/** `onChangeText`, with the value the field held immediately before it. */
+export function stepFieldBurst(
+  state: FieldBurstState,
+  before: string,
+  next: string,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): FieldBurstState {
+  // Anything that is not a pure extension -- a backspace, a selection typed
+  // over, a value the screen set itself -- is not a scan in progress, and
+  // leaving a burst standing through it would let a later Enter replace the
+  // field with a fragment of something the user was editing by hand.
+  const appended = next.startsWith(before) ? next.slice(before.length) : '';
+  if (!appended) return { burst: '', lastChangeAt: at };
+
+  const continuing = state.burst.length > 0 && at - state.lastChangeAt <= config.maxInterKeyMs;
+  return { burst: continuing ? state.burst + appended : appended, lastChangeAt: at };
+}
+
+/**
+ * `onSubmitEditing`: the code the scanner just typed, or null if what is in the
+ * field was put there by a person. Null means leave the field exactly as it is.
+ */
+export function fieldBurstScan(
+  state: FieldBurstState,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): string | null {
+  // Same rule as `stepWedge`: the terminator has to belong to the burst it
+  // ends, or four quick characters and an Enter a second later would read as a
+  // scan.
+  const inBurst = at - state.lastChangeAt <= config.maxInterKeyMs;
+  if (!inBurst || state.burst.length < config.minLength) return null;
+  return state.burst;
+}
+
 // `key` is a DOM KeyboardEvent.key value: a single character for printable
 // keys, or a name like 'Enter', 'Shift', 'ArrowLeft' for everything else.
 export function stepWedge(
