@@ -31,8 +31,8 @@ Today a store with a problem has no route to us inside the app. Two cases make t
 ## Scope
 
 **In:** the store's sheet (compose, list, thread, reply), the operator's Support tab (queue,
-reply panel, outbound composer), attachments both ways, an unread count on the ☰ and on the
-console tab.
+reply panel, outbound composer), attachments both ways, and an unread count on the ☰. The
+console tab has no badge — see §8 for why that was decided against rather than built.
 
 **Out, deliberately:** broadcasts to a plan tier, help articles, assignment between operators
 (there is one), CSAT, canned replies, live chat, push notifications, any automated sending of
