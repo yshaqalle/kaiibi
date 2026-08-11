@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { KaiibiMark } from '@/components/landing/landing-ui';
 import { LanguageSwitch } from '@/components/landing/language-switch';
@@ -37,6 +37,21 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+
+  // The form is the last thing on the page, so when the keyboard opens —
+  // landscape tablets lose half their height to it — scrolling to the end is
+  // exactly "bring the inputs above the keyboard". Without this the ScrollView
+  // stays at the top showing only the hero, and typing is invisible.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', () => {
+      // KeyboardAvoidingView reacts to this same event; wait a beat so the
+      // ScrollView has its post-keyboard size before we scroll, otherwise the
+      // content still fits and scrollToEnd is a no-op.
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 150);
+    });
+    return () => sub.remove();
+  }, []);
 
   const submit = async () => {
     setSubmitting(true);
@@ -53,7 +68,18 @@ export default function LoginScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {/* Landscape tablets: the keyboard covers half the screen and this layout
+          is taller than the other half, so without keyboard avoidance the
+          focused input hides behind it with no way to scroll it into view. */}
+      {/* "padding" on Android too: with SDK 57 edge-to-edge the window never
+          resizes for the IME, so an unset behavior leaves inputs covered. */}
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.hero}>
           {/* A soft brand wash rather than the old photo watermark, so the
               headline keeps its contrast at any size. */}
@@ -140,13 +166,15 @@ export default function LoginScreen() {
             <Text style={styles.submitText}>{submitting ? t('login.submitting') : t('login.submit')}</Text>
           </Pressable>
         </View>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: Marketing.white },
+  flex: { flex: 1 },
   content: { flexGrow: 1, width: '100%', maxWidth: 480, alignSelf: 'center', padding: 22, justifyContent: 'center' },
 
   hero: {

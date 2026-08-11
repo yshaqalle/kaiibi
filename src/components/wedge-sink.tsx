@@ -2,7 +2,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, TextInput } from 'react-native';
 
-import { normalizeBarcode } from '@/lib/barcode';
+import { flushSink, initialSinkState, stepSink } from '@/lib/barcode-wedge';
 
 // How long after losing focus the sink waits before deciding nobody else wanted
 // it. A tap on a real field delivers the sink's blur and that field's focus as
@@ -61,7 +61,11 @@ const RECLAIM_MS = 700;
 // HID / keyboard mode.
 export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
   const inputRef = useRef<TextInput>(null);
-  const bufferRef = useRef('');
+  // How much of the field has already been read out as a scan. See `stepSink`
+  // in lib/barcode-wedge.ts for why the field's own emptiness cannot be relied
+  // on to answer that.
+  const sinkRef = useRef(initialSinkState());
+  const textRef = useRef('');
   const onScanRef = useRef(onScan);
   useEffect(() => { onScanRef.current = onScan; }, [onScan]);
 
@@ -132,13 +136,14 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
   if (Platform.OS === 'web') return null;
 
   const flush = () => {
-    const code = normalizeBarcode(bufferRef.current);
-    bufferRef.current = '';
-    // The native field still holds the scan's text -- nothing else empties it,
-    // so without this the next scan's events would arrive prefixed with this
-    // one and every code after the first would resolve to nothing.
+    const step = flushSink(sinkRef.current, textRef.current);
+    sinkRef.current = step.state;
+    // Still worth asking for: when it does land, the field stops growing for
+    // the life of the screen. When it doesn't -- which is the New
+    // Architecture's answer, and the bug this used to be the only defence
+    // against -- `stepSink` covers for it.
     inputRef.current?.clear();
-    if (code) onScanRef.current(code);
+    if (step.emit) onScanRef.current(step.emit);
   };
 
   return (
@@ -149,14 +154,19 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
       // so each event's payload is the WHOLE accumulated text, and appending
       // payloads to a buffer turns one scanned code into every prefix of
       // itself glued together. The field is invisible, so the text piling up
-      // in it costs nothing; `flush` clears it between scans.
+      // in it costs nothing: `stepSink` reads only the part past the last scan.
       onChangeText={(text) => {
-        // Full text, not a delta: that is `onChangeText`'s contract. Replace,
-        // never append.
-        bufferRef.current = text;
+        // Full text, not a delta: that is `onChangeText`'s contract.
+        textRef.current = text;
         // Some scanners deliver the whole code in one event including its
-        // terminator, and never fire onSubmitEditing at all.
-        if (/[\r\n\t]$/.test(text)) flush();
+        // terminator, and never fire onSubmitEditing at all -- which is why
+        // the terminator is recognised here as well as in `flush`.
+        const step = stepSink(sinkRef.current, text, Date.now());
+        sinkRef.current = step.state;
+        if (step.emit) {
+          inputRef.current?.clear();
+          onScanRef.current(step.emit);
+        }
       }}
       onSubmitEditing={flush}
       // Without this the field blurs on submit and the next scan goes nowhere.

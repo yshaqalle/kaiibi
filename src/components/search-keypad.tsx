@@ -35,7 +35,7 @@ export function SearchKeypad({
   value: string;
   onChange: (next: string) => void;
   /** Runs the same code path Enter does on a keyboard: resolve it as a scan. */
-  onSubmit: () => void;
+  onSubmit: (value: string) => void;
   onClose: () => void;
 }) {
   const apply = (key: KeypadKey) => onChange(applyKey(value, key));
@@ -80,7 +80,7 @@ export function SearchKeypad({
             <Text style={styles.utilLabel}>⌫</Text>
           </Pressable>
           <Pressable
-            onPress={() => { onSubmit(); onClose(); }}
+            onPress={() => { onSubmit(value); onClose(); }}
             style={[styles.key, styles.doneKey]}
             accessibilityRole="button"
           >

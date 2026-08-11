@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Keyboard, KeyboardAvoidingView, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
 import { useLocale } from '@/hooks/use-locale';
@@ -23,6 +23,31 @@ export default function SignUpScreen() {
   const [area, setArea] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffset = useRef(0);
+
+  // Landscape tablets lose half their height to the keyboard, and with SDK 57
+  // edge-to-edge the window never resizes on its own — without this the field
+  // being typed into can sit behind the keyboard. Unlike login, this form is
+  // taller than the space the keyboard leaves, so scroll only far enough to
+  // reveal the focused field rather than jumping to the end of the page.
+  useEffect(() => {
+    const sub = Keyboard.addListener('keyboardDidShow', (event) => {
+      // Wait a beat so KeyboardAvoidingView has resized the ScrollView first.
+      setTimeout(() => {
+        const input = TextInput.State.currentlyFocusedInput();
+        if (!input) return;
+        input.measureInWindow((_x, y, _width, height) => {
+          const keyboardTop = event.endCoordinates.screenY;
+          const overlap = y + height - keyboardTop + 24;
+          if (overlap > 0) {
+            scrollRef.current?.scrollTo({ y: scrollOffset.current + overlap, animated: true });
+          }
+        });
+      }, 150);
+    });
+    return () => sub.remove();
+  }, []);
 
   const valid =
     step === 1
@@ -52,7 +77,19 @@ export default function SignUpScreen() {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      {/* "padding" on Android too: with SDK 57 edge-to-edge the window never
+          resizes for the IME, so an unset behavior leaves inputs covered. */}
+      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          onScroll={(e) => {
+            scrollOffset.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+        >
         <Text style={styles.eyebrow}>{t('signup.eyebrow').toUpperCase()}</Text>
         <Text style={styles.title}>{t('signup.title')}</Text>
         <Text style={styles.subtitle}>{t('signup.lede')}</Text>
@@ -143,7 +180,8 @@ export default function SignUpScreen() {
           </Text>
           .
         </Text>
-      </ScrollView>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -187,6 +225,7 @@ function Field({
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#FFFFFF' },
+  flex: { flex: 1 },
   content: { width: '100%', maxWidth: 640, alignSelf: 'center', padding: 22, paddingTop: 38, paddingBottom: 60 },
   eyebrow: { color: '#999999', letterSpacing: 1.3, fontSize: 10, fontWeight: '800' },
   title: { color: '#111111', fontSize: 35, lineHeight: 40, letterSpacing: -1.7, fontWeight: '800', marginTop: 8 },

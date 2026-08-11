@@ -21,6 +21,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-refunds.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-owner-membership.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-support.sql
 ```
 
 Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
@@ -200,6 +202,60 @@ one-person shop. Migration 20260823000000 gives them an ordinary row.
 6. Deleting a shop still cascades through that guard rather than tripping it.
 7. **The owner can be given a shift** — the question the whole migration exists
    to answer.
+
+## What `verify-support.sql` covers
+
+Support threads are the one place a member writes to us rather than to their
+shop, so the read policy is per-author instead of per-shop. The cashier in this
+script is a real `shop_members` row on the seeded Cashier role — a stranger
+would pass 6 and 8 for the wrong reason. There is a second, non-owner member
+for the same kind of reason: `user_has_shop_permission()` answers true for an
+owner before it reads a role, so a permission branch asserted only through the
+owner is never actually consulted.
+
+1. `KB-####` references are unique and increasing.
+2. A thread defaults to open with a reference.
+3. Posting a message advances `last_message_at` and marks the thread read for
+   the end that wrote it and **only** that end — the asymmetry the unread count
+   is built on.
+4. **A cashier's message to us is invisible to the shop owner.** The question
+   the whole policy exists to answer: a staff member reporting their manager
+   must not be reporting them to their manager.
+5. The author still reads their own.
+6. A thread *we* address to the store reaches `settings.access` holders and not
+   the cashier — billing belongs to whoever runs the shop. Asserted through a
+   Manager who is refused, granted `settings.access`, and then admitted with
+   nothing else about them changing, so it is the permission deciding.
+7. A member of another shop reads nothing.
+8. A member cannot insert a thread claiming `opened_by = 'platform'`, which
+   would otherwise let them borrow the wider read policy that grant carries —
+   with a control opening an ordinary thread and replying to it, both with
+   `RETURNING`. That control is not decoration: `insert … returning` runs the
+   select policy against a row no snapshot can see yet, so a visibility rule
+   written as a lookup by id refuses every create the client makes.
+9. A member cannot write the columns only we set. A with-check policy
+   constrains the columns it names and nothing else, so `reference`, `status`,
+   the read stamps and `created_at` are held back by **column-level** insert
+   grants instead. Plus the trigger's own half: a message inserted with a
+   three-year-old `created_at` still sorts as arriving now, rather than sinking
+   its thread to the bottom of the operator's queue.
+10. **An uploaded file is exactly as private as the thread it is on.** Check 4
+    for storage: the cashier uploads to `<shop_id>/<thread_id>/`, and the owner
+    can neither list it, read it, nor delete it — with the store-addressed
+    thread as the control proving the owner is not simply locked out of the
+    bucket. The cashier also cannot *write* into that thread's folder: shop-wide
+    upload against thread-scoped read would let them hand the owner a file from
+    someone with no access to the conversation. And two malformed objects are
+    seeded first — a `product-images` staff photo (`<shop_id>/staff/<file>`) and
+    one written as `postgres` inside `support-attachments` itself — because
+    `storage.objects` is one table for every bucket and a policy that casts a
+    path segment to uuid takes every listing in the project down with it the
+    first time it meets a segment that isn't one. Both are asserted by path
+    rather than by a row count, which any bucket's public policy would satisfy.
+11. An attachment row cannot name a file outside its own thread's folder, on
+    update as well as insert. Storage RLS stops the member downloading it, but
+    an operator renders the thread through `service_role`, which bypasses
+    storage RLS entirely.
 
 ## Concurrency
 

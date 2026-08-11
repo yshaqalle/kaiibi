@@ -46,6 +46,177 @@ export function initialWedgeState(): WedgeState {
   return { buffer: '', lastKeyAt: 0 };
 }
 
+// ---------------------------------------------------------------------------
+// The native half: a scanner typing into `WedgeSink`'s invisible TextInput.
+//
+// Native gets no keystrokes -- `onChangeText` reports the WHOLE contents of the
+// field each time, and `onSubmitEditing` reports the terminator. So there is no
+// timing to measure and none of the machine above applies; the only question is
+// which part of the field has not been read out yet.
+//
+// That question exists because emptying the field is not something the
+// component can rely on. `TextInput.clear()` goes through `setNativeProps`,
+// which the New Architecture does not reliably apply (`newArchEnabled=true` in
+// android/gradle.properties), so the scanned code frequently STAYS in the
+// field. Treating each `onChangeText` payload as one code then glues every scan
+// onto the last: 8809447255972, then 88094472559723846447255972, and on it
+// grows -- a "code" that matches nothing and cannot be typed away, which is
+// exactly what a till sees after a few scans.
+//
+// So the field is treated as append-only and its emptying as a bonus: remember
+// how much has been consumed, and emit only what is past that mark.
+
+export type SinkState = {
+  /** The prefix of the field already emitted as a scan. */
+  consumed: string;
+  /** The field's contents as of the last change, for the abandoned-burst rule. */
+  seen: string;
+  /** When the field last changed, for the same rule. */
+  lastChangeAt: number;
+};
+
+export type SinkStep = { state: SinkState; emit: string | null };
+
+// A code delivered without a terminator never completes, and would otherwise
+// sit at the head of the field prefixing whatever is scanned next. Long enough
+// that it cannot cut into a scan still being delivered in chunks -- those
+// arrive in consecutive frames -- and short enough that the next scan is clean.
+const ABANDONED_BURST_MS = 1_000;
+
+// Every terminator a scanner can be configured to send, matched at the END of
+// the fresh text: CR, LF and Tab. `normalizeBarcode` strips them (and every
+// other control character) out of the emitted code.
+const TERMINATED = /[\r\n\t]$/;
+
+export function initialSinkState(): SinkState {
+  return { consumed: '', seen: '', lastChangeAt: 0 };
+}
+
+// The part of `text` that has not been emitted yet.
+//
+// `clear()` working is just the case where the field no longer starts with what
+// was consumed -- then the whole of it is new. This is why the fix does not
+// care whether the clear landed, which is the one thing the component cannot
+// find out.
+function freshText(state: SinkState, text: string): string {
+  return text.startsWith(state.consumed) ? text.slice(state.consumed.length) : text;
+}
+
+/** `onChangeText`: the whole field, whenever any of it changes. */
+export function stepSink(state: SinkState, text: string, at: number): SinkStep {
+  let fresh = freshText(state, text);
+
+  // A burst that stopped without a terminator is a misread, or a scanner
+  // unplugged mid-code. Everything the field already held when it went quiet is
+  // written off, leaving only what has arrived since. Decided here, at the
+  // start of the next burst, rather than on a timer: the next scan is the first
+  // evidence that the last one is over, and a timer would have to fire while
+  // the screen is idle to say the same thing.
+  if (fresh && state.seen.length > 0 && at - state.lastChangeAt > ABANDONED_BURST_MS) {
+    state = { ...state, consumed: state.seen };
+    fresh = freshText(state, text);
+  }
+
+  if (!TERMINATED.test(fresh)) {
+    return { state: { consumed: state.consumed, seen: text, lastChangeAt: at }, emit: null };
+  }
+
+  return {
+    state: { consumed: text, seen: text, lastChangeAt: at },
+    emit: normalizedOrNull(fresh),
+  };
+}
+
+/** `onSubmitEditing`: the scanner's terminator, reported as a submit. */
+export function flushSink(state: SinkState, text: string): SinkStep {
+  return {
+    state: { consumed: text, seen: text, lastChangeAt: state.lastChangeAt },
+    emit: normalizedOrNull(freshText(state, text)),
+  };
+}
+
+function normalizedOrNull(raw: string): string | null {
+  let out = '';
+  for (const char of raw) {
+    const code = char.codePointAt(0)!;
+    // Same rule as `normalizeBarcode` in lib/barcode.ts -- control characters
+    // and spaces are never part of a code -- kept here so this module stays
+    // free of imports and testable on its own.
+    if (code > 32 && code !== 127) out += char;
+  }
+  return out.length > 0 ? out : null;
+}
+
+// ---------------------------------------------------------------------------
+// The third case: a scanner typing into the SEARCH FIELD itself.
+//
+// Both machines above yield to a field the user has focused -- the global
+// listener ignores keydown once an INPUT has it, and `WedgeSink` gives the
+// caret back to any field that is tapped. That yield is right: the field owns
+// the keyboard. But it leaves the field to receive the scan as ordinary typing,
+// and typing APPENDS. So a second scan into a box still showing the first reads
+// as 88094472559728809447255972 -- one code that matches nothing, growing by
+// thirteen digits per scan, and the box cannot be scanned clean again because
+// every attempt makes it longer.
+//
+// Emptying the box after each scan is not the answer: on Inventory the code IS
+// the filter showing the result, which is why it is deliberately kept there.
+// The question is not when to clear but which part of the field the SCANNER
+// typed -- and that is the same discriminator as everywhere else above: speed.
+//
+// Unlike `stepWedge` this reads whole-field values rather than keystrokes,
+// because that is all a `TextInput` reports and all it reports on both
+// platforms. The previous value is passed in rather than remembered, so a value
+// the SCREEN sets (a camera scan, a wedge scan that landed while nothing was
+// focused) cannot leave this machine describing a field that has since changed
+// underneath it.
+
+export type FieldBurstState = {
+  /** The characters appended so far without a human-sized pause. */
+  burst: string;
+  lastChangeAt: number;
+};
+
+export function initialFieldBurstState(): FieldBurstState {
+  return { burst: '', lastChangeAt: 0 };
+}
+
+/** `onChangeText`, with the value the field held immediately before it. */
+export function stepFieldBurst(
+  state: FieldBurstState,
+  before: string,
+  next: string,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): FieldBurstState {
+  // Anything that is not a pure extension -- a backspace, a selection typed
+  // over, a value the screen set itself -- is not a scan in progress, and
+  // leaving a burst standing through it would let a later Enter replace the
+  // field with a fragment of something the user was editing by hand.
+  const appended = next.startsWith(before) ? next.slice(before.length) : '';
+  if (!appended) return { burst: '', lastChangeAt: at };
+
+  const continuing = state.burst.length > 0 && at - state.lastChangeAt <= config.maxInterKeyMs;
+  return { burst: continuing ? state.burst + appended : appended, lastChangeAt: at };
+}
+
+/**
+ * `onSubmitEditing`: the code the scanner just typed, or null if what is in the
+ * field was put there by a person. Null means leave the field exactly as it is.
+ */
+export function fieldBurstScan(
+  state: FieldBurstState,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): string | null {
+  // Same rule as `stepWedge`: the terminator has to belong to the burst it
+  // ends, or four quick characters and an Enter a second later would read as a
+  // scan.
+  const inBurst = at - state.lastChangeAt <= config.maxInterKeyMs;
+  if (!inBurst || state.burst.length < config.minLength) return null;
+  return state.burst;
+}
+
 // `key` is a DOM KeyboardEvent.key value: a single character for printable
 // keys, or a name like 'Enter', 'Shift', 'ArrowLeft' for everything else.
 export function stepWedge(

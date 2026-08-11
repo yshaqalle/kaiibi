@@ -12,6 +12,7 @@ import { StatTile } from '@/components/stat-tile';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
+import { useInventorySessionField } from '@/hooks/use-inventory-session';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
@@ -81,7 +82,10 @@ export default function InventoryScreen() {
   const productLimit = limitFor('products');
   const atProductLimit = productLimit != null && usageOf('products') >= productLimit;
   const [products, setProducts] = useState<Product[]>([]);
-  const [search, setSearch] = useState('');
+  // Held in the session store rather than in this component: `<Slot />` unmounts
+  // the whole screen on a tab switch AND on crossing the web width breakpoint,
+  // and a scan's answer must not evaporate either time. See use-inventory-session.
+  const [search, setSearch] = useInventorySessionField('search');
   // Tracks the FIRST fetch, not every fetch. `reload()` runs again after each
   // stock adjustment, and swapping the rendered rows for a placeholder on those
   // collapsed the scroll content to a few pixels -- the platform then clamps the
@@ -167,12 +171,12 @@ export default function InventoryScreen() {
   // The product the last scan landed on, pinned above the list so a `+1` acts
   // on something named rather than on whichever row the filter happens to leave
   // at the top.
-  const [pinnedProduct, setPinnedProduct] = useState<Product | null>(null);
+  const [pinnedProduct, setPinnedProduct] = useInventorySessionField('pinnedProduct');
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   // A code that resolved to nothing and that this user is allowed to turn into
   // a product. Null both when there's no such code and when they can't.
-  const [unknownCode, setUnknownCode] = useState<string | null>(null);
+  const [unknownCode, setUnknownCode] = useInventorySessionField('unknownCode');
   const scanner = useScannerSettings();
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
   const scrollRef = useRef<ScrollView>(null);
@@ -184,6 +188,12 @@ export default function InventoryScreen() {
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
   const handleScannedCode = async (raw: string) => {
+    // The last scan's offer to create a product is about the last scan. Left
+    // standing it invites someone to add a product under a barcode they are no
+    // longer holding -- and it is the ONE control on the screen that survives
+    // its own result banner, so it reads as current long after it isn't.
+    setUnknownCode(null);
+
     const resolution = resolveBarcode(products, raw);
     if (resolution.status === 'match') {
       // Filtering the list to the code as well as pinning the result keeps the
@@ -231,14 +241,17 @@ export default function InventoryScreen() {
     return false;
   };
 
-  const handleSearchSubmit = async () => {
-    const raw = search.trim();
+  // `submitted` rather than `search`: on the scan path the row has just
+  // replaced the field, and this runs in the same tick as that replacement.
+  const handleSearchSubmit = async (submitted: string) => {
+    const raw = submitted.trim();
     if (!raw || !scanner.resolveCodes) return;
     // Typing a product name and pressing Enter is a search, not a failed scan.
     if (resolveBarcode(products, raw).status === 'not-found' && !looksLikeBarcode(raw)) return;
     const handled = await handleScannedCode(raw);
     // Unlike POS the text is kept on a hit: it IS the filter showing the result.
-    // A wedge's next scan replaces it wholesale, so nothing concatenates.
+    // The next scan replaces it wholesale rather than extending it -- see
+    // `stepFieldBurst`, which is what makes keeping it safe.
     if (!handled) setPinnedProduct(null);
   };
 
@@ -574,10 +587,26 @@ export default function InventoryScreen() {
           />
         </View>
         <ScanFeedbackBanner feedback={scanFeedback} />
+        {/* The offer outlives its own result banner by design -- it is the one
+            thing on the screen you may still want a minute after the scan. That
+            is exactly why it needs a way out: clearing the search box does not
+            take it with it, so without this a mis-scanned code sits here
+            offering to become a product until the screen is left entirely. */}
         {unknownCode && (
-          <Pressable onPress={() => setShowAddModal(true)} style={styles.addFromScan}>
-            <Text style={styles.addFromScanText}>+ Add a product with barcode {unknownCode}</Text>
-          </Pressable>
+          <View style={styles.addFromScan}>
+            <Pressable onPress={() => setShowAddModal(true)} style={styles.addFromScanBody} accessibilityRole="button">
+              <Text style={styles.addFromScanText}>+ Add a product with barcode {unknownCode}</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => setUnknownCode(null)}
+              style={styles.addFromScanDismiss}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss add product"
+              hitSlop={8}
+            >
+              <Text style={styles.addFromScanDismissText}>✕</Text>
+            </Pressable>
+          </View>
         )}
         {scannedProduct && (
           <ScanResultBar
@@ -722,7 +751,18 @@ export default function InventoryScreen() {
       {shop && canEdit && (
         <ProductModal
           visible={showAddModal}
-          onClose={() => { setShowAddModal(false); setUnknownCode(null); }}
+          // Done ends the whole episode, not just the form. Whatever the last
+          // scan left behind -- the code in the search box, the result banner,
+          // the pinned row, the offer to create -- was context for a decision
+          // that has now been made, and leaving any of it up means the next
+          // scan lands on a screen still showing the last one.
+          onClose={() => {
+            setShowAddModal(false);
+            setUnknownCode(null);
+            setSearch('');
+            setPinnedProduct(null);
+            setScanFeedback(null);
+          }}
           shopId={shop.id}
           defaultLocationId={stockLocationId}
           // Prefilled when this was opened from a scan that matched nothing, so
@@ -813,8 +853,15 @@ const styles = StyleSheet.create({
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   limitNote: { color: '#9A6412', fontSize: 12, lineHeight: 18, marginBottom: 12 },
   stockError: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginBottom: 12 },
-  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
+  // A row rather than a single button now: the offer and the way out of it are
+  // two separate targets inside one pill, so pressing × cannot be read as
+  // pressing Add.
+  addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, marginBottom: 14, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', paddingRight: 5 },
+  addFromScanBody: { paddingLeft: 15, paddingRight: 6, paddingVertical: 11 },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
+  addFromScanDismiss: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  // Quiet against the pill's own white text: this is the undo, not the offer.
+  addFromScanDismissText: { color: theme.bentoSurface, opacity: 0.6, fontSize: 12, fontWeight: '800', includeFontPadding: false, textAlignVertical: 'center' },
   // Zero padding and clipped, so rows run to the card's edges and the first and
   // last take the 26px corner.
   list: { overflow: 'hidden' },

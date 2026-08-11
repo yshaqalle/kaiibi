@@ -6,6 +6,7 @@ import { BentoTile, BentoTileRow } from '@/components/ui/bento-tile';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/data-table';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
+import { coverEnd, fmtDate } from '@/components/platform/labels';
 import { Field } from '@/components/platform/kit';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
@@ -309,15 +310,6 @@ function ShopCard({ shop, first, onPress }: { shop: PlatformShopRow; first: bool
   );
 }
 
-// What their cover runs to, and what kind of date that is. A trialing shop's
-// clock is trial_ends_at; a paying one's is the period they bought. Saying
-// which avoids reading "2 Nov" as a renewal when it is actually the day they
-// lose access.
-function coverEnd(shop: PlatformShopRow): { ends: string | null; label: string } {
-  if (shop.status === 'trialing') return { ends: shop.trialEndsAt, label: 'trial ends' };
-  return { ends: shop.currentPeriodEnd ?? shop.trialEndsAt, label: 'renews' };
-}
-
 // A shop can sit on a paid plan while still inside its free trial: the plan is
 // what they GET, the status is how they are PAYING. Said out loud rather than
 // leaving the two columns looking like they disagree.
@@ -328,16 +320,6 @@ function statusDetail(shop: PlatformShopRow): { label: string; paid: boolean } |
   }
   if (shop.planKey !== 'trial') return { label: 'free until trial ends', paid: false };
   return null;
-}
-
-// "2 Aug 2026" rather than 2026-08-04: an operator scanning a column reads a
-// month name faster than a numeric one, and it removes the day/month ambiguity
-// entirely.
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 // Flags a date inside a week so a trial about to lapse stands out in the column

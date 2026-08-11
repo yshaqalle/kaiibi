@@ -1,0 +1,464 @@
+<title>Kaiibi — Help &amp; support: the six gaps, drawn</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1200px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:64ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  section{margin-top:56px;padding-top:8px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .sev{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    border-radius:999px;padding:3px 10px;vertical-align:3px;margin-left:9px;}
+  .sev.high{background:#fdecee;color:#a11726;}
+  .sev.mid{background:#fdf4e3;color:#7a4e04;}
+  .sev.low{background:#eef4ff;color:#1e4bcc;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:#c0392b;} .frameHead.good b{color:#0f7a45;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .row2{display:grid;gap:20px;} @media(min-width:900px){.row2{grid-template-columns:1fr 1fr;}}
+  .row3{display:grid;gap:16px;} @media(min-width:960px){.row3{grid-template-columns:1fr 1fr 1fr;}}
+  .row2>div,.row3>div{min-width:0;}
+
+  .card{background:var(--d-sf);border-radius:20px;padding:15px;}
+  .card + .card{margin-top:11px;}
+  .ttl{font-size:14px;font-weight:800;color:var(--d-ink);letter-spacing:-.2px;}
+  .meta{font-size:10.5px;color:var(--d-mut2);margin-top:2px;}
+  .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--d-mut);
+    background:var(--d-soft);padding:1px 5px;border-radius:4px;}
+
+  .chip{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 9px;display:inline-block;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;}
+  .chip.ok{background:#d9efe4;color:#007a38;}
+  .chip.no{background:#fbeaec;color:#a11726;}
+  .chip.acc{background:var(--accentWash);color:var(--accentInk);}
+  .chip.warn{background:#fdf4e3;color:var(--warn);}
+  .chip.ghost{background:transparent;color:var(--d-mut2);border:1px dashed var(--d-rule);}
+
+  /* who-can-see table */
+  .eyes{margin-top:12px;}
+  .eyeRow{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--d-rule);font-size:12.5px;}
+  .eyeRow:first-child{border-top:none;}
+  .eyeWho{flex:1;color:var(--d-ink2);}
+  .eyeWho b{color:var(--d-ink);font-weight:700;}
+  .mark{font-size:13px;font-weight:800;width:78px;text-align:right;flex-shrink:0;}
+  .mark.y{color:var(--loss);} .mark.n{color:var(--profit);}
+  .mark.want{color:var(--d-mut2);font-weight:700;}
+
+  .step{display:flex;align-items:center;gap:9px;margin-bottom:9px;}
+  .stepNo{width:20px;height:20px;border-radius:10px;background:var(--d-ink);color:#fff;
+    font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .stepTxt{font-size:12px;font-weight:700;color:var(--d-ink2);}
+
+  .arrow{text-align:center;font-size:20px;color:var(--mut);margin:6px 0;}
+  @media(min-width:960px){.arrow{display:none;}}
+
+  .sql{background:var(--d-soft);border-radius:10px;padding:10px 12px;margin-top:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--d-ink2);
+    overflow-x:auto;white-space:pre;}
+  .sql .hl{background:#fdecee;color:#a11726;border-radius:3px;padding:0 3px;}
+  .sql .hl2{background:#d9efe4;color:#00552a;border-radius:3px;padding:0 3px;}
+
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:14px;}
+  .cav.wrong{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav .i{font-size:13px;} .cav .t{font-size:12px;line-height:1.45;}
+  .cav .t b{font-weight:800;}
+
+  .fix{border:1px solid var(--ln);border-left:4px solid #0f9d58;border-radius:12px;
+    padding:13px 16px;margin-top:18px;background:var(--sf);}
+  .fix b{display:block;font-size:13px;margin-bottom:4px;color:var(--ink);}
+  .fix p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .fix code{font-size:12px;}
+
+  .surfaces{display:flex;flex-direction:column;gap:9px;margin-top:4px;}
+  .surf{display:flex;align-items:center;gap:11px;background:var(--d-sf);border-radius:12px;padding:11px 13px;}
+  .surfName{flex:1;font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .surfName span{display:block;font-weight:600;font-size:10.5px;color:var(--d-mut2);}
+
+  .pillRow{display:flex;gap:5px;flex-wrap:wrap;}
+  .tab{border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:700;color:var(--d-mut);}
+  .tab.on{background:var(--d-sf);color:var(--d-ink);font-weight:800;}
+
+  ol.plan{margin:16px 0 0;padding-left:22px;font-size:14px;}
+  ol.plan li{margin-bottom:12px;color:var(--ink2);}
+  ol.plan b{color:var(--ink);}
+  hr{border:none;border-top:1px solid var(--ln);margin:52px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · Help &amp; support · what the final review found</p>
+<h1>Six gaps, drawn</h1>
+<p class="lede">The feature works and nothing here blocks a merge. These are the things the whole-branch
+review caught that no single task could see — shown as what actually happens on screen, rather than
+described.</p>
+
+<!-- ===================================================================== -->
+<section>
+<h2>1 · Deleting a person can widen who reads their thread <span class="sev high">The one that matters</span></h2>
+<p class="h2sub">This is the only gap that touches the privacy guarantee. It is not reachable from inside
+the app — but it is reachable from the Supabase dashboard, which is where someone tidying up old accounts
+would be.</p>
+
+<div class="row3 doc">
+  <div>
+    <p class="frameHead"><b>1 · We write to the owner</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl">Your ZAAD payment cleared</div>
+        <div class="meta"><span class="ref">KB-2484</span> · Billing · addressed to Amina (Owner)</div>
+        <div class="eyes">
+          <div class="eyeRow"><span class="eyeWho"><b>Amina</b> · Owner · the addressee</span><span class="mark want">reads it</span></div>
+          <div class="eyeRow"><span class="eyeWho"><b>Yusuf</b> · Manager · has Settings access</span><span class="mark n">cannot</span></div>
+          <div class="eyeRow"><span class="eyeWho"><b>Hodan</b> · Cashier</span><span class="mark n">cannot</span></div>
+        </div>
+        <div class="cav context"><span class="i">ⓘ</span><span class="t">This is what the composer
+        promises: <b>“Nobody else there sees it — not even colleagues who can reach Settings.”</b></span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div>
+    <p class="frameHead"><b>2 · Amina's account is deleted</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl">Amina leaves the business</div>
+        <div class="meta">Someone removes her user in the Supabase dashboard</div>
+        <div class="sql">support_threads
+  addressed_user_id  <span class="hl">→ null</span>
+
+-- the column is declared
+--   on delete set null</div>
+        <div class="cav context" style="margin-top:12px;"><span class="i">ⓘ</span><span class="t">Nothing
+        looks wrong yet. No error, no warning, no log line. One field quietly became empty.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow">↓</div>
+
+  <div>
+    <p class="frameHead bad"><b>3 · The thread changes meaning</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl">Your ZAAD payment cleared</div>
+        <div class="meta"><span class="ref">KB-2484</span> · Billing · addressed to <b>nobody</b></div>
+        <div class="eyes">
+          <div class="eyeRow"><span class="eyeWho"><b>Amina</b> · gone</span><span class="mark want">—</span></div>
+          <div class="eyeRow"><span class="eyeWho"><b>Yusuf</b> · Manager · has Settings access</span><span class="mark y">NOW READS IT</span></div>
+          <div class="eyeRow"><span class="eyeWho"><b>Hodan</b> · Cashier</span><span class="mark n">still cannot</span></div>
+        </div>
+        <div class="cav wrong"><span class="i">⚠</span><span class="t">A message meant for one person is
+        now readable by everyone who can reach Settings. <b>The promise the composer made is no longer
+        true</b>, and nobody was told.</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:22px;"><b>Why it happens.</b> The rule never stored <em>who this is
+for</em> as a fact. It works it out by asking “is the addressee field empty?” — treating empty as “this
+one is for the whole store”. So the moment the field empties for an unrelated reason, the answer to a
+privacy question changes with it.</p>
+
+<div class="doc"><div class="frame" style="margin-top:14px;">
+  <div class="sql">-- today: scope is GUESSED from a field that can empty on its own
+where opened_by = 'platform'
+  and <span class="hl">addressed_user_id is null</span>          -- ← "must mean the whole store"
+  and has_shop_permission(shop_id, 'settings.access')
+
+-- proposed: scope is STORED, and says what it means
+where opened_by = 'platform'
+  and <span class="hl2">addressed_scope = 'store'</span>              -- ← set once, when the thread is opened
+  and has_shop_permission(shop_id, 'settings.access')</div>
+</div></div>
+
+<div class="fix">
+  <b>The fix, and why this shape</b>
+  <p>Add an <code>addressed_scope</code> column holding <code>'store'</code> or <code>'person'</code>, set
+  when the thread is opened, and key the rule on that. Then deleting the addressee leaves a thread
+  <em>nobody</em> can read — which is the safe way to fail — instead of one everybody can. One migration,
+  plus a check in <code>verify-support.sql</code> that deletes the addressee and asserts a Settings-access
+  holder still reads zero rows.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>2 · “Email” is a choice nothing can act on <span class="sev mid">Broken promise</span></h2>
+<p class="h2sub">The store is offered three ways to be replied to. Two of them work.</p>
+
+<div class="row2 doc">
+  <div>
+    <p class="frameHead"><b>What the store is told</b></p>
+    <div class="frame">
+      <div class="card">
+        <div style="font-size:9.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut2);margin-bottom:8px;">Reply to me on</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;">
+          <span class="chip acc">● In the app</span>
+          <span class="chip">○ WhatsApp</span>
+          <span class="chip warn">◉ Email</span>
+        </div>
+        <p style="font-size:11px;color:var(--d-mut2);margin:9px 0 0;">Picking WhatsApp doesn’t change where
+        the reply is written — it tells us to nudge you there too.</p>
+        <div class="cav context"><span class="i">ⓘ</span><span class="t">The same sentence covers Email.
+        A shop owner reasonably reads this as <b>“they’ll email me.”</b></span></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead bad"><b>What the operator sees</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl">Paid on ZAAD but still showing as unpaid</div>
+        <div class="meta"><span class="ref">KB-2481</span> · Hooyo Grocery · Amina Hassan</div>
+        <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="chip no">Needs a reply</span>
+          <span class="chip warn">Billing</span>
+          <span class="chip ghost">no WhatsApp chip — they didn’t ask for it</span>
+        </div>
+        <div style="margin-top:14px;background:var(--d-soft);border-radius:14px;padding:12px;">
+          <div style="font-size:9.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut2);margin-bottom:8px;">Who this is</div>
+          <div style="font-size:12px;color:var(--d-mut);">Store <b style="float:right;color:var(--d-ink);">Hooyo Grocery</b></div>
+          <div style="font-size:12px;color:var(--d-mut);margin-top:6px;">Person <b style="float:right;color:var(--d-ink);">Amina Hassan</b></div>
+          <div style="font-size:12px;color:var(--d-mut);margin-top:6px;">WhatsApp <b style="float:right;color:var(--d-mut2);">—</b></div>
+          <div style="font-size:12px;color:var(--loss);margin-top:6px;">Email <b style="float:right;">not shown anywhere</b></div>
+        </div>
+        <div class="cav wrong"><span class="i">⚠</span><span class="t">The operator has <b>no way to know
+        they asked for email</b>, and no email address to send to — the console is deliberately not allowed
+        to read one.</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="fix">
+  <b>The fix: remove the option</b>
+  <p>In-app is the default and always works; WhatsApp has a real one-click hand-off. Email is a third
+  choice that changes nothing and quietly promises something. Deleting the chip is honest and takes
+  minutes. Keeping it would mean widening what the console can read about a person, adding a chip, a rail
+  row and a <code>mailto:</code> hand-off — real work, for the channel these shops read least.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>3 · Attachments only go one way, on one message <span class="sev mid">Scope gap</span></h2>
+<p class="h2sub">Four places in the conversation could carry a file. One of them can.</p>
+
+<div class="doc"><div class="frame">
+  <div class="surfaces">
+    <div class="surf">
+      <span class="chip ok">CAN</span>
+      <span class="surfName">Store — the first message<span>the compose form</span></span>
+      <span class="chip ok">picker ✓</span>
+    </div>
+    <div class="surf">
+      <span class="chip no">CANNOT</span>
+      <span class="surfName">Store — every reply after that<span>support-thread-view.tsx has no picker</span></span>
+      <span class="chip no">no picker</span>
+    </div>
+    <div class="surf">
+      <span class="chip no">CANNOT</span>
+      <span class="surfName">Operator — replying<span>the reply panel</span></span>
+      <span class="chip no">no picker</span>
+    </div>
+    <div class="surf">
+      <span class="chip no">CANNOT</span>
+      <span class="surfName">Operator — starting a conversation<span>the outbound composer</span></span>
+      <span class="chip no">no picker</span>
+    </div>
+  </div>
+  <div class="cav wrong"><span class="i">⚠</span><span class="t">Everyone can <b>open</b> an attachment.
+  Only the very first message can <b>carry</b> one. So a store that forgets a screenshot, or is asked for
+  one, cannot send it — and we can never send them a receipt or a document.</span></div>
+</div></div>
+
+<p class="note" style="margin-top:18px;">This is also what made the blocker a blocker: the failure message
+used to say “open the conversation and try again”, pointing at a reply box with no picker. That copy is
+fixed, but the underlying limit is still here.</p>
+
+<div class="fix">
+  <b>The fix: three small pieces, already half-built</b>
+  <p>The <code>AttachmentPicker</code> component exists and the storage rules already allow it — the path
+  is keyed on the <em>thread</em>, not on who is writing. What is missing is wiring it into the store’s
+  reply box, adding an attachment payload to the two operator actions, and putting the picker on the two
+  console surfaces. Schedule it rather than squeeze it in.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>4 · Half the conversations cannot be filtered <span class="sev low">Small</span></h2>
+<p class="h2sub">The queue’s filter chips are built from the list of things a <em>store</em> can pick. The
+categories <em>we</em> use when starting a conversation aren’t there.</p>
+
+<div class="row2 doc">
+  <div>
+    <p class="frameHead bad"><b>Now</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl" style="margin-bottom:10px;">Conversations</div>
+        <div class="pillRow">
+          <span class="chip acc">All 12</span><span class="chip">Broken 3</span><span class="chip">Help 1</span>
+          <span class="chip">Billing 4</span><span class="chip">Access 1</span><span class="chip">Numbers 0</span>
+          <span class="chip">Hardware 0</span><span class="chip">Feature 1</span><span class="chip">Else 0</span>
+        </div>
+        <div class="cav wrong"><span class="i">⚠</span><span class="t">3 + 1 + 4 + 1 + 1 = <b>10, not
+        12.</b> Two threads we started — <b>Their account</b> and <b>Something’s changed</b> — have no chip
+        to live under. They appear in “All” and nowhere else.</span></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead good"><b>Next</b></p>
+    <div class="frame">
+      <div class="card">
+        <div class="ttl" style="margin-bottom:10px;">Conversations</div>
+        <div class="pillRow">
+          <span class="chip acc">All 12</span><span class="chip">Broken 3</span><span class="chip">Help 1</span>
+          <span class="chip">Billing 4</span><span class="chip">Access 1</span><span class="chip">Numbers 0</span>
+          <span class="chip">Hardware 0</span><span class="chip">Feature 1</span>
+          <span class="chip ok">Their account 1</span><span class="chip ok">Changed 1</span>
+          <span class="chip">Else 0</span>
+        </div>
+        <div class="cav context"><span class="i">ⓘ</span><span class="t">Add the operator list to the chip
+        row and de-duplicate — <b>Billing</b> and <b>Else</b> appear in both.</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>5 · The console has no unread mark <span class="sev low">Needs a prerequisite</span></h2>
+<p class="h2sub">The store gets a badge on its ☰ when we write. We get nothing when a store writes.</p>
+
+<div class="row2 doc">
+  <div>
+    <p class="frameHead"><b>The store's side — built</b></p>
+    <div class="frame">
+      <div class="card">
+        <div style="display:flex;justify-content:flex-end;gap:10px;align-items:center;">
+          <span style="background:var(--d-soft);border-radius:8px;padding:5px 10px;">☰</span>
+        </div>
+        <div style="max-width:200px;margin-left:auto;margin-top:10px;border:1px solid var(--d-ln);border-radius:12px;padding:6px 0;">
+          <div style="padding:10px 13px;font-size:13px;font-weight:700;">⚙ Settings</div>
+          <div style="padding:10px 13px;font-size:13px;font-weight:700;background:var(--accentWash);color:var(--accentInk);display:flex;">
+            ✉ Help &amp; support <span class="chip acc" style="margin-left:auto;">2</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead bad"><b>The console — missing</b></p>
+    <div class="frame">
+      <div class="pillRow" style="margin-bottom:12px;">
+        <span class="tab">Overview</span><span class="tab">Stores</span>
+        <span class="tab">Requests <span class="chip no" style="margin-left:3px;">2</span></span>
+        <span class="tab on">Support</span>
+        <span class="tab">Plans</span><span class="tab">Audit log</span>
+      </div>
+      <div class="cav wrong"><span class="i">⚠</span><span class="t"><b>Requests has a count. Support does
+      not.</b> An operator on any other tab has no signal that a store is waiting.</span></div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:18px;"><b>Why it can’t just be switched on.</b> A badge needs to know what
+you have already looked at, and nothing currently records that an operator <em>opened</em> a thread — only
+that they replied to one. So the count has nothing to subtract.</p>
+
+<div class="fix">
+  <b>The fix, and a question worth asking first</b>
+  <p>Add a “mark read” action called when the reply panel opens, then the badge is simply the threads a
+  store wrote last that you haven’t opened. But the queue already sorts by <em>whose move it is</em>, so
+  anything waiting on you is at the top of the list the moment you open the tab. Worth deciding whether the
+  badge earns its build.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>6 · Three places the spec is wrong, not the code <span class="sev low">Amend the document</span></h2>
+
+<div class="doc"><div class="frame">
+  <div class="card">
+    <div class="eyes">
+      <div class="eyeRow"><span class="eyeWho"><b>The rail should show role and email</b><br>
+        <span style="font-size:11px;color:var(--d-mut2);">The console is deliberately forbidden from reading a shop’s staff list — a security test asserts it. The spec asked for something the design rules out.</span></span>
+        <span class="mark want">fix the spec</span></div>
+      <div class="eyeRow"><span class="eyeWho"><b>KPI: median first reply</b><br>
+        <span style="font-size:11px;color:var(--d-mut2);">Nothing records when a thread was first answered, so there is no figure to compute. Either add the timestamp deliberately or drop the tile.</span></span>
+        <span class="mark want">decide</span></div>
+      <div class="eyeRow"><span class="eyeWho"><b>“Preview as the store”</b><br>
+        <span style="font-size:11px;color:var(--d-mut2);">A genuine unbuilt control. Cheap to add, low value — an operator writing one paragraph rarely needs to see it framed.</span></span>
+        <span class="mark want">build or cut</span></div>
+    </div>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>What I’d do, in order</h2>
+<ol class="plan">
+  <li><b>One migration for the privacy seam.</b> The <code>addressed_scope</code> column, the rule keyed on
+  it, a test that deletes the addressee and proves nobody inherits the thread. Roll in the one function
+  still missing its search-path pin while the file is open.</li>
+  <li><b>Delete the Email chip.</b> Minutes, and it stops the app promising something it cannot do.</li>
+  <li><b>Add the operator chips to the filter row.</b> Ten minutes.</li>
+  <li><b>Attachments both ways</b>, as its own scheduled piece — the picker exists, the storage rules
+  already permit it, so it is wiring rather than design.</li>
+  <li><b>Decide on the console badge</b> before building it; the sort may already cover the need.</li>
+  <li><b>Amend the spec</b> for the three items above where the document, not the code, is what is
+  wrong.</li>
+</ol>
+<p class="note" style="margin-top:18px;">Items 1–3 are one sitting and clear everything security-shaped.
+Nothing on this page blocks a merge today.</p>
+</section>
+
+<hr>
+<p class="note" style="margin-top:22px;color:var(--mut);font-size:12.5px;">Drawn from the final
+whole-branch review. Frames render the light palette because the app pins <code>Colors.light</code>; the
+page around them follows your system theme.</p>
+
+</div>

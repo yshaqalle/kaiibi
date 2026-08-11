@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { StyleSheet, Text, TextInput } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
@@ -160,6 +161,102 @@ describe('SearchRow', () => {
     });
 
     expect(fieldHeight(counterTree!)).toBeGreaterThan(fieldHeight(deskTree!));
+  });
+});
+
+// A scanner typing into the field the cashier clicked into. The row is
+// controlled, so the text has to round-trip through a real state holder for the
+// append to happen the way it does in the app.
+describe('SearchRow — a scan into the focused field', () => {
+  function Harness({ initial, onSubmit }: { initial: string; onSubmit: (value: string) => void }) {
+    const [value, setValue] = useState(initial);
+    return (
+      <SearchRow
+        value={value}
+        onChange={setValue}
+        onSubmit={onSubmit}
+        placeholder="Search or scan a product"
+        useKeypad={false}
+        showScanButton={false}
+        keypadOpen={false}
+        onKeypadOpenChange={jest.fn()}
+      />
+    );
+  }
+
+  function typeInto(initial: string, code: string, gapMs: number) {
+    const onSubmit = jest.fn();
+    let tree: ReactTestRenderer | undefined;
+    act(() => { tree = create(<Harness initial={initial} onSubmit={onSubmit} />); });
+    const field = () => tree!.root.findByType(TextInput);
+
+    for (const char of code) {
+      const next = field().props.value + char;
+      act(() => { field().props.onChangeText(next); });
+      act(() => { jest.advanceTimersByTime(gapMs); });
+    }
+    act(() => { field().props.onSubmitEditing(); });
+
+    return { onSubmit, value: () => field().props.value };
+  }
+
+  // The reported bug: the box kept the last code and the next scan landed on
+  // the end of it -- 88094472559728809447255972, matching nothing, and growing
+  // by thirteen digits every time it was scanned again.
+  it('replaces a code left in the box instead of extending it', () => {
+    const { onSubmit, value } = typeInto('8809447255972', '4901234567894', 5);
+    expect(value()).toBe('4901234567894');
+    expect(onSubmit).toHaveBeenCalledWith('4901234567894');
+  });
+
+  it('submits a scan into an empty box unchanged', () => {
+    const { onSubmit, value } = typeInto('', '4901234567894', 5);
+    expect(value()).toBe('4901234567894');
+    expect(onSubmit).toHaveBeenCalledWith('4901234567894');
+  });
+
+  // The other half of the promise: this is still a search box. Somebody
+  // refining "shea" to "shea butter" must not have the first word eaten.
+  it('leaves text typed at human speed exactly where it is', () => {
+    const { onSubmit, value } = typeInto('shea ', 'butter', 150);
+    expect(value()).toBe('shea butter');
+    expect(onSubmit).toHaveBeenCalledWith('shea butter');
+  });
+
+  // At three milliseconds a character a scan can outrun a commit, so the row
+  // reads what it last SHOWED rather than the prop. Held fixed here, which is
+  // the worst case: the same characters would otherwise look appended twice and
+  // the box would be replaced with a doubled code -- the very bug being fixed.
+  it('does not double the code when the value prop lags the burst', () => {
+    const onSubmit = jest.fn();
+    let tree: ReactTestRenderer | undefined;
+    act(() => {
+      tree = create(
+        <SearchRow value="" onChange={jest.fn()} onSubmit={onSubmit} placeholder="Search"
+          useKeypad={false} showScanButton={false} keypadOpen={false} onKeypadOpenChange={jest.fn()} />,
+      );
+    });
+    const field = () => tree!.root.findByType(TextInput);
+
+    let typed = '';
+    for (const char of '4901234567894') {
+      typed += char;
+      const next = typed;
+      act(() => { field().props.onChangeText(next); });
+    }
+    act(() => { field().props.onSubmitEditing(); });
+
+    expect(onSubmit).toHaveBeenCalledWith('4901234567894');
+  });
+
+  it('clears the box when the clear button is pressed', () => {
+    const onSubmit = jest.fn();
+    let tree: ReactTestRenderer | undefined;
+    act(() => { tree = create(<Harness initial="8809447255972" onSubmit={onSubmit} />); });
+    const clear = findPressables(tree!).find((p) => p.props.accessibilityLabel === 'Clear search');
+    expect(clear).toBeDefined();
+    act(() => { clear!.props.onPress(); });
+    expect(tree!.root.findByType(TextInput).props.value).toBe('');
   });
 });
 

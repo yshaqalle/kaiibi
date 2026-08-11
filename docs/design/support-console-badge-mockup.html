@@ -1,0 +1,292 @@
+<title>Kaiibi — Gap 5: does the console badge earn its build?</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,38px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:62ch;margin:0 0 24px;}
+  h2{font-size:20px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:72ch;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:#c0392b;} .frameHead.good b{color:#0f7a45;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .row2{display:grid;gap:20px;} @media(min-width:900px){.row2{grid-template-columns:1fr 1fr;}}
+  .row2>div{min-width:0;}
+
+  .card{background:var(--d-sf);border-radius:20px;padding:15px;}
+  .card + .card{margin-top:11px;}
+
+  .eyeSm{font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--d-mut);}
+  .bigTitle{font-size:22px;font-weight:800;letter-spacing:-.7px;color:var(--d-ink);margin:2px 0 2px;}
+  .blurb{font-size:12px;color:var(--d-mut);margin:0 0 14px;}
+
+  .pillRow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px;}
+  .tab{border-radius:999px;padding:6px 12px;font-size:12px;font-weight:700;color:var(--d-mut);
+    display:inline-flex;align-items:center;gap:5px;}
+  .tab.on{background:var(--d-sf);color:var(--d-ink);font-weight:800;}
+  .badge{font-size:10px;font-weight:800;border-radius:999px;padding:2px 7px;
+    background:#fbeaec;color:#d12339;}
+  .badge.dim{background:var(--d-soft);color:var(--d-mut2);}
+  .ghostSlot{border:1px dashed var(--d-rule);border-radius:999px;padding:2px 8px;
+    font-size:9.5px;font-weight:700;color:var(--d-mut2);}
+
+  .kpiRow{display:flex;gap:22px;flex-wrap:wrap;}
+  .kpi .v{font-size:20px;font-weight:800;color:var(--d-ink);letter-spacing:-.5px;}
+  .kpi .l{font-size:10px;color:var(--d-mut);}
+
+  .reqRow{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--d-rule);}
+  .reqRow:first-of-type{border-top:none;}
+  .reqMain{flex:1;min-width:0;}
+  .reqSubj{font-size:12.5px;font-weight:700;color:var(--d-ink);}
+  .reqMeta{font-size:10px;color:var(--d-mut2);}
+  .chip{font-size:10px;font-weight:800;border-radius:999px;padding:3px 8px;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;}
+  .chip.no{background:#fbeaec;color:#a11726;}
+  .chip.ok{background:#d9efe4;color:#007a38;}
+
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:14px;}
+  .cav.wrong{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav .i{font-size:13px;} .cav .t{font-size:12px;line-height:1.45;}
+  .cav .t b{font-weight:800;}
+
+  .sql{background:var(--d-soft);border-radius:10px;padding:11px 13px;margin-top:11px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--d-ink2);
+    overflow-x:auto;white-space:pre;}
+  .sql .hl{background:#fdecee;color:#a11726;border-radius:3px;padding:0 3px;}
+  .sql .hl2{background:#d9efe4;color:#00552a;border-radius:3px;padding:0 3px;}
+
+  .scale{display:grid;gap:14px;margin-top:20px;}
+  @media(min-width:820px){.scale{grid-template-columns:1fr 1fr;}}
+  .pan{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);}
+  .pan.for{border-left:4px solid #0f9d58;}
+  .pan.against{border-left:4px solid #c8791a;}
+  .pan b{display:block;font-size:13.5px;margin-bottom:6px;}
+  .pan p{margin:0 0 9px;font-size:13.5px;color:var(--ink2);}
+  .pan p:last-child{margin-bottom:0;}
+
+  .verdict{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;
+    padding:15px 18px;margin-top:22px;background:var(--sf);}
+  .verdict b{display:block;font-size:14px;margin-bottom:5px;}
+  .verdict p{margin:0;font-size:14px;color:var(--ink2);}
+  hr{border:none;border-top:1px solid var(--ln);margin:50px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · Help &amp; support · gap 5</p>
+<h1>Does the console badge earn its build?</h1>
+<p class="lede">The store gets a mark on its ☰ when we write to them. We get nothing when they write to
+us. This is what that costs, what fixing it takes, and the reason I am not sure it is worth
+building.</p>
+
+<!-- ===================================================================== -->
+<section>
+<h2>1 · What an operator sees today</h2>
+<p class="h2sub">A shop reported a broken till twenty minutes ago. Here is the console, on the tab an
+operator happens to be sitting on.</p>
+
+<div class="row2 doc">
+  <div>
+    <p class="frameHead bad"><b>Now — on the Overview tab</b></p>
+    <div class="frame">
+      <p class="eyeSm">Kaiibi operator</p>
+      <p class="bigTitle">Overview</p>
+      <p class="blurb">Is the business growing, is money arriving, who needs a conversation today.</p>
+      <div class="pillRow">
+        <span class="tab on">Overview</span>
+        <span class="tab">Stores</span>
+        <span class="tab">Requests <span class="badge">2</span></span>
+        <span class="tab">Support <span class="ghostSlot">nothing here</span></span>
+        <span class="tab">Plans</span>
+      </div>
+      <div class="card">
+        <div class="kpiRow">
+          <div class="kpi"><div class="v">34</div><div class="l">Stores</div></div>
+          <div class="kpi"><div class="v">$1,240</div><div class="l">MRR</div></div>
+          <div class="kpi"><div class="v">6</div><div class="l">On trial</div></div>
+        </div>
+      </div>
+      <div class="cav wrong"><span class="i">⚠</span><span class="t"><b>Requests has a count. Support has
+      nothing.</b> A store has been waiting twenty minutes and this screen gives no hint of it. The
+      operator finds out by clicking Support on a hunch.</span></div>
+    </div>
+  </div>
+
+  <div>
+    <p class="frameHead good"><b>What it would look like</b></p>
+    <div class="frame">
+      <p class="eyeSm">Kaiibi operator</p>
+      <p class="bigTitle">Overview</p>
+      <p class="blurb">Is the business growing, is money arriving, who needs a conversation today.</p>
+      <div class="pillRow">
+        <span class="tab on">Overview</span>
+        <span class="tab">Stores</span>
+        <span class="tab">Requests <span class="badge">2</span></span>
+        <span class="tab">Support <span class="badge">3</span></span>
+        <span class="tab">Plans</span>
+      </div>
+      <div class="card">
+        <div class="kpiRow">
+          <div class="kpi"><div class="v">34</div><div class="l">Stores</div></div>
+          <div class="kpi"><div class="v">$1,240</div><div class="l">MRR</div></div>
+          <div class="kpi"><div class="v">6</div><div class="l">On trial</div></div>
+        </div>
+      </div>
+      <div class="cav context"><span class="i">ⓘ</span><span class="t">Three conversations where a store
+      wrote last and you have not opened them. <b>Consistent with Requests</b>, which is the argument for
+      it — two things that mean "someone is waiting" should look the same.</span></div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>2 · Why it cannot just be switched on</h2>
+<p class="h2sub">A badge has to subtract what you have already seen. Nothing currently records that.</p>
+
+<div class="doc"><div class="frame">
+  <div class="card">
+    <div class="sql">-- what the database records today
+
+operator SENDS a reply   →  platform_read_at = now()   <span class="hl2">✓ written</span>
+operator OPENS a thread  →  <span class="hl">nothing happens</span>
+
+-- so "unread" would mean "I have never replied to this",
+-- and a thread you read and decided needed no answer
+-- would stay lit up forever</div>
+    <div class="cav wrong"><span class="i">⚠</span><span class="t">Without a mark-on-open, the badge is
+    not a count of what needs attention — it is a count of <b>what you have not typed into</b>. Those are
+    different, and the difference is exactly the threads you looked at and judged fine.</span></div>
+  </div>
+
+  <div class="card">
+    <div style="font-size:13px;font-weight:800;color:var(--d-ink);margin-bottom:8px;">What building it takes</div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">A <code style="font-size:11px;">mark_support_read</code> action on the edge function</div>
+      <div class="reqMeta">called when the reply panel opens</div></div>
+      <span class="chip ok">small</span>
+    </div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">The count, and the badge on the tab pill</div>
+      <div class="reqMeta">threads a store wrote last that you have not opened</div></div>
+      <span class="chip ok">small</span>
+    </div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">A decision about the audit log</div>
+      <div class="reqMeta">every action needs a <code style="font-size:11px;">reason</code>; support actions have been
+      passing the message body. Opening has no body.</div></div>
+      <span class="chip">a wrinkle</span>
+    </div>
+    <div class="cav context"><span class="i">ⓘ</span><span class="t">Half a day, no migration needed. The
+    wrinkle is real but small — opening a thread would log <code>"opened"</code> rather than a sentence,
+    and it would be the first support action where the body-as-reason trick does not apply.</span></div>
+  </div>
+</div></div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>3 · The reason I am not sure</h2>
+<p class="h2sub">The queue already answers the question the badge would answer — as long as you are
+looking at it.</p>
+
+<div class="doc"><div class="frame">
+  <div class="card">
+    <div style="font-size:13px;font-weight:800;color:var(--d-ink);margin-bottom:4px;">The Support tab, the moment you open it</div>
+    <div style="font-size:11px;color:var(--d-mut2);margin-bottom:10px;">Sorted by whose move it is, not by age</div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">Till freezes when I open the drawer</div>
+      <div class="reqMeta">KB-2491 · Berbera Hardware · 20 min ago</div></div>
+      <span class="chip no">Needs a reply</span>
+    </div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">Paid on ZAAD but still showing as unpaid</div>
+      <div class="reqMeta">KB-2481 · Hooyo Grocery · 2h ago</div></div>
+      <span class="chip no">Needs a reply</span>
+    </div>
+    <div class="reqRow">
+      <div class="reqMain"><div class="reqSubj">Can we print two receipts at once?</div>
+      <div class="reqMeta">KB-2390 · Hooyo Grocery · 3d ago</div></div>
+      <span class="chip no">Needs a reply</span>
+    </div>
+    <div class="reqRow" style="opacity:.55;">
+      <div class="reqMain"><div class="reqSubj">Scanner stops reading after a refund</div>
+      <div class="reqMeta">KB-2477 · answered yesterday</div></div>
+      <span class="chip">Waiting on them</span>
+    </div>
+    <div class="cav context"><span class="i">ⓘ</span><span class="t">Everything waiting on you is already
+    at the top, in red, the instant this tab loads. <b>The badge's only job is telling you to come
+    here</b> — it adds nothing once you have.</span></div>
+  </div>
+</div></div>
+
+<div class="scale">
+  <div class="pan for">
+    <b>Build it if…</b>
+    <p>You keep the console open on Overview or Stores while doing other work, and want support to
+    interrupt you.</p>
+    <p>Volume grows past a handful a week, where "I'll check Support when I think of it" starts dropping
+    things.</p>
+    <p>More than one operator — then "have I looked at this" stops being answerable from memory.</p>
+  </div>
+  <div class="pan against">
+    <b>Skip it if…</b>
+    <p>You open the console <em>to do support</em>, in which case the sort has already done the job before
+    a badge could have told you anything.</p>
+    <p>You would rather not maintain a second source of truth about what is unanswered — a badge that
+    disagrees with the list is worse than no badge.</p>
+    <p>Anything genuinely urgent reaches you on WhatsApp anyway, which is the same reason the store's own
+    unread count was built best-effort.</p>
+  </div>
+</div>
+
+<div class="verdict">
+  <b>My read</b>
+  <p>Skip it for now. With one operator and today's volume, the sort covers it, and the badge introduces a
+  "read" concept the system does not otherwise have — which is a small amount of state that can drift from
+  the thing it describes. It becomes clearly worth building at the point where a second operator exists, or
+  where you notice yourself missing things. Neither is true yet.</p>
+</div>
+</section>
+
+<hr>
+<p class="note" style="margin-top:22px;color:var(--mut);font-size:12.5px;">Gap 5 of six from the final
+whole-branch review. Gaps 1–4 are built and live; gap 6 is a spec amendment. Frames render the light
+palette because the app pins <code>Colors.light</code>.</p>
+
+</div>

@@ -251,6 +251,10 @@ export default function PosScreen() {
   // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
   // identity is irrelevant, and the React Compiler handles the rest.
   const handleScannedCode = async (raw: string) => {
+    // Same rule as Inventory: the offer to create a product belongs to the scan
+    // that raised it, and nothing else on this screen clears it.
+    setUnknownCode(null);
+
     const outcome = posScanOutcome(products, cart, raw);
     switch (outcome.kind) {
       case 'add':
@@ -320,16 +324,19 @@ export default function PosScreen() {
 
   // Enter in the search box. A wedge scanner types into whatever is focused, so
   // this covers the cashier who clicked the box first, on native as well as web.
-  const handleSearchSubmit = async () => {
-    const raw = search.trim();
+  // `submitted` rather than `search`: on the scan path the row has just
+  // replaced the field, and this runs in the same tick as that replacement.
+  const handleSearchSubmit = async (submitted: string) => {
+    const raw = submitted.trim();
     if (!raw || !scanner.resolveCodes) return;
     const outcome = posScanOutcome(products, cart, raw);
     // Someone searching for "toner" and pressing Enter is not a failed scan.
     // Staying silent here is what keeps the box feeling like a search box.
     if (outcome.kind === 'unknown' && !looksLikeBarcode(raw)) return;
     const handled = await handleScannedCode(raw);
-    // Clear only on a hit: a wedge's next scan would otherwise be appended to
-    // this one. On a miss the text stays so it can be read and corrected.
+    // Clear only on a hit: an unrecognised code stays so it can be read and
+    // corrected. It is safe to leave now that the next scan REPLACES the field
+    // rather than being appended to it (see `stepFieldBurst`).
     if (handled) setSearch('');
   };
 
@@ -937,8 +944,12 @@ export default function PosScreen() {
       />
       {/* Native counterpart to useBarcodeWedge, on the same store setting.
           Unmounted whenever a modal owns the keyboard, so it never competes for
-          focus with a form the cashier is filling in. */}
-      {scanner.hardware && !scannerOpen && !showAddProduct && receipt === null && (
+          focus with a form the cashier is filling in.
+          `registerSheet` covers all four of its states, and the two that count
+          a drawer autofocus their first field the moment they open -- a field
+          asking for focus while this takes it back every 700ms is the fight
+          this list exists to prevent. */}
+      {scanner.hardware && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Scanning something the shop doesn't stock yet is a normal event mid-
@@ -948,7 +959,15 @@ export default function PosScreen() {
       {shop && (
         <ProductModal
           visible={showAddProduct}
-          onClose={() => { setShowAddProduct(false); setUnknownCode(null); }}
+          // As on Inventory: closing the form clears what the scan that opened
+          // it left on the screen behind. The cart is untouched -- that is the
+          // sale, not scan residue.
+          onClose={() => {
+            setShowAddProduct(false);
+            setUnknownCode(null);
+            setSearch('');
+            setScanFeedback(null);
+          }}
           shopId={shop.id}
           defaultLocationId={activeLocation?.id ?? null}
           defaults={unknownCode ? { barcode: unknownCode } : undefined}

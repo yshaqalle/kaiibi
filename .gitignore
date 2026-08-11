@@ -54,3 +54,6 @@ supabase/.branches/
 
 # Google Play service account key — never commit
 google-service-account.json
+
+# Local scaffolding — draft tickets, throwaway scripts, agent working files
+.scratch/

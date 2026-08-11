@@ -30,6 +30,10 @@ type Action =
   | 'set_platform_settings'
   | 'approve_plan_change'
   | 'decline_plan_change'
+  | 'open_support'
+  | 'reply_support'
+  | 'close_support'
+  | 'attach_support'
   | 'delete_shop';
 
 type RequestBody = {
@@ -68,8 +72,71 @@ type RequestBody = {
   postTrialPlanKey?: string;
   settings?: Record<string, unknown>;
   requestId?: string;
+  // Support. `reason` carries the message body for open_support and
+  // reply_support -- see the note on those cases.
+  support?: {
+    threadId?: string;
+    messageId?: string;
+    addressedUserId?: string | null;
+    category?: string;
+    subject?: string;
+    // Files the CONSOLE has already uploaded to the bucket. Only the row is
+    // written here -- see the note on validateAttachments for why the bytes do
+    // not travel through this function.
+    attachments?: unknown;
+  };
   // The shop's exact name, retyped by the operator. Only used by delete_shop.
   confirmName?: string;
+};
+
+// OPERATOR_CATEGORIES in src/lib/support-taxonomy.ts, restated because a Deno
+// function cannot import from the app bundle. The database constrains these too
+// (20260825000100); checking here as well is what turns a check violation --
+// which surfaces as a bare 500 -- into a sentence naming the bad value.
+const OPERATOR_CATEGORIES = ['billing', 'account', 'problem', 'changed', 'other'];
+
+// support_messages.body's own ceiling (20260825000000). Same reasoning as the
+// category list: the constraint is the guarantee, this is the error message.
+const MESSAGE_MAX = 4000;
+
+// Code points, because that is what Postgres length() counts. Plain .length is
+// UTF-16 units, which counts every emoji twice -- a reply the column would
+// accept refused with a character count the operator can see is wrong.
+const messageLength = (text: string) => [...text].length;
+
+// An id from the request body reaches Postgres as a uuid literal, and a
+// malformed one raises `invalid input syntax for type uuid` -- which arrives as
+// a bare 500 quoting a Postgres type name, the same leak the shop-exists lookup
+// below was added to avoid. Checked before the value is spent on a query.
+const isUuid = (value: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+// The bucket 20260825000000 created, and the two limits it carries. Restated
+// here for the same reason OPERATOR_CATEGORIES is: the bucket is the rule, this
+// copy is so a refusal is a sentence rather than a 400 quoting a bucket config.
+const SUPPORT_BUCKET = 'support-attachments';
+const MAX_SUPPORT_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const SUPPORT_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'application/pdf',
+  'text/plain',
+  'video/mp4',
+  'video/quicktime',
+  'video/3gpp',
+];
+
+// What the console claims it has uploaded.
+type AttachmentClaim = {
+  storagePath: string;
+  fileName: string;
+  byteSize: number;
+  contentType: string | null;
 };
 
 const corsHeaders = {
@@ -90,6 +157,80 @@ function ok(payload: unknown) {
     status: 200,
     headers: { 'Content-Type': 'application/json', ...corsHeaders },
   });
+}
+
+// The console's claim about a file it has already put in the bucket.
+//
+// THE BYTES DO NOT COME THROUGH HERE. An operator uploads straight to storage
+// under the policy 20260825000700 widened, and only the row travels through
+// this function -- because that row belongs in the audit log, and because a
+// 10 MB file base64'd into a JSON body is ~13.4 MB crossing the wire twice.
+// What that costs is that everything below is a claim, so everything below is
+// checked. The path test is the one that matters: it is what
+// check_support_attachment_path() enforces on the row anyway, asked here so the
+// refusal names the file instead of arriving as a check violation.
+function validateAttachments(
+  raw: unknown,
+  shopId: string,
+  threadId: string
+): { ok: true; claims: AttachmentClaim[] } | { ok: false; response: Response } {
+  if (raw === undefined || raw === null) return { ok: true, claims: [] };
+  if (!Array.isArray(raw)) {
+    return { ok: false, response: errorResponse(400, 'unknown', 'attachments must be a list.') };
+  }
+  if (raw.length > MAX_SUPPORT_ATTACHMENTS) {
+    return {
+      ok: false,
+      response: errorResponse(400, 'unknown', `A message can carry ${MAX_SUPPORT_ATTACHMENTS} files; that is ${raw.length}.`),
+    };
+  }
+
+  const claims: AttachmentClaim[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'Each attachment must be an object.') };
+    }
+    const item = entry as Record<string, unknown>;
+    const storagePath = typeof item.storagePath === 'string' ? item.storagePath : '';
+    const fileName = typeof item.fileName === 'string' ? item.fileName.trim() : '';
+    const byteSize = item.byteSize;
+    const contentType = item.contentType == null ? null : String(item.contentType);
+
+    // Exactly three segments, and the first two are this thread's. The trigger
+    // accepts a deeper path whose first two segments happen to match; this does
+    // not, because attachmentPath() in the app never writes one and a shape
+    // nothing produces is a shape nobody has checked the storage rules against.
+    const parts = storagePath.split('/');
+    if (parts.length !== 3 || parts[0] !== shopId || parts[1] !== threadId || parts[2].length === 0) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'unknown', `\`${storagePath}\` is not a path on this conversation.`),
+      };
+    }
+    if (!fileName) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'Every attachment needs a file name.') };
+    }
+    if (fileName.length > 255) {
+      return { ok: false, response: errorResponse(400, 'unknown', 'That file name is too long to store.') };
+    }
+    if (typeof byteSize !== 'number' || !Number.isInteger(byteSize) || byteSize < 0) {
+      return { ok: false, response: errorResponse(400, 'unknown', `\`${fileName}\` has no usable size.`) };
+    }
+    if (byteSize > MAX_ATTACHMENT_BYTES) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'attachment_too_large', `\`${fileName}\` is over 10 MB, which the bucket will not hold.`),
+      };
+    }
+    if (contentType !== null && !SUPPORT_MIME_TYPES.includes(contentType)) {
+      return {
+        ok: false,
+        response: errorResponse(400, 'attachment_type', `\`${fileName}\` is a kind of file this bucket does not accept.`),
+      };
+    }
+    claims.push({ storagePath, fileName, byteSize, contentType });
+  }
+  return { ok: true, claims };
 }
 
 Deno.serve(async (req) => {
@@ -156,6 +297,51 @@ Deno.serve(async (req) => {
       ip,
     });
     if (error) throw new Error(`audit write failed: ${error.message}`);
+  };
+
+  // Turns a claim into a row, but only if the object is really there.
+  //
+  // Without this a request could write a paperclip pointing at nothing: the
+  // store opens the thread, sees `receipt.pdf`, taps it, and gets a signing
+  // error for a file that was never uploaded -- which reads as us having sent
+  // something and them having broken it. The size and type are taken from what
+  // storage actually holds rather than from what the caller said, on the same
+  // principle as author_kind being set here and never accepted from the body.
+  const resolveAttachments = async (
+    shopId: string,
+    threadId: string,
+    claims: AttachmentClaim[]
+  ): Promise<{ ok: true; rows: Record<string, unknown>[] } | { ok: false; response: Response }> => {
+    if (claims.length === 0) return { ok: true, rows: [] };
+
+    // One listing for the folder rather than one lookup per file. The cap is
+    // far above what a conversation holds (5 files per message) and is here
+    // only so a pathological folder cannot page forever; a file past it reads
+    // as missing, which is the safe direction.
+    const { data: objects, error } = await adminClient.storage
+      .from(SUPPORT_BUCKET)
+      .list(`${shopId}/${threadId}`, { limit: 1000 });
+    if (error) return { ok: false, response: errorResponse(500, 'unknown', error.message) };
+
+    const found = new Map((objects ?? []).map((o) => [o.name, o]));
+    const rows: Record<string, unknown>[] = [];
+    for (const claim of claims) {
+      const object = found.get(claim.storagePath.split('/')[2]);
+      if (!object) {
+        return {
+          ok: false,
+          response: errorResponse(400, 'attachment_missing', `\`${claim.fileName}\` is not in the bucket — it did not finish uploading.`),
+        };
+      }
+      const metadata = (object.metadata ?? {}) as { size?: number; mimetype?: string };
+      rows.push({
+        storage_path: claim.storagePath,
+        file_name: claim.fileName,
+        byte_size: typeof metadata.size === 'number' ? metadata.size : claim.byteSize,
+        content_type: metadata.mimetype ?? claim.contentType,
+      });
+    }
+    return { ok: true, rows };
   };
 
   const loadSubscription = async (shopId: string) => {
@@ -966,6 +1152,335 @@ Deno.serve(async (req) => {
 
         await audit(action, request.shop_id, before, after);
         return ok({ subscription: after });
+      }
+
+      // The audit log's rule is that every action carries a reason (see the
+      // guard near the top of this file). For support, the message body IS the
+      // reason: asking an operator to justify each reply separately would be
+      // absurd, and passing the body keeps the log recording what was actually
+      // said rather than carving out an exemption.
+      //
+      // Every check below is the only check. These three cases write through
+      // the service-role client, which bypasses RLS entirely, so the policies
+      // that make a store's own writes safe (20260825000000) are not consulted
+      // for a single one of these rows.
+      case 'open_support': {
+        if (!body.shopId) return errorResponse(400, 'unknown', 'shopId is required.');
+        if (!isUuid(body.shopId)) return errorResponse(400, 'unknown', 'shopId is not an id.');
+        const subject = body.support?.subject?.trim();
+        const category = body.support?.category?.trim();
+        if (!subject) return errorResponse(400, 'unknown', 'A subject is required.');
+        if (!category) return errorResponse(400, 'unknown', 'A category is required.');
+        if (!OPERATOR_CATEGORIES.includes(category)) {
+          return errorResponse(400, 'unknown', `\`${category}\` is not a category an operator can use.`);
+        }
+        const messageBody = reason.trim();
+        if (messageLength(messageBody) > MESSAGE_MAX) {
+          return errorResponse(400, 'message_too_long', `That message is ${messageLength(messageBody)} characters; the limit is ${MESSAGE_MAX}.`);
+        }
+
+        // shop_id is a foreign key, so an unknown one is refused either way --
+        // but as a 500 quoting a constraint name. The owner is read here too,
+        // for the addressee check below.
+        const { data: shop, error: shopError } = await adminClient
+          .from('shops')
+          .select('id, owner_id')
+          .eq('id', body.shopId)
+          .maybeSingle();
+        if (shopError) return errorResponse(500, 'unknown', shopError.message);
+        if (!shop) return errorResponse(400, 'unknown', 'No such shop.');
+
+        // addressed_user_id is who the thread BELONGS to, and
+        // support_thread_is_visible() hands the thread to whoever it names with
+        // no membership test of its own -- deliberately, so a cashier keeps
+        // reading their own thread after they leave. That makes a mistyped id
+        // here a stranger reading this shop's support conversation, which is
+        // the one promise this feature makes. Checked against the shop's staff
+        // where the mistake is still cheap.
+        const addressedUserId = body.support?.addressedUserId ?? null;
+        if (addressedUserId && !isUuid(addressedUserId)) {
+          return errorResponse(400, 'unknown', 'addressedUserId is not an id.');
+        }
+        if (addressedUserId && addressedUserId !== shop.owner_id) {
+          const { data: member, error: memberError } = await adminClient
+            .from('shop_members')
+            .select('user_id')
+            .eq('shop_id', body.shopId)
+            .eq('user_id', addressedUserId)
+            .eq('active', true)
+            .maybeSingle();
+          if (memberError) return errorResponse(500, 'unknown', memberError.message);
+          if (!member) return errorResponse(400, 'unknown', 'That person does not work at this shop.');
+        }
+
+        // One request, one transaction (20260825000200). The thread and the
+        // message it is about are the same fact, and two PostgREST calls can
+        // land the first and lose the second on a timeout, a dropped connection
+        // or a killed isolate -- leaving a subject with no body at the top of
+        // the store's list, unanswerable and undeletable by them. The rpc does
+        // the two inserts and the re-read that
+        // support_messages_touch_thread makes necessary; every rule above stays
+        // here, so none of them gets a second copy that can drift.
+        const { data: thread, error: openError } = await adminClient.rpc(
+          'platform_open_support_thread',
+          {
+            p_shop_id: body.shopId,
+            p_category: category,
+            p_subject: subject,
+            p_body: messageBody,
+            p_addressed_user_id: addressedUserId,
+            p_author_user_id: actorId,
+            // Sent as its own value rather than left for the database to work
+            // out from the id, because addressed_user_id is `on delete set
+            // null` and a rule that reads it later reads a different answer
+            // than the one chosen here. This is the only moment the operator's
+            // choice is unambiguous, so it is the moment it gets written down
+            // (20260825000600).
+            p_addressed_scope: addressedUserId ? 'person' : 'store',
+          },
+        );
+        if (openError) return errorResponse(500, 'unknown', openError.message);
+
+        // The id of the message the rpc wrote alongside the thread, so the
+        // composer can hang files off it.
+        //
+        // open_support takes no attachments of its own, and cannot: the storage
+        // path is <shop_id>/<thread_id>/<file> and the thread id does not exist
+        // until the line above. So the composer opens, uploads, then calls
+        // attach_support -- the same three steps the store's compose form has
+        // always taken, and the same failure it already handles (a message that
+        // arrived, with a caveat naming the files that did not).
+        //
+        // Its failure is NOT this action's failure. The thread is written and
+        // the store can read it; answering 500 here would have an operator
+        // retry into a duplicate conversation.
+        const { data: firstMessage } = await adminClient
+          .from('support_messages')
+          .select('id')
+          .eq('thread_id', thread.id)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+        await audit('open_support', body.shopId, null, thread);
+        return ok({ thread, message: firstMessage ?? null });
+      }
+
+      case 'reply_support': {
+        const threadId = body.support?.threadId;
+        if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
+        const messageBody = reason.trim();
+        if (messageLength(messageBody) > MESSAGE_MAX) {
+          return errorResponse(400, 'message_too_long', `That message is ${messageLength(messageBody)} characters; the limit is ${MESSAGE_MAX}.`);
+        }
+
+        const { data: thread, error: loadError } = await adminClient
+          .from('support_threads')
+          .select('*')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (loadError) return errorResponse(500, 'unknown', loadError.message);
+        if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        // Both attachment checks run BEFORE the message is written. A payload
+        // this function is going to refuse must not leave a reply on the thread
+        // first: the store would be told an answer had arrived and the operator
+        // would be told it had not, and the retry would post it twice.
+        const claims = validateAttachments(body.support?.attachments, thread.shop_id, threadId);
+        if (!claims.ok) return claims.response;
+        const resolved = await resolveAttachments(thread.shop_id, threadId, claims.claims);
+        if (!resolved.ok) return resolved.response;
+
+        // Replying reopens a closed thread. support-thread-view.tsx renders the
+        // reply box only while status is 'open', and the touch trigger bumps
+        // last_message_at without touching shop_read_at -- so appending to a
+        // closed thread pins it to the top of the store's list, marked unread,
+        // with no way to answer it. Reopening beats refusing: an operator
+        // writing again means the conversation is alive.
+        //
+        // Before the message rather than after, because the two writes are not
+        // one transaction either way and this order fails better. A reopen that
+        // lands without its message leaves a thread that is open again but has
+        // not moved in the store's list, and the retry writes the message
+        // exactly once. The other order fails into the dead-end message this
+        // guard exists to prevent.
+        const reopened = thread.status === 'closed';
+        if (reopened) {
+          const { error: reopenError } = await adminClient
+            .from('support_threads')
+            .update({ status: 'open' })
+            .eq('id', threadId);
+          if (reopenError) return errorResponse(500, 'unknown', reopenError.message);
+        }
+
+        // author_kind 'platform' is what makes the trigger mark this read for
+        // us and leave it unread for the shop -- it is the whole unread rule,
+        // not a label, so it is set here and never taken from the request.
+        const { data: message, error: messageError } = await adminClient
+          .from('support_messages')
+          .insert({
+            thread_id: threadId,
+            author_kind: 'platform',
+            author_user_id: actorId,
+            body: messageBody,
+          })
+          .select('*')
+          .single();
+        if (messageError) return errorResponse(500, 'unknown', messageError.message);
+
+        // Written after the message because they hang off it, and reported
+        // rather than raised because by now the reply has arrived. A 500 here
+        // would tell an operator their answer failed when the store can already
+        // read it -- and the retry would send it twice, which is the one thing
+        // every guard in this case exists to prevent. The store gets the words
+        // and the operator gets a caveat naming what to send again.
+        let attachments: unknown[] = [];
+        let missedAttachments: string[] = [];
+        if (resolved.rows.length > 0) {
+          const { data: attached, error: attachError } = await adminClient
+            .from('support_attachments')
+            .insert(resolved.rows.map((row) => ({ ...row, message_id: message.id })))
+            .select('*');
+          if (attachError) missedAttachments = resolved.rows.map((row) => String(row.file_name));
+          else attachments = attached ?? [];
+        }
+
+        // Read back only when the status moved, so the audit row's before/after
+        // say that it did. A reply that changes nothing about the thread keeps
+        // the original shape: null before, the message after.
+        let after: unknown = null;
+        if (reopened) {
+          const { data, error: afterError } = await adminClient
+            .from('support_threads')
+            .select('*')
+            .eq('id', threadId)
+            .single();
+          if (afterError) return errorResponse(500, 'unknown', afterError.message);
+          after = data;
+        }
+
+        await audit(
+          'reply_support',
+          thread.shop_id,
+          reopened ? thread : null,
+          reopened ? { thread: after, message, attachments } : { message, attachments },
+        );
+        return ok({ message, attachments, missedAttachments, ...(reopened ? { thread: after } : {}) });
+      }
+
+      // The composer's second step. open_support cannot carry files -- the
+      // storage path needs the thread id it is in the act of creating -- so the
+      // console opens, uploads, and links here.
+      //
+      // Deliberately NOT a general "write a support_attachments row" endpoint:
+      // it refuses any message that is not one of OURS on the named thread. An
+      // operator hanging a file off the STORE's message would make it look, in
+      // the store's own conversation, like they had sent it themselves.
+      case 'attach_support': {
+        const threadId = body.support?.threadId;
+        const messageId = body.support?.messageId;
+        if (!threadId || !messageId) return errorResponse(400, 'unknown', 'threadId and messageId are required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
+        if (!isUuid(messageId)) return errorResponse(400, 'unknown', 'messageId is not an id.');
+
+        const { data: thread, error: threadError } = await adminClient
+          .from('support_threads')
+          .select('id, shop_id')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (threadError) return errorResponse(500, 'unknown', threadError.message);
+        if (!thread) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        const { data: message, error: messageError } = await adminClient
+          .from('support_messages')
+          .select('id, thread_id, author_kind')
+          .eq('id', messageId)
+          .maybeSingle();
+        if (messageError) return errorResponse(500, 'unknown', messageError.message);
+        if (!message || message.thread_id !== threadId) {
+          return errorResponse(404, 'unknown', 'No such message on that conversation.');
+        }
+        if (message.author_kind !== 'platform') {
+          return errorResponse(400, 'unknown', 'A file can only be attached to a message we wrote.');
+        }
+
+        const claims = validateAttachments(body.support?.attachments, thread.shop_id, threadId);
+        if (!claims.ok) return claims.response;
+        if (claims.claims.length === 0) return errorResponse(400, 'unknown', 'No attachments were given.');
+
+        // Counted against what the message ALREADY carries, not just against
+        // this batch. Unlike reply_support -- whose message is one line old and
+        // therefore empty -- this action can be called again on the same
+        // message, so the batch check alone makes "up to 5 per message" a rule
+        // that holds only for callers who ask once. Nothing in the database
+        // enforces the five, so this is the enforcement.
+        const { count: already, error: countError } = await adminClient
+          .from('support_attachments')
+          .select('id', { count: 'exact', head: true })
+          .eq('message_id', messageId);
+        if (countError) return errorResponse(500, 'unknown', countError.message);
+        if ((already ?? 0) + claims.claims.length > MAX_SUPPORT_ATTACHMENTS) {
+          return errorResponse(
+            400,
+            'unknown',
+            `That message already carries ${already ?? 0} files; ${MAX_SUPPORT_ATTACHMENTS} is the limit.`
+          );
+        }
+
+        const resolved = await resolveAttachments(thread.shop_id, threadId, claims.claims);
+        if (!resolved.ok) return resolved.response;
+
+        // Nothing has been written yet, so unlike the reply case a failure here
+        // is a clean refusal the operator can retry without sending anything
+        // twice.
+        const { data: attached, error: attachError } = await adminClient
+          .from('support_attachments')
+          .insert(resolved.rows.map((row) => ({ ...row, message_id: messageId })))
+          .select('*');
+        if (attachError) return errorResponse(500, 'unknown', attachError.message);
+
+        await audit('attach_support', thread.shop_id, null, attached);
+        return ok({ attachments: attached ?? [] });
+      }
+
+      case 'close_support': {
+        const threadId = body.support?.threadId;
+        if (!threadId) return errorResponse(400, 'unknown', 'threadId is required.');
+        if (!isUuid(threadId)) return errorResponse(400, 'unknown', 'threadId is not an id.');
+
+        // Read for the audit row's `before` and to tell a missing conversation
+        // from an already-closed one. It is NOT the guard: read-then-write is
+        // two statements, and two operators with the queue open both read
+        // 'open' and both write -- the second audit row carrying a different
+        // operator's words against a change that did not happen, which is the
+        // duplicate the 409 exists to prevent.
+        const { data: before, error: beforeError } = await adminClient
+          .from('support_threads')
+          .select('*')
+          .eq('id', threadId)
+          .maybeSingle();
+        if (beforeError) return errorResponse(500, 'unknown', beforeError.message);
+        if (!before) return errorResponse(404, 'unknown', 'No such conversation.');
+
+        // The guard is the WHERE: one statement decides and writes, so the
+        // second operator matches no row and hears already_closed -- the same
+        // refusal approve_plan_change's already_decided gives, and now for the
+        // simultaneous case as well as the sequential one.
+        const { data: after, error: updateError } = await adminClient
+          .from('support_threads')
+          .update({ status: 'closed' })
+          .eq('id', threadId)
+          .eq('status', 'open')
+          .select('*')
+          .maybeSingle();
+        if (updateError) return errorResponse(500, 'unknown', updateError.message);
+        if (!after) {
+          return errorResponse(409, 'already_closed', 'That conversation is already closed.');
+        }
+
+        await audit('close_support', before.shop_id, before, after);
+        return ok({ thread: after });
       }
 
       case 'delete_shop': {

@@ -24,10 +24,13 @@ export function ShopDrawer({
   shop,
   plans,
   onDone,
+  onMessage,
 }: {
   shop: PlatformShopRow;
   plans: Plan[];
   onDone: () => Promise<void>;
+  /** Closes this drawer and opens the outbound composer with this store filled in. */
+  onMessage: () => void;
 }) {
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,6 +82,15 @@ export function ShopDrawer({
           created {shop.createdAt.slice(0, 10)} · {shop.planName}
         </Text>
       </View>
+
+      {/* Above Actions and outside it on purpose. Everything under that label
+          is gated on the reason field, and writing to a store is not: the
+          message body is its own justification, which is what platform-admin
+          records for open_support. Grouping it there would imply a gate that
+          is not there, and disable a button nothing is stopping. */}
+      <ActionRow style={styles.row}>
+        <PlatformButton label="✉ Message this store" quiet onPress={onMessage} />
+      </ActionRow>
 
       <SectionLabel>Usage</SectionLabel>
       {LIMIT_RESOURCES.map((r) => {

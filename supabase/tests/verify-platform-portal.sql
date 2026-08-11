@@ -12,19 +12,41 @@ do $$
 declare
   v_operator uuid := gen_random_uuid();
   v_owner    uuid := gen_random_uuid();
-  v_shop_id  uuid;
+  -- Somebody who has never written to support. support_author_profiles()
+  -- (20260825000400, replacing the profiles policy 20260825000300 added) is
+  -- only narrow if this person stays invisible.
+  v_quiet    uuid := gen_random_uuid();
+  -- Replies to the thread but never opens one -- support_threads.
+  -- author_user_id never names them. 20260825000400 widened the function to
+  -- reach support_messages.author_user_id too, and this is the person that
+  -- widening is for.
+  v_replier  uuid := gen_random_uuid();
+  v_shop_id   uuid;
+  v_thread_id uuid;
   v_count    integer;
   v_raised   boolean;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at) values
     (v_operator, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'op-'   || v_operator || '@example.test', '', now(), now(), now()),
-    (v_owner,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'shop-' || v_owner    || '@example.test', '', now(), now(), now());
+    (v_owner,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'shop-' || v_owner    || '@example.test', '', now(), now(), now()),
+    (v_quiet,    '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'quiet-'|| v_quiet    || '@example.test', '', now(), now(), now()),
+    (v_replier,  '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'reply-'|| v_replier  || '@example.test', '', now(), now(), now());
 
   insert into public.shops (owner_id, name) values (v_owner, 'Portal Verify Shop') returning id into v_shop_id;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_id, 'Main', true);
   insert into public.products (shop_id, name, price_cents) values (v_shop_id, 'Portal Verify Product', 999);
 
   insert into public.platform_admins (user_id, role, note) values (v_operator, 'owner', 'verify');
+
+  -- The owner writes in; the quiet user never does. That difference is the
+  -- whole of the profiles-reach question below.
+  insert into public.support_threads (shop_id, opened_by, author_user_id, category, subject)
+    values (v_shop_id, 'shop', v_owner, 'billing', 'Portal Verify Thread')
+    returning id into v_thread_id;
+
+  -- The replier's only trace is a message, not the thread's own author_user_id.
+  insert into public.support_messages (thread_id, author_kind, author_user_id, body)
+    values (v_thread_id, 'shop', v_replier, 'Same thread, different person.');
 
   -- ------------------------------------------------- 1. MFA is not optional
   -- A stolen password gets an aal1 session. That must be worth nothing.
@@ -72,6 +94,37 @@ begin
   if v_count <> 0 then raise exception 'FAIL: an operator can read shifts'; end if;
   select count(*) into v_count from public.shop_members;
   if v_count <> 0 then raise exception 'FAIL: an operator can read the staff roster'; end if;
+
+  -- ...and, through support_author_profiles() (20260825000400), exactly the
+  -- two people who wrote to this thread: the one who opened it and the one
+  -- who only replied. The console has to be able to say WHO is stuck, not
+  -- only which shop, and answering a thread without a name or a number to
+  -- call back is most of the job missing. Writing to support is what puts a
+  -- profile in reach, so someone who never has stays invisible -- if the
+  -- v_quiet count below ever returns a row, that reach stopped being narrow.
+  select count(*) into v_count from public.support_author_profiles(array[v_owner]);
+  if v_count <> 1 then
+    raise exception 'FAIL: an operator cannot read the profile of a support thread''s opener';
+  end if;
+  select count(*) into v_count from public.support_author_profiles(array[v_replier]);
+  if v_count <> 1 then
+    raise exception 'FAIL: an operator cannot read the profile of a support thread''s replier';
+  end if;
+  select count(*) into v_count from public.support_author_profiles(array[v_quiet]);
+  if v_count <> 0 then
+    raise exception 'FAIL: an operator read the profile of someone who never wrote to support';
+  end if;
+
+  -- The path this replaced: profiles carries one column-unrestricted select
+  -- grant to `authenticated` (0003_grants), and the RLS policy that used to
+  -- authorise a third-party row read (20260825000300) was dropped rather than
+  -- narrowed, precisely because a row-scoped policy could not stop that grant
+  -- handing back role and password_changed_at along with the name and phone
+  -- the console shows. If this ever returns a row, that door reopened.
+  select count(*) into v_count from public.profiles where id = v_owner;
+  if v_count <> 0 then
+    raise exception 'FAIL: an operator can read a support author straight off the profiles table';
+  end if;
 
   -- ------------------------------ 4. no self-service privilege escalation
   -- Every mutation must go through the platform-admin edge function, which

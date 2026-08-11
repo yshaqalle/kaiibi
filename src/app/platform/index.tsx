@@ -10,6 +10,8 @@ import { RequestsTab } from '@/components/platform/requests-tab';
 import { SettingsTab } from '@/components/platform/settings-tab';
 import { ShopDrawer } from '@/components/platform/shop-drawer';
 import { ShopsTab } from '@/components/platform/shops-tab';
+import { SupportComposeModal, SupportTab } from '@/components/platform/support-tab';
+import { Caveat } from '@/components/ui/caveat';
 import { TabPills } from '@/components/ui/tab-pills';
 import { useAuth } from '@/hooks/use-auth';
 import { signOut } from '@/lib/auth';
@@ -23,11 +25,13 @@ import {
   listPendingPlanRequests,
   listPlatformShops,
   listSubscriptionPayments,
+  listSupportThreads,
   type PendingPlanRequest,
   type PlatformAuditRow,
   type PlatformOperator,
   type PlatformSettings,
   type PlatformShopRow,
+  type PlatformSupportThread,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listPlansForPlatform, type Plan } from '@/lib/subscriptions';
@@ -49,7 +53,7 @@ const theme = Colors.light;
 // bento screen uses, and the header row is the accounting recipe exactly:
 // eyebrow, 26px title, blurb, controls right.
 
-type Tab = 'overview' | 'shops' | 'requests' | 'plans' | 'audit' | 'operators' | 'settings';
+type Tab = 'overview' | 'shops' | 'requests' | 'support' | 'plans' | 'audit' | 'operators' | 'settings';
 
 // The blurb says what the tab is FOR. Overview's is computed from the data and
 // published up by the tab itself, so the sentence an operator reads first is
@@ -58,6 +62,7 @@ const TABS: { key: Tab; label: string; blurb: string }[] = [
   { key: 'overview', label: 'Overview', blurb: 'Is the business growing, is money arriving, who needs a conversation today.' },
   { key: 'shops', label: 'Stores', blurb: 'Every business on Kaiibi, what they pay, and what they are using.' },
   { key: 'requests', label: 'Requests', blurb: 'Tier changes waiting on a decision. Approving one moves what a store can do.' },
+  { key: 'support', label: 'Support', blurb: 'Every conversation with a store — what is broken, who is stuck, and anything we need to tell them.' },
   { key: 'plans', label: 'Plans', blurb: 'What each tier includes, withholds, and caps — and who is on it.' },
   { key: 'audit', label: 'Audit log', blurb: 'Every operator action, who took it, and why. Append-only.' },
   { key: 'operators', label: 'Operators', blurb: 'Who can reach this portal at all.' },
@@ -73,13 +78,28 @@ export default function PlatformHome() {
   const [operators, setOperators] = useState<PlatformOperator[]>([]);
   const [requests, setRequests] = useState<PendingPlanRequest[]>([]);
   const [payments, setPayments] = useState<SubscriptionPaymentRow[]>([]);
+  const [supportThreads, setSupportThreads] = useState<PlatformSupportThread[]>([]);
+  // True when the queue's own 200-row cap (src/lib/platform.ts) came back
+  // full. Told to the operator rather than left to look like a short queue.
+  const [supportTruncated, setSupportTruncated] = useState(false);
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   // When the data on screen was fetched. Passed to the Overview so every
   // figure is measured against one instant, and so nothing reads the clock
   // during render.
   const [loadedAt, setLoadedAt] = useState(() => Date.now());
   const [selected, setSelected] = useState<string | null>(null);
+  // The outbound composer, opened from two places — the Support tab's New
+  // message button and a store's drawer. One piece of state rather than a
+  // `visible` flag beside a shop id, so "open, addressed to nobody" is the only
+  // empty state there is and the two cannot disagree. Null shopId is a composer
+  // opened with no store picked yet, which is what New message does.
+  const [composing, setComposing] = useState<{ shopId: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
+  // Set when a load throws. support_threads and its profiles read are days
+  // old next to the other five queries' months, so this is the read most
+  // likely to fail first -- and a thrown error with nothing catching it used
+  // to leave every tab, not just Support, on a spinner with no explanation.
+  const [error, setError] = useState<string | null>(null);
   // Published by the Overview once it has counted the money. Held here so it
   // can sit in the header beside the title.
   const [headline, setHeadline] = useState<string | null>(null);
@@ -92,35 +112,49 @@ export default function PlatformHome() {
   // replacing the operator's screen with a spinner and losing their scroll
   // position mid-task.
   const reload = useCallback(async () => {
-    // Plans and settings first, alone: listPlatformShops needs the plans to
-    // resolve a retired plan to its successor, and needs post_trial_plan_key to
-    // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
-    // run in the same batch as the shops read.
-    const [planRows, settingsRow] = await Promise.all([listPlansForPlatform(), getPlatformSettings()]);
-    // Active only, everywhere but the Plans tab's archived strip: the overview
-    // donut indexes colours by array position, the retire/fallback pickers and
-    // set_plan must never offer an archived plan, and listPlatformShops
-    // resolves successors -- which are never archived (archive_plan refuses a
-    // referenced plan). Today's behaviour, unchanged, with the archived rows
-    // carried separately.
-    const activePlans = planRows.filter((p) => p.active);
-    const [shopRows, auditRows, operatorRows, requestRows, paymentRows] = await Promise.all([
-      listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
-      listAuditLog(),
-      listOperators(),
-      listPendingPlanRequests(),
-      listSubscriptionPayments(),
-    ]);
-    setShops(shopRows);
-    setPlans(activePlans);
-    setArchivedPlans(planRows.filter((p) => !p.active));
-    setAudit(auditRows);
-    setOperators(operatorRows);
-    setRequests(requestRows);
-    setPayments(paymentRows);
-    setSettings(settingsRow);
-    setLoadedAt(Date.now());
-    setLoading(false);
+    setError(null);
+    try {
+      // Plans and settings first, alone: listPlatformShops needs the plans to
+      // resolve a retired plan to its successor, and needs post_trial_plan_key to
+      // mirror shop_effective_plan()'s expired/suspended branch -- so neither can
+      // run in the same batch as the shops read.
+      const [planRows, settingsRow] = await Promise.all([listPlansForPlatform(), getPlatformSettings()]);
+      // Active only, everywhere but the Plans tab's archived strip: the overview
+      // donut indexes colours by array position, the retire/fallback pickers and
+      // set_plan must never offer an archived plan, and listPlatformShops
+      // resolves successors -- which are never archived (archive_plan refuses a
+      // referenced plan). Today's behaviour, unchanged, with the archived rows
+      // carried separately.
+      const activePlans = planRows.filter((p) => p.active);
+      const [shopRows, auditRows, operatorRows, requestRows, paymentRows, supportResult] = await Promise.all([
+        listPlatformShops(activePlans, settingsRow.postTrialPlanKey),
+        listAuditLog(),
+        listOperators(),
+        listPendingPlanRequests(),
+        listSubscriptionPayments(),
+        listSupportThreads(),
+      ]);
+      setShops(shopRows);
+      setPlans(activePlans);
+      setArchivedPlans(planRows.filter((p) => !p.active));
+      setAudit(auditRows);
+      setOperators(operatorRows);
+      setRequests(requestRows);
+      setPayments(paymentRows);
+      setSupportThreads(supportResult.threads);
+      setSupportTruncated(supportResult.truncated);
+      setSettings(settingsRow);
+      setLoadedAt(Date.now());
+    } catch (err) {
+      // Surfaced, not swallowed: an operator staring at a blank console has no
+      // way to tell "no data" from "something broke" unless this says which.
+      setError(err instanceof Error ? err.message : 'Something went wrong loading the console.');
+    } finally {
+      // Always runs, thrown or not -- the bug this fixes was every tab, not
+      // only Support, stuck on a permanent spinner because one read among six
+      // failed above this line.
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -134,6 +168,12 @@ export default function PlatformHome() {
 
   const body = loading ? (
     <ActivityIndicator style={styles.spinner} />
+  ) : error ? (
+    <View style={styles.errorState}>
+      <Caveat tone="wrong" action={{ label: 'Try again', onPress: reload }}>
+        {`Could not load the console: ${error}`}
+      </Caveat>
+    </View>
   ) : tab === 'overview' ? (
     <PlatformOverview
       shops={shops}
@@ -151,6 +191,17 @@ export default function PlatformHome() {
     <ShopsTab shops={shops} plans={plans} compact={compact} selected={selected} onSelect={setSelected} />
   ) : tab === 'requests' ? (
     <RequestsTab requests={requests} shops={shops} onDone={reload} />
+  ) : tab === 'support' ? (
+    <SupportTab
+      threads={supportThreads}
+      shops={shops}
+      payments={payments}
+      now={loadedAt}
+      truncated={supportTruncated}
+      compact={compact}
+      onDone={reload}
+      onCompose={() => setComposing({ shopId: null })}
+    />
   ) : tab === 'plans' ? (
     <PlansTab
       plans={plans}
@@ -245,7 +296,29 @@ export default function PlatformHome() {
           scrolling to find what you had just clicked. */}
       {selectedShop ? (
         <PlatformModal title={selectedShop.shopName} compact={compact} onClose={() => setSelected(null)}>
-          <ShopDrawer shop={selectedShop} plans={plans} onDone={reload} />
+          <ShopDrawer
+            shop={selectedShop}
+            plans={plans}
+            onDone={reload}
+            // Closes the drawer as it opens the composer: two stacked modals on
+            // a tablet leave the operator dismissing a sheet they cannot see
+            // the edges of, and the composer carries the store forward anyway.
+            onMessage={() => {
+              setSelected(null);
+              setComposing({ shopId: selectedShop.shopId });
+            }}
+          />
+        </PlatformModal>
+      ) : null}
+
+      {composing ? (
+        <PlatformModal title="New message" compact={compact} onClose={() => setComposing(null)}>
+          <SupportComposeModal
+            shops={shops}
+            initialShopId={composing.shopId}
+            onDone={reload}
+            onClose={() => setComposing(null)}
+          />
         </PlatformModal>
       ) : null}
     </SafeAreaView>
@@ -417,4 +490,5 @@ const styles = StyleSheet.create({
   blurb: { color: theme.bentoMuted, fontSize: 13, marginTop: 3, maxWidth: 680 },
 
   spinner: { marginTop: 40 },
+  errorState: { marginTop: 40 },
 });

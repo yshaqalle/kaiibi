@@ -1,0 +1,324 @@
+<title>Kaiibi — Your messages: the flash, and a list worth reading</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; } }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+  .doc{ --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accentWash:#e6edff; --accentInk:#1b47b8; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,38px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:62ch;margin:0 0 24px;}
+  h2{font-size:20px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:72ch;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:#c0392b;} .frameHead.good b{color:#0f7a45;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;color:var(--d-ink);}
+  .row2{display:grid;gap:20px;} @media(min-width:900px){.row2{grid-template-columns:1fr 1fr;}}
+  .row3{display:grid;gap:14px;} @media(min-width:900px){.row3{grid-template-columns:1fr 1fr 1fr;}}
+  .row2>div,.row3>div{min-width:0;}
+
+  .sheet{background:var(--d-sf);border-radius:22px;overflow:hidden;max-width:430px;}
+  .sHead{padding:16px 18px 13px;border-bottom:1px solid var(--d-ln);display:flex;justify-content:space-between;gap:12px;}
+  .sTitle{font-size:17px;font-weight:800;letter-spacing:-.35px;color:var(--d-ink);margin:0;}
+  .sSub{font-size:12px;color:var(--d-mut);margin:3px 0 0;}
+  .x{font-size:14px;color:var(--d-mut);}
+  .sBody{padding:14px 18px 16px;}
+
+  /* current bare row */
+  .bare{padding:13px 0;border-top:1px solid var(--d-rule);}
+  .bare:first-child{border-top:none;}
+  .bareT{font-size:13.5px;font-weight:700;color:var(--d-ink);}
+  .bareR{font-size:11px;color:var(--d-mut2);}
+
+  /* redesigned row */
+  .conv{display:flex;gap:11px;padding:12px 0;border-top:1px solid var(--d-rule);align-items:flex-start;}
+  .conv:first-of-type{border-top:none;}
+  .dot{width:8px;height:8px;border-radius:4px;margin-top:6px;flex-shrink:0;background:transparent;}
+  .dot.on{background:var(--c1);}
+  .cMain{flex:1;min-width:0;}
+  .cTop{display:flex;align-items:baseline;gap:8px;}
+  .cSubj{font-size:13.5px;font-weight:700;color:var(--d-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cSubj.unread{font-weight:800;}
+  .cWhen{margin-left:auto;font-size:10.5px;color:var(--d-mut2);flex-shrink:0;}
+  .cPrev{font-size:12px;color:var(--d-mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cPrev b{color:var(--d-ink2);font-weight:700;}
+  .cMeta{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap;}
+
+  .chip{font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;
+    background:var(--d-soft);color:var(--d-mut2);white-space:nowrap;}
+  .chip.acc{background:var(--accentWash);color:var(--accentInk);}
+  .chip.ok{background:#d9efe4;color:#007a38;}
+  .chip.mut{background:transparent;color:var(--d-mut2);padding:2px 0;}
+  .ref{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10px;color:var(--d-mut2);}
+
+  .grp{font-size:9.5px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+    color:var(--d-mut2);margin:16px 0 2px;}
+  .grp:first-child{margin-top:0;}
+
+  .newBtn{margin-top:16px;border:1px solid var(--d-rule);border-radius:999px;padding:11px;
+    text-align:center;font-size:13px;font-weight:800;color:var(--d-ink2);}
+  .newBtn.solid{background:var(--d-ink);border-color:var(--d-ink);color:#fff;}
+
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:14px;}
+  .cav.wrong{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav .i{font-size:13px;} .cav .t{font-size:12px;line-height:1.45;}
+  .cav .t b{font-weight:800;}
+
+  .flash{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:11px;color:var(--d-mut2);}
+  .tick{flex:1;height:5px;border-radius:3px;background:var(--d-soft);position:relative;overflow:hidden;}
+  .tick i{position:absolute;inset:0 auto 0 0;border-radius:3px;}
+  .tick i.a{width:38%;background:var(--loss);}
+  .tick i.b{left:38%;width:62%;background:var(--profit);}
+  .tick.good i.b{left:0;width:100%;}
+
+  .sql{background:var(--d-soft);border-radius:10px;padding:11px 13px;margin-top:11px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--d-ink2);
+    overflow-x:auto;white-space:pre;}
+  .sql .hl{background:#fdecee;color:#a11726;border-radius:3px;padding:0 3px;}
+  .sql .hl2{background:#d9efe4;color:#00552a;border-radius:3px;padding:0 3px;}
+
+  .fix{border:1px solid var(--ln);border-left:4px solid #0f9d58;border-radius:12px;
+    padding:13px 16px;margin-top:18px;background:var(--sf);}
+  .fix b{display:block;font-size:13px;margin-bottom:4px;}
+  .fix p{margin:0 0 8px;font-size:13.5px;color:var(--ink2);} .fix p:last-child{margin-bottom:0;}
+  hr{border:none;border-top:1px solid var(--ln);margin:50px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · Help &amp; support · two fixes</p>
+<h1>Your messages</h1>
+<p class="lede">Two things: the flicker when the sheet opens is not a bug in the sheet, it is the sheet
+opening on the wrong screen and correcting itself. And the list it lands on does not tell anyone
+enough to choose a conversation — so they start a new one.</p>
+
+<!-- ===================================================================== -->
+<section>
+<h2>1 · The flash — it never closes, it changes its mind</h2>
+<p class="h2sub">Pressing <b>Read</b> looks like the sheet opens and shuts. It does not. It opens on the
+compose form, then swaps to the list a moment later when it finds out you have unread messages.</p>
+
+<div class="row3 doc">
+  <div>
+    <p class="frameHead bad"><b>Frame 1 — instantly</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sHead"><div><p class="sTitle">Help &amp; support</p>
+          <p class="sSub">Tell us what's going on…</p></div><span class="x">✕</span></div>
+        <div class="sBody">
+          <div style="height:9px;background:var(--d-soft);border-radius:4px;width:45%;"></div>
+          <div style="height:34px;background:var(--d-soft);border-radius:10px;margin-top:9px;"></div>
+          <div style="height:9px;background:var(--d-soft);border-radius:4px;width:30%;margin-top:12px;"></div>
+          <div style="height:60px;background:var(--d-soft);border-radius:10px;margin-top:9px;"></div>
+        </div>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:9px;color:var(--d-mut);">The <b>new request</b>
+      form — because <code>view</code> starts as <code>compose</code>.</p>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead bad"><b>Frame 2 — a moment later</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sHead"><div><p class="sTitle">Your messages</p></div><span class="x">✕</span></div>
+        <div class="sBody">
+          <div class="bare"><div class="bareT">QA scanner stops a</div><div class="bareR">KB-2001</div></div>
+          <div class="bare"><div class="bareT">Hi</div><div class="bareR">KB-2003</div></div>
+        </div>
+      </div>
+      <p class="note" style="font-size:11.5px;margin-top:9px;color:var(--d-mut);">The fetch landed, found
+      something unread, and switched.</p>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead"><b>Why you see it</b></p>
+    <div class="frame">
+      <div class="sql">// today
+useState({ name: <span class="hl">'compose'</span> })   ← paints
+  ↓ listMyThreads() resolves
+setView({ name: 'list' })      ← repaints
+
+// closing does it in reverse
+close() {
+  setView({ name: <span class="hl">'compose'</span> })  ← flips
+  onClose()                    ← then fades
+}</div>
+      <div class="cav wrong"><span class="i">⚠</span><span class="t">The sheet is deciding <b>after</b>
+      it is already on screen. Same on the way out — it flips to the form and <em>then</em> fades, so you
+      watch it change into something you did not ask for as it leaves.</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="row2 doc" style="margin-top:22px;">
+  <div>
+    <p class="frameHead bad"><b>Now</b></p>
+    <div class="frame">
+      <div class="flash"><span>tap</span><span class="tick"><i class="a"></i><i class="b"></i></span><span>settled</span></div>
+      <p class="note" style="font-size:12px;margin-top:8px;color:var(--d-mut);">Wrong screen, then right
+      screen. Two paints, and the reader saw both.</p>
+    </div>
+  </div>
+  <div>
+    <p class="frameHead good"><b>Next</b></p>
+    <div class="frame">
+      <div class="flash"><span>tap</span><span class="tick good"><i class="b"></i></span><span>settled</span></div>
+      <p class="note" style="font-size:12px;margin-top:8px;color:var(--d-mut);">One paint. Nothing is
+      shown until it is the thing you asked for.</p>
+    </div>
+  </div>
+</div>
+
+<div class="fix">
+  <b>The fix</b>
+  <p><b>Opening:</b> start on a settled view rather than a guess. The banner's <b>Read</b> already knows
+  you have unread messages, so it should open the sheet <em>on the list</em> — pass the intended view in
+  rather than letting the sheet work it out afterwards. Where it genuinely cannot know (the ☰ row on a
+  cold open), hold the body blank until the fetch answers; the sheet's frame and title can paint
+  immediately, so there is no perceived delay.</p>
+  <p><b>Closing:</b> stop resetting the view before the fade. Reset when the sheet next opens, not on the
+  way out, so it disappears as whatever you were looking at.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>2 · The list does not say enough to pick from</h2>
+<p class="h2sub">Two lines per conversation — a truncated subject and a reference number. Nothing about
+who spoke last, when, whether it is answered, or what it was about.</p>
+
+<div class="row2 doc">
+  <div>
+    <p class="frameHead bad"><b>Now</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sHead"><div><p class="sTitle">Your messages</p></div><span class="x">✕</span></div>
+        <div class="sBody">
+          <div class="bare"><div class="bareT">QA banner read bug repro</div><div class="bareR">KB-2004</div></div>
+          <div class="bare"><div class="bareT">Hi</div><div class="bareR">KB-2003</div></div>
+          <div class="bare"><div class="bareT">QA scanner stops a</div><div class="bareR">KB-2001</div></div>
+          <div class="newBtn solid">New request</div>
+        </div>
+      </div>
+      <div class="cav wrong"><span class="i">⚠</span><span class="t"><b>The only strong thing on screen
+      is “New request”.</b> Nothing says an answer is waiting, so the natural move is to file a second
+      report about the same problem — which is how one question becomes three threads.</span></div>
+    </div>
+  </div>
+
+  <div>
+    <p class="frameHead good"><b>Next</b></p>
+    <div class="frame">
+      <div class="sheet">
+        <div class="sHead"><div><p class="sTitle">Your messages</p>
+          <p class="sSub">1 waiting on you</p></div><span class="x">✕</span></div>
+        <div class="sBody">
+
+          <p class="grp">Waiting on you</p>
+          <div class="conv">
+            <span class="dot on"></span>
+            <div class="cMain">
+              <div class="cTop"><span class="cSubj unread">Scanner stops after a refund</span>
+                <span class="cWhen">2h</span></div>
+              <div class="cPrev"><b>Kaiibi:</b> Found it — the refund sheet was holding focus…</div>
+              <div class="cMeta"><span class="chip acc">New reply</span><span class="chip">Broken · POS</span>
+                <span class="ref">KB-2001</span></div>
+            </div>
+          </div>
+
+          <p class="grp">Open</p>
+          <div class="conv">
+            <span class="dot"></span>
+            <div class="cMain">
+              <div class="cTop"><span class="cSubj">Paid on ZAAD, still showing unpaid</span>
+                <span class="cWhen">Sat</span></div>
+              <div class="cPrev"><b>You:</b> Sent 45,000 SLSH from 063 442 1180…</div>
+              <div class="cMeta"><span class="chip">Waiting for us</span><span class="chip">Billing</span>
+                <span class="ref">KB-2003</span></div>
+            </div>
+          </div>
+
+          <p class="grp">Closed</p>
+          <div class="conv" style="opacity:.6;">
+            <span class="dot"></span>
+            <div class="cMain">
+              <div class="cTop"><span class="cSubj">Can we print two receipts?</span>
+                <span class="cWhen">12 Jul</span></div>
+              <div class="cPrev"><b>Kaiibi:</b> Not yet — I've added it to the list.</div>
+              <div class="cMeta"><span class="chip ok">Resolved</span><span class="chip">Feature</span>
+                <span class="ref">KB-2004</span></div>
+            </div>
+          </div>
+
+          <div class="newBtn">＋ New request</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:20px;"><b>What each row now answers.</b> A dot and a heavier subject for
+unread. A one-line preview of the last message, prefixed by who wrote it — so you can tell an answer from
+your own words without opening it. A relative time. A status chip saying whose move it is, and the
+category, so a person with several open threads can tell them apart. The reference drops to the end,
+where it belongs: it matters on a phone call, not while scanning.</p>
+
+<p class="note"><b>Grouped, not just sorted.</b> <em>Waiting on you</em> first, then <em>Open</em>, then
+<em>Closed</em> — the same whose-move-it-is idea the operator's queue already uses, so both ends of the
+conversation are organised by the same question.</p>
+
+<p class="note"><b>“New request” is demoted to an outline button</b> and moved under the list. It is still
+one tap, but it is no longer the loudest thing on the screen. That inversion is the actual fix for
+duplicate tickets: today the list looks like a receipt and the button looks like the action.</p>
+
+<div class="fix">
+  <b>What this needs that we do not already have</b>
+  <p>Everything except the preview line is already loaded — status, category, `lastMessageAt` and the
+  unread comparison all live on `SupportThread` today. The preview needs the last message's body and
+  author, which means either a small denormalised column updated by the existing
+  <code>touch_support_thread()</code> trigger, or a second query. The trigger already writes on every
+  message, so adding <code>last_message_preview</code> and <code>last_author_kind</code> there is
+  cheap and keeps the list to one round trip.</p>
+</div>
+</section>
+
+<!-- ===================================================================== -->
+<section>
+<h2>3 · One more, found while testing</h2>
+<p class="h2sub">Not what you reported, but it is in the same surface and it is small.</p>
+<div class="doc"><div class="frame">
+  <div class="cav context"><span class="i">ⓘ</span><span class="t"><b>Dismissing the banner is
+  permanent.</b> Pressing ✕ hides it for the session — but it stays hidden even when a <em>new</em>
+  message arrives afterwards, while the ☰ badge keeps counting. Confirmed on device. The dismissal
+  should be remembered against the count it dismissed, so a later message brings the banner back.</span></div>
+</div></div>
+</section>
+
+<hr>
+<p class="note" style="margin-top:22px;color:var(--mut);font-size:12.5px;">Frames render the light palette
+because the app pins <code>Colors.light</code>; the page around them follows your system theme.</p>
+
+</div>
