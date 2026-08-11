@@ -160,7 +160,7 @@ between Requests and Plans, with an unread badge on its pill. Implementation liv
 
 ### 2.1 The queue
 
-A KPI strip (open, billing waiting, median first reply, feature requests all time), then the
+A KPI strip (open, billing waiting, all-time conversations), then the
 conversation list with category filter chips and a **New message** button.
 
 Four states, each naming **whose move it is** — sorting by that rather than by age is what keeps
@@ -179,7 +179,7 @@ A thread whose sender asked for WhatsApp carries a green **Wants WhatsApp** chip
 
 Two columns: the conversation and reply box on the left, a context rail on the right carrying
 
-- **Who this is** — store, person, role, WhatsApp (with an **Open chat** button), email
+- **Who this is** — store, person, WhatsApp (with an **Open chat** button)
 - **Money** — plan, renewal date, last payment, whether it matched, and a link into Stores
 - **Sent from** — app version, device, screen, branch
 
@@ -200,7 +200,7 @@ Same composer with the fields flipped: a recipient row instead of an identity st
 - **Category** — a shorter list than the store's: Billing, Their account, A problem we found,
   Something's changed, Something else. An operator never files a feature request or a hardware
   fault against a store.
-- Subject, message, attachments, and a **Preview as the store** control.
+- Subject, message and attachments.
 
 Also reachable as **Message this store** from `ShopDrawer`, pre-filled — an operator noticing
 something wrong shouldn't have to change tabs and search for the store they're looking at.
@@ -345,6 +345,15 @@ to `src/app/platform/index.tsx` for the tab, one to `shop-drawer.tsx` for **Mess
   a thing to replace later, not a thing that quietly scales.
 - **Attachments are re-picked after a restart**, since file URIs don't survive one.
 - **No broadcast.** By choice, §2.3.
+- **No unread badge on the console tab.** Decided against on 2026-08-10, drawn in
+  `docs/design/support-console-badge-mockup.html`. The queue sorts by whose move it is, so
+  everything waiting on an operator is already at the top of the list the moment the tab loads —
+  the badge's only job would be telling them to come there. It also introduces a "read" concept
+  the system does not otherwise have, and a badge that drifts from the list it describes is worse
+  than none. Revisit when a second operator exists, or when things start being missed.
+- **A failed reply can orphan an uploaded file.** The upload lands before the message row, and
+  the bucket has no lifecycle rule, so an object can outlive the message it was for. Costs
+  storage, leaks nothing — the object is still gated by the thread's own visibility.
 
 ### Changed during implementation
 
@@ -360,3 +369,20 @@ to `src/app/platform/index.tsx` for the tab, one to `shop-drawer.tsx` for **Mess
 - **The dark unread banner is still unseen.** Producing one needs an operator reply, so it was
   outside the store-side pass. Its wash measures 1.37:1 against the black header, which is a
   card edge nobody will perceive; its text measures 7.40:1 on that wash and is fine.
+- **The rail shows no role or email, and the KPI strip has no median-first-reply tile.** Both
+  were in the original §2.1/§2.2 and both asked for something the design rules out: the console
+  is deliberately forbidden from reading a shop's staff list (`verify-platform-portal.sql`
+  asserts an operator reads zero `shop_members` rows), and nothing records when a thread was
+  first answered, so there is no figure to compute. The spec was wrong, not the code; those
+  sections have been corrected rather than the tiles built.
+- **No "Preview as the store" control.** Dropped from §2.3. An operator writing one paragraph
+  rarely needs to see it framed, and it is the kind of control that has to be maintained in step
+  with the store's sheet forever.
+- **The "Email" reply preference was removed.** A store could pick it and was told we would nudge
+  them there, but no operator surface shows an email and `support_author_profiles()` returns only
+  `(id, full_name, phone)` — so nothing could act on it. The stored value stays in the check
+  constraint and the TypeScript union; it is simply no longer offered.
+- **A thread's audience is stored, not inferred.** `addressed_scope` (`'store'` | `'person'`)
+  replaced the original rule of reading scope off `addressed_user_id is null`. That column is
+  `on delete set null`, so deleting an addressee silently promoted an owner-only thread into one
+  every `settings.access` holder could read. Migration `20260825000600`.
