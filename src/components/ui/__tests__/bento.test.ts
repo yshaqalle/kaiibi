@@ -1,4 +1,4 @@
-import { bentoCellFraction } from '@/components/ui/bento';
+import { bentoCellFraction, MIN_TILE } from '@/components/ui/bento';
 
 // The grid widths real devices hand the bento: the window, less the ~210pt
 // admin sidebar where the nav shell draws one, less 36pt of page padding, PLUS
@@ -13,6 +13,11 @@ const GRID = {
   proPortrait: 792,
   miniLandscape: 901,
   proLandscape: 1134,
+  // A browser at 1440 and one at 1508, both full-screen with the sidebar out:
+  // the two widths the Overview band is actually read at, and the pair that
+  // `MIN_TILE` exists for.
+  laptop: 1198,
+  laptopWide: 1266,
   desktop: 2163,
 };
 
@@ -90,6 +95,52 @@ describe('bentoCellFraction', () => {
     expect(cardWidth(2, GRID.proPortrait)).toBeGreaterThanOrEqual(MIN_CARD);
     // ...and on the landscape iPad, where it came out 187pt and broke "Revenue".
     expect(cardWidth(2, GRID.proLandscape)).toBeGreaterThanOrEqual(MIN_CARD);
+  });
+
+  // The bug this pins: the Overview band is one strip of five, and it only ever
+  // read as one at 85% browser zoom. At 100% on the same window the three small
+  // cells were 197pt cards judged against a 240 floor written for cards with
+  // sentences in them, so all three stepped up to a third and two wrapped under
+  // the other three.
+  it('keeps the Overview band in one row on a laptop once the tiles carry their own floor', () => {
+    for (const grid of [GRID.laptop, GRID.laptopWide]) {
+      // Today's floor is what broke it, and that has to stay true or the test
+      // is passing on a width where nothing was ever wrong.
+      expect(bentoCellFraction(2, grid)).toBeCloseTo(1 / 3, 5);
+      expect(bentoCellFraction(2, grid, MIN_TILE)).toBeCloseTo(1 / 6, 5);
+
+      const band =
+        bentoCellFraction(3, grid) * 2 + bentoCellFraction(2, grid, MIN_TILE) * 3;
+      expect(band).toBeCloseTo(1, 5);
+    }
+  });
+
+  // A lower floor is a claim about the tile's contents, not a licence to shrink
+  // without limit: below the laptop widths the band still steps up and wraps,
+  // exactly as it did before.
+  it('still widens the tiles where even 184 does not fit', () => {
+    // A 1366 laptop: a sixth is 173pt.
+    expect(bentoCellFraction(2, 1124, MIN_TILE)).toBeCloseTo(1 / 3, 5);
+    expect(bentoCellFraction(2, GRID.proPortrait, MIN_TILE)).toBeCloseTo(1 / 3, 5);
+    expect(bentoCellFraction(2, GRID.phone, MIN_TILE)).toBe(1);
+  });
+
+  it('holds the tile floor at every width, and never below the span asked for', () => {
+    for (let width = 320; width <= 2400; width += 2) {
+      const fraction = bentoCellFraction(2, width, MIN_TILE);
+      expect(fraction).toBeGreaterThanOrEqual(2 / 12 - 1e-9);
+      expect(fraction * width - GAP >= MIN_TILE || fraction === 1).toBe(true);
+    }
+  });
+
+  it('leaves every other cell on the default floor', () => {
+    // The floor is per-cell, so a screen that passes nothing is untouched --
+    // this is what says Accounting cannot move when the Dashboard does.
+    for (const width of Object.values(GRID)) {
+      for (const span of ACCOUNTING_SPANS) {
+        expect(bentoCellFraction(span, width, undefined)).toBe(bentoCellFraction(span, width));
+      }
+    }
   });
 
   it('leaves the wide Accounting pairings alone where they already fit', () => {

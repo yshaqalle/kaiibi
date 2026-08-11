@@ -27,7 +27,7 @@ import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { TrendChart, type TrendPoint } from '@/components/trend-chart';
 import { WaterfallChart } from '@/components/waterfall-chart';
-import { BentoCell, BentoGrid, BentoZone } from '@/components/ui/bento';
+import { BentoCell, BentoGrid, BentoZone, MIN_TILE } from '@/components/ui/bento';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Caveat } from '@/components/ui/caveat';
 import { DataTable, NameCell, ValueCell } from '@/components/ui/data-table';
@@ -871,8 +871,13 @@ export default function DashboardScreen() {
             />
           </BentoCell>
 
+          {/* minCard=MIN_TILE on the three small cells, and only on these: a
+              ring, a dot field and a sparkline hold at 184 where a card of
+              headings and captions does not. Judged against the 240 every card
+              gets, all three stepped up to a third on a 1508pt window and the
+              band that reads as one strip spilled onto a second row. */}
           {canSeeExpenses ? (
-            <BentoCell span={2}>
+            <BentoCell span={2} minCard={MIN_TILE}>
               <MarginGaugeCard netProfitCents={pnl.netProfitCents} revenueCents={revenueCents} />
             </BentoCell>
           ) : null}
@@ -880,7 +885,7 @@ export default function DashboardScreen() {
           {/* Two small cards in one cell, as the design stacks them. Not
               `fill` on either: forcing them to split the row height gave the
               goal less room than its meter and caption needed. */}
-          <BentoCell span={2}>
+          <BentoCell span={2} minCard={MIN_TILE}>
             <View style={styles.stack}>
               {cogs ? (
                 <CostedProductsCard soldCount={products.length} uncostedCount={cogs.uncostedItemCount} />
@@ -901,7 +906,7 @@ export default function DashboardScreen() {
             </View>
           </BentoCell>
 
-          <BentoCell span={2}>
+          <BentoCell span={2} minCard={MIN_TILE}>
             <RevenueSparkCard
               revenueCents={revenueCents}
               dailyCents={daily.map((d) => d.netRevenueCents)}

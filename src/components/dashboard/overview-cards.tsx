@@ -126,6 +126,9 @@ export function IncomePaidCard({
 export function MarginGaugeCard({ netProfitCents, revenueCents }: { netProfitCents: number; revenueCents: number }) {
   const margin = revenueCents > 0 ? (netProfitCents / revenueCents) * 100 : 0;
   const positive = margin >= 0;
+  // The viewBox, not a fixed pixel size: the ring scales with the card the way
+  // the goal ring already does. At the tile floor the card is 184pt wide and a
+  // hard 150 would have sat 1pt inside its own padding.
   const size = 150;
   const radius = 57;
   const circumference = 2 * Math.PI * radius;
@@ -134,7 +137,7 @@ export function MarginGaugeCard({ netProfitCents, revenueCents }: { netProfitCen
   return (
     <Card variant="bento" fill style={styles.gaugeCard}>
       <View style={styles.ring}>
-        <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Svg width="100%" height="100%" viewBox={`0 0 ${size} ${size}`}>
           <Circle cx={size / 2} cy={size / 2} r={radius} fill={theme.bentoInk} />
           <Circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#2a2a30" strokeWidth={16} />
           <Circle
@@ -395,7 +398,7 @@ const styles = StyleSheet.create({
   rule: { borderTopWidth: 1, borderTopColor: theme.bentoLine, marginVertical: 14 },
 
   gaugeCard: { padding: 16, alignItems: 'center', justifyContent: 'center' },
-  ring: { width: 150, height: 150, alignItems: 'center', justifyContent: 'center' },
+  ring: { width: '100%', maxWidth: 150, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
   ringCentre: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22 },
   ringValue: { fontSize: 22, fontWeight: '800', color: '#ffffff', fontVariant: ['tabular-nums'], letterSpacing: -0.4 },
   ringLabel: { fontSize: 10, color: '#a6a6ae', marginTop: 3, textAlign: 'center', lineHeight: 13 },
