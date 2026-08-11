@@ -1,0 +1,630 @@
+<title>Overview band — five across at 100%</title>
+
+<style>
+  :root {
+    /* the app surface, pinned to Colors.light */
+    --page:    #f4f4f5;
+    --surface: #ffffff;
+    --ink:     #0b0b0d;
+    --ink2:    #1a1a1e;
+    --muted:   #5e5d65;
+    --muted2:  #717078;
+    --line:    #ececf0;
+    --soft:    #f6f6f7;
+    --series1: #2f6bff;
+    --series2: #00a396;
+    --profit:  #008340;
+    --loss:    #d72b3e;
+    --radius:  26px;
+
+    /* tool chrome, matching bento-responsive-mockup.html */
+    --chrome-bg:     #eef0f4;
+    --chrome-panel:  #ffffff;
+    --chrome-ink:    #14161c;
+    --chrome-muted:  #5a6072;
+    --chrome-line:   #dfe3ec;
+    --chrome-accent: #2f6bff;
+
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --chrome-bg:     #101219;
+      --chrome-panel:  #171a23;
+      --chrome-ink:    #eef0f6;
+      --chrome-muted:  #98a0b5;
+      --chrome-line:   #262b38;
+      --chrome-accent: #7fa2ff;
+    }
+  }
+  :root[data-theme="dark"] {
+    --chrome-bg:     #101219;
+    --chrome-panel:  #171a23;
+    --chrome-ink:    #eef0f6;
+    --chrome-muted:  #98a0b5;
+    --chrome-line:   #262b38;
+    --chrome-accent: #7fa2ff;
+  }
+  :root[data-theme="light"] {
+    --chrome-bg:     #eef0f4;
+    --chrome-panel:  #ffffff;
+    --chrome-ink:    #14161c;
+    --chrome-muted:  #5a6072;
+    --chrome-line:   #dfe3ec;
+    --chrome-accent: #2f6bff;
+  }
+
+  body {
+    background: var(--chrome-bg);
+    color: var(--chrome-ink);
+    font-family: var(--sans);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 36px 20px 72px; }
+
+  .eyebrow {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--chrome-muted);
+  }
+  h1 {
+    font-size: clamp(24px, 3.4vw, 34px); font-weight: 800; letter-spacing: -1px;
+    margin: 6px 0 10px; text-wrap: balance;
+  }
+  .lede { color: var(--chrome-muted); font-size: 15px; max-width: 68ch; }
+  .lede b { color: var(--chrome-ink); font-weight: 700; }
+
+  /* ---- width rail ------------------------------------------------------ */
+  .rail {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--chrome-panel);
+    border: 1px solid var(--chrome-line);
+    border-radius: 14px;
+    padding: 14px 18px;
+    margin: 24px 0 28px;
+    display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+  }
+  .railTop { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+  .readout { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 21px; font-weight: 700; }
+  .readout small { font-size: 12px; font-weight: 500; color: var(--chrome-muted); }
+  .sub { font-size: 12px; color: var(--chrome-muted); font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  input[type="range"] { width: 100%; accent-color: var(--chrome-accent); }
+  .presets { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+  .presets button {
+    font: inherit; font-size: 12px; font-weight: 650;
+    padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    background: transparent; color: var(--chrome-muted);
+    border: 1px solid var(--chrome-line);
+  }
+  .presets button:hover { border-color: var(--chrome-accent); color: var(--chrome-ink); }
+  .presets button[aria-pressed="true"] {
+    background: var(--chrome-accent); border-color: var(--chrome-accent); color: #fff;
+  }
+  .presets button span { font-family: var(--mono); font-variant-numeric: tabular-nums; opacity: 0.75; }
+  .presets button:focus-visible, input[type="range"]:focus-visible {
+    outline: 2px solid var(--chrome-accent); outline-offset: 2px;
+  }
+
+  /* ---- specimens ------------------------------------------------------- */
+  .specimen { margin-bottom: 30px; }
+  .specHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 14px; margin-bottom: 3px; }
+  .specHead h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; }
+  .verdict {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px;
+  }
+  .verdict.bad  { background: rgba(215,43,62,0.12); color: var(--loss); }
+  .verdict.good { background: rgba(0,131,64,0.12);  color: var(--profit); }
+  @media (prefers-color-scheme: dark) {
+    .verdict.bad  { background: rgba(232,81,95,0.18);  color: #ff8a95; }
+    .verdict.good { background: rgba(46,184,114,0.18); color: #5fd79b; }
+  }
+  .specNote { color: var(--chrome-muted); font-size: 13px; margin-bottom: 10px; max-width: 74ch; }
+
+  .stage {
+    background: var(--page); border-radius: 14px; padding: 18px;
+    border: 1px solid var(--chrome-line); overflow: hidden;
+  }
+  .scaler { transform-origin: top left; }
+
+  .zone {
+    font-size: 10.5px; font-weight: 800; letter-spacing: 1.1px;
+    text-transform: uppercase; color: var(--muted); margin: 0 0 10px 7px;
+  }
+
+  /* mirrors BentoGrid: wrapping flex row, half-gutter cells, stretched rows */
+  .grid { display: flex; flex-wrap: wrap; align-items: stretch; margin: 0 -7px; }
+  .cell { padding: 0 7px; margin-bottom: 14px; box-sizing: border-box; display: flex; }
+  .cellInner { width: 100%; display: flex; flex-direction: column; }
+
+  .card {
+    background: var(--surface); border-radius: var(--radius); padding: 16px;
+    display: flex; flex-direction: column; flex-grow: 1; position: relative; overflow: hidden;
+    color: var(--ink);
+  }
+  .card.hero { background: var(--ink); padding: 18px; color: #fff; }
+
+  /* the card's true width, called out above it rather than inside it — every
+     cell carries one, so the band's shared baseline is untouched */
+  .measure {
+    align-self: flex-start;
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 999px;
+    background: rgba(0,131,64,0.10); color: var(--profit); margin-bottom: 6px;
+  }
+  .cell.wrapped .measure { background: rgba(215,43,62,0.12); color: var(--loss); }
+  .cell.wrapped .card { outline: 2px dashed var(--loss); outline-offset: -2px; }
+
+  /* --- shared card furniture (mirrors overview-cards.tsx) --- */
+  .chip {
+    width: 32px; height: 32px; border-radius: 16px; background: var(--soft);
+    display: flex; align-items: center; justify-content: center; flex: none;
+  }
+  .headRow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .pill {
+    font-size: 11px; font-weight: 700; color: var(--ink2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+  }
+  .smallLabel { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .valueRow { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 4px; }
+  .value {
+    font-size: 24px; font-weight: 800; letter-spacing: -0.6px;
+    font-variant-numeric: tabular-nums;
+  }
+  .delta {
+    font-size: 11px; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+    background: rgba(215,43,62,0.10); color: var(--loss); white-space: nowrap;
+  }
+  .rule { border-top: 1px solid var(--line); margin: 14px 0; }
+  .foot { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+
+  /* hero */
+  .heroHead { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 30px; }
+  .heroEyebrow { font-size: 11px; font-weight: 800; letter-spacing: 1.2px; text-transform: uppercase; color: #c7c7cf; }
+  .heroPill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 700; color: #fff;
+    border: 1px solid rgba(255,255,255,0.18); background: rgba(255,255,255,0.09);
+    border-radius: 999px; padding: 5px 12px; white-space: nowrap;
+  }
+  .heroLabel { font-size: 12px; color: #a6a6ae; margin-top: 14px; }
+  .heroBig { font-size: 34px; font-weight: 800; letter-spacing: -1px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .segment { display: flex; gap: 8px; margin-top: 16px; }
+  .seg {
+    flex: 1; text-align: center; border-radius: 999px; padding: 9px 0;
+    border: 1px solid rgba(255,255,255,0.2); font-size: 12.5px; font-weight: 700; color: #fff;
+  }
+  .seg.on { background: #fff; border-color: #fff; color: var(--ink); }
+  .heroRule { border-top: 1px solid rgba(255,255,255,0.16); margin: 16px 0 12px; }
+  .flowRow { margin-top: auto; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .flowText { flex: 1 1 120px; }
+  .flowText .heroLabel { margin-top: 0; }
+  .flowValue { font-size: 18px; font-weight: 800; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .link { font-size: 11.5px; font-weight: 700; color: #fff; padding: 4px 0; }
+  .scopeNote { font-size: 10.5px; color: #a6a6ae; margin-top: 10px; line-height: 1.4; }
+
+  /* margin gauge */
+  .gauge { align-items: center; justify-content: center; }
+  .ring { position: relative; width: 100%; max-width: 150px; aspect-ratio: 1; }
+  .ringCentre {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; padding: 0 22px; text-align: center;
+  }
+  .ringValue { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -0.4px; font-variant-numeric: tabular-nums; }
+  .ringLabel { font-size: 10px; color: #a6a6ae; margin-top: 3px; line-height: 1.3; }
+
+  /* costed products */
+  .costedValue { margin-top: 10px; font-size: 22px; font-weight: 800; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+  .dots { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+  .dot { width: 9px; height: 9px; border-radius: 5px; background: var(--line); }
+  .dot.on { background: var(--profit); }
+
+  /* goal */
+  .stack { display: flex; flex-direction: column; gap: 14px; flex-grow: 1; }
+  .goalCard { padding: 16px 18px; }
+  .goalRing { width: 100%; max-width: 112px; aspect-ratio: 1; align-self: center; margin-top: 8px; }
+  .goalCaption { font-size: 11.5px; color: var(--muted); line-height: 1.45; margin-top: 10px; text-align: center; }
+  .editPill { font-size: 12px; font-weight: 700; color: var(--ink2); border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; }
+
+  /* spark */
+  .sparkValue { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; font-variant-numeric: tabular-nums; }
+  .spark { height: 44px; margin-top: auto; margin-bottom: 10px; }
+  .sparkFootRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .sparkFootText { flex: 1 1 110px; }
+  .sparkTitle { font-size: 14px; font-weight: 800; }
+  .tag {
+    font-size: 10.5px; font-weight: 800; color: var(--ink2); background: var(--soft);
+    border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+  }
+
+  /* ---- table ----------------------------------------------------------- */
+  .tableWrap { overflow-x: auto; margin-top: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; min-width: 560px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--chrome-line); }
+  th { font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: var(--chrome-muted); }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  tr.here td { background: rgba(47,107,255,0.07); }
+  .bad { color: var(--loss); font-weight: 700; }
+  .good { color: var(--profit); font-weight: 700; }
+
+  .footnote {
+    margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--chrome-line);
+    color: var(--chrome-muted); font-size: 13.5px; max-width: 74ch;
+  }
+  .footnote h3 { font-size: 14px; font-weight: 800; color: var(--chrome-ink); margin: 18px 0 6px; }
+  .footnote h3:first-child { margin-top: 0; }
+  .footnote p { margin-bottom: 10px; }
+  .footnote ul { margin: 0 0 10px 18px; }
+  .footnote li { margin-bottom: 5px; }
+  code {
+    font-family: var(--mono); font-size: 12px;
+    background: rgba(47,107,255,0.10); color: var(--chrome-accent);
+    padding: 1px 5px; border-radius: 5px;
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">kaiibi · dashboard · overview band</p>
+  <h1>Five across at 100%, not at 85%</h1>
+  <p class="lede">
+    Nothing about the band is wrong — it is <b>17 points too wide</b>. A bento card may never be
+    narrower than 240pt, and on a 1508pt window a sixth of the grid is a 197pt card, so the three
+    small cells step up to a third and two of them wrap onto a second row. Zooming out to 85%
+    buys the 43pt back, which is the whole reason it looks right there.
+    The fix is to give the <b>tiles</b> their own floor: a ring, a dot field and a sparkline
+    stay readable well below the width a card of headings and captions needs.
+  </p>
+
+  <div class="rail">
+    <div class="railTop">
+      <span class="eyebrow">Browser width</span>
+      <span class="readout" id="readout">1508<small> pt</small></span>
+      <span class="sub" id="derived"></span>
+    </div>
+    <input type="range" id="slider" min="900" max="2100" step="1" value="1508"
+           aria-label="Browser width in points" />
+    <div class="presets" id="presets"></div>
+  </div>
+
+  <section class="specimen">
+    <div class="specHead">
+      <h2>Today — one floor of 240 for everything</h2>
+      <span class="verdict" id="v-today"></span>
+    </div>
+    <p class="specNote" id="n-today"></p>
+    <div class="stage"><div class="scaler" id="stage-today"></div></div>
+  </section>
+
+  <section class="specimen">
+    <div class="specHead">
+      <h2>Proposed — tiles carry a floor of 184</h2>
+      <span class="verdict" id="v-next"></span>
+    </div>
+    <p class="specNote" id="n-next"></p>
+    <div class="stage"><div class="scaler" id="stage-next"></div></div>
+  </section>
+
+  <section>
+    <p class="eyebrow">Where the band breaks, either way</p>
+    <div class="tableWrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Window</th><th>Grid</th><th>Tile at 1/6</th>
+            <th>Today</th><th>Proposed</th>
+          </tr>
+        </thead>
+        <tbody id="summary"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="footnote">
+    <h3>Why 240 is right for a card and wrong for a tile</h3>
+    <p>
+      240 is where a bento card stops holding a heading, a figure and a caption on one line each —
+      earned on Accounting, where a 7/12 card beside a 5/12 one has real sentences in it. The three
+      small Overview cells hold no sentences: a ring with a percentage inside it, three dots, and a
+      44pt sparkline with two words under it. They are tiles, and their floor is the widest thing
+      drawn in them, not the narrowest line of prose.
+    </p>
+
+    <h3>The change</h3>
+    <ul>
+      <li><code>BentoCell</code> takes an optional <code>minCard</code>, defaulting to the 240 every
+        cell uses today. The rule itself does not change — only the number it is asked about.</li>
+      <li>The three span-2 Overview cells pass <code>minCard={184}</code>: the margin gauge, the
+        costed-products / goal stack, and the revenue spark.</li>
+      <li>The margin ring becomes fluid — <code>maxWidth: 150</code> with a square aspect ratio,
+        the way the goal ring already is — so at the floor it shrinks instead of pressing on the
+        card's own padding.</li>
+    </ul>
+    <p>
+      184 is not a device measurement either: it is the goal ring plus its caption, the widest of
+      the three tiles at rest. It puts the step-up at a 1438pt window, so every laptop from a 1440
+      upward gets the band in one row and anything narrower degrades exactly as it does today.
+    </p>
+
+    <h3>What does not move</h3>
+    <p>
+      The two span-3 cards keep the 240 floor and their quarter of the grid. Accounting is untouched:
+      no cell there passes <code>minCard</code>, so every fraction it resolves today it resolves
+      after. Phones and portrait tablets are untouched — one column and thirds respectively, both
+      already far below where this number applies.
+    </p>
+  </div>
+</div>
+
+<script>
+  const GAP = 14;
+  const SIDEBAR = 220;
+  const PAGE_PADDING = 36;
+  const MIN_CARD = 240;
+  const MIN_TILE = 184;
+  const STEPS = [1 / 3, 1 / 2, 1];
+
+  // bentoCellFraction, with the floor as an argument.
+  function fractionFor(span, gridWidth, floor) {
+    const clamped = Math.max(1, Math.min(12, Math.round(span)));
+    const asked = clamped / 12;
+    const fits = (f) => f * gridWidth - GAP >= floor;
+    const usable = (f) => f >= 1 || (fits(f) && fits(1 - f));
+    if (usable(asked)) return asked;
+    for (const step of STEPS) if (step > asked && usable(step)) return step;
+    return 1;
+  }
+
+  const gridWidthFor = (windowWidth) => Math.max(1, windowWidth - SIDEBAR - PAGE_PADDING + GAP);
+
+  const CELLS = [
+    { span: 3, tile: false, render: hero },
+    { span: 3, tile: false, render: income },
+    { span: 2, tile: true,  render: gauge },
+    { span: 2, tile: true,  render: stack },
+    { span: 2, tile: true,  render: spark },
+  ];
+
+  const svg = (inner, size) =>
+    `<svg width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${inner}</svg>`;
+  const stroke = 'stroke="#1a1a1e" fill="none" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"';
+
+  const ICON = {
+    up: svg(`<path d="M12 19V6" ${stroke}/><polyline points="6,12 12,6 18,12" ${stroke}/>`, 16),
+    down: svg(`<path d="M12 5v13" ${stroke}/><polyline points="6,12 12,18 18,12" ${stroke}/>`, 16),
+    tag: svg(`<path d="M11.5 3.5h6a2 2 0 0 1 2 2v6L10 21 3 14 11.5 3.5Z" ${stroke}/><circle cx="16" cy="8" r="1.4" fill="#1a1a1e"/>`, 16),
+    trend: svg(`<polyline points="3,16 9,10 13,14 21,5" ${stroke}/><polyline points="15,5 21,5 21,11" ${stroke}/>`, 16),
+    target: svg(`<circle cx="12" cy="12" r="8.5" ${stroke}/><circle cx="12" cy="12" r="4.5" ${stroke}/><circle cx="12" cy="12" r="1" fill="#1a1a1e"/>`, 16),
+  };
+
+  function hero() {
+    return `<div class="card hero">
+      <div class="heroHead">
+        <span class="heroEyebrow">Takings</span>
+        <span class="heroPill">All methods ▾</span>
+      </div>
+      <div class="heroLabel">Gross takings this period</div>
+      <div class="heroBig">$72.20</div>
+      <div class="segment"><span class="seg on">Money in</span><span class="seg">Money out</span></div>
+      <div class="heroRule"></div>
+      <div class="flowRow">
+        <div class="flowText">
+          <div class="heroLabel">Revenue, net of tax</div>
+          <div class="flowValue">$72.20</div>
+        </div>
+        <span class="link">See full profit &amp; loss →</span>
+      </div>
+      <div class="scopeNote">$0.00 of this is sales tax you are holding for the authority, which is why takings exceed revenue.</div>
+    </div>`;
+  }
+
+  function income() {
+    return `<div class="card">
+      <div class="headRow"><span class="chip">${ICON.up}</span><span class="pill">7 days</span></div>
+      <div class="smallLabel">Total income</div>
+      <div class="valueRow"><span class="value">$72.20</span><span class="delta">↓ 81%</span></div>
+      <div class="rule"></div>
+      <div class="headRow"><span class="chip">${ICON.down}</span></div>
+      <div class="smallLabel">Total paid</div>
+      <div class="valueRow"><span class="value">$0.00</span></div>
+    </div>`;
+  }
+
+  function gauge() {
+    const r = 57, c = 2 * Math.PI * r, swept = (56 / 100) * c;
+    return `<div class="card gauge">
+      <div class="ring">
+        <svg viewBox="0 0 150 150" width="100%" height="100%" aria-hidden="true">
+          <circle cx="75" cy="75" r="${r}" fill="#0b0b0d"/>
+          <circle cx="75" cy="75" r="${r}" fill="none" stroke="#2a2a30" stroke-width="16"/>
+          <circle cx="75" cy="75" r="${r}" fill="none" stroke="#2eb872" stroke-width="16"
+                  stroke-linecap="round" stroke-dasharray="${swept.toFixed(1)} ${c.toFixed(1)}"
+                  transform="rotate(-90 75 75)"/>
+        </svg>
+        <div class="ringCentre">
+          <div class="ringValue">56%</div>
+          <div class="ringLabel">Net margin</div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function stack() {
+    const r = 45.6, c = 2 * Math.PI * r, swept = (11 / 100) * c;
+    return `<div class="stack">
+      <div class="card">
+        <span class="chip">${ICON.tag}</span>
+        <div class="costedValue">2/3</div>
+        <div class="foot">products sold have a cost set</div>
+        <div class="dots"><span class="dot on"></span><span class="dot on"></span><span class="dot"></span></div>
+      </div>
+      <div class="card goalCard">
+        <div class="headRow" style="margin-bottom:0">
+          <span class="chip">${ICON.target}</span>
+          <span class="editPill">Edit</span>
+        </div>
+        <div class="goalRing">
+          <svg viewBox="0 0 120 120" width="100%" height="100%" aria-hidden="true">
+            <circle cx="60" cy="60" r="${r}" fill="none" stroke="#ececf0" stroke-width="13.2"/>
+            <circle cx="60" cy="60" r="${r}" fill="none" stroke="#2f6bff" stroke-width="13.2"
+                    stroke-linecap="round" stroke-dasharray="${swept.toFixed(1)} ${c.toFixed(1)}"
+                    transform="rotate(-90 60 60)"/>
+            <text x="60" y="67" text-anchor="middle" font-size="23" font-weight="800" fill="#0b0b0d"
+                  font-family="-apple-system, BlinkMacSystemFont, sans-serif">11%</text>
+          </svg>
+        </div>
+        <div class="goalCaption">$163 of $1,500 monthly goal · $67/day to land it</div>
+      </div>
+    </div>`;
+  }
+
+  function spark() {
+    return `<div class="card">
+      <div class="headRow"><span class="chip">${ICON.trend}</span><span class="sparkValue">$72</span></div>
+      <div class="spark">
+        <svg viewBox="0 0 100 44" width="100%" height="44" preserveAspectRatio="none" aria-hidden="true">
+          <path d="M0,30 L20,12 L40,34 L60,22 L80,24 L100,32 L100,44 L0,44 Z" fill="#2f6bff" opacity="0.14"/>
+          <path d="M0,30 L20,12 L40,34 L60,22 L80,24 L100,32" fill="none" stroke="#2f6bff"
+                stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                vector-effect="non-scaling-stroke"/>
+        </svg>
+      </div>
+      <div class="sparkFootRow">
+        <div class="sparkFootText">
+          <div class="sparkTitle">Revenue</div>
+          <div class="foot">7 days · 3 orders</div>
+        </div>
+        <span class="tag">profitable</span>
+      </div>
+    </div>`;
+  }
+
+  function renderBand(mount, gridWidth, useTileFloor) {
+    const rows = [];
+    let row = [];
+    let used = 0;
+    const fractions = CELLS.map((cell) =>
+      fractionFor(cell.span, gridWidth, useTileFloor && cell.tile ? MIN_TILE : MIN_CARD),
+    );
+
+    // Same wrap flexbox performs: a cell starts a new row when it no longer fits.
+    fractions.forEach((fraction, i) => {
+      if (used + fraction > 1.0001) { rows.push(row); row = []; used = 0; }
+      row.push(i);
+      used += fraction;
+    });
+    if (row.length) rows.push(row);
+
+    const html = CELLS.map((cell, i) => {
+      const fraction = fractions[i];
+      const cardWidth = fraction * gridWidth - GAP;
+      const onSecondRow = rows.findIndex((r) => r.includes(i)) > 0;
+      return `<div class="cell${onSecondRow ? ' wrapped' : ''}" style="width:${(fraction * 100).toFixed(4)}%">
+        <div class="cellInner">
+          <span class="measure">${Math.round(cardWidth)}pt</span>
+          ${cell.render()}
+        </div>
+      </div>`;
+    }).join('');
+
+    mount.innerHTML = `<div style="width:${gridWidth}px">
+      <div class="zone">Overview</div>
+      <div class="grid">${html}</div>
+    </div>`;
+    return { rows: rows.length, fractions };
+  }
+
+  function fitStage(mount, gridWidth) {
+    const available = mount.parentElement.clientWidth;
+    const scale = Math.min(1, available / gridWidth);
+    mount.style.transform = `scale(${scale})`;
+    mount.style.height = `${mount.firstElementChild.getBoundingClientRect().height}px`;
+    return scale;
+  }
+
+  const PRESETS = [
+    { label: 'Your window', width: 1508 },
+    { label: 'MacBook 14"', width: 1440 },
+    { label: 'At 85% zoom', width: 1783 },
+    { label: 'Laptop 1366', width: 1366 },
+    { label: 'Wide 1920', width: 1920 },
+  ];
+
+  const slider = document.getElementById('slider');
+  const readout = document.getElementById('readout');
+  const derived = document.getElementById('derived');
+  const presetBar = document.getElementById('presets');
+
+  presetBar.innerHTML = PRESETS.map(
+    (p) => `<button type="button" data-width="${p.width}">${p.label} <span>${p.width}</span></button>`,
+  ).join('');
+  presetBar.addEventListener('click', (event) => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    slider.value = button.dataset.width;
+    draw();
+  });
+
+  function draw() {
+    const windowWidth = Number(slider.value);
+    const gridWidth = gridWidthFor(windowWidth);
+    const sixth = gridWidth / 6 - GAP;
+
+    readout.innerHTML = `${windowWidth}<small> pt</small>`;
+    derived.textContent = `grid ${Math.round(gridWidth)}pt · a sixth of it is a ${Math.round(sixth)}pt card`;
+
+    [...presetBar.querySelectorAll('button')].forEach((b) =>
+      b.setAttribute('aria-pressed', String(Number(b.dataset.width) === windowWidth)),
+    );
+
+    const today = renderBand(document.getElementById('stage-today'), gridWidth, false);
+    const next = renderBand(document.getElementById('stage-next'), gridWidth, true);
+    const scale = fitStage(document.getElementById('stage-today'), gridWidth);
+    fitStage(document.getElementById('stage-next'), gridWidth);
+
+    const shown = scale < 1 ? ` · drawn at ${Math.round(scale * 100)}% to fit this page` : ' · drawn 1:1';
+
+    setVerdict('today', today.rows, shown);
+    setVerdict('next', next.rows, shown);
+    fillSummary(windowWidth);
+  }
+
+  function setVerdict(key, rows, shown) {
+    const el = document.getElementById(`v-${key}`);
+    const note = document.getElementById(`n-${key}`);
+    const good = rows === 1;
+    el.className = `verdict ${good ? 'good' : 'bad'}`;
+    el.textContent = good ? 'one row' : `${rows} rows`;
+    note.textContent = good
+      ? `All five cells hold their share of the band${shown}.`
+      : `The three small cells fail the floor, step up to a third each, and the last two wrap${shown}.`;
+  }
+
+  function fillSummary(current) {
+    const widths = [1280, 1366, 1440, 1508, 1600, 1783, 1920];
+    document.getElementById('summary').innerHTML = widths
+      .map((w) => {
+        const grid = gridWidthFor(w);
+        const sixth = grid / 6 - GAP;
+        const rowsFor = (tile) =>
+          CELLS.reduce((sum, c) => sum + fractionFor(c.span, grid, tile && c.tile ? MIN_TILE : MIN_CARD), 0) <= 1.0001
+            ? '<span class="good">one row</span>'
+            : '<span class="bad">wraps</span>';
+        return `<tr${w === current ? ' class="here"' : ''}>
+          <td class="num">${w}</td>
+          <td class="num">${Math.round(grid)}</td>
+          <td class="num">${Math.round(sixth)}pt</td>
+          <td>${rowsFor(false)}</td>
+          <td>${rowsFor(true)}</td>
+        </tr>`;
+      })
+      .join('');
+  }
+
+  slider.addEventListener('input', draw);
+  window.addEventListener('resize', draw);
+  draw();
+</script>

@@ -45,6 +45,25 @@ const theme = Colors.light;
 // bento card stops holding a heading, a figure and a caption on one line each.
 const MIN_CARD = 240;
 
+/**
+ * The floor for a cell holding a TILE rather than a card: a ring, a dot field,
+ * a sparkline — a shape with a figure on it and no prose to break.
+ *
+ * 240 is about the narrowest line of text a card can hold. The three small
+ * Overview cells hold no text worth the name, so measuring them against it cost
+ * a whole row: on a 1508pt window the grid is 1266pt, a sixth of it is a 197pt
+ * card, and the band that is meant to read as one strip stepped all three up to
+ * a third and wrapped two of them under the other three. Zooming the browser to
+ * 85% was the only thing that ever "fixed" it, which is the tell — the layout
+ * was right and the number it was judged against was not.
+ *
+ * 184 is the widest thing actually drawn in those tiles at rest (the goal ring
+ * plus its caption), so it puts the step-up at a 1438pt window: a 1440 laptop
+ * and up gets the band in one row, and anything narrower degrades to thirds
+ * exactly as it did before.
+ */
+export const MIN_TILE = 184;
+
 // The fractions a cell may take. Anything coarser than a third is not worth
 // having -- two cards of 1/3 and 2/3 read as a pairing, four of 1/4 read as a
 // row, and a 1/5 is a sliver whatever the screen.
@@ -72,11 +91,15 @@ const GAP = 14;
  *     rather than a pairing. Requiring the remainder to clear the floor too is
  *     the same question asked on behalf of the neighbour, and it needs no
  *     knowledge of who that neighbour is.
+ *
+ * `minCard` is the floor to judge this cell against, and the only reason it is
+ * an argument is `MIN_TILE`. The rule does not change with it: a caller says
+ * how narrow ITS content stays readable, and the same question is asked.
  */
-export function bentoCellFraction(span: number, gridWidth: number): number {
+export function bentoCellFraction(span: number, gridWidth: number, minCard: number = MIN_CARD): number {
   const clamped = Math.max(1, Math.min(12, Math.round(span)));
   const asked = clamped / 12;
-  const fits = (fraction: number) => fraction * gridWidth - GAP >= MIN_CARD;
+  const fits = (fraction: number) => fraction * gridWidth - GAP >= minCard;
   // A full-width cell has no remainder to seat anyone in, and is the last
   // resort anyway.
   const usable = (fraction: number) => fraction >= 1 || (fits(fraction) && fits(1 - fraction));
@@ -202,11 +225,18 @@ export function BentoFlow({ children, style }: { children: ReactNode; style?: St
  */
 export function BentoCell({
   span = 12,
+  minCard,
   children,
   style,
   onLayout,
 }: {
   span?: number;
+  /**
+   * How narrow this cell's contents stay readable. Defaults to the 240 every
+   * card is held to; pass `MIN_TILE` for a cell holding a shape rather than
+   * prose. Nothing else about the sizing changes — see `bentoCellFraction`.
+   */
+  minCard?: number;
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   /**
@@ -219,7 +249,7 @@ export function BentoCell({
   // A cell used outside a BentoGrid still has to size itself somehow, so the
   // window estimate remains the fallback.
   const estimate = useEstimatedGridWidth();
-  const fraction = bentoCellFraction(span, gridWidth ?? estimate);
+  const fraction = bentoCellFraction(span, gridWidth ?? estimate, minCard);
 
   // The gap is subtracted in proportion to the span so a row of cells whose
   // fractions sum to 1 lands exactly on the container width. Without this a
