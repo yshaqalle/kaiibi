@@ -180,7 +180,14 @@ function SupportSheetBody({ onClose }: { onClose: () => void }) {
 
             {sections.map((section) => (
               <View key={section.group}>
-                <Text style={styles.group}>{section.label}</Text>
+                {/* The rule runs from the label to the edge rather than sitting
+                    under it: a heading with a line beneath reads as an underline
+                    on the words, and the job here is to separate this group from
+                    the rows above it. */}
+                <View style={styles.groupRow}>
+                  <Text style={styles.group}>{section.label}</Text>
+                  <View style={styles.groupRule} />
+                </View>
                 {section.threads.map((thread, index) => (
                   <ThreadRow
                     key={thread.id}

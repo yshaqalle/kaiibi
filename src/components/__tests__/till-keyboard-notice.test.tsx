@@ -1,4 +1,4 @@
-import { Text } from 'react-native';
+import { Linking, Platform, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
@@ -96,5 +96,76 @@ describe('TillKeyboardNotice', () => {
     expect(action).toBeDefined();
     act(() => { action!.props.onPress(); });
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/settings', params: { nav: 'locations', location: 'loc-1' } });
+  });
+});
+
+// The mirror case, and the more damaging one. Scanning is ON, a scanner is
+// plugged in -- and because that scanner IS a keyboard to the OS, Android
+// stops offering the on-screen one. Every field in the app goes untypeable
+// while scanning keeps working, and nothing on screen says why.
+describe('TillKeyboardNotice, scanning already on', () => {
+  function actionLabelled(fragment: string) {
+    let tree: ReactTestRenderer | undefined;
+    act(() => { tree = create(<TillKeyboardNotice />); });
+    const pressables = tree!.root.findAll((node) => typeof node.props?.onPress === 'function', { deep: true });
+    return pressables.find((p) => p.findAllByType(Text).some((t) => String(t.props.children).includes(fragment)));
+  }
+
+  beforeEach(() => {
+    mockAttached = true;
+    mockSettingOn = true;
+    mockPermitted = true;
+    mockDismissed = false;
+    Platform.OS = 'android';
+  });
+  afterEach(() => { Platform.OS = 'ios'; });
+
+  it('explains why typing stopped on an Android till', () => {
+    expect(shown()).toBe(true);
+  });
+
+  it('opens the OS keyboard settings, which is the only place the switch lives', () => {
+    const sendIntent = jest.spyOn(Linking, 'sendIntent').mockResolvedValue(undefined);
+    const action = actionLabelled('keyboard settings');
+    expect(action).toBeDefined();
+    act(() => { action!.props.onPress(); });
+    expect(sendIntent).toHaveBeenCalledWith('android.settings.HARD_KEYBOARD_SETTINGS');
+    sendIntent.mockRestore();
+  });
+
+  // iOS has no such setting and no API to ask for one, so there is nothing to
+  // send anybody to. Advice with no action is what the sibling notice above
+  // already refuses to give.
+  it('says nothing on iOS, where there is no switch to offer', () => {
+    Platform.OS = 'ios';
+    expect(shown()).toBe(false);
+  });
+
+  it('says nothing when no keyboard is attached', () => {
+    mockAttached = false;
+    expect(shown()).toBe(false);
+  });
+
+  it('says nothing when detection could not answer', () => {
+    mockAttached = null;
+    expect(shown()).toBe(false);
+  });
+
+  // Unlike its sibling this is not a shop setting but the tablet's own, so the
+  // person holding the tablet can fix it whatever their role.
+  it('tells a cashier too, because a cashier can change this one', () => {
+    mockPermitted = false;
+    expect(shown()).toBe(true);
+  });
+
+  it('stays gone once dismissed', () => {
+    mockDismissed = true;
+    expect(shown()).toBe(false);
+  });
+
+  // Two notices about the same cable, one screen. Whichever fires, the other
+  // must not: they give opposite advice.
+  it('never appears alongside the set-up-scanning notice', () => {
+    expect(actionLabelled('Set up scanning')).toBeUndefined();
   });
 });

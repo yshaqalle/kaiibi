@@ -944,8 +944,12 @@ export default function PosScreen() {
       />
       {/* Native counterpart to useBarcodeWedge, on the same store setting.
           Unmounted whenever a modal owns the keyboard, so it never competes for
-          focus with a form the cashier is filling in. */}
-      {scanner.hardware && !scannerOpen && !showAddProduct && receipt === null && (
+          focus with a form the cashier is filling in.
+          `registerSheet` covers all four of its states, and the two that count
+          a drawer autofocus their first field the moment they open -- a field
+          asking for focus while this takes it back every 700ms is the fight
+          this list exists to prevent. */}
+      {scanner.hardware && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Scanning something the shop doesn't stock yet is a normal event mid-
