@@ -771,7 +771,7 @@ function SupportThreadPanel({
         fileName,
         reason: 'the file went up but we could not write it onto the message',
       }));
-      const note = missedAttachmentNote([...missed, ...refusedRows]);
+      const note = missedAttachmentNote([...missed, ...refusedRows], 'thread');
       setAttachNote(note);
 
       const closed = opts.close === true && (await closeThread(body));

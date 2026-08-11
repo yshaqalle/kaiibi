@@ -105,6 +105,15 @@ describe('missedAttachmentNote', () => {
     expect(note).toContain('Reply on the conversation');
   });
 
+  // The same note is shown on four surfaces, and two of them are already inside
+  // the conversation. "Reply on the conversation" is followed literally by
+  // somebody who is looking at it, and then they cannot find what it meant.
+  it('does not tell someone reading the conversation to go and open it', () => {
+    const note = missedAttachmentNote([{ fileName: 'till.png', reason: 'over 10 MB' }], 'thread');
+    expect(note).toContain('your next reply');
+    expect(note).not.toContain('Reply on the conversation');
+  });
+
   it('does not stutter when several files were refused for one reason', () => {
     const note = missedAttachmentNote([
       { fileName: 'a.png', reason: 'over 10 MB' },

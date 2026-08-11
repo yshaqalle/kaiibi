@@ -93,7 +93,7 @@ export function SupportThreadView({ thread, onBack }: { thread: SupportThread; o
       // of the same reply.
       const missed = await attachToMessage(thread.shopId, thread.id, message.id, files);
       setFiles([]);
-      setMissedFiles(missedAttachmentNote(missed));
+      setMissedFiles(missedAttachmentNote(missed, 'thread'));
       // Reloads rather than appending: this also re-marks the thread read, so
       // your own reply -- which moves last_message_at forward -- does not raise
       // the badge against you. Unless that particular read-mark is the thing

@@ -204,19 +204,31 @@ export async function attachToMessage(
 }
 
 // One sentence for the caveat that follows a partly-attached send. Says what to
-// do, and says it differently now that every reply box on both sides has a
-// picker -- until 20260825000700 the store could only attach on its FIRST
-// message, so "attach it there" would have sent the one person who has just
-// lost a file to a dead end.
-export function missedAttachmentNote(missed: MissedAttachment[]): string | null {
+// do, and can say it at all now that every reply box on both sides has a picker
+// -- until 20260825000700 the store could only attach on its FIRST message, so
+// any "attach it again" would have sent the one person who has just lost a file
+// to a dead end.
+//
+// `from` because the same note is shown on four surfaces and the instruction is
+// not the same sentence on all of them: telling somebody already reading the
+// conversation to go and open it is the kind of copy people follow literally
+// and then cannot find.
+export function missedAttachmentNote(
+  missed: MissedAttachment[],
+  from: 'compose' | 'thread' = 'compose'
+): string | null {
   if (missed.length === 0) return null;
+  const next =
+    from === 'thread'
+      ? { one: 'Attach it again on your next reply.', many: 'Attach them again on your next reply.' }
+      : { one: 'Reply on the conversation to attach it again.', many: 'Reply on the conversation to attach them again.' };
   if (missed.length === 1) {
-    return `Sent — but ${missed[0].fileName} didn't attach (${missed[0].reason}). Reply on the conversation to attach it again.`;
+    return `Sent — but ${missed[0].fileName} didn't attach (${missed[0].reason}). ${next.one}`;
   }
   // De-duplicated: five files refused for the same reason is one reason, and
   // "over 10 MB; over 10 MB; over 10 MB" reads as a stutter rather than a list.
   const reasons = [...new Set(missed.map((m) => m.reason))].join('; ');
-  return `Sent — but ${missed.length} files didn't attach (${reasons}). Reply on the conversation to attach them again.`;
+  return `Sent — but ${missed.length} files didn't attach (${reasons}). ${next.many}`;
 }
 
 // The bucket is private, so reads need a signed URL rather than getPublicUrl.

@@ -1408,6 +1408,26 @@ Deno.serve(async (req) => {
         const claims = validateAttachments(body.support?.attachments, thread.shop_id, threadId);
         if (!claims.ok) return claims.response;
         if (claims.claims.length === 0) return errorResponse(400, 'unknown', 'No attachments were given.');
+
+        // Counted against what the message ALREADY carries, not just against
+        // this batch. Unlike reply_support -- whose message is one line old and
+        // therefore empty -- this action can be called again on the same
+        // message, so the batch check alone makes "up to 5 per message" a rule
+        // that holds only for callers who ask once. Nothing in the database
+        // enforces the five, so this is the enforcement.
+        const { count: already, error: countError } = await adminClient
+          .from('support_attachments')
+          .select('id', { count: 'exact', head: true })
+          .eq('message_id', messageId);
+        if (countError) return errorResponse(500, 'unknown', countError.message);
+        if ((already ?? 0) + claims.claims.length > MAX_SUPPORT_ATTACHMENTS) {
+          return errorResponse(
+            400,
+            'unknown',
+            `That message already carries ${already ?? 0} files; ${MAX_SUPPORT_ATTACHMENTS} is the limit.`
+          );
+        }
+
         const resolved = await resolveAttachments(thread.shop_id, threadId, claims.claims);
         if (!resolved.ok) return resolved.response;
 
