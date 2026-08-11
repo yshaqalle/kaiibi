@@ -321,15 +321,15 @@ const styles = StyleSheet.create({
   body: { padding: 20, paddingBottom: 30 },
   loading: { marginVertical: 24 },
   empty: { fontSize: 13, color: theme.bentoMuted, paddingVertical: 20 },
+  groupRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18, marginBottom: 2 },
   group: {
     fontSize: 10.5,
     fontWeight: '800',
     letterSpacing: 1,
     textTransform: 'uppercase',
     color: theme.bentoMuted2,
-    marginTop: 16,
-    marginBottom: 2,
   },
+  groupRule: { flex: 1, height: 1, backgroundColor: theme.bentoLine },
   row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingVertical: 11 },
   // Between rows of the same group only. A rule directly under a heading reads
   // as an underline on the heading rather than a separator between rows.
