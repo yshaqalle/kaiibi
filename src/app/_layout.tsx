@@ -6,6 +6,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider } from '@/hooks/use-auth';
 import { LocaleProvider } from '@/hooks/use-locale';
 import { useUnlockedOrientation } from '@/hooks/use-orientation';
+import { TillKeypad } from '@/components/till-keypad';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,6 +34,10 @@ export default function RootLayout() {
             <Stack.Screen name="platform" />
             <Stack.Screen name="marketplace-coming-soon" />
           </Stack>
+          {/* Once, at the root, because a keyboard is not a feature of one
+              screen. It renders nothing unless the platform is withholding the
+              system keyboard AND a field is focused -- see `TillKeypad`. */}
+          <TillKeypad />
         </AuthProvider>
       </LocaleProvider>
     </ThemeProvider>

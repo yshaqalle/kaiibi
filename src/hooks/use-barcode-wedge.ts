@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { getHardwareKeyboardModule, supportsHardwareKeyEvents } from '../../modules/hardware-keyboard';
@@ -8,7 +9,12 @@ import { DEFAULT_WEDGE_CONFIG, initialWedgeState, stepWedge, type WedgeConfig } 
 // away mid-scan -- must not sit in the buffer waiting to be prefixed onto the
 // next scan. Shared by both listeners below, which is the point: one machine,
 // one forgetting rule, two sources of keys.
-const IDLE_RESET_MS = 250;
+//
+// It must not be SHORTER than the terminator window, or it decides the question
+// that window is meant to answer: at 250ms it threw away the buffer before a
+// terminator 627ms behind it could arrive, and the scan was lost with the
+// timing rule never consulted. Kept equal to `maxTerminatorGapMs` deliberately.
+const IDLE_RESET_MS = DEFAULT_WEDGE_CONFIG.maxTerminatorGapMs;
 
 /**
  * Does this build still need the invisible focused field to catch scans?
@@ -62,7 +68,13 @@ export function useBarcodeWedge({
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Native: keys from the window, with nothing focused.
-  useEffect(() => {
+  //
+  // Bound to the screen being IN FRONT, not merely mounted. POS and Inventory
+  // are tab screens and both stay mounted behind one another, so a plain effect
+  // subscribed both: every scan was handled twice, by the screen the cashier is
+  // looking at and by the one they are not -- adding to the cart while they
+  // scan stock in. The same rule `WedgeSink` followed for the same reason.
+  useFocusEffect(useCallback(() => {
     if (Platform.OS === 'web' || !enabled) return;
     const module = getHardwareKeyboardModule();
     if (!module || !supportsHardwareKeyEvents()) return;
@@ -88,7 +100,7 @@ export function useBarcodeWedge({
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
       stateRef.current = initialWedgeState();
     };
-  }, [enabled, config]);
+  }, [enabled, config]));
 
   // Web: keys from the document.
   useEffect(() => {

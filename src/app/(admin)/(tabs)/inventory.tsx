@@ -28,6 +28,7 @@ import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
+import { supportsTyping } from '../../../../modules/hardware-keyboard';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { formatCompactCents } from '@/lib/currency';
@@ -576,7 +577,13 @@ export default function InventoryScreen() {
             // truncated mid-word at "barcod...", which reads as a bug rather
             // than as a hint.
             placeholder={compact ? 'Search or scan a product' : 'Search or scan — name, brand, SKU, barcode, category, or tag'}
-            useKeypad={scanner.onScreenKeypad}
+            // Legacy binaries only. Where `TillKeypad` can type into the
+            // focused field, this box is an ordinary text field like every
+            // other one in the app -- the tap-to-open Pressable existed to
+            // keep focus away from the invisible sink, and there is no sink
+            // to protect any more. Leaving it on made the box hold focus
+            // permanently, so scans landed in it as text instead of resolving.
+            useKeypad={scanner.onScreenKeypad && !supportsTyping()}
             showScanButton={scanner.camera}
             onScanPress={() => setScannerOpen(true)}
             keypadOpen={keypadOpen}
@@ -685,7 +692,10 @@ export default function InventoryScreen() {
       {/* A flex sibling, not an overlay: the ScrollView shrinks above it, so
           the grid stays scrollable to its last row with the keypad open —
           exactly what the system keyboard does. See the dock-fix mockup. */}
-      {keypadOpen && scanner.onScreenKeypad ? (
+      {/* The legacy path. Where the binary can type into the focused field,
+          `TillKeypad` at the app root serves this box and every other one --
+          rendering both would put two keyboards on screen at once. */}
+      {keypadOpen && scanner.onScreenKeypad && !supportsTyping() ? (
         <SearchKeypad
           value={search}
           onChange={setSearch}

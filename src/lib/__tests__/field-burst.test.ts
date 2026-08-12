@@ -74,7 +74,7 @@ describe('stepFieldBurst', () => {
   // is a person pressing it deliberately -- reading the box, then searching for
   // what is in it -- and their text has to survive that untouched.
   it('reads nothing when the Enter arrives long after the burst', () => {
-    expect(scanInto('', '5012345678900', 5, 900).scan).toBeNull();
+    expect(scanInto('', '5012345678900', 5, 1500).scan).toBeNull();
   });
 
   it('reads nothing from a burst too short to be a real code', () => {

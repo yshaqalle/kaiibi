@@ -26,6 +26,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
 import { useRegisterSession } from '@/hooks/use-register-session';
+import { supportsTyping } from '../../../../modules/hardware-keyboard';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
@@ -588,7 +589,9 @@ export default function PosScreen() {
           onChange={setSearch}
           onSubmit={handleSearchSubmit}
           placeholder="Search or scan a product"
-          useKeypad={scanner.onScreenKeypad}
+          // Legacy binaries only -- see the note on Inventory's copy. Where the
+          // dock can type into the focused field, this is an ordinary text box.
+          useKeypad={scanner.onScreenKeypad && !supportsTyping()}
           showScanButton={scanner.camera}
           onScanPress={() => setScannerOpen(true)}
           showSearchIcon
@@ -880,7 +883,10 @@ export default function PosScreen() {
       {/* A flex sibling of the Split, under BOTH panes: the dock belongs to
           the screen, not the search column — the cart stays visible and
           tappable so a cashier can scan or take payment mid-typing. */}
-      {keypadOpen && scanner.onScreenKeypad ? (
+      {/* The legacy path. Where the binary can type into the focused field,
+          `TillKeypad` at the app root serves this box and every other one --
+          rendering both would put two keyboards on screen at once. */}
+      {keypadOpen && scanner.onScreenKeypad && !supportsTyping() ? (
         <SearchKeypad
           value={search}
           onChange={setSearch}

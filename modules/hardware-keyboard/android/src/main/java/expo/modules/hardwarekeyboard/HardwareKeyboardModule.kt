@@ -4,6 +4,7 @@ import android.content.Context
 import android.hardware.input.InputManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.View
@@ -30,6 +31,10 @@ import expo.modules.kotlin.modules.ModuleDefinition
 // stolen, no editor exists for the IME to appear for. That is the same shape
 // as the web build's `document` listener, which is why both can now share one
 // state machine in JS.
+// "No React tag was known" -- kept identical to the iOS twin, where an optional
+// argument turned out not to be exposed to JS at all.
+private const val NO_TAG = -1
+
 class HardwareKeyboardModule : Module() {
   private val inputManager: InputManager?
     get() = appContext.reactContext?.getSystemService(Context.INPUT_SERVICE) as? InputManager
@@ -58,6 +63,19 @@ class HardwareKeyboardModule : Module() {
   // was. Anything else in the app that wraps the callback later would be
   // discarded by a blind restore, so it is only ever restored from here.
   private var previousCallback: Window.Callback? = null
+
+  // WHICH window was wrapped, not merely whether one was. An Activity is
+  // recreated on a dev reload and on a configuration change, and its window
+  // goes with it: the wrapper installed on the old one is gone, while a flag
+  // saying "already wrapped" would report the new window as covered and leave
+  // scanning silently dead. Observed exactly that -- a reload, and every scan
+  // afterwards fell through to the view under it and pressed whatever Android
+  // had focused.
+  private var wrappedWindow: Window? = null
+
+  // Whether JS still wants keys, so a returning Activity can be re-wrapped
+  // without a second subscription.
+  private var capturing = false
 
   private val main = Handler(Looper.getMainLooper())
 
@@ -95,7 +113,8 @@ class HardwareKeyboardModule : Module() {
   private fun startCapture() {
     main.post {
       val window = appContext.currentActivity?.window ?: return@post
-      if (previousCallback != null) return@post
+      if (wrappedWindow === window) return@post
+      wrappedWindow = window
       val base = window.callback ?: return@post
       previousCallback = base
       window.callback = object : Window.Callback by base {
@@ -141,8 +160,11 @@ class HardwareKeyboardModule : Module() {
 
   private fun stopCapture() {
     main.post {
-      val window = appContext.currentActivity?.window ?: return@post
-      previousCallback?.let { window.callback = it }
+      // Restored on the window that was actually wrapped. Handing the old
+      // callback to a NEW window would graft a dead Activity's chain onto a
+      // live one.
+      wrappedWindow?.let { window -> previousCallback?.let { window.callback = it } }
+      wrappedWindow = null
       previousCallback = null
     }
   }
@@ -160,12 +182,36 @@ class HardwareKeyboardModule : Module() {
   // one dock serve every input in the app without a single field knowing it
   // exists.
 
-  private val focusedEditor: EditText?
-    get() = appContext.currentActivity?.window?.currentFocus as? EditText
+  // The focused editor, addressed by React tag when the caller knows it.
+  //
+  // `window.currentFocus` only ever answers for the ACTIVITY's window, and a
+  // React Native modal is a window of its own -- so every field inside a sheet
+  // (the customer search, a product form, the float count) was invisible to it,
+  // which is precisely where a till most needs a keyboard. The tag comes from
+  // React and does not care which window the view was mounted into.
+  private fun editorFor(tag: Int): EditText? {
+    val byTag = if (tag == NO_TAG) null else appContext.findView<View>(tag)
+    if (byTag is EditText) return byTag
+    return appContext.currentActivity?.window?.currentFocus as? EditText
+  }
 
-  private fun insertText(text: String) {
+  private val focusedEditor: EditText?
+    get() = editorFor(NO_TAG)
+
+  // Typing must not cost the field its focus. A key goes in, the app re-renders
+  // around the new value -- a customer search re-runs, a list under it changes --
+  // and a field that comes out of that unfocused takes the dock down with it,
+  // because the dock follows focus. Observed exactly that: the first key landed
+  // and the keyboard vanished. Re-asserting focus after the edit is what keeps
+  // the second key possible.
+  private fun keepFocus(editor: EditText) {
+    if (!editor.isFocused) editor.requestFocus()
+  }
+
+  private fun insertText(text: String, tag: Int) {
     main.post {
-      val editor = focusedEditor ?: return@post
+      val editor = editorFor(tag) ?: return@post
+      keepFocus(editor)
       // Through the selection rather than appending, so the keypad respects a
       // caret the user has moved and replaces a selection they have made --
       // the things that make an editor an editor rather than a text sink.
@@ -175,9 +221,28 @@ class HardwareKeyboardModule : Module() {
     }
   }
 
-  private fun deleteBackward() {
+  // The Enter a scanner sends after a code, from a finger instead. Without it a
+  // code typed by hand can be entered but never committed, which is a real till
+  // workflow -- reading a damaged barcode off the label.
+  //
+  // A real key event dispatched at the field, so it travels the path the
+  // scanner's own terminator travels and the field's `onSubmitEditing` fires
+  // exactly as it would for hardware. Sent to the view rather than the window,
+  // so the capture wrapper is not involved at all.
+  private fun pressEnter(tag: Int) {
     main.post {
-      val editor = focusedEditor ?: return@post
+      val editor = editorFor(tag) ?: return@post
+      keepFocus(editor)
+      val now = SystemClock.uptimeMillis()
+      editor.dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
+      editor.dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
+    }
+  }
+
+  private fun deleteBackward(tag: Int) {
+    main.post {
+      val editor = editorFor(tag) ?: return@post
+      keepFocus(editor)
       val start = editor.selectionStart.coerceAtLeast(0)
       val end = editor.selectionEnd.coerceAtLeast(0)
       if (start != end) {
@@ -196,17 +261,22 @@ class HardwareKeyboardModule : Module() {
     sendEvent("onEditorFocus", mapOf("focused" to (newFocus is EditText)))
   }
 
+  private var watchingFocus = false
+  private var watchedDecor: View? = null
+
   private fun startFocusWatch() {
     main.post {
-      appContext.currentActivity?.window?.decorView?.viewTreeObserver
-        ?.addOnGlobalFocusChangeListener(focusListener)
+      val decor = appContext.currentActivity?.window?.decorView ?: return@post
+      if (watchedDecor === decor) return@post
+      watchedDecor = decor
+      decor.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
     }
   }
 
   private fun stopFocusWatch() {
     main.post {
-      appContext.currentActivity?.window?.decorView?.viewTreeObserver
-        ?.removeOnGlobalFocusChangeListener(focusListener)
+      watchedDecor?.viewTreeObserver?.removeOnGlobalFocusChangeListener(focusListener)
+      watchedDecor = null
     }
   }
 
@@ -218,8 +288,9 @@ class HardwareKeyboardModule : Module() {
     // The keypad's two verbs. Deliberately not "setValue": a keyboard that set
     // values would have to know which field it was aimed at, which is the
     // limitation this replaces.
-    Function("insertText") { text: String -> insertText(text) }
-    Function("deleteBackward") { deleteBackward() }
+    Function("insertText") { text: String, tag: Int -> insertText(text, tag) }
+    Function("deleteBackward") { tag: Int -> deleteBackward(tag) }
+    Function("pressEnter") { tag: Int -> pressEnter(tag) }
     // Answers for the first render, before any focus CHANGE has happened.
     Function("isEditorFocused") { focusedEditor != null }
 
@@ -237,7 +308,20 @@ class HardwareKeyboardModule : Module() {
     OnStartObserving("onChange") { inputManager?.registerInputDeviceListener(listener, null) }
     OnStopObserving("onChange") { inputManager?.unregisterInputDeviceListener(listener) }
 
-    OnStartObserving("onKey") { startCapture() }
-    OnStopObserving("onKey") { stopCapture() }
+    OnStartObserving("onKey") { capturing = true; startCapture() }
+    OnStopObserving("onKey") { capturing = false; stopCapture() }
+
+    OnStartObserving("onEditorFocus") { watchingFocus = true; startFocusWatch() }
+    OnStopObserving("onEditorFocus") { watchingFocus = false; stopFocusWatch() }
+
+    // The Activity this app runs in is not forever: a dev reload replaces it, and
+    // so does a rotation or any other configuration change. Both listeners live
+    // on the Activity's window, so both have to be re-attached to whatever
+    // window is in front now -- otherwise a till keeps running, looks fine, and
+    // never sees another scan.
+    OnActivityEntersForeground {
+      if (capturing) startCapture()
+      if (watchingFocus) startFocusWatch()
+    }
   }
 }

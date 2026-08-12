@@ -22,11 +22,41 @@ import QuartzCore
 // invisible focused text field. `keyChangedHandler` delivers hardware keys with
 // nothing focused, so a scan lands without any field asking for the caret. See
 // the Android twin, which reaches the same result through the window callback.
+// "No React tag was known" -- see `editor(for:)`.
+private let NO_TAG = -1
+
 public class HardwareKeyboardModule: Module {
   public func definition() -> ModuleDefinition {
     Name("HardwareKeyboard")
 
-    Events("onChange", "onKey")
+    Events("onChange", "onKey", "onEditorFocus")
+
+    // The keypad's two verbs -- see the Android twin for why a keyboard sends
+    // characters to whatever has focus rather than owning a value. UIKit already
+    // models exactly this: `UIKeyInput` is the protocol a thing implements to be
+    // typed into, and every UITextField and UITextView conforms.
+    Function("insertText") { (text: String, tag: Int) in
+      DispatchQueue.main.async { self.editor(for: tag)?.insertText(text) }
+    }
+
+    Function("deleteBackward") { (tag: Int) in
+      DispatchQueue.main.async { self.editor(for: tag)?.deleteBackward() }
+    }
+
+    // The Enter a scanner sends after a code, from a finger instead. Without it
+    // a code typed by hand can be entered but never committed, which is a real
+    // till workflow -- a damaged barcode read off the label.
+    //
+    // A newline into the field rather than a synthesised key press: UIKit gives
+    // no public way to make a text field act on its return key, and React
+    // Native's field treats the newline as the return for a single-line input.
+    Function("pressEnter") { (tag: Int) in
+      DispatchQueue.main.async { self.editor(for: tag)?.insertText("\n") }
+    }
+
+    Function("isEditorFocused") { () -> Bool in
+      return Self.firstResponder() != nil
+    }
 
     Function("isAttached") { () -> Bool in
       return GCKeyboard.coalesced != nil
@@ -62,6 +92,9 @@ public class HardwareKeyboardModule: Module {
       NotificationCenter.default.removeObserver(self, name: .GCKeyboardDidDisconnect, object: nil)
     }
 
+    OnStartObserving("onEditorFocus") { self.startFocusWatch() }
+    OnStopObserving("onEditorFocus") { self.stopFocusWatch() }
+
     OnStartObserving("onKey") {
       self.capturing = true
       self.attachKeyHandler()
@@ -84,6 +117,88 @@ public class HardwareKeyboardModule: Module {
   }
 
   private var capturing = false
+
+  // The focused field, without reaching for anything private. `sendAction(to:
+  // nil)` is UIKit's own way of addressing "whoever is first responder": the
+  // action walks the responder chain and the first thing that can handle it
+  // does, which is precisely the field being typed into.
+  private static weak var captured: UIResponder?
+
+  // The field to type into, addressed by React tag when the caller knows it.
+  //
+  // The responder chain answers for the key window only, and a React Native
+  // modal is a window of its own -- so every field inside a sheet (the customer
+  // search, a product form, the float count) was unreachable, which is exactly
+  // where a till most needs a keyboard. The tag comes from React and does not
+  // care which window the view was mounted into. Mirrors the Android twin.
+  // `NO_TAG` rather than an optional argument: an `Int?` parameter is a shape
+  // Expo's iOS argument conversion would not expose, and the function simply
+  // did not appear on the JS side -- so the app quietly fell back to the old
+  // per-screen keypad with no error anywhere. A sentinel is uglier and works on
+  // both platforms.
+  private func editor(for tag: Int) -> UIKeyInput? {
+    if tag != NO_TAG, let view = appContext?.findView(withTag: tag, ofType: UIView.self) as? UIKeyInput {
+      return view
+    }
+    return Self.firstResponder()
+  }
+
+  private static func firstResponder() -> UIKeyInput? {
+    captured = nil
+    UIApplication.shared.sendAction(#selector(UIResponder.captureAsFirstResponder), to: nil, from: nil, for: nil)
+    return captured as? UIKeyInput
+  }
+
+  fileprivate static func capture(_ responder: UIResponder) {
+    captured = responder
+  }
+
+  // Focus, from the one place that knows. UIKit posts these for every text
+  // field and text view in the app, so the dock follows focus without a single
+  // field being told it exists -- the same universality the Android twin gets
+  // from the window's focus observer.
+  private func startFocusWatch() {
+    let center = NotificationCenter.default
+    for name in [
+      UITextField.textDidBeginEditingNotification,
+      UITextView.textDidBeginEditingNotification,
+    ] {
+      center.addObserver(self, selector: #selector(editorDidFocus), name: name, object: nil)
+    }
+    for name in [
+      UITextField.textDidEndEditingNotification,
+      UITextView.textDidEndEditingNotification,
+    ] {
+      center.addObserver(self, selector: #selector(editorDidBlur), name: name, object: nil)
+    }
+  }
+
+  private func stopFocusWatch() {
+    let center = NotificationCenter.default
+    for name in [
+      UITextField.textDidBeginEditingNotification,
+      UITextView.textDidBeginEditingNotification,
+      UITextField.textDidEndEditingNotification,
+      UITextView.textDidEndEditingNotification,
+    ] {
+      center.removeObserver(self, name: name, object: nil)
+    }
+  }
+
+  @objc
+  private func editorDidFocus() {
+    sendEvent("onEditorFocus", ["focused": true])
+  }
+
+  @objc
+  private func editorDidBlur() {
+    // Read through rather than assuming: moving between two fields ends editing
+    // on one and begins on the other, and the order is not guaranteed. Asking
+    // who holds it now is the only answer that survives that.
+    DispatchQueue.main.async {
+      self.sendEvent("onEditorFocus", ["focused": Self.firstResponder() != nil])
+    }
+  }
 
   @objc
   private func keyboardDidConnect() {
@@ -173,5 +288,15 @@ public class HardwareKeyboardModule: Module {
     }
 
     return nil
+  }
+}
+
+// The selector `firstResponder()` sends into the responder chain. An extension
+// on UIResponder rather than a subclass, because the thing that answers is
+// whatever UIKit already put there -- a UITextField inside React Native's own
+// view, which this file does not own and must not replace.
+private extension UIResponder {
+  @objc func captureAsFirstResponder() {
+    HardwareKeyboardModule.capture(self)
   }
 }

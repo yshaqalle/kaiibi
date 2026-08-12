@@ -23,10 +23,11 @@ export type WedgeConfig = {
   // the Enter that follows them is not delivered on the same clock. Scanners
   // can be configured with a suffix delay, and a `TextInput`'s submit crosses a
   // render pass its `onChangeText`s did not, so a genuine scan's terminator can
-  // trail its last digit by a fifth of a second. Wide enough to cover that,
-  // narrow enough that a person reading the box and then pressing Enter is
-  // still a person -- and it costs nothing either way, since a burst can only
-  // reach `minLength` at speeds no one can type.
+  // trail its last digit by a long way: measured at 627ms on a real device,
+  // between characters that all shared a single millisecond. A second is the
+  // same span `ABANDONED_BURST_MS` uses for "this burst is over", and it costs
+  // little either way -- a burst can only reach `minLength` at speeds no one
+  // can type, so what waits here is always a machine's code.
   maxTerminatorGapMs: number;
   // Scanners are configured to send one of these after the code. CR is the
   // factory default on essentially every model.
@@ -36,7 +37,7 @@ export type WedgeConfig = {
 export const DEFAULT_WEDGE_CONFIG: WedgeConfig = {
   minLength: 4,
   maxInterKeyMs: 50,
-  maxTerminatorGapMs: 500,
+  maxTerminatorGapMs: 1_000,
   terminators: ['Enter', 'Tab'],
 };
 
@@ -239,10 +240,13 @@ export function stepWedge(
 ): WedgeStep {
   if (config.terminators.includes(key)) {
     const code = state.buffer;
-    // The terminator has to be part of the same burst. A scanner sends its
-    // suffix immediately after the last digit; without this check, typing four
-    // quick characters and pressing Enter a second later would read as a scan.
-    const inBurst = at - state.lastKeyAt <= config.maxInterKeyMs;
+    // The terminator has to be part of the same burst -- but judged by
+    // `maxTerminatorGapMs`, not by the inter-character gap. The characters are
+    // the discriminator; the Enter that ends them travels a different path and
+    // arrives late. Measured on a real device: thirteen digits sharing one
+    // millisecond, then their terminator 627ms behind them, rejected as typing.
+    // Same reasoning, same number, as `fieldBurstScan` above.
+    const inBurst = at - state.lastKeyAt <= config.maxTerminatorGapMs;
     const isScan = inBurst && code.length >= config.minLength;
     // Reset either way: a terminator ends the burst whether or not it was a
     // scan, so a rejected buffer can't leak into the next one.

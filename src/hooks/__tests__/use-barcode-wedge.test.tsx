@@ -3,6 +3,17 @@ import { act, create } from 'react-test-renderer';
 
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 
+// The hook listens only while its screen is IN FRONT, and the real
+// `useFocusEffect` needs a navigation container. Same stand-in as
+// wedge-sink.test.tsx: the callback runs on mount, which is the screen being
+// in front, and its cleanup is returned so unmounting still tears down.
+jest.mock('expo-router', () => ({
+  useFocusEffect: (cb: () => undefined | (() => void)) => {
+    const { useEffect } = jest.requireActual<typeof import('react')>('react');
+    useEffect(() => cb(), [cb]);
+  },
+}));
+
 // The native listener, captured on subscribe so a test can play a scanner into
 // it. Same `mock` prefix rule as use-hardware-keyboard.test.tsx: a hoisted
 // jest.mock factory may only close over names beginning with `mock`.
