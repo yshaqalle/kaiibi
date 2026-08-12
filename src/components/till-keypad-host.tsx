@@ -21,12 +21,29 @@ const NO_TAG = -1;
 // context and Supabase -- are NOT in the import graph of `AppModal`, which every
 // sheet in the app depends on. A modal wrapper that pulls in the database client
 // makes the whole UI layer untestable and unbundleable on its own.
-const ROWS = [
-  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+const DIGITS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
+
+const LETTER_ROWS = [
+  DIGITS,
   ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'],
   ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l'],
   ['z', 'x', 'c', 'v', 'b', 'n', 'm'],
 ];
+
+// Everything a till actually types and nothing else. An email needs `@` and
+// `.`, a phone number `+`, a note a comma and an apostrophe. There is no second
+// symbol page: what is not here is not typed at a counter.
+const SYMBOL_ROWS = [
+  DIGITS,
+  ['@', '.', '-', '_', '+', '/', ':', ';', '(', ')'],
+  ['&', '%', '$', '#', '!', '?', ',', "'", '"'],
+  ['*', '=', '<', '>', '[', ']', '~'],
+];
+
+// Off, armed for one character, or locked. One-shot by default because the
+// common case is a single capital at the start of a name; double-tap locks for
+// an all-caps SKU read off a label.
+type Shift = 'off' | 'once' | 'lock';
 
 /**
  * Is a field being typed into right now, anywhere in the app?
@@ -137,6 +154,8 @@ export function TillKeypadHost() {
   const hold = useRef<TypingHold>({ input: null, until: 0 });
   const editorFocused = useEditorFocused(hold);
   useKeyCaptureAnchor(scanner.hardware);
+  const [symbols, setSymbols] = useState(false);
+  const [shift, setShift] = useState<Shift>('off');
 
   // Only where the system keyboard is actually being withheld, and only while
   // something is waiting for characters. Anywhere else this would be a second
@@ -179,6 +198,15 @@ export function TillKeypadHost() {
   };
 
   const type = (text: string) => withFocusKept((tag) => module?.insertText?.(text, tag));
+
+  // A letter carries the shift, and spends it. `lock` survives; `once` does not,
+  // which is what makes a single capital cost one key rather than two.
+  const typeLetter = (char: string) => {
+    type(shift === 'off' ? char : char.toUpperCase());
+    if (shift === 'once') setShift('off');
+  };
+
+  const toggleShift = () => setShift((current) => (current === 'off' ? 'once' : current === 'once' ? 'lock' : 'off'));
   const backspace = () => withFocusKept((tag) => module?.deleteBackward?.(tag));
   const enter = () => withFocusKept((tag) => module?.pressEnter?.(tag));
 
@@ -195,29 +223,54 @@ export function TillKeypadHost() {
     <View style={styles.layer} pointerEvents="box-none">
         <View style={styles.dock}>
           <View style={styles.inner}>
-            {ROWS.map((row, index) => {
+            {(symbols ? SYMBOL_ROWS : LETTER_ROWS).map((row, index, rows) => {
+              const last = index === rows.length - 1;
               // Half the missing width on each side, so a key is the same width
-              // on every row and the hand can trust where it is.
-              const spacerFlex = (ROWS[0].length - row.length) / 2;
+              // on every row and the hand can trust where it is. The last row
+              // carries shift and backspace instead of padding, the way every
+              // phone keyboard does.
+              const spacerFlex = last ? 0 : (rows[0].length - row.length) / 2;
               return (
                 <View key={index} style={styles.row}>
                   {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
+                  {last && !symbols ? (
+                    <Pressable
+                      onPress={toggleShift}
+                      style={[styles.key, styles.wideKey, shift !== 'off' && styles.keyActive]}
+                      accessibilityLabel={shift === 'lock' ? 'Caps lock on' : shift === 'once' ? 'Shift on' : 'Shift'}
+                    >
+                      <Text style={[styles.keyLabel, shift !== 'off' && styles.keyLabelActive]}>
+                        {shift === 'lock' ? '⇪' : '⇧'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
                   {row.map((char) => (
-                    <Pressable key={char} onPress={() => type(char)} style={styles.key}>
-                      <Text style={styles.keyLabel}>{char.toUpperCase()}</Text>
+                    <Pressable key={char} onPress={() => (symbols ? type(char) : typeLetter(char))} style={styles.key}>
+                      <Text style={styles.keyLabel}>
+                        {symbols ? char : shift === 'off' ? char : char.toUpperCase()}
+                      </Text>
                     </Pressable>
                   ))}
+                  {last ? (
+                    <Pressable onPress={backspace} style={[styles.key, styles.wideKey]} accessibilityLabel="Backspace">
+                      <Text style={styles.keyLabel}>⌫</Text>
+                    </Pressable>
+                  ) : null}
                   {spacerFlex > 0 ? <View style={{ flex: spacerFlex }} /> : null}
                 </View>
               );
             })}
 
             <View style={styles.row}>
+              <Pressable
+                onPress={() => setSymbols((on) => !on)}
+                style={[styles.key, styles.wideKey]}
+                accessibilityLabel={symbols ? 'Letters' : 'Symbols and punctuation'}
+              >
+                <Text style={styles.keyLabel}>{symbols ? 'ABC' : '?123'}</Text>
+              </Pressable>
               <Pressable onPress={() => type(' ')} style={[styles.key, styles.spaceKey]}>
                 <Text style={styles.keyLabel}>space</Text>
-              </Pressable>
-              <Pressable onPress={backspace} style={[styles.key, styles.wideKey]} accessibilityLabel="Backspace">
-                <Text style={styles.keyLabel}>⌫</Text>
               </Pressable>
               {/* What the scanner's trailing Enter does, for a code read off a
                   damaged label by eye. The field decides what it means -- search
@@ -266,6 +319,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   spaceKey: { flex: 3 },
+  // Shift and caps read as ON at a glance, because a keyboard that is silently
+  // capitalising is how a customer's name ends up in shouting.
+  keyActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  keyLabelActive: { color: theme.bentoSurface },
   wideKey: { flex: 2 },
   doneKey: { flex: 2, backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
   doneLabel: { color: theme.bentoSurface },
