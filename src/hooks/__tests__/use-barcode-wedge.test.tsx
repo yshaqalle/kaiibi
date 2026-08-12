@@ -43,6 +43,18 @@ function mount(enabled = true) {
   return scans;
 }
 
+// A scanner with no suffix configured: the code, then silence.
+function scanWithoutTerminator(code: string, gapMs = 5) {
+  let at = 1000;
+  act(() => {
+    for (const char of code) {
+      mockKeyListeners.forEach((fn) => fn({ key: char, at }));
+      at += gapMs;
+    }
+  });
+  act(() => { jest.advanceTimersByTime(400); });
+}
+
 // A wedge scanner: characters milliseconds apart, then its terminator.
 function scan(code: string, gapMs = 5) {
   let at = 1000;
@@ -80,6 +92,16 @@ describe('useBarcodeWedge on native', () => {
     const scans = mount();
     scan('shea butter', 150);
     expect(scans).toEqual([]);
+  });
+
+  // Bluetooth scanners are often configured with no suffix, and a code that
+  // waits for an Enter that never comes is a code the till never sees.
+  it('reads a code from a scanner that sends no terminator', () => {
+    jest.useFakeTimers();
+    const scans = mount();
+    scanWithoutTerminator('8809447255972');
+    jest.useRealTimers();
+    expect(scans).toEqual(['8809447255972']);
   });
 
   it('does not listen at all when the store has no scanner', () => {

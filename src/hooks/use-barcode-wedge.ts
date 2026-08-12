@@ -3,18 +3,21 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
 import { getHardwareKeyboardModule, supportsHardwareKeyEvents } from '../../modules/hardware-keyboard';
-import { DEFAULT_WEDGE_CONFIG, initialWedgeState, stepWedge, type WedgeConfig } from '@/lib/barcode-wedge';
+import { DEFAULT_WEDGE_CONFIG, flushWedgeIfIdle, initialWedgeState, stepWedge, type WedgeConfig } from '@/lib/barcode-wedge';
 
-// A burst that never gets its terminator -- a misread, or the cashier walked
-// away mid-scan -- must not sit in the buffer waiting to be prefixed onto the
-// next scan. Shared by both listeners below, which is the point: one machine,
-// one forgetting rule, two sources of keys.
+// What happens when a burst goes quiet, shared by both listeners below: one
+// machine, one silence rule, two sources of keys.
 //
-// It must not be SHORTER than the terminator window, or it decides the question
-// that window is meant to answer: at 250ms it threw away the buffer before a
-// terminator 627ms behind it could arrive, and the scan was lost with the
-// timing rule never consulted. Kept equal to `maxTerminatorGapMs` deliberately.
-const IDLE_RESET_MS = DEFAULT_WEDGE_CONFIG.maxTerminatorGapMs;
+// Silence now ENDS a scan rather than discarding one. A scanner can be
+// configured to send no suffix at all -- common on Bluetooth models -- and
+// waiting for an Enter that is never coming lost the code entirely. Anything
+// that reached `minLength` was delivered at machine speed, so it is a code
+// whether or not a terminator follows it; anything shorter is dropped, exactly
+// as before, so a stray keystroke cannot sit and prefix the next scan.
+//
+// Kept longer than the config's own `idleFlushMs`, so the flush is decided by
+// the rule rather than by whichever timer happens to fire first.
+const IDLE_SWEEP_MS = DEFAULT_WEDGE_CONFIG.idleFlushMs + 60;
 
 /**
  * Does this build still need the invisible focused field to catch scans?
@@ -92,7 +95,11 @@ export function useBarcodeWedge({
       if (step.emit) onScanRef.current(step.emit);
 
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => { stateRef.current = initialWedgeState(); }, IDLE_RESET_MS);
+      idleTimerRef.current = setTimeout(() => {
+        const code = flushWedgeIfIdle(stateRef.current, Date.now(), config);
+        stateRef.current = initialWedgeState();
+        if (code) onScanRef.current(code);
+      }, IDLE_SWEEP_MS);
     });
 
     return () => {
@@ -132,7 +139,11 @@ export function useBarcodeWedge({
       if (step.emit) onScanRef.current(step.emit);
 
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => { stateRef.current = initialWedgeState(); }, IDLE_RESET_MS);
+      idleTimerRef.current = setTimeout(() => {
+        const code = flushWedgeIfIdle(stateRef.current, Date.now(), config);
+        stateRef.current = initialWedgeState();
+        if (code) onScanRef.current(code);
+      }, IDLE_SWEEP_MS);
     };
 
     // Capture phase: React's synthetic events run on a listener attached at the
