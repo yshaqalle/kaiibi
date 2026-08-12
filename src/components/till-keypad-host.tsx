@@ -4,6 +4,7 @@ import { findNodeHandle, Keyboard, Pressable, StyleSheet, Text, TextInput, View 
 import { getHardwareKeyboardModule, supportsTyping } from '../../modules/hardware-keyboard';
 import { Colors } from '@/constants/theme';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { markKeypadProven } from '@/lib/keypad-proof';
 
 const theme = Colors.light;
 
@@ -153,6 +154,10 @@ export function TillKeypadHost() {
   const scanner = useScannerSettings();
   const hold = useRef<TypingHold>({ input: null, until: 0 });
   const editorFocused = useEditorFocused(hold);
+  // Reported the first time this dock actually has a field to serve. Until then
+  // the old per-screen keypad stays on, so a device where this never appears
+  // keeps the keyboard it has. See `keypad-proof`.
+  useEffect(() => { if (editorFocused) markKeypadProven(); }, [editorFocused]);
   useKeyCaptureAnchor(scanner.hardware);
   const [symbols, setSymbols] = useState(false);
   const [shift, setShift] = useState<Shift>('off');

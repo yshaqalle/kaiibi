@@ -28,8 +28,8 @@ import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
-import { supportsTyping } from '../../../../modules/hardware-keyboard';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { formatCompactCents } from '@/lib/currency';
 import type { CsvColumn } from '@/lib/csv';
@@ -182,6 +182,9 @@ export default function InventoryScreen() {
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
   // Old binaries only. See `useWedgeSinkFallback`.
   const sinkFallback = useWedgeSinkFallback();
+  // The old keypad stands down only once the new dock has been seen working on
+  // this device -- never on a claim that it could.
+  const universalKeypad = useKeypadProven();
   const scrollRef = useRef<ScrollView>(null);
   // Content-relative y of the search row, captured on layout so opening the
   // keypad can bring the row into view — the dock shrinks the viewport, and a
@@ -583,7 +586,7 @@ export default function InventoryScreen() {
             // keep focus away from the invisible sink, and there is no sink
             // to protect any more. Leaving it on made the box hold focus
             // permanently, so scans landed in it as text instead of resolving.
-            useKeypad={scanner.onScreenKeypad && !supportsTyping()}
+            useKeypad={scanner.onScreenKeypad && !universalKeypad}
             showScanButton={scanner.camera}
             onScanPress={() => setScannerOpen(true)}
             keypadOpen={keypadOpen}
@@ -695,7 +698,7 @@ export default function InventoryScreen() {
       {/* The legacy path. Where the binary can type into the focused field,
           `TillKeypad` at the app root serves this box and every other one --
           rendering both would put two keyboards on screen at once. */}
-      {keypadOpen && scanner.onScreenKeypad && !supportsTyping() ? (
+      {keypadOpen && scanner.onScreenKeypad && !universalKeypad ? (
         <SearchKeypad
           value={search}
           onChange={setSearch}

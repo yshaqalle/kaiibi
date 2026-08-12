@@ -26,8 +26,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
 import { useRegisterSession } from '@/hooks/use-register-session';
-import { supportsTyping } from '../../../../modules/hardware-keyboard';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
 import { sessionCashSummary } from '@/lib/registers';
@@ -144,6 +144,9 @@ export default function PosScreen() {
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
   // Old binaries only. See `useWedgeSinkFallback`.
   const sinkFallback = useWedgeSinkFallback();
+  // The old keypad stands down only once the new dock has been seen working on
+  // this device -- never on a claim that it could.
+  const universalKeypad = useKeypadProven();
   const splitRef = useRef<ScrollView>(null);
   // Compact POS puts the cart ABOVE the browse pane, so the search row's
   // content-relative y is the pane's y plus the row's y within the pane.
@@ -591,7 +594,7 @@ export default function PosScreen() {
           placeholder="Search or scan a product"
           // Legacy binaries only -- see the note on Inventory's copy. Where the
           // dock can type into the focused field, this is an ordinary text box.
-          useKeypad={scanner.onScreenKeypad && !supportsTyping()}
+          useKeypad={scanner.onScreenKeypad && !universalKeypad}
           showScanButton={scanner.camera}
           onScanPress={() => setScannerOpen(true)}
           showSearchIcon
@@ -886,7 +889,7 @@ export default function PosScreen() {
       {/* The legacy path. Where the binary can type into the focused field,
           `TillKeypad` at the app root serves this box and every other one --
           rendering both would put two keyboards on screen at once. */}
-      {keypadOpen && scanner.onScreenKeypad && !supportsTyping() ? (
+      {keypadOpen && scanner.onScreenKeypad && !universalKeypad ? (
         <SearchKeypad
           value={search}
           onChange={setSearch}
