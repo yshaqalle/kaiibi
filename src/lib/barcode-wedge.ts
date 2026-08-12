@@ -18,6 +18,16 @@ export type WedgeConfig = {
   // character; a very fast typist manages about 90-150 ms. 50 ms sits in the
   // empty space between the two, well clear of both.
   maxInterKeyMs: number;
+  // How late the terminator may arrive and still belong to the burst it ends.
+  // Deliberately NOT `maxInterKeyMs`: the characters are the discriminator, and
+  // the Enter that follows them is not delivered on the same clock. Scanners
+  // can be configured with a suffix delay, and a `TextInput`'s submit crosses a
+  // render pass its `onChangeText`s did not, so a genuine scan's terminator can
+  // trail its last digit by a fifth of a second. Wide enough to cover that,
+  // narrow enough that a person reading the box and then pressing Enter is
+  // still a person -- and it costs nothing either way, since a burst can only
+  // reach `minLength` at speeds no one can type.
+  maxTerminatorGapMs: number;
   // Scanners are configured to send one of these after the code. CR is the
   // factory default on essentially every model.
   terminators: readonly string[];
@@ -26,6 +36,7 @@ export type WedgeConfig = {
 export const DEFAULT_WEDGE_CONFIG: WedgeConfig = {
   minLength: 4,
   maxInterKeyMs: 50,
+  maxTerminatorGapMs: 500,
   terminators: ['Enter', 'Tab'],
 };
 
@@ -209,10 +220,11 @@ export function fieldBurstScan(
   at: number,
   config: WedgeConfig = DEFAULT_WEDGE_CONFIG
 ): string | null {
-  // Same rule as `stepWedge`: the terminator has to belong to the burst it
-  // ends, or four quick characters and an Enter a second later would read as a
-  // scan.
-  const inBurst = at - state.lastChangeAt <= config.maxInterKeyMs;
+  // The terminator has to belong to the burst it ends, or four quick characters
+  // and an Enter a second later would read as a scan. Measured against
+  // `maxTerminatorGapMs` rather than the inter-character gap -- see the note on
+  // that field for why the two cannot be the same number here.
+  const inBurst = at - state.lastChangeAt <= config.maxTerminatorGapMs;
   if (!inBurst || state.burst.length < config.minLength) return null;
   return state.burst;
 }

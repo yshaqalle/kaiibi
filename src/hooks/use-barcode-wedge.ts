@@ -1,18 +1,47 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
+import { getHardwareKeyboardModule, supportsHardwareKeyEvents } from '../../modules/hardware-keyboard';
 import { DEFAULT_WEDGE_CONFIG, initialWedgeState, stepWedge, type WedgeConfig } from '@/lib/barcode-wedge';
 
-// Listens for a hardware barcode scanner typing into the page with nothing
-// focused -- the way a real till is used, where the cashier scans without
-// clicking into a field first.
+// A burst that never gets its terminator -- a misread, or the cashier walked
+// away mid-scan -- must not sit in the buffer waiting to be prefixed onto the
+// next scan. Shared by both listeners below, which is the point: one machine,
+// one forgetting rule, two sources of keys.
+const IDLE_RESET_MS = 250;
+
+/**
+ * Does this build still need the invisible focused field to catch scans?
+ *
+ * True only on a native binary that cannot report keys -- a dev client or a
+ * store build from before the module could. Everywhere else the window
+ * listener above does the job without taking focus from anyone, and rendering
+ * the sink as well would put back every problem it caused.
+ *
+ * Read once, in a state initialiser rather than at import: the native module
+ * registers during startup, and a lookup at module-evaluation time can miss it
+ * and answer for the life of the process.
+ */
+export function useWedgeSinkFallback(): boolean {
+  const [needed] = useState(() => Platform.OS !== 'web' && !supportsHardwareKeyEvents());
+  return needed;
+}
+
+// Listens for a hardware barcode scanner typing with nothing focused -- the way
+// a real till is used, where the cashier scans without tapping into a field
+// first.
 //
-// WEB ONLY, deliberately. A wedge scanner is a keyboard, and React Native
-// exposes no global hardware-key event on iOS or Android, so there is no honest
-// way to implement this natively without an always-focused invisible TextInput
-// (invasive enough that it belongs behind an explicit setting -- a later phase).
-// On native this hook is a no-op and scanning works through the camera, or
-// through the search field when it happens to be focused.
+// Web hears this from `document`. Native hears it from the Activity's window,
+// through the `HardwareKeyboard` module, which is the same idea one layer down:
+// a key reaches the window before any view sees it, so no field has to be
+// focused to receive it. That matters more than it sounds. The previous native
+// answer was an invisible TextInput that held focus forever, and holding focus
+// is what fought modals for the caret, swallowed everything a real keyboard
+// typed, and made Android raise the soft keyboard on every scan.
+//
+// On a binary built before the module could report keys, native falls back to
+// that invisible field -- see `WedgeSink`, which callers still render for
+// exactly that case.
 export function useBarcodeWedge({
   enabled,
   onScan,
@@ -32,6 +61,36 @@ export function useBarcodeWedge({
   const stateRef = useRef(initialWedgeState());
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Native: keys from the window, with nothing focused.
+  useEffect(() => {
+    if (Platform.OS === 'web' || !enabled) return;
+    const module = getHardwareKeyboardModule();
+    if (!module || !supportsHardwareKeyEvents()) return;
+
+    // No focus check here, deliberately. The native half already answers it --
+    // against `window.currentFocus` at the instant the key arrives, the same
+    // question the IME asks -- and only sends keys that no field wanted. Asking
+    // again from JS means asking a DIFFERENT source: RN's
+    // `currentlyFocusedInput()` is a cache, and it keeps a field that unmounted
+    // while focused forever (see the note in `WedgeSink`). That stale entry made
+    // every scan vanish here -- yielded to a field that no longer exists.
+    const subscription = module.addListener('onKey', ({ key, at }) => {
+      const step = stepWedge(stateRef.current, key, at, config);
+      stateRef.current = step.state;
+      if (step.emit) onScanRef.current(step.emit);
+
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => { stateRef.current = initialWedgeState(); }, IDLE_RESET_MS);
+    });
+
+    return () => {
+      subscription.remove();
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      stateRef.current = initialWedgeState();
+    };
+  }, [enabled, config]);
+
+  // Web: keys from the document.
   useEffect(() => {
     if (Platform.OS !== 'web' || !enabled) return;
     if (typeof document === 'undefined') return;
@@ -60,11 +119,8 @@ export function useBarcodeWedge({
       }
       if (step.emit) onScanRef.current(step.emit);
 
-      // A burst that never gets its terminator -- a misread, or the cashier
-      // walked away mid-scan -- must not sit in the buffer waiting to be
-      // prefixed onto the next scan.
       if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = setTimeout(() => { stateRef.current = initialWedgeState(); }, 250);
+      idleTimerRef.current = setTimeout(() => { stateRef.current = initialWedgeState(); }, IDLE_RESET_MS);
     };
 
     // Capture phase: React's synthetic events run on a listener attached at the

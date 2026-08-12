@@ -23,7 +23,7 @@ import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
 import { useRegisterSession } from '@/hooks/use-register-session';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
@@ -141,6 +141,8 @@ export default function PosScreen() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  // Old binaries only. See `useWedgeSinkFallback`.
+  const sinkFallback = useWedgeSinkFallback();
   const splitRef = useRef<ScrollView>(null);
   // Compact POS puts the cart ABOVE the browse pane, so the search row's
   // content-relative y is the pane's y plus the row's y within the pane.
@@ -949,7 +951,9 @@ export default function PosScreen() {
           a drawer autofocus their first field the moment they open -- a field
           asking for focus while this takes it back every 700ms is the fight
           this list exists to prevent. */}
-      {scanner.hardware && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
+      {/* Only where the window listener is unavailable -- see the note on
+          Inventory's copy of this line. */}
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Scanning something the shop doesn't stock yet is a normal event mid-

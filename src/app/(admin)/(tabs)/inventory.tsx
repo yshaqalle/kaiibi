@@ -27,7 +27,7 @@ import { SearchKeypad } from '@/components/search-keypad';
 import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { barcodeCandidates, looksLikeBarcode, resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { formatCompactCents } from '@/lib/currency';
@@ -179,6 +179,8 @@ export default function InventoryScreen() {
   const [unknownCode, setUnknownCode] = useInventorySessionField('unknownCode');
   const scanner = useScannerSettings();
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  // Old binaries only. See `useWedgeSinkFallback`.
+  const sinkFallback = useWedgeSinkFallback();
   const scrollRef = useRef<ScrollView>(null);
   // Content-relative y of the search row, captured on layout so opening the
   // keypad can bring the row into view — the dock shrinks the viewport, and a
@@ -806,7 +808,16 @@ export default function InventoryScreen() {
           onDone={reload}
         />
       )}
-      {scanner.hardware && !scannerOpen && !showAddModal && editingProduct === null && !showImportModal && !showTransfer && (
+      {/* Only on a binary that cannot report keys from the window -- see
+          `useWedgeSinkFallback`. Everywhere else `useBarcodeWedge` above hears
+          the scanner without focusing anything, and this whole list of things
+          it must stand down for stops existing.
+
+          `keypadOpen` is on the list for the same reason the sheets are: the
+          open keypad's field asks for focus, and the sink takes it back every
+          700ms. Standing down costs no scanning -- a code scanned into the
+          focused field is caught by the row's own burst rules. */}
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !showImportModal && !showTransfer && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Single, unlike POS: a scan here answers one question — "which product

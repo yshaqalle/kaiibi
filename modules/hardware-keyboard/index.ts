@@ -2,10 +2,29 @@ import { NativeModule, requireNativeModule } from 'expo';
 
 export type HardwareKeyboardEvents = {
   onChange(event: { attached: boolean }): void;
+  /**
+   * One hardware keystroke, reported from the Activity's window before any view
+   * sees it -- so it arrives with nothing focused, which is the whole point.
+   *
+   * `key` follows the DOM's `KeyboardEvent.key`: a single character for
+   * printable keys, or a name like 'Enter' or 'Tab'. Same vocabulary as the web
+   * listener, so both platforms feed the same `stepWedge` machine.
+   *
+   * `at` is the moment the key was delivered natively, in the platform's
+   * monotonic milliseconds. Compared only against other `at` values.
+   */
+  onKey(event: { key: string; at: number }): void;
 };
 
 export declare class HardwareKeyboardModule extends NativeModule<HardwareKeyboardEvents> {
   isAttached(): boolean;
+  /**
+   * Missing from binaries built before key capture existed, so calling it is
+   * how JS decides whether it may listen for keys instead of holding focus in
+   * an invisible field. See `getHardwareKeyboardModule` for why a missing
+   * native half must never throw.
+   */
+  supportsKeyEvents?(): boolean;
 }
 
 // Required lazily and cached, because `requireNativeModule` THROWS when the
@@ -27,4 +46,21 @@ export function getHardwareKeyboardModule(): HardwareKeyboardModule | null {
     }
   }
   return cached;
+}
+
+/**
+ * Can this binary deliver keystrokes without something being focused?
+ *
+ * Answered by asking rather than by a version, because the question is about
+ * the BINARY the JS happens to be running inside -- a dev client or a store
+ * build from before this existed loads today's bundle perfectly happily, and
+ * on those the app must keep its old way of catching scans.
+ */
+export function supportsHardwareKeyEvents(): boolean {
+  const module = getHardwareKeyboardModule();
+  try {
+    return module?.supportsKeyEvents?.() === true;
+  } catch {
+    return false;
+  }
 }

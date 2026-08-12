@@ -55,8 +55,24 @@ describe('stepFieldBurst', () => {
     expect(fieldBurstScan(state, 4000)).toBe('8809447255972');
   });
 
-  // A terminator has to belong to the burst it ends. Four fast characters and
-  // an Enter a second later is a person, not a scanner.
+  // The reported bug, and the reason the terminator gets a window of its own.
+  // The characters are the discriminator -- nobody types thirteen digits at
+  // five milliseconds apart -- but the Enter that ends them is not delivered on
+  // the same clock: a scanner can be configured with a suffix delay, and on
+  // Android the submit crosses a render pass the characters did not. Judging it
+  // by the inter-CHARACTER gap made a scan a fifth of a second late read as
+  // typing, so the field kept the old code and the new one landed on the end of
+  // it -- 8094472559728809447255972, matching nothing, exactly the bug the
+  // burst rules exist to prevent.
+  it('resolves a scan whose Enter lags the characters', () => {
+    const { scan, value } = scanInto('8809447255972', '8809447255972', 5, 400);
+    expect(value).toBe('88094472559728809447255972');
+    expect(scan).toBe('8809447255972');
+  });
+
+  // The window is still a window. An Enter this long after the last character
+  // is a person pressing it deliberately -- reading the box, then searching for
+  // what is in it -- and their text has to survive that untouched.
   it('reads nothing when the Enter arrives long after the burst', () => {
     expect(scanInto('', '5012345678900', 5, 900).scan).toBeNull();
   });
