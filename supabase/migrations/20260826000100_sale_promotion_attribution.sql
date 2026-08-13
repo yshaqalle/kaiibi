@@ -79,6 +79,11 @@ declare
   v_balance integer;
   v_points_earned integer := 0;
   v_session public.register_sessions%rowtype;
+  v_promo_id uuid;
+  v_promo_name text;
+  v_promo_type text;
+  v_promo_value integer;
+  v_expected_discount integer;
 begin
   if not public.has_shop_permission(p_shop_id, 'pos.access') then
     raise exception 'not authorized for shop %', p_shop_id;
@@ -196,14 +201,41 @@ begin
     end if;
 
     v_line_discount := greatest(coalesce((v_item->>'discount_cents')::integer, 0), 0);
-    -- A line discount with no promotion behind it is a cashier typing a
-    -- number, which is the one discount path nothing has ever recorded or
-    -- restricted. Anyone may APPLY an offer; entering your own amount is a
-    -- separate permission.
-    if v_line_discount > 0
-       and nullif(v_item->>'promotion_id','') is null
-       and not public.has_shop_permission(p_shop_id, 'discounts.manual') then
-      raise exception 'not authorized to enter a manual discount';
+    v_promo_id := nullif(v_item->>'promotion_id', '')::uuid;
+
+    if v_promo_id is null then
+      -- No promotion behind it means a cashier typed a number, which is the
+      -- one discount path nothing has ever recorded or restricted. Anyone may
+      -- APPLY an offer; entering your own amount is a separate permission.
+      if v_line_discount > 0
+         and not public.has_shop_permission(p_shop_id, 'discounts.manual') then
+        raise exception 'not authorized to enter a manual discount';
+      end if;
+      v_promo_name := null;
+    else
+      -- A claimed promotion is verified against the row, not taken on trust:
+      -- otherwise "attach any uuid" would be a way around the permission above,
+      -- and the name written onto the sale forever would be the caller's text.
+      select name, discount_type, discount_value
+        into v_promo_name, v_promo_type, v_promo_value
+        from public.promotions
+       where id = v_promo_id and shop_id = p_shop_id;
+      if v_promo_name is null then
+        raise exception 'promotion % does not belong to shop %', v_promo_id, p_shop_id;
+      end if;
+
+      v_expected_discount := case
+        when v_promo_type = 'percentage'
+          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+        else least(v_promo_value, v_product.price_cents * v_qty)
+      end;
+      -- Greater-than rather than not-equal: a client rounding a percentage a
+      -- cent differently must not fail a legitimate sale, but nobody may claim
+      -- more than the offer actually gives.
+      if v_line_discount > v_expected_discount then
+        raise exception 'discount % exceeds what promotion % allows (%)',
+          v_line_discount, v_promo_name, v_expected_discount;
+      end if;
     end if;
     v_line := v_product.price_cents * v_qty - v_line_discount;
     if v_line < 0 then
@@ -214,7 +246,7 @@ begin
       where product_id = v_product.id and location_id = v_location_id;
 
     insert into public.sale_items (sale_id, product_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents, promotion_id, promotion_name)
-      values (v_sale_id, v_product.id, v_product.name, v_product.price_cents, v_qty, v_line, v_line_discount, v_product.cost_cents, nullif(v_item->>'promotion_id','')::uuid, nullif(v_item->>'promotion_name',''));
+      values (v_sale_id, v_product.id, v_product.name, v_product.price_cents, v_qty, v_line, v_line_discount, v_product.cost_cents, v_promo_id, v_promo_name);
 
     v_gross_cents := v_gross_cents + v_line;
     v_item_count := v_item_count + v_qty;
@@ -391,6 +423,11 @@ declare
   v_points_earned_new integer := 0;
   v_points_delta integer;
   v_balance integer;
+  v_promo_id uuid;
+  v_promo_name text;
+  v_promo_type text;
+  v_promo_value integer;
+  v_expected_discount integer;
 begin
   select shop_id, location_id, customer_id, points_earned, points_redeemed_cents,
          loyalty_points_per_usd
@@ -494,14 +531,41 @@ begin
     end if;
 
     v_line_discount := greatest(coalesce((v_item->>'discount_cents')::integer, 0), 0);
-    -- A line discount with no promotion behind it is a cashier typing a
-    -- number, which is the one discount path nothing has ever recorded or
-    -- restricted. Anyone may APPLY an offer; entering your own amount is a
-    -- separate permission.
-    if v_line_discount > 0
-       and nullif(v_item->>'promotion_id','') is null
-       and not public.has_shop_permission(v_shop_id, 'discounts.manual') then
-      raise exception 'not authorized to enter a manual discount';
+    v_promo_id := nullif(v_item->>'promotion_id', '')::uuid;
+
+    if v_promo_id is null then
+      -- No promotion behind it means a cashier typed a number, which is the
+      -- one discount path nothing has ever recorded or restricted. Anyone may
+      -- APPLY an offer; entering your own amount is a separate permission.
+      if v_line_discount > 0
+         and not public.has_shop_permission(v_shop_id, 'discounts.manual') then
+        raise exception 'not authorized to enter a manual discount';
+      end if;
+      v_promo_name := null;
+    else
+      -- A claimed promotion is verified against the row, not taken on trust:
+      -- otherwise "attach any uuid" would be a way around the permission above,
+      -- and the name written onto the sale forever would be the caller's text.
+      select name, discount_type, discount_value
+        into v_promo_name, v_promo_type, v_promo_value
+        from public.promotions
+       where id = v_promo_id and shop_id = v_shop_id;
+      if v_promo_name is null then
+        raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
+      end if;
+
+      v_expected_discount := case
+        when v_promo_type = 'percentage'
+          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+        else least(v_promo_value, v_product.price_cents * v_qty)
+      end;
+      -- Greater-than rather than not-equal: a client rounding a percentage a
+      -- cent differently must not fail a legitimate sale, but nobody may claim
+      -- more than the offer actually gives.
+      if v_line_discount > v_expected_discount then
+        raise exception 'discount % exceeds what promotion % allows (%)',
+          v_line_discount, v_promo_name, v_expected_discount;
+      end if;
     end if;
     v_line := v_product.price_cents * v_qty - v_line_discount;
     if v_line < 0 then
@@ -512,7 +576,7 @@ begin
       where product_id = v_product.id and location_id = v_location_id;
 
     insert into public.sale_items (sale_id, product_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents, promotion_id, promotion_name)
-      values (p_sale_id, v_product.id, v_product.name, v_product.price_cents, v_qty, v_line, v_line_discount, v_product.cost_cents, nullif(v_item->>'promotion_id','')::uuid, nullif(v_item->>'promotion_name',''));
+      values (p_sale_id, v_product.id, v_product.name, v_product.price_cents, v_qty, v_line, v_line_discount, v_product.cost_cents, v_promo_id, v_promo_name);
 
     v_gross_cents := v_gross_cents + v_line;
     v_item_count := v_item_count + v_qty;
