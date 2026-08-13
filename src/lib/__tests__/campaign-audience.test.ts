@@ -74,6 +74,24 @@ describe('matchesAudience', () => {
     expect(matchesAudience(makeCustomer(), filter, recent, NOW)).toBe(false);
   });
 
+  it('includes a purchase exactly N days ago — N full days have elapsed', () => {
+    // Pins the boundary so a later edit from < to <= cannot pass silently.
+    const filter = { ...EMPTY, inactiveDays: 60 };
+    const exactlySixtyDays = new Date(NOW - 60 * 24 * 60 * 60 * 1000).toISOString();
+    expect(matchesAudience(makeCustomer(), filter, exactlySixtyDays, NOW)).toBe(true);
+  });
+
+  it('excludes a purchase one minute inside the window', () => {
+    const filter = { ...EMPTY, inactiveDays: 60 };
+    const justInside = new Date(NOW - 60 * 24 * 60 * 60 * 1000 + 60_000).toISOString();
+    expect(matchesAudience(makeCustomer(), filter, justInside, NOW)).toBe(false);
+  });
+
+  it('treats an undateable last purchase like never having bought', () => {
+    const filter = { ...EMPTY, inactiveDays: 60 };
+    expect(matchesAudience(makeCustomer(), filter, 'not a date', NOW)).toBe(true);
+  });
+
   it('includes someone who has never bought when an inactive window is set', () => {
     // Never having bought is the strongest form of "has not bought lately".
     const filter = { ...EMPTY, inactiveDays: 60 };

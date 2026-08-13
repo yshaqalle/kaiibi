@@ -54,7 +54,19 @@ export function matchesAudience(
     // Never having bought is the strongest form of "has not bought lately",
     // so a null last purchase passes rather than being excluded for lack of
     // data -- these are exactly the people a win-back campaign is for.
-    if (lastPurchaseAt !== null && now - Date.parse(lastPurchaseAt) < filter.inactiveDays * DAY_MS) {
+    //
+    // An unparseable date is treated the same way, deliberately. `Date.parse`
+    // returns NaN for junk and every comparison against NaN is false, so
+    // without this the customer would fall through to "matched" anyway -- but
+    // by accident rather than by decision. Saying it out loud means the next
+    // reader knows it was considered, and that the safe direction is to
+    // include someone we cannot date rather than silently drop them from a
+    // win-back campaign.
+    const lastPurchase = lastPurchaseAt === null ? NaN : Date.parse(lastPurchaseAt);
+    // Strictly less-than: a purchase exactly N days ago counts as "has not
+    // bought in N days". N full days have elapsed, which is what an owner
+    // choosing 60 means.
+    if (!Number.isNaN(lastPurchase) && now - lastPurchase < filter.inactiveDays * DAY_MS) {
       return false;
     }
   }
