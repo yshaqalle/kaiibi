@@ -25,7 +25,7 @@
 | File | Responsibility |
 |---|---|
 | `supabase/migrations/20260826000000_promotion_window_and_archive.sql` | New columns on `promotions` + the ordering constraint |
-| `supabase/migrations/20260826100000_sale_promotion_attribution.sql` | `sale_items` columns, both RPCs replaced, `discounts.manual` granted to existing roles |
+| `supabase/migrations/20260826000100_sale_promotion_attribution.sql` | `sale_items` columns, both RPCs replaced, `discounts.manual` granted to existing roles |
 | `supabase/tests/verify-promotions.sql` | Manual DB verification, matching the existing `verify-*.sql` convention |
 | `src/types/models.ts` | `Promotion` gains four fields |
 | `src/lib/promotions.ts` | Mapper, create/update inputs, `archivePromotion`, archived rows excluded from lists |
@@ -327,18 +327,33 @@ export function cartLineDiscountTotalCents(lines: CartLine[], promotions: Promot
 Run: `npx jest src/lib/__tests__/discounts.test.ts`
 Expected: PASS — 17 tests.
 
-- [ ] **Step 6: Confirm nothing else broke**
+- [ ] **Step 6: Make the mapper produce the four new fields**
+
+Widening the type without widening the mapper would leave the tree failing `tsc` until Task 2. Every commit in this plan must typecheck, so the mapper moves here.
+
+In `src/lib/promotions.ts`, add these four lines to the object `mapPromotionRow` returns, between `active` and `createdAt`:
+
+```ts
+    startsAt: row.starts_at ?? null,
+    endsAt: row.ends_at ?? null,
+    autoApply: row.auto_apply ?? true,
+    archivedAt: row.archived_at ?? null,
+```
+
+The columns do not exist in the database until Task 2, so `row.starts_at` is `undefined` and each fallback supplies today's behaviour: no window, auto-applying, not archived. That is correct both before and after the migration lands, which is why this is safe to do first.
+
+- [ ] **Step 7: Confirm nothing else broke**
 
 Run: `npx tsc --noEmit`
-Expected: errors ONLY in `src/lib/promotions.ts` (its mapper does not yet produce the four new fields). Task 2 fixes those. No errors in any POS component — the defaulted `now` is what guarantees that.
+Expected: **no errors at all.** No POS component needed touching — the defaulted `now` is what guarantees that.
 
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add src/types/models.ts src/lib/discounts.ts src/lib/__tests__/discounts.test.ts
+git add src/types/models.ts src/lib/discounts.ts src/lib/promotions.ts src/lib/__tests__/discounts.test.ts
 git commit -m "feat(promotions): an offer knows when it runs, and when it never runs alone"
 ```
 
@@ -407,7 +422,7 @@ Expected: the migration applies with no error.
 Create `supabase/tests/verify-promotions.sql` (matching the existing `verify-*.sql` convention — these are read and run by hand, not by CI):
 
 ```sql
--- Verification for 20260826000000 and 20260826100000. Run against a database
+-- Verification for 20260826000000 and 20260826000100. Run against a database
 -- with at least one shop and one completed sale. Each block prints PASS/FAIL.
 
 -- 1. The window constraint refuses a backwards window.
@@ -430,7 +445,7 @@ from public.promotions
 where auto_apply is not true or starts_at is not null or ends_at is not null or archived_at is not null;
 
 -- 3. A sale item keeps its promotion name after the promotion is deleted.
---    (Run after 20260826100000. Substitute a real sale_item id.)
+--    (Run after 20260826000100. Substitute a real sale_item id.)
 select 'Check by hand: delete a used promotion, then confirm '
        'select promotion_id, promotion_name from sale_items where id = ... '
        'shows a null id and an intact name.' as note;
@@ -442,28 +457,11 @@ Expected: `PASS` on blocks 1 and 2.
 
 - [ ] **Step 3: Teach the client the new columns**
 
-Replace the mapper and the input type in `src/lib/promotions.ts`:
+`mapPromotionRow` already emits the four fields — Task 1 did that so the tree kept typechecking. This step adds the rest.
+
+Replace `listPromotions` and the input type in `src/lib/promotions.ts`:
 
 ```ts
-function mapPromotionRow(row: any): Promotion {
-  return {
-    id: row.id,
-    shopId: row.shop_id,
-    locationId: row.location_id ?? null,
-    name: row.name,
-    discountType: row.discount_type,
-    discountValue: row.discount_value,
-    scope: row.scope,
-    scopeValue: row.scope_value,
-    active: row.active,
-    startsAt: row.starts_at ?? null,
-    endsAt: row.ends_at ?? null,
-    autoApply: row.auto_apply ?? true,
-    archivedAt: row.archived_at ?? null,
-    createdAt: row.created_at,
-  };
-}
-
 // Archived promotions are excluded here rather than filtered by each caller:
 // an archived offer exists only so a past receipt still reads, and every
 // screen that lists promotions wants it gone.
@@ -545,15 +543,32 @@ export async function deletePromotion(id: string): Promise<void> {
 
 Note: this reads `sale_items.promotion_id`, which Task 3 creates. Land Task 3 before exercising delete against a real database.
 
-- [ ] **Step 5: Verify the types line up**
+- [ ] **Step 5: Keep the existing editor compiling**
+
+The three new `NewPromotionInput` fields are required, so `PromotionsModal` in `src/components/settings/panels/sales-panel.tsx` stops compiling the moment the type widens. Task 5 replaces this component wholesale with the real controls; this step only keeps the tree green in between.
+
+Find the object literal the modal's save handler builds and passes to `createPromotion` / `updatePromotion` (around line 144, `const input = {...}`) and add:
+
+```ts
+  startsAt: null,
+  endsAt: null,
+  autoApply: true,
+```
+
+Do **not** build date pickers or a toggle here — this component is being deleted in Task 5, and any UI added now is work thrown away. Three literals matching today's behaviour is the whole change.
+
+- [ ] **Step 6: Verify the types line up**
 
 Run: `npx tsc --noEmit`
-Expected: errors only in `src/components/settings/panels/sales-panel.tsx`, which does not yet supply the three new `NewPromotionInput` fields. Task 6 fixes those.
+Expected: no errors.
 
-- [ ] **Step 6: Commit**
+Run: `npm test`
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/20260826000000_promotion_window_and_archive.sql supabase/tests/verify-promotions.sql src/lib/promotions.ts
+git add supabase/migrations/20260826000000_promotion_window_and_archive.sql supabase/tests/verify-promotions.sql src/lib/promotions.ts src/components/settings/panels/sales-panel.tsx
 git commit -m "feat(promotions): a window, a manual-only flag, and an archive that keeps old receipts honest"
 ```
 
@@ -562,7 +577,7 @@ git commit -m "feat(promotions): a window, a manual-only flag, and an archive th
 ### Task 3: The sale remembers which offer it was
 
 **Files:**
-- Create: `supabase/migrations/20260826100000_sale_promotion_attribution.sql`
+- Create: `supabase/migrations/20260826000100_sale_promotion_attribution.sql`
 - Modify: `src/lib/cart.ts`
 - Test: `src/lib/__tests__/cart.test.ts`
 
@@ -573,7 +588,7 @@ git commit -m "feat(promotions): a window, a manual-only flag, and an archive th
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260826100000_sale_promotion_attribution.sql`. Where it says *reproduce the current body*, copy the stated line range **verbatim** and make only the listed edit — see the Global Constraints on `CREATE OR REPLACE FUNCTION`.
+Create `supabase/migrations/20260826000100_sale_promotion_attribution.sql`. Where it says *reproduce the current body*, copy the stated line range **verbatim** and make only the listed edit — see the Global Constraints on `CREATE OR REPLACE FUNCTION`.
 
 ```sql
 -- Which offer took the money off.
@@ -776,7 +791,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/20260826100000_sale_promotion_attribution.sql src/lib/cart.ts src/lib/__tests__/cart.test.ts
+git add supabase/migrations/20260826000100_sale_promotion_attribution.sql src/lib/cart.ts src/lib/__tests__/cart.test.ts
 git commit -m "feat(sales): a discount remembers the offer that made it"
 ```
 
