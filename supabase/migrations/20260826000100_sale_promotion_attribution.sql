@@ -26,8 +26,12 @@ create index sale_items_promotion_id_idx on public.sale_items (promotion_id)
 --       nullif(v_item->>'promotion_name','')` to the values list.
 --
 --   2. The manual-discount guard below, added immediately after
---      `v_line_discount := greatest(...)` and again after
---      `v_discount_cents := greatest(...)`.
+--      `v_line_discount := greatest(...)` inside the item loop, and again
+--      at the top of the function body -- right after the `pos.access`
+--      check -- for the transaction-level discount. It sits there rather
+--      than at the end so a sale that will be refused never first writes
+--      the sale row, the stock decrements, the payments and the loyalty
+--      ledger.
 --
 -- The signature does NOT change: attribution rides inside the existing
 -- p_items jsonb, so there is no new overload and no new grant.
@@ -78,6 +82,16 @@ declare
 begin
   if not public.has_shop_permission(p_shop_id, 'pos.access') then
     raise exception 'not authorized for shop %', p_shop_id;
+  end if;
+  -- A transaction-level discount with no promotion behind it is a cashier
+  -- typing an arbitrary number, the same as a line discount, and needs the
+  -- same permission. Checked here, before anything is written, rather than
+  -- at the end of the function: v_discount_cents is already known from the
+  -- DECLARE section, so there is no reason to do the sale, the stock, the
+  -- payments and the loyalty ledger first only to roll it all back.
+  if v_discount_cents > 0
+     and not public.has_shop_permission(p_shop_id, 'discounts.manual') then
+    raise exception 'not authorized to enter a manual discount';
   end if;
   if p_payments is null or jsonb_array_length(p_payments) = 0 then
     raise exception 'at least one payment is required';
@@ -314,11 +328,6 @@ begin
               v_points_per_usd, auth.uid());
   end if;
 
-  if v_discount_cents > 0
-     and not public.has_shop_permission(p_shop_id, 'discounts.manual') then
-    raise exception 'not authorized to enter a manual discount';
-  end if;
-
   return v_sale_id;
 end;
 $$;
@@ -330,6 +339,13 @@ $$;
 --   3. The v_snapshot jsonb_build_object for 'items' gains
 --      'promotion_id', si.promotion_id, 'promotion_name', si.promotion_name
 --      so editing a sale does not silently drop which offer applied.
+--
+--   4. A transaction-level manual-discount guard, added right after the
+--      existing `sales.edit` authorization check. The older migration
+--      guarded the per-line discount but never this one, so someone with
+--      `sales.edit` but not `discounts.manual` could not put a whole-sale
+--      discount on a new sale, yet could add one by editing an existing
+--      sale -- a real permission bypass, not merely a fragile check.
 --
 -- edit_sale resolves the shop as v_shop_id rather than p_shop_id -- use
 -- v_shop_id in both permission checks here.
@@ -386,6 +402,15 @@ begin
   end if;
   if not public.has_shop_permission(v_shop_id, 'sales.edit') then
     raise exception 'not authorized for sale %', p_sale_id;
+  end if;
+  -- A transaction-level discount with no promotion behind it is a cashier
+  -- typing an arbitrary number, the same as a line discount, and needs the
+  -- same permission. Without this, `sales.edit` alone could put a whole-sale
+  -- discount on an existing sale even though creating one that way requires
+  -- `discounts.manual`.
+  if v_discount_cents > 0
+     and not public.has_shop_permission(v_shop_id, 'discounts.manual') then
+    raise exception 'not authorized to enter a manual discount';
   end if;
   if p_items is null or jsonb_array_length(p_items) = 0 then
     raise exception 'a sale must have at least one item';
