@@ -3,13 +3,14 @@
 
 -- 1. A recipient cannot be queued twice for the same campaign.
 do $$
-declare v_shop uuid; v_campaign uuid; v_customer uuid;
+declare v_shop uuid; v_campaign uuid; v_customer uuid; v_created_customer boolean := false;
 begin
   select id into v_shop from public.shops limit 1;
   insert into public.campaigns (shop_id, name) values (v_shop, 'dup test') returning id into v_campaign;
   select id into v_customer from public.customers where shop_id = v_shop limit 1;
   if v_customer is null then
     insert into public.customers (shop_id, first_name) values (v_shop, 'Dup Test') returning id into v_customer;
+    v_created_customer := true;
   end if;
   insert into public.campaign_recipients (campaign_id, customer_id) values (v_campaign, v_customer);
   begin
@@ -19,6 +20,9 @@ begin
     raise notice 'PASS: a duplicate recipient was refused';
   end;
   delete from public.campaigns where id = v_campaign;
+  if v_created_customer then
+    delete from public.customers where id = v_customer;
+  end if;
 end $$;
 
 -- 2. No state anywhere claims a delivery.

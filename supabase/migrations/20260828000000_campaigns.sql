@@ -80,7 +80,23 @@ create policy "write campaign_recipients" on public.campaign_recipients for all
                    and public.has_any_shop_permission(c.shop_id, array['settings.access', 'pos.access'])));
 
 grant select, insert, update, delete on public.campaigns to authenticated;
-grant select, insert, update, delete on public.campaign_recipients to authenticated;
+grant select, insert on public.campaign_recipients to authenticated;
+
+-- Only what the send queue genuinely changes -- state, opened_at, sent_at --
+-- is grantable at the column level, matching 0017_roles_and_staff.sql's
+-- profiles(full_name, phone) and 20260825000000's
+-- support_threads(shop_read_at). Without this, `pos.access` (the RLS policy
+-- above) is enough to reassign a sent row to a different campaign_id or
+-- customer_id, rewriting the record of who was actually contacted.
+grant update (state, opened_at, sent_at) on public.campaign_recipients to authenticated;
+
+-- No delete grant. `skipped` and `unreachable` exist precisely so a row never
+-- needs deleting to mean "didn't send", the audience top-up
+-- (src/lib/campaign-audience.ts) only ever inserts, and a campaign's rows are
+-- removed by `on delete cascade` when the campaign itself is deleted. There is
+-- no legitimate path that deletes a single recipient row, and this table
+-- exists to be an honest record of who was contacted -- deleting one is the
+-- same integrity problem as rewriting it.
 
 -- The module gate, matching every other billable table (20260818000400).
 -- Campaigns are part of `promotions`; there is no separate entitlement.
@@ -89,3 +105,31 @@ grant select, insert, update, delete on public.campaign_recipients to authentica
 -- shape guessed when this migration was drafted.
 create trigger campaigns_module before insert or update on public.campaigns
   for each row execute function public.enforce_shop_module('promotions');
+
+-- Same, for a child table that reaches its shop through the campaign it
+-- belongs to. campaign_recipients is one person's slot in a send queue and
+-- carries no shop_id -- see the comment above its RLS policies. Without this,
+-- everything that happens after a campaign is created (the audience top-up,
+-- every state change the send queue makes) writes only to this table, and a
+-- shop whose plan drops `promotions` mid-campaign could keep sending forever
+-- because the gated table, campaigns, is never touched again.
+create or replace function public.enforce_shop_module_via_campaign()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_module  text := TG_ARGV[0];
+  v_shop_id uuid;
+begin
+  select c.shop_id into v_shop_id from public.campaigns c where c.id = new.campaign_id;
+  if v_shop_id is not null and not public.shop_has_module(v_shop_id, v_module) then
+    raise exception 'module_not_included'
+      using errcode = 'P0001',
+            detail = json_build_object('module', v_module)::text,
+            hint = 'Upgrade the plan to make changes here.';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger campaign_recipients_module before insert or update on public.campaign_recipients
+  for each row execute function public.enforce_shop_module_via_campaign('promotions');
