@@ -228,6 +228,16 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   }, [campaigns]);
 
   const selected = campaigns.find((c) => c.id === selectedId) ?? null;
+  // A reload can drop the selected campaign out from under an open queue
+  // (deleted, or no longer in this location's list) -- SendQueue is gated on
+  // `selected` below, so it unmounts right then WITHOUT its onClose ever
+  // running, and `sendQueueOpen` would otherwise stay stuck true. Left alone,
+  // selecting a completely different campaign afterward would spring the
+  // queue back open unbidden, for a campaign nobody asked to send. Reset the
+  // flag the moment `selected` disappears rather than only inside onClose.
+  useEffect(() => {
+    if (selected === null) setSendQueueOpen(false);
+  }, [selected]);
   // `promotions` (listPromotions) leaves archived rows out on purpose -- every
   // OTHER screen that lists promotions wants an archived one gone. A campaign
   // built on one is the one place that isn't true: `promotion_id` is `on

@@ -8,6 +8,7 @@ import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { isReachable, matchesAudience } from '@/lib/campaign-audience';
+import { confirmChoice } from '@/lib/confirm';
 import { fillMessage, type MessageValues } from '@/lib/campaign-message';
 import { countRecipients } from '@/lib/campaign-metrics';
 import { listRecipients, setRecipientState, syncRecipients } from '@/lib/campaigns';
@@ -123,13 +124,19 @@ export function SendQueue({
   // listener below is registered once on mount and must read the CURRENT
   // value on a background->active edge that can happen long after that
   // effect ran -- a value captured in the effect's closure would be stale.
-  // `askingId` mirrors it into state purely to drive the confirm modal's
-  // render; the two are only ever set together, by `setPending`.
+  //
+  // `setPending` writes ONLY the ref. It does NOT touch `askingId` -- the
+  // question must appear when the owner comes BACK to the app, not at the
+  // moment they tap "Open WhatsApp" and leave it. (That was the original bug:
+  // both used to be written together here, so the dialog rendered before the
+  // app ever backgrounded, and the AppState listener's `setAskingId` below
+  // was a no-op because the value was already equal.) `askingId` is set only
+  // from the background->active edge itself, or by tapping an already-
+  // 'opened' row to ask again (see `reaskAbout`).
   const pendingIdRef = useRef<string | null>(null);
   const [askingId, setAskingId] = useState<string | null>(null);
   function setPending(id: string | null) {
     pendingIdRef.current = id;
-    setAskingId(id);
   }
 
   const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c] as const)), [customers]);
@@ -148,14 +155,34 @@ export function SendQueue({
     let cancelled = false;
     (async () => {
       try {
-        const matchedIds = customers
-          .filter((c) => matchesAudience(c, campaign.audience, lastPurchaseByCustomer.get(c.id) ?? null))
-          .map((c) => c.id);
-        const added = await syncRecipients(campaign.id, matchedIds);
+        // Fetched BEFORE syncing so "who's new" can be worked out locally --
+        // syncRecipients's own return value is a row-insert count, not a
+        // list of who those rows were for, and it doesn't know about phone
+        // numbers at all (see the reachability filter below).
+        const before = await listRecipients(campaign.id);
+        const existingCustomerIds = new Set(before.map((r) => r.customerId));
+        const matched = customers.filter((c) => matchesAudience(c, campaign.audience, lastPurchaseByCustomer.get(c.id) ?? null));
+        const matchedIds = matched.map((c) => c.id);
+        // "N more customers can be reached now" must mean exactly that.
+        // matchesAudience deliberately ignores phone numbers -- a newly
+        // matching customer with none still joins the queue below (so they
+        // show as "no usable number" and rejoin properly once it's fixed),
+        // but announcing them as reachable would be wrong the moment the
+        // owner reads the banner.
+        const newlyReachable = matched.filter((c) => !existingCustomerIds.has(c.id) && isReachable(c)).length;
+        try {
+          await syncRecipients(campaign.id, matchedIds);
+        } catch (err) {
+          // A failed top-up must not hide the people already queued
+          // server-side -- fall through to the listRecipients below instead
+          // of bailing, so an owner reopening mid-run still sees their 84
+          // rows instead of "Nobody matches this audience yet".
+          if (!cancelled) setError(extractErrorMessage(err, 'Could not check for new recipients.'));
+        }
         const fresh = await listRecipients(campaign.id);
         if (cancelled) return;
         setRecipients(fresh);
-        setAddedCount(added);
+        setAddedCount(newlyReachable);
       } catch (err) {
         if (!cancelled) setError(extractErrorMessage(err, 'Could not load this queue.'));
       } finally {
@@ -254,7 +281,55 @@ export function SendQueue({
   const askingRecipient = askingId ? (recipients.find((r) => r.id === askingId) ?? null) : null;
   const askingCustomer = askingRecipient ? (customersById.get(askingRecipient.customerId) ?? null) : null;
 
+  // Asks the "did that send?" question via a native Alert (confirmChoice)
+  // rather than a second AppModal. This codebase already documents that iOS
+  // silently drops a modal presented while another is still up -- see the
+  // staged-receipt comment in pos.tsx -- and the queue sheet below is always
+  // an open AppModal while this question needs asking. Alert presents from
+  // the topmost presented view controller instead of the root, so it works
+  // over an open sheet where a second AppModal would not.
+  //
+  // Fires only when `askingId` itself changes -- not on every re-render --
+  // so recipients/customersById can be read straight from the render closure
+  // without listing them as deps and risking a duplicate Alert firing if
+  // unrelated state changes while one is already on screen.
+  useEffect(() => {
+    if (!askingId) return;
+    const id = askingId;
+    const customer = askingCustomer;
+    let cancelled = false;
+    (async () => {
+      const title = `Did that send${customer ? ` to ${customer.firstName}` : ''}?`;
+      const sent = await confirmChoice(
+        title,
+        'Tap "Yes, sent" if you sent it in WhatsApp. Otherwise this person stays in the queue so you can try again.',
+        'Yes, sent'
+      );
+      if (cancelled) return;
+      await handleAnswer(id, sent);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askingId]);
+
+  // Lets an 'opened' row be answered later instead of staying stuck forever:
+  // an owner whose phone died mid-flow, or who just never got asked, can tap
+  // the row itself to raise the same question again. Ignored while a
+  // question is already up or a save is in flight, so two Alerts can never
+  // stack.
+  function reaskAbout(id: string) {
+    if (askingId || busy) return;
+    pendingIdRef.current = id;
+    setAskingId(id);
+  }
+
   const counts = countRecipients(recipients);
+  // Persisted total, not a local tally -- see the comment on
+  // SENT_BREAK_INTERVAL for why the trigger has to be the server's count.
+  // Worded "in total" rather than "this run" so reopening a queue with 40
+  // already sent doesn't claim 40 just happened.
   const showBreakCaveat = counts.markedSent > 0 && counts.markedSent % SENT_BREAK_INTERVAL === 0;
 
   async function handleOpenWhatsApp() {
@@ -291,146 +366,145 @@ export function SendQueue({
     }
   }
 
-  async function handleAnswer(sent: boolean) {
-    if (!askingId) return;
-    const id = askingId;
+  async function handleAnswer(id: string, sent: boolean) {
     const nextState: RecipientState = sent ? 'sent' : 'waiting';
     setBusy(true);
     setError(null);
     try {
       await setRecipientState(id, nextState);
       patchRecipient(id, { state: nextState, sentAt: sent ? new Date().toISOString() : null });
-      setPending(null);
     } catch (err) {
-      setError(extractErrorMessage(err, 'Could not save your answer.'));
+      // Surfaced in the sheet, which by now is the only thing on screen --
+      // the Alert has already closed by the time this runs, so there is no
+      // second surface it could be hiding behind. The row itself is left at
+      // 'opened' rather than silently advanced, which is exactly what makes
+      // it re-askable via `reaskAbout` above.
+      setError(extractErrorMessage(err, 'Could not save your answer -- this person is still marked "chat opened", tap them below to try again.'));
     } finally {
       setBusy(false);
+      pendingIdRef.current = null;
+      setAskingId(null);
     }
   }
 
+  // The "did that send?" question is asked via confirmChoice (an OS Alert),
+  // not a second AppModal -- see the comment on the confirm effect above for
+  // why. This is the only AppModal SendQueue ever renders.
   return (
-    <>
-      <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
-        <View style={styles.overlay}>
-          <View style={styles.sheet}>
-            <View style={styles.head}>
-              <Text style={styles.headTitle} numberOfLines={1}>
-                Sending · {campaign.name}
-              </Text>
-              <Pressable onPress={onClose} accessibilityRole="button" style={styles.headBtn}>
-                <Text style={styles.headBtnText}>Close</Text>
-              </Pressable>
-            </View>
+    <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.overlay}>
+        <View style={styles.sheet}>
+          <View style={styles.head}>
+            <Text style={styles.headTitle} numberOfLines={1}>
+              Sending · {campaign.name}
+            </Text>
+            <Pressable onPress={onClose} accessibilityRole="button" style={styles.headBtn}>
+              <Text style={styles.headBtnText}>Close</Text>
+            </Pressable>
+          </View>
 
-            <ScrollView contentContainerStyle={styles.body}>
-              {error && <Text style={styles.error}>{error}</Text>}
+          <ScrollView contentContainerStyle={styles.body}>
+            {error && <Text style={styles.error}>{error}</Text>}
 
-              {!loaded ? (
-                <Text style={styles.empty}>Loading…</Text>
-              ) : (
-                <>
-                  {addedCount > 0 && (
-                    <Caveat tone="context">{`${addedCount} more customer${addedCount === 1 ? '' : 's'} can be reached now.`}</Caveat>
-                  )}
+            {!loaded ? (
+              <Text style={styles.empty}>Loading…</Text>
+            ) : (
+              <>
+                {addedCount > 0 && (
+                  <Caveat tone="context">{`${addedCount} more customer${addedCount === 1 ? '' : 's'} can be reached now.`}</Caveat>
+                )}
 
-                  {!messageTemplate ? (
-                    <Text style={styles.empty}>No message has been written for this campaign yet.</Text>
-                  ) : current && currentCustomer ? (
-                    <BentoCard>
-                      <Text style={styles.currentName}>{customerDisplayName(currentCustomer)}</Text>
-                      <Text style={styles.currentMeta}>
-                        {currentCustomer.phone} · {CUSTOMER_SEGMENT_LABELS[segmentForCustomer(currentCustomer)]}
-                      </Text>
-                      <Text style={styles.currentMeta}>
-                        Last bought{' '}
-                        {lastPurchaseByCustomer.get(currentCustomer.id)
-                          ? new Date(lastPurchaseByCustomer.get(currentCustomer.id)!).toLocaleDateString()
-                          : 'never'}
-                      </Text>
+                {!messageTemplate ? (
+                  <Text style={styles.empty}>No message has been written for this campaign yet.</Text>
+                ) : current && currentCustomer ? (
+                  <BentoCard>
+                    <Text style={styles.currentName}>{customerDisplayName(currentCustomer)}</Text>
+                    <Text style={styles.currentMeta}>
+                      {currentCustomer.phone} · {CUSTOMER_SEGMENT_LABELS[segmentForCustomer(currentCustomer)]}
+                    </Text>
+                    <Text style={styles.currentMeta}>
+                      Last bought{' '}
+                      {lastPurchaseByCustomer.get(currentCustomer.id)
+                        ? new Date(lastPurchaseByCustomer.get(currentCustomer.id)!).toLocaleDateString()
+                        : 'never'}
+                    </Text>
 
+                    <Pressable
+                      disabled={busy}
+                      onPress={handleOpenWhatsApp}
+                      accessibilityRole="button"
+                      style={[styles.primary, busy && styles.actionOff]}
+                    >
+                      <Text style={styles.primaryText}>Open WhatsApp for {currentCustomer.firstName}</Text>
+                    </Pressable>
+                    <View style={styles.secondaryRow}>
                       <Pressable
                         disabled={busy}
-                        onPress={handleOpenWhatsApp}
+                        onPress={() => handleSecondary('skipped')}
                         accessibilityRole="button"
-                        style={[styles.primary, busy && styles.actionOff]}
+                        style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
                       >
-                        <Text style={styles.primaryText}>Open WhatsApp for {currentCustomer.firstName}</Text>
+                        <Text style={styles.secondaryText}>Skip this person</Text>
                       </Pressable>
-                      <View style={styles.secondaryRow}>
-                        <Pressable
-                          disabled={busy}
-                          onPress={() => handleSecondary('skipped')}
-                          accessibilityRole="button"
-                          style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
-                        >
-                          <Text style={styles.secondaryText}>Skip this person</Text>
-                        </Pressable>
-                        <Pressable
-                          disabled={busy}
-                          onPress={() => handleSecondary('unreachable')}
-                          accessibilityRole="button"
-                          style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
-                        >
-                          <Text style={styles.secondaryText}>Not reachable</Text>
-                        </Pressable>
-                      </View>
-                    </BentoCard>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => handleSecondary('unreachable')}
+                        accessibilityRole="button"
+                        style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
+                      >
+                        <Text style={styles.secondaryText}>Not reachable</Text>
+                      </Pressable>
+                    </View>
+                  </BentoCard>
+                ) : (
+                  <Text style={styles.empty}>Nothing left to send right now.</Text>
+                )}
+
+                {showBreakCaveat && (
+                  <Caveat tone="context">
+                    {`${counts.markedSent} marked sent in total — WhatsApp can rate-limit or ban a number that messages many people in a burst. Worth a short break before the next one.`}
+                  </Caveat>
+                )}
+
+                <BentoCard title="Queue" bodyStyle={styles.queueBody}>
+                  {ordered.length === 0 ? (
+                    <Text style={styles.empty}>Nobody matches this audience yet.</Text>
                   ) : (
-                    <Text style={styles.empty}>Nothing left to send right now.</Text>
-                  )}
-
-                  {showBreakCaveat && (
-                    <Caveat tone="context">
-                      {`${counts.markedSent} marked sent this run — WhatsApp can rate-limit or ban a number that messages many people in a burst. Worth a short break before the next one.`}
-                    </Caveat>
-                  )}
-
-                  <BentoCard title="Queue" bodyStyle={styles.queueBody}>
-                    {ordered.length === 0 ? (
-                      <Text style={styles.empty}>Nobody matches this audience yet.</Text>
-                    ) : (
-                      ordered.map((r) => {
-                        const customer = customersById.get(r.customerId);
-                        const status = recipientStatus(r, customer);
-                        return (
-                          <View key={r.id} style={styles.queueRow}>
+                    ordered.map((r) => {
+                      const customer = customersById.get(r.customerId);
+                      const status = recipientStatus(r, customer);
+                      // Only an 'opened' row is re-askable -- tapping any
+                      // other state does nothing, so it's left visually and
+                      // functionally inert for those.
+                      const reaskable = r.state === 'opened';
+                      return (
+                        <Pressable
+                          key={r.id}
+                          disabled={!reaskable || askingId !== null || busy}
+                          onPress={() => reaskAbout(r.id)}
+                          style={styles.queueRow}
+                        >
+                          <View style={styles.queueMain}>
                             <Text style={styles.queueName} numberOfLines={1}>
                               {customer ? customerDisplayName(customer) : 'Unknown customer'}
                             </Text>
-                            <Badge variant="bento" label={status.label} tone={status.tone} />
+                            {/* Two customers can share a name -- the number tells them apart. */}
+                            <Text style={styles.queuePhone} numberOfLines={1}>
+                              {customer?.phone ?? 'no phone on file'}
+                            </Text>
                           </View>
-                        );
-                      })
-                    )}
-                  </BentoCard>
-                </>
-              )}
-            </ScrollView>
-          </View>
+                          <Badge variant="bento" label={status.label} tone={status.tone} />
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </BentoCard>
+              </>
+            )}
+          </ScrollView>
         </View>
-      </AppModal>
-
-      {askingId && (
-        <AppModal visible animationType="fade" transparent onRequestClose={() => {}}>
-          <View style={styles.confirmOverlay}>
-            <View style={styles.confirmSheet}>
-              <Text style={styles.confirmTitle}>{`Did that send${askingCustomer ? ` to ${askingCustomer.firstName}` : ''}?`}</Text>
-              <Pressable disabled={busy} onPress={() => handleAnswer(true)} accessibilityRole="button" style={[styles.primary, busy && styles.actionOff]}>
-                <Text style={styles.primaryText}>Yes, sent</Text>
-              </Pressable>
-              <Pressable
-                disabled={busy}
-                onPress={() => handleAnswer(false)}
-                accessibilityRole="button"
-                style={[styles.secondary, styles.confirmNo, busy && styles.actionOff]}
-              >
-                <Text style={styles.secondaryText}>No — try again later</Text>
-              </Pressable>
-            </View>
-          </View>
-        </AppModal>
-      )}
-    </>
+      </View>
+    </AppModal>
   );
 }
 
@@ -463,9 +537,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: theme.bentoLine,
   },
-  queueName: { flex: 1, minWidth: 0, fontSize: 13, fontWeight: '600', color: theme.bentoInk },
-  confirmOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  confirmSheet: { width: '100%', maxWidth: 340, backgroundColor: theme.bentoPage, borderRadius: 20, padding: 20 },
-  confirmTitle: { fontSize: 16, fontWeight: '800', color: theme.bentoInk, marginBottom: 16, textAlign: 'center' },
-  confirmNo: { marginTop: 8 },
+  queueMain: { flex: 1, minWidth: 0 },
+  queueName: { fontSize: 13, fontWeight: '600', color: theme.bentoInk },
+  queuePhone: { fontSize: 11, color: theme.bentoMuted, marginTop: 1 },
 });
