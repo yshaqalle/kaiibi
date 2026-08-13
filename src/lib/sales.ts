@@ -30,13 +30,20 @@ export async function completeSale(
   // opens a register keeps working exactly as it does today. The server
   // validates that the session is open, belongs to this shop and sits at this
   // location; it is not taken on trust.
-  registerSessionId?: string | null
+  registerSessionId?: string | null,
+  // The instant this sale is priced as of. The caller passes the same value it
+  // used to compute the total the cashier collected against, so a promotion
+  // whose window closes mid-transaction cannot make the payload disagree with
+  // the payments -- which the server refuses, at the payment screen, in front
+  // of the customer. Defaulted so callers that never showed a total (imports,
+  // tests) keep working.
+  now: number = Date.now()
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
-    p_items: buildSalePayload(lines, promotions),
+    p_items: buildSalePayload(lines, promotions, now),
     p_payments: buildPaymentPayload(payments),
     p_customer_name: customer?.name ?? null,
     p_customer_phone: customer?.phone ?? null,
