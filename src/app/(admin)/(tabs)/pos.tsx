@@ -47,7 +47,7 @@ import { listPromotions } from '@/lib/promotions';
 import { formatTodayHours, storeNameFor, type ReceiptData } from '@/lib/receipt';
 import { completeSale } from '@/lib/sales';
 import { taxCentsFor } from '@/lib/tax';
-import type { Currency, Discount, NewProductInput, PaymentLine, PaymentMethod, Product, Promotion, StaffMember } from '@/types/models';
+import type { CartLine, Currency, Discount, NewProductInput, PaymentLine, PaymentMethod, Product, Promotion, StaffMember } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -63,6 +63,35 @@ function extractErrorMessage(err: unknown): string {
     return (err as { message: string }).message;
   }
   return 'Could not complete this sale.';
+}
+
+// complete_sale refuses when the payments do not add up to the total it
+// computes, and says so in cents: "payments total 1440 does not match sale
+// total 1800". That is the right check and the wrong sentence to put in front
+// of a cashier with a customer waiting -- it names no cause and no next step.
+//
+// The cause is almost always an offer whose window moved. The cart is priced
+// as of when it started (see `pricingNow`), which keeps the client consistent
+// with itself, but a basket left open longer than the server's grace period
+// still lands here. Repricing against the clock now says whether that is what
+// happened, and by how much.
+function checkoutErrorMessage(err: unknown, cart: CartLine[], promotions: Promotion[], pricedAt: number): string {
+  const message = extractErrorMessage(err);
+  // Two shapes, one cause. The server refuses an offer outside its window
+  // ("promotion Eid weekend has ended"), and separately refuses a total that
+  // the payments do not add up to. Pinning the cart's clock makes the second
+  // rare, but a basket held open past the server's grace still hits the first,
+  // and neither sentence tells a cashier what to do about it.
+  const movedWindow = /promotion .* (has ended|has not started yet)/.test(message);
+  const mismatch = /payments total \d+ does not match sale total \d+/.test(message);
+  if (!movedWindow && !mismatch) return message;
+
+  const wasCents = cartSubtotalCents(cart, promotions, pricedAt);
+  const nowCents = cartSubtotalCents(cart, promotions, Date.now());
+  if (wasCents === nowCents) return message;
+
+  const direction = nowCents > wasCents ? 'ended' : 'started';
+  return `An offer ${direction} while you were ringing this up, so the price changed from ${formatCents(wasCents)} to ${formatCents(nowCents)}. Clear the payment and take it again at the new total.`;
 }
 
 export default function PosScreen() {
@@ -214,7 +243,22 @@ export default function PosScreen() {
       .catch(() => {});
   }, [shop]);
   useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
-  useEffect(() => { if (shop) listPromotions(shop.id).then(setPromotions).catch(() => {}); }, [shop]);
+  // Loaded once per shop change, but the server now rejects a stale promotion
+  // id (paused/archived/deleted since this list was fetched), so a launch-only
+  // load left every sale touching that product refused until a force-quit.
+  // Refreshed on focus, same mechanism as `reload` above for products, plus
+  // once more right after a sale completes.
+  const reloadPromotions = useCallback(async () => {
+    if (!shop) return;
+    try {
+      setPromotions(await listPromotions(shop.id));
+    } catch {
+      // Soft-fail like the original load: an empty/stale list just means
+      // fewer offers show up, not a broken screen.
+    }
+  }, [shop]);
+  useEffect(() => { reloadPromotions(); }, [reloadPromotions]);
+  useRefreshOnFocus(reloadPromotions);
   useEffect(() => {
     if (!shop) return;
     listCurrencies(shop.id).then((rows) => setCurrencies(rows.filter((c) => c.active))).catch(() => {});
@@ -386,8 +430,24 @@ export default function PosScreen() {
     setCashierName((current) => current ?? sessionMember.fullName);
   }, [sessionMember, setCashierName]);
 
+  // One clock for one transaction. Every discount function takes an optional
+  // `now`, and left to default they each call Date.now() independently -- so a
+  // promotion whose window closes between the render that showed the total and
+  // the submit that builds the payload makes the two disagree, and the server
+  // refuses the sale with a payments-versus-total mismatch at the worst
+  // possible moment. Pinning it when the cart starts means a sale is priced as
+  // of when it began, which is also what a customer standing at the counter
+  // assumes. Reset when the cart empties, so the next sale reprices.
+  //
+  // Assigned during render rather than in an effect: an effect would run after
+  // a first paint that had already priced the line with a different clock.
+  const pricedAtRef = useRef<number | null>(null);
+  if (cart.length === 0) pricedAtRef.current = null;
+  else if (pricedAtRef.current === null) pricedAtRef.current = Date.now();
+  const pricingNow = pricedAtRef.current ?? Date.now();
+
   const grossCents = cartTotalCents(cart);
-  const subtotalCents = cartSubtotalCents(cart, promotions);
+  const subtotalCents = cartSubtotalCents(cart, promotions, pricingNow);
   const transactionDiscountCents = discountAmountCents(subtotalCents, transactionDiscount);
   // Points come off after the cashier's discount and before tax, mirroring
   // complete_sale — a redemption is a seller-funded price reduction, so tax
@@ -462,7 +522,8 @@ export default function PosScreen() {
         transactionDiscountCents,
         activeLocation.id,
         redemption.points,
-        registerSession?.id ?? null
+        registerSession?.id ?? null,
+        pricingNow
       );
       const completed: ReceiptData = {
         saleId,
@@ -487,7 +548,7 @@ export default function PosScreen() {
           name: line.product.name,
           quantity: line.quantity,
           unitPriceCents: line.product.priceCents,
-          discountCents: lineDiscountCents(line, promotions),
+          discountCents: lineDiscountCents(line, promotions, pricingNow),
         })),
         payments,
         customer: { name: selectedCustomer?.name ?? null, phone: selectedCustomer?.phone ?? null, email: selectedCustomer?.email ?? null },
@@ -517,8 +578,30 @@ export default function PosScreen() {
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
+      // A promotion can be paused/archived by someone else between two sales
+      // on this till; re-fetching here keeps the next sale's list current
+      // without waiting for a refocus.
+      await reloadPromotions();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      const message = extractErrorMessage(err);
+      // The server refused because an offer moved out of its window. Saying so
+      // is not enough: this screen's promotions were loaded when it mounted, so
+      // the cart is still priced by the old ones and every retry is refused the
+      // same way -- the cashier is stuck until they restart the app. Refetching
+      // reprices the cart, and the payment collected against the old total has
+      // to go with it, or "fully paid" stays true at the wrong number.
+      if (/promotion .* (has ended|has not started yet)/.test(message)) {
+        const fresh = await listPromotions(shop.id).catch(() => null);
+        const wasCents = total;
+        if (fresh) setPromotions(fresh);
+        setPayments([]);
+        pricedAtRef.current = Date.now();
+        setError(
+          `An offer changed while you were ringing this up, so ${formatCents(wasCents)} is no longer the price. The cart has been updated — take the payment again.`
+        );
+      } else {
+        setError(checkoutErrorMessage(err, cart, promotions, pricingNow));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -697,8 +780,8 @@ export default function PosScreen() {
         ) : (
           cart.map((line) => {
             const gross = lineGrossCents(line);
-            const discountCents = lineDiscountCents(line, promotions);
-            const promo = appliedPromotionForLine(line, promotions);
+            const discountCents = lineDiscountCents(line, promotions, pricingNow);
+            const promo = appliedPromotionForLine(line, promotions, pricingNow);
             const isEditing = editingLineDiscount === line.product.id;
             return (
               <View key={line.product.id} style={styles.cartLine}>
@@ -716,9 +799,11 @@ export default function PosScreen() {
                       )}
                     </View>
                     {promo && !line.manualDiscount && <Text style={styles.cartLinePromo}>🏷 {promo.name}</Text>}
-                    <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
-                      <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
-                    </Pressable>
+                    {can('discounts.manual') && (
+                      <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
+                        <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
+                      </Pressable>
+                    )}
                   </View>
                   <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
                 </View>
@@ -759,11 +844,13 @@ export default function PosScreen() {
             <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
           </View>
         )}
-        <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
-          <Text style={styles.cartLineDiscountToggle}>
-            {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
-          </Text>
-        </Pressable>
+        {can('discounts.manual') && (
+          <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
+            <Text style={styles.cartLineDiscountToggle}>
+              {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
+            </Text>
+          </Pressable>
+        )}
         {editingTransactionDiscount && (
           <DiscountEditor
             initial={transactionDiscount}

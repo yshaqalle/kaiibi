@@ -1,0 +1,783 @@
+<title>Kaiibi Marketing — campaigns from the promotions you already have</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accWash:#e6edff; --accInk:#1b47b8;
+    /* WhatsApp's own green, used ONLY on the affordance that opens WhatsApp —
+       never as a status colour. Same pair the People mockup already uses. */
+    --waWash:#e7f5ed; --waInk:#0b6b3c;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3.sub{font-size:15px;font-weight:800;margin:24px 0 4px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  ul.note{padding-left:20px;}
+  ul.note li{margin-bottom:7px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- app chrome: the People shell, unchanged ---- */
+  .head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 3px;color:var(--d-mut);font-size:10.5px;letter-spacing:.1em;}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.038em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);max-width:52ch;}
+  .headActs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.wa{background:var(--waInk);color:#fff;border-color:var(--waInk);}
+  .btn.wide{width:100%;text-align:center;padding:13px 15px;font-size:14px;}
+  .btn.ghost{background:transparent;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px;margin-bottom:16px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---- cards ---- */
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx + .cardx{margin-top:14px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;line-height:1.35;}
+
+  /* ---- list + detail ---- */
+  .panes{display:flex;gap:18px;align-items:flex-start;}
+  .listPane{width:34%;min-width:280px;max-width:520px;flex-shrink:0;display:grid;gap:12px;}
+  .detailPane{flex:1;min-width:0;}
+  .w380 .panes{display:block;}
+  .w380 .listPane{width:auto;min-width:0;max-width:none;}
+  .w380 .detailPane{margin:14px -18px -18px;padding:14px 14px 18px;background:var(--d-pg);
+    border-radius:24px 24px 0 0;box-shadow:0 -14px 32px rgba(11,11,13,.14);}
+  .sheetHead{display:none;}
+  .w380 .sheetHead{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;}
+  .sheetHead b{font-size:16px;font-weight:800;}
+  .grab{display:block;width:38px;height:4px;border-radius:2px;background:var(--d-ln);margin:0 auto 10px;}
+
+  /* ---- rows ---- */
+  .listCard{padding:0;overflow:hidden;}
+  .rw{display:flex;align-items:center;gap:11px;padding:11px 13px;border-bottom:1px solid var(--d-ln);}
+  .rw:last-child{border-bottom:none;}
+  .rw.sel{background:var(--d-soft);}
+  .rw .bd{flex:1;min-width:0;}
+  .rw .t1{font-size:13.5px;font-weight:700;}
+  .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .ic{width:32px;height:32px;border-radius:11px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:13px;font-weight:800;color:var(--d-mut);flex-shrink:0;}
+  .rw.sel .ic{background:#fff;}
+  .rw .amt{font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--d-mut);}
+
+  .chip{font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;letter-spacing:.02em;}
+  .chip.live{background:var(--accWash);color:var(--accInk);}
+  .chip.done{background:var(--waWash);color:var(--waInk);}
+  .chip.draft{background:#eaeaea;color:#4a4a52;}
+  .chip.warn{background:#fdf0e0;color:#8a530f;}
+  .chip.hot{background:#f7e1e2;color:#b23b4e;}
+
+  /* ---- detail pieces ---- */
+  .detHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .detName{font-size:19px;font-weight:800;letter-spacing:-.025em;}
+  .detMeta{font-size:12.5px;color:var(--d-mut);margin-top:3px;}
+  .acts{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px;}
+  .tiles{display:grid;gap:10px;margin-top:14px;}
+  .w1280 .tiles{grid-template-columns:repeat(4,1fr);}
+  .w380 .tiles{grid-template-columns:repeat(2,1fr);}
+  .detGrid{display:grid;gap:14px;margin-top:14px;}
+  .w1280 .detGrid.two{grid-template-columns:1fr 1fr;align-items:start;}
+  .detGrid .cardx + .cardx{margin-top:0;}
+
+  .kv{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .kv:last-child{border-bottom:none;}
+  .kv .k{font-size:13px;font-weight:600;}
+  .kv .k span{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .kv .v{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+  /* ---- the message bubble: what the customer will actually see ---- */
+  .phoneNote{background:#ece5dd;border-radius:18px;padding:14px;}
+  .bub{background:#dcf8c6;border-radius:14px 14px 14px 4px;padding:11px 13px;font-size:13px;
+    line-height:1.5;color:#111b21;max-width:34ch;box-shadow:0 1px 1px rgba(11,11,13,.10);}
+  .bub .tok{background:rgba(11,107,60,.13);border-radius:4px;padding:0 3px;font-weight:700;}
+  .bub .meta{display:block;text-align:right;font-size:10px;color:#5c7367;margin-top:5px;}
+  .waRow{display:flex;align-items:center;gap:9px;margin-bottom:10px;}
+  .waAv{width:30px;height:30px;border-radius:15px;background:var(--waWash);color:var(--waInk);
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;}
+  .waRow b{font-size:12.5px;} .waRow i{font-style:normal;font-size:11px;color:#5c7367;display:block;}
+
+  /* ---- caveats: Caveat's three tones ---- */
+  .cav{border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+  .cav u{display:inline-block;margin-top:6px;font-weight:800;text-underline-offset:3px;cursor:pointer;}
+
+  /* ---- composer ---- */
+  .step{border-top:1px solid var(--d-ln);padding-top:14px;margin-top:14px;}
+  .step:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+  .stepHead{display:flex;align-items:baseline;gap:9px;margin-bottom:10px;}
+  .stepNo{font-size:10.5px;font-weight:800;color:var(--d-mut2);font-variant-numeric:tabular-nums;
+    letter-spacing:.08em;padding-top:1px;}
+  .stepHead b{font-size:14px;font-weight:800;}
+  .stepHead i{font-style:normal;font-size:11.5px;color:var(--d-mut);margin-left:auto;text-align:right;}
+  .opts{display:grid;gap:8px;}
+  .w1280 .opts.two{grid-template-columns:1fr 1fr;}
+  .opt{background:var(--d-soft);border:1.5px solid transparent;border-radius:16px;padding:12px 14px;}
+  .opt.on{border-color:var(--d-ink);background:#fff;}
+  .opt.off{opacity:.62;}
+  .opt .ot{font-size:13px;font-weight:800;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .opt .od{font-size:11.5px;color:var(--d-mut);margin-top:4px;line-height:1.45;}
+  .dot{width:15px;height:15px;border-radius:8px;border:1.5px solid var(--d-rule);flex-shrink:0;background:#fff;}
+  .opt.on .dot{border-color:var(--d-ink);border-width:4.5px;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;}
+  .w380 .filters{flex-wrap:nowrap;overflow-x:auto;padding-bottom:2px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .field{background:var(--d-soft);border:1px solid var(--d-ln);border-radius:14px;padding:11px 14px;
+    font-size:13px;color:var(--d-ink2);line-height:1.55;}
+  .field.tall{min-height:96px;}
+  .tokens{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .tokens span{background:var(--accWash);color:var(--accInk);border-radius:8px;padding:3px 8px;
+    font-size:11px;font-weight:700;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .composeFoot{display:flex;gap:8px;justify-content:flex-end;margin-top:18px;padding-top:14px;
+    border-top:1px solid var(--d-ln);flex-wrap:wrap;}
+  .w380 .composeFoot .btn{flex:1;text-align:center;}
+
+  /* ---- send queue ---- */
+  .prog{height:8px;border-radius:4px;background:var(--d-soft);overflow:hidden;margin:10px 0 6px;}
+  .prog i{display:block;height:100%;background:var(--waInk);border-radius:4px;}
+  .nowCard{background:var(--d-soft);border-radius:20px;padding:16px;text-align:center;}
+  .nowCard .av{width:52px;height:52px;border-radius:26px;background:#fff;color:var(--d-mut);
+    display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;margin:0 auto 10px;}
+  .nowCard .nm{font-size:18px;font-weight:800;letter-spacing:-.02em;}
+  .nowCard .ph{font-size:12.5px;color:var(--d-mut);margin-top:2px;font-variant-numeric:tabular-nums;}
+  .nowCard .tags{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-top:9px;}
+  .nowActs{display:grid;gap:8px;margin-top:14px;}
+  .nowActs .pairBtn{display:flex;gap:8px;}
+  .nowActs .pairBtn .btn{flex:1;text-align:center;}
+  .qrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-ln);font-size:12.5px;}
+  .qrow:last-child{border-bottom:none;}
+  .qrow .st{width:18px;flex-shrink:0;text-align:center;font-size:12px;font-weight:800;}
+  .qrow .st.ok{color:var(--waInk);} .qrow .st.wait{color:var(--d-mut2);}
+  .qrow .st.skip{color:var(--d-mut2);} .qrow .st.no{color:var(--warn);}
+  .qrow .qn{flex:1;min-width:0;font-weight:600;}
+  .qrow.cur{background:var(--d-soft);margin:0 -8px;padding-left:8px;padding-right:8px;border-radius:10px;}
+
+  /* ---- poster ---- */
+  .posterWrap{display:grid;gap:14px;justify-items:center;}
+  .poster{width:270px;height:270px;border-radius:22px;background:#0b0b0d;color:#fff;padding:24px;
+    display:flex;flex-direction:column;justify-content:space-between;}
+  .poster .pShop{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;opacity:.72;}
+  .poster .pBig{font-size:56px;font-weight:800;letter-spacing:-.04em;line-height:.94;}
+  .poster .pSub{font-size:14px;font-weight:700;margin-top:6px;opacity:.9;}
+  .poster .pWhen{font-size:12px;opacity:.66;margin-top:10px;line-height:1.4;}
+  .poster .pFoot{font-size:10px;opacity:.5;letter-spacing:.05em;}
+  .posterActs{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;}
+  .socials{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;}
+  .soc{background:var(--d-soft);border-radius:14px;padding:10px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);display:flex;align-items:center;gap:8px;}
+  .soc small{font-weight:600;color:var(--d-mut);font-size:11px;}
+
+  .spec{display:grid;gap:0;border-top:1px solid var(--ln);margin-top:16px;}
+  .spec div{display:grid;grid-template-columns:190px 1fr;gap:14px;padding:11px 0;
+    border-bottom:1px solid var(--ln);font-size:13.5px;align-items:baseline;}
+  @media (max-width:560px){ .spec div{grid-template-columns:1fr;gap:3px;} }
+  .spec b{font-weight:800;color:var(--ink);}
+  .spec span{color:var(--ink2);}
+  .spec code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · People → Marketing</p>
+  <h1>Marketing: the reach the promotions never had</h1>
+  <p class="lede">Kaiibi already stores promotions and already applies them in the till — but nothing
+  tells a customer they exist. This adds a fifth People tab that turns a promotion into a message,
+  picks who gets it out of the segments Customers already computes, and walks the owner through
+  sending it on WhatsApp one chat at a time. No Meta account, no approval, no per-message fee.
+  Flip through the four views; the honest limits are at the foot.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · list 34% / detail fills</i></div>
+      <div class="scroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · where the sending actually happens</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The four decisions this mockup makes</h2>
+
+    <div class="verdict">
+      <div class="vx good"><b>Promotions move, they don't get rebuilt</b>
+        <p>The editor lives in <code>Settings → Sales &amp; promotions</code> today, three taps from
+        anywhere and nowhere near the customers it targets. Marketing becomes its home; Settings keeps
+        a read-only summary that deep-links here. Same table, same <code>promotions</code> module gate,
+        no migration.</p></div>
+
+      <div class="vx good"><b>"Reachable" is a first-class number, not a footnote</b>
+        <p>An audience of 96 with 12 unusable phone numbers is an audience of 84, and the KPI strip
+        says so before a single message is written. <code>whatsappLink()</code> already decides this —
+        it returns null for anything under 9 digits — so the count is the same rule the button uses,
+        not a second guess at it.</p></div>
+
+      <div class="vx mid"><b>Every number is something Kaiibi watched happen</b>
+        <p>WhatsApp tells a deep-linking app nothing — not sent, not delivered, not read, ever. So the
+        campaign counts only two kinds of thing: a tap the owner made, and a sale rung up under a
+        customer's name. "Marked sent" is the owner's own answer to a one-tap question on returning from
+        each chat. "Bought within 7 days" comes from <code>sales.customer_id</code> and never touches
+        WhatsApp at all. Nothing here is inferred from how long the app spent in the background.</p></div>
+
+      <div class="vx bad"><b>Facebook, X and TikTok get a poster, not an integration</b>
+        <p>Posting on a shop's behalf needs an OAuth flow per network, a Meta app review, a paid X
+        tier, and TikTok's approval-gated content API — weeks of work and per-shop onboarding, to save
+        a tap. A rendered poster the owner saves and posts themselves lands the same content today.
+        The integrations stay on the table; they are not the first thing built.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What each view is made of</h2>
+    <div class="spec">
+      <div><b>Marketing tab</b><span>Fifth entry in <code>PeopleTab</code>, gated on the existing
+        <code>promotions</code> module plus a <code>customers</code> read permission — an owner who has
+        one but not the other should not see a half-working tab.</span></div>
+      <div><b>Stat strip</b><span>The one place Marketing glances: <code>BentoGrid</code> + four
+        <code>StatTile variant="bento"</code>. Everything below it is read down a column and stays out
+        of the grid.</span></div>
+      <div><b>Campaign list + detail</b><span><code>TwoPaneListDetail</code>, the same component
+        Customers and Team already use — list on the left at 34%, sheet over the list on a phone.</span></div>
+      <div><b>Audience</b><span><code>segmentForCustomer()</code> unchanged, plus a "no purchase in N
+        days" filter derived from sales the customer detail pane already loads. No new segment
+        concept, no schema field for one.</span></div>
+      <div><b>Message</b><span>Stored per campaign with <code>{name}</code>, <code>{shop}</code>,
+        <code>{offer}</code>, <code>{ends}</code> filled per recipient at open time. Somali and English
+        drafts are two fields on the campaign, not two campaigns.</span></div>
+      <div><b>Send queue</b><span>One row per recipient with a state. Opening a chat calls the existing
+        <code>openWhatsApp()</code> — no new native surface, and it already works on web, iOS and
+        Android.</span></div>
+      <div><b>New tables</b><span>Two: <code>campaigns</code> (shop, promotion, audience filter,
+        message, status) and <code>campaign_recipients</code> (campaign, customer, state, timestamps).
+        Both shop-scoped, both under the same RLS shape as <code>customers</code>.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where every number comes from</h2>
+    <p class="note">The tempting metric on this screen is "opened", and it is unavailable. A
+    <code>wa.me</code> link is a one-way door: no callback, no return value, no scheme that reports
+    back. Anything Kaiibi displayed as a read receipt would be fabricated. So each recipient carries a
+    state, and the state names its own source.</p>
+    <div class="spec">
+      <div><b>Reachable</b><span><code>whatsappLink()</code> returns a URL. A pure function of the
+        stored phone number — the same rule the button uses, so the count can never disagree with what
+        the button does.</span></div>
+      <div><b>Chat opened</b><span>Kaiibi called <code>openWhatsApp()</code>. A record of our own tap.
+        True, and deliberately weaker than "sent" — it is what a row falls back to when the owner
+        ignores the question.</span></div>
+      <div><b>Marked sent</b><span>The owner answered "Yes, sent" when the app returned to the
+        foreground. An <code>AppState</code> listener notices the return and asks; nothing is inferred
+        from how long the app was away.</span></div>
+      <div><b>Not sent / Skipped</b><span>The owner said so, either on return or from the queue row.
+        Both are correctable afterwards.</span></div>
+      <div><b>Bought within 7 days</b><span>A sale exists with that <code>customer_id</code>, dated
+        after the recipient's sent timestamp. Entirely our own data — the strongest number on the
+        screen, and the only one that measures the outcome rather than the errand.</span></div>
+      <div><b>Delivered · Read · Failed</b><span>Not available, and not shown. These arrive only as
+        Cloud API webhooks. When a shop connects one, three new states appear and "Marked sent" stops
+        being asked for — the schema already has room, since state is a text column with a check.</span></div>
+    </div>
+    <p class="note">One consequence worth naming: "Bought within 7 days" is a correlation. The customer
+    may have been coming in anyway, and walk-ins get the same discount. The tile says so rather than
+    letting the owner read it as proof the campaign worked.</p>
+  </section>
+
+  <section>
+    <h2>The limits, stated plainly</h2>
+    <ul class="note">
+      <li><b>It is one tap per person.</b> Roughly five seconds each. Eighty-four customers is about
+      seven minutes of tapping, and the pacing banner makes that expectation explicit rather than
+      letting the owner discover it at recipient thirty.</li>
+      <li><b>Bulk sending from a personal number risks a WhatsApp block.</b> Numbers that fan out to
+      dozens of non-contacts in a burst get rate-limited or banned. The queue paces deliberately and
+      suggests a break every twenty; it is a real constraint, not a UI flourish.</li>
+      <li><b>Delivery is unknowable on this path.</b> Read receipts, replies, and failures never come
+      back to Kaiibi. Only the WhatsApp Business Cloud API returns those, and it costs per conversation
+      and needs template approval before a single message goes out.</li>
+      <li><b>The best number depends on the till.</b> "Bought within 7 days" only counts customers the
+      cashier attached to the sale. A shop that rings most baskets up anonymously will see a low figure
+      that says more about checkout habits than about the campaign.</li>
+    </ul>
+    <p class="note">Everything above survives the upgrade: when a shop connects the Cloud API, the
+    campaign, audience and message stay exactly as they are and only the sender changes — the queue
+    becomes a progress bar instead of a to-do list.</p>
+  </section>
+
+</div>
+
+<script>
+  const VIEWS = [
+    ['campaigns', 'Campaigns'],
+    ['compose', 'New campaign'],
+    ['queue', 'Send queue'],
+    ['poster', 'Poster'],
+  ];
+
+  const shell = (title, blurb, acts, body) => `
+    <div class="head">
+      <div>
+        <p class="eyebrow">People</p>
+        <h3>${title}</h3>
+        <p>${blurb}</p>
+      </div>
+      <div class="headActs">${acts}</div>
+    </div>
+    <div class="tabrow">
+      <span>Customers</span><span>Team</span><span>Schedule</span>
+      <span class="on">Marketing</span><span>Me</span>
+    </div>
+    ${body}`;
+
+  const kpis = `
+    <div class="cardx" style="margin-bottom:14px;">
+      <div class="crow">
+        <p class="ctitle">Marketing at a glance</p>
+        <span class="pill">This month · Xamar branch</span>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><div class="l">Reachable</div><div class="n num">84 <span style="font-size:13px;color:#717078;font-weight:700;">of 126</span></div><div class="h">have a phone number WhatsApp can open</div></div>
+        <div class="kpi"><div class="l">Live promotions</div><div class="n num">3</div><div class="h">applying automatically at the till</div></div>
+        <div class="kpi"><div class="l">Marked sent</div><div class="n num">212</div><div class="h">you confirmed each one — WhatsApp tells us nothing</div></div>
+        <div class="kpi"><div class="l">Bought within 7 days</div><div class="n num">37 <span style="font-size:13px;color:#717078;font-weight:700;">of 212</span></div><div class="h">their own sale, linked to them at the till</div></div>
+      </div>
+      <p class="foot">"Reachable" uses the same rule the WhatsApp button does — under nine digits and
+      the chat cannot be opened at all. Every other figure here is something Kaiibi watched happen:
+      a tap you made, or a sale rung up under that customer's name.</p>
+    </div>`;
+
+  const campaignRow = (icon, name, meta, chip, chipCls, sel) => `
+    <div class="rw ${sel ? 'sel' : ''}">
+      <div class="ic">${icon}</div>
+      <div class="bd"><div class="t1">${name}</div><div class="t2">${meta}</div></div>
+      <span class="chip ${chipCls}">${chip}</span>
+    </div>`;
+
+  const listCard = `
+    <div class="cardx listCard">
+      ${campaignRow('EID', 'Eid weekend — 20% off', 'VIP + Regular · 84 reachable', 'Sending 31/84', 'live', true)}
+      ${campaignRow('BTS', 'Back to school', 'Everyone · 126 · 3 Aug', 'Sent', 'done', false)}
+      ${campaignRow('MIS', 'We miss you', 'No purchase in 60 days · 22', 'Draft', 'draft', false)}
+      ${campaignRow('RAM', 'Ramadan hampers', 'VIP · 18 · 12 Jul', 'Sent', 'done', false)}
+    </div>
+    <div class="cardx">
+      <p class="ctitle">Promotions with no campaign</p>
+      <div class="kv"><div class="k">Shoes — 15% off<span>Category · ends Sun</span></div><span class="btn">Tell customers</span></div>
+      <div class="kv"><div class="k">Buy 2 tea, get 1<span>Brand · no end date</span></div><span class="btn">Tell customers</span></div>
+      <p class="foot">A live discount nobody has been told about is the whole reason this tab exists.</p>
+    </div>`;
+
+  const bubble = `
+    <div class="phoneNote">
+      <div class="waRow">
+        <div class="waAv">AH</div>
+        <div><b>Amina Hassan</b><i>+252 63 442 1180</i></div>
+      </div>
+      <div class="bub">
+        Hi <span class="tok">Amina</span> — Ciid wanaagsan! <span class="tok">20% off everything</span>
+        at <span class="tok">Suuqa Xamar</span> until <span class="tok">Saturday</span>.
+        Show this message at the till.
+        <span class="meta">11:04</span>
+      </div>
+    </div>`;
+
+  const views = {};
+
+  views.campaigns = shell(
+    'Marketing',
+    'Turn a promotion into a message, and send it to the customers it is for.',
+    '<span class="btn">Promotions</span><span class="btn solid">New campaign</span>',
+    kpis + `
+    <div class="panes">
+      <div class="listPane">${listCard}</div>
+      <div class="detailPane">
+        <span class="grab"></span>
+        <div class="sheetHead"><b>Eid weekend — 20% off</b><span class="btn ghost">Close</span></div>
+        <div class="cardx">
+          <div class="detHead">
+            <div>
+              <div class="detName">Eid weekend — 20% off</div>
+              <div class="detMeta">Started 11:04 today · Xamar branch · you are 31 chats in</div>
+            </div>
+            <span class="chip live">Sending</span>
+          </div>
+          <div class="acts">
+            <span class="btn wa">Continue sending · 53 left</span>
+            <span class="btn">Edit message</span>
+            <span class="btn">Save poster</span>
+            <span class="btn">Duplicate</span>
+          </div>
+          <div class="tiles">
+            <div class="kpi"><div class="l">Audience</div><div class="n num">96</div><div class="h">VIP + Regular</div></div>
+            <div class="kpi"><div class="l">Reachable</div><div class="n num">84</div><div class="h">12 have no usable number</div></div>
+            <div class="kpi"><div class="l">Marked sent</div><div class="n num">27</div><div class="h">of 31 chats you opened</div></div>
+            <div class="kpi"><div class="l">Bought since</div><div class="n num">6</div><div class="h">rang up under their name</div></div>
+          </div>
+        </div>
+
+        <div class="detGrid two">
+          <div class="cardx">
+            <p class="ctitle">What they see</p>
+            ${bubble}
+            <p class="foot">Written once with placeholders; each chat opens with that customer's own
+            name already in it.</p>
+          </div>
+          <div class="cardx">
+            <p class="ctitle">The promotion behind it</p>
+            <div class="kv"><div class="k">Discount</div><span class="v">20%</span></div>
+            <div class="kv"><div class="k">Applies to<span>store-wide</span></div><span class="v">Everything</span></div>
+            <div class="kv"><div class="k">Ends</div><span class="v">Sat 16 Aug</span></div>
+            <div class="kv"><div class="k">At the till<span>no code to type</span></div><span class="v">Automatic</span></div>
+            <div class="cav context" style="margin-top:12px;">
+              <b>37 sales have applied this promotion.</b> That is what the till recorded, not proof the
+              messages caused them — walk-ins get the same discount.
+            </div>
+          </div>
+        </div>
+
+        <div class="cardx">
+          <div class="cav wrong">
+            <b>12 customers in this audience cannot be reached.</b> Their phone number is missing or too
+            short for WhatsApp to open a chat. Fix a number and they join the queue automatically.
+            <u>Review the 12</u>
+          </div>
+          <div class="cav context">
+            <b>Kaiibi cannot confirm delivery.</b> WhatsApp reports nothing back to other apps — not
+            sent, not delivered, not read. "Marked sent" is your own answer to the question Kaiibi asks
+            when you come back from each chat, and you can change any of them.
+          </div>
+        </div>
+      </div>
+    </div>`);
+
+  views.compose = shell(
+    'New campaign',
+    'Four decisions, then you start sending.',
+    '<span class="btn">Cancel</span>',
+    `<div class="cardx">
+      <div class="step">
+        <div class="stepHead"><span class="stepNo">STEP 1</span><b>What is the offer?</b></div>
+        <div class="opts two">
+          <div class="opt on">
+            <div class="ot"><span class="dot"></span>Eid weekend — 20% off <span class="chip live">Live</span></div>
+            <div class="od">Store-wide · ends Sat 16 Aug · applies automatically at the till</div>
+          </div>
+          <div class="opt">
+            <div class="ot"><span class="dot"></span>Shoes — 15% off <span class="chip live">Live</span></div>
+            <div class="od">Category: Shoes · ends Sun 17 Aug</div>
+          </div>
+          <div class="opt">
+            <div class="ot"><span class="dot"></span>Just a message, no discount</div>
+            <div class="od">New stock, opening hours, a thank-you</div>
+          </div>
+          <div class="opt">
+            <div class="ot"><span class="dot"></span>Create a new promotion…</div>
+            <div class="od">Opens the promotion editor, then comes back here</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="stepHead"><span class="stepNo">STEP 2</span><b>Who gets it?</b><i>84 reachable of 96</i></div>
+        <div class="filters" style="margin-bottom:10px;">
+          <span>Everyone · 126</span><span class="on">VIP · 18</span><span class="on">Regular · 78</span>
+          <span>New · 15</span><span>At risk · 22</span>
+        </div>
+        <div class="opts">
+          <div class="opt">
+            <div class="ot"><span class="dot"></span>Only people who have not bought in <b>60</b> days</div>
+            <div class="od">From their purchase history — 22 of the selected 96</div>
+          </div>
+        </div>
+        <div class="cav partial" style="margin-top:10px;">
+          12 of the 96 have no usable phone number. They stay in the audience and join the queue the
+          moment a number is fixed.
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="stepHead"><span class="stepNo">STEP 3</span><b>What does it say?</b><i>Somali · English</i></div>
+        <div class="field tall">Hi {name} — Ciid wanaagsan! {offer} at {shop} until {ends}. Show this
+        message at the till.</div>
+        <div class="tokens">
+          <span>{name}</span><span>{shop}</span><span>{offer}</span><span>{ends}</span><span>{branch}</span>
+        </div>
+        <p class="foot">Tap a placeholder to drop it in. Each chat opens with the real values already
+        filled — the customer never sees a brace.</p>
+      </div>
+
+      <div class="step">
+        <div class="stepHead"><span class="stepNo">STEP 4</span><b>How does it go out?</b></div>
+        <div class="opts two">
+          <div class="opt on">
+            <div class="ot"><span class="dot"></span>One chat at a time <span class="chip done">Free</span></div>
+            <div class="od">Kaiibi opens WhatsApp with the message written; you press send and come back.
+            About five seconds each — roughly seven minutes for 84 people.</div>
+          </div>
+          <div class="opt off">
+            <div class="ot"><span class="dot"></span>Send them all at once <span class="chip draft">Not connected</span></div>
+            <div class="od">Needs a WhatsApp Business account, a dedicated number, and Meta's approval of
+            the message wording. Costs per conversation.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="composeFoot">
+        <span class="btn">Save as draft</span>
+        <span class="btn">Save poster</span>
+        <span class="btn wa">Start sending · 84</span>
+      </div>
+    </div>`);
+
+  const qrow = (st, cls, name, meta, cur) => `
+    <div class="qrow ${cur ? 'cur' : ''}">
+      <span class="st ${cls}">${st}</span>
+      <span class="qn">${name}</span>
+      <span class="amt" style="font-size:11.5px;color:#717078;font-weight:600;">${meta}</span>
+    </div>`;
+
+  views.queue = shell(
+    'Eid weekend — 20% off',
+    'One chat at a time. Press send in WhatsApp, then come straight back.',
+    '<span class="btn">Pause</span><span class="btn">Finish later</span>',
+    `<div class="panes">
+      <div class="listPane">
+        <div class="cardx">
+          <div class="crow"><p class="ctitle">Progress</p><span class="pill num">31 of 84</span></div>
+          <div class="prog"><i style="width:37%"></i></div>
+          <p class="foot">4 skipped · 12 waiting on a phone number · about 4 minutes left at this pace.</p>
+          <div class="cav context" style="margin-top:12px;">
+            <b>Take a breath every twenty.</b> WhatsApp limits numbers that message dozens of
+            non-contacts in one burst. You have sent 11 since your last break.
+          </div>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">The queue</p>
+          ${qrow('✓','ok','Amina Hassan','sent 11:04')}
+          ${qrow('✓','ok','Yusuf Warsame','sent 11:04')}
+          ${qrow('–','skip','Layla Omar','skipped')}
+          ${qrow('◑','wait','Cabdi Jama','chat opened — send?')}
+          ${qrow('→','wait','Hodan Ali','next', true)}
+          ${qrow('','wait','Maxamed Nuur','waiting')}
+          ${qrow('','wait','Fadumo Diriye','waiting')}
+          ${qrow('!','no','Ismail Farah','no usable number')}
+        </div>
+      </div>
+      <div class="detailPane">
+        <span class="grab"></span>
+        <div class="cardx">
+          <div class="nowCard">
+            <div class="av">HA</div>
+            <div class="nm">Hodan Ali</div>
+            <div class="ph">+252 63 771 4402</div>
+            <div class="tags">
+              <span class="chip hot">VIP</span>
+              <span class="chip">Last bought 6 days ago</span>
+              <span class="chip">Xamar branch</span>
+            </div>
+          </div>
+          <div class="nowActs">
+            <span class="btn wa wide">Open WhatsApp for Hodan</span>
+            <div class="pairBtn">
+              <span class="btn">Skip this person</span>
+              <span class="btn">Not reachable</span>
+            </div>
+          </div>
+          <p class="foot" style="text-align:center;">WhatsApp opens with the message below already
+          written. Press send there, then come back.</p>
+        </div>
+
+        <div class="cardx">
+          <div class="crow">
+            <p class="ctitle">When you come back</p>
+            <span class="pill">Cabdi Jama · a moment ago</span>
+          </div>
+          <div class="nowCard">
+            <div class="nm" style="font-size:16px;">Did that send to Cabdi?</div>
+            <div class="ph">This is the only way Kaiibi learns the answer.</div>
+            <div class="nowActs">
+              <div class="pairBtn">
+                <span class="btn wa" style="flex:1;text-align:center;">Yes, sent</span>
+                <span class="btn" style="flex:1;text-align:center;">No — try again later</span>
+              </div>
+            </div>
+          </div>
+          <p class="foot">One tap, and the campaign gains a fact instead of an assumption. Ignore it and
+          the row stays "chat opened" — true, and clearly less than sent.</p>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">What Hodan will see</p>
+          ${bubble.replace(/Amina Hassan/g, 'Hodan Ali').replace(/AH/g, 'HA')
+                  .replace(/\+252 63 442 1180/g, '+252 63 771 4402')
+                  .replace(/>Amina</g, '>Hodan<')}
+          <p class="foot">Edit the wording and every chat after this one uses the new version. The
+          thirty-one already opened keep what they were sent.</p>
+        </div>
+      </div>
+    </div>`);
+
+  views.poster = shell(
+    'Poster',
+    'The same offer as an image you can post anywhere yourself.',
+    '<span class="btn">Back to campaign</span>',
+    `<div class="panes">
+      <div class="listPane">
+        <div class="cardx">
+          <p class="ctitle">Preview</p>
+          <div class="posterWrap">
+            <div class="poster">
+              <div class="pShop">Suuqa Xamar</div>
+              <div>
+                <div class="pBig">20%<br>OFF</div>
+                <div class="pSub">Everything in store</div>
+                <div class="pWhen">Thursday to Saturday · Xamar branch<br>Just show up — it comes off at the till.</div>
+              </div>
+              <div class="pFoot">MADE WITH KAIIBI</div>
+            </div>
+            <div class="posterActs">
+              <span class="btn solid">Save image</span>
+              <span class="btn">Share…</span>
+            </div>
+          </div>
+          <p class="foot">Square for a feed post, and a story-shaped version saves alongside it. Shop
+          name, colours and logo come from your receipt branding — nothing to set up.</p>
+        </div>
+      </div>
+      <div class="detailPane">
+        <span class="grab"></span>
+        <div class="cardx">
+          <p class="ctitle">Where it goes</p>
+          <div class="socials">
+            <div class="soc">Facebook <small>save · post yourself</small></div>
+            <div class="soc">Instagram <small>save · post yourself</small></div>
+            <div class="soc">TikTok <small>save · post yourself</small></div>
+            <div class="soc">X <small>save · post yourself</small></div>
+            <div class="soc">WhatsApp status <small>share sheet</small></div>
+          </div>
+          <div class="cav context" style="margin-top:14px;">
+            <b>Kaiibi does not post for you.</b> "Share" hands the image to your phone's share sheet and
+            you pick the app. Posting on your behalf would mean connecting a Facebook Page to Kaiibi and
+            waiting on Meta's review — worth doing later, not worth waiting for now.
+          </div>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">What connecting the networks would actually take</p>
+          <div class="kv"><div class="k">Facebook + Instagram<span>Graph API, a Page token per shop</span></div><span class="v">Meta app review</span></div>
+          <div class="kv"><div class="k">WhatsApp bulk send<span>Cloud API, one dedicated number</span></div><span class="v">Per message</span></div>
+          <div class="kv"><div class="k">TikTok<span>Content Posting API</span></div><span class="v">Approval gated</span></div>
+          <div class="kv"><div class="k">X<span>v2 write access</span></div><span class="v">Paid tier</span></div>
+          <p class="foot">Every one of them needs each shop to hold an account on that network and hand
+          Kaiibi permission to it. The poster needs neither.</p>
+        </div>
+      </div>
+    </div>`);
+
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+
+  function render(key){
+    wide.innerHTML = views[key];
+    narrow.innerHTML = views[key];
+    [...sw.children].forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === key)));
+  }
+
+  VIEWS.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.k = key;
+    b.setAttribute('role', 'tab');
+    b.addEventListener('click', () => render(key));
+    sw.appendChild(b);
+  });
+
+  render('campaigns');
+</script>

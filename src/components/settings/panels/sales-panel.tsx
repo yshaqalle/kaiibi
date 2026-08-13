@@ -1,12 +1,12 @@
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
 import { ManageModal } from '@/components/settings/manage-modal';
 import { Btn, PageHeader, Pill, Row, Section, Toggle } from '@/components/settings/settings-primitives';
 import { createCurrency, deleteCurrency, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
-import { createPromotion, deletePromotion, updatePromotion } from '@/lib/promotions';
+import { discountLabel } from '@/lib/promotions';
 import { updateShop } from '@/lib/shops';
 import type { Currency, Promotion, Shop } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
@@ -14,41 +14,23 @@ import { AppModal } from '@/components/ui/app-modal';
 const previewCount = 6;
 const emptyUsage = new Map<string, number>();
 
-function discountLabel(p: Promotion): string {
-  return p.discountType === 'percentage' ? `${p.discountValue}% off` : `${formatCents(p.discountValue)} off`;
-}
-
-function scopeLabel(p: Promotion): string {
-  if (p.scope === 'store') return 'Entire store';
-  if (p.scope === 'brand') return `Brand · ${p.scopeValue}`;
-  return `Category · ${p.scopeValue}`;
-}
-
 // ─── Promotions ──────────────────────────────────────────────────────────
 
-export function PromotionsPanel({
-  shopId,
-  promotions,
-  brands,
-  categories,
-  onChange,
-}: {
-  shopId: string;
-  promotions: Promotion[];
-  brands: string[];
-  categories: string[];
-  onChange: () => Promise<void>;
-}) {
-  const [modalOpen, setModalOpen] = useState(false);
+// The editor moved to People → Marketing (src/components/marketing/promotions-tab.tsx),
+// next to the customers a sale is actually for. This is only the signpost --
+// an owner who has looked for "Sales & promotions" here for months lands
+// somewhere that says where it went, not a dead end.
+export function PromotionsPanel({ promotions }: { promotions: Promotion[] }) {
+  const router = useRouter();
   const preview = promotions.slice(0, previewCount);
 
   return (
     <View>
       <PageHeader title="Promotions" />
-      <Section title={`Active promotions · ${promotions.length}`}>
+      <Section title={`Promotions · ${promotions.length}`}>
         <Text style={styles.hint}>
-          Discounts that apply automatically at checkout — for the whole store, a brand, or a category. The cashier can still override with a
-          manual discount per item.
+          Moved to People → Marketing, next to the customers they&apos;re for. Manage discounts, their run dates, and
+          whether they apply automatically from there.
         </Text>
         {promotions.length === 0 ? (
           <Text style={styles.empty}>None yet.</Text>
@@ -64,234 +46,10 @@ export function PromotionsPanel({
           </View>
         )}
         <View style={styles.actionsRow}>
-          <Btn onPress={() => setModalOpen(true)}>Manage ({promotions.length})</Btn>
+          <Btn onPress={() => router.push({ pathname: '/(admin)/(tabs)/people', params: { tab: 'marketing' } })}>Go to Marketing</Btn>
         </View>
       </Section>
-      <PromotionsModal visible={modalOpen} onClose={() => setModalOpen(false)} shopId={shopId} promotions={promotions} brands={brands} categories={categories} onChange={onChange} />
     </View>
-  );
-}
-
-function PromotionsModal({
-  visible,
-  onClose,
-  shopId,
-  promotions,
-  brands,
-  categories,
-  onChange,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  shopId: string;
-  promotions: Promotion[];
-  brands: string[];
-  categories: string[];
-  onChange: () => Promise<void>;
-}) {
-  const [error, setError] = useState<string | null>(null);
-  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  const [name, setName] = useState('');
-  const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
-  const [discountValue, setDiscountValue] = useState('');
-  const [scope, setScope] = useState<'store' | 'brand' | 'category'>('store');
-  const [scopeValue, setScopeValue] = useState<string | null>(null);
-
-  const resetForm = () => {
-    setEditingId(null);
-    setName('');
-    setDiscountType('percentage');
-    setDiscountValue('');
-    setScope('store');
-    setScopeValue(null);
-  };
-
-  const startEdit = (promo: Promotion) => {
-    setEditingId(promo.id);
-    setName(promo.name);
-    setDiscountType(promo.discountType);
-    setDiscountValue(promo.discountType === 'fixed' ? (promo.discountValue / 100).toFixed(2) : String(promo.discountValue));
-    setScope(promo.scope);
-    setScopeValue(promo.scopeValue);
-    setConfirmingDelete(null);
-  };
-
-  const run = async (action: () => Promise<void>) => {
-    setError(null);
-    try {
-      await action();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
-    }
-  };
-
-  const submit = () => {
-    const trimmedName = name.trim();
-    const num = Number(discountValue);
-    if (!trimmedName || !num || num <= 0) return;
-    if (scope !== 'store' && !scopeValue) return;
-    const input = {
-      name: trimmedName,
-      discountType,
-      discountValue: discountType === 'fixed' ? Math.round(num * 100) : Math.min(num, 100),
-      scope,
-      scopeValue: scope === 'store' ? null : scopeValue,
-      active: true,
-    };
-    run(async () => {
-      if (editingId) await updatePromotion(editingId, input);
-      else await createPromotion(shopId, input);
-      await onChange();
-      resetForm();
-    });
-  };
-
-  const toggleActive = (promo: Promotion) =>
-    run(async () => {
-      await updatePromotion(promo.id, { active: !promo.active });
-      await onChange();
-    });
-
-  return (
-    <AppModal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <View style={modalStyles.overlay}>
-        <View style={modalStyles.card}>
-          <View style={modalStyles.header}>
-            <Text style={modalStyles.title}>Sales &amp; promotions</Text>
-            <View style={modalStyles.headerActions}>
-              <Pressable onPress={submit} style={modalStyles.addButton}>
-                <Text style={modalStyles.addButtonText}>{editingId ? 'Save changes' : 'Add sale'}</Text>
-              </Pressable>
-              <Pressable onPress={onClose} style={({ pressed }) => [modalStyles.close, pressed && modalStyles.closePressed]}>
-                <Text style={modalStyles.closeText}>Done</Text>
-              </Pressable>
-            </View>
-          </View>
-
-          {error && <Text style={styles.error}>{error}</Text>}
-
-          <ScrollView style={modalStyles.list}>
-            {promotions.length === 0 && <Text style={styles.empty}>None yet — add one below.</Text>}
-            {promotions.map((promo) => (
-              <View key={promo.id} style={modalStyles.row}>
-                {confirmingDelete === promo.id ? (
-                  <>
-                    <Text style={[modalStyles.rowLabel, { flex: 1 }]}>Delete &quot;{promo.name}&quot;?</Text>
-                    <Pressable
-                      onPress={() =>
-                        run(async () => {
-                          await deletePromotion(promo.id);
-                          await onChange();
-                          setConfirmingDelete(null);
-                        })
-                      }
-                      style={modalStyles.rowAction}
-                    >
-                      <Text style={modalStyles.rowActionTextDanger}>Confirm</Text>
-                    </Pressable>
-                    <Pressable onPress={() => setConfirmingDelete(null)} style={modalStyles.rowAction}>
-                      <Text style={modalStyles.rowActionTextMuted}>Cancel</Text>
-                    </Pressable>
-                  </>
-                ) : (
-                  <>
-                    <View style={{ flex: 1 }}>
-                      <Text style={modalStyles.rowLabel}>{promo.name}</Text>
-                      <Text style={modalStyles.rowSubLabel}>
-                        {discountLabel(promo)} · {scopeLabel(promo)}
-                      </Text>
-                    </View>
-                    <Pressable onPress={() => toggleActive(promo)} style={modalStyles.rowAction}>
-                      <Text style={promo.active ? modalStyles.rowActionText : modalStyles.rowActionTextMuted}>{promo.active ? 'Active' : 'Paused'}</Text>
-                    </Pressable>
-                    <Pressable onPress={() => startEdit(promo)} style={modalStyles.rowAction}>
-                      <Text style={modalStyles.rowActionText}>Edit</Text>
-                    </Pressable>
-                    <Pressable onPress={() => setConfirmingDelete(promo.id)} style={modalStyles.rowAction}>
-                      <Text style={modalStyles.rowActionTextDanger}>Delete</Text>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-            ))}
-
-            <View style={modalStyles.promoForm}>
-              <Text style={modalStyles.fieldLabel}>{editingId ? 'EDIT SALE' : 'NEW SALE'}</Text>
-              <TextInput value={name} onChangeText={setName} placeholder="Sale name, e.g. Summer Sale" placeholderTextColor="#999999" style={modalStyles.addInput} />
-              <View style={modalStyles.promoRow}>
-                <CategoryChip label="% off" active={discountType === 'percentage'} onPress={() => setDiscountType('percentage')} />
-                <CategoryChip label="$ off" active={discountType === 'fixed'} onPress={() => setDiscountType('fixed')} />
-                <TextInput
-                  value={discountValue}
-                  onChangeText={setDiscountValue}
-                  placeholder={discountType === 'percentage' ? '10' : '5.00'}
-                  placeholderTextColor="#999999"
-                  keyboardType="decimal-pad"
-                  style={modalStyles.promoValueInput}
-                />
-              </View>
-              <Text style={modalStyles.fieldLabel}>APPLIES TO</Text>
-              <View style={modalStyles.promoRow}>
-                <CategoryChip
-                  label="Entire store"
-                  active={scope === 'store'}
-                  onPress={() => {
-                    setScope('store');
-                    setScopeValue(null);
-                  }}
-                />
-                <CategoryChip
-                  label="A brand"
-                  active={scope === 'brand'}
-                  onPress={() => {
-                    setScope('brand');
-                    setScopeValue(null);
-                  }}
-                />
-                <CategoryChip
-                  label="A category"
-                  active={scope === 'category'}
-                  onPress={() => {
-                    setScope('category');
-                    setScopeValue(null);
-                  }}
-                />
-              </View>
-              {scope === 'brand' && (
-                <View style={modalStyles.promoRow}>
-                  {brands.length === 0 ? (
-                    <Text style={styles.empty}>No brands yet — add one above first.</Text>
-                  ) : (
-                    brands.map((b) => <CategoryChip key={b} label={b} active={scopeValue === b} onPress={() => setScopeValue(b)} />)
-                  )}
-                </View>
-              )}
-              {scope === 'category' && (
-                <View style={modalStyles.promoRow}>
-                  {categories.length === 0 ? (
-                    <Text style={styles.empty}>No categories yet — add one above first.</Text>
-                  ) : (
-                    categories.map((c) => <CategoryChip key={c} label={c} active={scopeValue === c} onPress={() => setScopeValue(c)} />)
-                  )}
-                </View>
-              )}
-              <View style={modalStyles.promoFormActions}>
-                {editingId && (
-                  <Pressable onPress={resetForm} style={modalStyles.rowAction}>
-                    <Text style={modalStyles.rowActionTextMuted}>Cancel edit</Text>
-                  </Pressable>
-                )}
-                <Pressable onPress={submit} style={modalStyles.addButton}>
-                  <Text style={modalStyles.addButtonText}>{editingId ? 'Save changes' : 'Add sale'}</Text>
-                </Pressable>
-              </View>
-            </View>
-          </ScrollView>
-        </View>
-      </View>
-    </AppModal>
   );
 }
 

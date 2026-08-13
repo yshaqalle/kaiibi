@@ -580,13 +580,25 @@ function SaleRow({
   );
 }
 
-type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number };
+// `discountCents`/`promotionId` ride along unchanged from the original sale
+// item -- edit_sale rewrites every sale_items row on save, so a caller that
+// drops these silently zeroes the line's discount and detaches whatever
+// promotion produced it. Quantity/price are the only fields this editor
+// actually lets someone change.
+type EditableItem = { productId: string; productName: string; unitPriceCents: number; quantity: number; discountCents: number; promotionId: string | null };
 
 function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; products: Product[]; shop: Shop | null; onCancel: () => void; onSaved: () => void }) {
   const [items, setItems] = useState<EditableItem[]>(() =>
     (sale.items ?? [])
       .filter((item) => item.productId !== null)
-      .map((item) => ({ productId: item.productId as string, productName: item.productName, unitPriceCents: item.unitPriceCents, quantity: item.quantity }))
+      .map((item) => ({
+        productId: item.productId as string,
+        productName: item.productName,
+        unitPriceCents: item.unitPriceCents,
+        quantity: item.quantity,
+        discountCents: item.discountCents,
+        promotionId: item.promotionId,
+      }))
   );
   const [payments, setPayments] = useState<PaymentLine[]>(() =>
     (sale.payments ?? []).map((p) => ({
@@ -626,7 +638,9 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     setItems((current) => {
       const existing = current.find((i) => i.productId === product.id);
       if (existing) return current.map((i) => (i.productId === product.id ? { ...i, quantity: i.quantity + 1 } : i));
-      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1 }];
+      // A product added during the edit has no discount and no promotion
+      // behind it -- it's new to this sale, not a preserved line.
+      return [...current, { productId: product.id, productName: product.name, unitPriceCents: product.priceCents, quantity: 1, discountCents: 0, promotionId: null }];
     });
     setAddSearch('');
   };
@@ -643,7 +657,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     setSubmitting(true);
     setError(null);
     try {
-      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity })), payments, {
+      await editSale(sale.id, items.map((i) => ({ productId: i.productId, quantity: i.quantity, discountCents: i.discountCents, promotionId: i.promotionId })), payments, {
         id: selectedCustomer?.id ?? null,
         name: selectedCustomer?.name ?? null,
         phone: selectedCustomer?.phone ?? null,

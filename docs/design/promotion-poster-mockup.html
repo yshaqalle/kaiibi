@@ -1,0 +1,677 @@
+<title>Kaiibi — the promotion poster, printed and posted</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --warn:#b07206;
+    --accWash:#e6edff; --accInk:#1b47b8;
+    --waWash:#e7f5ed; --waInk:#0b6b3c;
+    --offWash:#f3ecff; --offInk:#5b31b5;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  ul.note{padding-left:20px;} ul.note li{margin-bottom:7px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx + .cardx{margin-top:14px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.wa{background:var(--waInk);color:#fff;border-color:var(--waInk);}
+  .btn.wide{width:100%;text-align:center;padding:12px 15px;font-size:13.5px;}
+  .btn.dis{opacity:.42;}
+
+  .two{display:flex;gap:16px;align-items:flex-start;}
+  .two .left{width:430px;flex-shrink:0;}
+  .two .right{flex:1;min-width:0;}
+  .w380 .two{display:block;}
+  .w380 .two .left{width:auto;}
+  .w380 .two .right{margin-top:14px;}
+
+  /* ══════════ THE POSTER ITSELF ══════════
+     One base, four templates. Every value the shop can change is a CSS
+     variable, so the same markup renders at any of the three output sizes. */
+  .poster{
+    --acc:#5b31b5; --pInk:#ffffff; --pGround:#0b0b0d;
+    position:relative;overflow:hidden;background:var(--pGround);color:var(--pInk);
+    display:flex;flex-direction:column;font-family:inherit;
+    container-type:inline-size;
+  }
+  .poster *{min-width:0;}
+  .pPad{padding:8cqw;display:flex;flex-direction:column;height:100%;gap:4cqw;}
+  .pShop{font-size:3.4cqw;font-weight:800;letter-spacing:.16em;text-transform:uppercase;opacity:.78;}
+  .pMid{flex:1;display:flex;flex-direction:column;justify-content:center;}
+  .pKicker{font-size:3.6cqw;font-weight:800;letter-spacing:.2em;text-transform:uppercase;color:var(--acc);}
+  .pBig{font-weight:800;letter-spacing:-.05em;line-height:.85;font-size:26cqw;}
+  .pBig sup{font-size:.42em;vertical-align:super;letter-spacing:-.02em;}
+  .pWhat{font-size:5.4cqw;font-weight:800;letter-spacing:-.01em;margin-top:2cqw;line-height:1.15;}
+  .pWhen{font-size:3.6cqw;font-weight:700;opacity:.78;margin-top:3cqw;line-height:1.4;}
+  .pFootRow{display:flex;align-items:flex-end;justify-content:space-between;gap:3cqw;}
+  .pAddr{font-size:2.9cqw;opacity:.62;line-height:1.45;}
+  .pMark{font-size:2.3cqw;letter-spacing:.1em;opacity:.42;text-transform:uppercase;white-space:nowrap;}
+  .pLogo{width:11cqw;height:11cqw;border-radius:3cqw;background:var(--acc);color:#fff;display:flex;
+    align-items:center;justify-content:center;font-size:4.4cqw;font-weight:800;flex-shrink:0;}
+
+  /* template: market — accent ground, the number is the poster */
+  .poster.market{--pGround:#5b31b5;--acc:#ffd84d;}
+  .poster.market .pBig{font-size:30cqw;}
+  .poster.market .pKicker{color:var(--acc);}
+
+  /* template: quiet — paper, hairlines, for a boutique */
+  .poster.quiet{--pGround:#faf8f4;--pInk:#141210;--acc:#8a5a2b;}
+  .poster.quiet .pBig{font-size:20cqw;font-weight:700;letter-spacing:-.03em;}
+  .poster.quiet .pKicker{font-size:2.9cqw;letter-spacing:.28em;}
+  .poster.quiet .pWhat{font-weight:600;font-size:4.4cqw;}
+  .poster.quiet .pMid{border-top:1px solid rgba(20,18,16,.18);border-bottom:1px solid rgba(20,18,16,.18);
+    padding:5cqw 0;}
+  .poster.quiet .pLogo{background:#141210;}
+
+  /* template: week — several live offers on one sheet */
+  .poster.week{--pGround:#ffffff;--pInk:#0b0b0d;--acc:#0b6b3c;}
+  .poster.week .pTitle{font-size:7cqw;font-weight:800;letter-spacing:-.035em;line-height:1.02;}
+  .poster.week .wList{display:flex;flex-direction:column;gap:2.6cqw;margin-top:4cqw;}
+  .poster.week .wRow{display:flex;align-items:baseline;gap:3cqw;
+    border-bottom:1px solid rgba(11,11,13,.12);padding-bottom:2.4cqw;}
+  .poster.week .wV{font-size:7.4cqw;font-weight:800;color:var(--acc);letter-spacing:-.03em;
+    min-width:17cqw;font-variant-numeric:tabular-nums;}
+  .poster.week .wN{flex:1;font-size:3.7cqw;font-weight:700;line-height:1.25;}
+  .poster.week .wN small{display:block;font-weight:600;opacity:.55;font-size:2.9cqw;margin-top:.6cqw;}
+  .poster.week .pLogo{background:var(--acc);}
+
+  /* the three output shapes */
+  .sq{aspect-ratio:1/1;}
+  .st{aspect-ratio:9/16;}
+  .a4{aspect-ratio:1/1.414;}
+
+  .stage{background:var(--d-soft);border-radius:20px;padding:16px;display:flex;justify-content:center;}
+  .tGrid{display:grid;gap:12px;}
+  .w1180 .tGrid{grid-template-columns:repeat(4,1fr);}
+  .w380 .tGrid{grid-template-columns:repeat(2,1fr);}
+  .tCell{display:flex;flex-direction:column;gap:8px;}
+  .tCell .poster{border-radius:14px;}
+  .tCell.on .poster{outline:2.5px solid var(--d-ink);outline-offset:3px;}
+  .tName{font-size:12px;font-weight:800;}
+  .tName span{display:block;font-size:10.5px;font-weight:600;color:var(--d-mut);margin-top:2px;line-height:1.35;}
+
+  .fmts{display:grid;gap:14px;align-items:start;}
+  .w1180 .fmts{grid-template-columns:1fr 1fr 1fr;}
+  .fmtCell{display:flex;flex-direction:column;gap:10px;}
+  .fmtCell .poster{border-radius:12px;}
+  .fmtHead{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+  .fmtHead b{font-size:13px;font-weight:800;}
+  .fmtHead i{font-style:normal;font-size:11px;color:var(--d-mut);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .fmtWhy{font-size:11.5px;color:var(--d-mut);line-height:1.45;}
+  .fmtDep{font-size:10.5px;font-weight:800;letter-spacing:.03em;padding:3px 8px;border-radius:999px;
+    background:var(--waWash);color:var(--waInk);align-self:flex-start;}
+  .fmtDep.new{background:#fdf0e0;color:#8a530f;}
+
+  /* editor fields */
+  .fld{margin-bottom:12px;}
+  .fld .fl{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--d-mut);margin-bottom:5px;display:flex;align-items:center;gap:7px;}
+  .fld .fv{background:var(--d-soft);border:1px solid var(--d-ln);border-radius:13px;padding:10px 13px;
+    font-size:13px;color:var(--d-ink2);}
+  .fld .fv.locked{background:transparent;border-style:dashed;color:var(--d-mut);}
+  .src{font-size:9.5px;font-weight:800;letter-spacing:.03em;padding:2px 7px;border-radius:999px;
+    background:var(--accWash);color:var(--accInk);text-transform:none;letter-spacing:0;}
+  .swatches{display:flex;gap:8px;flex-wrap:wrap;}
+  .sw{width:30px;height:30px;border-radius:10px;border:2px solid transparent;cursor:pointer;}
+  .sw.on{border-color:var(--d-ink);}
+  .sw.wheel{background:conic-gradient(#e53935,#fb8c00,#fdd835,#43a047,#00acc1,#1e88e5,#8e24aa,#e53935);
+    border-color:var(--d-rule);}
+
+  /* the picker itself: presets above, full control below */
+  .picker{background:var(--d-soft);border-radius:16px;padding:13px;margin-top:10px;}
+  .pkTop{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
+  .pkChip{width:34px;height:34px;border-radius:11px;flex-shrink:0;}
+  .pkHex{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:700;
+    background:#fff;border:1px solid var(--d-ln);border-radius:9px;padding:6px 10px;}
+  .pkInk{margin-left:auto;font-size:10.5px;font-weight:800;padding:4px 9px;border-radius:999px;
+    background:var(--waWash);color:var(--waInk);white-space:nowrap;}
+  .pkInk.adj{background:#fdf0e0;color:#8a530f;}
+  .sl{display:flex;align-items:center;gap:10px;}
+  .sl + .sl{margin-top:9px;}
+  .slLab{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--d-mut);width:44px;flex-shrink:0;}
+  .slTrack{flex:1;height:16px;border-radius:8px;position:relative;}
+  .slTrack i{position:absolute;top:-3px;width:22px;height:22px;border-radius:11px;background:#fff;
+    border:1px solid var(--d-rule);box-shadow:0 1px 3px rgba(11,11,13,.2);transform:translateX(-11px);}
+  .slTrack.hue{background:linear-gradient(90deg,#e53935,#fdd835,#43a047,#00acc1,#1e88e5,#8e24aa,#e53935);}
+  .slTrack.sat{background:linear-gradient(90deg,#8b8b93,#5b31b5);}
+  .slTrack.lig{background:linear-gradient(90deg,#000,#5b31b5,#fff);}
+  .seg{display:flex;gap:0;background:var(--d-soft);border-radius:12px;padding:3px;}
+  .seg span{flex:1;text-align:center;font-size:12px;font-weight:700;padding:7px 10px;border-radius:9px;color:var(--d-mut);}
+  .seg span.on{background:#fff;color:var(--d-ink);box-shadow:0 1px 2px rgba(11,11,13,.08);}
+  .toggleRow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--d-ln);font-size:13px;}
+  .toggleRow:last-child{border-bottom:none;}
+  .toggleRow small{display:block;font-size:11px;color:var(--d-mut);font-weight:400;}
+  .tg{width:38px;height:22px;border-radius:11px;background:var(--d-rule);flex-shrink:0;position:relative;}
+  .tg.on{background:var(--profit);}
+  .tg::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:9px;background:#fff;}
+  .tg.on::after{left:auto;right:2px;}
+
+  .shareGrid{display:grid;gap:8px;}
+  .w1180 .shareGrid{grid-template-columns:1fr 1fr;}
+  .shareItem{display:flex;align-items:center;gap:11px;background:var(--d-soft);border-radius:15px;padding:11px 13px;}
+  .shareItem .si{width:30px;height:30px;border-radius:10px;background:#fff;display:flex;align-items:center;
+    justify-content:center;font-size:11px;font-weight:800;color:var(--d-mut);flex-shrink:0;}
+  .shareItem .sb{flex:1;min-width:0;}
+  .shareItem .s1{font-size:12.5px;font-weight:700;}
+  .shareItem .s2{font-size:11px;color:var(--d-mut);margin-top:1px;}
+
+  .cav{border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+
+  /* the auto-ink demonstration, outside the app frames */
+  .colDemo{display:grid;gap:16px;margin:20px 0 4px;}
+  @media (min-width:680px){ .colDemo{grid-template-columns:repeat(3,1fr);} }
+  .colDemo .poster{border-radius:16px;}
+  .colCap{font-size:12.5px;color:var(--ink2);margin:9px 0 0;}
+  .colCap code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .spec{display:grid;gap:0;border-top:1px solid var(--ln);margin-top:16px;}
+  .spec div{display:grid;grid-template-columns:210px 1fr;gap:14px;padding:11px 0;
+    border-bottom:1px solid var(--ln);font-size:13.5px;align-items:baseline;}
+  @media (max-width:560px){ .spec div{grid-template-columns:1fr;gap:3px;} }
+  .spec b{font-weight:800;color:var(--ink);} .spec span{color:var(--ink2);}
+  .spec code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Marketing → Poster</p>
+  <h1>One promotion, four templates, three shapes</h1>
+  <p class="lede">The offer already exists as data — a value, a scope, a window, a shop name and a
+  branch address. That is a poster's entire content, so the shop should never open a design app to make
+  one. Pick a template, and Kaiibi renders the same promotion as a square for a feed, a story for
+  WhatsApp status, and an A4 sheet for the door. It is also the only thing in this whole feature that
+  reaches Facebook and TikTok without an API.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1180px</i></div>
+      <div class="scroller"><div class="frame w1180" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>Why this is cheap to build</h2>
+    <p class="note">The app already turns structured data into a rendered document:
+    <code>receipt.ts</code> builds an HTML string and hands it to <code>expo-print</code>'s
+    <code>printToFileAsync</code> on native, or a hidden print iframe on web. A poster is the same
+    pipeline with different HTML and a different page size. <code>expo-print</code> is already a
+    dependency; so is <code>expo-file-system</code> for saving and <code>expo-sharing</code> for the
+    share sheet.</p>
+
+    <div class="verdict">
+      <div class="vx good"><b>PDF costs nothing new</b>
+        <p>A4 out of <code>printToFileAsync</code>, exactly as receipts do it. Print it for the door,
+        or send it on WhatsApp — WhatsApp accepts a PDF as a document attachment, so a shop can push a
+        flyer to a customer with no image tooling at all.</p></div>
+      <div class="vx mid"><b>Images are a phone capability, and the docs are blunt about it</b>
+        <p>Checked against the SDK 57 pages rather than assumed. <code>react-native-view-shot</code> is
+        Expo-supported and bundled in Expo Go — <strong>Android and iOS only, no web</strong>. And
+        <code>expo-print</code>'s <code>printToFileAsync</code> on web "opens the print dialog" instead
+        of returning a file. So saving a poster is something the app does on a phone; the browser gets
+        Print and no Save button, rather than a Save button that quietly does nothing.</p></div>
+      <div class="vx good"><b>Templates, not a design tool</b>
+        <p>Four layouts and a colour, and every one of them is legible at arm's length. A canvas the
+        shop can drag things around on guarantees posters with clipped text and a logo on top of the
+        price — and guarantees support requests about both.</p></div>
+      <div class="vx good"><b>The Kaiibi mark follows a rule that already exists</b>
+        <p><code>receipt_branding_removal</code> already governs whether receipts carry "Powered by
+        Kaiibi", and <code>kaiibi-mark.ts</code> already resolves it. The poster reads the same module
+        rather than inventing a second answer to the same question — and a poster in a shop window is
+        better distribution than a receipt in a bin.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Any colour they like, still readable</h2>
+    <p class="note">A shop should be able to put its own colour on its own poster, and the presets will
+    not contain it. So the picker is open — a wheel and three sliders on the swatch row, plus a hex
+    field for a shop that knows its brand. What is <em>not</em> open is the text colour.</p>
+    <p class="note">The Market template makes the picked colour the entire ground. Left free, a bright
+    brand yellow gets white type on it, on a sheet meant to be read from across a street. So Kaiibi
+    computes the colour's relative luminance and chooses white or near-black ink to sit on it — about
+    ten lines, no dependency, and it removes the only way this can go wrong. The same colour also has to
+    work as <em>accent text</em> on the Bold template's dark ground, where a deep navy would vanish; it
+    is stepped lighter or darker until it clears, exactly as <code>theme.ts</code> already documents
+    doing for its own tokens.</p>
+
+    <div class="colDemo">
+      <div><div class="poster market sq" style="--pGround:#FFD400;--pInk:#141210;--acc:#141210;">
+        <div class="pPad"><div class="pShop">Suuqa Xamar</div>
+        <div class="pMid"><div class="pBig">20<sup>%</sup></div><div class="pKicker">Qiimo dhimis</div>
+        <div class="pWhat">Everything in store</div><div class="pWhen">14 — 16 Agoosto</div></div>
+        <div class="pFootRow"><div class="pAddr">Sooq Bakaaro</div><div class="pLogo" style="background:#141210;color:#FFD400;">SX</div></div></div>
+      </div><p class="colCap">Picked <code>#FFD400</code> → black ink</p></div>
+
+      <div><div class="poster market sq" style="--pGround:#0F2B5B;--pInk:#ffffff;--acc:#7FB2FF;">
+        <div class="pPad"><div class="pShop">Suuqa Xamar</div>
+        <div class="pMid"><div class="pBig">20<sup>%</sup></div><div class="pKicker">Qiimo dhimis</div>
+        <div class="pWhat">Everything in store</div><div class="pWhen">14 — 16 Agoosto</div></div>
+        <div class="pFootRow"><div class="pAddr">Sooq Bakaaro</div><div class="pLogo" style="background:#7FB2FF;color:#0F2B5B;">SX</div></div></div>
+      </div><p class="colCap">Picked <code>#0F2B5B</code> → white ink</p></div>
+
+      <div><div class="poster market sq" style="--pGround:#12A15E;--pInk:#ffffff;--acc:#062E1B;">
+        <div class="pPad"><div class="pShop">Suuqa Xamar</div>
+        <div class="pMid"><div class="pBig">20<sup>%</sup></div><div class="pKicker">Qiimo dhimis</div>
+        <div class="pWhat">Everything in store</div><div class="pWhen">14 — 16 Agoosto</div></div>
+        <div class="pFootRow"><div class="pAddr">Sooq Bakaaro</div><div class="pLogo" style="background:#062E1B;">SX</div></div></div>
+      </div><p class="colCap">Picked <code>#12A15E</code> → white ink, darkened accent</p></div>
+    </div>
+
+    <p class="note">One consequence: the colour belongs on <code>shops</code>, not on each poster. Shops
+    store a <code>logoUrl</code> today and no colour at all, so this is a new nullable hex column — set
+    once in Settings, defaulting every poster, and available later for the receipt accent and the
+    sidebar. Per-poster colour would have an owner re-picking their own brand every time they run a
+    sale.</p>
+    <p class="note">The picker never blocks and never scolds. If a chosen colour had to be stepped for
+    the accent role, the chip says so quietly; the poster is correct either way.</p>
+  </section>
+
+  <section>
+    <h2>Every word on the poster, and where it comes from</h2>
+    <p class="note">The point of generating this from the promotion rather than from a form is that a
+    poster can never contradict the till. If the offer says 20% and ends Saturday, so does the paper on
+    the door.</p>
+    <div class="spec">
+      <div><b>The number</b><span><code>discount_value</code> and <code>discount_type</code> — "20%" or
+        "$2 off". Never typed.</span></div>
+      <div><b>What it applies to</b><span><code>scope</code> and <code>scope_value</code> — "Everything
+        in store", "All shoes", "Anything by Somtel".</span></div>
+      <div><b>The dates</b><span><code>starts_at</code> and <code>ends_at</code>. No window set, and the
+        line simply does not print — better than a poster claiming "while stocks last" that the shop
+        never agreed to.</span></div>
+      <div><b>Shop name and logo</b><span>The receipt branding already configured in Settings. Nothing
+        new to upload.</span></div>
+      <div><b>Branch, address, hours</b><span>The location record and store hours. Optional per poster —
+        a shop with one branch usually wants it, a shop with six does not.</span></div>
+      <div><b>Language</b><span>Somali, English, or both stacked. The headline is a fixed phrase per
+        language, not a translation of free text, so it is always idiomatic.</span></div>
+      <div><b>Headline override</b><span>The one free-text field, and it is capped short. "Ciid
+        wanaagsan" belongs on the Eid poster and cannot be derived from a discount row.</span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What this deliberately does not do</h2>
+    <ul class="note">
+      <li><b>It does not post anywhere.</b> "Share" hands the file to the phone's share sheet and the
+      owner picks the app. Posting on their behalf means a Facebook Page connected to Kaiibi and Meta's
+      app review — a later thing, and the poster is the reason it can wait.</li>
+      <li><b>It does not track.</b> A poster on a door produces no clicks and no attribution. If a
+      campaign needs measuring, that is the customer prompt at the till, not this.</li>
+      <li><b>It has no photo slot in the first cut.</b> Product photography is the single fastest way to
+      make a generated poster look bad, and the templates are built to work without one. It is an
+      obvious second step once shops ask.</li>
+      <li><b>It is not a designer.</b> Template, colour, language, and which optional lines show. That
+      is the whole surface, on purpose.</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+  const VIEWS = [
+    ['templates', 'Templates'],
+    ['editor', 'Editor'],
+    ['formats', 'Three shapes'],
+    ['share', 'Print & share'],
+  ];
+
+  /* ---- the four templates, each rendered from the same promotion ---- */
+  const bold = (cls) => `
+    <div class="poster ${cls}">
+      <div class="pPad">
+        <div class="pShop">Suuqa Xamar</div>
+        <div class="pMid">
+          <div class="pKicker">Ciid wanaagsan</div>
+          <div class="pBig">20<sup>%</sup></div>
+          <div class="pWhat">off everything in store</div>
+          <div class="pWhen">Thursday 14 — Saturday 16 August<br>Qiimo dhimis · ilaa Sabtida</div>
+        </div>
+        <div class="pFootRow">
+          <div class="pAddr">Xamar branch · Sooq Bakaaro<br>Open 08:00 – 21:00 · 063 442 1180</div>
+          <div class="pLogo">SX</div>
+        </div>
+        <div class="pMark">Made with Kaiibi</div>
+      </div>
+    </div>`;
+
+  const market = (cls) => `
+    <div class="poster market ${cls}">
+      <div class="pPad">
+        <div class="pShop">Suuqa Xamar</div>
+        <div class="pMid">
+          <div class="pBig">20<sup>%</sup></div>
+          <div class="pKicker">Qiimo dhimis</div>
+          <div class="pWhat">Everything in store</div>
+          <div class="pWhen">14 — 16 Agoosto</div>
+        </div>
+        <div class="pFootRow">
+          <div class="pAddr">Sooq Bakaaro · 063 442 1180</div>
+          <div class="pLogo">SX</div>
+        </div>
+        <div class="pMark">Made with Kaiibi</div>
+      </div>
+    </div>`;
+
+  const quiet = (cls) => `
+    <div class="poster quiet ${cls}">
+      <div class="pPad">
+        <div class="pShop">Suuqa Xamar</div>
+        <div class="pMid">
+          <div class="pKicker">Eid weekend</div>
+          <div class="pBig">20%</div>
+          <div class="pWhat">off everything, three days only</div>
+          <div class="pWhen">Thursday 14 to Saturday 16 August</div>
+        </div>
+        <div class="pFootRow">
+          <div class="pAddr">Xamar branch · Sooq Bakaaro<br>08:00 – 21:00</div>
+          <div class="pLogo">SX</div>
+        </div>
+        <div class="pMark">Made with Kaiibi</div>
+      </div>
+    </div>`;
+
+  const week = (cls) => `
+    <div class="poster week ${cls}">
+      <div class="pPad">
+        <div class="pShop">Suuqa Xamar</div>
+        <div class="pMid">
+          <div class="pTitle">This week<br>at the shop</div>
+          <div class="wList">
+            <div class="wRow"><span class="wV">20%</span><span class="wN">Everything in store<small>Thu 14 — Sat 16 Aug</small></span></div>
+            <div class="wRow"><span class="wV">15%</span><span class="wN">All shoes<small>until Sunday</small></span></div>
+            <div class="wRow"><span class="wV">3 / 2</span><span class="wN">Shaah Somali — buy two, get one<small>while it lasts</small></span></div>
+            <div class="wRow"><span class="wV">$2</span><span class="wN">off cooking oil, 2L<small>Fri and Sat only</small></span></div>
+          </div>
+        </div>
+        <div class="pFootRow">
+          <div class="pAddr">Sooq Bakaaro · 08:00 – 21:00 · 063 442 1180</div>
+          <div class="pLogo">SX</div>
+        </div>
+        <div class="pMark">Made with Kaiibi</div>
+      </div>
+    </div>`;
+
+  const views = {};
+
+  views.templates = `
+    <div class="cardx">
+      <div class="crow">
+        <p class="ctitle">Choose a look</p>
+        <span class="pill">Eid weekend — 20% off</span>
+      </div>
+      <div class="tGrid">
+        <div class="tCell on">${bold('sq')}<div class="tName">Bold<span>Dark ground, the number carries it. Reads from across a street.</span></div></div>
+        <div class="tCell">${market('sq')}<div class="tName">Market<span>Your colour as the ground. Loudest of the four.</span></div></div>
+        <div class="tCell">${quiet('sq')}<div class="tName">Quiet<span>Paper and hairlines, for a boutique or a pharmacy.</span></div></div>
+        <div class="tCell">${week('sq')}<div class="tName">This week<span>Every live offer on one sheet — a window poster, not a post.</span></div></div>
+      </div>
+      <p class="foot">Same promotion, four renderings, no fields retyped. "This week" is the one that
+      cannot be made per-promotion: it pulls every offer inside its window and is the sheet that
+      actually belongs on a shop door.</p>
+    </div>
+    <div class="cardx">
+      <div class="cav context">
+        <b>Nothing here is a blank canvas.</b> The shop picks a template and a colour; the layout,
+        the type sizes and what fits are decided by us. A generated poster that lets you drag things is
+        a generated poster with the price behind the logo.
+      </div>
+    </div>`;
+
+  views.editor = `
+    <div class="two">
+      <div class="left">
+        <div class="cardx">
+          <p class="ctitle">Poster</p>
+          <div class="fld">
+            <div class="fl">Offer <span class="src">from the promotion</span></div>
+            <div class="fv locked">Eid weekend — 20% off · everything in store · 14–16 Aug</div>
+          </div>
+          <div class="fld">
+            <div class="fl">Headline</div>
+            <div class="fv">Ciid wanaagsan</div>
+          </div>
+          <div class="fld">
+            <div class="fl">Language</div>
+            <div class="seg"><span>Somali</span><span class="on">Both</span><span>English</span></div>
+          </div>
+          <div class="fld">
+            <div class="fl">Template</div>
+            <div class="seg"><span class="on">Bold</span><span>Market</span><span>Quiet</span><span>Week</span></div>
+          </div>
+          <div class="fld">
+            <div class="fl">Colour <span class="src">your shop's, set in Settings</span></div>
+            <div class="swatches">
+              <div class="sw on" style="background:#5b31b5"></div>
+              <div class="sw" style="background:#0b6b3c"></div>
+              <div class="sw" style="background:#1b47b8"></div>
+              <div class="sw" style="background:#c0392b"></div>
+              <div class="sw" style="background:#c8791a"></div>
+              <div class="sw" style="background:#0b0b0d"></div>
+              <div class="sw wheel" title="Pick any colour"></div>
+            </div>
+            <div class="picker">
+              <div class="pkTop">
+                <div class="pkChip" style="background:#5b31b5"></div>
+                <div class="pkHex">#5B31B5</div>
+                <div class="pkInk">White text · 8.9:1</div>
+              </div>
+              <div class="sl"><span class="slLab">Hue</span><div class="slTrack hue"><i style="left:71%"></i></div></div>
+              <div class="sl"><span class="slLab">Depth</span><div class="slTrack sat"><i style="left:64%"></i></div></div>
+              <div class="sl"><span class="slLab">Light</span><div class="slTrack lig"><i style="left:44%"></i></div></div>
+            </div>
+            <p class="foot" style="margin-top:8px;">Any colour is allowed. Kaiibi picks the text colour
+            to go with it, so a bright yellow poster gets black type and a navy one gets white.</p>
+          </div>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">Show on the poster</p>
+          <div class="toggleRow"><div>Dates<small>Thursday 14 — Saturday 16 August</small></div><span class="tg on"></span></div>
+          <div class="toggleRow"><div>Branch and address<small>Xamar · Sooq Bakaaro</small></div><span class="tg on"></span></div>
+          <div class="toggleRow"><div>Opening hours<small>From your store hours</small></div><span class="tg on"></span></div>
+          <div class="toggleRow"><div>Phone number<small>063 442 1180</small></div><span class="tg on"></span></div>
+          <div class="toggleRow"><div>Made with Kaiibi<small>Removed on plans that include it</small></div><span class="tg"></span></div>
+        </div>
+      </div>
+      <div class="right">
+        <div class="cardx">
+          <div class="crow"><p class="ctitle">Preview</p><span class="pill">Square · 1080 × 1080</span></div>
+          <div class="stage"><div style="width:100%;max-width:360px;">${bold('sq')}</div></div>
+          <p class="foot">Updates as you change anything on the left. The three output shapes are
+          re-laid-out, not scaled — the story version is not a squashed square.</p>
+        </div>
+        <div class="cardx">
+          <div class="cav wrong">
+            <b>This promotion has no end date.</b> The poster will not print a date line, and a customer
+            who sees it next month will expect the discount. Give it an end date and both the poster and
+            the till stop on the same day. <u>Set an end date</u>
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  views.formats = `
+    <div class="cardx">
+      <div class="crow"><p class="ctitle">Three shapes, one promotion</p><span class="pill">Bold · purple</span></div>
+      <div class="fmts">
+        <div class="fmtCell">
+          <div class="fmtHead"><b>Square</b><i>1080 × 1080 · PNG</i></div>
+          ${bold('sq')}
+          <span class="fmtDep new">phone only · react-native-view-shot</span>
+          <p class="fmtWhy">Facebook and Instagram feed, X. The default share.</p>
+        </div>
+        <div class="fmtCell">
+          <div class="fmtHead"><b>Story</b><i>1080 × 1920 · PNG</i></div>
+          ${bold('st')}
+          <span class="fmtDep new">phone only · react-native-view-shot</span>
+          <p class="fmtWhy">WhatsApp status, Instagram and Facebook stories, TikTok. In Somaliland this
+          is probably the one that gets used most.</p>
+        </div>
+        <div class="fmtCell">
+          <div class="fmtHead"><b>Sheet</b><i>A4 · PDF</i></div>
+          ${bold('a4')}
+          <span class="fmtDep">expo-print, already installed</span>
+          <p class="fmtWhy">Print for the door and the counter. Also sends on WhatsApp as a document
+          with no image tooling at all. On a phone this saves a real file; in a browser
+          <code>printToFileAsync</code> only opens the print dialog, so the web build offers Print and
+          nothing else.</p>
+        </div>
+      </div>
+      <p class="foot">Each shape re-flows: the story gets more air above and below the number, the A4
+      gets the address block at full size because someone is standing in front of it. Same data, three
+      layouts, one template choice.</p>
+    </div>
+    <div class="cardx">
+      <div class="cav context">
+        <b>If the new dependency is unwelcome, ship the sheet first.</b> PDF alone covers the door, the
+        counter, and WhatsApp — and WhatsApp is where these shops already are. The PNGs are what unlock
+        the feeds.
+      </div>
+    </div>`;
+
+  views.share = `
+    <div class="two">
+      <div class="left">
+        <div class="cardx">
+          <div class="crow"><p class="ctitle">Ready</p><span class="pill">3 files</span></div>
+          <div class="stage"><div style="width:100%;max-width:300px;">${bold('sq')}</div></div>
+          <div style="display:grid;gap:8px;margin-top:14px;">
+            <span class="btn solid wide">Save all three</span>
+            <span class="btn wide">Share…</span>
+            <span class="btn wide">Print the sheet</span>
+          </div>
+        </div>
+      </div>
+      <div class="right">
+        <div class="cardx">
+          <p class="ctitle">Where it goes</p>
+          <div class="shareGrid">
+            <div class="shareItem"><div class="si">WA</div><div class="sb"><div class="s1">WhatsApp status</div><div class="s2">Story PNG · share sheet</div></div></div>
+            <div class="shareItem"><div class="si">WA</div><div class="sb"><div class="s1">Send to a customer</div><div class="s2">Sheet PDF as a document</div></div></div>
+            <div class="shareItem"><div class="si">FB</div><div class="sb"><div class="s1">Facebook</div><div class="s2">Square PNG · you post it</div></div></div>
+            <div class="shareItem"><div class="si">IG</div><div class="sb"><div class="s1">Instagram</div><div class="s2">Square or story · you post it</div></div></div>
+            <div class="shareItem"><div class="si">TT</div><div class="sb"><div class="s1">TikTok</div><div class="s2">Story PNG · you post it</div></div></div>
+            <div class="shareItem"><div class="si">A4</div><div class="sb"><div class="s1">The shop door</div><div class="s2">Print the PDF</div></div></div>
+          </div>
+          <div class="cav context" style="margin-top:14px;">
+            <b>Kaiibi does not post for you.</b> Every row above hands a file to your phone and you
+            choose the app. Connecting a Facebook Page to Kaiibi would save one tap and cost a Meta app
+            review, a token per shop, and a permission screen most owners will decline.
+          </div>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">Reuse it</p>
+          <div class="shareGrid">
+            <div class="shareItem"><div class="si">→</div><div class="sb"><div class="s1">Attach to the campaign</div><div class="s2">Sent alongside the WhatsApp message</div></div></div>
+            <div class="shareItem"><div class="si">→</div><div class="sb"><div class="s1">Print for every branch</div><div class="s2">One sheet each, with its own address</div></div></div>
+          </div>
+          <p class="foot">The multi-branch case is the reason the address is a toggle and not a fixed
+          line: the same offer prints six sheets, each naming the door it goes on.</p>
+        </div>
+      </div>
+    </div>`;
+
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+
+  function render(key){
+    wide.innerHTML = views[key];
+    narrow.innerHTML = views[key];
+    [...sw.children].forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === key)));
+  }
+
+  VIEWS.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.k = key;
+    b.setAttribute('role', 'tab');
+    b.addEventListener('click', () => render(key));
+    sw.appendChild(b);
+  });
+
+  render('templates');
+</script>

@@ -18,15 +18,21 @@ jest.mock('expo-router', () => ({
 // it. Same `mock` prefix rule as use-hardware-keyboard.test.tsx: a hoisted
 // jest.mock factory may only close over names beginning with `mock`.
 let mockKeyListeners: ((event: { key: string; at: number }) => void)[] = [];
+// Attachment is its own event, because on iOS it is what makes key capture
+// possible in the first place -- GameController connects lazily, so a scanner
+// that has not fired yet reads as no keyboard at all.
+let mockChangeListeners: ((event: { attached: boolean }) => void)[] = [];
 let mockSupportsKeys = true;
+let mockAttached = true;
 let mockRemoved = 0;
 
 jest.mock('../../../modules/hardware-keyboard', () => ({
   supportsHardwareKeyEvents: () => mockSupportsKeys,
   getHardwareKeyboardModule: () => ({
-    isAttached: () => true,
-    addListener: (_name: string, fn: (event: { key: string; at: number }) => void) => {
-      mockKeyListeners.push(fn);
+    isAttached: () => mockAttached,
+    addListener: (name: string, fn: never) => {
+      if (name === 'onChange') mockChangeListeners.push(fn);
+      else mockKeyListeners.push(fn);
       return { remove: () => { mockRemoved += 1; } };
     },
   }),
@@ -117,22 +123,69 @@ describe('useBarcodeWedge on native', () => {
 });
 
 describe('useWedgeSinkFallback', () => {
+  beforeEach(() => {
+    mockKeyListeners = [];
+    mockChangeListeners = [];
+    mockSupportsKeys = true;
+    mockAttached = true;
+  });
+
   function probe() {
     let seen: boolean | undefined;
     function P() { seen = useWedgeSinkFallback(); return <Text>p</Text>; }
     act(() => { create(<P />); });
-    return seen;
+    return () => seen;
   }
 
   // The invisible field is the OLD way, and every problem it caused comes back
   // with it. It may only appear where the new way cannot work.
   it('is off when the binary reports keys', () => {
     mockSupportsKeys = true;
-    expect(probe()).toBe(false);
+    expect(probe()()).toBe(false);
   });
 
   it('is on for a binary built before key capture existed', () => {
     mockSupportsKeys = false;
-    expect(probe()).toBe(true);
+    expect(probe()()).toBe(true);
+  });
+
+  // The iPhone-with-a-scanner-and-no-keyboard case, which is most tills.
+  //
+  // iOS answers "can this binary report keys?" with `GCKeyboard.coalesced !=
+  // nil` -- capability and connection in one word -- and GameController connects
+  // lazily. A Bluetooth scanner idle since launch is not there yet, so POS opened
+  // believing it needed the sink, and the first scan (the very thing that
+  // connects the keyboard) came too late to change an answer read once. The sink
+  // then held the caret for the life of the screen, which is what pinned the
+  // till's keyboard over the tab bar with no way to dismiss it.
+  it('retires the sink when the scanner connects after the screen opened', () => {
+    mockSupportsKeys = false;
+    mockAttached = false;
+    const seen = probe();
+    expect(seen()).toBe(true);
+
+    // The scanner's first trigger pull: GameController connects, and with it
+    // key capture becomes possible.
+    mockSupportsKeys = true;
+    act(() => { mockChangeListeners.forEach((fn) => fn({ attached: true })); });
+    expect(seen()).toBe(false);
+  });
+
+  // And back again if the scanner sleeps, which Bluetooth ones do. That is not
+  // a regression to the old trap: the screens gate the sink on the scanner being
+  // attached as well, so a disconnected till renders no sink either way -- and
+  // whichever way it goes, the answer is the platform's current one rather than
+  // a remembered one.
+  it('follows the platform rather than remembering an answer', () => {
+    mockSupportsKeys = false;
+    mockAttached = false;
+    const seen = probe();
+    mockSupportsKeys = true;
+    act(() => { mockChangeListeners.forEach((fn) => fn({ attached: true })); });
+    expect(seen()).toBe(false);
+
+    mockSupportsKeys = false;
+    act(() => { mockChangeListeners.forEach((fn) => fn({ attached: false })); });
+    expect(seen()).toBe(true);
   });
 });

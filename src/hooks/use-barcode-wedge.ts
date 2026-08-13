@@ -1,8 +1,9 @@
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 
 import { getHardwareKeyboardModule, supportsHardwareKeyEvents } from '../../modules/hardware-keyboard';
+import { useHardwareKeyboard } from '@/hooks/use-hardware-keyboard';
 import { DEFAULT_WEDGE_CONFIG, flushWedgeIfIdle, initialWedgeState, stepWedge, type WedgeConfig } from '@/lib/barcode-wedge';
 
 // What happens when a burst goes quiet, shared by both listeners below: one
@@ -30,10 +31,26 @@ const IDLE_SWEEP_MS = DEFAULT_WEDGE_CONFIG.idleFlushMs + 60;
  * Read once, in a state initialiser rather than at import: the native module
  * registers during startup, and a lookup at module-evaluation time can miss it
  * and answer for the life of the process.
+ *
+ * But NOT read once and kept, which is what this used to do. On iOS the answer
+ * is `GCKeyboard.coalesced != nil` -- capability and connection in one word --
+ * and GameController connects lazily: a Bluetooth scanner that has not fired
+ * since launch is not there yet. An iPhone with a scanner and no keyboard
+ * therefore opened POS answering "no key capture, mount the sink", and the first
+ * scan -- the very thing that connects the keyboard -- arrived too late to
+ * change an answer already latched. The sink then held the caret for the life of
+ * the screen, and since the till's keyboard follows focus, that pinned it over
+ * the tab bar with no way to dismiss it.
+ *
+ * So it is re-asked on every render instead, with attachment subscribed to so
+ * that a scanner connecting IS a render. No state to go stale, which is the only
+ * way this answer was ever wrong.
  */
 export function useWedgeSinkFallback(): boolean {
-  const [needed] = useState(() => Platform.OS !== 'web' && !supportsHardwareKeyEvents());
-  return needed;
+  // Not read, but not idle either: this is what re-renders the screen when a
+  // scanner connects, and the answer below changes with it.
+  useHardwareKeyboard();
+  return Platform.OS !== 'web' && !supportsHardwareKeyEvents();
 }
 
 // Listens for a hardware barcode scanner typing with nothing focused -- the way

@@ -58,6 +58,23 @@ public class HardwareKeyboardModule: Module {
       return Self.firstResponder() != nil
     }
 
+    // The counterpart, and the reason the dock has an exit at all. React
+    // Native's `Keyboard.dismiss()` blurs the field its own cache is holding,
+    // and that cache is emptied by a field unmounting -- so a sheet closed on a
+    // focused count box leaves UIKit still holding a first responder that JS
+    // can no longer name, and the dock, which follows the PLATFORM's answer,
+    // could never be put away. Resigning here reaches exactly that field.
+    //
+    // Guarded on `UIKeyInput` so this only ever lets go of a text editor: with
+    // nothing focused the responder chain answers with the window, and resigning
+    // that is not ours to do.
+    Function("blurEditor") {
+      DispatchQueue.main.async {
+        guard let responder = Self.firstResponderObject(), responder is UIKeyInput else { return }
+        responder.resignFirstResponder()
+      }
+    }
+
     Function("isAttached") { () -> Bool in
       return GCKeyboard.coalesced != nil
     }
@@ -144,9 +161,15 @@ public class HardwareKeyboardModule: Module {
   }
 
   private static func firstResponder() -> UIKeyInput? {
+    return firstResponderObject() as? UIKeyInput
+  }
+
+  // The responder itself rather than what it can do, because letting go of the
+  // caret is a `UIResponder` verb while typing into it is a `UIKeyInput` one.
+  private static func firstResponderObject() -> UIResponder? {
     captured = nil
     UIApplication.shared.sendAction(#selector(UIResponder.captureAsFirstResponder), to: nil, from: nil, for: nil)
-    return captured as? UIKeyInput
+    return captured
   }
 
   fileprivate static func capture(_ responder: UIResponder) {

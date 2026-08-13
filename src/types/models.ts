@@ -343,6 +343,20 @@ export type Promotion = {
   // The brand or category name for those two scopes; null for 'store'.
   scopeValue: string | null;
   active: boolean;
+  // The window the offer runs in. Null start = already running; null end =
+  // until someone switches it off. These are SCHEDULING, and `active` is the
+  // hard "off now" override on top of them — a promotion applies only when it
+  // is active AND inside its window. See src/lib/discounts.ts.
+  startsAt: string | null;
+  endsAt: string | null;
+  // False means the offer never fires by itself and only reaches a sale when
+  // a cashier picks it. Campaign codes, staff discount, a goodwill gesture.
+  autoApply: boolean;
+  // A third state, distinct from the other two: `active = false` is paused and
+  // may come back, an `endsAt` in the past is "this run is over", and this is
+  // "gone from every list, kept only so old sales still read". Set instead of
+  // deleting once a promotion has been applied to a sale.
+  archivedAt: string | null;
   createdAt: string;
 };
 
@@ -363,6 +377,14 @@ export type SaleItem = {
   // predating the snapshot column, or products with no cost recorded —
   // reported as "uncosted" rather than counted as zero.
   unitCostCents: number | null;
+  // Which offer produced `discountCents` on this line, if any — see
+  // migration 20260826000100_sale_promotion_attribution. `promotionName` is
+  // frozen at the time this line was written (renaming/archiving/deleting the
+  // promotion later doesn't change past sales, same treatment as
+  // `productName`); `promotionId` is null for a manually-typed discount and
+  // for any line predating the migration.
+  promotionId: string | null;
+  promotionName: string | null;
 };
 
 // One line of a (possibly split) checkout payment. `tenderedCents` is only

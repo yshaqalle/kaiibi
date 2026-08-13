@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { useAuth } from '@/hooks/use-auth';
 import type { Discount } from '@/types/models';
 
 // A small inline "% or $ off" entry used both for a single cart line and
@@ -17,6 +18,13 @@ export function DiscountEditor({
 }) {
   const [type, setType] = useState<'percentage' | 'fixed'>(initial?.type ?? 'percentage');
   const [value, setValue] = useState(initial ? (initial.type === 'fixed' ? (initial.value / 100).toFixed(2) : String(initial.value)) : '');
+
+  // The one discount path with no ceiling and no record of why. A cashier
+  // without this may still apply the shop's own offers — they just cannot
+  // invent an amount. Rendering nothing rather than a disabled control: an
+  // affordance that refuses is worse than no affordance.
+  const { can } = useAuth();
+  if (!can('discounts.manual')) return null;
 
   const apply = () => {
     const num = Number(value);
