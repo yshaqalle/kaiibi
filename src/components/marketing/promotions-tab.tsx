@@ -40,17 +40,23 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 // 'live'/'scheduled'/'expired'/'paused' -- deliberately the same three clauses
 // as isPromotionLive (lib/discounts.ts), just not collapsed to a boolean, so a
 // row can say WHY something isn't applying rather than only that it isn't.
-type PromoStatus = 'live' | 'scheduled' | 'expired' | 'paused';
+// A manual-only offer is inside its window and switched on, yet never comes
+// off a sale by itself -- so calling it "Live" beside a tile that says
+// "applying at checkout" states the opposite of what happens at the till. It
+// gets its own status rather than a footnote, because the difference is the
+// whole point of the auto_apply flag.
+type PromoStatus = 'live' | 'manual' | 'scheduled' | 'expired' | 'paused';
 
 function promoStatus(p: Promotion, now: number): PromoStatus {
   if (!p.active) return 'paused';
   if (p.startsAt && Date.parse(p.startsAt) > now) return 'scheduled';
   if (p.endsAt && Date.parse(p.endsAt) <= now) return 'expired';
-  return 'live';
+  return p.autoApply ? 'live' : 'manual';
 }
 
 const STATUS_LABEL: Record<PromoStatus, string> = {
   live: 'Live',
+  manual: 'When picked',
   scheduled: 'Scheduled',
   expired: 'Expired',
   paused: 'Paused',
@@ -58,6 +64,7 @@ const STATUS_LABEL: Record<PromoStatus, string> = {
 
 const STATUS_TONE: Record<PromoStatus, 'default' | 'success' | 'warning'> = {
   live: 'success',
+  manual: 'warning',
   scheduled: 'warning',
   expired: 'default',
   paused: 'default',
@@ -266,7 +273,7 @@ export function PromotionsTab({
   };
 
   const counts = useMemo(() => {
-    const result = { live: 0, scheduled: 0, expired: 0, paused: 0 };
+    const result = { live: 0, manual: 0, scheduled: 0, expired: 0, paused: 0 };
     for (const p of promotions) result[promoStatus(p, now)]++;
     return result;
   }, [promotions, now]);
@@ -480,7 +487,8 @@ export function PromotionsTab({
 
       <GlanceStrip style={styles.strip}>
         <StatTile variant="bento" density="dense" value={String(promotions.length)} label="Promotions" hint="not counting archived" />
-        <StatTile variant="bento" density="dense" value={String(counts.live)} label="Live now" hint="applying at checkout" />
+        <StatTile variant="bento" density="dense" value={String(counts.live)} label="Live now" hint="applying at checkout on their own" />
+        <StatTile variant="bento" density="dense" value={String(counts.manual)} label="When picked" hint="ready, but only if a cashier chooses it" />
         <StatTile variant="bento" density="dense" value={String(counts.scheduled)} label="Scheduled" hint="starts in the future" />
         <StatTile variant="bento" density="dense" value={String(counts.paused)} label="Paused" hint="switched off" />
         <StatTile variant="bento" density="dense" value={String(counts.expired)} label="Expired" hint="window has passed" />
