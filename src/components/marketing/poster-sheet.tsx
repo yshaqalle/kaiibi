@@ -159,12 +159,20 @@ export function PosterSheet({
     phone: showPhone ? rawCopy.phone : null,
   };
 
-  // Every currently-live promotion, reusing posterCopyFor per-offer rather
-  // than re-deriving "20%" / "Everything in store" a second way here.
+  // Every offer that will actually come off a sale on its own, reusing
+  // posterCopyFor per-offer rather than re-deriving "20%" / "Everything in
+  // store" a second way here.
+  //
+  // `autoApply` matters as much as the window here: an offer that only applies
+  // when a cashier picks it is live by every other measure, and putting it on a
+  // sheet in the shop window promises a customer a discount they will not be
+  // given unless they know to ask. isPromotionLive deliberately does not check
+  // that flag -- bestPromotionForProduct does, and so must anything that speaks
+  // to a customer.
   const weekOffers: PosterWeekOffer[] | undefined = useMemo(() => {
     if (template !== 'week') return undefined;
     return promotions
-      .filter((p) => isPromotionLive(p, now))
+      .filter((p) => isPromotionLive(p, now) && p.autoApply)
       .map((p) => {
         const offerCopy = posterCopyFor({ promotion: p, shopName: shop?.name ?? '' });
         return { value: offerCopy.value, scope: offerCopy.scope, when: offerCopy.when };
