@@ -281,6 +281,31 @@ export function SendQueue({
   const askingRecipient = askingId ? (recipients.find((r) => r.id === askingId) ?? null) : null;
   const askingCustomer = askingRecipient ? (customersById.get(askingRecipient.customerId) ?? null) : null;
 
+  // Declared above the effect that calls it, not below: React Compiler is
+  // enabled (app.json experiments.reactCompiler) and reads a function used
+  // before its declaration as a violation, which bails the whole component
+  // out of optimisation.
+  async function handleAnswer(id: string, sent: boolean) {
+    const nextState: RecipientState = sent ? 'sent' : 'waiting';
+    setBusy(true);
+    setError(null);
+    try {
+      await setRecipientState(id, nextState);
+      patchRecipient(id, { state: nextState, sentAt: sent ? new Date().toISOString() : null });
+    } catch (err) {
+      // Surfaced in the sheet, which by now is the only thing on screen --
+      // the Alert has already closed by the time this runs, so there is no
+      // second surface it could be hiding behind. The row itself is left at
+      // 'opened' rather than silently advanced, which is exactly what makes
+      // it re-askable via `reaskAbout` above.
+      setError(extractErrorMessage(err, 'Could not save your answer -- this person is still marked "chat opened", tap them below to try again.'));
+    } finally {
+      setBusy(false);
+      pendingIdRef.current = null;
+      setAskingId(null);
+    }
+  }
+
   // Asks the "did that send?" question via a native Alert (confirmChoice)
   // rather than a second AppModal. This codebase already documents that iOS
   // silently drops a modal presented while another is still up -- see the
@@ -363,27 +388,6 @@ export function SendQueue({
       setError(extractErrorMessage(err, 'Could not update this recipient.'));
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function handleAnswer(id: string, sent: boolean) {
-    const nextState: RecipientState = sent ? 'sent' : 'waiting';
-    setBusy(true);
-    setError(null);
-    try {
-      await setRecipientState(id, nextState);
-      patchRecipient(id, { state: nextState, sentAt: sent ? new Date().toISOString() : null });
-    } catch (err) {
-      // Surfaced in the sheet, which by now is the only thing on screen --
-      // the Alert has already closed by the time this runs, so there is no
-      // second surface it could be hiding behind. The row itself is left at
-      // 'opened' rather than silently advanced, which is exactly what makes
-      // it re-askable via `reaskAbout` above.
-      setError(extractErrorMessage(err, 'Could not save your answer -- this person is still marked "chat opened", tap them below to try again.'));
-    } finally {
-      setBusy(false);
-      pendingIdRef.current = null;
-      setAskingId(null);
     }
   }
 
@@ -482,7 +486,17 @@ export function SendQueue({
                           key={r.id}
                           disabled={!reaskable || askingId !== null || busy}
                           onPress={() => reaskAbout(r.id)}
-                          style={styles.queueRow}
+                          // Announced as a button only when it IS one. A row
+                          // for a sent or skipped recipient is a line of
+                          // record, and calling it a button would promise a
+                          // screen-reader user an action that does nothing.
+                          accessibilityRole={reaskable ? 'button' : undefined}
+                          accessibilityHint={reaskable ? 'Asks again whether this message was sent' : undefined}
+                          // The badge already reads "chat opened -- send?", but
+                          // nothing said the row could be tapped to answer it,
+                          // and this is the only route back from an
+                          // unanswered question.
+                          style={({ pressed }) => [styles.queueRow, reaskable && styles.queueRowReaskable, pressed && reaskable && styles.queueRowPressed]}
                         >
                           <View style={styles.queueMain}>
                             <Text style={styles.queueName} numberOfLines={1}>
@@ -528,6 +542,11 @@ const styles = StyleSheet.create({
   secondaryText: { color: theme.bentoInk2, fontSize: 13, fontWeight: '700' },
   actionOff: { opacity: 0.5 },
   queueBody: { gap: 0 },
+  // A row that can be tapped to re-ask reads slightly forward of the inert
+  // ones -- the badge said the question was unanswered, nothing said the row
+  // was the way to answer it.
+  queueRowReaskable: { backgroundColor: theme.bentoSoft, borderRadius: 10 },
+  queueRowPressed: { opacity: 0.6 },
   queueRow: {
     flexDirection: 'row',
     alignItems: 'center',

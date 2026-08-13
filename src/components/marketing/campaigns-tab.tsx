@@ -152,7 +152,17 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   // Whether the send queue is open for `selected` -- a flag rather than
   // holding the campaign itself, so it always tracks whatever `selected`
   // currently resolves to (including a fresh recipient count after reload()).
-  const [sendQueueOpen, setSendQueueOpen] = useState(false);
+  // Which campaign the queue is open FOR, not a bare boolean.
+  //
+  // A reload can drop the selected campaign out from under an open queue
+  // (deleted, or no longer in this location's list). SendQueue is gated on
+  // `selected`, so it unmounts right then without its onClose ever running --
+  // and a boolean would stay stuck true, springing the queue back open for a
+  // completely different campaign nobody asked to send. Holding the id instead
+  // means the queue is open only while the campaign it was opened for is still
+  // the selected one, which is a fact rather than a flag to keep in sync. It
+  // needs no effect to correct it, which is also why there is none.
+  const [sendQueueForId, setSendQueueForId] = useState<string | null>(null);
 
   useDetailSelection(setDetailSelected, selectedId !== null);
   // Nothing to publish yet -- starting a new campaign is Task 9's composer.
@@ -228,16 +238,6 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   }, [campaigns]);
 
   const selected = campaigns.find((c) => c.id === selectedId) ?? null;
-  // A reload can drop the selected campaign out from under an open queue
-  // (deleted, or no longer in this location's list) -- SendQueue is gated on
-  // `selected` below, so it unmounts right then WITHOUT its onClose ever
-  // running, and `sendQueueOpen` would otherwise stay stuck true. Left alone,
-  // selecting a completely different campaign afterward would spring the
-  // queue back open unbidden, for a campaign nobody asked to send. Reset the
-  // flag the moment `selected` disappears rather than only inside onClose.
-  useEffect(() => {
-    if (selected === null) setSendQueueOpen(false);
-  }, [selected]);
   // `promotions` (listPromotions) leaves archived rows out on purpose -- every
   // OTHER screen that lists promotions wants an archived one gone. A campaign
   // built on one is the one place that isn't true: `promotion_id` is `on
@@ -327,7 +327,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         shopName={shop?.name ?? ''}
         branchName={activeLocation?.name ?? ''}
         onReviewUnreachable={() => router.push({ pathname: '/people', params: { tab: 'customers' } })}
-        onContinueSending={() => setSendQueueOpen(true)}
+        onContinueSending={() => setSendQueueForId(selected?.id ?? null)}
       />
     ) : (
       <BentoCard style={styles.emptyDetail}>
@@ -356,14 +356,14 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         detailTitle="Campaign"
       />
 
-      {selected && sendQueueOpen && (
+      {selected && sendQueueForId === selected.id && (
         <SendQueue
           campaign={selected}
           promotion={selectedPromotion}
           customers={customers}
           lastPurchaseByCustomer={lastPurchaseByCustomer}
           onClose={() => {
-            setSendQueueOpen(false);
+            setSendQueueForId(null);
             // The queue just wrote recipient states (and possibly synced new
             // rows) straight to the server -- reload() is what pulls those
             // changes back into the stat tiles and status chip behind it,
