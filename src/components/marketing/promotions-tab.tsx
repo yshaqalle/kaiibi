@@ -16,8 +16,7 @@ import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { listBrands } from '@/lib/brands';
 import { listCategories } from '@/lib/categories';
-import { formatCents } from '@/lib/currency';
-import { createPromotion, deletePromotion, listPromotions, updatePromotion, type NewPromotionInput } from '@/lib/promotions';
+import { createPromotion, deletePromotion, discountLabel, listPromotions, scopeLabel, updatePromotion, type NewPromotionInput } from '@/lib/promotions';
 import type { Promotion } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Matches
@@ -25,20 +24,33 @@ import type { Promotion } from '@/types/models';
 // cream one — this tab reads theme.bento* the same way CustomersTab does.
 const theme = Colors.light;
 
-export function discountLabel(p: Promotion): string {
-  return p.discountType === 'percentage' ? `${p.discountValue}% off` : `${formatCents(p.discountValue)} off`;
-}
-
-export function scopeLabel(p: Promotion): string {
-  if (p.scope === 'store') return 'Entire store';
-  if (p.scope === 'brand') return `Brand · ${p.scopeValue}`;
-  return `Category · ${p.scopeValue}`;
+// Supabase rpc()/query errors (e.g. the not-authorized raise, a constraint
+// violation, an RLS denial) are plain {code, details, hint, message} objects,
+// never instanceof Error -- checking that first always falls through to the
+// generic fallback and hides the real reason. See pos.tsx's
+// extractErrorMessage for the same fix applied to checkout.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  return fallback;
 }
 
 // 'live'/'scheduled'/'expired'/'paused' -- deliberately the same three clauses
 // as isPromotionLive (lib/discounts.ts), just not collapsed to a boolean, so a
 // row can say WHY something isn't applying rather than only that it isn't.
 type PromoStatus = 'live' | 'scheduled' | 'expired' | 'paused';
+
+// `minimumDate` on the underlying <input type="date">/native picker is
+// inclusive, so passing `startsAt` straight through let an owner pick the
+// same day for both ends -- which fails the server's `ends_at > starts_at`
+// constraint for a perfectly reasonable "Friday only" offer. One day later is
+// the first day that satisfies it.
+function dayAfter(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
 function promoStatus(p: Promotion, now: number): PromoStatus {
   if (!p.active) return 'paused';
@@ -134,7 +146,7 @@ export function PromotionsTab({
       setCategories(categoryRows.map((c) => c.name));
       setNow(Date.now());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(extractErrorMessage(err, 'Something went wrong.'));
     } finally {
       setLoaded(true);
     }
@@ -174,8 +186,13 @@ export function PromotionsTab({
     setScope(promo.scope);
     setScopeValue(promo.scopeValue);
     setActive(promo.active);
-    setStartsAt(promo.startsAt);
-    setEndsAt(promo.endsAt);
+    // PostgREST returns a full timestamp ("2026-08-15T00:00:00+00:00"), but
+    // DateInput expects a plain YYYY-MM-DD: on web an <input type="date">
+    // just renders blank for anything else, silently discarding the saved
+    // date and, since the state is still truthy, suppressing the "Running
+    // now"/"Until I switch it off" hint too.
+    setStartsAt(promo.startsAt ? promo.startsAt.slice(0, 10) : null);
+    setEndsAt(promo.endsAt ? promo.endsAt.slice(0, 10) : null);
     setAutoApply(promo.autoApply);
     setConfirmingDelete(false);
     setDeleteResult(null);
@@ -193,7 +210,7 @@ export function PromotionsTab({
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(extractErrorMessage(err, 'Something went wrong.'));
     } finally {
       setSaving(false);
     }
@@ -247,7 +264,7 @@ export function PromotionsTab({
       await updatePromotion(promo.id, { active: !promo.active });
       await reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(extractErrorMessage(err, 'Something went wrong.'));
     }
   };
 
@@ -388,7 +405,7 @@ export function PromotionsTab({
         </View>
         <View style={styles.dateHalf}>
           <Text style={styles.fieldLabel}>ENDS</Text>
-          <DateInput value={endsAt ?? ''} onChangeText={(value) => setEndsAt(value || null)} minimumDate={startsAt ?? undefined} />
+          <DateInput value={endsAt ?? ''} onChangeText={(value) => setEndsAt(value || null)} minimumDate={startsAt ? dayAfter(startsAt) : undefined} />
           {!endsAt && <Text style={styles.dateHint}>Until I switch it off</Text>}
         </View>
       </View>
@@ -464,6 +481,7 @@ export function PromotionsTab({
         <StatTile variant="bento" density="dense" value={String(counts.live)} label="Live now" hint="applying at checkout" />
         <StatTile variant="bento" density="dense" value={String(counts.scheduled)} label="Scheduled" hint="starts in the future" />
         <StatTile variant="bento" density="dense" value={String(counts.paused)} label="Paused" hint="switched off" />
+        <StatTile variant="bento" density="dense" value={String(counts.expired)} label="Expired" hint="window has passed" />
       </GlanceStrip>
 
       <TwoPaneListDetail

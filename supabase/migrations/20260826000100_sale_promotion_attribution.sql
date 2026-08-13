@@ -216,10 +216,17 @@ begin
       -- A claimed promotion is verified against the row, not taken on trust:
       -- otherwise "attach any uuid" would be a way around the permission above,
       -- and the name written onto the sale forever would be the caller's text.
+      -- `active and archived_at is null` so a paused or archived promotion's id
+      -- cannot be attached to a new sale -- otherwise a cashier without
+      -- discounts.manual could use a store-wide promotion's id, paused or not,
+      -- to take a discount the permission exists to prevent. The starts_at/
+      -- ends_at window is deliberately NOT enforced here: a naive check would
+      -- refuse an in-flight cart sitting on the boundary, and that tradeoff is
+      -- still an open decision. The window is left to the client for now.
       select name, discount_type, discount_value
         into v_promo_name, v_promo_type, v_promo_value
         from public.promotions
-       where id = v_promo_id and shop_id = p_shop_id;
+       where id = v_promo_id and shop_id = p_shop_id and active and archived_at is null;
       if v_promo_name is null then
         raise exception 'promotion % does not belong to shop %', v_promo_id, p_shop_id;
       end if;
@@ -546,10 +553,17 @@ begin
       -- A claimed promotion is verified against the row, not taken on trust:
       -- otherwise "attach any uuid" would be a way around the permission above,
       -- and the name written onto the sale forever would be the caller's text.
+      -- `active and archived_at is null` so a paused or archived promotion's id
+      -- cannot be attached to a sale -- otherwise a cashier without
+      -- discounts.manual could use a store-wide promotion's id, paused or not,
+      -- to take a discount the permission exists to prevent. The starts_at/
+      -- ends_at window is deliberately NOT enforced here: a naive check would
+      -- refuse an in-flight cart sitting on the boundary, and that tradeoff is
+      -- still an open decision. The window is left to the client for now.
       select name, discount_type, discount_value
         into v_promo_name, v_promo_type, v_promo_value
         from public.promotions
-       where id = v_promo_id and shop_id = v_shop_id;
+       where id = v_promo_id and shop_id = v_shop_id and active and archived_at is null;
       if v_promo_name is null then
         raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
       end if;
@@ -731,6 +745,46 @@ end;
 $$;
 
 grant execute on function public.delete_or_archive_promotion(uuid) to authenticated;
+
+-- ── default_shop_roles(): reach shops that don't exist yet ────────────────
+-- 20260823000000 (lines 65-67) says it plainly: any future migration that
+-- grants a permission to a default role must update this function too, not
+-- only an `update public.roles` -- that update below reaches the shops that
+-- exist today, this function reaches the ones that don't yet. Without this, a
+-- shop created after this migration would seed a Cashier who can apply an
+-- offer but never enter a discount, and the shop's very first sale that needs
+-- one would fail with a permission error nobody could explain.
+--
+-- Reproduced verbatim from public.default_shop_roles() as defined in
+-- 20260823000000_owner_is_a_team_member.sql, with exactly one change: every
+-- array gains 'discounts.apply' and 'discounts.manual'.
+create or replace function public.default_shop_roles()
+returns table (name text, permissions text[])
+language sql immutable set search_path = public as $$
+  values
+    ('Cashier'::text, array['pos.access', 'inventory.view', 'discounts.apply', 'discounts.manual']::text[]),
+    -- "Everything except settings and staff management", as 0020 put it, minus
+    -- the pieces that were deliberately never granted: sales.refund is its own
+    -- gate (see the catalog in src/lib/permissions.ts) and the people.* HR
+    -- permissions read as staff management. This is exactly the set an existing
+    -- shop's Manager holds today, so old and new shops agree.
+    ('Manager'::text, array[
+      'pos.access', 'inventory.view', 'inventory.edit', 'sales.view', 'sales.edit',
+      'customers.view', 'customers.edit', 'dashboard.view',
+      'expenses.view', 'expenses.manage', 'invoices.view', 'invoices.manage',
+      'budgets.manage', 'registers.manage', 'discounts.apply', 'discounts.manual'
+    ]::text[]),
+    -- The whole catalog, so the Roles screen doesn't show the owner holding
+    -- nothing. It changes no behaviour either way: user_has_shop_permission()
+    -- answers true for an owner before it ever looks at a role.
+    ('Owner'::text, array[
+      'pos.access', 'inventory.view', 'inventory.edit', 'sales.view', 'sales.edit', 'sales.refund',
+      'customers.view', 'customers.edit', 'dashboard.view', 'settings.access', 'staff.manage',
+      'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage',
+      'expenses.view', 'expenses.manage', 'invoices.view', 'invoices.manage', 'budgets.manage', 'registers.manage',
+      'discounts.apply', 'discounts.manual'
+    ]::text[]);
+$$;
 
 -- ── grant the new permission to every role that can already discount ──────
 -- Nothing a shop currently does may stop working. Every role holding

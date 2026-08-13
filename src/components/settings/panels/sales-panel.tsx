@@ -2,11 +2,11 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { discountLabel } from '@/components/marketing/promotions-tab';
 import { ManageModal } from '@/components/settings/manage-modal';
 import { Btn, PageHeader, Pill, Row, Section, Toggle } from '@/components/settings/settings-primitives';
 import { createCurrency, deleteCurrency, setCurrencyActive, updateCurrency } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
+import { discountLabel } from '@/lib/promotions';
 import { updateShop } from '@/lib/shops';
 import type { Currency, Promotion, Shop } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';

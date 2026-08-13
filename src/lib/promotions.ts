@@ -1,5 +1,20 @@
+import { formatCents } from '@/lib/currency';
 import { supabase } from '@/lib/supabase';
 import type { Promotion } from '@/types/models';
+
+// Moved here from components/marketing/promotions-tab.tsx: the Settings
+// signpost (settings/panels/sales-panel.tsx) only ever needed this one-line
+// formatter, but importing it from the tab pulled in the datetimepicker and
+// the two-pane list/detail layout for a two-line label.
+export function discountLabel(p: Promotion): string {
+  return p.discountType === 'percentage' ? `${p.discountValue}% off` : `${formatCents(p.discountValue)} off`;
+}
+
+export function scopeLabel(p: Promotion): string {
+  if (p.scope === 'store') return 'Entire store';
+  if (p.scope === 'brand') return `Brand · ${p.scopeValue}`;
+  return `Category · ${p.scopeValue}`;
+}
 
 function mapPromotionRow(row: any): Promotion {
   return {

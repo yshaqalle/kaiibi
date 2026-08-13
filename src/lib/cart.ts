@@ -9,9 +9,12 @@ export function cartTotalCents(lines: CartLine[]): number {
 // that don't care about discounts keep getting a plain product_id/quantity
 // payload with discount_cents simply 0 on every line.
 //
-// The name travels beside the id because the sale has to keep reading
-// correctly after the promotion is renamed, archived or deleted — the same
-// reason sale_items already stores product_name beside product_id.
+// `promotion_name` rides along for readability of this payload only — the
+// server (complete_sale/edit_sale) re-reads the name from the promotions row
+// itself and ignores whatever is sent here, the same way it re-verifies
+// promotion_id rather than trusting it. That re-read is what keeps a sale
+// reading correctly after the promotion is renamed, archived or deleted — the
+// same reason sale_items already stores product_name beside product_id.
 export function buildSalePayload(
   lines: CartLine[],
   promotions: Promotion[] = [],

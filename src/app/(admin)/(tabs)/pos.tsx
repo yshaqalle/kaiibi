@@ -214,7 +214,22 @@ export default function PosScreen() {
       .catch(() => {});
   }, [shop]);
   useEffect(() => { if (shop) listCashiers(shop.id).then((rows) => setCashiers(rows.map((r) => r.name))).catch(() => {}); }, [shop]);
-  useEffect(() => { if (shop) listPromotions(shop.id).then(setPromotions).catch(() => {}); }, [shop]);
+  // Loaded once per shop change, but the server now rejects a stale promotion
+  // id (paused/archived/deleted since this list was fetched), so a launch-only
+  // load left every sale touching that product refused until a force-quit.
+  // Refreshed on focus, same mechanism as `reload` above for products, plus
+  // once more right after a sale completes.
+  const reloadPromotions = useCallback(async () => {
+    if (!shop) return;
+    try {
+      setPromotions(await listPromotions(shop.id));
+    } catch {
+      // Soft-fail like the original load: an empty/stale list just means
+      // fewer offers show up, not a broken screen.
+    }
+  }, [shop]);
+  useEffect(() => { reloadPromotions(); }, [reloadPromotions]);
+  useRefreshOnFocus(reloadPromotions);
   useEffect(() => {
     if (!shop) return;
     listCurrencies(shop.id).then((rows) => setCurrencies(rows.filter((c) => c.active))).catch(() => {});
@@ -517,6 +532,10 @@ export default function PosScreen() {
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
+      // A promotion can be paused/archived by someone else between two sales
+      // on this till; re-fetching here keeps the next sale's list current
+      // without waiting for a refocus.
+      await reloadPromotions();
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -716,9 +735,11 @@ export default function PosScreen() {
                       )}
                     </View>
                     {promo && !line.manualDiscount && <Text style={styles.cartLinePromo}>🏷 {promo.name}</Text>}
-                    <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
-                      <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
-                    </Pressable>
+                    {can('discounts.manual') && (
+                      <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
+                        <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
+                      </Pressable>
+                    )}
                   </View>
                   <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
                 </View>
@@ -759,11 +780,13 @@ export default function PosScreen() {
             <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
           </View>
         )}
-        <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
-          <Text style={styles.cartLineDiscountToggle}>
-            {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
-          </Text>
-        </Pressable>
+        {can('discounts.manual') && (
+          <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
+            <Text style={styles.cartLineDiscountToggle}>
+              {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
+            </Text>
+          </Pressable>
+        )}
         {editingTransactionDiscount && (
           <DiscountEditor
             initial={transactionDiscount}
