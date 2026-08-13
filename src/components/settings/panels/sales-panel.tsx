@@ -46,7 +46,7 @@ export function PromotionsPanel({ promotions }: { promotions: Promotion[] }) {
           </View>
         )}
         <View style={styles.actionsRow}>
-          <Btn onPress={() => router.push('/(admin)/(tabs)/people?tab=marketing')}>Go to Marketing</Btn>
+          <Btn onPress={() => router.push({ pathname: '/(admin)/(tabs)/people', params: { tab: 'marketing' } })}>Go to Marketing</Btn>
         </View>
       </Section>
     </View>

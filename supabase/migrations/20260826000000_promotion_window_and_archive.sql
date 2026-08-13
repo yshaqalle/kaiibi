@@ -29,6 +29,11 @@ alter table public.promotions
   add constraint promotions_window_ordered
     check (starts_at is null or ends_at is null or ends_at > starts_at);
 
--- The POS filters on this on every cart line.
-create index promotions_shop_live_idx
-  on public.promotions (shop_id, active, archived_at, ends_at);
+-- Shaped for the one query that actually runs: listPromotions filters on
+-- shop_id and archived_at is null, then orders by created_at desc. `active`
+-- and the window are decided client-side per cart line against the array this
+-- returns, NOT by a query, so putting them in the index bought nothing and
+-- putting `active` in second position made the trailing columns unreachable.
+create index promotions_shop_unarchived_idx
+  on public.promotions (shop_id, created_at desc)
+  where archived_at is null;

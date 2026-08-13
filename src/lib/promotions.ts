@@ -102,21 +102,6 @@ export async function updatePromotion(id: string, input: Partial<NewPromotionInp
   if (error) throw error;
   return mapPromotionRow(data);
 }
-
-export async function archivePromotion(id: string): Promise<void> {
-  const { error } = await supabase
-    .from('promotions')
-    .update({ archived_at: new Date().toISOString() })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-// Removing a promotion means two different things depending on whether money
-// has moved through it: destroy the untouched ones, archive the used ones so
-// past sales keep their link. Both the count and the branch live in the
-// database, because reading sale_items from here is subject to RLS — a role
-// holding settings.access but not sales.view sees no rows, and would hard
-// -delete a promotion that had been used on four hundred sales.
 export async function deletePromotion(id: string): Promise<'deleted' | 'archived'> {
   const { data, error } = await supabase.rpc('delete_or_archive_promotion', { p_id: id });
   if (error) throw error;

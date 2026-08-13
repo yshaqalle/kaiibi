@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { useAuth } from '@/hooks/use-auth';
+import type { Module } from '@/lib/entitlements';
 import { primaryLocationOf } from '@/lib/location-selection';
 import type { Permission } from '@/lib/permissions';
 
@@ -37,7 +38,11 @@ export function isSettingsNavId(value: unknown): value is SettingsNavId {
   return typeof value === 'string' && (SETTINGS_NAV_IDS as string[]).includes(value);
 }
 
-type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission };
+// `module` sits beside `permission` because the two gates are orthogonal and
+// both must pass: a permission answers "may this user", a module answers "has
+// this shop paid for it". An entry that routes somewhere module-gated needs
+// both, or it becomes a door onto a screen the reader is bounced off.
+type NavItem = { id: SettingsNavId; label: string; icon: keyof typeof Ionicons.glyphMap; permission?: Permission; module?: Module };
 type NavGroup = { group: string; items: NavItem[] };
 
 // "Notifications" is hidden — no push/email/WhatsApp send infrastructure
@@ -84,7 +89,7 @@ export const SETTINGS_NAV: NavGroup[] = [
   {
     group: 'Sales',
     items: [
-      { id: 'promotions', label: 'Promotions', icon: 'pricetags-outline' },
+      { id: 'promotions', label: 'Promotions', icon: 'pricetags-outline', module: 'promotions' },
       { id: 'payments', label: 'Payments', icon: 'cash-outline' },
       { id: 'tax', label: 'Tax and currencies', icon: 'calculator-outline' },
       { id: 'loyalty', label: 'Loyalty', icon: 'star-outline' },
@@ -98,10 +103,13 @@ export const SETTINGS_NAV: NavGroup[] = [
 ];
 
 function useVisibleNav() {
-  const { can } = useAuth();
-  return SETTINGS_NAV.map((group) => ({ ...group, items: group.items.filter((item) => !item.permission || can(item.permission)) })).filter(
-    (group) => group.items.length > 0
-  );
+  const { can, hasModule } = useAuth();
+  return SETTINGS_NAV.map((group) => ({
+    ...group,
+    items: group.items.filter(
+      (item) => (!item.permission || can(item.permission)) && (!item.module || hasModule(item.module))
+    ),
+  })).filter((group) => group.items.length > 0);
 }
 
 // Persistent left sidebar, shown at >= TABLET_BREAKPOINT — mirrors

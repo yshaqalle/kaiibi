@@ -226,7 +226,7 @@ begin
         into v_promo_name, v_promo_type, v_promo_value, v_promo_starts_at, v_promo_ends_at
         from public.promotions
        where id = v_promo_id and shop_id = p_shop_id and active and archived_at is null;
-      if v_promo_name is null then
+      if not found then
         -- The lookup filters on shop, active and archived_at together, so a miss
         -- here means any of those -- naming only the shop sent readers hunting
         -- for a tenancy bug when the offer was simply paused.
@@ -251,7 +251,7 @@ begin
 
       v_expected_discount := case
         when v_promo_type = 'percentage'
-          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+          then round(v_product.price_cents::numeric * v_qty * v_promo_value / 100)::integer
         else least(v_promo_value, v_product.price_cents * v_qty)
       end;
       -- Greater-than rather than not-equal: a client rounding a percentage a
@@ -595,13 +595,13 @@ begin
         into v_promo_name, v_promo_type, v_promo_value
         from public.promotions
        where id = v_promo_id and shop_id = v_shop_id;
-      if v_promo_name is null then
+      if not found then
         raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
       end if;
 
       v_expected_discount := case
         when v_promo_type = 'percentage'
-          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+          then round(v_product.price_cents::numeric * v_qty * v_promo_value / 100)::integer
         else least(v_promo_value, v_product.price_cents * v_qty)
       end;
       if v_line_discount > v_expected_discount then
@@ -623,7 +623,7 @@ begin
         into v_promo_name, v_promo_type, v_promo_value, v_promo_starts_at, v_promo_ends_at
         from public.promotions
        where id = v_promo_id and shop_id = v_shop_id and active and archived_at is null;
-      if v_promo_name is null then
+      if not found then
         -- Newly attached, so it had to clear shop + active + archived_at as well.
         raise exception 'promotion % is not available to attach to a sale (wrong shop, paused, or archived)', v_promo_id;
       end if;
@@ -640,7 +640,7 @@ begin
 
       v_expected_discount := case
         when v_promo_type = 'percentage'
-          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+          then round(v_product.price_cents::numeric * v_qty * v_promo_value / 100)::integer
         else least(v_promo_value, v_product.price_cents * v_qty)
       end;
       -- Greater-than rather than not-equal: a client rounding a percentage a

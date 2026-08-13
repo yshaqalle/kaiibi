@@ -181,10 +181,14 @@ look identical in the UI — the promotion is gone from the list either way.
 ### Editor moves
 
 The promotions editor moves from `Settings → Sales & promotions` into a new **Marketing** tab under
-People — a fifth `PeopleTab`, gated on the existing `promotions` module plus customer read permission,
-so an owner holding one but not the other never sees a half-working tab. Same table, same module gate,
-no migration. Settings keeps a read-only summary that deep-links across. The editor gains the window
-fields and the `auto_apply` toggle.
+People — a fifth `PeopleTab`, gated on the existing `promotions` module plus `settings.access`, so an
+owner holding one but not the other never sees a half-working tab. Not a customers permission, as an
+earlier draft of this section said: `settings.access` is what the promotions table's own RLS write
+policy requires (migration 0024), and anything looser would open an editor whose saves the database
+then refuses. Same table, same module gate, no migration. Settings keeps a read-only summary that
+deep-links across, carrying the same module gate — without it, a shop whose plan lacks `promotions`
+gets a button onto a tab it is bounced off. The editor gains the window fields and the `auto_apply`
+toggle.
 
 ### Phase 1 acceptance
 
