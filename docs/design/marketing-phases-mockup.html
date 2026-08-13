@@ -1,0 +1,341 @@
+<title>Kaiibi Marketing — the four phases, and what each one buys</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --warn:#b07206;
+    --accWash:#e6edff; --accInk:#1b47b8;
+    --waWash:#e7f5ed; --waInk:#0b6b3c;
+    --offWash:#f3ecff; --offInk:#5b31b5;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 30px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  ul.note{padding-left:20px;} ul.note li{margin-bottom:8px;}
+  a{color:var(--blue);}
+  a:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+
+  /* ── the phase rail ── */
+  .rail{display:grid;gap:18px;margin-top:8px;}
+  @media (min-width:900px){ .rail{grid-template-columns:repeat(4,1fr);} }
+  .ph{border:1px solid var(--ln);border-radius:18px;background:var(--sf);overflow:hidden;
+    display:flex;flex-direction:column;}
+  .ph.done{border-color:#9fd3b4;}
+  .phTop{padding:15px 17px 13px;border-bottom:1px solid var(--ln);}
+  .phNo{font-size:10.5px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--mut);}
+  .ph.done .phNo{color:var(--profit);}
+  .phName{font-size:17px;font-weight:800;letter-spacing:-.02em;margin-top:3px;}
+  .phWhat{font-size:12.5px;color:var(--ink2);margin-top:6px;line-height:1.45;}
+  .phMeta{display:flex;gap:6px;flex-wrap:wrap;padding:11px 17px;border-top:1px solid var(--ln);margin-top:auto;}
+  .tag{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:999px;background:var(--pg2);
+    color:var(--ink2);white-space:nowrap;}
+  .tag.ok{background:#e2f3e9;color:#0b6b3c;}
+  .tag.risk{background:#fdf0e0;color:#8a530f;}
+  .tag.hot{background:#f7e1e2;color:#b23b4e;}
+
+  /* ── the miniature screens ── */
+  .stage{background:var(--d-pg);padding:14px;display:flex;justify-content:center;}
+  .mini{background:var(--d-sf);border-radius:14px;width:100%;padding:11px;color:var(--d-ink);
+    font-size:11px;line-height:1.35;}
+  .mHead{font-size:8.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--d-mut);}
+  .mTitle{font-size:14px;font-weight:800;letter-spacing:-.025em;margin:2px 0 8px;}
+  .mRow{display:flex;align-items:center;gap:7px;padding:6px 0;border-bottom:1px solid var(--d-ln);}
+  .mRow:last-child{border-bottom:none;}
+  .mRow b{flex:1;min-width:0;font-size:10.5px;font-weight:700;}
+  .mRow i{font-style:normal;font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:999px;
+    background:var(--d-soft);color:var(--d-mut);white-space:nowrap;}
+  .mRow i.live{background:#e2f3e9;color:#0b6b3c;}
+  .mRow i.warn{background:#fdf0e0;color:#8a530f;}
+  .mRow i.off{background:var(--offWash);color:var(--offInk);}
+  .mTiles{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;}
+  .mTile{background:var(--d-soft);border-radius:9px;padding:7px 8px;}
+  .mTile u{display:block;text-decoration:none;font-size:7.5px;font-weight:800;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--d-mut);}
+  .mTile b{display:block;font-size:14px;font-weight:800;letter-spacing:-.02em;margin-top:2px;
+    font-variant-numeric:tabular-nums;}
+  .mBtn{display:block;text-align:center;background:var(--d-ink);color:#fff;border-radius:999px;
+    padding:7px;font-size:10px;font-weight:800;margin-top:8px;}
+  .mBtn.wa{background:var(--waInk);}
+  .mNote{font-size:9px;color:var(--d-mut);margin-top:7px;line-height:1.4;}
+
+  .mPoster{aspect-ratio:1/1;border-radius:10px;background:#0b0b0d;color:#fff;padding:12px;
+    display:flex;flex-direction:column;justify-content:space-between;}
+  .mPoster .s{font-size:7.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;opacity:.7;}
+  .mPoster .b{font-size:34px;font-weight:800;letter-spacing:-.05em;line-height:.9;}
+  .mPoster .w{font-size:9px;opacity:.72;margin-top:4px;}
+  .mShapes{display:flex;gap:5px;margin-top:8px;}
+  .mShapes span{flex:1;background:var(--d-soft);border-radius:6px;font-size:8px;font-weight:700;
+    color:var(--d-mut);text-align:center;padding:4px 0;}
+
+  .mBub{background:#dcf8c6;border-radius:9px 9px 9px 3px;padding:7px 9px;font-size:9.5px;
+    color:#111b21;line-height:1.4;}
+  .mQ{display:flex;align-items:center;gap:6px;font-size:9.5px;padding:4px 0;}
+  .mQ .s{width:11px;font-weight:800;text-align:center;}
+  .mQ .s.ok{color:var(--waInk);} .mQ .s.w{color:var(--d-mut2);}
+
+  .mCart{background:var(--d-soft);border-radius:9px;padding:8px;}
+  .mCart .l{display:flex;justify-content:space-between;font-size:10px;font-weight:700;}
+  .mCart .t{font-size:8.5px;font-weight:800;padding:2px 6px;border-radius:999px;background:var(--accWash);
+    color:var(--accInk);display:inline-block;margin-top:4px;}
+  .mPrompt{background:var(--offWash);border:1px solid #ddd0f7;border-radius:9px;padding:8px;margin-top:7px;}
+  .mPrompt b{display:block;font-size:9.5px;color:var(--offInk);}
+  .mPrompt span{font-size:8.5px;color:#4a3a72;}
+
+  /* ── dependency diagram ── */
+  .dep{background:var(--sf);border:1px solid var(--ln);border-radius:16px;padding:22px;margin-top:18px;
+    overflow-x:auto;}
+  .depRow{display:flex;align-items:center;gap:12px;min-width:620px;}
+  .depBox{border:1.5px solid var(--ln);border-radius:12px;padding:10px 14px;font-size:13px;font-weight:800;
+    white-space:nowrap;background:var(--pg);}
+  .depBox.done{border-color:#9fd3b4;background:#f2fbf6;color:#0b6b3c;}
+  .depBox small{display:block;font-weight:600;font-size:11px;color:var(--mut);margin-top:2px;}
+  .depBox.done small{color:#3f7a5b;}
+  .arrow{color:var(--mut);font-size:18px;flex-shrink:0;}
+  .depStack{display:grid;gap:10px;}
+
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:13.5px;}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);}
+  td b{font-weight:800;}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+  .warn{background:#fffbeb;border:1px solid #f0d99a;border-radius:14px;padding:15px 17px;
+    font-size:13.5px;color:#7a5205;line-height:1.55;margin-top:18px;}
+  .warn b{color:#5f3f04;}
+  @media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Marketing roadmap</p>
+  <h1>Four phases, and what each one actually buys you</h1>
+  <p class="lede">Phase 1 shipped: promotions know when they run, and every sale remembers which offer
+  discounted it. That was the foundation and it bought no reach at all — nothing yet tells a customer an
+  offer exists. The three phases below are the reach. Each is a separate branch with its own review and
+  its own deploy, because a twenty-task branch gets one review over twenty tasks of drift.</p>
+
+  <div class="rail">
+
+    <div class="ph done">
+      <div class="phTop">
+        <div class="phNo">Phase 1 · shipped</div>
+        <div class="phName">Foundations</div>
+        <div class="phWhat">An offer that opens and closes itself, and a sale that remembers which one
+        paid for the discount.</div>
+      </div>
+      <div class="stage">
+        <div class="mini">
+          <div class="mHead">People</div>
+          <div class="mTitle">Marketing</div>
+          <div class="mTiles">
+            <div class="mTile"><u>Live now</u><b>1</b></div>
+            <div class="mTile"><u>When picked</u><b>1</b></div>
+          </div>
+          <div class="mRow"><b>Eid weekend</b><i class="live">Live</i></div>
+          <div class="mRow"><b>Back to school</b><i>Expired</i></div>
+          <div class="mRow"><b>Independence</b><i class="warn">Scheduled</i></div>
+          <div class="mRow"><b>Staff discount</b><i class="off">When picked</i></div>
+          <p class="mNote">Moved out of Settings. Start/end dates, manual-only, archive.</p>
+        </div>
+      </div>
+      <div class="phMeta">
+        <span class="tag ok">done</span><span class="tag">5 tasks</span><span class="tag">deployed</span>
+      </div>
+    </div>
+
+    <div class="ph">
+      <div class="phTop">
+        <div class="phNo">Phase 2 · next</div>
+        <div class="phName">Poster</div>
+        <div class="phWhat">The offer as an image the owner posts themselves. The only thing here that
+        reaches Facebook and TikTok at all.</div>
+      </div>
+      <div class="stage">
+        <div class="mini">
+          <div class="mPoster">
+            <div class="s">Suuqa Xamar</div>
+            <div>
+              <div class="b">20%</div>
+              <div class="w">off everything · 14–16 Aug</div>
+            </div>
+          </div>
+          <div class="mShapes"><span>Square</span><span>Story</span><span>A4</span></div>
+          <p class="mNote">Four templates, your brand colour, text colour chosen for you so a
+          bright yellow still reads.</p>
+        </div>
+      </div>
+      <div class="phMeta">
+        <span class="tag">~6 tasks</span><span class="tag risk">1 new dependency</span>
+        <span class="tag risk">phone only</span>
+      </div>
+    </div>
+
+    <div class="ph">
+      <div class="phTop">
+        <div class="phNo">Phase 3</div>
+        <div class="phName">Campaigns</div>
+        <div class="phWhat">Pick an offer, pick who gets it, send it on WhatsApp one chat at a time.
+        The biggest build of the three.</div>
+      </div>
+      <div class="stage">
+        <div class="mini">
+          <div class="mHead">Eid weekend</div>
+          <div class="mTitle">Sending · 31 of 84</div>
+          <div class="mBub">Hi Hodan — Ciid wanaagsan! 20% off everything until Saturday.</div>
+          <div style="margin-top:7px;">
+            <div class="mQ"><span class="s ok">✓</span>Amina Hassan</div>
+            <div class="mQ"><span class="s ok">✓</span>Yusuf Warsame</div>
+            <div class="mQ"><span class="s w">→</span>Hodan Ali</div>
+          </div>
+          <div class="mBtn wa">Open WhatsApp for Hodan</div>
+          <p class="mNote">Counts a tap you made and a sale under their name. Never a delivery
+          WhatsApp does not report.</p>
+        </div>
+      </div>
+      <div class="phMeta">
+        <span class="tag">~9 tasks</span><span class="tag risk">2 new tables</span>
+        <span class="tag hot">needs your answer</span>
+      </div>
+    </div>
+
+    <div class="ph">
+      <div class="phTop">
+        <div class="phNo">Phase 4 · last</div>
+        <div class="phName">Offers at the till</div>
+        <div class="phWhat">The picker for offers that wait to be chosen, and the prompt that turns a
+        message into a recorded redemption.</div>
+      </div>
+      <div class="stage">
+        <div class="mini">
+          <div class="mCart">
+            <div class="l"><span>Canvas shoes</span><span>$14.40</span></div>
+            <span class="t">Eid weekend −$3.60</span>
+          </div>
+          <div class="mPrompt">
+            <b>Hodan was sent “Eid weekend”</b>
+            <span>Applying it here records that she claimed it.</span>
+          </div>
+          <div class="mBtn">Apply for Hodan</div>
+          <p class="mNote">The only place a redemption is recorded on purpose. Everything else in the
+          report is inference.</p>
+        </div>
+      </div>
+      <div class="phMeta">
+        <span class="tag">~5 tasks</span><span class="tag risk">both RPCs change</span>
+        <span class="tag">needs Phase 3</span>
+      </div>
+    </div>
+  </div>
+
+  <section>
+    <h2>What has to happen in what order</h2>
+    <div class="dep">
+      <div class="depRow">
+        <div class="depBox done">Phase 1<small>foundations · shipped</small></div>
+        <span class="arrow">→</span>
+        <div class="depStack">
+          <div class="depBox">Phase 2<small>poster · independent</small></div>
+          <div class="depBox">Phase 3<small>campaigns · independent</small></div>
+        </div>
+        <span class="arrow">→</span>
+        <div class="depBox">Phase 4<small>till offers · needs 3</small></div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:14px;">Phases 2 and 3 do not touch each other, so they can run as
+    two branches at once and merge separately — that is the only real compression available. Phase 4
+    genuinely waits: there is nothing to prompt a cashier about until campaigns exist to be redeemed.</p>
+  </section>
+
+  <section>
+    <h2>The honest sizing</h2>
+    <p class="note">Calibrated against Phase 1, which was 5 tasks and produced 19 commits, about 20
+    review findings, and one long working session including reviews, fixes and verification on a real
+    device.</p>
+    <table>
+      <tr><th>Phase</th><th class="num">Tasks</th><th>Where the time actually goes</th></tr>
+      <tr>
+        <td><b>2 · Poster</b></td><td class="num">~6</td>
+        <td>Four templates across three shapes that must not clip at any value — "$1,250 off" and "5%"
+        in the same layout. Plus the contrast library, and a web build that has to offer Print and
+        <em>not</em> a Save button that silently does nothing.</td>
+      </tr>
+      <tr>
+        <td><b>3 · Campaigns</b></td><td class="num">~9</td>
+        <td>Two tables with their RLS, the audience filter, recipient top-up that stays idempotent, the
+        four-step composer, the send queue with its return-from-WhatsApp question, and metrics that only
+        ever count something the app watched happen.</td>
+      </tr>
+      <tr>
+        <td><b>4 · Till offers</b></td><td class="num">~5</td>
+        <td>Both sale procedures change signature this time, so it is another careful verbatim
+        reproduction. Then the picker sheet, the customer prompt, and the product tile badge.</td>
+      </tr>
+    </table>
+    <p class="note" style="margin-top:14px;">Roughly <strong>three to four times Phase 1's build</strong>.
+    The variance is not the code — it is the findings. Phase 1's implementation went quickly; what took
+    the time was a critical bug where new shops would have shipped cashiers unable to discount, a
+    permission bypass through the sale editor, a forged-promotion hole, and a till that got stuck
+    unrecoverably when an offer expired mid-sale. Phase 3 touches money and messaging both, so budget
+    for the same.</p>
+  </section>
+
+  <section>
+    <h2>The one input that changes the shape rather than the size</h2>
+    <div class="warn">
+      <b>How many customers does a typical shop message in one campaign?</b><br>
+      At <strong>tens</strong>, the one-tap WhatsApp queue above is the right product: free, no Meta
+      account, no approval, ships in days. At <strong>hundreds</strong>, it is twenty-five minutes of
+      tapping and a real risk of WhatsApp limiting a personal number — and Phase 3 stops being a
+      nine-task app feature. It becomes a Meta Business account, a dedicated number, a server to send
+      from, and <strong>Meta approving your message wording before a single one goes out</strong>. That
+      is calendar time you cannot compress by working harder.
+      <br><br>
+      Absent an answer I will build for tens, with the sender kept swappable so the campaign, audience
+      and message survive the upgrade untouched.
+    </div>
+  </section>
+
+  <section>
+    <h2>The detailed mockups behind each phase</h2>
+    <ul class="note">
+      <li><a href="https://claude.ai/code/artifact/ee176dbf-891a-4a10-9502-af621c1d01c5">Phase 2 — the
+      poster</a>: four templates, three output shapes, the colour picker and why the text colour is not
+      the shop's to choose.</li>
+      <li><a href="https://claude.ai/code/artifact/e0c8f91a-3826-4d96-a6c0-9c758a363e54">Phase 3 — the
+      campaigns tab</a>: the audience step, the message with placeholders, the send queue, and where
+      every number on the screen comes from.</li>
+      <li><a href="https://claude.ai/code/artifact/309a1f7a-2cef-4aaa-b033-5e9660927477">Phase 4 — offers
+      at the till</a>: the auto-applied line, the customer prompt, the picker, and what the finished sale
+      remembers. Its first and last views are already shipped as part of Phase 1.</li>
+    </ul>
+  </section>
+
+</div>

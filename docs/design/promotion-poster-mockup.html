@@ -285,11 +285,12 @@
         <p>A4 out of <code>printToFileAsync</code>, exactly as receipts do it. Print it for the door,
         or send it on WhatsApp — WhatsApp accepts a PDF as a document attachment, so a shop can push a
         flyer to a customer with no image tooling at all.</p></div>
-      <div class="vx mid"><b>PNG needs one new dependency</b>
-        <p>Facebook, Instagram and TikTok want an image, not a PDF. Rasterising a rendered view needs
-        <code>react-native-view-shot</code> on native and a canvas draw on web — small, well-worn, but
-        genuinely new. If that is a step too far for a first cut, PDF plus WhatsApp status still covers
-        a lot of ground.</p></div>
+      <div class="vx mid"><b>Images are a phone capability, and the docs are blunt about it</b>
+        <p>Checked against the SDK 57 pages rather than assumed. <code>react-native-view-shot</code> is
+        Expo-supported and bundled in Expo Go — <strong>Android and iOS only, no web</strong>. And
+        <code>expo-print</code>'s <code>printToFileAsync</code> on web "opens the print dialog" instead
+        of returning a file. So saving a poster is something the app does on a phone; the browser gets
+        Print and no Save button, rather than a Save button that quietly does nothing.</p></div>
       <div class="vx good"><b>Templates, not a design tool</b>
         <p>Four layouts and a colour, and every one of them is legible at arm's length. A canvas the
         shop can drag things around on guarantees posters with clipped text and a logo on top of the
@@ -578,13 +579,13 @@
         <div class="fmtCell">
           <div class="fmtHead"><b>Square</b><i>1080 × 1080 · PNG</i></div>
           ${bold('sq')}
-          <span class="fmtDep new">needs react-native-view-shot</span>
+          <span class="fmtDep new">phone only · react-native-view-shot</span>
           <p class="fmtWhy">Facebook and Instagram feed, X. The default share.</p>
         </div>
         <div class="fmtCell">
           <div class="fmtHead"><b>Story</b><i>1080 × 1920 · PNG</i></div>
           ${bold('st')}
-          <span class="fmtDep new">needs react-native-view-shot</span>
+          <span class="fmtDep new">phone only · react-native-view-shot</span>
           <p class="fmtWhy">WhatsApp status, Instagram and Facebook stories, TikTok. In Somaliland this
           is probably the one that gets used most.</p>
         </div>
@@ -593,7 +594,9 @@
           ${bold('a4')}
           <span class="fmtDep">expo-print, already installed</span>
           <p class="fmtWhy">Print for the door and the counter. Also sends on WhatsApp as a document
-          with no image tooling at all.</p>
+          with no image tooling at all. On a phone this saves a real file; in a browser
+          <code>printToFileAsync</code> only opens the print dialog, so the web build offers Print and
+          nothing else.</p>
         </div>
       </div>
       <p class="foot">Each shape re-flows: the story gets more air above and below the number, the A4
