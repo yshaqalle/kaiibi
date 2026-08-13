@@ -136,6 +136,21 @@ function base64ToBytes(base64: string): Uint8Array {
 // quality is high enough that a poster -- flat colour, text, at most one
 // photo -- shows no visible banding, while still compressing meaningfully
 // smaller than the PNG capture.
+// The poster as raw PNG bytes, for the web download path. Same capture the
+// rest of this file uses, unwrapped from its data URI so it can be handed to
+// a Blob -- see downloadPosterPng for why a Blob rather than the URI itself.
+async function posterPngBytes(ref: React.RefObject<unknown>): Promise<Uint8Array> {
+  const dataUri = await withCaptureTimeout(
+    captureRef(ref as never, {
+      result: 'data-uri',
+      format: 'png',
+      quality: 1,
+      useRenderInContext: true,
+    })
+  );
+  return base64ToBytes(dataUri.slice(dataUri.indexOf(',') + 1));
+}
+
 async function posterJpegBytes(ref: React.RefObject<unknown>): Promise<Uint8Array> {
   const dataUri = await withCaptureTimeout(
     captureRef(ref as never, {
@@ -281,12 +296,30 @@ function clickDownload(href: string, fileName: string): void {
   a.remove();
 }
 
-// Web's "Download image" button. The data URI `posterPngDataUri` produces IS
-// the download -- a `data:` URL is a valid `href` for a download anchor on
-// every browser this app supports -- so there is no Blob/object-URL step
-// needed here the way there is for the PDF below.
-export function downloadPosterPng(dataUri: string, fileName: string): void {
-  clickDownload(dataUri, fileName);
+// Web's "Download image" button.
+//
+// A Blob, not the `data:` URI the capture already hands us, even though that
+// URI is a perfectly good `href` in Chrome and Firefox. Safari is the reason:
+// it caps what an `<a download>` will accept as a data URL and, past that
+// ceiling, does nothing at all -- no download, no error, no console warning.
+// The button simply sits on "Downloading…" forever, which is precisely how
+// this surfaced. A 1080x1080 poster is comfortably large enough to trip it,
+// and there is no size at which the data URI is *better*, so this path takes
+// the same Blob route downloadPosterPdf already documents below.
+export async function downloadPosterPng(ref: React.RefObject<unknown>, fileName: string): Promise<void> {
+  const bytes = await posterPngBytes(ref);
+  // @ts-ignore -- web-only DOM APIs, only ever called on Platform.OS === 'web'.
+  const blob = new Blob([bytes], { type: 'image/png' });
+  // @ts-ignore
+  const url = URL.createObjectURL(blob);
+  clickDownload(url, fileName);
+  // A tick's delay before revoking, for the same reason the PDF path waits:
+  // some browsers read the object URL asynchronously past the synchronous
+  // .click(), and revoking first aborts a download that had barely begun.
+  setTimeout(() => {
+    // @ts-ignore
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 // Web's "Download PDF" button, and the one genuinely new capability this

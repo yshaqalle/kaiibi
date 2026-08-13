@@ -315,8 +315,7 @@ export function PosterSheet({
     setError(null);
     setBusy('download-png');
     try {
-      const dataUri = await posterPngDataUri(captureRef);
-      downloadPosterPng(dataUri, `${fileNameBase}.png`);
+      await downloadPosterPng(captureRef, `${fileNameBase}.png`);
     } catch (err) {
       setError(extractErrorMessage(err, 'Could not download this poster.'));
     } finally {
