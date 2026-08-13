@@ -654,6 +654,49 @@ create index sale_items_promotion_id_idx on public.sale_items (promotion_id)
 -- edit_sale resolves the shop as v_shop_id rather than p_shop_id — use
 -- v_shop_id in both permission checks there.
 
+-- ── delete-or-archive has to be decided in here, not in the client ────────
+-- Task 2 put this decision in deletePromotion(), which counts sale_items from
+-- the browser. That count is subject to RLS: reading sale_items needs
+-- sales.view or dashboard.view (0024), while reaching the promotions editor at
+-- all needs only settings.access, and IMPLIED_PERMISSIONS joins neither to the
+-- other. So the role most likely to be managing promotions sees a count of
+-- zero for a promotion that HAS been used, and hard-deletes it -- silently
+-- doing the exact thing the archive branch exists to prevent.
+--
+-- Security definer moves the count somewhere RLS cannot lie to it, and doing
+-- both steps in one statement closes the window where a sale lands between the
+-- count and the delete.
+create or replace function public.delete_or_archive_promotion(p_id uuid)
+returns text
+language plpgsql security definer set search_path = public as $$
+declare
+  v_shop_id uuid;
+  v_used boolean;
+begin
+  select shop_id into v_shop_id from public.promotions where id = p_id;
+  if v_shop_id is null then
+    raise exception 'promotion % not found', p_id;
+  end if;
+  -- The same gate the table's own write policy uses (0024). Security definer
+  -- bypasses RLS, so this function must re-assert what RLS would have.
+  if not public.has_shop_permission(v_shop_id, 'settings.access') then
+    raise exception 'not authorized for shop %', v_shop_id;
+  end if;
+
+  select exists (select 1 from public.sale_items where promotion_id = p_id) into v_used;
+
+  if v_used then
+    update public.promotions set archived_at = now() where id = p_id;
+    return 'archived';
+  end if;
+
+  delete from public.promotions where id = p_id;
+  return 'deleted';
+end;
+$$;
+
+grant execute on function public.delete_or_archive_promotion(uuid) to authenticated;
+
 -- ── grant the new permission to every role that can already discount ──────
 -- Nothing a shop currently does may stop working. Every role holding
 -- pos.access is granted discounts.manual, which is exactly the set of people
@@ -686,6 +729,28 @@ where 'pos.access' = any(permissions) and not ('discounts.manual' = any(permissi
 ```
 
 Expected: `PASS`.
+
+- [ ] **Step 2b: Move `deletePromotion` onto the new RPC**
+
+Task 2's client-side count is the bug the RPC above exists to fix. Replace `deletePromotion` in `src/lib/promotions.ts` with:
+
+```ts
+// Removing a promotion means two different things depending on whether money
+// has moved through it: destroy the untouched ones, archive the used ones so
+// past sales keep their link. Both the count and the branch live in the
+// database, because reading sale_items from here is subject to RLS — a role
+// holding settings.access but not sales.view sees no rows, and would hard
+// -delete a promotion that had been used on four hundred sales.
+export async function deletePromotion(id: string): Promise<'deleted' | 'archived'> {
+  const { data, error } = await supabase.rpc('delete_or_archive_promotion', { p_id: id });
+  if (error) throw error;
+  return data as 'deleted' | 'archived';
+}
+```
+
+`archivePromotion` stays as Task 2 wrote it — archiving on purpose is a different action from removing, and the editor offers both.
+
+The return type widens from `Promise<void>` to `Promise<'deleted' | 'archived'>`. Check every caller with `grep -rn "deletePromotion" src/` and confirm each still compiles; a caller that ignores the return value needs no change.
 
 - [ ] **Step 3: Write the failing cart tests**
 
