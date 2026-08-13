@@ -96,10 +96,21 @@ function joinLine(parts: Array<string | null | undefined>, sep = ' · '): string
 // (read from across a counter or a shop door). These are three layouts, not
 // one shape scaled -- the numbers below still all derive from `width`, they
 // just derive from it differently per shape.
-const SHAPE_TUNING: Record<PosterShape, { air: number; addr: number }> = {
-  square: { air: 1, addr: 1 },
-  story: { air: 1.6, addr: 1 },
-  sheet: { air: 1, addr: 1.4 },
+// `weekRows` caps how many This-week rows a shape prints before it says
+// "+N more" instead of continuing. Rows have RN's default `flexShrink: 0`
+// and the poster container clips with `overflow: 'hidden'`, so an
+// uncapped list on a shop with five-plus live offers gets sliced mid-row
+// rather than reflowed -- the last row or two literally cut in half, and
+// the footer address block pushed past the edge with them. The caps below
+// follow how much vertical room each shape actually has for its height
+// (Square is exactly as tall as it is wide; the A4 Sheet is ~1.4x its
+// width; Story is ~1.8x but spends more of that on `air`-widened rhythm
+// around a large kicker meant to be read close-up) -- Square holds the
+// fewest rows, Sheet the most.
+const SHAPE_TUNING: Record<PosterShape, { air: number; addr: number; weekRows: number }> = {
+  square: { air: 1, addr: 1, weekRows: 4 },
+  story: { air: 1.6, addr: 1, weekRows: 5 },
+  sheet: { air: 1, addr: 1.4, weekRows: 7 },
 };
 
 export function PosterCanvas({
@@ -243,7 +254,7 @@ export function PosterCanvas({
   const kaiibiMark = showMark ? (
     <View style={markRowStyle}>
       <Image source={{ uri: KAIIBI_MARK_DATA_URI }} style={{ width: markSize, height: markSize }} />
-      <Text style={markTextStyle} numberOfLines={1}>
+      <Text style={markTextStyle} numberOfLines={1} allowFontScaling={false}>
         Made with Kaiibi
       </Text>
     </View>
@@ -252,12 +263,12 @@ export function PosterCanvas({
   const addrBlock = hasAddr ? (
     <View style={{ gap: pct(0.6) }}>
       {addrLine1 ? (
-        <Text style={addrStyle} numberOfLines={2}>
+        <Text style={addrStyle} numberOfLines={2} allowFontScaling={false}>
           {addrLine1}
         </Text>
       ) : null}
       {addrLine2 ? (
-        <Text style={addrStyle} numberOfLines={1}>
+        <Text style={addrStyle} numberOfLines={1} allowFontScaling={false}>
           {addrLine2}
         </Text>
       ) : null}
@@ -283,12 +294,12 @@ export function PosterCanvas({
   // a number) to get its own tree below.
   const standardBody = (
     <>
-      <Text style={shopStyle} numberOfLines={1}>
+      <Text style={shopStyle} numberOfLines={1} allowFontScaling={false}>
         {copy.shopName}
       </Text>
       <View style={midStyle}>
         {copy.headline ? (
-          <Text style={kickerStyle} numberOfLines={1}>
+          <Text style={kickerStyle} numberOfLines={1} allowFontScaling={false}>
             {copy.headline}
           </Text>
         ) : null}
@@ -297,14 +308,14 @@ export function PosterCanvas({
             times wider than the other -- adjustsFontSizeToFit is what lets
             the same style object hold both without either wrapping or
             spilling past the poster's edge. */}
-        <Text style={valueStyle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.35}>
+        <Text style={valueStyle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.35} allowFontScaling={false}>
           {copy.value}
         </Text>
-        <Text style={whatStyle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>
+        <Text style={whatStyle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false}>
           {copy.scope}
         </Text>
         {copy.when ? (
-          <Text style={whenStyle} numberOfLines={2}>
+          <Text style={whenStyle} numberOfLines={2} allowFontScaling={false}>
             {copy.when}
           </Text>
         ) : null}
@@ -314,11 +325,32 @@ export function PosterCanvas({
     </>
   );
 
-  // Week: a list of live offers on one sheet rather than one number. Falls
-  // back to the single promotion's own line when there is nothing to list,
-  // so the sheet is never empty -- see the header comment on `weekOffers`.
-  const weekOfferList: PosterWeekOffer[] =
-    weekOffers && weekOffers.length > 0 ? weekOffers : [{ value: copy.value, scope: copy.scope, when: copy.when }];
+  // Week: a list of live offers on one sheet rather than one number.
+  // `weekOffers` carries two DIFFERENT empty states and they must not be
+  // conflated:
+  //   undefined  "this isn't the week template" -- the caller never computed
+  //              a list at all, so the single promotion's own line is the
+  //              only thing to show. (poster-sheet.tsx only ever builds this
+  //              list when `template === 'week'`, so in practice this
+  //              component only reaches the week layout below with a real
+  //              array -- but this component takes copy and draws, per its
+  //              header comment, so it does not lean on that caller detail.)
+  //   []         "this IS the week template, and nothing currently
+  //              qualifies" -- every promotion is either not live, not
+  //              autoApply, or there simply are none. Falling back to the
+  //              opened promotion's own line here would be the exact bug
+  //              this branch exists to prevent: that promotion may be
+  //              manual-only, paused or expired, and a customer reading it
+  //              off a shop door cannot tell "the till will honour this"
+  //              from "the owner forgot to take the poster down". The
+  //              honest thing to print is that nothing is running.
+  // `??`, not `||`: an empty array is not nullish, so it passes through as
+  // [] rather than being swapped for the fallback -- that distinction is the
+  // whole fix.
+  const weekOfferList: PosterWeekOffer[] = weekOffers ?? [{ value: copy.value, scope: copy.scope, when: copy.when }];
+  const hasWeekOffers = weekOfferList.length > 0;
+  const visibleWeekOffers = weekOfferList.slice(0, tuning.weekRows);
+  const hiddenWeekOfferCount = weekOfferList.length - visibleWeekOffers.length;
 
   const weekTitleStyle: TextStyle = {
     fontSize: pct(7),
@@ -365,9 +397,29 @@ export function PosterCanvas({
     color: ink,
   };
 
+  // Same size/weight/rhythm as a real scope line (weekScopeStyle) so the
+  // honest-empty state reads as one more row, not an error message bolted
+  // onto the layout -- just muted, since there is nothing here to draw the
+  // eye to.
+  const weekEmptyStyle: TextStyle = {
+    fontSize: pct(3.7),
+    fontWeight: '700',
+    lineHeight: pct(3.7) * 1.25,
+    color: withOpacity(ink, 0.55),
+  };
+
+  // The overflow line ("+2 more in store") -- same rhythm as weekWhenStyle,
+  // since it takes that line's place under the last visible row.
+  const weekMoreStyle: TextStyle = {
+    fontWeight: '700',
+    fontSize: pct(3.2),
+    marginTop: pct(1),
+    color: withOpacity(ink, 0.55),
+  };
+
   const weekBody = (
     <>
-      <Text style={shopStyle} numberOfLines={1}>
+      <Text style={shopStyle} numberOfLines={1} allowFontScaling={false}>
         {copy.shopName}
       </Text>
       <View style={{ flex: 1 }}>
@@ -375,27 +427,48 @@ export function PosterCanvas({
             free-text field the copy carries -- a headline the owner wrote
             takes the title, and the default only appears when there isn't
             one. */}
-        <Text style={weekTitleStyle} numberOfLines={2}>
+        <Text style={weekTitleStyle} numberOfLines={2} allowFontScaling={false}>
           {copy.headline ?? 'This week at the shop'}
         </Text>
         <View style={weekListStyle}>
-          {weekOfferList.map((offer, index) => (
-            <View key={`${offer.value}-${offer.scope}-${index}`} style={weekRowStyle}>
-              <Text style={weekValueStyle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.4}>
-                {offer.value}
-              </Text>
-              <View style={{ flex: 1 }}>
-                <Text style={weekScopeStyle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6}>
-                  {offer.scope}
-                </Text>
-                {offer.when ? (
-                  <Text style={weekWhenStyle} numberOfLines={1}>
-                    {offer.when}
+          {hasWeekOffers ? (
+            <>
+              {visibleWeekOffers.map((offer, index) => (
+                <View key={`${offer.value}-${offer.scope}-${index}`} style={weekRowStyle}>
+                  <Text style={weekValueStyle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.4} allowFontScaling={false}>
+                    {offer.value}
                   </Text>
-                ) : null}
-              </View>
-            </View>
-          ))}
+                  <View style={{ flex: 1 }}>
+                    <Text style={weekScopeStyle} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.6} allowFontScaling={false}>
+                      {offer.scope}
+                    </Text>
+                    {offer.when ? (
+                      <Text style={weekWhenStyle} numberOfLines={1} allowFontScaling={false}>
+                        {offer.when}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+              {/* Rows have RN's default flexShrink: 0 against a container
+                  that clips (`overflow: 'hidden'` on containerStyle), so a
+                  list longer than `tuning.weekRows` would otherwise slice
+                  the last row in half rather than reflow -- this line says
+                  how many didn't fit instead of letting that happen. */}
+              {hiddenWeekOfferCount > 0 ? (
+                <Text style={weekMoreStyle} numberOfLines={1} allowFontScaling={false}>
+                  +{hiddenWeekOfferCount} more in store
+                </Text>
+              ) : null}
+            </>
+          ) : (
+            // Nothing currently qualifies -- see the header comment on
+            // `weekOfferList` for why this is not the opened promotion's own
+            // line.
+            <Text style={weekEmptyStyle} numberOfLines={2} allowFontScaling={false}>
+              No offers running this week
+            </Text>
+          )}
         </View>
       </View>
       {footRow}

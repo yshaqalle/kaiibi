@@ -4,7 +4,7 @@ import { PixelRatio, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput,
 import { CategoryChip } from '@/components/category-chip';
 import { ColorPicker } from '@/components/color-picker';
 import { PosterCanvas, POSTER_SHAPES, type PosterShape, type PosterTemplate, type PosterWeekOffer } from '@/components/marketing/poster-canvas';
-import { capturePosterPng, POSTER_EXPORT_SUPPORTED, posterPdfFromPng, sharePoster } from '@/components/marketing/poster-export';
+import { capturePosterPng, POSTER_EXPORT_SUPPORTED, posterPdfFromPngDataUri, posterPngDataUri, sharePoster } from '@/components/marketing/poster-export';
 import { AppModal } from '@/components/ui/app-modal';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -115,17 +115,45 @@ export function PosterSheet({
   // Debounced rather than tied to a Save button: the brief asks for the choice
   // to "stick" on its own, the same way the picker has no separate confirm
   // step either.
+  //
+  // The pending write is stashed in a ref, not just a local `setTimeout`
+  // handle, so the mount-only effect below can flush it. That split matters:
+  // this effect's own cleanup runs on every `color` change (that is what
+  // makes it a debounce -- each keystroke cancels the last timer and starts a
+  // new one), so flushing HERE would fire a write per drag step, defeating
+  // the debounce entirely. Only a cleanup that runs exactly once, on unmount,
+  // may safely commit whatever is still outstanding.
+  const pendingColorWrite = useRef<(() => void) | null>(null);
   useEffect(() => {
     if (!shop) return;
     const saved = shop.brandColor ?? DEFAULT_BRAND_COLOR;
-    if (color === saved) return;
-    const handle = setTimeout(() => {
+    if (color === saved) {
+      pendingColorWrite.current = null;
+      return;
+    }
+    const commit = () => {
+      pendingColorWrite.current = null;
       updateShop(shop.id, { brandColor: color })
         .then(() => refreshShop())
         .catch((err) => setColorError(extractErrorMessage(err, "Couldn't save that colour.")));
-    }, 500);
+    };
+    pendingColorWrite.current = commit;
+    const handle = setTimeout(commit, 500);
     return () => clearTimeout(handle);
   }, [color, shop, refreshShop]);
+
+  // Flushes a still-pending colour write on unmount. The sheet unmounts the
+  // instant it closes (see the header comment on PosterSheet), and without
+  // this an owner who drags to their exact shade and immediately taps Close
+  // would have that debounced write silently cancelled -- no Save button, no
+  // error, the colour just never lands. Deliberately its own effect with an
+  // empty dependency array: its cleanup fires exactly once, on unmount,
+  // which is the one moment a flush (rather than a cancel) is correct.
+  useEffect(() => {
+    return () => {
+      pendingColorWrite.current?.();
+    };
+  }, []);
 
   // The full copy, before the on/off toggles below strip anything out --
   // still used to show each toggle what it is hiding (e.g. "Until Saturday"
@@ -175,9 +203,12 @@ export function PosterSheet({
       .filter((p) => isPromotionLive(p, now) && p.autoApply)
       .map((p) => {
         const offerCopy = posterCopyFor({ promotion: p, shopName: shop?.name ?? '' });
-        return { value: offerCopy.value, scope: offerCopy.scope, when: offerCopy.when };
+        // Same rule the Dates toggle already applies to `copy.when` above --
+        // without this, `showDates` had no effect on the week template at
+        // all, since these rows never went through `copy`.
+        return { value: offerCopy.value, scope: offerCopy.scope, when: showDates ? offerCopy.when : null };
       });
-  }, [template, promotions, shop, now]);
+  }, [template, promotions, shop, now, showDates]);
 
   const exportWidthPx = EXPORT_WIDTH_PX[shape];
   // captureRef sizes in LOGICAL pixels (see poster-export.ts's own comment on
@@ -193,16 +224,21 @@ export function PosterSheet({
     setError(null);
     setBusy(kind);
     try {
+      // Always a real tmpfile, even for the PDF path below -- the PNG-share
+      // branch at the bottom of this function needs an actual file URI to
+      // hand to Sharing.shareAsync, and capturing once and reading it back
+      // (posterPngDataUri) rather than capturing twice is what keeps the
+      // saved PNG and the printed PDF pixel-identical.
       const pngUri = await capturePosterPng(captureRef);
       if (kind === 'pdf') {
-        const pdfUri = await posterPdfFromPng(pngUri, shape);
+        const pdfUri = await posterPdfFromPngDataUri(await posterPngDataUri(pngUri), shape);
         await sharePoster(pdfUri, 'application/pdf');
       } else if (kind === 'share' && shape === 'sheet') {
         // "Share" follows whatever is on screen: the Sheet shape exists for
         // print and for sending as a WhatsApp document, so sharing it hands
         // out the PDF, not a picture of a page. Every other shape hands out
         // the PNG a feed or a status actually wants.
-        const pdfUri = await posterPdfFromPng(pngUri, shape);
+        const pdfUri = await posterPdfFromPngDataUri(await posterPngDataUri(pngUri), shape);
         await sharePoster(pdfUri, 'application/pdf');
       } else {
         await sharePoster(pngUri, 'image/png');
@@ -302,12 +338,22 @@ export function PosterSheet({
           // phone screen and is unusable printed.
           //
           // Positioned far outside the viewport rather than hidden with
-          // display:none or opacity:0: react-native-view-shot snapshots the
-          // target view's own native layer directly, not a screen grab, so it
-          // rasterises fully out here. A display:none view can be pruned from
-          // the native layout/compositing pass entirely and come back blank,
-          // and a zero-opacity one risks the same on some renderers -- moving
-          // it off-screen instead of hiding it is what keeps it real.
+          // display:none or opacity:0: on ANDROID, captureRef snapshots the
+          // target view's own native layer directly (`View.draw(Canvas)`),
+          // not a screen grab, so an off-screen view still rasterises fully.
+          // On IOS that is only true because capturePosterPng passes
+          // `useRenderInContext: true` -- left at its default, RNViewShot.mm
+          // takes a render-server screenshot
+          // (`drawViewHierarchyInRect:afterScreenUpdates:`) whose own inline
+          // comment admits it "doesn't work for large views and reports
+          // incorrect success even though the image is blank", which is
+          // exactly what an off-screen view like this one triggers. See
+          // poster-export.ts's capturePosterPng for the option that forces
+          // iOS onto the same layer-drawing path Android already takes.
+          // A display:none view can be pruned from the native
+          // layout/compositing pass entirely and come back blank, and a
+          // zero-opacity one risks the same on some renderers -- moving it
+          // off-screen instead of hiding it is what keeps it real.
           // `collapsable={false}` keeps Android from stripping this wrapper
           // out of the native view tree, since nothing on screen ever points
           // a pixel at it and it would otherwise look prunable.
