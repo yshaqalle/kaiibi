@@ -227,7 +227,10 @@ begin
         from public.promotions
        where id = v_promo_id and shop_id = p_shop_id and active and archived_at is null;
       if v_promo_name is null then
-        raise exception 'promotion % does not belong to shop %', v_promo_id, p_shop_id;
+        -- The lookup filters on shop, active and archived_at together, so a miss
+        -- here means any of those -- naming only the shop sent readers hunting
+        -- for a tenancy bug when the offer was simply paused.
+        raise exception 'promotion % is not available to use (wrong shop, paused, or archived)', v_promo_id;
       end if;
 
       -- The window IS enforced here, with slack on both edges so a real cart
@@ -621,7 +624,8 @@ begin
         from public.promotions
        where id = v_promo_id and shop_id = v_shop_id and active and archived_at is null;
       if v_promo_name is null then
-        raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
+        -- Newly attached, so it had to clear shop + active + archived_at as well.
+        raise exception 'promotion % is not available to attach to a sale (wrong shop, paused, or archived)', v_promo_id;
       end if;
 
       -- Same slack as complete_sale: one minute absorbs clock skew on the
