@@ -97,23 +97,13 @@ export async function archivePromotion(id: string): Promise<void> {
 }
 
 // Removing a promotion means two different things depending on whether money
-// has moved through it. Hard-deleting one that has been applied would blank
-// the attribution on every sale that used it; refusing to remove it would tell
-// an owner "you cannot delete this, it was used 400 times", which is not an
-// answer either. So: delete if untouched, archive if used. The two look
-// identical from the screen — the promotion is gone from the list either way.
-export async function deletePromotion(id: string): Promise<void> {
-  const { count, error: countError } = await supabase
-    .from('sale_items')
-    .select('id', { count: 'exact', head: true })
-    .eq('promotion_id', id);
-  if (countError) throw countError;
-
-  if ((count ?? 0) > 0) {
-    await archivePromotion(id);
-    return;
-  }
-
-  const { error } = await supabase.from('promotions').delete().eq('id', id);
+// has moved through it: destroy the untouched ones, archive the used ones so
+// past sales keep their link. Both the count and the branch live in the
+// database, because reading sale_items from here is subject to RLS — a role
+// holding settings.access but not sales.view sees no rows, and would hard
+// -delete a promotion that had been used on four hundred sales.
+export async function deletePromotion(id: string): Promise<'deleted' | 'archived'> {
+  const { data, error } = await supabase.rpc('delete_or_archive_promotion', { p_id: id });
   if (error) throw error;
+  return data as 'deleted' | 'archived';
 }
