@@ -18,6 +18,23 @@ export type WedgeConfig = {
   // character; a very fast typist manages about 90-150 ms. 50 ms sits in the
   // empty space between the two, well clear of both.
   maxInterKeyMs: number;
+  // How late the terminator may arrive and still belong to the burst it ends.
+  // Deliberately NOT `maxInterKeyMs`: the characters are the discriminator, and
+  // the Enter that follows them is not delivered on the same clock. Scanners
+  // can be configured with a suffix delay, and a `TextInput`'s submit crosses a
+  // render pass its `onChangeText`s did not, so a genuine scan's terminator can
+  // trail its last digit by a long way: measured at 627ms on a real device,
+  // between characters that all shared a single millisecond. A second is the
+  // same span `ABANDONED_BURST_MS` uses for "this burst is over", and it costs
+  // little either way -- a burst can only reach `minLength` at speeds no one
+  // can type, so what waits here is always a machine's code.
+  maxTerminatorGapMs: number;
+  // How long a burst may sit quiet before it is taken as finished WITHOUT a
+  // terminator. Many scanners -- Bluetooth ones especially -- can be configured
+  // with no suffix at all, and a code that never completes is a code the till
+  // never sees. Long enough that a scanner still mid-code is not cut in half,
+  // short enough to feel immediate.
+  idleFlushMs: number;
   // Scanners are configured to send one of these after the code. CR is the
   // factory default on essentially every model.
   terminators: readonly string[];
@@ -26,10 +43,27 @@ export type WedgeConfig = {
 export const DEFAULT_WEDGE_CONFIG: WedgeConfig = {
   minLength: 4,
   maxInterKeyMs: 50,
+  maxTerminatorGapMs: 1_000,
+  idleFlushMs: 200,
   terminators: ['Enter', 'Tab'],
 };
 
-export type WedgeState = { buffer: string; lastKeyAt: number };
+export type WedgeState = {
+  buffer: string;
+  lastKeyAt: number;
+  /**
+   * Did this burst begin from silence, or by breaking an earlier one?
+   *
+   * A burst that started because two keys were too far apart is a FRAGMENT --
+   * the tail of something whose head has already been thrown away. With a
+   * terminator that hardly matters, since the scanner is telling us where the
+   * code ends. Without one it matters completely: flushing a fragment emits a
+   * suffix of the real code as though it were the whole thing. Observed on a
+   * stalling delivery -- 8809447255972 arrived in two pieces and the till was
+   * offered `9447255972`, a code that matches nothing and looks legitimate.
+   */
+  startedClean: boolean;
+};
 
 export type WedgeStep = {
   state: WedgeState;
@@ -43,7 +77,7 @@ export type WedgeStep = {
 };
 
 export function initialWedgeState(): WedgeState {
-  return { buffer: '', lastKeyAt: 0 };
+  return { buffer: '', lastKeyAt: 0, startedClean: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -209,12 +243,36 @@ export function fieldBurstScan(
   at: number,
   config: WedgeConfig = DEFAULT_WEDGE_CONFIG
 ): string | null {
-  // Same rule as `stepWedge`: the terminator has to belong to the burst it
-  // ends, or four quick characters and an Enter a second later would read as a
-  // scan.
-  const inBurst = at - state.lastChangeAt <= config.maxInterKeyMs;
+  // The terminator has to belong to the burst it ends, or four quick characters
+  // and an Enter a second later would read as a scan. Measured against
+  // `maxTerminatorGapMs` rather than the inter-character gap -- see the note on
+  // that field for why the two cannot be the same number here.
+  const inBurst = at - state.lastChangeAt <= config.maxTerminatorGapMs;
   if (!inBurst || state.burst.length < config.minLength) return null;
   return state.burst;
+}
+
+/**
+ * The code a burst holds once it has gone quiet, or null.
+ *
+ * The terminator is a convention, not a guarantee: a scanner can be configured
+ * to send nothing after the code, and Bluetooth ones often are. Waiting for an
+ * Enter that will never come loses the scan entirely, so silence ends a burst
+ * as well.
+ *
+ * No speed check of its own is needed. `stepWedge` restarts the buffer whenever
+ * two keys are further apart than `maxInterKeyMs`, so a buffer that has reached
+ * `minLength` was already delivered at a speed no one can type.
+ */
+export function flushWedgeIfIdle(
+  state: WedgeState,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): string | null {
+  if (!state.startedClean) return null;
+  if (state.buffer.length < config.minLength) return null;
+  if (at - state.lastKeyAt < config.idleFlushMs) return null;
+  return state.buffer;
 }
 
 // `key` is a DOM KeyboardEvent.key value: a single character for printable
@@ -227,10 +285,13 @@ export function stepWedge(
 ): WedgeStep {
   if (config.terminators.includes(key)) {
     const code = state.buffer;
-    // The terminator has to be part of the same burst. A scanner sends its
-    // suffix immediately after the last digit; without this check, typing four
-    // quick characters and pressing Enter a second later would read as a scan.
-    const inBurst = at - state.lastKeyAt <= config.maxInterKeyMs;
+    // The terminator has to be part of the same burst -- but judged by
+    // `maxTerminatorGapMs`, not by the inter-character gap. The characters are
+    // the discriminator; the Enter that ends them travels a different path and
+    // arrives late. Measured on a real device: thirteen digits sharing one
+    // millisecond, then their terminator 627ms behind them, rejected as typing.
+    // Same reasoning, same number, as `fieldBurstScan` above.
+    const inBurst = at - state.lastKeyAt <= config.maxTerminatorGapMs;
     const isScan = inBurst && code.length >= config.minLength;
     // Reset either way: a terminator ends the burst whether or not it was a
     // scan, so a rejected buffer can't leak into the next one.
@@ -245,9 +306,16 @@ export function stepWedge(
   // character rather than accumulating. That single rule is what keeps ordinary
   // typing from ever reaching `minLength` -- each keystroke discards the last.
   const starting = state.buffer.length === 0 || at - state.lastKeyAt > config.maxInterKeyMs;
+  // Starting on top of characters that were already there means the gap broke a
+  // burst rather than following silence -- so what begins here is a fragment.
+  const fromSilence = state.buffer.length === 0;
 
   return {
-    state: { buffer: starting ? key : state.buffer + key, lastKeyAt: at },
+    state: {
+      buffer: starting ? key : state.buffer + key,
+      lastKeyAt: at,
+      startedClean: starting ? fromSilence : state.startedClean,
+    },
     emit: null,
     consumed: false,
   };

@@ -1,4 +1,5 @@
-import { DEFAULT_WEDGE_CONFIG, initialWedgeState, stepWedge, type WedgeState } from '@/lib/barcode-wedge';
+import {
+  flushWedgeIfIdle, DEFAULT_WEDGE_CONFIG, initialWedgeState, stepWedge, type WedgeState } from '@/lib/barcode-wedge';
 
 // Types `code` one character at a time with a fixed gap, then the terminator,
 // and reports whatever the machine emitted.
@@ -118,5 +119,79 @@ describe('stepWedge', () => {
 
   it('emits an alphanumeric SKU scanned from an internal label', () => {
     expect(type('TSHIRT-BLU-M', 5).emitted).toEqual(['TSHIRT-BLU-M']);
+  });
+});
+
+// A scanner with no suffix configured -- common on Bluetooth models, and fatal
+// before this existed: the code sat in the buffer waiting for an Enter that was
+// never coming, and the till never saw the scan at all.
+describe('flushWedgeIfIdle', () => {
+  function burst(code: string, gapMs: number) {
+    let state = initialWedgeState();
+    let at = 1000;
+    for (const char of code) {
+      state = stepWedge(state, char, at).state;
+      at += gapMs;
+    }
+    return { state, at };
+  }
+
+  it('reads a code out of a burst that went quiet without a terminator', () => {
+    const { state, at } = burst('8809447255972', 5);
+    expect(flushWedgeIfIdle(state, at + 250)).toBe('8809447255972');
+  });
+
+  it('waits while the scanner may still be mid-code', () => {
+    const { state, at } = burst('8809447255972', 5);
+    expect(flushWedgeIfIdle(state, at + 50)).toBeNull();
+  });
+
+  // The speed check lives in `stepWedge`, which restarts the buffer on any
+  // human-sized gap -- so typing never accumulates enough to be flushed.
+  it('reads nothing out of text typed at human speed', () => {
+    const { state, at } = burst('shea butter', 150);
+    expect(flushWedgeIfIdle(state, at + 250)).toBeNull();
+  });
+
+  it('reads nothing out of a burst too short to be a code', () => {
+    const { state, at } = burst('abc', 5);
+    expect(flushWedgeIfIdle(state, at + 250)).toBeNull();
+  });
+});
+
+// The bug the fragment rule exists for: a delivery that stalls mid-code splits
+// the burst, and flushing the tail offers the till a suffix of the real barcode
+// -- `9447255972` out of `8809447255972`, matching nothing and looking real.
+describe('flushWedgeIfIdle and split bursts', () => {
+  it('reads nothing out of the tail of a burst that was broken by a stall', () => {
+    let state = initialWedgeState();
+    let at = 1000;
+    for (const char of '880') {
+      state = stepWedge(state, char, at).state;
+      at += 5;
+    }
+    at += 400; // the stall
+    for (const char of '9447255972') {
+      state = stepWedge(state, char, at).state;
+      at += 5;
+    }
+    expect(flushWedgeIfIdle(state, at + 250)).toBeNull();
+  });
+
+  // A terminator still speaks for itself: the scanner is saying where the code
+  // ends, so a fragment it ends is emitted as before.
+  it('still resolves a broken burst when the scanner terminates it', () => {
+    let state = initialWedgeState();
+    let at = 1000;
+    for (const char of '880') {
+      state = stepWedge(state, char, at).state;
+      at += 5;
+    }
+    at += 400;
+    for (const char of '9447255972') {
+      state = stepWedge(state, char, at).state;
+      at += 5;
+    }
+    expect(stepWedge(state, 'Enter', at).emit).toBe('9447255972');
   });
 });

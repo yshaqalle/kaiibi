@@ -61,14 +61,23 @@ describe('SearchRow', () => {
   // The load-bearing assertion of the whole feature. A TextInput here would
   // take focus from the wedge sink, and scanning would stop the moment someone
   // touched the search box.
-  it('renders NO text input at all when the keypad is in use', () => {
+  it('renders NO text input while the keypad is closed', () => {
     const { tree } = render(true);
     expect(tree.root.findAllByType(TextInput)).toHaveLength(0);
   });
 
-  it('renders no text input even with the keypad open', () => {
+  // The reported bug: a tablet with a scanner AND a real keyboard attached
+  // looks identical to a tablet with only a scanner, so the field was a
+  // Pressable and everything typed on the physical keyboard went into the
+  // invisible sink and was never seen again. Once the user has ASKED to type,
+  // the field is a real input -- so hardware keys land -- with the system
+  // keyboard still suppressed, which is what the on-screen keypad is for.
+  it('becomes a real text input once the keypad is open, so a physical keyboard types', () => {
     const { tree } = render(true, '', true);
-    expect(tree.root.findAllByType(TextInput)).toHaveLength(0);
+    const fields = tree.root.findAllByType(TextInput);
+    expect(fields).toHaveLength(1);
+    expect(fields[0].props.showSoftInputOnFocus).toBe(false);
+    expect(fields[0].props.autoFocus).toBe(true);
   });
 
   // The keypad now docks at the screen root (see the dock-fix mockup); the row
@@ -103,31 +112,21 @@ describe('SearchRow', () => {
     expect(render(false).labels()).not.toContain('Scanner ready');
   });
 
-  // ---- Caret tests carried over from the caret-placement fix (commit
-  // 69aab51's sibling work): rendering with keypadOpen instead of pressing,
-  // since the row is now controlled. The behaviour they lock is unchanged. ----
+  // ---- The caret. It used to be drawn by hand, because a Pressable has no
+  // system caret; the open field is a real input now and brings its own, so the
+  // hand-drawn one is gone from both states rather than moved. ----
 
-  // The caret is drawn by hand -- a Pressable has no system caret -- and it
-  // must sit where a caret sits: on the text row, after the last character,
-  // not wherever the field's column layout happens to drop it.
-  it('draws the caret beside the text, on the same row', () => {
+  it('carries the text into the open field, where the caret follows it', () => {
     const { tree } = render(true, 'coca co', true);
-    const carets = findCarets(tree);
-    expect(carets).toHaveLength(1);
-    // The caret's own wrapper (BlinkingCaret) carries no style; the layout
-    // assertion belongs to the nearest styled ancestor -- the value row.
-    let holder = carets[0].parent!;
-    while (!StyleSheet.flatten(holder.props?.style)) holder = holder.parent!;
-    expect(StyleSheet.flatten(holder.props.style).flexDirection).toBe('row');
-    expect(holder.findAllByType(Text).map((t) => t.props.children)).toContain('coca co');
+    expect(tree.root.findByType(TextInput).props.value).toBe('coca co');
+    expect(findCarets(tree)).toHaveLength(0);
   });
 
-  // With the keypad open the field is live, like a focused TextInput: an empty
-  // live field shows a bare caret, not advice to tap a thing already tapped.
-  it('replaces the prompt with a bare caret while the keypad is open and empty', () => {
-    const { labels, tree } = render(true, '', true);
+  // With the keypad open the field is live and focused, so the advice to tap a
+  // thing already tapped goes -- the real caret says the same thing better.
+  it('drops the prompt while the keypad is open', () => {
+    const { labels } = render(true, '', true);
     expect(labels()).not.toContain('Tap to type, or scan');
-    expect(findCarets(tree)).toHaveLength(1);
   });
 
   it('shows no caret while the keypad is closed', () => {

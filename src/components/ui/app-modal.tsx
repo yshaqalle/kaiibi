@@ -1,6 +1,8 @@
 // eslint-disable-next-line no-restricted-imports -- this IS the wrapper the rule points everything else at
 import { Modal, type ModalProps } from 'react-native';
 
+import { TillKeypad } from '@/components/till-keypad';
+
 // Every orientation any device in this app declares, INCLUDING upside-down,
 // which app.json grants iPad. The rule is that a modal must never be more
 // restrictive than the app it opens over: whatever is left out here is an
@@ -42,6 +44,18 @@ const MODAL_ORIENTATIONS: ModalProps['supportedOrientations'] = [
 //
 // A default parameter rather than a hardcoded prop, so a caller that genuinely
 // needs a narrower set can still say so -- it just has to say so deliberately.
-export function AppModal({ supportedOrientations = MODAL_ORIENTATIONS, ...rest }: ModalProps) {
-  return <Modal supportedOrientations={supportedOrientations} {...rest} />;
+// The till's keyboard rides along with every sheet, for the same reason this
+// wrapper exists at all: a modal is a separate WINDOW, so the dock rendered at
+// the app root cannot reach over it, and the fields that need a keyboard most
+// -- a customer search, a product form, a float count -- are all inside sheets.
+// Putting it here means all ~45 of them are served, and the next one anyone
+// adds is served without being told. It renders nothing unless the platform is
+// withholding the system keyboard and a field is focused.
+export function AppModal({ supportedOrientations = MODAL_ORIENTATIONS, children, ...rest }: ModalProps) {
+  return (
+    <Modal supportedOrientations={supportedOrientations} {...rest}>
+      {children}
+      <TillKeypad />
+    </Modal>
+  );
 }

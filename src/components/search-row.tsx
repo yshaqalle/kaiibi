@@ -1,32 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import { fieldBurstScan, initialFieldBurstState, stepFieldBurst } from '@/lib/barcode-wedge';
 
 const theme = Colors.light;
-
-// A hard on/off blink -- two zero-duration steps, not a fade -- because a
-// caret is a state indicator, not an animation. Slow enough not to nag from
-// the corner of the eye across a whole sale.
-function BlinkingCaret() {
-  // Lazy state, not a ref: the value is needed during render for the style,
-  // and reading a ref's .current in render is off-limits to the compiler.
-  const [opacity] = useState(() => new Animated.Value(1));
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0, duration: 0, delay: 550, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 0, delay: 550, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [opacity]);
-
-  return <Animated.View style={[styles.caret, { opacity }]} />;
-}
 
 /**
  * Keypad open/closed, owned by the SCREEN rather than the row: the keypad
@@ -46,17 +24,26 @@ export function useSearchKeypadState(useKeypad: boolean) {
 }
 
 /**
- * The search box, in its two worlds.
+ * The search box, in its three states.
  *
  * With no hardware keyboard attached this is exactly what it has always been:
  * a `TextInput` and the system keyboard.
  *
- * With one attached it is NOT a `TextInput`, and that is the point rather than
- * a shortcut. A text field would take focus, and focus is what `WedgeSink`
- * needs to catch scans -- so touching the search box would stop the scanner
- * working. Rendering a `Pressable` and driving the text from our own keypad
- * means the field never asks for focus, the wedge keeps it, and a barcode
- * scanned mid-word still lands. Both work at once instead of taking turns.
+ * With one attached and the keypad CLOSED it is not a `TextInput`, and that is
+ * the point rather than a shortcut. A text field would take focus, and focus is
+ * what `WedgeSink` needs to catch scans -- so merely having a search box on
+ * screen would stop the scanner working. A `Pressable` never asks for focus, so
+ * the wedge keeps it and a barcode scanned mid-browse still lands.
+ *
+ * With the keypad OPEN it is a `TextInput` again, with the system keyboard
+ * suppressed. "A keyboard is attached" cannot tell a till that has only a
+ * scanner from a tablet that has a scanner AND a real keyboard, and the
+ * Pressable served the first at the cost of the second: everything typed on the
+ * physical keyboard went into the invisible sink and was never seen. Yielding
+ * the caret once the user has ASKED to type is the same rule the no-keypad
+ * world already follows -- a field the user opened owns the keyboard, and a
+ * scan into it is caught by `stepFieldBurst` below rather than by the sink.
+ * Closing the keypad unmounts the field, and the sink reclaims the caret.
  */
 export function SearchRow({
   value,
@@ -194,29 +181,64 @@ export function SearchRow({
       // scan button needs is exactly right. `fieldCounter` already leaves it.
       : (counter ? null : styles.fieldWithScan);
 
+  // The promise the whole keypad design turns on: the scanner keeps working
+  // while you type, open or closed. Green AND the word, because colour alone is
+  // never the signal (see the bento tokens' note on deutan viewers).
+  const scannerLive = (
+    <View style={styles.live}>
+      <View style={styles.liveDot} />
+      <Text style={styles.liveLabel}>Scanner ready</Text>
+    </View>
+  );
+
+  // One field for both worlds, so the keypad's cannot drift from the ordinary
+  // one: same handlers, same burst rules, same look. Only focus differs.
+  const textField = (live: boolean) => (
+    <TextInput
+      value={value}
+      onChangeText={handleChangeText}
+      placeholder={live ? '' : placeholder}
+      placeholderTextColor={theme.bentoMuted2}
+      style={[styles.field, live && styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter, trailingRoom]}
+      onSubmitEditing={handleSubmit}
+      // A wedge scanner fires this on its trailing Enter; keeping focus
+      // means the next scan lands here too instead of nowhere -- which is
+      // exactly why `handleSubmit` has to replace the text rather than let
+      // the next scan extend it.
+      blurOnSubmit={false}
+      returnKeyType="search"
+      autoCapitalize="none"
+      autoCorrect={false}
+      // Keypad mode only. The field takes the caret the moment it opens, so
+      // hardware keys land in it -- and `showSoftInputOnFocus={false}` keeps
+      // the system keyboard away, which is the whole reason our keypad exists.
+      // The same pair `WedgeSink` uses, for the same reason.
+      {...(live ? { autoFocus: true, showSoftInputOnFocus: false } : null)}
+    />
+  );
+
   if (!useKeypad) {
     return (
       <View style={styles.wrap}>
         {icon}
-        <TextInput
-          value={value}
-          onChangeText={handleChangeText}
-          placeholder={placeholder}
-          placeholderTextColor={theme.bentoMuted2}
-          style={[styles.field, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter, trailingRoom]}
-          onSubmitEditing={handleSubmit}
-          // A wedge scanner fires this on its trailing Enter; keeping focus
-          // means the next scan lands here too instead of nowhere -- which is
-          // exactly why `handleSubmit` has to replace the text rather than let
-          // the next scan extend it.
-          blurOnSubmit={false}
-          returnKeyType="search"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        {textField(false)}
         {clearButton}
         {scanButton}
       </View>
+    );
+  }
+
+  if (keypadOpen) {
+    return (
+      <>
+        <View style={styles.wrap}>
+          {icon}
+          {textField(true)}
+          {clearButton}
+          {scanButton}
+        </View>
+        {scannerLive}
+      </>
     );
   }
 
@@ -229,35 +251,21 @@ export function SearchRow({
           style={[styles.field, styles.fieldTappable, showSearchIcon && styles.fieldWithIcon, showScanButton && styles.fieldWithScan, counter && styles.fieldCounter, trailingRoom]}
           accessibilityRole="search"
         >
-          {/* A row of its own, so the caret lands after the last character --
-              as a direct child of the column field it dropped to the bottom-left
-              corner, reading as an artifact rather than a caret. */}
+          {/* A row of its own, so a long value truncates inside the field
+              rather than pushing past the buttons at its end. */}
           <View style={styles.valueRow}>
             {value ? (
               <Text style={styles.text} numberOfLines={1}>{value}</Text>
-            ) : keypadOpen ? null : (
+            ) : (
               // Says what it is: a thing you tap, with no cursor of its own.
-              // Gone once the keypad is open: an empty live field shows a bare
-              // caret, like a focused TextInput, not advice to tap a thing
-              // already tapped.
               <Text style={styles.prompt} numberOfLines={1}>Tap to type, or scan</Text>
             )}
-            {/* Our own caret: this is a Pressable, not a text input, so there is
-                no system caret to show that it is receiving keys. */}
-            {keypadOpen ? <BlinkingCaret /> : null}
           </View>
         </Pressable>
         {clearButton}
         {scanButton}
       </View>
-
-      <View style={styles.live}>
-        <View style={styles.liveDot} />
-        {/* Green AND the word: colour alone is never the signal (see the bento
-            tokens' note on deutan viewers). And it stays true while typing,
-            which is the promise the whole design turns on. */}
-        <Text style={styles.liveLabel}>Scanner ready</Text>
-      </View>
+      {scannerLive}
     </>
   );
 }
@@ -296,7 +304,6 @@ const styles = StyleSheet.create({
   valueRow: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, gap: 2 },
   text: { fontSize: 13, fontWeight: '600', color: theme.bentoInk, flexShrink: 1 },
   prompt: { fontSize: 13, color: theme.bentoMuted2 },
-  caret: { width: 2, height: 16, backgroundColor: theme.bentoSeries1 },
   scanButton: {
     position: 'absolute',
     right: 6,

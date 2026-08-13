@@ -23,10 +23,11 @@ import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
-import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
 import { useRegisterSession } from '@/hooks/use-register-session';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
 import { sessionCashSummary } from '@/lib/registers';
@@ -141,6 +142,11 @@ export default function PosScreen() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
   const { keypadOpen, setKeypadOpen } = useSearchKeypadState(scanner.onScreenKeypad);
+  // Old binaries only. See `useWedgeSinkFallback`.
+  const sinkFallback = useWedgeSinkFallback();
+  // The old keypad stands down only once the new dock has been seen working on
+  // this device -- never on a claim that it could.
+  const universalKeypad = useKeypadProven();
   const splitRef = useRef<ScrollView>(null);
   // Compact POS puts the cart ABOVE the browse pane, so the search row's
   // content-relative y is the pane's y plus the row's y within the pane.
@@ -586,7 +592,9 @@ export default function PosScreen() {
           onChange={setSearch}
           onSubmit={handleSearchSubmit}
           placeholder="Search or scan a product"
-          useKeypad={scanner.onScreenKeypad}
+          // Legacy binaries only -- see the note on Inventory's copy. Where the
+          // dock can type into the focused field, this is an ordinary text box.
+          useKeypad={scanner.onScreenKeypad && !universalKeypad}
           showScanButton={scanner.camera}
           onScanPress={() => setScannerOpen(true)}
           showSearchIcon
@@ -878,7 +886,10 @@ export default function PosScreen() {
       {/* A flex sibling of the Split, under BOTH panes: the dock belongs to
           the screen, not the search column — the cart stays visible and
           tappable so a cashier can scan or take payment mid-typing. */}
-      {keypadOpen && scanner.onScreenKeypad ? (
+      {/* The legacy path. Where the binary can type into the focused field,
+          `TillKeypad` at the app root serves this box and every other one --
+          rendering both would put two keyboards on screen at once. */}
+      {keypadOpen && scanner.onScreenKeypad && !universalKeypad ? (
         <SearchKeypad
           value={search}
           onChange={setSearch}
@@ -949,7 +960,9 @@ export default function PosScreen() {
           a drawer autofocus their first field the moment they open -- a field
           asking for focus while this takes it back every 700ms is the fight
           this list exists to prevent. */}
-      {scanner.hardware && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
+      {/* Only where the window listener is unavailable -- see the note on
+          Inventory's copy of this line. */}
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddProduct && registerSheet === null && receipt === null && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Scanning something the shop doesn't stock yet is a normal event mid-
