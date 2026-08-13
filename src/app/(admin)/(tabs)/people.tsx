@@ -11,7 +11,7 @@ import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import
 import { CustomerModal } from '@/components/customer-modal';
 import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
-import { PromotionsTab } from '@/components/marketing/promotions-tab';
+import { MarketingTab } from '@/components/marketing/marketing-tab';
 import { NotesField } from '@/components/notes-field';
 import { ScheduleTab } from '@/components/schedule/schedule-tab';
 import { StaffSelfService } from '@/components/staff-self-service';
@@ -204,7 +204,7 @@ export default function PeopleScreen() {
         {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
         {tab === 'schedule' && canSeeSchedule ? <ScheduleTab setHeaderActions={setHeaderActions} /> : null}
         {tab === 'marketing' && canSeeMarketing ? (
-          <PromotionsTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} />
+          <MarketingTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} />
         ) : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} />

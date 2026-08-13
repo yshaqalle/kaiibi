@@ -71,15 +71,16 @@ const STATUS_TONE: Record<PromoStatus, 'default' | 'success' | 'warning'> = {
   paused: 'default',
 };
 
-export function PromotionsTab({
-  compact,
-  setHeaderActions,
-  setDetailSelected,
-}: {
+// Exported so marketing-tab.tsx's shell can declare the exact same prop shape
+// for MarketingTab without re-typing it -- the two are meant to be
+// interchangeable at the call site in people.tsx.
+export type PromotionsTabProps = {
   compact: boolean;
   setHeaderActions: HeaderActionsSetter;
   setDetailSelected: DetailSelectionSetter;
-}) {
+};
+
+export function PromotionsTab({ compact, setHeaderActions, setDetailSelected }: PromotionsTabProps) {
   const { shop } = useAuth();
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
