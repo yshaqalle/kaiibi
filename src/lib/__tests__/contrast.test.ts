@@ -76,6 +76,21 @@ describe('stepUntilContrast', () => {
     expect(contrastRatio(stepped, '#faf8f4')).toBeGreaterThanOrEqual(4.5);
   });
 
+  // The regression this exists for: a mid-tone ground where lightening cannot
+  // reach the target but darkening can. Choosing the direction from the
+  // ground's own luminance sent this toward white, stopped at ~2.96:1, and
+  // returned a colour that failed the ratio the caller asked for.
+  it('darkens on a mid-tone ground when only darkening can clear the bar', () => {
+    const stepped = stepUntilContrast('#6e6e6e', '#969696', 4.5);
+    expect(contrastRatio(stepped, '#969696')).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('reaches the target from either side of a mid-tone ground', () => {
+    // Same ground, a colour LIGHTER than it. Still has to end up readable.
+    const stepped = stepUntilContrast('#c8c8c8', '#969696', 4.5);
+    expect(contrastRatio(stepped, '#969696')).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('gives up at black or white rather than looping forever', () => {
     // 21:1 is the theoretical maximum, so nothing can clear a higher bar.
     const stepped = stepUntilContrast('#808080', '#808080', 21);

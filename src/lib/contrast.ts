@@ -68,8 +68,17 @@ export function stepUntilContrast(color: string, against: string, minRatio: numb
   if (!rgb || !ground) return color;
   if (contrastRatio(color, against) >= minRatio) return color;
 
-  // Move away from the ground: lighten on a dark ground, darken on a light one.
-  const towardWhite = relativeLuminance(ground) < 0.5;
+  // Head toward whichever extreme has the higher ceiling against this ground,
+  // not toward whichever the ground's own luminance suggests.
+  //
+  // Choosing by `relativeLuminance(ground) < 0.5` looks equivalent and is not:
+  // on a mid-tone ground it can send a colour that is ALREADY darker than the
+  // ground climbing toward white, exhaust the step budget short of the target,
+  // and return a colour that fails the ratio the caller asked for -- while
+  // darkening would have cleared it comfortably. Comparing the two ceilings
+  // cannot make that mistake, because it asks the only question that matters:
+  // which direction can actually get there.
+  const towardWhite = contrastRatio('#ffffff', against) >= contrastRatio('#000000', against);
   let current = { ...rgb };
   // 24 steps of ~4% covers the full range; the loop is bounded so an
   // unreachable ratio (nothing clears 21:1 but pure black or white) ends at the
