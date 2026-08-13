@@ -343,6 +343,20 @@ export type Promotion = {
   // The brand or category name for those two scopes; null for 'store'.
   scopeValue: string | null;
   active: boolean;
+  // The window the offer runs in. Null start = already running; null end =
+  // until someone switches it off. These are SCHEDULING, and `active` is the
+  // hard "off now" override on top of them — a promotion applies only when it
+  // is active AND inside its window. See src/lib/discounts.ts.
+  startsAt: string | null;
+  endsAt: string | null;
+  // False means the offer never fires by itself and only reaches a sale when
+  // a cashier picks it. Campaign codes, staff discount, a goodwill gesture.
+  autoApply: boolean;
+  // A third state, distinct from the other two: `active = false` is paused and
+  // may come back, an `endsAt` in the past is "this run is over", and this is
+  // "gone from every list, kept only so old sales still read". Set instead of
+  // deleting once a promotion has been applied to a sale.
+  archivedAt: string | null;
   createdAt: string;
 };
 

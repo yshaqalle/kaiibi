@@ -12,6 +12,10 @@ function mapPromotionRow(row: any): Promotion {
     scope: row.scope,
     scopeValue: row.scope_value,
     active: row.active,
+    startsAt: row.starts_at ?? null,
+    endsAt: row.ends_at ?? null,
+    autoApply: row.auto_apply ?? true,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
   };
 }

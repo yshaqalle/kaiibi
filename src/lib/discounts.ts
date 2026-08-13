@@ -9,13 +9,39 @@ export function discountAmountCents(baseCents: number, discount: Discount | null
   return Math.max(0, Math.min(raw, baseCents));
 }
 
-// Among all active promotions matching a product's brand/category (or a
-// store-wide one), picks whichever yields the single largest discount for
-// this line — no stacking, and no scope-precedence rules to reason about,
-// just "best deal wins". Returns null if nothing matches.
-export function bestPromotionForProduct(product: Product, promotions: Promotion[], lineGrossCents: number): Promotion | null {
+// The one place "is this offer running right now" is decided. Everything that
+// applies a discount goes through here, so the product tile badge, the cart
+// line and the total can never disagree about whether an offer is live.
+//
+// Three separate ideas, deliberately not collapsed: `active` is the owner's
+// hard off switch, the window is scheduling, and `archivedAt` is "kept only so
+// old sales still read". A promotion has to clear all three.
+export function isPromotionLive(promo: Promotion, now: number = Date.now()): boolean {
+  if (!promo.active || promo.archivedAt) return false;
+  if (promo.startsAt && Date.parse(promo.startsAt) > now) return false;
+  // The end instant is the moment it stops, not the last moment it runs — an
+  // offer "until 21:00" must not still apply at 21:00.
+  if (promo.endsAt && Date.parse(promo.endsAt) <= now) return false;
+  return true;
+}
+
+// Among all promotions matching a product's brand/category (or a store-wide
+// one), picks whichever yields the single largest discount for this line — no
+// stacking, and no scope-precedence rules to reason about, just "best deal
+// wins". Returns null if nothing matches.
+//
+// `autoApply === false` is excluded here on purpose: those offers exist only
+// to be chosen by a cashier, and firing by themselves is exactly what they are
+// defined not to do.
+export function bestPromotionForProduct(
+  product: Product,
+  promotions: Promotion[],
+  lineGrossCents: number,
+  now: number = Date.now()
+): Promotion | null {
   const matching = promotions.filter((p) => {
-    if (!p.active) return false;
+    if (!isPromotionLive(p, now)) return false;
+    if (!p.autoApply) return false;
     if (p.scope === 'store') return true;
     if (p.scope === 'brand') return Boolean(product.brand) && product.brand === p.scopeValue;
     if (p.scope === 'category') return Boolean(product.category) && product.category === p.scopeValue;
@@ -42,28 +68,28 @@ export function lineGrossCents(line: CartLine): number {
 // A manual discount entered directly on the cart line always wins over an
 // auto-applied promotion for that same line — cashier discretion overrides
 // a standing store-wide/brand/category sale.
-export function lineDiscountCents(line: CartLine, promotions: Promotion[]): number {
+export function lineDiscountCents(line: CartLine, promotions: Promotion[], now: number = Date.now()): number {
   const gross = lineGrossCents(line);
   if (line.manualDiscount) return discountAmountCents(gross, line.manualDiscount);
-  const promo = bestPromotionForProduct(line.product, promotions, gross);
+  const promo = bestPromotionForProduct(line.product, promotions, gross, now);
   return promo ? discountAmountCents(gross, { type: promo.discountType, value: promo.discountValue }) : 0;
 }
 
-export function appliedPromotionForLine(line: CartLine, promotions: Promotion[]): Promotion | null {
+export function appliedPromotionForLine(line: CartLine, promotions: Promotion[], now: number = Date.now()): Promotion | null {
   if (line.manualDiscount) return null;
-  return bestPromotionForProduct(line.product, promotions, lineGrossCents(line));
+  return bestPromotionForProduct(line.product, promotions, lineGrossCents(line), now);
 }
 
-export function lineNetCents(line: CartLine, promotions: Promotion[]): number {
-  return lineGrossCents(line) - lineDiscountCents(line, promotions);
+export function lineNetCents(line: CartLine, promotions: Promotion[], now: number = Date.now()): number {
+  return lineGrossCents(line) - lineDiscountCents(line, promotions, now);
 }
 
 // Sum of each line's net (post-line-discount) total — this is the subtotal
 // a transaction-level discount then applies on top of.
-export function cartSubtotalCents(lines: CartLine[], promotions: Promotion[]): number {
-  return lines.reduce((sum, line) => sum + lineNetCents(line, promotions), 0);
+export function cartSubtotalCents(lines: CartLine[], promotions: Promotion[], now: number = Date.now()): number {
+  return lines.reduce((sum, line) => sum + lineNetCents(line, promotions, now), 0);
 }
 
-export function cartLineDiscountTotalCents(lines: CartLine[], promotions: Promotion[]): number {
-  return lines.reduce((sum, line) => sum + lineDiscountCents(line, promotions), 0);
+export function cartLineDiscountTotalCents(lines: CartLine[], promotions: Promotion[], now: number = Date.now()): number {
+  return lines.reduce((sum, line) => sum + lineDiscountCents(line, promotions, now), 0);
 }
