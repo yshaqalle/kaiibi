@@ -28,6 +28,8 @@ function makeItem(overrides: Partial<SaleItem> = {}): SaleItem {
     lineTotalCents: 2200,
     discountCents: 0,
     unitCostCents: 1200,
+    promotionId: null,
+    promotionName: null,
     ...overrides,
   };
 }

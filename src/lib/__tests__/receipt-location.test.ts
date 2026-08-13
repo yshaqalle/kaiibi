@@ -43,7 +43,7 @@ function makeSale(): Sale {
     totalCents: 1000,
     itemCount: 1,
     createdAt: new Date().toISOString(),
-    items: [{ id: 'i1', saleId: 's1', productId: 'p1', productName: 'Soap', unitPriceCents: 1000, quantity: 1, lineTotalCents: 1000, discountCents: 0, unitCostCents: null }],
+    items: [{ id: 'i1', saleId: 's1', productId: 'p1', productName: 'Soap', unitPriceCents: 1000, quantity: 1, lineTotalCents: 1000, discountCents: 0, unitCostCents: null, promotionId: null, promotionName: null }],
     payments: [],
     edits: [],
     refunds: [],

@@ -58,9 +58,16 @@ export async function completeSale(
 // their full product record just to satisfy `CartLine`'s type. `discountCents`
 // per item is carried through unchanged from the original sale (the editor
 // doesn't currently offer a way to change discounts, only quantities/items).
+// `promotionId`, likewise, is carried through unchanged so re-saving a line
+// preserves which offer produced its discount instead of silently detaching
+// it -- see migration 20260826000100_sale_promotion_attribution and
+// edit_sale's v_existing_promo_ids, which is what lets a promotion that has
+// since ended/paused/archived still be re-saved on an old sale.
+// `promotion_name` is deliberately NOT sent -- the server re-reads it
+// authoritatively from the promotions row rather than trusting client text.
 export async function editSale(
   saleId: string,
-  items: { productId: string; quantity: number; discountCents?: number }[],
+  items: { productId: string; quantity: number; discountCents?: number; promotionId?: string | null }[],
   payments: PaymentLine[],
   customer?: SaleCustomer,
   transactionDiscountCents = 0
@@ -69,7 +76,12 @@ export async function editSale(
   if (payments.length === 0) throw new Error('At least one payment is required');
   const { error } = await supabase.rpc('edit_sale', {
     p_sale_id: saleId,
-    p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity, discount_cents: item.discountCents ?? 0 })),
+    p_items: items.map((item) => ({
+      product_id: item.productId,
+      quantity: item.quantity,
+      discount_cents: item.discountCents ?? 0,
+      promotion_id: item.promotionId ?? null,
+    })),
     p_payments: buildPaymentPayload(payments),
     p_customer_name: customer?.name ?? null,
     p_customer_phone: customer?.phone ?? null,
@@ -152,6 +164,8 @@ function mapSaleRow(row: any): Sale {
         lineTotalCents: item.line_total_cents,
         discountCents: item.discount_cents ?? 0,
         unitCostCents: item.unit_cost_cents ?? null,
+        promotionId: item.promotion_id ?? null,
+        promotionName: item.promotion_name ?? null,
       })
     ),
     payments: (row.sale_payments ?? []).map(

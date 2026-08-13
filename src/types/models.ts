@@ -377,6 +377,14 @@ export type SaleItem = {
   // predating the snapshot column, or products with no cost recorded —
   // reported as "uncosted" rather than counted as zero.
   unitCostCents: number | null;
+  // Which offer produced `discountCents` on this line, if any — see
+  // migration 20260826000100_sale_promotion_attribution. `promotionName` is
+  // frozen at the time this line was written (renaming/archiving/deleting the
+  // promotion later doesn't change past sales, same treatment as
+  // `productName`); `promotionId` is null for a manually-typed discount and
+  // for any line predating the migration.
+  promotionId: string | null;
+  promotionName: string | null;
 };
 
 // One line of a (possibly split) checkout payment. `tenderedCents` is only

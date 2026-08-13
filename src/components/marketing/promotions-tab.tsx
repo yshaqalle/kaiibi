@@ -17,6 +17,7 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { listBrands } from '@/lib/brands';
 import { listCategories } from '@/lib/categories';
 import { createPromotion, deletePromotion, discountLabel, listPromotions, scopeLabel, updatePromotion, type NewPromotionInput } from '@/lib/promotions';
+import { endDateInputToInstant, instantToEndDateInput, instantToStartDateInput, startDateInputToInstant } from '@/lib/promotion-dates';
 import type { Promotion } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Matches
@@ -40,17 +41,6 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 // as isPromotionLive (lib/discounts.ts), just not collapsed to a boolean, so a
 // row can say WHY something isn't applying rather than only that it isn't.
 type PromoStatus = 'live' | 'scheduled' | 'expired' | 'paused';
-
-// `minimumDate` on the underlying <input type="date">/native picker is
-// inclusive, so passing `startsAt` straight through let an owner pick the
-// same day for both ends -- which fails the server's `ends_at > starts_at`
-// constraint for a perfectly reasonable "Friday only" offer. One day later is
-// the first day that satisfies it.
-function dayAfter(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
 
 function promoStatus(p: Promotion, now: number): PromoStatus {
   if (!p.active) return 'paused';
@@ -190,9 +180,13 @@ export function PromotionsTab({
     // DateInput expects a plain YYYY-MM-DD: on web an <input type="date">
     // just renders blank for anything else, silently discarding the saved
     // date and, since the state is still truthy, suppressing the "Running
-    // now"/"Until I switch it off" hint too.
-    setStartsAt(promo.startsAt ? promo.startsAt.slice(0, 10) : null);
-    setEndsAt(promo.endsAt ? promo.endsAt.slice(0, 10) : null);
+    // now"/"Until I switch it off" hint too. Slicing the ISO string to its
+    // first 10 characters is the WRONG conversion -- see promotion-dates.ts's
+    // header comment -- these route through its local-time functions
+    // instead, which is also what un-shifts the stored end instant back to
+    // the inclusive day the owner actually picked.
+    setStartsAt(promo.startsAt ? instantToStartDateInput(promo.startsAt) : null);
+    setEndsAt(promo.endsAt ? instantToEndDateInput(promo.endsAt) : null);
     setAutoApply(promo.autoApply);
     setConfirmingDelete(false);
     setDeleteResult(null);
@@ -231,8 +225,11 @@ export function PromotionsTab({
       scope,
       scopeValue: scope === 'store' ? null : scopeValue,
       active,
-      startsAt,
-      endsAt,
+      // The picker deals in whole local days; the column is a timestamptz.
+      // See promotion-dates.ts's header comment for why the end date shifts
+      // forward a day here (stored exclusive) while the start date doesn't.
+      startsAt: startsAt ? startDateInputToInstant(startsAt) : null,
+      endsAt: endsAt ? endDateInputToInstant(endsAt) : null,
       autoApply,
     };
     run(async () => {
@@ -405,7 +402,12 @@ export function PromotionsTab({
         </View>
         <View style={styles.dateHalf}>
           <Text style={styles.fieldLabel}>ENDS</Text>
-          <DateInput value={endsAt ?? ''} onChangeText={(value) => setEndsAt(value || null)} minimumDate={startsAt ? dayAfter(startsAt) : undefined} />
+          {/* A same-day offer is legal now that the end date is stored
+              exclusive (see promotion-dates.ts) -- "Friday only" produces
+              ends_at = Saturday 00:00, which is strictly after starts_at.
+              So the earliest day worth picking is startsAt itself, not the
+              day after it. */}
+          <DateInput value={endsAt ?? ''} onChangeText={(value) => setEndsAt(value || null)} minimumDate={startsAt ?? undefined} />
           {!endsAt && <Text style={styles.dateHint}>Until I switch it off</Text>}
         </View>
       </View>

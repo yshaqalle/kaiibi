@@ -83,6 +83,8 @@ declare
   v_promo_name text;
   v_promo_type text;
   v_promo_value integer;
+  v_promo_starts_at timestamptz;
+  v_promo_ends_at timestamptz;
   v_expected_discount integer;
 begin
   if not public.has_shop_permission(p_shop_id, 'pos.access') then
@@ -219,16 +221,29 @@ begin
       -- `active and archived_at is null` so a paused or archived promotion's id
       -- cannot be attached to a new sale -- otherwise a cashier without
       -- discounts.manual could use a store-wide promotion's id, paused or not,
-      -- to take a discount the permission exists to prevent. The starts_at/
-      -- ends_at window is deliberately NOT enforced here: a naive check would
-      -- refuse an in-flight cart sitting on the boundary, and that tradeoff is
-      -- still an open decision. The window is left to the client for now.
-      select name, discount_type, discount_value
-        into v_promo_name, v_promo_type, v_promo_value
+      -- to take a discount the permission exists to prevent.
+      select name, discount_type, discount_value, starts_at, ends_at
+        into v_promo_name, v_promo_type, v_promo_value, v_promo_starts_at, v_promo_ends_at
         from public.promotions
        where id = v_promo_id and shop_id = p_shop_id and active and archived_at is null;
       if v_promo_name is null then
         raise exception 'promotion % does not belong to shop %', v_promo_id, p_shop_id;
+      end if;
+
+      -- The window IS enforced here, with slack on both edges so a real cart
+      -- is never refused at the boundary. One minute of slack on the start
+      -- absorbs clock skew between a till and the server -- a device a
+      -- minute fast must not be told an offer hasn't started yet. Ten
+      -- minutes of slack on the end is a grace window: a cashier who opened
+      -- the cart while the offer was live must be able to finish checking
+      -- out a few minutes after it lapsed, rather than have the sale refused
+      -- at the payment screen with a total the customer has already been
+      -- told.
+      if v_promo_starts_at is not null and v_promo_starts_at > now() + interval '1 minute' then
+        raise exception 'promotion % has not started yet', v_promo_name;
+      end if;
+      if v_promo_ends_at is not null and v_promo_ends_at <= now() - interval '10 minutes' then
+        raise exception 'promotion % has ended', v_promo_name;
       end if;
 
       v_expected_discount := case
@@ -434,7 +449,17 @@ declare
   v_promo_name text;
   v_promo_type text;
   v_promo_value integer;
+  v_promo_starts_at timestamptz;
+  v_promo_ends_at timestamptz;
   v_expected_discount integer;
+  -- Promotions already attached to this sale before the edit -- captured
+  -- below, right before the old sale_items are deleted. Re-saving one of
+  -- these is PRESERVING history, not attaching a new offer, and is exempt
+  -- from the active/archived_at/window checks a fresh attachment must pass:
+  -- editing a sale from last month has to be able to re-save a promotion
+  -- that has since ended, been paused, or been archived, or old sales would
+  -- become uneditable.
+  v_existing_promo_ids uuid[];
 begin
   select shop_id, location_id, customer_id, points_earned, points_redeemed_cents,
          loyalty_points_per_usd
@@ -512,6 +537,12 @@ begin
     end if;
   end loop;
 
+  -- Captured before the delete below wipes the rows it would otherwise read
+  -- from -- see v_existing_promo_ids's declaration for what this is for.
+  select coalesce(array_agg(distinct promotion_id) filter (where promotion_id is not null), '{}')
+    into v_existing_promo_ids
+    from public.sale_items where sale_id = p_sale_id;
+
   delete from public.sale_items where sale_id = p_sale_id;
   delete from public.sale_payments where sale_id = p_sale_id;
 
@@ -549,23 +580,58 @@ begin
         raise exception 'not authorized to enter a manual discount';
       end if;
       v_promo_name := null;
-    else
-      -- A claimed promotion is verified against the row, not taken on trust:
-      -- otherwise "attach any uuid" would be a way around the permission above,
-      -- and the name written onto the sale forever would be the caller's text.
-      -- `active and archived_at is null` so a paused or archived promotion's id
-      -- cannot be attached to a sale -- otherwise a cashier without
-      -- discounts.manual could use a store-wide promotion's id, paused or not,
-      -- to take a discount the permission exists to prevent. The starts_at/
-      -- ends_at window is deliberately NOT enforced here: a naive check would
-      -- refuse an in-flight cart sitting on the boundary, and that tradeoff is
-      -- still an open decision. The window is left to the client for now.
+    elsif v_promo_id = any(v_existing_promo_ids) then
+      -- PRESERVED, not attached: this promotion was already on the sale
+      -- before the edit, so re-saving it is history surviving an edit, not a
+      -- new offer being claimed. Looked up by id/shop_id only -- no active,
+      -- no archived_at, no window -- because a sale from last month has to
+      -- stay editable even after the promotion behind it has since ended,
+      -- been paused, or been archived. The amount is still capped: history
+      -- may be kept, but it may not be inflated on the way back in.
       select name, discount_type, discount_value
         into v_promo_name, v_promo_type, v_promo_value
+        from public.promotions
+       where id = v_promo_id and shop_id = v_shop_id;
+      if v_promo_name is null then
+        raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
+      end if;
+
+      v_expected_discount := case
+        when v_promo_type = 'percentage'
+          then round(v_product.price_cents * v_qty * v_promo_value / 100.0)::integer
+        else least(v_promo_value, v_product.price_cents * v_qty)
+      end;
+      if v_line_discount > v_expected_discount then
+        raise exception 'discount % exceeds what promotion % allows (%)',
+          v_line_discount, v_promo_name, v_expected_discount;
+      end if;
+    else
+      -- NEWLY attached: this promotion was not already on the sale, so it
+      -- gets exactly the rules complete_sale applies to a fresh claim,
+      -- window included. A claimed promotion is verified against the row,
+      -- not taken on trust: otherwise "attach any uuid" would be a way
+      -- around the permission above, and the name written onto the sale
+      -- forever would be the caller's text. `active and archived_at is null`
+      -- so a paused or archived promotion's id cannot be attached to a sale
+      -- -- otherwise a cashier without discounts.manual could use a
+      -- store-wide promotion's id, paused or not, to take a discount the
+      -- permission exists to prevent.
+      select name, discount_type, discount_value, starts_at, ends_at
+        into v_promo_name, v_promo_type, v_promo_value, v_promo_starts_at, v_promo_ends_at
         from public.promotions
        where id = v_promo_id and shop_id = v_shop_id and active and archived_at is null;
       if v_promo_name is null then
         raise exception 'promotion % does not belong to shop %', v_promo_id, v_shop_id;
+      end if;
+
+      -- Same slack as complete_sale: one minute absorbs clock skew on the
+      -- start, ten minutes on the end gives a cashier mid-checkout room to
+      -- finish after the offer lapses.
+      if v_promo_starts_at is not null and v_promo_starts_at > now() + interval '1 minute' then
+        raise exception 'promotion % has not started yet', v_promo_name;
+      end if;
+      if v_promo_ends_at is not null and v_promo_ends_at <= now() - interval '10 minutes' then
+        raise exception 'promotion % has ended', v_promo_name;
       end if;
 
       v_expected_discount := case
