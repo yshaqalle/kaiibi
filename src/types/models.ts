@@ -365,6 +365,70 @@ export type Promotion = {
   createdAt: string;
 };
 
+// Lives here rather than in lib/customer-segments.ts because AudienceFilter
+// (below) needs it too, and lib/customer-segments.ts already imports
+// `Customer` from this file — defining it there and importing it back here
+// would make the dependency between models.ts and lib/ two-way.
+export type CustomerSegment = 'vip' | 'at-risk' | 'new' | 'regular';
+
+// Who a campaign is for, stored on `Campaign.audience` as jsonb. Lives here
+// for the same reason as `CustomerSegment` above: lib/campaign-audience.ts
+// already imports `Customer` from this file, so putting the type there and
+// importing it back would make models.ts depend on lib/ while lib/ depends
+// on models.ts — see src/lib/campaign-audience.ts for the field-by-field
+// matching rules.
+//
+// A FILTER, not a list of ids: a customer whose phone number is corrected
+// next week should join the queue on their own, without anyone rebuilding
+// the campaign. Freezing the list at creation would make "fix a number and
+// they get the message" impossible to honour.
+//
+// Every field is additive and an empty one means "no opinion": the default
+// filter matches the whole directory.
+export type AudienceFilter = {
+  segments: CustomerSegment[];
+  tags: string[];
+  // "Has not bought in N days". Null means no opinion about purchase history.
+  inactiveDays: number | null;
+  // Reserved for a shop with several branches. Null means every branch.
+  locationId: string | null;
+};
+
+// One offer, one audience, one message — see
+// docs/superpowers/specs/2026-08-12-marketing-and-offers-design.md Phase 3.
+export type Campaign = {
+  id: string;
+  shopId: string;
+  // Null means a message with no discount behind it: new stock, a change of
+  // hours, a thank you.
+  promotionId: string | null;
+  name: string;
+  // Two drafts of the SAME message, not two campaigns — they share an
+  // audience and a queue.
+  messageEn: string | null;
+  messageSo: string | null;
+  audience: AudienceFilter;
+  status: 'draft' | 'sending' | 'done';
+  createdAt: string;
+  startedAt: string | null;
+};
+
+// Deliberately weaker than it could be. WhatsApp reports nothing back to a
+// deep-linking app, so 'sent' here means the OWNER said it sent when the app
+// came back — not that WhatsApp confirmed anything. There is no 'delivered'
+// and no 'read' on this path, and adding one would be a claim the app cannot
+// support.
+export type RecipientState = 'waiting' | 'opened' | 'sent' | 'skipped' | 'unreachable';
+
+export type CampaignRecipient = {
+  id: string;
+  campaignId: string;
+  customerId: string;
+  state: RecipientState;
+  openedAt: string | null;
+  sentAt: string | null;
+};
+
 export type SaleItem = {
   id: string;
   saleId: string;

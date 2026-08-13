@@ -1,6 +1,9 @@
-import type { Customer } from '@/types/models';
+import type { Customer, CustomerSegment } from '@/types/models';
 
-export type CustomerSegment = 'vip' | 'at-risk' | 'new' | 'regular';
+// Re-exported from here (rather than defined here) because AudienceFilter in
+// models.ts needs it too, and this file already imports `Customer` from
+// models.ts — see the comment on CustomerSegment there.
+export type { CustomerSegment };
 
 const NEW_CUSTOMER_WINDOW_DAYS = 30;
 

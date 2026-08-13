@@ -1,24 +1,12 @@
-import { segmentForCustomer, type CustomerSegment } from '@/lib/customer-segments';
+import { segmentForCustomer } from '@/lib/customer-segments';
 import { whatsappLink } from '@/lib/whatsapp';
-import type { Customer } from '@/types/models';
+import type { AudienceFilter, Customer } from '@/types/models';
 
-// Who a campaign is for, stored on the campaign as jsonb.
-//
-// A FILTER, not a list of ids, and that is the whole design: a customer whose
-// phone number is corrected next week should join the queue on their own,
-// without anyone rebuilding the campaign. Freezing the list at creation would
-// make "fix a number and they get the message" impossible to honour.
-//
-// Every field is additive and an empty one means "no opinion": the default
-// filter matches the whole directory.
-export type AudienceFilter = {
-  segments: CustomerSegment[];
-  tags: string[];
-  // "Has not bought in N days". Null means no opinion about purchase history.
-  inactiveDays: number | null;
-  // Reserved for a shop with several branches. Null means every branch.
-  locationId: string | null;
-};
+// Re-exported from here (rather than defined here) because this file already
+// imports `Customer` from models.ts — defining AudienceFilter here and
+// importing it back from models.ts would make the dependency two-way. See
+// the comment on AudienceFilter in models.ts.
+export type { AudienceFilter };
 
 // Whether a chat can be opened at all, asked of the one function that already
 // decides this for the WhatsApp button (src/lib/whatsapp.ts). A second opinion
