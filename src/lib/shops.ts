@@ -10,6 +10,7 @@ function mapShopRow(row: any): Shop {
     description: row.description,
     returnPolicy: row.return_policy,
     logoUrl: row.logo_url,
+    brandColor: row.brand_color ?? null,
     categories: row.categories ?? [],
     payPeriodAnchor: row.pay_period_anchor,
     taxEnabled: row.tax_enabled,
@@ -128,7 +129,7 @@ export async function createShop(input: {
 }
 
 export async function updateShop(id: string, input: Partial<{
-  name: string; description: string; returnPolicy: string; logoUrl: string | null; categories: string[]; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
+  name: string; description: string; returnPolicy: string; logoUrl: string | null; brandColor: string | null; categories: string[]; payPeriodAnchor: string | null; taxEnabled: boolean; taxRatePercent: number;
   loyaltyEnabled: boolean; loyaltyPointsPerUsd: number; loyaltyCentsPerPoint: number; loyaltyPointsAvailableAfterDays: number;
   receiptShowLogo: boolean; receiptShowCashierName: boolean; receiptAutoPrint: boolean; receiptAutoWhatsapp: boolean;
   paymentCashEnabled: boolean; paymentZaadEnabled: boolean; paymentEdahabEnabled: boolean; paymentSplitEnabled: boolean;
@@ -144,6 +145,7 @@ export async function updateShop(id: string, input: Partial<{
       ...(input.description !== undefined && { description: input.description }),
       ...(input.returnPolicy !== undefined && { return_policy: input.returnPolicy }),
       ...(input.logoUrl !== undefined && { logo_url: input.logoUrl }),
+      ...(input.brandColor !== undefined && { brand_color: input.brandColor }),
       ...(input.categories !== undefined && { categories: input.categories }),
       ...(input.payPeriodAnchor !== undefined && { pay_period_anchor: input.payPeriodAnchor }),
       ...(input.taxEnabled !== undefined && { tax_enabled: input.taxEnabled }),

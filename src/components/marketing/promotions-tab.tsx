@@ -6,6 +6,7 @@ import { Badge } from '@/components/badge';
 import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput } from '@/components/date-input';
+import { PosterSheet } from '@/components/marketing/poster-sheet';
 import { StatTile } from '@/components/stat-tile';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -95,6 +96,11 @@ export function PromotionsTab({
   // editingId, since "New sale" opens the same pane with editingId still null.
   const [formOpen, setFormOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Which promotion the poster sheet is open for -- a full row, not just an
+  // id, so PosterSheet has everything posterCopyFor needs without a second
+  // lookup. Independent of `editingId`/`formOpen`: opening a poster does not
+  // close or reset the edit form underneath it.
+  const [posterPromotion, setPosterPromotion] = useState<Promotion | null>(null);
   // Set once deletePromotion resolves, replacing the delete confirm with its
   // outcome -- there is no toast/snackbar surface anywhere in this app (see
   // src/lib/confirm.ts: both helpers there are pre-action confirms, not
@@ -218,6 +224,28 @@ export function PromotionsTab({
   };
 
   const canSave = name.trim().length > 0 && Number(discountValue) > 0 && (scope === 'store' || Boolean(scopeValue));
+
+  // The saved row, for the Poster action below -- and for isFormDirty, which
+  // asks whether the form still matches it. A poster must never advertise a
+  // discount the till won't give, so PosterSheet is always handed this saved
+  // promotion rather than the live form (right, and unchanged); what was
+  // missing is telling the owner when those two have quietly drifted apart,
+  // e.g. 20% edited to 30% and Poster tapped before Save. Reconstructed with
+  // the exact same field-by-field transforms startEdit uses to populate the
+  // form from a promotion, so this compares like with like.
+  const editingPromotion = editingId ? (promotions.find((p) => p.id === editingId) ?? null) : null;
+  const isFormDirty =
+    editingPromotion !== null &&
+    (name !== editingPromotion.name ||
+      discountType !== editingPromotion.discountType ||
+      discountValue !==
+        (editingPromotion.discountType === 'fixed' ? (editingPromotion.discountValue / 100).toFixed(2) : String(editingPromotion.discountValue)) ||
+      scope !== editingPromotion.scope ||
+      scopeValue !== editingPromotion.scopeValue ||
+      active !== editingPromotion.active ||
+      startsAt !== (editingPromotion.startsAt ? instantToStartDateInput(editingPromotion.startsAt) : null) ||
+      endsAt !== (editingPromotion.endsAt ? instantToEndDateInput(editingPromotion.endsAt) : null) ||
+      autoApply !== editingPromotion.autoApply);
 
   const submit = () => {
     if (!shop) return;
@@ -437,6 +465,10 @@ export function PromotionsTab({
         <Switch value={active} onValueChange={setActive} />
       </Pressable>
 
+      {editingId && isFormDirty && !confirmingDelete && !deleteResult && (
+        <Text style={styles.dateHint}>Save your changes first — the poster always shows what&apos;s saved, not what&apos;s on this form.</Text>
+      )}
+
       <View style={styles.formActions}>
         {deleteResult ? (
           <>
@@ -461,9 +493,21 @@ export function PromotionsTab({
                   </Pressable>
                 </>
               ) : (
-                <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
-                  <Text style={styles.actionButtonTextDanger}>Delete</Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    onPress={() => {
+                      if (isFormDirty) return;
+                      if (editingPromotion) setPosterPromotion(editingPromotion);
+                    }}
+                    disabled={isFormDirty}
+                    style={[styles.actionButton, isFormDirty && styles.actionButtonDisabled]}
+                  >
+                    <Text style={styles.actionButtonText}>Poster</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
+                    <Text style={styles.actionButtonTextDanger}>Delete</Text>
+                  </Pressable>
+                </>
               ))}
             <Pressable onPress={closeForm} style={styles.actionButton}>
               <Text style={styles.actionButtonText}>Cancel</Text>
@@ -503,6 +547,10 @@ export function PromotionsTab({
         onCloseDetail={closeForm}
         detailTitle={editingId ? 'Edit sale' : 'New sale'}
       />
+
+      {posterPromotion && (
+        <PosterSheet promotion={posterPromotion} promotions={promotions} onClose={() => setPosterPromotion(null)} />
+      )}
     </View>
   );
 }

@@ -28,6 +28,11 @@ export type Shop = {
   returnPolicy: string | null;
   // Shown in the admin sidebar avatar and on receipts.
   logoUrl: string | null;
+  // The shop's own colour, used by the poster (src/components/marketing/
+  // poster-canvas.tsx). Null means "never set" -- the poster falls back to its
+  // template's own colour rather than to black. The text colour that goes on it
+  // is computed, never stored: see src/lib/contrast.ts.
+  brandColor: string | null;
   categories: string[];
   // Start date the weekly/biweekly pay cycles count from. Null until set; the
   // period picker asks for it rather than guessing, because a defaulted anchor

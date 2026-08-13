@@ -6,7 +6,13 @@ process.env.TZ = 'America/New_York';
 
 module.exports = {
   preset: 'jest-expo',
-  testPathIgnorePatterns: ['/node_modules/', '/.expo/', '/.claude/'],
+  // Anchored to <rootDir>, not bare substrings. Unanchored, these are matched
+  // against each test's ABSOLUTE path -- so a checkout living anywhere under a
+  // directory called `.claude` (which is exactly where `.claude/worktrees/<name>`
+  // puts one) had all 92 of its test files matched and then silently filtered
+  // back out. Jest reported "No tests found" and exited 0-ish, which reads as a
+  // clean baseline rather than a suite that never ran.
+  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/.expo/', '<rootDir>/.claude/'],
   // constants/theme.ts imports global.css for the web font variables, which
   // Jest cannot parse — so anything reading a colour token was untestable.
   // See jest/style-stub.js.
