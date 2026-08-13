@@ -135,13 +135,23 @@ export async function syncRecipients(campaignId: string, customerIds: string[]):
 // UPDATE on exactly those columns (campaign_id/customer_id are the honest
 // record of who was actually contacted, and there is no DELETE grant at all,
 // so a recipient row is never removed once synced).
+// 'now' rather than the device's clock, following markThreadRead in
+// src/lib/support.ts, which stamps its own column-scoped grant the same way
+// and for the same reason: these are shared tablets with poor time sync, and
+// there is no trigger behind this column to correct a bad value.
+//
+// It matters more here than for a read receipt. `sent_at` is the origin of the
+// only outcome number this feature reports -- "bought within 7 days of being
+// messaged" is measured from it -- so a phone running fast or slow would skew
+// that window silently, and nothing downstream could tell. 'now' is Postgres'
+// own spelling of the transaction clock, so the server stamps it.
 export async function setRecipientState(id: string, state: RecipientState): Promise<void> {
   const { error } = await supabase
     .from('campaign_recipients')
     .update({
       state,
-      ...(state === 'opened' && { opened_at: new Date().toISOString() }),
-      ...(state === 'sent' && { sent_at: new Date().toISOString() }),
+      ...(state === 'opened' && { opened_at: 'now' }),
+      ...(state === 'sent' && { sent_at: 'now' }),
     })
     .eq('id', id);
   if (error) throw error;
