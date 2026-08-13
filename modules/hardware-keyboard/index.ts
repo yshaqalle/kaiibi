@@ -46,6 +46,15 @@ export declare class HardwareKeyboardModule extends NativeModule<HardwareKeyboar
   /** The terminator a scanner sends, from a finger: commits what was typed. */
   pressEnter?(tag: number): void;
   isEditorFocused?(): boolean;
+  /**
+   * Let go of the caret, at the platform's own level.
+   *
+   * `Keyboard.dismiss()` only blurs the field React Native's focus cache is
+   * holding, and that cache is empty the moment a field unmounts while focused
+   * -- while UIKit's responder chain can still be holding the dead one. Blurring
+   * through both is what makes "I am done typing" mean it.
+   */
+  blurEditor?(): void;
 }
 
 // Required lazily and cached, because `requireNativeModule` THROWS when the

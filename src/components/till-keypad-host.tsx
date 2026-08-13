@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { findNodeHandle, Keyboard, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { getHardwareKeyboardModule, supportsTyping } from '../../modules/hardware-keyboard';
 import { Colors } from '@/constants/theme';
 import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { markKeypadProven } from '@/lib/keypad-proof';
+import { isSinkInput } from '@/lib/wedge-sink-focus';
 
 const theme = Colors.light;
 
@@ -74,20 +75,69 @@ function rememberTyping(hold: { current: TypingHold }, input: FocusedInput) {
   hold.current = { input, until: Date.now() + HOLD_AFTER_KEY_MS };
 }
 
-function useEditorFocused(hold: { current: TypingHold }): boolean {
+// Who is being typed into -- which is not the same question as what holds the
+// caret, and the difference is this dock's whole history of misbehaving.
+//
+// `WedgeSink` holds the caret on purpose and forever, in a field one pixel wide
+// that nobody can see. Counting it made the dock permanently visible over the
+// tab bar on the one setup that matters most -- an iPhone with a scanner and no
+// keyboard -- and unclosable with it, since blurring the sink only makes it take
+// the caret back. It is not an editor, so it does not count as one.
+//
+// React Native's focus cache, and nothing else, is what raises this dock on an
+// iPhone: measured on an iPhone 16 Pro simulator (iOS 18.3, RN 0.86), the
+// native `isEditorFocused` answered false while the search field was plainly
+// focused -- caret up, iOS withholding its own keyboard. The same measurement
+// rules out `WedgeSink`'s `getNativeRef()` liveness tiebreak here: the search
+// field's cache entry fails it while live, and applying it left the till with no
+// keyboard at all.
+function editorFocusedNow(module: { isEditorFocused?: () => boolean }): boolean {
+  const focused = TextInput.State.currentlyFocusedInput();
+  if (focused != null && !isSinkInput(focused)) return true;
+  return module.isEditorFocused?.() === true;
+}
+
+function useEditorFocused(hold: { current: TypingHold }): { focused: boolean; dismiss: () => void } {
   // The first answer comes from the initialiser rather than from the effect: a
   // screen can open with a field already autofocused, and waiting for a CHANGE
   // would leave that field with no keyboard at all -- while setting it inside
   // the effect is the cascading render the lint rule is right to refuse.
-  const [focused, setFocused] = useState(() => getHardwareKeyboardModule()?.isEditorFocused?.() === true);
+  const [focused, setFocused] = useState(() => {
+    const module = getHardwareKeyboardModule();
+    return module != null && editorFocusedNow(module);
+  });
+
+  // "The cashier has said they are finished typing", which outranks whatever the
+  // focus signal claims.
+  //
+  // The dock covers the tab bar, so the one press that closes it has to work
+  // every time: a dock that only leaves when the focus signal agrees is a dock
+  // that never leaves when the signal is stuck, and on an iPhone there is no
+  // back button to escape with and no system keyboard behind it to fall back on.
+  // The signal CAN stick -- the poll below re-focuses a remembered field for a
+  // moment after each key, and a field that has since unmounted goes back into
+  // the cache dead -- so Done stops depending on it being right.
+  //
+  // Held beside the field it was dismissed on, so the poll can tell a genuinely
+  // NEW focus (which lifts it) from the same stuck one (which does not).
+  const dismissed = useRef<{ at: boolean; input: FocusedInput | null }>({ at: false, input: null });
+  const dismiss = useCallback(() => {
+    dismissed.current = { at: true, input: TextInput.State.currentlyFocusedInput() };
+    setFocused(false);
+  }, []);
 
   useEffect(() => {
     const module = getHardwareKeyboardModule();
     if (!module || !supportsTyping()) return;
     // Only ever used to turn the dock ON. Turning it off is left to the poll
     // below, which can tell a real blur from the flicker of a re-render.
+    //
+    // Never lifts a dismissal, because on iOS the blur Done itself causes is
+    // answered by ASKING who holds focus now -- and a responder that outlived
+    // its field answers "me", which would bring the dock straight back on the
+    // press meant to close it. Only the poll, reading React's side, may lift one.
     const subscription = module.addListener('onEditorFocus', ({ focused: next }) => {
-      if (next) setFocused(true);
+      if (next && !dismissed.current.at) setFocused(true);
     });
 
     // The native event only covers the ACTIVITY's window, and a modal is a
@@ -109,13 +159,22 @@ function useEditorFocused(hold: { current: TypingHold }): boolean {
         TextInput.State.focusTextInput(held.input);
       }
 
-      const anyFocus =
-        TextInput.State.currentlyFocusedInput() != null || module.isEditorFocused?.() === true;
-      if (anyFocus) {
+      const live = TextInput.State.currentlyFocusedInput();
+      // A field the cashier has since tapped is a focus that genuinely moved,
+      // so the dismissal it was dismissed under no longer applies. The sink is
+      // excluded: it takes the caret back on a timer, and letting that lift a
+      // dismissal would reopen the dock a moment after Done closed it.
+      if (dismissed.current.at && live != null && !isSinkInput(live) && live !== dismissed.current.input) {
+        dismissed.current = { at: false, input: null };
+      }
+
+      if (editorFocusedNow(module)) {
         blurAt = null;
-        setFocused(true);
+        if (!dismissed.current.at) setFocused(true);
         return;
       }
+      // Nothing holds the caret, so there is nothing left to suppress.
+      dismissed.current = { at: false, input: null };
       if (blurAt === null) blurAt = Date.now();
       if (Date.now() - blurAt >= BLUR_GRACE_MS) setFocused(false);
     }, 120);
@@ -123,7 +182,7 @@ function useEditorFocused(hold: { current: TypingHold }): boolean {
     return () => { subscription.remove(); clearInterval(poll); };
   }, [hold]);
 
-  return focused;
+  return { focused, dismiss };
 }
 
 /**
@@ -153,7 +212,7 @@ function useKeyCaptureAnchor(enabled: boolean) {
 export function TillKeypadHost() {
   const scanner = useScannerSettings();
   const hold = useRef<TypingHold>({ input: null, until: 0 });
-  const editorFocused = useEditorFocused(hold);
+  const { focused: editorFocused, dismiss } = useEditorFocused(hold);
   // Reported the first time this dock actually has a field to serve. Until then
   // the old per-screen keypad stays on, so a device where this never appears
   // keeps the keyboard it has. See `keypad-proof`.
@@ -284,12 +343,21 @@ export function TillKeypadHost() {
               <Pressable onPress={enter} style={[styles.key, styles.wideKey]} accessibilityLabel="Enter">
                 <Text style={styles.keyLabel}>↵</Text>
               </Pressable>
-              {/* Blur rather than a dock of its own to close: the dock follows
-                  focus, so the honest way to put it away is to stop editing.
-                  `Keyboard.dismiss` blurs whatever is focused, which is the
-                  same thing this keypad is aimed at. */}
+              {/* Closing means three things, and the dock used to do only the
+                  first. Stop editing (`Keyboard.dismiss`, which reaches the
+                  field React Native is holding); release the caret for real
+                  (`blurEditor`, which reaches the one the PLATFORM is holding,
+                  including a dead one React Native has already forgotten); and
+                  go away regardless of whether either of those was believed --
+                  because a dock that only leaves when the focus signal agrees
+                  is a dock that never leaves when the signal is stuck. */}
               <Pressable
-                onPress={() => { hold.current = { input: null, until: 0 }; Keyboard.dismiss(); }}
+                onPress={() => {
+                  hold.current = { input: null, until: 0 };
+                  Keyboard.dismiss();
+                  module?.blurEditor?.();
+                  dismiss();
+                }}
                 style={[styles.key, styles.doneKey]}
                 accessibilityLabel="Done"
               >

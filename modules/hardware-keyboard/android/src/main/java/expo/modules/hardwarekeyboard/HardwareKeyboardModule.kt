@@ -294,6 +294,12 @@ class HardwareKeyboardModule : Module() {
     // Answers for the first render, before any focus CHANGE has happened.
     Function("isEditorFocused") { focusedEditor != null }
 
+    // The dock's exit. Android's focus comes from the live view tree and so
+    // rarely gets stuck, but the dock's Done key means the same thing on both
+    // platforms and must do the same thing on both: let go of the caret at the
+    // platform's level, not only in React Native's cache of it.
+    Function("blurEditor") { main.post { focusedEditor?.clearFocus() } }
+
     Function("isAttached") { isAttached() }
 
     // Absent from binaries built before key capture existed, which is exactly

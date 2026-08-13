@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, TextInput } from 'react-native';
 
 import { flushSink, initialSinkState, stepSink } from '@/lib/barcode-wedge';
+import { clearSinkInput, markSinkInput } from '@/lib/wedge-sink-focus';
 
 // How long after losing focus the sink waits before deciding nobody else wanted
 // it. A tap on a real field delivers the sink's blur and that field's focus as
@@ -148,7 +149,17 @@ export function WedgeSink({ onScan }: { onScan: (code: string) => void }) {
 
   return (
     <TextInput
-      ref={inputRef}
+      // Named to the rest of the app as the sink, so that "a field is focused"
+      // -- which this makes permanently true -- cannot be mistaken for "someone
+      // is typing". See `wedge-sink-focus`.
+      ref={(node) => {
+        const previous = inputRef.current;
+        inputRef.current = node;
+        if (node) markSinkInput(node);
+        // React hands null on the way out, so the field being released is the
+        // one this ref held a moment ago.
+        else clearSinkInput(previous);
+      }}
       // Uncontrolled, deliberately. A controlled `value=""` only resets the
       // native text when a render happens to commit mid-burst -- usually never,
       // so each event's payload is the WHOLE accumulated text, and appending
