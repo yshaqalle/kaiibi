@@ -139,6 +139,9 @@ function PromotionsModal({
       scope,
       scopeValue: scope === 'store' ? null : scopeValue,
       active: true,
+      startsAt: null,
+      endsAt: null,
+      autoApply: true,
     };
     run(async () => {
       if (editingId) await updatePromotion(editingId, input);
