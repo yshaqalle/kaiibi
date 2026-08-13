@@ -31,11 +31,16 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 //
 // Only 'sent' recipients count. For anyone else nothing was claimed to have
 // reached them, so a purchase says nothing about the campaign.
+//
+// Deliberately takes no clock. Each recipient's window runs from THEIR OWN
+// sentAt, so "now" never enters the arithmetic -- someone messaged an hour ago
+// whose window is still open simply has not bought yet, and will be counted if
+// they do. A `now` parameter here would look like it mattered and would be
+// the kind of thing a later reader wires in by mistake.
 export function boughtWithin(
   recipients: readonly CampaignRecipient[],
   salesByCustomer: ReadonlyMap<string, readonly string[]>,
-  windowDays: number,
-  now: number = Date.now()
+  windowDays: number
 ): number {
   let count = 0;
   for (const recipient of recipients) {
