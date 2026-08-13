@@ -225,6 +225,28 @@ export function PromotionsTab({
 
   const canSave = name.trim().length > 0 && Number(discountValue) > 0 && (scope === 'store' || Boolean(scopeValue));
 
+  // The saved row, for the Poster action below -- and for isFormDirty, which
+  // asks whether the form still matches it. A poster must never advertise a
+  // discount the till won't give, so PosterSheet is always handed this saved
+  // promotion rather than the live form (right, and unchanged); what was
+  // missing is telling the owner when those two have quietly drifted apart,
+  // e.g. 20% edited to 30% and Poster tapped before Save. Reconstructed with
+  // the exact same field-by-field transforms startEdit uses to populate the
+  // form from a promotion, so this compares like with like.
+  const editingPromotion = editingId ? (promotions.find((p) => p.id === editingId) ?? null) : null;
+  const isFormDirty =
+    editingPromotion !== null &&
+    (name !== editingPromotion.name ||
+      discountType !== editingPromotion.discountType ||
+      discountValue !==
+        (editingPromotion.discountType === 'fixed' ? (editingPromotion.discountValue / 100).toFixed(2) : String(editingPromotion.discountValue)) ||
+      scope !== editingPromotion.scope ||
+      scopeValue !== editingPromotion.scopeValue ||
+      active !== editingPromotion.active ||
+      startsAt !== (editingPromotion.startsAt ? instantToStartDateInput(editingPromotion.startsAt) : null) ||
+      endsAt !== (editingPromotion.endsAt ? instantToEndDateInput(editingPromotion.endsAt) : null) ||
+      autoApply !== editingPromotion.autoApply);
+
   const submit = () => {
     if (!shop) return;
     const trimmedName = name.trim();
@@ -443,6 +465,10 @@ export function PromotionsTab({
         <Switch value={active} onValueChange={setActive} />
       </Pressable>
 
+      {editingId && isFormDirty && !confirmingDelete && !deleteResult && (
+        <Text style={styles.dateHint}>Save your changes first — the poster always shows what&apos;s saved, not what&apos;s on this form.</Text>
+      )}
+
       <View style={styles.formActions}>
         {deleteResult ? (
           <>
@@ -470,10 +496,11 @@ export function PromotionsTab({
                 <>
                   <Pressable
                     onPress={() => {
-                      const promo = promotions.find((p) => p.id === editingId);
-                      if (promo) setPosterPromotion(promo);
+                      if (isFormDirty) return;
+                      if (editingPromotion) setPosterPromotion(editingPromotion);
                     }}
-                    style={styles.actionButton}
+                    disabled={isFormDirty}
+                    style={[styles.actionButton, isFormDirty && styles.actionButtonDisabled]}
                   >
                     <Text style={styles.actionButtonText}>Poster</Text>
                   </Pressable>

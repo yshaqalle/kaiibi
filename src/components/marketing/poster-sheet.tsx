@@ -4,7 +4,7 @@ import { PixelRatio, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput,
 import { CategoryChip } from '@/components/category-chip';
 import { ColorPicker } from '@/components/color-picker';
 import { PosterCanvas, POSTER_SHAPES, type PosterShape, type PosterTemplate, type PosterWeekOffer } from '@/components/marketing/poster-canvas';
-import { capturePosterPng, POSTER_EXPORT_SUPPORTED, posterPdfFromPngDataUri, posterPngDataUri, sharePoster } from '@/components/marketing/poster-export';
+import { capturePosterPng, POSTER_EXPORT_SUPPORTED, posterPdfFromPngDataUri, posterPngDataUri, printPoster, sharePoster } from '@/components/marketing/poster-export';
 import { AppModal } from '@/components/ui/app-modal';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -98,7 +98,7 @@ export function PosterSheet({
   const [previewWidth, setPreviewWidth] = useState(280);
   const captureRef = useRef<View>(null);
 
-  const [busy, setBusy] = useState<'png' | 'pdf' | 'share' | null>(null);
+  const [busy, setBusy] = useState<'pdf' | 'share' | 'print' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [colorError, setColorError] = useState<string | null>(null);
 
@@ -220,7 +220,15 @@ export function PosterSheet({
   // work for a PNG that gets resized right back down.
   const offscreenWidth = exportWidthPx / PixelRatio.get();
 
-  const runExport = async (kind: 'png' | 'pdf' | 'share') => {
+  // Two controls, not three: "Save image" and "Share" used to call the
+  // identical path for square/story, and "Save sheet (PDF)" and "Share" the
+  // identical path for the sheet shape -- no visible button may duplicate
+  // another. "Share" alone now covers what a phone actually wants handed to
+  // it (the PNG a feed or a status wants, or the PDF a print/WhatsApp-document
+  // flow wants); "pdf" is a second, genuinely different output, offered only
+  // when the shape isn't already the sheet (see the JSX below), so an owner
+  // can still get a printable page out of a square or story design.
+  const runExport = async (kind: 'pdf' | 'share') => {
     setError(null);
     setBusy(kind);
     try {
@@ -230,10 +238,7 @@ export function PosterSheet({
       // (posterPngDataUri) rather than capturing twice is what keeps the
       // saved PNG and the printed PDF pixel-identical.
       const pngUri = await capturePosterPng(captureRef);
-      if (kind === 'pdf') {
-        const pdfUri = await posterPdfFromPngDataUri(await posterPngDataUri(pngUri), shape);
-        await sharePoster(pdfUri, 'application/pdf');
-      } else if (kind === 'share' && shape === 'sheet') {
+      if (kind === 'pdf' || (kind === 'share' && shape === 'sheet')) {
         // "Share" follows whatever is on screen: the Sheet shape exists for
         // print and for sending as a WhatsApp document, so sharing it hands
         // out the PDF, not a picture of a page. Every other shape hands out
@@ -245,6 +250,24 @@ export function PosterSheet({
       }
     } catch (err) {
       setError(extractErrorMessage(err, 'Could not export this poster.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // Web's own action: there is no file to save or share here (see
+  // POSTER_EXPORT_SUPPORTED's header comment in poster-export.ts), but a
+  // browser's print dialog is a real, working destination -- captured the
+  // same way the phone captures for Save/Share, on the same off-screen copy
+  // below, just handed to printPoster instead of sharePoster.
+  const runPrint = async () => {
+    setError(null);
+    setBusy('print');
+    try {
+      const pngDataUri = await capturePosterPng(captureRef);
+      await printPoster(pngDataUri, shape);
+    } catch (err) {
+      setError(extractErrorMessage(err, 'Could not print this poster.'));
     } finally {
       setBusy(null);
     }
@@ -315,54 +338,64 @@ export function PosterSheet({
 
             {POSTER_EXPORT_SUPPORTED ? (
               <View style={styles.actions}>
-                <Pressable onPress={() => runExport('png')} disabled={busy !== null} style={[styles.primary, busy !== null && styles.actionOff]}>
-                  <Text style={styles.primaryText}>{busy === 'png' ? 'Saving…' : 'Save image'}</Text>
+                <Pressable onPress={() => runExport('share')} disabled={busy !== null} style={[styles.primary, busy !== null && styles.actionOff]}>
+                  <Text style={styles.primaryText}>{busy === 'share' ? 'Sharing…' : 'Share'}</Text>
                 </Pressable>
-                <Pressable onPress={() => runExport('pdf')} disabled={busy !== null} style={[styles.secondary, busy !== null && styles.actionOff]}>
-                  <Text style={styles.secondaryText}>{busy === 'pdf' ? 'Saving…' : 'Save sheet (PDF)'}</Text>
-                </Pressable>
-                <Pressable onPress={() => runExport('share')} disabled={busy !== null} style={[styles.secondary, busy !== null && styles.actionOff]}>
-                  <Text style={styles.secondaryText}>{busy === 'share' ? 'Sharing…' : 'Share'}</Text>
-                </Pressable>
+                {shape !== 'sheet' && (
+                  <Pressable onPress={() => runExport('pdf')} disabled={busy !== null} style={[styles.secondary, busy !== null && styles.actionOff]}>
+                    <Text style={styles.secondaryText}>{busy === 'pdf' ? 'Saving…' : 'PDF for print'}</Text>
+                  </Pressable>
+                )}
               </View>
             ) : (
-              <Text style={styles.webHint}>Saving and sharing a poster happens in the app on a phone.</Text>
+              <View style={styles.actions}>
+                <Pressable onPress={runPrint} disabled={busy !== null} style={[styles.primary, busy !== null && styles.actionOff]}>
+                  <Text style={styles.primaryText}>{busy === 'print' ? 'Printing…' : 'Print'}</Text>
+                </Pressable>
+                <Text style={styles.webHint}>Saving and sharing a poster happens in the app on a phone.</Text>
+              </View>
             )}
           </ScrollView>
         </View>
 
-        {POSTER_EXPORT_SUPPORTED && (
-          // The export-resolution copy. Captured instead of the preview above
-          // -- capturing that one would rasterise it at its on-screen size
-          // (a few hundred points), producing a PNG that looks fine on a
-          // phone screen and is unusable printed.
-          //
-          // Positioned far outside the viewport rather than hidden with
-          // display:none or opacity:0: on ANDROID, captureRef snapshots the
-          // target view's own native layer directly (`View.draw(Canvas)`),
-          // not a screen grab, so an off-screen view still rasterises fully.
-          // On IOS that is only true because capturePosterPng passes
-          // `useRenderInContext: true` -- left at its default, RNViewShot.mm
-          // takes a render-server screenshot
-          // (`drawViewHierarchyInRect:afterScreenUpdates:`) whose own inline
-          // comment admits it "doesn't work for large views and reports
-          // incorrect success even though the image is blank", which is
-          // exactly what an off-screen view like this one triggers. See
-          // poster-export.ts's capturePosterPng for the option that forces
-          // iOS onto the same layer-drawing path Android already takes.
-          // A display:none view can be pruned from the native
-          // layout/compositing pass entirely and come back blank, and a
-          // zero-opacity one risks the same on some renderers -- moving it
-          // off-screen instead of hiding it is what keeps it real.
-          // `collapsable={false}` keeps Android from stripping this wrapper
-          // out of the native view tree, since nothing on screen ever points
-          // a pixel at it and it would otherwise look prunable.
-          <View style={styles.offscreen} pointerEvents="none">
-            <View ref={captureRef} collapsable={false}>
-              <PosterCanvas copy={copy} width={offscreenWidth} shape={shape} template={template} color={color} showMark={showMark} weekOffers={weekOffers} />
-            </View>
+        {/*
+          The export-resolution copy. Captured instead of the preview above
+          -- capturing that one would rasterise it at its on-screen size
+          (a few hundred points), producing an image that looks fine on a
+          phone screen and is unusable printed. Rendered on every platform,
+          web included: it is runPrint's capture source there (Print has no
+          file to skip rendering for -- see POSTER_EXPORT_SUPPORTED's header
+          comment in poster-export.ts), not just Save/Share's.
+
+          Positioned far outside the viewport rather than hidden with
+          display:none or opacity:0: on ANDROID, captureRef snapshots the
+          target view's own native layer directly (`View.draw(Canvas)`),
+          not a screen grab, so an off-screen view still rasterises fully.
+          On IOS that is only true because capturePosterPng passes
+          `useRenderInContext: true` -- left at its default, RNViewShot.mm
+          takes a render-server screenshot
+          (`drawViewHierarchyInRect:afterScreenUpdates:`) whose own inline
+          comment admits it "doesn't work for large views and reports
+          incorrect success even though the image is blank", which is
+          exactly what an off-screen view like this one triggers. See
+          poster-export.ts's capturePosterPng for the option that forces
+          iOS onto the same layer-drawing path Android already takes. On
+          WEB, react-native-view-shot walks the DOM (html2canvas) rather
+          than grabbing the screen either, so the same off-screen position
+          does not blank that capture out.
+          A display:none view can be pruned from the native
+          layout/compositing pass entirely and come back blank, and a
+          zero-opacity one risks the same on some renderers -- moving it
+          off-screen instead of hiding it is what keeps it real.
+          `collapsable={false}` keeps Android from stripping this wrapper
+          out of the native view tree, since nothing on screen ever points
+          a pixel at it and it would otherwise look prunable.
+        */}
+        <View style={styles.offscreen} pointerEvents="none">
+          <View ref={captureRef} collapsable={false}>
+            <PosterCanvas copy={copy} width={offscreenWidth} shape={shape} template={template} color={color} showMark={showMark} weekOffers={weekOffers} />
           </View>
-        )}
+        </View>
       </View>
     </AppModal>
   );

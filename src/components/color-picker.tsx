@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Colors } from '@/constants/theme';
-import { contrastRatio, inkFor, parseHex } from '@/lib/contrast';
+import { contrastRatio, inkFor, parseHex, stepUntilContrast } from '@/lib/contrast';
 
 const theme = Colors.light;
 
@@ -14,6 +14,14 @@ const theme = Colors.light;
 // the documented exception) a literal hex belongs. Every OTHER colour below
 // -- borders, backgrounds, text -- reads `theme.bento*`.
 const PRESETS = ['#5b31b5', '#0b6b3c', '#1b47b8', '#c0392b', '#c8791a', '#0b0b0d'];
+
+// The same near-black poster-canvas.tsx fixes as its Bold template's ground
+// (BOLD_GROUND there) -- duplicated here as colour DATA rather than imported,
+// the same reasoning PRESETS above documents for itself: this is a
+// general-purpose picker with no business knowing about poster templates.
+// Used only to decide whether the quiet line below has anything to say; the
+// poster itself still does its own per-template step against its own ground.
+const DARK_TEMPLATE_GROUND = '#0b0b0d';
 
 type Hsl = { h: number; s: number; l: number };
 
@@ -151,6 +159,17 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
   const ink = inkFor(value);
   const ratio = contrastRatio(ink, value);
 
+  // The GROUND case (Market, above) always has something to report -- ink
+  // flips, and the ratio beside it says how comfortably. The ACCENT case
+  // doesn't: on Bold's dark ground the shop's own colour is used as TEXT
+  // rather than the ground, and stepUntilContrast quietly nudges it when it
+  // would otherwise vanish. The picker says nothing about that today, so an
+  // owner never learns their exact pick isn't quite what prints. One quiet
+  // line, only when stepping actually changed anything -- never a warning,
+  // since the poster is correct either way.
+  const accentOnDark = stepUntilContrast(value, DARK_TEMPLATE_GROUND, 4.5);
+  const wasStepped = accentOnDark.toLowerCase() !== value.toLowerCase();
+
   return (
     <View style={styles.wrap}>
       <View style={styles.swatchRow}>
@@ -191,6 +210,8 @@ export function ColorPicker({ value, onChange }: { value: string; onChange: (hex
           <Text style={styles.inkRowText}>{ratio.toFixed(1)}:1</Text>
         </View>
       </View>
+
+      {wasStepped && <Text style={styles.stepHint}>Lightened a touch on darker templates, so the text stays easy to read.</Text>}
 
       <Slider label="Hue" pct={hsl.h / 360} colors={hueTrack()} onDrag={(pct) => setFromHsl({ ...hsl, h: pct * 360 })} />
       <Slider label="Depth" pct={hsl.s / 100} colors={satTrack(hsl.h, hsl.l)} onDrag={(pct) => setFromHsl({ ...hsl, s: pct * 100 })} />
@@ -283,6 +304,7 @@ const styles = StyleSheet.create({
   inkRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   inkSwatch: { width: 18, height: 18, borderRadius: 5, borderWidth: 1, borderColor: theme.bentoLine },
   inkRowText: { fontSize: 11, fontWeight: '800', color: theme.bentoMuted },
+  stepHint: { fontSize: 11, color: theme.bentoMuted },
   sliderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
   sliderLabel: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase', color: theme.bentoMuted, width: 44 },
   track: { flex: 1, height: 22, justifyContent: 'center' },

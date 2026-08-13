@@ -6,11 +6,19 @@ import { captureRef } from 'react-native-view-shot';
 
 import { POSTER_SHAPES, type PosterShape } from '@/components/marketing/poster-canvas';
 
-// react-native-view-shot is Android and iOS only, and expo-print's
-// printToFileAsync on web opens the print dialog rather than returning a file.
-// So saving a poster is something the app does on a phone. The screen reads
-// this and offers Print alone in a browser, rather than a Save button that
-// quietly does nothing -- which is the failure this constant exists to prevent.
+// react-native-view-shot DOES ship a web implementation (v5.1.0's
+// lib/RNViewShot.web.js, backed by html2canvas) -- that part is not actually
+// a platform gap. What web genuinely lacks is somewhere to put the result: no
+// file system to save a captured PNG to, and expo-print's printToFileAsync
+// opens the print dialog on web instead of returning a file (its own web
+// module is literally `printToFileAsync() { window.print(); }` -- see
+// node_modules/expo-print's ExponentPrint.web.ts). So SAVING or SHARING a
+// poster *file* is something only a phone can do, and this constant gates
+// exactly that. The screen reads it and offers Print alone in a browser --
+// printPoster below, which captures the poster the same way this file
+// already does for Save/Share, then hands the result straight to a print
+// dialog instead of a file -- rather than a Save/Share button that quietly
+// does nothing.
 export const POSTER_EXPORT_SUPPORTED = Platform.OS !== 'web';
 
 // A4 at 72 PPI, which is the unit printToFileAsync works in.
@@ -96,26 +104,34 @@ export async function posterPngDataUri(pngUri: string): Promise<string> {
 //            the poster was actually written to.
 // Inlining the bytes sidesteps both: there is no second origin to resolve
 // against because there is no second location being referenced.
-export async function posterPdfFromPngDataUri(pngDataUri: string, shape: PosterShape): Promise<string> {
+// Shared by the PDF path (posterPdfFromPngDataUri) and the Print path
+// (printPoster) below -- one poster-in-a-page markup, not two, so a printed
+// sheet and a saved one can never drift in size or margins. Margin-free and
+// edge-to-edge: a poster is the whole page. The @page rule is what Android's
+// WebView (and a browser's print dialog) honours; iOS takes the margins
+// option separately, which both native callers below set to match.
+function posterPageHtml(pngDataUri: string, shape: PosterShape): { html: string; page: { width: number; height: number } } {
   const ratio = POSTER_SHAPES[shape].ratio;
   const page = shape === 'sheet'
     ? A4_POINTS
     : { width: A4_POINTS.width, height: Math.round(A4_POINTS.width / ratio) };
 
-  // Margin-free and edge-to-edge: a poster is the whole page. The @page rule is
-  // what Android's WebView honours; iOS takes the margins option, and both are
-  // set so neither platform adds a white border of its own.
   const html = `<!doctype html>
 <html>
   <head><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
   <style>
-    @page { margin: 0; }
+    @page { size: ${page.width}pt ${page.height}pt; margin: 0; }
     html, body { margin: 0; padding: 0; }
     img { display: block; width: 100%; height: 100%; object-fit: contain; }
   </style>
   <body><img src="${pngDataUri}" /></body>
 </html>`;
 
+  return { html, page };
+}
+
+export async function posterPdfFromPngDataUri(pngDataUri: string, shape: PosterShape): Promise<string> {
+  const { html, page } = posterPageHtml(pngDataUri, shape);
   const { uri } = await Print.printToFileAsync({
     html,
     width: page.width,
@@ -125,7 +141,57 @@ export async function posterPdfFromPngDataUri(pngDataUri: string, shape: PosterS
   return uri;
 }
 
+// A hidden same-page <iframe>, not window.open(): some browsers (notably
+// mobile ones, and any with popups blocked) silently reuse the *current* tab
+// for a blocked popup instead of opening a new one, which would turn
+// `document.write(html)` into overwriting this entire app's DOM with the
+// poster page. An iframe never leaves the current page, so there's nothing to
+// navigate to or "close" that could affect the app underneath -- the exact
+// pattern receipt-modal.tsx's printHtml and export-file.ts's printHtmlOnWeb
+// already use for the identical reason.
+function printHtmlOnWeb(html: string) {
+  // @ts-ignore -- web-only DOM APIs, only ever called on Platform.OS === 'web'.
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = 'none';
+  // @ts-ignore
+  document.body.appendChild(iframe);
+  const frameWindow = iframe.contentWindow;
+  if (!frameWindow) {
+    iframe.remove();
+    return;
+  }
+  frameWindow.document.open();
+  frameWindow.document.write(html);
+  frameWindow.document.close();
+  frameWindow.focus();
+  frameWindow.print();
+  setTimeout(() => iframe.remove(), 1000);
+}
+
+// The web half of "Web offers Print". Deliberately NOT `Print.printAsync` on
+// web -- expo-print's own web module ignores the `html` option entirely and
+// just calls `window.print()` on whatever page happens to be on screen (see
+// node_modules/expo-print's ExponentPrint.web.ts), which would print this
+// app's chrome instead of the poster. `printHtmlOnWeb` above is what actually
+// prints the poster's own page. On iOS/Android, `html` genuinely is honoured,
+// so this reaches for the real thing there.
+export async function printPoster(pngDataUri: string, shape: PosterShape): Promise<void> {
+  const { html, page } = posterPageHtml(pngDataUri, shape);
+  if (Platform.OS === 'web') {
+    printHtmlOnWeb(html);
+    return;
+  }
+  await Print.printAsync({ html, width: page.width, height: page.height });
+}
+
 export async function sharePoster(uri: string, mimeType: string): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) return;
+  if (!(await Sharing.isAvailableAsync())) {
+    throw new Error('Sharing is not available on this device.');
+  }
   await Sharing.shareAsync(uri, { mimeType, UTI: mimeType === 'application/pdf' ? '.pdf' : '.png' });
 }
