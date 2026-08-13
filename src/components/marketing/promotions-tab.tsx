@@ -86,6 +86,12 @@ export function PromotionsTab({
   // editingId, since "New sale" opens the same pane with editingId still null.
   const [formOpen, setFormOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Set once deletePromotion resolves, replacing the delete confirm with its
+  // outcome -- there is no toast/snackbar surface anywhere in this app (see
+  // src/lib/confirm.ts: both helpers there are pre-action confirms, not
+  // post-write notices), so the distinction between the two outcomes has to
+  // live in this same on-form slot rather than inventing one.
+  const [deleteResult, setDeleteResult] = useState<'deleted' | 'archived' | null>(null);
 
   const [name, setName] = useState('');
   const [discountType, setDiscountType] = useState<'percentage' | 'fixed'>('percentage');
@@ -152,6 +158,7 @@ export function PromotionsTab({
     setEndsAt(null);
     setAutoApply(true);
     setConfirmingDelete(false);
+    setDeleteResult(null);
   };
 
   const startCreate = () => {
@@ -171,6 +178,7 @@ export function PromotionsTab({
     setEndsAt(promo.endsAt);
     setAutoApply(promo.autoApply);
     setConfirmingDelete(false);
+    setDeleteResult(null);
     setFormOpen(true);
   };
 
@@ -221,10 +229,26 @@ export function PromotionsTab({
   const removePromotion = () => {
     if (!editingId) return;
     run(async () => {
-      await deletePromotion(editingId);
+      const result = await deletePromotion(editingId);
       await reload();
-      closeForm();
+      setConfirmingDelete(false);
+      setDeleteResult(result);
     });
+  };
+
+  // The one-tap row control: flips `active` without opening the form, for the
+  // owner killing a promotion at the counter mid-sale. Deliberately not
+  // routed through `run`/`saving` -- that pair drives the edit form's Save
+  // button, and a row toggle firing while some other promotion's form is open
+  // has no business disabling it.
+  const toggleActive = async (promo: Promotion) => {
+    setError(null);
+    try {
+      await updatePromotion(promo.id, { active: !promo.active });
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Something went wrong.');
+    }
   };
 
   const counts = useMemo(() => {
@@ -263,6 +287,21 @@ export function PromotionsTab({
                     {discountLabel(promo)} · {scopeLabel(promo)}
                   </Text>
                 </View>
+                <Pressable
+                  onPress={(event) => {
+                    // Without this, the tap reaches the row's own onPress too
+                    // (the "open this promotion for editing" press) -- same
+                    // fix as the date picker's inner sheet in date-input.tsx.
+                    event.stopPropagation();
+                    toggleActive(promo);
+                  }}
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: promo.active }}
+                  accessibilityLabel={promo.name}
+                  style={[styles.rowTogglePill, promo.active && styles.rowTogglePillActive]}
+                >
+                  <Text style={[styles.rowToggleText, promo.active && styles.rowToggleTextActive]}>{promo.active ? 'Active' : 'Paused'}</Text>
+                </Pressable>
                 <Badge variant="bento" label={STATUS_LABEL[status]} tone={STATUS_TONE[status]} />
               </Pressable>
             );
@@ -373,28 +412,41 @@ export function PromotionsTab({
       </Pressable>
 
       <View style={styles.formActions}>
-        {editingId &&
-          (confirmingDelete ? (
-            <>
-              <Text style={styles.confirmText}>Delete this sale?</Text>
-              <Pressable onPress={removePromotion} style={styles.actionButton}>
-                <Text style={styles.actionButtonTextDanger}>Confirm</Text>
-              </Pressable>
-              <Pressable onPress={() => setConfirmingDelete(false)} style={styles.actionButton}>
-                <Text style={styles.actionButtonText}>Cancel</Text>
-              </Pressable>
-            </>
-          ) : (
-            <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
-              <Text style={styles.actionButtonTextDanger}>Delete</Text>
+        {deleteResult ? (
+          <>
+            <Text style={styles.confirmText}>
+              {deleteResult === 'deleted' ? 'Deleted.' : "Archived — it's used in past sales, so it stays on the receipts."}
+            </Text>
+            <Pressable onPress={closeForm} style={[styles.actionButton, styles.actionButtonSolid]}>
+              <Text style={[styles.actionButtonText, styles.actionButtonTextSolid]}>Close</Text>
             </Pressable>
-          ))}
-        <Pressable onPress={closeForm} style={styles.actionButton}>
-          <Text style={styles.actionButtonText}>Cancel</Text>
-        </Pressable>
-        <Pressable onPress={submit} disabled={!canSave || saving} style={[styles.actionButton, styles.actionButtonSolid, (!canSave || saving) && styles.actionButtonDisabled]}>
-          <Text style={[styles.actionButtonText, styles.actionButtonTextSolid]}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Add sale'}</Text>
-        </Pressable>
+          </>
+        ) : (
+          <>
+            {editingId &&
+              (confirmingDelete ? (
+                <>
+                  <Text style={styles.confirmText}>Delete this sale?</Text>
+                  <Pressable onPress={removePromotion} style={styles.actionButton}>
+                    <Text style={styles.actionButtonTextDanger}>Confirm</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setConfirmingDelete(false)} style={styles.actionButton}>
+                    <Text style={styles.actionButtonText}>Cancel</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
+                  <Text style={styles.actionButtonTextDanger}>Delete</Text>
+                </Pressable>
+              ))}
+            <Pressable onPress={closeForm} style={styles.actionButton}>
+              <Text style={styles.actionButtonText}>Cancel</Text>
+            </Pressable>
+            <Pressable onPress={submit} disabled={!canSave || saving} style={[styles.actionButton, styles.actionButtonSolid, (!canSave || saving) && styles.actionButtonDisabled]}>
+              <Text style={[styles.actionButtonText, styles.actionButtonTextSolid]}>{saving ? 'Saving…' : editingId ? 'Save changes' : 'Add sale'}</Text>
+            </Pressable>
+          </>
+        )}
       </View>
     </BentoCard>
   ) : (
@@ -448,6 +500,10 @@ const styles = StyleSheet.create({
   rowMain: { flex: 1, minWidth: 0 },
   rowName: { fontSize: 13.5, fontWeight: '700', color: theme.bentoInk },
   rowSub: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
+  rowTogglePill: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
+  rowTogglePillActive: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  rowToggleText: { fontSize: 10.5, fontWeight: '700', color: theme.bentoMuted },
+  rowToggleTextActive: { color: theme.bentoSurface },
   empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', paddingVertical: 20 },
   emptyDetail: { alignItems: 'center' },
   errorText: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 10 },
