@@ -4,7 +4,16 @@ import { PixelRatio, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput,
 import { CategoryChip } from '@/components/category-chip';
 import { ColorPicker } from '@/components/color-picker';
 import { PosterCanvas, POSTER_SHAPES, type PosterShape, type PosterTemplate, type PosterWeekOffer } from '@/components/marketing/poster-canvas';
-import { capturePosterPng, POSTER_EXPORT_SUPPORTED, posterPdfFromPngDataUri, posterPngDataUri, printPoster, sharePoster } from '@/components/marketing/poster-export';
+import {
+  capturePosterPng,
+  downloadPosterPdf,
+  downloadPosterPng,
+  POSTER_EXPORT_SUPPORTED,
+  posterPdfFromPngDataUri,
+  posterPngDataUri,
+  printPoster,
+  sharePoster,
+} from '@/components/marketing/poster-export';
 import { AppModal } from '@/components/ui/app-modal';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
@@ -47,6 +56,19 @@ function extractErrorMessage(err: unknown, fallback: string): string {
     return (err as { message: string }).message;
   }
   return fallback;
+}
+
+// The base of a downloaded file's name, e.g. "eid-weekend" from "Eid
+// Weekend!" -- lowercased, non-alphanumerics collapsed to single hyphens,
+// with leading/trailing hyphens trimmed so a promotion named entirely in
+// punctuation or emoji doesn't download as "-.png". `runDownloadPng`/
+// `runDownloadPdf` below append `-${shape}` and the extension.
+function slugify(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'poster';
 }
 
 // The location's own address block, joined the same way location-switcher.tsx
@@ -98,7 +120,7 @@ export function PosterSheet({
   const [previewWidth, setPreviewWidth] = useState(280);
   const captureRef = useRef<View>(null);
 
-  const [busy, setBusy] = useState<'pdf' | 'share' | 'print' | null>(null);
+  const [busy, setBusy] = useState<'pdf' | 'share' | 'print' | 'download-png' | 'download-pdf' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [colorError, setColorError] = useState<string | null>(null);
 
@@ -220,6 +242,12 @@ export function PosterSheet({
   // work for a PNG that gets resized right back down.
   const offscreenWidth = exportWidthPx / PixelRatio.get();
 
+  // "eid-weekend-square.png" -- the promotion's own name plus the shape
+  // picked above, so a shop downloading both the square and the story cut
+  // of the same promotion gets two distinct files rather than one
+  // overwriting the other.
+  const fileNameBase = useMemo(() => `${slugify(promotion.name)}-${shape}`, [promotion.name, shape]);
+
   // Two controls, not three: "Save image" and "Share" used to call the
   // identical path for square/story, and "Save sheet (PDF)" and "Share" the
   // identical path for the sheet shape -- no visible button may duplicate
@@ -232,20 +260,21 @@ export function PosterSheet({
     setError(null);
     setBusy(kind);
     try {
-      // Always a real tmpfile, even for the PDF path below -- the PNG-share
-      // branch at the bottom of this function needs an actual file URI to
-      // hand to Sharing.shareAsync, and capturing once and reading it back
-      // (posterPngDataUri) rather than capturing twice is what keeps the
-      // saved PNG and the printed PDF pixel-identical.
-      const pngUri = await capturePosterPng(captureRef);
       if (kind === 'pdf' || (kind === 'share' && shape === 'sheet')) {
         // "Share" follows whatever is on screen: the Sheet shape exists for
         // print and for sending as a WhatsApp document, so sharing it hands
         // out the PDF, not a picture of a page. Every other shape hands out
-        // the PNG a feed or a status actually wants.
-        const pdfUri = await posterPdfFromPngDataUri(await posterPngDataUri(pngUri), shape);
+        // the PNG a feed or a status actually wants. `posterPngDataUri`
+        // captures straight to a data URI (see its header comment in
+        // poster-export.ts) -- there is no tmpfile step to share with the
+        // PNG-share branch below, so nothing is gained by capturing twice.
+        const pdfUri = await posterPdfFromPngDataUri(await posterPngDataUri(captureRef), shape);
         await sharePoster(pdfUri, 'application/pdf');
       } else {
+        // The one branch that genuinely needs a real file, not a data URI:
+        // Sharing.shareAsync hands a URI to the OS share sheet, which reads
+        // it as a file.
+        const pngUri = await capturePosterPng(captureRef);
         await sharePoster(pngUri, 'image/png');
       }
     } catch (err) {
@@ -255,19 +284,53 @@ export function PosterSheet({
     }
   };
 
-  // Web's own action: there is no file to save or share here (see
-  // POSTER_EXPORT_SUPPORTED's header comment in poster-export.ts), but a
-  // browser's print dialog is a real, working destination -- captured the
-  // same way the phone captures for Save/Share, on the same off-screen copy
-  // below, just handed to printPoster instead of sharePoster.
+  // Web's own actions: there is no OS share sheet or filesystem to hand a
+  // file to (see POSTER_EXPORT_SUPPORTED's header comment in
+  // poster-export.ts), but a download and a browser's print dialog are both
+  // real, working destinations -- captured the same way the phone captures
+  // for Share, on the same off-screen copy below, just handed to a browser
+  // API instead of Sharing.shareAsync.
+  //
+  // Was `capturePosterPng(captureRef)` -- `result: 'tmpfile'` handed
+  // straight to `printPoster` as though it were already a data URI. On web
+  // there is no tmpfile location for `captureRef` to write to (see
+  // capturePosterPng's own header comment), so that await sat forever and
+  // `busy` never cleared -- "Printing…" stuck for good. `posterPngDataUri`
+  // is the fix: it asks `captureRef` for `result: 'data-uri'` directly, the
+  // one capture mode that needs no filesystem on any platform.
   const runPrint = async () => {
     setError(null);
     setBusy('print');
     try {
-      const pngDataUri = await capturePosterPng(captureRef);
+      const pngDataUri = await posterPngDataUri(captureRef);
       await printPoster(pngDataUri, shape);
     } catch (err) {
       setError(extractErrorMessage(err, 'Could not print this poster.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runDownloadPng = async () => {
+    setError(null);
+    setBusy('download-png');
+    try {
+      const dataUri = await posterPngDataUri(captureRef);
+      downloadPosterPng(dataUri, `${fileNameBase}.png`);
+    } catch (err) {
+      setError(extractErrorMessage(err, 'Could not download this poster.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const runDownloadPdf = async () => {
+    setError(null);
+    setBusy('download-pdf');
+    try {
+      await downloadPosterPdf(captureRef, shape, `${fileNameBase}.pdf`);
+    } catch (err) {
+      setError(extractErrorMessage(err, 'Could not download this poster.'));
     } finally {
       setBusy(null);
     }
@@ -349,10 +412,15 @@ export function PosterSheet({
               </View>
             ) : (
               <View style={styles.actions}>
-                <Pressable onPress={runPrint} disabled={busy !== null} style={[styles.primary, busy !== null && styles.actionOff]}>
-                  <Text style={styles.primaryText}>{busy === 'print' ? 'Printing…' : 'Print'}</Text>
+                <Pressable onPress={runDownloadPng} disabled={busy !== null} style={[styles.primary, busy !== null && styles.actionOff]}>
+                  <Text style={styles.primaryText}>{busy === 'download-png' ? 'Downloading…' : 'Download image'}</Text>
                 </Pressable>
-                <Text style={styles.webHint}>Saving and sharing a poster happens in the app on a phone.</Text>
+                <Pressable onPress={runDownloadPdf} disabled={busy !== null} style={[styles.secondary, busy !== null && styles.actionOff]}>
+                  <Text style={styles.secondaryText}>{busy === 'download-pdf' ? 'Downloading…' : 'Download PDF'}</Text>
+                </Pressable>
+                <Pressable onPress={runPrint} disabled={busy !== null} style={[styles.secondary, busy !== null && styles.actionOff]}>
+                  <Text style={styles.secondaryText}>{busy === 'print' ? 'Printing…' : 'Print'}</Text>
+                </Pressable>
               </View>
             )}
           </ScrollView>
@@ -363,17 +431,18 @@ export function PosterSheet({
           -- capturing that one would rasterise it at its on-screen size
           (a few hundred points), producing an image that looks fine on a
           phone screen and is unusable printed. Rendered on every platform,
-          web included: it is runPrint's capture source there (Print has no
-          file to skip rendering for -- see POSTER_EXPORT_SUPPORTED's header
-          comment in poster-export.ts), not just Save/Share's.
+          web included: it is runPrint's, runDownloadPng's and
+          runDownloadPdf's capture source there (there is no file to skip
+          rendering for on web -- see POSTER_EXPORT_SUPPORTED's header
+          comment in poster-export.ts), not just Share/PDF's.
 
           Positioned far outside the viewport rather than hidden with
           display:none or opacity:0: on ANDROID, captureRef snapshots the
           target view's own native layer directly (`View.draw(Canvas)`),
           not a screen grab, so an off-screen view still rasterises fully.
-          On IOS that is only true because capturePosterPng passes
-          `useRenderInContext: true` -- left at its default, RNViewShot.mm
-          takes a render-server screenshot
+          On IOS that is only true because every capture call in
+          poster-export.ts passes `useRenderInContext: true` -- left at its
+          default, RNViewShot.mm takes a render-server screenshot
           (`drawViewHierarchyInRect:afterScreenUpdates:`) whose own inline
           comment admits it "doesn't work for large views and reports
           incorrect success even though the image is blank", which is
@@ -447,7 +516,6 @@ const styles = StyleSheet.create({
   secondary: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 14, height: 48, alignItems: 'center', justifyContent: 'center' },
   secondaryText: { color: theme.bentoInk2, fontSize: 14, fontWeight: '700' },
   actionOff: { opacity: 0.5 },
-  webHint: { fontSize: 12.5, color: theme.bentoMuted, marginTop: 18, textAlign: 'center' },
   error: { color: theme.bentoLoss, fontSize: 12, fontWeight: '700', marginBottom: 8 },
   offscreen: { position: 'absolute', left: -100000, top: -100000 },
 });

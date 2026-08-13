@@ -1,28 +1,54 @@
-import { File } from 'expo-file-system';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
 import { POSTER_SHAPES, type PosterShape } from '@/components/marketing/poster-canvas';
+import { singleImagePdf } from '@/lib/pdf-image';
 
 // react-native-view-shot DOES ship a web implementation (v5.1.0's
 // lib/RNViewShot.web.js, backed by html2canvas) -- that part is not actually
-// a platform gap. What web genuinely lacks is somewhere to put the result: no
-// file system to save a captured PNG to, and expo-print's printToFileAsync
-// opens the print dialog on web instead of returning a file (its own web
-// module is literally `printToFileAsync() { window.print(); }` -- see
-// node_modules/expo-print's ExponentPrint.web.ts). So SAVING or SHARING a
-// poster *file* is something only a phone can do, and this constant gates
-// exactly that. The screen reads it and offers Print alone in a browser --
-// printPoster below, which captures the poster the same way this file
-// already does for Save/Share, then hands the result straight to a print
-// dialog instead of a file -- rather than a Save/Share button that quietly
-// does nothing.
+// a platform gap. What web genuinely lacks is a FILE SYSTEM: nowhere to put
+// a `result: 'tmpfile'` capture (see capturePosterPng below), and
+// expo-print's printToFileAsync opens the print dialog on web instead of
+// returning a file (its own web module is literally
+// `printToFileAsync() { window.print(); }` -- see node_modules/expo-print's
+// ExponentPrint.web.ts). So a real FILE -- and anything that only a file can
+// do, `Sharing.shareAsync` chief among them -- is phone-only, and this
+// constant gates exactly that: the screen reads it to decide between the
+// phone's Share/PDF-file buttons and web's own file-less paths (Download
+// image/PDF, both built on the direct-to-data-URI capture below, and Print).
 export const POSTER_EXPORT_SUPPORTED = Platform.OS !== 'web';
 
 // A4 at 72 PPI, which is the unit printToFileAsync works in.
 const A4_POINTS = { width: 595, height: 842 };
+
+// A capture that never settles must not leave a Pressable reading
+// "Printing…" / "Downloading…" forever with no way out but a reload.
+// html2canvas -- the backend behind react-native-view-shot's web
+// implementation, which every function below eventually calls into on web
+// -- is known to hang rather than reject on certain images (notably a
+// cross-origin one it cannot proxy), so `busy`'s own `finally` in
+// poster-sheet.tsx, which only runs once the awaited promise SETTLES one way
+// or the other, cannot be trusted alone to end that. 20s is generous for a
+// poster-sized capture (at most a few hundred KB) while still being far
+// short of "the owner gave up and reloaded the page".
+const CAPTURE_TIMEOUT_MS = 20000;
+function withCaptureTimeout<T>(promise: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('The poster capture timed out.')), CAPTURE_TIMEOUT_MS);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
 
 // No width/height here on purpose -- the SIZE IS DECIDED BY LAYOUT, not by the
 // capture.
@@ -45,47 +71,92 @@ const A4_POINTS = { width: 595, height: 842 };
 // soft in a feed and useless printed on a door. Letting layout do the sizing
 // sidesteps the disagreement entirely.
 export async function capturePosterPng(ref: React.RefObject<unknown>): Promise<string> {
-  return captureRef(ref as never, {
-    result: 'tmpfile',
-    format: 'png',
-    quality: 1,
-    // iOS only. Without this, RNViewShot.mm's default strategy is
-    // `drawViewHierarchyInRect:afterScreenUpdates:YES` -- a render-server
-    // screenshot whose own inline comment admits "this doesn't work for
-    // large views and reports incorrect success even though the image is
-    // blank". That is exactly what this off-screen, far-outside-the-viewport
-    // capture target is (see poster-sheet.tsx's `styles.offscreen`), so left
-    // at the default it resolves with a blank PNG and no error. Passing this
-    // switches iOS to `[layer renderInContext:]`, which walks the view's own
-    // CALayer instead -- the same kind of layer-drawing pass Android already
-    // takes by default (`View.draw(Canvas)` in ViewShot.java). Its documented
-    // trade-offs (no gradients, no full-content ScrollView capture) cost
-    // nothing here: the poster is flat colour, Text and one Image.
-    useRenderInContext: true,
-  });
+  return withCaptureTimeout(
+    captureRef(ref as never, {
+      result: 'tmpfile',
+      format: 'png',
+      quality: 1,
+      // iOS only. Without this, RNViewShot.mm's default strategy is
+      // `drawViewHierarchyInRect:afterScreenUpdates:YES` -- a render-server
+      // screenshot whose own inline comment admits "this doesn't work for
+      // large views and reports incorrect success even though the image is
+      // blank". That is exactly what this off-screen, far-outside-the-viewport
+      // capture target is (see poster-sheet.tsx's `styles.offscreen`), so left
+      // at the default it resolves with a blank PNG and no error. Passing this
+      // switches iOS to `[layer renderInContext:]`, which walks the view's own
+      // CALayer instead -- the same kind of layer-drawing pass Android already
+      // takes by default (`View.draw(Canvas)` in ViewShot.java). Its documented
+      // trade-offs (no gradients, no full-content ScrollView capture) cost
+      // nothing here: the poster is flat colour, Text and one Image.
+      useRenderInContext: true,
+    })
+  );
 }
 
-// iOS's tmpfile result is a bare POSIX path from `RCTTempFilePath`
-// (`NSTemporaryDirectory()/ReactNative/<uuid>.png`, no `file://` scheme) --
-// fine for <Image source={{ uri }}>, which accepts either form, but
-// expo-file-system's `File` validates the URL with `isFileURL` and rejects
-// a schemeless one. Android's tmpfile result is already a proper `file://`
-// URI (`Uri.fromFile(output).toString()` in ViewShot.java), so this is a
-// no-op there.
-function toFileUri(uri: string): string {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(uri) ? uri : `file://${uri}`;
+// The direct-to-data-URI capture -- no tmpfile, no filesystem read-back.
+// `result: 'data-uri'` is a first-class option on every platform this app
+// ships to (see ios/RNViewShot.mm's `data-uri` branch and Android's
+// ViewShot.java `DATA_URI` case), producing `data:image/png;base64,…`
+// straight from the capture -- and, on web, from html2canvas's own
+// `canvas.toDataURL()` (RNViewShot.web.js), which needs no filesystem at
+// all. That is the actual story of the web Print bug this replaced: the old
+// code asked for `result: 'tmpfile'` (capturePosterPng, above) -- a location
+// web genuinely does not have -- for a value this option produces directly,
+// no filesystem involved on any platform. Used for Print (web's only export
+// target that ever needs a data URI rather than a file) and for the "Download
+// image" button below; native's Share/PDF-to-file paths still want a real
+// file and keep using capturePosterPng for that.
+export async function posterPngDataUri(ref: React.RefObject<unknown>): Promise<string> {
+  return withCaptureTimeout(
+    captureRef(ref as never, {
+      result: 'data-uri',
+      format: 'png',
+      quality: 1,
+      useRenderInContext: true,
+    })
+  );
 }
 
-// Reads the just-captured PNG back off disk as a `data:image/png;base64,…`
-// string, for posterPdfFromPngDataUri to embed directly in the PDF's HTML --
-// see that function's header comment for why a file path cannot be used
-// there instead. Reading the tmpfile back rather than capturing the poster a
-// second time is what keeps the PNG a shop saves and the sheet it prints
-// pixel-identical: two separate captures could drift apart if anything about
-// the promotion or the picker changed between them.
-export async function posterPngDataUri(pngUri: string): Promise<string> {
-  const base64 = await new File(toFileUri(pngUri)).base64();
-  return `data:image/png;base64,${base64}`;
+// Only ever called from downloadPosterPdf below. `atob` is a browser global
+// with no Hermes/RN equivalent, but that's fine the same way `document` is
+// fine in `printHtmlOnWeb` further down -- neither is referenced unless the
+// surrounding function actually runs, and both only ever run on web.
+function base64ToBytes(base64: string): Uint8Array {
+  // @ts-ignore -- web-only global.
+  const binary: string = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+// JPEG rather than PNG for the web PDF path (downloadPosterPdf below): a
+// JPEG's own compressed bytes embed directly into a PDF behind /DCTDecode
+// (see pdf-image.ts), no compression work of this app's own needed, where a
+// PNG would need Flate plus predictors this app has no library for. 0.92
+// quality is high enough that a poster -- flat colour, text, at most one
+// photo -- shows no visible banding, while still compressing meaningfully
+// smaller than the PNG capture.
+async function posterJpegBytes(ref: React.RefObject<unknown>): Promise<Uint8Array> {
+  const dataUri = await withCaptureTimeout(
+    captureRef(ref as never, {
+      result: 'data-uri',
+      format: 'jpg',
+      quality: 0.92,
+      useRenderInContext: true,
+    })
+  );
+  return base64ToBytes(dataUri.slice(dataUri.indexOf(',') + 1));
+}
+
+// Point size (72 PPI, matching printToFileAsync/@page's own unit) for
+// whatever shape the poster is -- shared by posterPageHtml below and by
+// downloadPosterPdf further down, so a sheet is always A4 and a
+// square/story page is always exactly as tall as A4 is wide, on every path
+// that produces one, not just the native print/PDF path.
+function pageSizeForShape(shape: PosterShape): { width: number; height: number } {
+  if (shape === 'sheet') return A4_POINTS;
+  const ratio = POSTER_SHAPES[shape].ratio;
+  return { width: A4_POINTS.width, height: Math.round(A4_POINTS.width / ratio) };
 }
 
 // The PDF is the captured image on a page, not a second rendering of the
@@ -99,9 +170,8 @@ export async function posterPngDataUri(pngUri: string): Promise<string> {
 //            `allowFileAccess` defaults to false on API 30+, so a
 //            `file:///data/user/0/<pkg>/cache/…png` <img> src is blocked.
 //   iOS      loads with `baseURL: Bundle.main.resourceURL`, so a captured
-//            file's path (see `toFileUri`'s header comment on its schemeless
-//            form) resolves against the APP BUNDLE, not the cache directory
-//            the poster was actually written to.
+//            file's own tmpfile path would resolve against the APP BUNDLE,
+//            not the cache directory the poster was actually written to.
 // Inlining the bytes sidesteps both: there is no second origin to resolve
 // against because there is no second location being referenced.
 // Shared by the PDF path (posterPdfFromPngDataUri) and the Print path
@@ -111,10 +181,7 @@ export async function posterPngDataUri(pngUri: string): Promise<string> {
 // WebView (and a browser's print dialog) honours; iOS takes the margins
 // option separately, which both native callers below set to match.
 function posterPageHtml(pngDataUri: string, shape: PosterShape): { html: string; page: { width: number; height: number } } {
-  const ratio = POSTER_SHAPES[shape].ratio;
-  const page = shape === 'sheet'
-    ? A4_POINTS
-    : { width: A4_POINTS.width, height: Math.round(A4_POINTS.width / ratio) };
+  const page = pageSizeForShape(shape);
 
   const html = `<!doctype html>
 <html>
@@ -194,4 +261,59 @@ export async function sharePoster(uri: string, mimeType: string): Promise<void> 
     throw new Error('Sharing is not available on this device.');
   }
   await Sharing.shareAsync(uri, { mimeType, UTI: mimeType === 'application/pdf' ? '.pdf' : '.png' });
+}
+
+// The same technique external-url.ts uses to open a link on web, and for the
+// same reason: a plain navigation, or `window.open`, can be silently
+// redirected to the CURRENT tab by a popup blocker (mobile browsers
+// especially), which for a download would either do nothing or replace this
+// whole app with the raw data. A real `<a download>` element's click is
+// honoured by the browser as "save this", never as "go here", so there is
+// nothing for a blocker to reroute.
+function clickDownload(href: string, fileName: string): void {
+  // @ts-ignore -- web-only DOM APIs, only ever called on Platform.OS === 'web'.
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = fileName;
+  // @ts-ignore
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+// Web's "Download image" button. The data URI `posterPngDataUri` produces IS
+// the download -- a `data:` URL is a valid `href` for a download anchor on
+// every browser this app supports -- so there is no Blob/object-URL step
+// needed here the way there is for the PDF below.
+export function downloadPosterPng(dataUri: string, fileName: string): void {
+  clickDownload(dataUri, fileName);
+}
+
+// Web's "Download PDF" button, and the one genuinely new capability this
+// file adds: nothing upstream of this function has ever produced an actual
+// PDF file on web before (Print only ever reached a browser's print dialog,
+// never a saved file). Captures as JPEG (see posterJpegBytes above for why),
+// hands the bytes to pdf-image.ts's pure `singleImagePdf` for the actual
+// assembly, then downloads the result as a Blob rather than a `data:` URL --
+// a PDF is easily several hundred KB to a few MB once the image is embedded,
+// comfortably past the size some browsers cap a `data:` URI at, where a Blob
+// object URL has no such ceiling.
+export async function downloadPosterPdf(ref: React.RefObject<unknown>, shape: PosterShape, fileName: string): Promise<void> {
+  const jpegBytes = await posterJpegBytes(ref);
+  const page = pageSizeForShape(shape);
+  const pdfBytes = singleImagePdf(jpegBytes, page.width, page.height);
+  // @ts-ignore -- web-only DOM APIs, only ever called on Platform.OS === 'web'.
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+  // @ts-ignore
+  const url = URL.createObjectURL(blob);
+  clickDownload(url, fileName);
+  // A tick's delay before revoking, not immediate -- the same caution
+  // `printHtmlOnWeb`'s iframe removal above takes: some browsers process a
+  // download asynchronously past the synchronous `.click()`, and revoking
+  // the object URL before that read has actually started would abort a
+  // download that had barely begun.
+  setTimeout(() => {
+    // @ts-ignore
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
