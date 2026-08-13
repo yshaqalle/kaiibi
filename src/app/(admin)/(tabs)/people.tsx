@@ -162,6 +162,23 @@ export default function PeopleScreen() {
     },
     [router]
   );
+  // Re-syncs when `?tab=` changes under an ALREADY-MOUNTED screen -- e.g. the
+  // Marketing tab's "Review the N" caveat pushes `/people?tab=customers` on
+  // itself (Marketing is a sub-tab of this same screen), which never remounts
+  // it, so the useState initializer above never runs again and the visible
+  // tab used to just sit there while the URL silently changed underneath it.
+  //
+  // Deliberately keyed on `tabParam` alone, not `tab`: a pill tap goes through
+  // `setTab`, which sets `tab` state directly AND writes the same value into
+  // `tabParam` via router.setParams. That write lands back here, but by then
+  // `tab` already equals it, so `next !== tab` is false and this is a no-op --
+  // one extra effect run, not a second state change, and nothing to bounce
+  // back from. An unpermitted or missing param computes to `null` and is
+  // ignored, same as the initializer.
+  useEffect(() => {
+    const next = permittedTab(tabParam);
+    if (next && next !== tab) setTabState(next);
+  }, [tabParam]);
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than each tab rendering a title and an action bar of its own. Same
   // mechanism Accounting uses; the tabs previously each drew "People" as a

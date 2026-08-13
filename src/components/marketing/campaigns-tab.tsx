@@ -22,8 +22,8 @@ import { listCampaigns, listRecipients } from '@/lib/campaigns';
 import { CUSTOMER_SEGMENT_LABELS } from '@/lib/customer-segments';
 import { getCustomersStatsBatch, listCustomers, type CustomerStats } from '@/lib/customers';
 import { instantToEndDateInput } from '@/lib/promotion-dates';
-import { discountLabel, listPromotions, scopeLabel } from '@/lib/promotions';
-import { listSales } from '@/lib/sales';
+import { discountLabel, getPromotion, listPromotions, scopeLabel } from '@/lib/promotions';
+import { listSalesInRange } from '@/lib/sales';
 import type { Campaign, CampaignRecipient, Customer, Promotion, Sale } from '@/types/models';
 
 // Pinned to the light palette for now — no dark-mode switching yet. Matches
@@ -42,17 +42,42 @@ function extractErrorMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
-// How many of a shop's most recent sales to look at when deciding "bought
-// within 7 days of being messaged". There is no lean, purpose-built query for
-// "every sale's customer_id and date" (getCustomersStatsBatch in customers.ts
-// is close, but collapses each customer down to a single lastOrderAt, which
-// would silently miss an earlier purchase that fell inside the window when a
-// later one outside it overwrote the date). listSales, ordered newest-first
-// and capped here, is a deliberate trade: a campaign's "within 7 days" window
-// is always recent, so the most recent slice of the shop's history is the
-// slice that can ever matter -- a sale from a year ago was never going to
-// count regardless of how far back this reaches.
-const RECENT_SALES_LIMIT = 1000;
+// How many sales to look at when deciding "bought within 7 days of being
+// messaged". There is no lean, purpose-built query for "every sale's
+// customer_id and date" (getCustomersStatsBatch in customers.ts is close, but
+// collapses each customer down to a single lastOrderAt, which would silently
+// miss an earlier purchase that fell inside the window when a later one
+// outside it overwrote the date).
+//
+// A plain "most recent N, shop-wide" used to bound this (see git history) and
+// was wrong: a busy shop burns through a few hundred sales a week, so a
+// campaign reviewed a month later had its whole 7-day window pushed outside
+// the fetched slice, and the tile quietly under-counted with nothing on
+// screen to say so. `listSalesInRange` bounds by DATE instead -- from the
+// earliest `sentAt` of any 'sent' recipient across the campaigns just loaded
+// (boughtWithin only ever looks at 'sent' recipients, so nothing before that
+// can matter) through now. That window is normally days to a few months
+// wide, not "the shop's whole history", so 10,000 is a backstop against a
+// truncation this bound is not supposed to produce, not the mechanism that
+// limits the query -- reaching it would take roughly a year of that "busy
+// shop" pace inside a window this tight.
+const SALES_WINDOW_LIMIT = 10_000;
+
+// The earliest a purchase could still count toward ANY currently-loaded
+// campaign's "bought within 7 days" tile. Recipients not yet fetched simply
+// aren't considered here -- reload() calls this only after listRecipients has
+// come back for every campaign in `campaignList`.
+function earliestSentAt(recipientsByCampaign: ReadonlyMap<string, readonly CampaignRecipient[]>): Date | null {
+  let earliest: number | null = null;
+  for (const recipients of recipientsByCampaign.values()) {
+    for (const recipient of recipients) {
+      if (recipient.state !== 'sent' || !recipient.sentAt) continue;
+      const at = Date.parse(recipient.sentAt);
+      if (earliest === null || at < earliest) earliest = at;
+    }
+  }
+  return earliest === null ? null : new Date(earliest);
+}
 
 // "VIP + Regular", "No purchase in 60 days", "Everyone" -- the same words for
 // every place a campaign's audience is summarised (list row, detail header,
@@ -135,18 +160,16 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
     if (!shop) return;
     setError(null);
     try {
-      const [campaignList, promotionList, customerList, stats, sales] = await Promise.all([
+      const [campaignList, promotionList, customerList, stats] = await Promise.all([
         listCampaigns(shop.id),
         listPromotions(shop.id),
         listCustomers(shop.id),
         getCustomersStatsBatch(shop.id),
-        listSales(shop.id, RECENT_SALES_LIMIT),
       ]);
       setCampaigns(campaignList);
       setPromotions(promotionList);
       setCustomers(customerList);
       setCustomerStats(stats);
-      setRecentSales(sales);
       // One request per campaign -- there is no batched "recipients for every
       // campaign" query (listRecipients only takes one campaignId), same
       // limitation people.tsx used to have for per-customer stats before
@@ -155,7 +178,14 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
       const recipientEntries = await Promise.all(
         campaignList.map(async (campaign) => [campaign.id, await listRecipients(campaign.id)] as const)
       );
-      setRecipientsByCampaign(new Map(recipientEntries));
+      const recipientsMap = new Map(recipientEntries);
+      setRecipientsByCampaign(recipientsMap);
+      // Bounded by what THESE recipients actually need (see SALES_WINDOW_LIMIT
+      // above) -- so this has to wait for the fetch just above rather than
+      // joining the Promise.all it used to sit in.
+      const since = earliestSentAt(recipientsMap);
+      const sales = since ? await listSalesInRange(shop.id, since, undefined, SALES_WINDOW_LIMIT) : [];
+      setRecentSales(sales);
     } catch (err) {
       setError(extractErrorMessage(err, 'Something went wrong.'));
     } finally {
@@ -193,7 +223,36 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   }, [campaigns]);
 
   const selected = campaigns.find((c) => c.id === selectedId) ?? null;
-  const selectedPromotion = selected?.promotionId ? (promotions.find((p) => p.id === selected.promotionId) ?? null) : null;
+  // `promotions` (listPromotions) leaves archived rows out on purpose -- every
+  // OTHER screen that lists promotions wants an archived one gone. A campaign
+  // built on one is the one place that isn't true: `promotion_id` is `on
+  // delete set null` specifically so a finished campaign can still name what
+  // it offered, and dropping that here would have it claim "no discount" for
+  // exactly the campaigns most worth reviewing. So a promotionId absent from
+  // the active list is looked up directly, archived or not, and cached by id
+  // rather than re-fetched on every render.
+  const [archivedPromotion, setArchivedPromotion] = useState<{ id: string; promotion: Promotion | null } | null>(null);
+  useEffect(() => {
+    const id = selected?.promotionId;
+    if (!id) return;
+    if (promotions.some((p) => p.id === id)) return;
+    if (archivedPromotion?.id === id) return;
+    let cancelled = false;
+    getPromotion(id)
+      .then((promotion) => {
+        if (!cancelled) setArchivedPromotion({ id, promotion });
+      })
+      .catch(() => {
+        if (!cancelled) setArchivedPromotion({ id, promotion: null });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.promotionId, promotions, archivedPromotion]);
+  const selectedPromotion = selected?.promotionId
+    ? (promotions.find((p) => p.id === selected.promotionId) ??
+      (archivedPromotion?.id === selected.promotionId ? archivedPromotion.promotion : null))
+    : null;
   const selectedAudience = useMemo(
     () => (selected ? audienceSummary(customers, selected.audience, lastPurchaseByCustomer) : null),
     [selected, customers, lastPurchaseByCustomer]
@@ -380,10 +439,14 @@ function CampaignDetailPane({
       <BentoCard title="The offer behind it">
         {promotion ? (
           <>
+            <KvRow k="Offer" v={promotion.name} />
             <KvRow k="Discount" v={discountLabel(promotion)} />
             <KvRow k="Applies to" v={scopeLabel(promotion)} />
             <KvRow k="Ends" v={endDate ? endDate.toLocaleDateString() : 'No end date'} />
             <KvRow k="At the till" v={promotion.autoApply ? 'Automatic' : 'When picked'} />
+            {promotion.archivedAt && (
+              <Caveat tone="context">{`${promotion.name} has since been archived and no longer runs at the till — this is what it offered when this campaign used it.`}</Caveat>
+            )}
           </>
         ) : (
           <Text style={styles.empty}>No discount — this is a message on its own.</Text>
