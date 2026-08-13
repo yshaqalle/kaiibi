@@ -6,6 +6,7 @@ import { useDetailSelection, useHeaderActions } from '@/components/accounting/us
 import { Badge, type BadgeTone } from '@/components/badge';
 import { Card } from '@/components/card';
 import { type PromotionsTabProps } from '@/components/marketing/promotions-tab';
+import { SendQueue } from '@/components/marketing/send-queue';
 import { StatTile } from '@/components/stat-tile';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -148,6 +149,10 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   const [loaded, setLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Whether the send queue is open for `selected` -- a flag rather than
+  // holding the campaign itself, so it always tracks whatever `selected`
+  // currently resolves to (including a fresh recipient count after reload()).
+  const [sendQueueOpen, setSendQueueOpen] = useState(false);
 
   useDetailSelection(setDetailSelected, selectedId !== null);
   // Nothing to publish yet -- starting a new campaign is Task 9's composer.
@@ -312,6 +317,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         shopName={shop?.name ?? ''}
         branchName={activeLocation?.name ?? ''}
         onReviewUnreachable={() => router.push({ pathname: '/people', params: { tab: 'customers' } })}
+        onContinueSending={() => setSendQueueOpen(true)}
       />
     ) : (
       <BentoCard style={styles.emptyDetail}>
@@ -339,6 +345,24 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         onCloseDetail={() => setSelectedId(null)}
         detailTitle="Campaign"
       />
+
+      {selected && sendQueueOpen && (
+        <SendQueue
+          campaign={selected}
+          promotion={selectedPromotion}
+          customers={customers}
+          lastPurchaseByCustomer={lastPurchaseByCustomer}
+          onClose={() => {
+            setSendQueueOpen(false);
+            // The queue just wrote recipient states (and possibly synced new
+            // rows) straight to the server -- reload() is what pulls those
+            // changes back into the stat tiles and status chip behind it,
+            // same as every other mutation on this screen refreshing via the
+            // shared reload() rather than patching local state ad hoc.
+            reload();
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -353,6 +377,7 @@ function CampaignDetailPane({
   shopName,
   branchName,
   onReviewUnreachable,
+  onContinueSending,
 }: {
   campaign: Campaign;
   promotion: Promotion | null;
@@ -363,6 +388,7 @@ function CampaignDetailPane({
   shopName: string;
   branchName: string;
   onReviewUnreachable: () => void;
+  onContinueSending: () => void;
 }) {
   const counts = countRecipients(recipients);
   const bought = boughtWithin(recipients, salesByCustomer, 7);
@@ -400,11 +426,7 @@ function CampaignDetailPane({
         {campaign.status === 'done' ? (
           <Text style={styles.doneNote}>Done — every reachable customer was worked through.</Text>
         ) : (
-          // Present, not pretending: no onPress at all (not even a no-op), so
-          // there is nothing for a stray tap to trigger, and `disabled` plus
-          // the dimmed style say the same thing visually. Task 8 replaces this
-          // with the real send queue.
-          <Pressable disabled accessibilityRole="button" accessibilityState={{ disabled: true }} style={[styles.continueBtn, styles.continueBtnInert]}>
+          <Pressable onPress={onContinueSending} accessibilityRole="button" style={styles.continueBtn}>
             <Text style={styles.continueBtnText}>Continue sending · {left} left</Text>
           </Pressable>
         )}
@@ -482,7 +504,6 @@ const styles = StyleSheet.create({
   detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
   detMeta: { fontSize: 12.5, color: theme.bentoMuted, marginBottom: 12 },
   continueBtn: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11, alignItems: 'center', backgroundColor: theme.bentoInk, marginBottom: 14 },
-  continueBtnInert: { opacity: 0.4 },
   continueBtnText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 13.5 },
   doneNote: { fontSize: 12.5, fontWeight: '700', color: theme.bentoMuted, marginBottom: 14 },
   tilesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
