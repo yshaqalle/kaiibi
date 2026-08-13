@@ -11,6 +11,7 @@ import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import
 import { CustomerModal } from '@/components/customer-modal';
 import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
+import { PromotionsTab } from '@/components/marketing/promotions-tab';
 import { NotesField } from '@/components/notes-field';
 import { ScheduleTab } from '@/components/schedule/schedule-tab';
 import { StaffSelfService } from '@/components/staff-self-service';
@@ -74,7 +75,7 @@ function describeMemberStores(
   return names.length <= 2 ? names.join(' · ') : `${names[0]} +${names.length - 1}`;
 }
 
-type PeopleTab = 'customers' | 'team' | 'schedule' | 'me';
+type PeopleTab = 'customers' | 'team' | 'schedule' | 'marketing' | 'me';
 
 const TEAM_PERMISSIONS = ['staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view'] as const;
 
@@ -85,6 +86,10 @@ const TAB_BLURBS: Record<PeopleTab, { label: string; blurb: string }> = {
   customers: { label: 'Customers', blurb: 'Who shops with you, and what they are worth.' },
   team: { label: 'Team', blurb: 'Who works here, what they cost, and who is in today.' },
   schedule: { label: 'Schedule', blurb: 'Who is on, which day, at which store.' },
+  marketing: {
+    label: 'Marketing',
+    blurb: 'Set up the offers that come off at the till, and say when they run.',
+  },
   me: { label: 'Me (self-service)', blurb: 'Your shifts, your hours, your time off.' },
 };
 
@@ -113,13 +118,17 @@ const CUSTOMER_EXPORT_COLUMNS: CsvColumn<Customer>[] = [
 ];
 
 export default function PeopleScreen() {
-  const { can, canAny, myMembership } = useAuth();
+  const { can, canAny, hasModule, myMembership } = useAuth();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const compact = width < TABLET_BREAKPOINT;
   const canSeeCustomers = can('customers.view');
   const canSeeTeam = canAny([...TEAM_PERMISSIONS]);
   const canSeeSchedule = can('people.schedule.manage');
+  // Both gates are required -- an owner whose plan lacks the module, or a
+  // staff member without settings access, must not see a half-working tab.
+  // See the header comment at src/hooks/use-auth.tsx:68.
+  const canSeeMarketing = can('settings.access') && hasModule('promotions');
   const canUseSelfService = Boolean(myMembership?.active);
   // A `?tab=` param, VALIDATED against what this user may actually see. The
   // default here is permission-dependent, so a link that skipped the check
@@ -129,6 +138,7 @@ export default function PeopleScreen() {
     if (candidate === 'customers' && canSeeCustomers) return 'customers';
     if (candidate === 'team' && canSeeTeam) return 'team';
     if (candidate === 'schedule' && canSeeSchedule) return 'schedule';
+    if (candidate === 'marketing' && canSeeMarketing) return 'marketing';
     if (candidate === 'me') return 'me';
     return null;
   };
@@ -165,6 +175,7 @@ export default function PeopleScreen() {
     ...(canSeeCustomers ? [{ key: 'customers' as const, label: TAB_BLURBS.customers.label }] : []),
     ...(canSeeTeam ? [{ key: 'team' as const, label: TAB_BLURBS.team.label }] : []),
     ...(canSeeSchedule ? [{ key: 'schedule' as const, label: TAB_BLURBS.schedule.label }] : []),
+    ...(canSeeMarketing ? [{ key: 'marketing' as const, label: TAB_BLURBS.marketing.label }] : []),
     ...(canUseSelfService ? [{ key: 'me' as const, label: TAB_BLURBS.me.label }] : []),
   ];
 
@@ -192,6 +203,9 @@ export default function PeopleScreen() {
         {tab === 'customers' && canSeeCustomers ? <CustomersTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
         {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
         {tab === 'schedule' && canSeeSchedule ? <ScheduleTab setHeaderActions={setHeaderActions} /> : null}
+        {tab === 'marketing' && canSeeMarketing ? (
+          <PromotionsTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} />
+        ) : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} />
         ) : null}

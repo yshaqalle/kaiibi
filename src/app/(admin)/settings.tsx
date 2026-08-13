@@ -74,9 +74,6 @@ export default function SettingsScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const brands = useMemo(() => brandRows.map((b) => b.name), [brandRows]);
-  const categories = useMemo(() => categoryRows.map((c) => c.name), [categoryRows]);
-
   const reload = useCallback(async () => {
     if (!shop) return;
     // Not reset to true on subsequent calls -- reload() also runs after every
@@ -273,7 +270,7 @@ export default function SettingsScreen() {
         return loading ? (
           <Text style={styles.hint}>Loading…</Text>
         ) : (
-          <PromotionsPanel shopId={shop.id} promotions={promotions} brands={brands} categories={categories} onChange={reload} />
+          <PromotionsPanel promotions={promotions} />
         );
       case 'tax':
         return loading ? (
