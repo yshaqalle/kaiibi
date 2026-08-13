@@ -19,6 +19,10 @@ export type PosterCopy = {
   address: string | null;
   hours: string | null;
   phone: string | null;
+  // The shop's own logo, already uploaded for receipt branding
+  // (`shops.logoUrl`) -- there is nothing new for an owner to supply here,
+  // just the same mark the till already prints.
+  logoUrl: string | null;
 };
 
 export type PosterCopyInput = {
@@ -29,6 +33,7 @@ export type PosterCopyInput = {
   address?: string | null;
   hours?: string | null;
   phone?: string | null;
+  logoUrl?: string | null;
 };
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -88,5 +93,6 @@ export function posterCopyFor(input: PosterCopyInput): PosterCopy {
     address: input.address ?? null,
     hours: input.hours ?? null,
     phone: input.phone ?? null,
+    logoUrl: input.logoUrl ?? null,
   };
 }

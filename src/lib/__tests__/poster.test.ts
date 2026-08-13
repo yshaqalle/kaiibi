@@ -10,7 +10,10 @@ function makePromotion(overrides: Partial<Promotion> = {}): Promotion {
   };
 }
 
-const BASE = { shopName: 'Suuqa Xamar', branch: null, address: null, hours: null, phone: null, headline: null };
+const BASE = {
+  shopName: 'Suuqa Xamar', branch: null, address: null, hours: null, phone: null, headline: null,
+  logoUrl: null,
+};
 
 describe('posterCopyFor', () => {
   it('prints a percentage as a percentage', () => {
@@ -80,5 +83,16 @@ describe('posterCopyFor', () => {
 
   it('treats a blank headline as none', () => {
     expect(posterCopyFor({ ...BASE, promotion: makePromotion(), headline: '   ' }).headline).toBeNull();
+  });
+
+  it('carries the shop logo through unchanged, from the receipt branding already on file', () => {
+    const copy = posterCopyFor({
+      ...BASE, promotion: makePromotion(), logoUrl: 'https://cdn.kaiibi.app/shops/s1/logo.png',
+    });
+    expect(copy.logoUrl).toBe('https://cdn.kaiibi.app/shops/s1/logo.png');
+  });
+
+  it('prints no logo when the shop has not set one', () => {
+    expect(posterCopyFor({ ...BASE, promotion: makePromotion() }).logoUrl).toBeNull();
   });
 });

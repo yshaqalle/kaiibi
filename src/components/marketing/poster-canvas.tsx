@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { StyleSheet, Text, View } from 'react-native';
-import type { TextStyle, ViewStyle } from 'react-native';
+import type { ImageStyle, TextStyle, ViewStyle } from 'react-native';
 
 import { inkFor, parseHex, stepUntilContrast } from '@/lib/contrast';
 import { KAIIBI_MARK_DATA_URI } from '@/lib/kaiibi-mark';
@@ -220,6 +220,20 @@ export function PosterCanvas({
     color: withOpacity(ink, 0.42),
   };
 
+  // The shop's own logo, sourced from `copy.logoUrl` (the receipt branding
+  // it already has, per `posterCopyFor`) -- not a placeholder initial like
+  // the mockup's "SX" badge. Sized off `width` like everything else here,
+  // never a fixed pixel box, and `contentFit: 'contain'` so a non-square
+  // upload is fit rather than stretched or cropped.
+  const logoSize = pct(11);
+  const logoStyle: ImageStyle = { width: logoSize, height: logoSize, borderRadius: pct(3) };
+  const footRowStyle: ViewStyle = {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: pct(3),
+  };
+
   // Nothing optional prints when absent: null here means the whole line is
   // skipped below, never an empty <Text> that leaves a gap.
   const addrLine1 = joinLine([copy.branch, copy.address]);
@@ -247,6 +261,19 @@ export function PosterCanvas({
           {addrLine2}
         </Text>
       ) : null}
+    </View>
+  ) : null;
+
+  // Logo beside the address, matching the mockup's `.pFootRow` -- but
+  // nothing renders when the shop has none, unlike the mockup's "SX" filler.
+  const logoBlock = copy.logoUrl ? (
+    <Image source={{ uri: copy.logoUrl }} style={logoStyle} contentFit="contain" />
+  ) : null;
+
+  const footRow = addrBlock || logoBlock ? (
+    <View style={footRowStyle}>
+      {addrBlock}
+      {logoBlock}
     </View>
   ) : null;
 
@@ -282,7 +309,7 @@ export function PosterCanvas({
           </Text>
         ) : null}
       </View>
-      {addrBlock}
+      {footRow}
       {kaiibiMark}
     </>
   );
@@ -371,7 +398,7 @@ export function PosterCanvas({
           ))}
         </View>
       </View>
-      {addrBlock}
+      {footRow}
       {kaiibiMark}
     </>
   );
