@@ -70,10 +70,24 @@ export function MarketingTab({ compact, setHeaderActions, setDetailSelected }: P
         <TabPills options={SECTION_OPTIONS} value={section} onChange={setSection} />
       </View>
 
-      <View style={[styles.section, section !== 'campaigns' && styles.sectionHidden]}>
+      {/* `accessibilityElementsHidden` / `importantForAccessibility` alongside
+          the style, not instead of it: `display: 'none'` removes the section
+          from layout and from touch, but a screen reader will still walk a
+          subtree that is merely unlaid-out. Without these, VoiceOver and
+          TalkBack read the section the person is NOT looking at. Same pairing
+          wedge-sink.tsx and app-tabs.web.tsx already use for hidden content. */}
+      <View
+        style={[styles.section, section !== 'campaigns' && styles.sectionHidden]}
+        accessibilityElementsHidden={section !== 'campaigns'}
+        importantForAccessibility={section !== 'campaigns' ? 'no-hide-descendants' : 'auto'}
+      >
         <CampaignsPlaceholder />
       </View>
-      <View style={[styles.section, section !== 'offers' && styles.sectionHidden]}>
+      <View
+        style={[styles.section, section !== 'offers' && styles.sectionHidden]}
+        accessibilityElementsHidden={section !== 'offers'}
+        importantForAccessibility={section !== 'offers' ? 'no-hide-descendants' : 'auto'}
+      >
         <PromotionsTab compact={compact} setHeaderActions={setOffersActions} setDetailSelected={setOffersDetailSelected} />
       </View>
     </View>
