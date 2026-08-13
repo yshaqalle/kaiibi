@@ -193,7 +193,7 @@ export function PosterSheet({
     setError(null);
     setBusy(kind);
     try {
-      const pngUri = await capturePosterPng(captureRef, shape, exportWidthPx);
+      const pngUri = await capturePosterPng(captureRef);
       if (kind === 'pdf') {
         const pdfUri = await posterPdfFromPng(pngUri, shape);
         await sharePoster(pdfUri, 'application/pdf');

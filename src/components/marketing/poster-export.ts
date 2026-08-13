@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { PixelRatio, Platform } from 'react-native';
+import { Platform } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
 import { POSTER_SHAPES, type PosterShape } from '@/components/marketing/poster-canvas';
@@ -15,26 +15,31 @@ export const POSTER_EXPORT_SUPPORTED = Platform.OS !== 'web';
 // A4 at 72 PPI, which is the unit printToFileAsync works in.
 const A4_POINTS = { width: 595, height: 842 };
 
-// captureRef sizes in LOGICAL pixels, so a target of 1080 physical pixels on a
-// 3x device is 360 logical. Skipping this is how an export comes out three
-// times the intended size (and several megabytes) on one phone and correct on
-// another.
-export async function capturePosterPng(
-  ref: React.RefObject<unknown>,
-  shape: PosterShape,
-  targetWidthPx: number
-): Promise<string> {
-  const density = PixelRatio.get();
-  // Height follows the shape, not the width. A square target on a 9:16 story
-  // would capture a squashed poster -- and it would look fine in the preview,
-  // because only the export is wrong.
-  const targetHeightPx = Math.round(targetWidthPx / POSTER_SHAPES[shape].ratio);
+// No width/height here on purpose -- the SIZE IS DECIDED BY LAYOUT, not by the
+// capture.
+//
+// The caller renders an off-screen copy of the poster at
+// `exportWidthPx / PixelRatio.get()` points, which the platform then lays out
+// at exactly `exportWidthPx` physical pixels. Capturing at its natural size is
+// therefore already the target on both platforms, and asking for a resize on
+// top of that is where this goes wrong -- because the two platforms disagree
+// about what the numbers mean:
+//
+//   Android  ViewShot.java's `Bitmap.createScaledBitmap(bitmap, width, height)`
+//            takes them as the literal OUTPUT PIXEL count.
+//   iOS      RNViewShot.mm sizes a UIGraphicsImageRenderer in POINTS with
+//            `format.scale = 0`, so they are multiplied by the device scale.
+//
+// So a value of `targetWidthPx / density` is right on iOS and scales an
+// already-correct bitmap back DOWN by the density on Android: a "1080px"
+// square arriving as 360px on a 3x phone, and a 1240px A4 sheet as 413px --
+// soft in a feed and useless printed on a door. Letting layout do the sizing
+// sidesteps the disagreement entirely.
+export async function capturePosterPng(ref: React.RefObject<unknown>): Promise<string> {
   return captureRef(ref as never, {
     result: 'tmpfile',
     format: 'png',
     quality: 1,
-    width: targetWidthPx / density,
-    height: targetHeightPx / density,
   });
 }
 
