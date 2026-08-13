@@ -6,6 +6,7 @@ import { Badge } from '@/components/badge';
 import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { DateInput } from '@/components/date-input';
+import { PosterSheet } from '@/components/marketing/poster-sheet';
 import { StatTile } from '@/components/stat-tile';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -95,6 +96,11 @@ export function PromotionsTab({
   // editingId, since "New sale" opens the same pane with editingId still null.
   const [formOpen, setFormOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Which promotion the poster sheet is open for -- a full row, not just an
+  // id, so PosterSheet has everything posterCopyFor needs without a second
+  // lookup. Independent of `editingId`/`formOpen`: opening a poster does not
+  // close or reset the edit form underneath it.
+  const [posterPromotion, setPosterPromotion] = useState<Promotion | null>(null);
   // Set once deletePromotion resolves, replacing the delete confirm with its
   // outcome -- there is no toast/snackbar surface anywhere in this app (see
   // src/lib/confirm.ts: both helpers there are pre-action confirms, not
@@ -461,9 +467,20 @@ export function PromotionsTab({
                   </Pressable>
                 </>
               ) : (
-                <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
-                  <Text style={styles.actionButtonTextDanger}>Delete</Text>
-                </Pressable>
+                <>
+                  <Pressable
+                    onPress={() => {
+                      const promo = promotions.find((p) => p.id === editingId);
+                      if (promo) setPosterPromotion(promo);
+                    }}
+                    style={styles.actionButton}
+                  >
+                    <Text style={styles.actionButtonText}>Poster</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setConfirmingDelete(true)} style={styles.actionButton}>
+                    <Text style={styles.actionButtonTextDanger}>Delete</Text>
+                  </Pressable>
+                </>
               ))}
             <Pressable onPress={closeForm} style={styles.actionButton}>
               <Text style={styles.actionButtonText}>Cancel</Text>
@@ -503,6 +520,10 @@ export function PromotionsTab({
         onCloseDetail={closeForm}
         detailTitle={editingId ? 'Edit sale' : 'New sale'}
       />
+
+      {posterPromotion && (
+        <PosterSheet promotion={posterPromotion} promotions={promotions} onClose={() => setPosterPromotion(null)} />
+      )}
     </View>
   );
 }
