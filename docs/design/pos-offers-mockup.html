@@ -1,0 +1,571 @@
+<title>Kaiibi POS — offers at the counter, and what the sale remembers</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --accWash:#e6edff; --accInk:#1b47b8;
+    --waWash:#e7f5ed; --waInk:#0b6b3c;
+    --offWash:#f3ecff; --offInk:#5b31b5;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:70ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+  ul.note{padding-left:20px;} ul.note li{margin-bottom:7px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:10px 0;z-index:5;}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- till layout: catalogue left, cart right (pos.tsx) ---- */
+  .till{display:flex;gap:16px;align-items:flex-start;}
+  .cat{flex:1;min-width:0;}
+  .cartCol{width:400px;flex-shrink:0;}
+  .w380 .till{display:block;}
+  .w380 .cat{display:none;}
+  .w380 .cartCol{width:auto;}
+
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx + .cardx{margin-top:14px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;white-space:nowrap;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .btn.off{background:var(--offInk);color:#fff;border-color:var(--offInk);}
+  .btn.wide{width:100%;text-align:center;padding:13px 15px;font-size:14px;}
+  .btn.big{width:100%;text-align:center;padding:16px;font-size:16px;}
+  .btn:disabled,.btn.dis{opacity:.42;cursor:not-allowed;}
+
+  /* product grid, drawn only as context for the cart */
+  .search{background:var(--d-soft);border:1px solid var(--d-ln);border-radius:14px;padding:11px 14px;
+    font-size:13px;color:var(--d-mut2);margin-bottom:10px;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+  .tile{background:var(--d-sf);border-radius:18px;padding:13px;min-height:104px;display:flex;
+    flex-direction:column;justify-content:space-between;}
+  .tile .tn{font-size:12.5px;font-weight:700;line-height:1.3;}
+  .tile .tp{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:8px;}
+  .tile .tb{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.04em;padding:3px 7px;
+    border-radius:999px;background:var(--offWash);color:var(--offInk);margin-top:6px;}
+
+  /* ---- cart lines ---- */
+  .line{padding:11px 0;border-bottom:1px solid var(--d-ln);}
+  .line:last-of-type{border-bottom:none;}
+  .lineTop{display:flex;align-items:baseline;gap:10px;}
+  .lineTop .ln{flex:1;min-width:0;font-size:13.5px;font-weight:700;}
+  .lineTop .lq{font-size:12px;color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .lineTop .lp{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .lineTop .lp.was{font-weight:600;color:var(--d-mut2);text-decoration:line-through;font-size:12px;}
+  .lineOff{display:flex;align-items:center;gap:7px;margin-top:5px;}
+  .tag{font-size:10.5px;font-weight:800;padding:3px 8px;border-radius:999px;letter-spacing:.02em;
+    background:var(--offWash);color:var(--offInk);white-space:nowrap;}
+  .tag.auto{background:var(--accWash);color:var(--accInk);}
+  .tag.manual{background:#fdf0e0;color:#8a530f;}
+  .tag.gone{background:#eaeaea;color:#4a4a52;}
+  .lineOff .save{font-size:11.5px;font-weight:700;color:var(--profit);font-variant-numeric:tabular-nums;}
+  .lineOff .x{margin-left:auto;font-size:11.5px;color:var(--d-mut2);font-weight:700;}
+
+  /* ---- totals ---- */
+  .tot{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px;}
+  .tot .tl{color:var(--d-ink2);} .tot .tl span{display:block;font-size:11px;color:var(--d-mut);}
+  .tot .tv{font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .tot.off .tv{color:var(--profit);}
+  .tot.grand{border-top:1px solid var(--d-rule);margin-top:6px;padding-top:11px;font-size:17px;}
+  .tot.grand .tl{font-weight:800;color:var(--d-ink);} .tot.grand .tv{font-size:20px;letter-spacing:-.02em;}
+
+  /* ---- customer strip + prompt ---- */
+  .cust{display:flex;align-items:center;gap:10px;background:var(--d-soft);border-radius:16px;padding:11px 13px;}
+  .cust .av{width:32px;height:32px;border-radius:16px;background:#fff;color:var(--d-mut);display:flex;
+    align-items:center;justify-content:center;font-size:12px;font-weight:800;flex-shrink:0;}
+  .cust .cb{flex:1;min-width:0;} .cust .cn{font-size:13px;font-weight:700;}
+  .cust .cm{font-size:11.5px;color:var(--d-mut);margin-top:1px;}
+
+  .prompt{background:var(--offWash);border:1px solid #ddd0f7;border-radius:18px;padding:13px 15px;margin-top:10px;}
+  .prompt .pt{font-size:13px;font-weight:800;color:var(--offInk);}
+  .prompt .pd{font-size:12px;color:#4a3a72;margin-top:4px;line-height:1.45;}
+  .prompt .pa{display:flex;gap:8px;margin-top:11px;}
+  .prompt .pa .btn{flex:1;text-align:center;}
+
+  /* ---- offer picker sheet ---- */
+  .sheet{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .sheetTop{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+  .sheetTop b{font-size:17px;font-weight:800;letter-spacing:-.02em;}
+  .grab{display:block;width:38px;height:4px;border-radius:2px;background:var(--d-ln);margin:0 auto 12px;}
+  .offer{display:flex;align-items:center;gap:12px;background:var(--d-soft);border:1.5px solid transparent;
+    border-radius:18px;padding:13px 15px;}
+  .offer + .offer{margin-top:8px;}
+  .offer.on{border-color:var(--d-ink);background:#fff;}
+  .offer.dis{opacity:.5;}
+  .offer .val{font-size:17px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;
+    min-width:58px;color:var(--offInk);}
+  .offer .ob{flex:1;min-width:0;}
+  .offer .on1{font-size:13.5px;font-weight:800;}
+  .offer .on2{font-size:11.5px;color:var(--d-mut);margin-top:3px;line-height:1.4;}
+  .divider{display:flex;align-items:center;gap:10px;margin:16px 0 12px;}
+  .divider i{flex:1;height:1px;background:var(--d-ln);}
+  .divider span{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--d-mut2);}
+
+  /* ---- receipt ---- */
+  .rcpt{background:#fff;border:1px solid var(--d-ln);border-radius:14px;padding:18px 20px;max-width:330px;
+    margin:0 auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;
+    color:#0b0b0d;}
+  .rcpt .rh{text-align:center;font-weight:800;font-size:13px;letter-spacing:.04em;}
+  .rcpt .rs{text-align:center;color:#5e5d65;font-size:10.5px;margin-bottom:12px;}
+  .rcpt hr{border:none;border-top:1px dashed #c9c9d1;margin:10px 0;}
+  .rcpt .rl{display:flex;justify-content:space-between;gap:10px;}
+  .rcpt .ro{color:#5b31b5;padding-left:10px;font-size:11px;}
+  .rcpt .rt{display:flex;justify-content:space-between;font-weight:800;font-size:14px;}
+  .rcpt .rf{text-align:center;color:#717078;font-size:10px;margin-top:12px;}
+
+  .cav{border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fffbeb;border:1px solid #f0d99a;color:#8a5a05;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#1e4bcc;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+
+  .kv{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .kv:last-child{border-bottom:none;}
+  .kv .k{font-size:13px;font-weight:600;} .kv .k span{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .kv .v{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+
+  .spec{display:grid;gap:0;border-top:1px solid var(--ln);margin-top:16px;}
+  .spec div{display:grid;grid-template-columns:210px 1fr;gap:14px;padding:11px 0;
+    border-bottom:1px solid var(--ln);font-size:13.5px;align-items:baseline;}
+  @media (max-width:560px){ .spec div{grid-template-columns:1fr;gap:3px;} }
+  .spec b{font-weight:800;color:var(--ink);} .spec span{color:var(--ink2);}
+  .spec code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){ *{animation:none !important;transition:none !important;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · POS → offers</p>
+  <h1>Offers at the counter, and what the sale remembers</h1>
+  <p class="lede">Promotions already come off automatically at the till — and the sale keeps only the
+  cents, never which offer produced them. This is the other half of the Marketing tab: the cashier
+  side. Four views, in the order a sale actually goes: the discount lands by itself, the customer's own
+  campaign offer gets one prompt, an offer that needs a decision gets a picker, and the finished sale
+  keeps a name that survives the promotion being expired, renamed or deleted.</p>
+
+  <div class="switch" role="tablist" id="switch"></div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Counter</b><i>1180px · catalogue left, cart right</i></div>
+      <div class="scroller"><div class="frame w1180" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · cart only</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>The rule the whole design turns on</h2>
+    <p class="note"><strong>The cashier picks which offer. Never how much.</strong> Selecting an offer
+    reads <code>discount_type</code> and <code>discount_value</code> off the promotion row and hands them
+    to the same <code>discountAmountCents()</code> that auto-apply already uses — capped so a line can
+    never go negative. There is no number to type and no arithmetic to get wrong.</p>
+    <p class="note">Today the only manual path is the opposite of that: <code>discount-editor.tsx</code>
+    asks the cashier to type a percentage or a cash amount, and <code>permissions.ts</code> has no
+    discount permission at all — so any cashier can take any amount off any sale and nothing records
+    why. Offers as selectable objects are what makes "may apply offers, may not type a discount"
+    expressible for the first time.</p>
+
+    <div class="verdict">
+      <div class="vx good"><b>Auto-apply keeps working, untouched</b>
+        <p>A store-wide 20% must not depend on a busy cashier remembering to select it. Forget it once
+        and the customer is overcharged — worse than any missing attribution.
+        <code>bestPromotionForProduct()</code> stays exactly as it is; the cart just labels its result
+        instead of showing an anonymous strike-through.</p></div>
+      <div class="vx good"><b>The picker only holds things that need deciding</b>
+        <p>A new <code>auto_apply</code> flag splits the table in two. False means the offer never fires
+        on its own and lives in "Apply an offer" — campaign codes, staff discount, a manager's goodwill
+        gesture. A dropdown of every promotion in the shop would be a list nobody reads.</p></div>
+      <div class="vx good"><b>One prompt beats a list</b>
+        <p>When a customer is attached to the cart and Marketing sent them an offer, the till says so
+        in one line with one button. That single interaction is also the cleanest attribution in the
+        system: sale → campaign → recipient, no inference.</p></div>
+      <div class="vx mid"><b>The window is new, and it matters more than the picker</b>
+        <p><code>promotions</code> has no <code>starts_at</code> and no <code>ends_at</code> — only an
+        <code>active</code> boolean somebody has to remember to switch off. A weekend sale left running
+        until September is the current default behaviour, and a sale that must open at Thursday's
+        opening hour has to be switched on by hand at Thursday's opening hour. The window fixes
+        both.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The promotion window</h2>
+    <p class="note">Two nullable timestamps on <code>promotions</code>, and the offer runs itself. Most
+    of what shops sell against is short-lived — a weekend, the three days before Eid, a Thursday
+    evening — and the current design makes every one of those a thing a human has to switch on and then
+    remember to switch off.</p>
+    <div class="spec">
+      <div><b><code>starts_at</code></b><span>Null means "already running". Set it and the promotion
+        appears in the shop's list as <em>Scheduled</em>, applies nothing, and opens itself at the
+        minute given — so Thursday's sale can be built on Tuesday.</span></div>
+      <div><b><code>ends_at</code></b><span>Null means "until I turn it off" — the current behaviour,
+        still available for a standing loyalty discount. Set it and the promotion stops applying on its
+        own, with no cleanup and no forgotten discount running into next month.</span></div>
+      <div><b><code>active</code> stays</b><span>It is the hard "off now" switch, unchanged. The window
+        is scheduling; <code>active = false</code> is an owner overriding it. A promotion applies only
+        when it is active <em>and</em> inside its window.</span></div>
+      <div><b>One filter, one place</b><span><code>bestPromotionForProduct()</code> already filters on
+        <code>active</code> and is the single gate every line goes through — the window is two more
+        comparisons in that same predicate, so the cart, the product tile badge and the total can never
+        disagree about whether an offer is live.</span></div>
+      <div><b>Where the dates surface</b><span>The picker greys an expired or unstarted offer and shows
+        why. Marketing's <code>{ends}</code> token reads <code>ends_at</code> instead of the owner
+        typing a date into message text that then goes stale. The poster prints it.</span></div>
+    </div>
+    <p class="note">The one thing the window does <em>not</em> do is reach backwards. A sale rung up
+    while the promotion was live keeps its discount forever — that is what the frozen columns below are
+    for.</p>
+  </section>
+
+  <section>
+    <h2>What the sale stores</h2>
+    <p class="note">Three columns, and the pattern is one this schema already uses:
+    <code>sale_items</code> keeps <code>product_name</code> beside <code>product_id</code> precisely so
+    deleting a product cannot wreck a receipt from last year. Offers get the same treatment.</p>
+    <div class="spec">
+      <div><b><code>promotion_id</code></b><span>Nullable FK, <code>on delete set null</code>. Groups
+        the reports. Worst case the link goes; the sale never breaks.</span></div>
+      <div><b><code>promotion_name</code></b><span>Text, frozen at checkout. The receipt and the report
+        still read "Eid weekend — 20% off" after the promotion is expired, renamed, archived or
+        deleted.</span></div>
+      <div><b><code>discount_cents</code></b><span>Already exists, already frozen. Editing the promotion
+        from 20% to 15% must never rewrite what a customer paid last week.</span></div>
+      <div><b><code>campaign_id</code> on <code>sales</code></b><span>Set only by the customer prompt.
+        This is the column that turns "bought within 7 days" from a correlation into a redemption
+        somebody actually claimed.</span></div>
+      <div><b>Deleting a used promotion</b><span>Archives instead. Hard delete stays available for one
+        created by mistake — an owner should not be told "you cannot remove this, it was used 400
+        times", and equally should not be able to blank 400 rows of history by accident.</span></div>
+    </div>
+    <p class="note">Nothing above changes how a sale is totalled. <code>complete_sale</code> keeps
+    receiving the line's <code>discount_cents</code> exactly as it does today — the new fields ride
+    alongside as a record of where that figure came from.</p>
+  </section>
+
+  <section>
+    <h2>Open questions</h2>
+    <ul class="note">
+      <li><b>Should the customer prompt auto-apply, or always ask?</b> Drawn here as asking. It is one
+      tap, and a cashier who did not know an offer existed learns something. Auto-applying would be
+      faster and would remove the only place a campaign redemption can be lost.</li>
+      <li><b>Can an offer be applied to a sale with no customer?</b> Drawn as yes — a customer who walks
+      in quoting the message but is not in the directory should still get their discount. The
+      attribution is weaker, and the report says "claimed, no customer attached" rather than pretending
+      otherwise.</li>
+      <li><b>Does the free-form discount need the permission now, or later?</b> The gap is real today and
+      independent of any of this. It could ship first, on its own.</li>
+    </ul>
+  </section>
+
+</div>
+
+<script>
+  const VIEWS = [
+    ['auto', 'Applied by itself'],
+    ['prompt', 'Customer prompt'],
+    ['picker', 'Apply an offer'],
+    ['after', 'What it remembers'],
+  ];
+
+  const catalogue = `
+    <div class="cat">
+      <div class="search">Search or scan…</div>
+      <div class="filters">
+        <span class="on">All</span><span>Shoes</span><span>Tea</span><span>Household</span><span>Phone credit</span>
+      </div>
+      <div class="grid">
+        <div class="tile"><div class="tn">Canvas shoes<br>size 42</div><div><div class="tp num">$18.00</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Shaah Somali<br>250g</div><div><div class="tp num">$3.50</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Sabuun<br>bar soap</div><div><div class="tp num">$1.20</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Somtel<br>$5 credit</div><div><div class="tp num">$5.00</div></div></div>
+        <div class="tile"><div class="tn">Sandals<br>size 39</div><div><div class="tp num">$9.00</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Sugar<br>1kg</div><div><div class="tp num">$1.80</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Cooking oil<br>2L</div><div><div class="tp num">$4.40</div><span class="tb">20% OFF</span></div></div>
+        <div class="tile"><div class="tn">Notebook<br>A5</div><div><div class="tp num">$0.90</div><span class="tb">20% OFF</span></div></div>
+      </div>
+      <p class="foot">A tile carries the badge of whatever would come off it right now — the offer is
+      visible before the product reaches the cart, not discovered at the total.</p>
+    </div>`;
+
+  const line = (name, qty, was, now, tag, tagCls, save) => `
+    <div class="line">
+      <div class="lineTop">
+        <span class="ln">${name}</span>
+        <span class="lq num">×${qty}</span>
+        ${was ? `<span class="lp was num">${was}</span>` : ''}
+        <span class="lp num">${now}</span>
+      </div>
+      ${tag ? `<div class="lineOff">
+        <span class="tag ${tagCls}">${tag}</span>
+        ${save ? `<span class="save num">−${save}</span>` : ''}
+        <span class="x">Remove</span>
+      </div>` : ''}
+    </div>`;
+
+  const totals = (offLabel, off, sub, grand) => `
+    <div class="tot"><span class="tl">Subtotal</span><span class="tv num">${sub}</span></div>
+    <div class="tot off"><span class="tl">${offLabel}</span><span class="tv num">−${off}</span></div>
+    <div class="tot"><span class="tl">Tax<span>5%</span></span><span class="tv num">$1.24</span></div>
+    <div class="tot grand"><span class="tl">To pay</span><span class="tv num">${grand}</span></div>`;
+
+  const views = {};
+
+  views.auto = `
+    <div class="till">
+      ${catalogue}
+      <div class="cartCol">
+        <div class="cardx">
+          <div class="crow"><p class="ctitle">Cart · 4 items</p><span class="pill">Register 1 · Cabdi</span></div>
+          ${line('Canvas shoes', 1, '$18.00', '$14.40', 'Eid weekend — 20% off', 'auto', '$3.60')}
+          ${line('Shaah Somali', 2, '$7.00', '$5.60', 'Eid weekend — 20% off', 'auto', '$1.40')}
+          ${line('Somtel $5 credit', 1, '', '$5.00', '', '', '')}
+          <div class="crow" style="margin:12px 0 0;">
+            <span class="btn">Add customer</span>
+            <span class="btn">Apply an offer</span>
+          </div>
+        </div>
+        <div class="cardx">
+          ${totals('Eid weekend — 20% off', '$5.00', '$25.00', '$26.24')}
+          <p class="foot">The discount line names the offer instead of reading "Discount −$5.00". Two
+          offers in one basket would show two lines — the customer can see which is which.</p>
+          <span class="btn solid big" style="margin-top:14px;">Charge $26.24</span>
+        </div>
+        <div class="cardx">
+          <div class="cav context">
+            <b>Nothing was selected here.</b> Both lines matched a live store-wide promotion and it came
+            off by itself, exactly as it does today. The only change is that the cart now says which one
+            — and the sale will remember it.
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  views.prompt = `
+    <div class="till">
+      ${catalogue}
+      <div class="cartCol">
+        <div class="cardx">
+          <div class="crow"><p class="ctitle">Cart · 4 items</p><span class="pill">Register 1 · Cabdi</span></div>
+          <div class="cust">
+            <div class="av">HA</div>
+            <div class="cb"><div class="cn">Hodan Ali</div><div class="cm">+252 63 771 4402 · VIP · last bought 6 days ago</div></div>
+            <span class="btn">Change</span>
+          </div>
+          <div class="prompt">
+            <div class="pt">Hodan was sent “Eid weekend — 20% off”</div>
+            <div class="pd">Marked sent on Thursday at 11:04. It is already coming off this basket, so
+            applying it here just records that she claimed it.</div>
+            <div class="pa">
+              <span class="btn off">Apply for Hodan</span>
+              <span class="btn">Not this one</span>
+            </div>
+          </div>
+          <p class="foot">Only appears when a customer is on the cart and Marketing actually messaged
+          them. No customer, no message, no prompt.</p>
+        </div>
+        <div class="cardx">
+          ${totals('Eid weekend — 20% off', '$5.00', '$25.00', '$26.24')}
+          <span class="btn solid big" style="margin-top:14px;">Charge $26.24</span>
+        </div>
+        <div class="cardx">
+          <div class="cav context">
+            <b>This is the only place a redemption can be recorded.</b> Everything else in the campaign
+            report is inference — "she bought within seven days". This one button is Hodan saying she
+            came in because of the message.
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  views.picker = `
+    <div class="till">
+      ${catalogue}
+      <div class="cartCol">
+        <div class="sheet">
+          <span class="grab"></span>
+          <div class="sheetTop"><b>Apply an offer</b><span class="btn">Close</span></div>
+          <div class="offer on">
+            <span class="val">20%</span>
+            <div class="ob"><div class="on1">Eid weekend — 20% off</div>
+              <div class="on2">Everything · ends Sat 16 Aug · already on this basket</div></div>
+          </div>
+          <div class="offer">
+            <span class="val">15%</span>
+            <div class="ob"><div class="on1">Staff discount</div>
+              <div class="on2">Everything · never automatic · needs a name at checkout</div></div>
+          </div>
+          <div class="offer">
+            <span class="val">$2</span>
+            <div class="ob"><div class="on1">Damaged packaging</div>
+              <div class="on2">Any single line · manager approval logged</div></div>
+          </div>
+          <div class="offer dis">
+            <span class="val">10%</span>
+            <div class="ob"><div class="on1">Back to school</div>
+              <div class="on2">Ended 10 Aug — kept here for last week's receipts, cannot be applied</div></div>
+          </div>
+          <div class="offer dis">
+            <span class="val">25%</span>
+            <div class="ob"><div class="on1">Independence weekend</div>
+              <div class="on2">Starts Fri 18 Aug at 08:00 — set up now, opens itself</div></div>
+          </div>
+
+          <div class="divider"><i></i><span>Or</span><i></i></div>
+          <div class="offer dis">
+            <span class="val">—</span>
+            <div class="ob"><div class="on1">Type a discount</div>
+              <div class="on2">You do not have permission to enter your own amount. Ask a manager.</div></div>
+          </div>
+          <p class="foot">Five entries, not forty: an offer only appears here if it was set to
+          <em>never apply automatically</em>. The expired and the not-yet-started ones are greyed rather
+          than hidden, so a cashier told "use the school offer" learns why they cannot — and reads the
+          date that explains it.</p>
+        </div>
+        <div class="cardx">
+          <div class="cav wrong">
+            <b>Nobody can type their own discount yet — and today everybody can.</b> There is no
+            discount permission in the app at all. Adding one is a small change that stands on its own,
+            with or without the rest of this.
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  views.after = `
+    <div class="till">
+      <div class="cat">
+        <div class="cardx">
+          <p class="ctitle">The same sale, six weeks later</p>
+          <div class="rcpt">
+            <div class="rh">SUUQA XAMAR</div>
+            <div class="rs">Xamar branch · 14 Aug 2026 · 11:22</div>
+            <hr>
+            <div class="rl"><span>Canvas shoes ×1</span><span>18.00</span></div>
+            <div class="ro">Eid weekend — 20% off −3.60</div>
+            <div class="rl"><span>Shaah Somali ×2</span><span>7.00</span></div>
+            <div class="ro">Eid weekend — 20% off −1.40</div>
+            <div class="rl"><span>Somtel $5 credit ×1</span><span>5.00</span></div>
+            <hr>
+            <div class="rl"><span>Subtotal</span><span>25.00</span></div>
+            <div class="rl"><span>Tax 5%</span><span>1.24</span></div>
+            <div class="rt"><span>TOTAL</span><span>26.24</span></div>
+            <div class="rf">Served by Cabdi · Register 1</div>
+          </div>
+          <p class="foot">The promotion ended on the 16th and was archived in September. The receipt is
+          unchanged, because the name and the cents were written into the sale, not looked up.</p>
+        </div>
+      </div>
+      <div class="cartCol">
+        <div class="cardx">
+          <p class="ctitle">What the row holds</p>
+          <div class="kv"><div class="k">promotion_name<span>frozen text</span></div><span class="v">Eid weekend</span></div>
+          <div class="kv"><div class="k">discount_cents<span>frozen amount</span></div><span class="v">360</span></div>
+          <div class="kv"><div class="k">promotion_id<span>still linked</span></div><span class="v">✓</span></div>
+          <div class="kv"><div class="k">campaign_id<span>Hodan claimed it</span></div><span class="v">✓</span></div>
+        </div>
+        <div class="cardx">
+          <p class="ctitle">If the promotion is deleted outright</p>
+          ${line('Canvas shoes', 1, '$18.00', '$14.40', 'Eid weekend — 20% off (removed)', 'gone', '$3.60')}
+          <p class="foot">The link is gone, the name and the money are not. Reports group the orphans by
+          name; the receipt cannot tell the difference.</p>
+          <div class="cav context" style="margin-top:12px;">
+            <b>This is why the name is stored twice over.</b> Expiring, renaming, archiving and deleting
+            are four different things an owner will do to an old offer, and none of them may touch a
+            sale that already happened.
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+
+  function render(key){
+    wide.innerHTML = views[key];
+    narrow.innerHTML = views[key];
+    [...sw.children].forEach((b) => b.setAttribute('aria-selected', String(b.dataset.k === key)));
+  }
+
+  VIEWS.forEach(([key, label]) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.dataset.k = key;
+    b.setAttribute('role', 'tab');
+    b.addEventListener('click', () => render(key));
+    sw.appendChild(b);
+  });
+
+  render('auto');
+</script>
