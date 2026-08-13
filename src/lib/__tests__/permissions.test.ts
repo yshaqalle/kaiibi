@@ -135,6 +135,22 @@ describe('firstAllowedRoute', () => {
   });
 });
 
+describe('discount permissions', () => {
+  it('offers both discount capabilities in the catalog', () => {
+    expect(ALL_PERMISSIONS).toContain('discounts.apply');
+    expect(ALL_PERMISSIONS).toContain('discounts.manual');
+  });
+
+  it('describes them as separate capabilities', () => {
+    const keys = PERMISSIONS.map((p) => p.key);
+    expect(keys.filter((k) => k.startsWith('discounts.'))).toHaveLength(2);
+  });
+
+  it('does not imply one from the other — choosing an offer is not inventing a number', () => {
+    expect(expandPermissions(['discounts.apply'])).toEqual(['discounts.apply']);
+  });
+});
+
 describe('the cashier scope this gate exists to enforce', () => {
   const cashier = expandPermissions(CASHIER);
   const blocked: Permission[] = [

@@ -29,7 +29,9 @@ export type Permission =
   | 'invoices.view'
   | 'invoices.manage'
   | 'budgets.manage'
-  | 'registers.manage';
+  | 'registers.manage'
+  | 'discounts.apply'
+  | 'discounts.manual';
 
 export const PERMISSIONS: { key: Permission; label: string; description: string }[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },
@@ -38,6 +40,8 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'sales.view', label: 'View sales history', description: 'See past sales and receipts.' },
   { key: 'sales.edit', label: 'Edit/delete sales', description: 'Edit or delete a past sale.' },
   { key: 'sales.refund', label: 'Refund sales', description: 'Issue refunds against past sales and restore stock. Independent of sales editing.' },
+  { key: 'discounts.apply', label: 'Apply an offer', description: "Put one of the shop's own offers on a sale. The amount is the offer's, not the cashier's." },
+  { key: 'discounts.manual', label: 'Enter a discount', description: 'Type any amount off a line or a whole sale. Independent of applying an offer — this is the one with no ceiling.' },
   { key: 'customers.view', label: 'View customers', description: 'Browse the customer directory and its contact details.' },
   { key: 'customers.edit', label: 'Edit customers', description: 'Add, edit, or delete customer records.' },
   { key: 'dashboard.view', label: 'View dashboard', description: 'See revenue, trends, and other shop analytics.' },

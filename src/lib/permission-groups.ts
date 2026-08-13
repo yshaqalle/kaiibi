@@ -8,7 +8,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   // exercised at the counter: opening a register for a colleague and signing off
   // their drawer count. Everyone with pos.access already opens and closes their
   // own — this is only the supervisory half.
-  { label: 'POS', permissions: ['pos.access', 'registers.manage'] },
+  { label: 'POS', permissions: ['pos.access', 'registers.manage', 'discounts.apply', 'discounts.manual'] },
   { label: 'Inventory', permissions: ['inventory.view', 'inventory.edit'] },
   {
     label: 'People',
