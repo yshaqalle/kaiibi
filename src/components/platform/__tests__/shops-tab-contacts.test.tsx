@@ -39,8 +39,6 @@ const shop = (over: Partial<PlatformShopRow> = {}): PlatformShopRow => ({
   manualStatus: 'active',
   usage: {},
   limits: {},
-  contactPhone: '0634418820',
-  city: 'Hargeisa',
   branches: [
     { id: 'l1', name: 'Main', city: 'Hargeisa', neighborhood: 'Jigjiga Yar', phone: '0634418820', isPrimary: true },
   ],

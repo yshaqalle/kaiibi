@@ -32,12 +32,16 @@ export type PlatformShopRow = {
   manualStatus: 'active' | 'suspended';
   usage: Partial<Record<LimitResource, number>>;
   limits: Partial<Record<LimitResource, number | null>>;
-  // From the shop's primary store. It is the number they print on their own
-  // receipts, not a private contact detail, and it is what makes reaching a
-  // customer on WhatsApp a click rather than a hunt.
-  contactPhone: string | null;
-  city: string | null;
-  /** Every branch, primary first. Their trading addresses, not private data. */
+  /**
+   * Every branch, primary first. Their own trading addresses and the numbers
+   * they print on their receipts — not private contact data.
+   *
+   * Replaces the flat `contactPhone`/`city` this type used to carry: those
+   * were the primary branch's two fields copied out, and once the console
+   * started reading whole branches they were a second copy of one fact with
+   * nothing left reading them. `contactPhone()` and `cityLabel()` in
+   * src/lib/shop-people.ts derive both from this.
+   */
   branches: Branch[];
   /**
    * Everyone who works here, owner first. Filled in by the console after
@@ -342,10 +346,6 @@ export async function listPlatformShops(plans: Plan[], postTrialPlanKey: string)
       manualStatus: sub?.manual_status ?? 'active',
       usage: usage.get(shop.id) ?? {},
       limits: effectivePlan?.limits ?? sub?.plans?.limits ?? {},
-      // Kept for the callers that already read them, and still the PRIMARY
-      // branch's -- the number on their receipts.
-      contactPhone: branchesByShop.get(shop.id)?.find((b) => b.isPrimary)?.phone ?? null,
-      city: branchesByShop.get(shop.id)?.find((b) => b.isPrimary)?.city ?? null,
       branches: branchesByShop.get(shop.id) ?? [],
       // Filled in by the console once listShopPeople() resolves, so a roster
       // that fails to load leaves these empty rather than failing the store.

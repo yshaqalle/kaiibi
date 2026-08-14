@@ -59,8 +59,6 @@ const shop: PlatformShopRow = {
   manualStatus: 'active',
   usage: { staff: 4, locations: 2 },
   limits: { staff: 11, locations: 3 },
-  contactPhone: '0634418820',
-  city: 'Hargeisa',
   branches: [
     { id: 'l1', name: 'Main', city: 'Hargeisa', neighborhood: 'Jigjiga Yar', phone: '0634418820', isPrimary: true },
     { id: 'l2', name: 'Koodbuur', city: 'Hargeisa', neighborhood: 'Koodbuur', phone: null, isPrimary: false },
