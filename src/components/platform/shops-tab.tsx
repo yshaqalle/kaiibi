@@ -8,8 +8,8 @@ import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/dat
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { coverEnd, fmtDate } from '@/components/platform/labels';
 import { Field } from '@/components/platform/kit';
-import { WhatsAppButton } from '@/components/platform/whatsapp-button';
-import { cityLabel, contactPhone, personMatchesQuery } from '@/lib/shop-people';
+import { EmailButton, WhatsAppButton } from '@/components/platform/whatsapp-button';
+import { cityLabel, contactPhone, personMatchesQuery, shortName } from '@/lib/shop-people';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import type { SubscriptionStatus } from '@/lib/entitlements';
@@ -47,7 +47,13 @@ function storeMeta(shop: PlatformShopRow): string {
       : shop.storedPlanKey !== shop.planKey
         ? `${shop.storedPlanName} → ${shop.planName}`
         : shop.planName;
-  return [shop.owner?.name, cityLabel(shop.branches), plan].filter(Boolean).join(' · ');
+  // shortName, not the raw name: a store that signed up without typing one can
+  // carry the whole email address here, and "mmooge@gmail.com · Hargeisa ·
+  // Trial" is three long things fighting for one line. The drawer still shows
+  // the address in full.
+  return [shop.owner ? shortName(shop.owner.name) : null, cityLabel(shop.branches), plan]
+    .filter(Boolean)
+    .join(' · ');
 }
 
 export function ShopsTab({
@@ -161,15 +167,25 @@ export function ShopsTab({
       render: (shop) => {
         const phone = contactPhone(shop.owner, shop.branches);
         const who = shop.owner?.name ?? shop.shopName;
+        // Phone, then email. Most stores have no number at all, and "no
+        // number" on nine rows in eleven is a column telling an operator what
+        // they cannot do -- while an address we already hold sits unoffered.
+        // Green keeps meaning "reachable right now"; grey means "you will have
+        // to write".
+        const email = shop.owner?.email ?? null;
         return (
           <View style={styles.contactCell}>
-            <WhatsAppButton phone={phone} message={`Hi ${who} — this is Kaiibi.`} label={`WhatsApp ${who}`} />
             {phone ? (
+              <WhatsAppButton phone={phone} message={`Hi ${who} — this is Kaiibi.`} label={`WhatsApp ${who}`} />
+            ) : (
+              <EmailButton email={email} label={`Email ${who}`} />
+            )}
+            {phone || email ? (
               <Text style={styles.contactPhone} numberOfLines={1}>
-                {phone}
+                {phone ?? email}
               </Text>
             ) : (
-              <Text style={styles.contactNone}>no number</Text>
+              <Text style={styles.contactNone}>no contact</Text>
             )}
           </View>
         );

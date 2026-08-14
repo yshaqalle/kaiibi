@@ -113,6 +113,47 @@ export function personMatchesQuery(person: ShopPerson, query: string): boolean {
 }
 
 /**
+ * What to call someone where the line is shared with other facts.
+ *
+ * A store that signed up without ever typing a name can end up with the whole
+ * email address in `full_name` -- "mmooge@gmail.com · Hargeisa · Trial" is
+ * three long things competing for one line. The local part is what a person is
+ * actually called; the drawer still shows the address in full, because that is
+ * what you would write to.
+ *
+ * Only an address is shortened. Junk that is merely odd ("jfykwd") is left
+ * alone: a console that quietly tidies bad data is a console that hides it.
+ */
+export function shortName(name: string): string {
+  const match = /^(\S+)@\S+\.\S+$/.exec(name.trim());
+  return match ? match[1] : name;
+}
+
+/**
+ * The scope beside the "People" heading.
+ *
+ * NOT seatsLabel(): that says "4 people", and under a heading already reading
+ * People it renders "PEOPLE · 4 PEOPLE". A cap is still worth showing, because
+ * there the number is a budget rather than a count.
+ */
+export function seatsScope(count: number, limit: number | null | undefined): string {
+  if (count === 0) return 'nobody yet';
+  return limit == null ? String(count) : `${count} of ${limit} seats`;
+}
+
+/**
+ * A branch's second line: where it is, and how to reach it.
+ *
+ * Both missing collapses to one phrase -- "no address on file · no phone on
+ * file" says "on file" twice in six words. One missing keeps its own phrase,
+ * because there the other half is real information.
+ */
+export function branchLine(place: string, phone: string | null | undefined): string {
+  if (!place && !phone) return 'no address or phone on file';
+  return [place || 'no address on file', phone ?? 'no phone on file'].join(' · ');
+}
+
+/**
  * The scope line beside "People".
  *
  * A capped plan has a number worth showing against its cap. An uncapped one

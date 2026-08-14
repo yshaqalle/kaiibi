@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ActionRow, Chip, Field, LabelledField, PlatformButton, SectionLabel } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
 import { BranchRow, PeopleGroups, PersonRow } from '@/components/platform/people-list';
-import { branchesLabel, seatsLabel, teamSummary } from '@/lib/shop-people';
+import { branchesLabel, seatsLabel, seatsScope, teamSummary } from '@/lib/shop-people';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
@@ -132,7 +132,12 @@ export function ShopDrawer({
           many products" -- it is "who am I dealing with". The owner is in full
           because they are the person who can say yes to a plan change;
           everyone else is one row, opened on demand. */}
-      <SectionLabel>{peopleError ? 'People' : `People · ${seats}`}</SectionLabel>
+      {/* `seatsScope`, not `seats`: this heading already says "People", and
+          "PEOPLE · 4 PEOPLE" is what the console showed. The long form belongs
+          in the team view, where there is no heading to repeat. */}
+      <SectionLabel>
+        {peopleError ? 'People' : `People · ${seatsScope(shop.people.length, shop.limits.staff)}`}
+      </SectionLabel>
       {peopleReason ? (
         <Caveat tone="wrong">
           {`Could not load who works at this store — ${peopleReason}. Everything else here is current.`}

@@ -133,11 +133,16 @@ describe('the store view', () => {
     expect(t.some((s) => s.includes('..'))).toBe(false);
   });
 
-  // "0 of ∞ seats" is what a Trial store's header actually read.
-  it('never offers a seat count against an infinite cap', () => {
+  // "0 of ∞ seats" is what a Trial store's header first read; "PEOPLE · 4
+  // PEOPLE" is what my fix for it read. The heading already says the word.
+  it('never offers a seat count against an infinite cap, or repeats itself', () => {
     const t = texts(render({ limits: {} }));
     expect(t.some((s) => s.includes('∞'))).toBe(false);
-    expect(t).toContain('PEOPLE · 4 PEOPLE');
+    expect(t).toContain('PEOPLE · 4');
+  });
+
+  it('keeps the cap where there is one, because there the number is a budget', () => {
+    expect(texts(render())).toContain('PEOPLE · 4 OF 11 SEATS');
   });
 
   it('says nothing about a team when there is only the owner', () => {

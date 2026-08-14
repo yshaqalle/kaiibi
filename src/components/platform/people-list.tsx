@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { EmailButton, NoContact, WhatsAppButton } from '@/components/platform/whatsapp-button';
 import { Colors } from '@/constants/theme';
-import { branchAccessLabel, sortPeople, type Branch, type ShopPerson } from '@/lib/shop-people';
+import { branchAccessLabel, branchLine, sortPeople, type Branch, type ShopPerson } from '@/lib/shop-people';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
@@ -144,7 +144,7 @@ export function BranchRow({ branch, first }: { branch: Branch; first: boolean })
           ) : null}
         </View>
         <Text style={styles.line} numberOfLines={1}>
-          {[place || 'no address on file', branch.phone ?? 'no phone on file'].join(' · ')}
+          {branchLine(place, branch.phone)}
         </Text>
       </View>
       <View style={styles.actions}>

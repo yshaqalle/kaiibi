@@ -1,10 +1,13 @@
 import {
   branchAccessLabel,
   branchesLabel,
+  branchLine,
   cityLabel,
   contactPhone,
   personMatchesQuery,
   seatsLabel,
+  seatsScope,
+  shortName,
   sortPeople,
   teamSummary,
   type Branch,
@@ -148,6 +151,60 @@ describe('personMatchesQuery', () => {
 
   it('does not match something absent', () => {
     expect(personMatchesQuery(sahra, 'maxamed')).toBe(false);
+  });
+});
+
+// Real stores sign up without ever typing a name, and what lands in
+// shop_members.full_name is sometimes the whole email address.
+describe('shortName', () => {
+  it('leaves a real name alone', () => {
+    expect(shortName('Faadumo Cabdi')).toBe('Faadumo Cabdi');
+  });
+
+  it('shows the local part when the name is an email address', () => {
+    expect(shortName('mmooge@gmail.com')).toBe('mmooge');
+  });
+
+  // Junk that is merely odd is NOT tidied -- a console that hides bad data is
+  // worse than one that shows it.
+  it('leaves junk that is not an email exactly as it is', () => {
+    expect(shortName('jfykwd')).toBe('jfykwd');
+  });
+
+  it('does not mistake a name containing an at-sign for an address', () => {
+    expect(shortName('Ali @ GarGar')).toBe('Ali @ GarGar');
+  });
+});
+
+// The section heading already says "People", so repeating the word in its own
+// scope reads as a defect: "PEOPLE · 4 PEOPLE" is what the console showed.
+describe('seatsScope', () => {
+  it('is the bare count when the plan is uncapped', () => {
+    expect(seatsScope(4, null)).toBe('4');
+  });
+
+  it('keeps the cap when there is one, because then it is a budget', () => {
+    expect(seatsScope(4, 11)).toBe('4 of 11 seats');
+  });
+
+  it('says nobody rather than a bare zero', () => {
+    expect(seatsScope(0, 11)).toBe('nobody yet');
+  });
+});
+
+describe('branchLine', () => {
+  it('joins a place and a phone', () => {
+    expect(branchLine('Jigjiga yar, Hargeisa', '+252-063-9186568')).toBe('Jigjiga yar, Hargeisa · +252-063-9186568');
+  });
+
+  it('keeps a phrase for the one thing that is missing', () => {
+    expect(branchLine('Jigjiga yar, Hargeisa', null)).toBe('Jigjiga yar, Hargeisa · no phone on file');
+    expect(branchLine('', '+252-063-9186568')).toBe('no address on file · +252-063-9186568');
+  });
+
+  // "no address on file · no phone on file" says "on file" twice in six words.
+  it('collapses to one phrase when both are missing', () => {
+    expect(branchLine('', null)).toBe('no address or phone on file');
   });
 });
 

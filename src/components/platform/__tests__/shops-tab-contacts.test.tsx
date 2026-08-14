@@ -84,6 +84,48 @@ describe('the Store cell', () => {
   it('falls back to the plan alone when the roster did not load', () => {
     expect(texts(render([shop({ people: [], owner: null, branches: [] })]))).toContain('Standard');
   });
+
+  // Real stores sign up without typing a name, and the whole address lands in
+  // full_name -- three long things then fight for one line.
+  it('shows the local part when the owner’s name is an email address', () => {
+    const t = texts(render([shop({ owner: owner({ name: 'mmooge@gmail.com' }) })]));
+    expect(t).toContain('mmooge · Hargeisa · Standard');
+  });
+});
+
+describe('the Contact cell', () => {
+  it('offers WhatsApp when there is a number', () => {
+    const t = texts(render([shop()]));
+    expect(t).toContain('0634418820');
+    expect(t).not.toContain('no contact');
+  });
+
+  // Nine rows in eleven had no number at all, and every one of them has an
+  // email we already hold. "no number" was a column saying what you cannot do.
+  it('falls back to the owner’s email rather than a dead end', () => {
+    const t = texts(
+      render([
+        shop({
+          owner: owner({ phone: null }),
+          branches: [{ id: 'l1', name: 'Main', city: 'Hargeisa', neighborhood: null, phone: null, isPrimary: true }],
+        }),
+      ])
+    );
+    expect(t).toContain('faadumo@hooyo.so');
+    expect(t).not.toContain('no contact');
+  });
+
+  it('says "no contact" only when there is genuinely neither', () => {
+    const t = texts(
+      render([
+        shop({
+          owner: owner({ phone: null, email: null }),
+          branches: [{ id: 'l1', name: 'Main', city: 'Hargeisa', neighborhood: null, phone: null, isPrimary: true }],
+        }),
+      ])
+    );
+    expect(t).toContain('no contact');
+  });
 });
 
 describe('search', () => {
