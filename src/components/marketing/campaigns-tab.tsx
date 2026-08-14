@@ -310,6 +310,22 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
     const matched = customers.filter((c) => matchesAudience(c, selected.audience, lastPurchaseByCustomer.get(c.id) ?? null));
     return matched.find(isReachable) ?? matched[0] ?? null;
   }, [selected, customers, lastPurchaseByCustomer]);
+  // Whether a top-up (the sync SendQueue itself runs the moment it's opened,
+  // see send-queue.tsx) could still bring a NEW customer into a 'done'
+  // campaign's queue -- one who now matches the audience filter but has no
+  // recipient row yet. Paired with `unreachable > 0` inside
+  // CampaignDetailPane (an already-queued customer whose number might just
+  // have been fixed), this is what decides whether "Continue sending" stays
+  // reachable after 'done' -- see send-queue.tsx's status-effect comment for
+  // the other half: what actually flips status back to 'sending' once the
+  // owner acts on it.
+  const selectedNewMatchAvailable = useMemo(() => {
+    if (!selected) return false;
+    const existingIds = new Set((recipientsByCampaign.get(selected.id) ?? []).map((r) => r.customerId));
+    return customers.some(
+      (c) => !existingIds.has(c.id) && matchesAudience(c, selected.audience, lastPurchaseByCustomer.get(c.id) ?? null)
+    );
+  }, [selected, customers, lastPurchaseByCustomer, recipientsByCampaign]);
 
   const list = (
     <>
@@ -381,6 +397,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         sampleCustomer={sampleCustomer}
         shopName={shop?.name ?? ''}
         branchName={activeLocation?.name ?? ''}
+        canTopUpWhenDone={selectedNewMatchAvailable}
         onReviewUnreachable={() => router.push({ pathname: '/people', params: { tab: 'customers' } })}
         onContinueSending={() => setSendQueueForId(selected?.id ?? null)}
         onDelete={handleDeleteCampaign}
@@ -466,6 +483,7 @@ function CampaignDetailPane({
   sampleCustomer,
   shopName,
   branchName,
+  canTopUpWhenDone,
   onReviewUnreachable,
   onContinueSending,
   onDelete,
@@ -484,6 +502,12 @@ function CampaignDetailPane({
   sampleCustomer: Customer | null;
   shopName: string;
   branchName: string;
+  // Whether a customer who has NO recipient row yet now matches this
+  // campaign's audience filter -- see the identical-purpose comment on
+  // `selectedNewMatchAvailable` in CampaignsTab. Combined with `unreachable`
+  // (computed below, from the campaign's own rows) to decide whether 'done'
+  // still needs a way back in.
+  canTopUpWhenDone: boolean;
   onReviewUnreachable: () => void;
   onContinueSending: () => void;
   onDelete: () => void;
@@ -532,6 +556,19 @@ function CampaignDetailPane({
   const processed = recipientsProcessed(recipients);
   const left = Math.max(0, reachable - processed);
   const chip = statusChipFor(campaign, recipients, reachable);
+  // CRITICAL: 'done' must not be a one-way door. hasRecipientsLeftToActOn
+  // (send-queue.tsx's status effect) deliberately ignores 'waiting' rows
+  // whose customer isn't reachable right now -- which means 'done' can be
+  // written while a phone-less recipient still sits in the queue. A top-up
+  // could still bring them back in one of two ways: their number gets fixed
+  // (they're already a row, counted in `unreachable` above), or a customer
+  // who didn't match the audience before now does (`canTopUpWhenDone`, a
+  // customer with no row yet). Either one means "Continue sending" must stay
+  // reachable even though the chip says Done -- otherwise the caveat below
+  // ("fix a number and they join the queue automatically") is a promise this
+  // screen can't keep.
+  const canReopenDone = campaign.status === 'done' && (unreachable > 0 || canTopUpWhenDone);
+  const continueLabel = campaign.status === 'done' ? 'Check for new recipients' : `Continue sending · ${left} left`;
 
   return (
     <View style={styles.detailStack}>
@@ -554,18 +591,18 @@ function CampaignDetailPane({
           {campaign.startedAt ? ` · started ${new Date(campaign.startedAt).toLocaleDateString()}` : ''}
         </Text>
 
-        {campaign.status === 'done' ? (
+        {campaign.status === 'done' && !canReopenDone ? (
           <Text style={styles.doneNote}>Done — every reachable customer was worked through.</Text>
         ) : promotionIssue ? (
           <>
             <Pressable disabled accessibilityRole="button" accessibilityState={{ disabled: true }} style={[styles.continueBtn, styles.continueBtnOff]}>
-              <Text style={styles.continueBtnText}>Continue sending · {left} left</Text>
+              <Text style={styles.continueBtnText}>{continueLabel}</Text>
             </Pressable>
             <Caveat tone="wrong">{`${promotionIssue} This campaign can no longer send until it's rebuilt with a different offer.`}</Caveat>
           </>
         ) : (
           <Pressable onPress={onContinueSending} accessibilityRole="button" style={styles.continueBtn}>
-            <Text style={styles.continueBtnText}>Continue sending · {left} left</Text>
+            <Text style={styles.continueBtnText}>{continueLabel}</Text>
           </Pressable>
         )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View, type AppStateStatus } from 'react-native';
 
 import { Badge, type BadgeTone } from '@/components/badge';
 import { AppModal } from '@/components/ui/app-modal';
@@ -233,11 +233,10 @@ export function SendQueue({
 
   // Maintains campaign.status -- nothing else in this branch ever writes
   // 'sending' outside campaign-composer.tsx's "Start sending" at CREATION
-  // time, and nothing anywhere ever writes 'done' at all (see the migration's
-  // check constraint for the three values this is meant to cycle through).
-  // Without this a "Continue sending" campaign chips "Sending 84 of 84"
-  // forever, and its Continue button never goes away, even once nobody is
-  // left to act on.
+  // time, and nothing else writes 'done' at all (see the migration's check
+  // constraint for the three values this is meant to cycle through). Without
+  // this a "Continue sending" campaign chips "Sending 84 of 84" forever, and
+  // its Continue button never goes away, even once nobody is left to act on.
   //
   // 'sending' fires the moment this queue is opened for a 'draft' campaign --
   // opening it to work it out at all is "starting to work the queue", the
@@ -246,6 +245,21 @@ export function SendQueue({
   // comment for why 'opened' rows (an unanswered "did that send?") keep a
   // campaign OUT of 'done', and why an unreachable customer stuck at
   // 'waiting' forever must not.
+  //
+  // CRITICAL: 'done' is NOT a one-way door. There used to be an
+  // `if (current === 'done') return;` guard here that made it one -- but
+  // hasRecipientsLeftToActOn deliberately ignores unreachable 'waiting' rows
+  // (see its own comment), so 'done' can be written while phone-less
+  // recipients still sit in the queue. campaigns-tab.tsx's unreachable
+  // caveat promises "fix a number and they join the queue automatically",
+  // and that promise is only true if a fixed number can flip status back to
+  // 'sending' -- which requires this effect to keep running after 'done'.
+  // Reopening only happens when there is real work again: a top-up
+  // (syncRecipients, run every time this screen mounts) adds a newly-
+  // matching customer, or a 'waiting' row's customer becomes reachable
+  // between one open of this screen and the next. campaigns-tab.tsx's own
+  // `canReopenDone` is the other half of this -- the button that gets an
+  // owner back into this screen for a 'done' campaign in the first place.
   //
   // Guarded by a ref, not by re-reading `campaign.status` from props: the
   // parent only refreshes that on close (see campaigns-tab.tsx's onClose ->
@@ -258,12 +272,12 @@ export function SendQueue({
   useEffect(() => {
     if (!loaded || recipients.length === 0) return;
     const current = lastWrittenStatusRef.current;
-    if (current === 'done') return;
-    const target: Campaign['status'] = hasRecipientsLeftToActOn(recipients, customersById)
-      ? current === 'draft'
-        ? 'sending'
-        : current
-      : 'done';
+    // 'sending' whenever there's real work, whatever `current` was --
+    // 'draft' on first open, or 'done' reopened by a top-up. 'done'
+    // otherwise. current === target is the only no-op case (including
+    // 'done' staying 'done' when nothing changed), so this never re-fires
+    // a write it already made.
+    const target: Campaign['status'] = hasRecipientsLeftToActOn(recipients, customersById) ? 'sending' : 'done';
     if (target === current) return;
     lastWrittenStatusRef.current = target;
     updateCampaign(campaign.id, {
@@ -397,12 +411,25 @@ export function SendQueue({
   // or an accidental dismissal must not be able to trigger it -- see
   // confirm.ts's own comment on the distinction.
   //
+  // NATIVE ONLY. `confirmTriChoice`'s web branch goes through
+  // `window.confirm`, which has exactly two outcomes (OK/Cancel) and folds
+  // the negative one into 'dismiss' -- correctly, since a browser can't tell
+  // "clicked Cancel" from "hit Escape" apart. But that leaves 'deny'
+  // permanently unreachable on web: an owner who genuinely did NOT send
+  // could never say so, the recipient would sit at 'opened' forever, and
+  // (per hasRecipientsLeftToActOn) the campaign could never reach 'done' on
+  // this platform. The card rendered below when `askingId && Platform.OS ===
+  // 'web'` is the fix -- real, separately-labelled buttons for all three
+  // outcomes, in-sheet rather than in a browser dialog this codebase has no
+  // control over. Its copy is exactly the button labels shown, not a
+  // description of buttons that don't exist.
+  //
   // Fires only when `askingId` itself changes -- not on every re-render --
   // so recipients/customersById can be read straight from the render closure
   // without listing them as deps and risking a duplicate Alert firing if
   // unrelated state changes while one is already on screen.
   useEffect(() => {
-    if (!askingId) return;
+    if (!askingId || Platform.OS === 'web') return;
     const id = askingId;
     const customer = askingCustomer;
     let cancelled = false;
@@ -441,20 +468,29 @@ export function SendQueue({
   // already sent doesn't claim 40 just happened.
   const showBreakCaveat = counts.markedSent > 0 && counts.markedSent % SENT_BREAK_INTERVAL === 0;
 
-  // Belt-and-braces alongside the render guard below, which is what actually
-  // keeps the button off screen -- this stops it if that ever drifts. Reads
-  // the mount-time `promotionIssue` computed above rather than a fresh
-  // Date.now() here: this function isn't the render body, but the compiler's
-  // purity check (react-hooks/purity) still refuses an inline impure call
-  // textually inside it, so a fresh recheck stays confined to `promotionIssue`
-  // itself, recomputed on every render from `now`. In practice this is not a
-  // meaningfully smaller window than campaign-composer.tsx's own
-  // checkPromotionStillLive -- both catch a promotion that was ALREADY dead
-  // by the time this screen opened (every case CRITICAL 1 describes:
-  // archived, paused, ended), not one dying in the exact seconds a single
-  // render stays on screen.
+  // IMPORTANT: checked FRESH, with the actual clock, not the mount-time
+  // `promotionIssue` above. A session can sit open across the offer's end --
+  // typically midnight, an owner opens the queue at 11pm and is still
+  // working through it after the offer has ended -- and `promotionIssue`
+  // only ever reflects the instant this screen was mounted. `promotionIssue`
+  // is still what gates the render below (belt-and-braces, and it's what the
+  // caveat card's own wording is drawn from), but it is not what gates the
+  // WRITE.
+  //
+  // `promotionLiveIssue(promotion)` called with ONE argument, not two:
+  // `promotionLiveIssue` defaults its clock to `Date.now()` inside
+  // discounts.ts (see its signature), so the impure call happens there,
+  // outside this component, and this line reads clean under
+  // react-hooks/purity -- unlike an inline `Date.now()` here, which the
+  // compiler rejects. This is a real fresh check, not a second read of the
+  // same stale `now`.
   async function handleOpenWhatsApp() {
-    if (!current || !currentCustomer || !currentCustomer.phone || !messageTemplate || promotionIssue) return;
+    if (!current || !currentCustomer || !currentCustomer.phone || !messageTemplate) return;
+    const freshIssue = promotion ? promotionLiveIssue(promotion) : null;
+    if (freshIssue) {
+      setError(`${freshIssue} This campaign can no longer send — nobody here will be messaged until it's rebuilt with a different offer.`);
+      return;
+    }
     const message = fillMessage(messageTemplate, { ...baseValues, name: currentCustomer.firstName });
     setBusy(true);
     setError(null);
@@ -518,6 +554,46 @@ export function SendQueue({
                   <Text style={styles.empty}>No message has been written for this campaign yet.</Text>
                 ) : promotionIssue ? (
                   <Caveat tone="wrong">{`${promotionIssue} This campaign can no longer send — nobody here will be messaged until it's rebuilt with a different offer.`}</Caveat>
+                ) : askingId && Platform.OS === 'web' ? (
+                  // Web's answer to the native Alert above -- see the
+                  // comment on the confirm effect for why window.confirm
+                  // can't be used for this question. Three real, separately
+                  // labelled buttons, so the copy always matches what's
+                  // actually on screen. Replaces the "current" card rather
+                  // than sitting alongside it: the native Alert blocks
+                  // interaction with everything behind it too, and this is
+                  // the in-sheet equivalent of that -- the owner must answer
+                  // before moving on.
+                  <BentoCard>
+                    <Text style={styles.currentName}>{`Did that send${askingCustomer ? ` to ${askingCustomer.firstName}` : ''}?`}</Text>
+                    <Text style={styles.currentMeta}>WhatsApp opened for them a moment ago — what actually happened?</Text>
+                    <Pressable
+                      disabled={busy}
+                      onPress={() => handleAnswer(askingId, 'confirm')}
+                      accessibilityRole="button"
+                      style={[styles.primary, busy && styles.actionOff]}
+                    >
+                      <Text style={styles.primaryText}>Yes, sent</Text>
+                    </Pressable>
+                    <View style={styles.secondaryRow}>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => handleAnswer(askingId, 'deny')}
+                        accessibilityRole="button"
+                        style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
+                      >
+                        <Text style={styles.secondaryText}>No, not sent</Text>
+                      </Pressable>
+                      <Pressable
+                        disabled={busy}
+                        onPress={() => handleAnswer(askingId, 'dismiss')}
+                        accessibilityRole="button"
+                        style={[styles.secondary, styles.secondaryHalf, busy && styles.actionOff]}
+                      >
+                        <Text style={styles.secondaryText}>Ask me later</Text>
+                      </Pressable>
+                    </View>
+                  </BentoCard>
                 ) : current && currentCustomer ? (
                   <BentoCard>
                     <Text style={styles.currentName}>{customerDisplayName(currentCustomer)}</Text>
