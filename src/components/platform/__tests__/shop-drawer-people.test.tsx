@@ -125,6 +125,21 @@ describe('the store view', () => {
     expect(t).toContain('USAGE');
   });
 
+  // Seen on the real console: "…this store: Could not load who works at these
+  // stores.. Everything else here is current." The reason is a clause, so a
+  // thrower's trailing full stop must not land mid-sentence.
+  it('does not double the full stop when the reason ends in one', () => {
+    const t = texts(render({}, 'Could not load who works at these stores.'));
+    expect(t.some((s) => s.includes('..'))).toBe(false);
+  });
+
+  // "0 of ∞ seats" is what a Trial store's header actually read.
+  it('never offers a seat count against an infinite cap', () => {
+    const t = texts(render({ limits: {} }));
+    expect(t.some((s) => s.includes('∞'))).toBe(false);
+    expect(t).toContain('PEOPLE · 4 PEOPLE');
+  });
+
   it('says nothing about a team when there is only the owner', () => {
     const t = texts(render({ people: [owner] }));
     expect(t.some((s) => s.includes('who has left'))).toBe(false);

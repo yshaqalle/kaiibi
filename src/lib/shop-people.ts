@@ -113,6 +113,26 @@ export function personMatchesQuery(person: ShopPerson, query: string): boolean {
 }
 
 /**
+ * The scope line beside "People".
+ *
+ * A capped plan has a number worth showing against its cap. An uncapped one
+ * does not: "0 of ∞ seats" is what a Trial store's drawer actually read, which
+ * answers nothing and looks like a bug. Uncapped plans just count the people.
+ */
+export function seatsLabel(count: number, limit: number | null | undefined): string {
+  if (count === 0) return 'nobody yet';
+  if (limit == null) return count === 1 ? '1 person' : `${count} people`;
+  return `${count} of ${limit} seats`;
+}
+
+/** The same rule for branches, so the two section headers read alike. */
+export function branchesLabel(count: number, limit: number | null | undefined): string {
+  if (count === 0) return 'no branches yet';
+  if (limit == null) return count === 1 ? '1 branch' : `${count} branches`;
+  return `${count} of ${limit} branches`;
+}
+
+/**
  * Where the business is, for a one-line cell: the primary branch's city, plus a
  * count when there are others. Three towns competing with the owner's name for
  * one line is how that line stops being readable.

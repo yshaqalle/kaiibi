@@ -1,8 +1,10 @@
 import {
   branchAccessLabel,
+  branchesLabel,
   cityLabel,
   contactPhone,
   personMatchesQuery,
+  seatsLabel,
   sortPeople,
   teamSummary,
   type Branch,
@@ -146,6 +148,42 @@ describe('personMatchesQuery', () => {
 
   it('does not match something absent', () => {
     expect(personMatchesQuery(sahra, 'maxamed')).toBe(false);
+  });
+});
+
+// A capped plan has a seat count worth showing against its cap. An UNCAPPED
+// one does not: "0 of ∞ seats" is how a Trial store's header read on the real
+// console, which says nothing and reads like a defect.
+describe('seatsLabel', () => {
+  it('counts against the cap when there is one', () => {
+    expect(seatsLabel(4, 11)).toBe('4 of 11 seats');
+  });
+
+  it('just counts people when the plan is uncapped', () => {
+    expect(seatsLabel(4, null)).toBe('4 people');
+  });
+
+  it('says "1 person", not "1 people"', () => {
+    expect(seatsLabel(1, null)).toBe('1 person');
+  });
+
+  // The roster failed to load, so a count would be a lie rather than a zero.
+  it('says nothing countable when there is nobody to count', () => {
+    expect(seatsLabel(0, null)).toBe('nobody yet');
+  });
+});
+
+describe('branchesLabel', () => {
+  it('counts against the cap when there is one', () => {
+    expect(branchesLabel(2, 3)).toBe('2 of 3 branches');
+  });
+
+  it('just counts branches when the plan is uncapped', () => {
+    expect(branchesLabel(2, null)).toBe('2 branches');
+  });
+
+  it('says "1 branch", not "1 branches"', () => {
+    expect(branchesLabel(1, null)).toBe('1 branch');
   });
 });
 

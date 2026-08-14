@@ -148,7 +148,11 @@ export default function PlatformHome() {
         peopleByShop = await listShopPeople(shopRows.map((s) => s.shopId));
         setPeopleError(null);
       } catch (err) {
-        setPeopleError(err instanceof Error ? err.message : 'Could not load who works at these stores.');
+        // A REASON, not a sentence: the drawer reads this as a clause inside
+        // "Could not load who works at this store — <reason>." A full sentence
+        // here produced "…this store: Could not load who works at these
+        // stores.. Everything else here is current." on the real console.
+        setPeopleError(err instanceof Error ? err.message : 'the read did not come back');
       }
       for (const shop of shopRows) {
         shop.people = peopleByShop.get(shop.shopId) ?? [];

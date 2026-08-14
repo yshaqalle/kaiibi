@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ActionRow, Chip, Field, LabelledField, PlatformButton, SectionLabel } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
 import { BranchRow, PeopleGroups, PersonRow } from '@/components/platform/people-list';
-import { teamSummary } from '@/lib/shop-people';
+import { branchesLabel, seatsLabel, teamSummary } from '@/lib/shop-people';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
@@ -86,7 +86,10 @@ export function ShopDrawer({
 
   const planModules = plans.find((p) => p.key === shop.planKey)?.modules ?? [];
   const summary = teamSummary(shop.people);
-  const seats = `${shop.people.length} of ${shop.limits.staff ?? '∞'} seats`;
+  const seats = seatsLabel(shop.people.length, shop.limits.staff);
+  // The reason a read failed is a CLAUSE inside this drawer's own sentence, so
+  // a trailing full stop from the thrower would land mid-sentence as "..".
+  const peopleReason = peopleError?.trim().replace(/\.+$/, '');
 
   if (view === 'team') {
     return (
@@ -95,6 +98,7 @@ export function ShopDrawer({
           <Text style={styles.back}>‹ Back</Text>
         </Pressable>
         <Text style={styles.teamScope}>{`${seats} · signed up by the store, not by us`}</Text>
+
         <PeopleGroups people={shop.people} branchCount={shop.branches.length} />
         <View style={styles.caveat}>
           <Caveat tone="context">
@@ -128,10 +132,10 @@ export function ShopDrawer({
           many products" -- it is "who am I dealing with". The owner is in full
           because they are the person who can say yes to a plan change;
           everyone else is one row, opened on demand. */}
-      <SectionLabel>{`People · ${seats}`}</SectionLabel>
-      {peopleError ? (
+      <SectionLabel>{peopleError ? 'People' : `People · ${seats}`}</SectionLabel>
+      {peopleReason ? (
         <Caveat tone="wrong">
-          {`Could not load who works at this store: ${peopleError}. Everything else here is current.`}
+          {`Could not load who works at this store — ${peopleReason}. Everything else here is current.`}
         </Caveat>
       ) : shop.owner ? (
         <>
@@ -158,9 +162,7 @@ export function ShopDrawer({
         <Text style={styles.hint}>Nobody is recorded as working here yet.</Text>
       )}
 
-      <SectionLabel>
-        {`Where they trade · ${shop.branches.length} of ${shop.limits.locations ?? '∞'} branches`}
-      </SectionLabel>
+      <SectionLabel>{`Where they trade · ${branchesLabel(shop.branches.length, shop.limits.locations)}`}</SectionLabel>
       {shop.branches.length === 0 ? (
         <Text style={styles.hint}>No branch has been set up yet.</Text>
       ) : (

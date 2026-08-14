@@ -56,7 +56,7 @@
 - Consumes: `public.is_platform_admin()` (`20260818000500`), `public.shop_members`, `public.roles`, `public.shops`, `public.shop_member_locations`, `public.shop_locations`.
 - Produces: `public.platform_shop_people(p_shop_ids uuid[])` returning `(shop_id uuid, user_id uuid, full_name text, email text, phone text, role_name text, role_permissions text[], is_owner boolean, active boolean, joined_at timestamptz, branch_names text[])`.
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 Create `supabase/migrations/20260830000000_platform_shop_people.sql`:
 
@@ -134,7 +134,7 @@ revoke execute on function public.platform_shop_people(uuid[]) from public;
 grant execute on function public.platform_shop_people(uuid[]) to authenticated;
 ```
 
-- [ ] **Step 2: Write the verification script**
+- [x] **Step 2: Write the verification script**
 
 Create `supabase/tests/verify-platform-shop-people.sql`, following the shape of `supabase/tests/verify-platform-portal.sql`:
 
@@ -243,7 +243,7 @@ exception
 end $$;
 ```
 
-- [ ] **Step 3: Run the verification against a local database**
+- [x] **Step 3: Run the verification against a local database**
 
 Run: `supabase db reset && psql "$(supabase status -o env | grep DB_URL | cut -d= -f2- | tr -d '"')" -f supabase/tests/verify-platform-shop-people.sql`
 
@@ -251,7 +251,7 @@ Expected: `NOTICE:  verify-platform-shop-people: all assertions passed`
 
 If the local Supabase stack is not running, start it with `supabase start` first. If Docker is unavailable in this environment, stop and report that Task 1 could not be verified locally — do **not** mark it done and do not proceed to Task 2 claiming it passed.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/20260830000000_platform_shop_people.sql supabase/tests/verify-platform-shop-people.sql
@@ -278,7 +278,7 @@ git commit -m "feat(platform): let operators read a store's roster, and nothing 
   - `personMatchesQuery(person: ShopPerson, query: string): boolean`
   - `cityLabel(branches: Branch[]): string | null`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/lib/__tests__/shop-people.test.ts`:
 
@@ -458,12 +458,12 @@ describe('cityLabel', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx jest src/lib/__tests__/shop-people.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/shop-people'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/shop-people.ts`:
 
@@ -596,12 +596,12 @@ export function cityLabel(branches: Branch[]): string | null {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx jest src/lib/__tests__/shop-people.test.ts`
 Expected: PASS — 20 tests, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/shop-people.ts src/lib/__tests__/shop-people.test.ts
@@ -623,7 +623,7 @@ git commit -m "feat(platform): the rules for who works where, with the empty-mea
   - `PlatformShopRow` gains `branches: Branch[]`, `people: ShopPerson[]`, `owner: ShopPerson | null`.
   - `PlatformShopRow.contactPhone` keeps its current meaning (primary branch's number) — Task 5 and Task 8 read the new `owner`/`branches` fields through `contactPhone()` from Task 2 instead.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/lib/__tests__/platform-shop-people.test.ts`:
 
@@ -722,12 +722,12 @@ describe('listShopPeople', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx jest src/lib/__tests__/platform-shop-people.test.ts`
 Expected: FAIL — `listShopPeople is not a function`.
 
-- [ ] **Step 3: Add `listShopPeople` to `src/lib/platform.ts`**
+- [x] **Step 3: Add `listShopPeople` to `src/lib/platform.ts`**
 
 Add this import beside the existing ones at the top of the file:
 
@@ -792,12 +792,12 @@ export async function listShopPeople(shopIds: string[]): Promise<Map<string, Sho
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx jest src/lib/__tests__/platform-shop-people.test.ts`
 Expected: PASS — 7 tests, 0 failures.
 
-- [ ] **Step 5: Widen the locations read and carry the branches**
+- [x] **Step 5: Widen the locations read and carry the branches**
 
 In `src/lib/platform.ts`, change the `shop_locations` query inside `listPlatformShops` (currently at `:190`) from:
 
@@ -876,7 +876,7 @@ Add the three fields to the `PlatformShopRow` type (at `:10-39`), after `city`:
   owner: ShopPerson | null;
 ```
 
-- [ ] **Step 6: Wire the load in `src/app/platform/index.tsx`**
+- [x] **Step 6: Wire the load in `src/app/platform/index.tsx`**
 
 Add `listShopPeople` to the import from `@/lib/platform`. Then, inside `reload()` after the six-way `Promise.all` resolves and before `setShops(shopRows)`, add:
 
@@ -915,12 +915,12 @@ Pass it into the drawer so the failure is stated where the roster would have bee
             peopleError={peopleError}
 ```
 
-- [ ] **Step 7: Run the full platform test suite and the type checker**
+- [x] **Step 7: Run the full platform test suite and the type checker**
 
 Run: `npx jest src/lib/__tests__/platform-shop-people.test.ts src/components/platform && npx tsc --noEmit`
 Expected: PASS, and no type errors. `tsc` will fail on any test fixture that builds a `PlatformShopRow` without the three new fields — add `branches: []`, `people: []`, `owner: null` to those fixtures.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/lib/platform.ts src/lib/__tests__/platform-shop-people.test.ts src/app/platform/index.tsx src/components/platform
@@ -939,7 +939,7 @@ git commit -m "feat(platform): load the people and every branch, and let a missi
 - Consumes: `whatsappLink` from `@/lib/whatsapp`, `openExternalUrl` from `@/lib/external-url`.
 - Produces: `<WhatsAppButton phone message label />` and `<EmailButton email label />`, plus `WHATSAPP_GREEN` and `WHATSAPP_WASH` constants.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/components/platform/__tests__/whatsapp-button.test.tsx`:
 
@@ -996,12 +996,12 @@ describe('EmailButton', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx jest src/components/platform/__tests__/whatsapp-button.test.tsx`
 Expected: FAIL — `Cannot find module '@/components/platform/whatsapp-button'`.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Create `src/components/platform/whatsapp-button.tsx`:
 
@@ -1091,12 +1091,12 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx jest src/components/platform/__tests__/whatsapp-button.test.tsx`
 Expected: PASS — 6 tests, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/platform/whatsapp-button.tsx src/components/platform/__tests__/whatsapp-button.test.tsx
@@ -1115,7 +1115,7 @@ git commit -m "feat(platform): a WhatsApp glyph that hides itself rather than of
 - Consumes: `cityLabel`, `contactPhone`, `personMatchesQuery` (Task 2); `PlatformShopRow.owner`/`.branches` (Task 3); `WhatsAppButton` (Task 4).
 - Produces: no new exports.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/components/platform/__tests__/shops-tab-contacts.test.tsx`:
 
@@ -1245,12 +1245,12 @@ describe('search', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx jest src/components/platform/__tests__/shops-tab-contacts.test.tsx`
 Expected: FAIL — the Store cell renders `Standard` alone, and the owner/city/phone searches return no rows.
 
-- [ ] **Step 3: Update the Store cell and the filter**
+- [x] **Step 3: Update the Store cell and the filter**
 
 In `src/components/platform/shops-tab.tsx`, add the imports:
 
@@ -1336,7 +1336,7 @@ Widen the search predicate inside `filtered` (currently `:64-73`) by adding two 
 
 Update the search placeholder (`:222`) to `"Search store, owner, city, plan, or status"`.
 
-- [ ] **Step 4: Update the compact card**
+- [x] **Step 4: Update the compact card**
 
 In `ShopCard`, replace the meta line (currently `:296-298`) with:
 
@@ -1363,12 +1363,12 @@ with:
   cardContact: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `npx jest src/components/platform/__tests__/shops-tab-contacts.test.tsx`
 Expected: PASS — 7 tests, 0 failures.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/platform/shops-tab.tsx src/components/platform/__tests__/shops-tab-contacts.test.tsx
@@ -1389,7 +1389,7 @@ git commit -m "feat(platform): a store row that names who runs it, where it is, 
   - `<BranchRow branch first />`
   - `<PeopleGroups people branchCount />` — the two grouped lists with their headings.
 
-- [ ] **Step 1: Write the component**
+- [x] **Step 1: Write the component**
 
 There is no separate test step here: this file is pure presentation with no decisions of its own (every rule it applies comes from Task 2, which is tested), and Task 7 renders it through the drawer and asserts on the output. Create `src/components/platform/people-list.tsx`:
 
@@ -1639,17 +1639,17 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 2: Check the accent tokens exist**
+- [x] **Step 2: Check the accent tokens exist**
 
 Run: `grep -n "bentoAccentWash\|bentoAccentInk" src/constants/theme.ts`
 Expected: both names present. If either is missing, replace `theme.bentoAccentWash` / `theme.bentoAccentInk` with the accent token names that file actually exports — do **not** write a hex literal into this component.
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 Run: `npx tsc --noEmit`
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/components/platform/people-list.tsx
@@ -1668,7 +1668,7 @@ git commit -m "feat(platform): the person row — role, where they work, and one
 - Consumes: `PeopleGroups`, `BranchRow` (Task 6); `teamSummary` (Task 2); `peopleError` prop (Task 3).
 - Produces: `ShopDrawer` gains an optional `peopleError?: string | null` prop. Its other props are unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/components/platform/__tests__/shop-drawer-people.test.tsx`:
 
@@ -1839,12 +1839,12 @@ Note: `maxamed`'s email above comes from the `person()` default (`somebody@hooyo
 const maxamed = person({ userId: 'm', name: 'Maxamed Aadan', roleName: 'Manager', phone: '0637710043', email: 'maxamed@hooyo.so' });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `npx jest src/components/platform/__tests__/shop-drawer-people.test.tsx`
 Expected: FAIL — no People section, no `Their team` control.
 
-- [ ] **Step 3: Add the two views to the drawer**
+- [x] **Step 3: Add the two views to the drawer**
 
 In `src/components/platform/shop-drawer.tsx`, add the imports:
 
@@ -1963,12 +1963,12 @@ Add the styles:
   chevron: { fontSize: 18, color: theme.bentoMuted2 },
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `npx jest src/components/platform/__tests__/shop-drawer-people.test.tsx`
 Expected: PASS — 11 tests, 0 failures.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/components/platform/shop-drawer.tsx src/components/platform/__tests__/shop-drawer-people.test.tsx
@@ -1986,7 +1986,7 @@ git commit -m "feat(platform): the drawer opens on people, and the team is one t
 - Consumes: `WhatsAppButton`, `EmailButton` (Task 4); `contactPhone` (Task 2); `PlatformShopRow.owner` (Task 3).
 - Produces: no new exports.
 
-- [ ] **Step 1: Address the message to a person**
+- [x] **Step 1: Address the message to a person**
 
 In `src/components/platform-overview.tsx`, replace the three `message` strings in the `attention` list so they greet the owner by their first name and fall back to the store's name:
 
@@ -2006,7 +2006,7 @@ In `src/components/platform-overview.tsx`, replace the three `message` strings i
       message: `Hi ${greet(shop)} — your Kaiibi plan has lapsed. Everything is still saved; shall we get you running again?`,
 ```
 
-- [ ] **Step 2: Name the owner in the note, and swap the pill for the glyph**
+- [x] **Step 2: Name the owner in the note, and swap the pill for the glyph**
 
 Replace the body of `AttentionRow` (currently `:390-412`) with:
 
@@ -2039,12 +2039,12 @@ import { EmailButton, WhatsAppButton } from '@/components/platform/whatsapp-butt
 import { contactPhone } from '@/lib/shop-people';
 ```
 
-- [ ] **Step 3: Run the whole suite and the linter**
+- [x] **Step 3: Run the whole suite and the linter**
 
 Run: `npx jest && npx tsc --noEmit && npx eslint src/lib/shop-people.ts src/lib/platform.ts src/components/platform src/components/platform-overview.tsx src/app/platform/index.tsx`
 Expected: all tests pass, no type errors, no lint errors. `eslint` will flag any import left unused by Step 2 — remove it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/components/platform-overview.tsx
@@ -2057,13 +2057,17 @@ git commit -m "feat(platform): the attention list says who to call, and gives yo
 
 **Files:** none — this task changes nothing. It exists because seven of the eight tasks above were verified against a test renderer, and a test renderer cannot tell you that a row wraps badly at 1024px or that a glyph is invisible on white.
 
-- [ ] **Step 1: Start the app on web**
+**Status: handed to a human.** Tasks 1–8 are done, committed, and verified (1503 tests, `tsc` clean, lint clean, the SQL security script passing against a real Postgres). This last task needs an operator session, and `is_platform_admin()` requires `aal2` — a TOTP challenge an agent cannot complete.
+
+**Local data is ready.** `supabase/tests/seed-platform-people-demo.sql` has been run against the local database: it appoints the shop's owner as an operator, adds a second branch (Koodbuur), and seeds four team members chosen to exercise one UI branch each — a Manager with no assignment (reads *Both branches*), a Cashier tied to one branch (reads *Koodbuur*), a Cashier with no phone (mail glyph, no WhatsApp), and a deactivated Cashier (*No longer here*, no contact). The undo commands are in that file's header.
+
+- [x] **Step 1: Start the app on web**
 
 Run: `npx expo start --web`
 
 - [ ] **Step 2: Walk the console**
 
-Sign in as an operator (MFA required — `is_platform_admin()` demands `aal2`), then check each of these against `docs/design/store-people-contacts-mockup.html`:
+Sign in as an operator (MFA required — `is_platform_admin()` demands `aal2`; the portal's own sign-in screen walks through enrolment the first time), then check each of these against `docs/design/store-people-contacts-mockup.html`:
 
 1. **Stores tab** — every row names an owner and a city; the Contact column shows a green glyph and a number; a store with no owner phone shows "no number" rather than a dead button.
 2. **Search** — type an owner's first name, then a city, then the last four digits of a number. Each finds the store.
