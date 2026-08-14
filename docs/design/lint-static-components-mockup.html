@@ -1,0 +1,343 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaiibi — the 9 lint errors worth fixing, and the 45 that are not</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; --loss:#d72b3e; --profit:#0f7a45; --warn:#b07206; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; --loss:#ff6b7a; --profit:#4ec97e; --warn:#e0a83a; } }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; --loss:#ff6b7a; --profit:#4ec97e; --warn:#e0a83a; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; --loss:#d72b3e; --profit:#0f7a45; --warn:#b07206; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(26px,4.2vw,36px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 8px;}
+  h2{font-size:19px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:78ch;}
+  h3{font-size:14px;font-weight:800;margin:24px 0 8px;}
+  section{margin-top:46px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:78ch;} .note b{font-weight:800;}
+  .note + .note{margin-top:10px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  pre{margin:0;background:var(--sf);border:1px solid var(--ln);border-radius:12px;padding:13px 15px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.65;
+    overflow-x:auto;white-space:pre;color:var(--ink2);}
+  pre .k{color:#8250df;} pre .s{color:#0a7d3f;} pre .c{color:var(--mut);font-style:italic;}
+  pre .del{background:#fdecee;color:#a11726;display:block;border-radius:3px;}
+  pre .add{background:#e5f6ec;color:#0a5c31;display:block;border-radius:3px;}
+  @media (prefers-color-scheme: dark){
+    pre .k{color:#c08cff;} pre .s{color:#6ee7a0;}
+    pre .del{background:#3a1d21;color:#ff9aa5;} pre .add{background:#12301f;color:#83e0a8;} }
+
+  .frameHead{display:flex;align-items:center;gap:10px;margin:0 0 8px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:var(--loss);} .frameHead.good b{color:var(--profit);}
+  .frameHead span{font-size:12px;color:var(--mut);}
+  .row2{display:grid;gap:18px;} @media(min-width:940px){.row2{grid-template-columns:1fr 1fr;}}
+  .row2>div{min-width:0;}
+
+  table{width:100%;border-collapse:collapse;min-width:640px;margin-top:6px;}
+  th{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--mut);
+    text-align:left;padding:0 10px 8px;}
+  td{border-top:1px solid var(--ln);padding:10px;font-size:13px;color:var(--ink2);vertical-align:top;}
+  td:first-child{font-weight:700;color:var(--ink);white-space:nowrap;}
+  .scroll{overflow-x:auto;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;white-space:nowrap;}
+  .tag.fix{background:#e5f6ec;color:#0a5c31;} .tag.leave{background:var(--pg2);color:var(--mut);}
+  .tag.care{background:#fdf1dc;color:#7d5104;}
+
+  .callout{border-left:3px solid;border-radius:0 12px 12px 0;padding:12px 15px;margin-top:16px;font-size:13px;line-height:1.55;}
+  .callout.why{border-color:var(--blue);background:#EEF4FF;color:#1E4BCC;}
+  .callout.no{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .callout.warn{border-color:var(--warn);background:#FDF6E7;color:#7d5104;}
+  @media (prefers-color-scheme: dark){
+    .callout.why{background:#101a33;color:#9dbaff;} .callout.no{background:#2a1418;color:#ff9aa5;}
+    .callout.warn{background:#2b2312;color:#e8c374;} }
+  .callout b{font-weight:800;}
+
+  /* the render-identity diagram */
+  .flow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;}
+  .box{border:1px solid var(--ln);background:var(--sf);border-radius:10px;padding:8px 11px;font-size:11.5px;}
+  .box.hot{border-color:var(--loss);color:var(--loss);}
+  .box.ok{border-color:var(--profit);color:var(--profit);}
+  .arrow{color:var(--mut);font-size:14px;}
+  ol.steps{max-width:78ch;font-size:13.5px;color:var(--ink2);padding-left:20px;}
+  ol.steps li{margin-bottom:7px;} ol.steps li b{color:var(--ink);}
+  hr{border:none;border-top:1px solid var(--ln);margin:46px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · lint debt · proposal</p>
+<h1>Nine worth fixing, forty-five to leave</h1>
+<p class="lede"><code>origin/main</code> and this branch both report <b>54 errors, 28 warnings</b> — rule
+for rule, identically. None came from the store-people work. They appeared wholesale when
+<code>eslint-config-expo ~57</code> brought the React Compiler ruleset to a codebase written before it.
+Nothing enforces them: there is no CI, and <code>lint</code> is a local script.</p>
+
+<div class="scroll">
+<table>
+  <tr><th>Rule</th><th>Count</th><th>What it means here</th><th></th></tr>
+  <tr>
+    <td>static-components</td><td>8</td>
+    <td>A component defined <i>inside</i> another. React sees a new type each render and remounts the
+    subtree instead of updating it — in the two busiest list screens.</td>
+    <td><span class="tag fix">fix now</span></td>
+  </tr>
+  <tr>
+    <td>no-unescaped-entities</td><td>1</td>
+    <td>A bare apostrophe in JSX text.</td>
+    <td><span class="tag fix">fix now</span></td>
+  </tr>
+  <tr>
+    <td>set-state-in-effect</td><td>34</td>
+    <td>“Fetch on mount, then setState.” Costs one extra render pass. Spread over 27 files.</td>
+    <td><span class="tag leave">own PR</span></td>
+  </tr>
+  <tr>
+    <td>refs + purity</td><td>9</td>
+    <td>Mostly <code>pos.tsx</code>, writing a ref during render <b>on purpose</b>, with a comment
+    explaining why an effect would misprice the line.</td>
+    <td><span class="tag care">leave alone</span></td>
+  </tr>
+  <tr>
+    <td>immutability</td><td>1</td>
+    <td>A running total mutated inside <code>.map</code> in the donut chart. Correct today; the compiler
+    just cannot prove it.</td>
+    <td><span class="tag leave">own PR</span></td>
+  </tr>
+  <tr>
+    <td>globals</td><td>1</td>
+    <td>A test reassigning an outer variable. Harmless.</td>
+    <td><span class="tag leave">leave</span></td>
+  </tr>
+</table>
+</div>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>1 · Why <code>static-components</code> is the one that actually costs something</h2>
+<p class="h2sub">This is not a style rule. A component's <i>identity</i> is what React uses to decide
+between updating a subtree and throwing it away.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Now</b><span>a new HeaderCell every render</span></div>
+    <div class="flow">
+      <div class="box">Parent renders</div>
+      <div class="arrow">→</div>
+      <div class="box hot">new <code>HeaderCell</code> fn</div>
+      <div class="arrow">→</div>
+      <div class="box hot">type changed</div>
+      <div class="arrow">→</div>
+      <div class="box hot">unmount + remount</div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead good"><b>After</b><span>one stable type</span></div>
+    <div class="flow">
+      <div class="box">Parent renders</div>
+      <div class="arrow">→</div>
+      <div class="box ok">same <code>HeaderCell</code></div>
+      <div class="arrow">→</div>
+      <div class="box ok">type matched</div>
+      <div class="arrow">→</div>
+      <div class="box ok">props updated in place</div>
+    </div>
+  </div>
+</div>
+
+<div class="callout no"><b>Where it bites.</b> These are the Inventory and Customers list headers. The
+parent re-renders on every keystroke in the search box and on every sort — and each time, seven header
+cells are destroyed and rebuilt rather than re-rendered. The cells hold no state, so nothing
+<i>breaks</i>; it is pure churn in exactly the screens that render the most rows.</div>
+
+<h3>The change, in <code>customer-table-row.tsx</code></h3>
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Before</b></div>
+<pre><span class="k">export function</span> CustomerTableHeader({ sortField, sortDirection, onSort }) {
+<span class="del">  <span class="c">// defined inside — new identity on every render</span></span>
+<span class="del">  <span class="k">const</span> HeaderCell = ({ field, label, style }) =&gt; (</span>
+<span class="del">    &lt;Pressable onPress={() =&gt; onSort(field)} style={[styles.headerCell, style]}&gt;</span>
+<span class="del">      &lt;Text style={styles.headerLabel}&gt;{label}&lt;/Text&gt;</span>
+<span class="del">      {sortField === field &amp;&amp; &lt;Text style={styles.sortArrow}&gt;{sortDirection === <span class="s">'asc'</span> ? <span class="s">'▲'</span> : <span class="s">'▼'</span>}&lt;/Text&gt;}</span>
+<span class="del">    &lt;/Pressable&gt;</span>
+<span class="del">  );</span>
+
+  <span class="k">return</span> (
+    &lt;View style={styles.headerRow}&gt;
+      &lt;View style={styles.dataCols}&gt;
+        &lt;HeaderCell field=<span class="s">"name"</span> label=<span class="s">"NAME"</span> style={colName} /&gt;
+        …</pre>
+  </div>
+  <div>
+    <div class="frameHead good"><b>After</b></div>
+<pre><span class="add"><span class="c">// Module scope: ONE component type for the life of the module, so a</span></span>
+<span class="add"><span class="c">// re-render updates these cells instead of rebuilding them.</span></span>
+<span class="add"><span class="k">function</span> HeaderCell({ label, style, active, direction, onPress }: {</span>
+<span class="add">  label: <span class="k">string</span>; style: object; active: <span class="k">boolean</span>;</span>
+<span class="add">  direction: SortDirection; onPress: () =&gt; <span class="k">void</span>;</span>
+<span class="add">}) {</span>
+<span class="add">  <span class="k">return</span> (</span>
+<span class="add">    &lt;Pressable onPress={onPress} style={[styles.headerCell, style]}&gt;</span>
+<span class="add">      &lt;Text style={styles.headerLabel}&gt;{label}&lt;/Text&gt;</span>
+<span class="add">      {active &amp;&amp; &lt;Text style={styles.sortArrow}&gt;{direction === <span class="s">'asc'</span> ? <span class="s">'▲'</span> : <span class="s">'▼'</span>}&lt;/Text&gt;}</span>
+<span class="add">    &lt;/Pressable&gt;</span>
+<span class="add">  );</span>
+<span class="add">}</span>
+
+<span class="k">export function</span> CustomerTableHeader({ sortField, sortDirection, onSort }) {
+  <span class="k">return</span> (
+    &lt;View style={styles.headerRow}&gt;
+      &lt;View style={styles.dataCols}&gt;
+<span class="add">        &lt;HeaderCell label=<span class="s">"NAME"</span> style={colName} direction={sortDirection}</span>
+<span class="add">          active={sortField === <span class="s">'name'</span>} onPress={() =&gt; onSort(<span class="s">'name'</span>)} /&gt;</span>
+        …</pre>
+  </div>
+</div>
+
+<p class="note" style="margin-top:14px;"><b>Why <code>active</code> and <code>onPress</code> rather than
+passing <code>field</code> and <code>onSort</code> through:</b> hoisting the component means it can no
+longer close over <code>sortField</code>. Passing the <i>answer</i> (“are you the sorted column?”)
+instead of the inputs keeps the call site readable and drops the <code>SortField</code> generic from a
+component that only ever draws a label and an arrow.</p>
+
+<p class="note"><code>product-table-row.tsx</code> takes the identical change — same component, same five
+call sites plus two — which is where 5 of the 8 errors live.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>2 · One shared cell, or one per file?</h2>
+<p class="h2sub">The two <code>HeaderCell</code>s are character-for-character identical. Their styles are
+not quite.</p>
+
+<div class="scroll">
+<table>
+  <tr><th>Option</th><th>What it does</th><th>Cost</th></tr>
+  <tr>
+    <td>A — hoist in place <span class="tag fix">recommended</span></td>
+    <td>Each file keeps its own <code>HeaderCell</code>, moved to module scope. Kills all 8 errors.</td>
+    <td><b>Zero visual change.</b> One duplicated 10-line component.</td>
+  </tr>
+  <tr>
+    <td>B — one shared component</td>
+    <td>Extract <code>SortableHeaderCell</code> for both screens. Kills the 8 and the duplication.</td>
+    <td>The two files style the label differently — see below. Unifying them is a real, if tiny,
+    visual change.</td>
+  </tr>
+</table>
+</div>
+
+<pre style="margin-top:14px;"><span class="c">// customer-table-row.tsx</span>
+headerLabel: { fontSize: 10, fontWeight: <span class="s">'900'</span>, color: <span class="s">'#555555'</span>, letterSpacing: 0.6 },   <span class="c">← a hex literal</span>
+<span class="c">// product-table-row.tsx</span>
+headerLabel: { fontSize: 10, fontWeight: <span class="s">'900'</span>, color: theme.bentoMuted, letterSpacing: 0.6 },</pre>
+
+<div class="callout warn"><b>A separate finding, worth logging either way.</b>
+<code>customer-table-row.tsx</code> writes <code>#555555</code> straight into a screen, which the bento
+rules forbid — colours come from <code>Colors.light</code> tokens. The nearest token,
+<code>bentoMuted</code>, is <code>#5e5d65</code>: a shade warmer and marginally lighter. Swapping it is
+almost certainly right, but it <i>is</i> a pixel change to the Customers header, so it belongs in a
+commit that says so rather than smuggled inside a lint fix.</div>
+
+<p class="note" style="margin-top:14px;"><b>Recommendation: take A now.</b> It is provably behaviour-
+preserving — the same JSX, moved — which is what you want in a change nobody is going to eyeball. B and
+the hex-literal fix are a better end state and should follow as their own small PR, where “the Customers
+header changed colour by one shade” is the visible headline rather than a footnote.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>3 · The apostrophe</h2>
+<p class="h2sub">One character, in <code>product-form.tsx</code>.</p>
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Before</b></div>
+<pre>&lt;Text style={styles.toggleHint}&gt;
+  Show this product in the online Discover feed once<span class="del"> it's live.</span>
+&lt;/Text&gt;</pre>
+  </div>
+  <div>
+    <div class="frameHead good"><b>After</b></div>
+<pre>&lt;Text style={styles.toggleHint}&gt;
+  Show this product in the online Discover feed once<span class="add"> it&amp;apos;s live.</span>
+&lt;/Text&gt;</pre>
+  </div>
+</div>
+<p class="note" style="margin-top:12px;">JSX decodes the entity at build time, so the rendered string is
+unchanged — and <code>&amp;apos;</code> is already the house style: <code>shop-drawer.tsx</code> and
+<code>platform-overview.tsx</code> both use it.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>4 · What this proposal deliberately does not touch</h2>
+
+<h3><code>pos.tsx</code> — refs and purity (9 errors)</h3>
+<pre><span class="c">// Assigned during render rather than in an effect: an effect would run after</span>
+<span class="c">// a first paint that had already priced the line with a different clock.</span>
+<span class="k">const</span> pricedAtRef = useRef&lt;<span class="k">number</span> | <span class="k">null</span>&gt;(<span class="k">null</span>);
+<span class="k">if</span> (cart.length === 0) pricedAtRef.current = <span class="k">null</span>;
+<span class="k">else if</span> (pricedAtRef.current === <span class="k">null</span>) pricedAtRef.current = Date.now();</pre>
+<p class="note" style="margin-top:10px;">The linter is not wrong — under concurrent rendering a render
+can be discarded and replayed, and this would keep a stale clock. But the author knew exactly what they
+were doing, wrote down why, and the naive “fix” (move it into an effect) <b>reintroduces the mispricing
+bug the comment exists to prevent</b>. This needs whoever owns pricing, deliberately, with a test that
+pins the behaviour first. Not a lint cleanup.</p>
+
+<h3><code>set-state-in-effect</code> (34 errors, 27 files)</h3>
+<p class="note">The dominant class and the least urgent: almost all are “load on mount, then
+<code>setState</code>”, which costs one extra render pass and breaks nothing. Worth a sweep one day,
+file by file, in a PR whose entire job is that. Folding 27 files into any feature branch makes the
+feature unreviewable.</p>
+
+<h3><code>category-donut-chart.tsx</code> — immutability (1)</h3>
+<p class="note">A running percentage mutated inside <code>.map</code>. Correct today, because the
+callback runs synchronously during render; the compiler simply cannot prove it. The non-mutating rewrite
+is a prefix-sum and is slightly harder to read than what is there, so it earns its place only in a
+dedicated pass.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>5 · What I would run</h2>
+<ol class="steps">
+  <li><b>Hoist</b> <code>HeaderCell</code> in <code>customer-table-row.tsx</code> and
+  <code>product-table-row.tsx</code>, converting the seven call sites to <code>active</code> /
+  <code>onPress</code>.</li>
+  <li><b>Escape</b> the apostrophe in <code>product-form.tsx</code>.</li>
+  <li><b>Prove nothing moved:</b> <code>npx jest</code> (1535 tests, and both table components have
+  existing tests), <code>npx tsc --noEmit</code>, then <code>npx eslint src</code> and confirm the count
+  drops <b>54 → 45</b> with the remaining rules unchanged.</li>
+  <li><b>Its own branch and PR</b>, off <code>main</code> — not folded into the store-people work, which
+  is already open for review and touches none of these files.</li>
+</ol>
+<div class="callout why"><b>Net effect:</b> 9 of 54 errors gone, two of the busiest list screens stop
+rebuilding their headers on every keystroke, and no pixel moves. The other 45 stay visible and
+documented rather than suppressed — nothing gets an <code>eslint-disable</code> in this proposal.</div>
+</section>
+
+</div>
