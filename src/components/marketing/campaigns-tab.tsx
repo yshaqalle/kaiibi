@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useDetailSelection, useHeaderActions } from '@/components/accounting/use-header-actions';
 import { Badge, type BadgeTone } from '@/components/badge';
 import { Card } from '@/components/card';
+import { CampaignComposer } from '@/components/marketing/campaign-composer';
 import { type PromotionsTabProps } from '@/components/marketing/promotions-tab';
 import { SendQueue } from '@/components/marketing/send-queue';
 import { StatTile } from '@/components/stat-tile';
@@ -163,13 +164,19 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   // the selected one, which is a fact rather than a flag to keep in sync. It
   // needs no effect to correct it, which is also why there is none.
   const [sendQueueForId, setSendQueueForId] = useState<string | null>(null);
+  // Whether the composer (Task 9) is open. A bare boolean is enough here,
+  // unlike sendQueueForId above -- the composer isn't opened FOR an existing
+  // campaign, so there is no id for a reload to drop out from under it.
+  const [composerOpen, setComposerOpen] = useState(false);
 
   useDetailSelection(setDetailSelected, selectedId !== null);
-  // Nothing to publish yet -- starting a new campaign is Task 9's composer.
-  // Called anyway (with nothing) so the setter is genuinely wired rather than
-  // left unused, and so the header clears correctly on unmount like every
-  // other tab's.
-  useHeaderActions(setHeaderActions, null, []);
+  useHeaderActions(
+    setHeaderActions,
+    <Pressable onPress={() => setComposerOpen(true)} accessibilityRole="button" style={[styles.actionButton, styles.actionButtonSolid]}>
+      <Text style={[styles.actionButtonText, styles.actionButtonTextSolid]}>+ New campaign</Text>
+    </Pressable>,
+    []
+  );
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -373,6 +380,29 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
           }}
         />
       )}
+
+      {composerOpen && (
+        <CampaignComposer
+          promotions={promotions}
+          customers={customers}
+          lastPurchaseByCustomer={lastPurchaseByCustomer}
+          onClose={() => setComposerOpen(false)}
+          onCreated={(campaign, startSending) => {
+            setComposerOpen(false);
+            setSelectedId(campaign.id);
+            // Opens straight into the queue for "Start sending" -- the four
+            // steps exist so the queue can take over, not so the owner has to
+            // find the campaign again to begin. Left closed for a draft: the
+            // campaign is created, but nothing has started.
+            if (startSending) setSendQueueForId(campaign.id);
+            // The composer wrote straight to the server (createCampaign,
+            // possibly updateCampaign) -- reload() is what pulls the new row
+            // (and its recipients, once the queue syncs them) back into this
+            // screen's own state, same as every other mutation here.
+            reload();
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -499,6 +529,12 @@ function KvRow({ k, v }: { k: string; v: string }) {
 
 const styles = StyleSheet.create({
   strip: { marginBottom: 14 },
+  // Matches promotions-tab.tsx's "+ New sale" header action exactly -- both
+  // are the primary create action for a sibling section of the same screen.
+  actionButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 7 },
+  actionButtonSolid: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
+  actionButtonText: { color: theme.bentoInk2, fontWeight: '700', fontSize: 12.5 },
+  actionButtonTextSolid: { color: theme.bentoSurface },
   list: { overflow: 'hidden' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
   rowSelected: { backgroundColor: theme.bentoSoft },
