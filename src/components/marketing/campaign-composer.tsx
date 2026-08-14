@@ -196,7 +196,17 @@ export function CampaignComposer({
   // boundary while it sits open is not a case worth a ticking clock for.
   const [now] = useState(() => Date.now());
 
-  const livePromotions = useMemo(() => promotions.filter((p) => isPromotionLive(p, now)), [promotions, now]);
+  // Promotions a submit-time recheck (see checkPromotionStillLive below) has
+  // caught expiring WHILE this sheet sat open -- pulled back out of the list
+  // so picking the same dead offer a second time isn't the only option
+  // "pick again" leaves the owner. `now` itself deliberately stays a mount
+  // snapshot (see above); this is a targeted correction on top of it, not a
+  // switch to a live clock for the whole list.
+  const [expiredPromotionIds, setExpiredPromotionIds] = useState<ReadonlySet<string>>(new Set());
+  const livePromotions = useMemo(
+    () => promotions.filter((p) => isPromotionLive(p, now) && !expiredPromotionIds.has(p.id)),
+    [promotions, now, expiredPromotionIds]
+  );
 
   // Only offers currently inside their window may be chosen -- advertising an
   // expired one is exactly the failure the poster work already had to fix
@@ -216,6 +226,18 @@ export function CampaignComposer({
   // `.current` is a value React doesn't know to re-render for, and it must
   // not be read during render (react-hooks/refs).
   const [lastInactiveDays, setLastInactiveDays] = useState(30);
+  // Whether the "Has not bought in N days" row is toggled on -- deliberately
+  // NOT derived from `filter.inactiveDays !== null` (see handleInactiveDaysText
+  // below). Clearing every digit while retyping a new number has to leave the
+  // TextInput mounted and focused; if visibility were driven by the filter
+  // value itself, the instant it dropped to null the field would flip to the
+  // static `<Text>{lastInactiveDays}</Text>` below and the owner would lose
+  // their place mid-edit.
+  const [inactiveOn, setInactiveOn] = useState(false);
+  // What the TextInput actually shows -- independent of `filter.inactiveDays`
+  // for the same reason: an owner is allowed to see an empty box while typing
+  // even though the committed filter value for "empty" is `null`, not `0`.
+  const [inactiveDaysText, setInactiveDaysText] = useState('30');
 
   const [messageEn, setMessageEn] = useState('');
   const [messageSo, setMessageSo] = useState('');
@@ -290,14 +312,26 @@ export function CampaignComposer({
   }
 
   function toggleInactiveFilter() {
-    setFilter((prev) => ({ ...prev, inactiveDays: prev.inactiveDays === null ? lastInactiveDays : null }));
+    setInactiveOn((prevOn) => {
+      const next = !prevOn;
+      setFilter((prev) => ({ ...prev, inactiveDays: next ? lastInactiveDays : null }));
+      if (next) setInactiveDaysText(String(lastInactiveDays));
+      return next;
+    });
   }
 
+  // An empty or zero field means "no opinion about purchase history" (`null`),
+  // never `0` -- matchesAudience's `now - lastPurchase < inactiveDays * DAY_MS`
+  // is true for essentially everyone when inactiveDays is 0, so a blank digit
+  // box hit at the wrong instant would silently save "no purchase-history
+  // opinion" as if it were a deliberately chosen 0-day filter. The box itself
+  // stays open and editable either way -- see inactiveOn above.
   function handleInactiveDaysText(text: string) {
     const digits = text.replace(/[^0-9]/g, '');
+    setInactiveDaysText(digits);
     const parsed = digits === '' ? 0 : Number(digits);
     if (parsed > 0) setLastInactiveDays(parsed);
-    setFilter((prev) => ({ ...prev, inactiveDays: parsed }));
+    setFilter((prev) => ({ ...prev, inactiveDays: parsed > 0 ? parsed : null }));
   }
 
   function insertPlaceholder(token: string) {
@@ -331,6 +365,18 @@ export function CampaignComposer({
         ? 'Nobody matches this audience yet. Widen the segments, tags or purchase-history filter above to find recipients.'
         : `Every one of the ${audience.matched} ${audience.matched === 1 ? 'customer' : 'customers'} who match${audience.matched === 1 ? 'es' : ''} this audience has no usable phone number. Fix one in Customers and they join the queue automatically.`;
 
+  // Nothing checks the message fields on their own -- `messageEn: null,
+  // messageSo: null` is a perfectly valid campaign as far as the database is
+  // concerned, and there is no "open an existing campaign" mode to fix it
+  // afterward (see deleteCampaign's wiring in campaigns-tab.tsx for the other
+  // half of that trap). A trimmed, non-empty English OR Somali line is the
+  // bar -- same "English preferred, Somali optional" shape as messageTemplate
+  // above.
+  const hasMessage = messageEn.trim().length > 0 || messageSo.trim().length > 0;
+  const messageReason: string | null = hasMessage
+    ? null
+    : 'Nothing is written yet. Add an English or Somali message in Step 3 above — there has to be something for a customer to read.';
+
   function buildInput(): NewCampaignInput {
     return {
       promotionId: offer.kind === 'promotion' ? offer.promotionId : null,
@@ -355,8 +401,29 @@ export function CampaignComposer({
     return campaign;
   }
 
+  // `now` above is a mount-time snapshot -- exactly the gap that let an
+  // expired offer still be advertised twice before (see poster-sheet.tsx's
+  // weekOffers comment). A phone call, a backgrounded app, or a promotion
+  // simply ending mid-write can all leave this sheet open past `endsAt`
+  // without anything on screen saying so. This re-checks with the actual
+  // clock at the one moment that matters -- right before either button
+  // writes anything -- rather than trusting the stale `livePromotions` list
+  // the offer was originally picked from.
+  function checkPromotionStillLive(): boolean {
+    if (offer.kind !== 'promotion') return true;
+    const chosen = promotions.find((p) => p.id === offer.promotionId);
+    if (chosen && isPromotionLive(chosen, Date.now())) return true;
+    setExpiredPromotionIds((prev) => new Set(prev).add(offer.promotionId));
+    setOffer({ kind: 'none' });
+    setError(
+      `"${chosen?.name ?? 'That offer'}" has ended since you opened this campaign. Pick another offer in Step 1, or choose "Just a message, no discount" to continue.`
+    );
+    return false;
+  }
+
   async function handleSaveDraft() {
     setError(null);
+    if (!checkPromotionStillLive()) return;
     setSaving('draft');
     try {
       const campaign = await ensureCampaign();
@@ -370,6 +437,7 @@ export function CampaignComposer({
 
   async function handleStartSending() {
     setError(null);
+    if (!checkPromotionStillLive()) return;
     setSaving('start');
     try {
       const base = await ensureCampaign();
@@ -457,7 +525,7 @@ export function CampaignComposer({
                   </View>
                 )}
 
-                <View style={[styles.opt, styles.inactiveOpt, filter.inactiveDays !== null && styles.optOn]}>
+                <View style={[styles.opt, styles.inactiveOpt, inactiveOn && styles.optOn]}>
                   <View style={styles.optHead}>
                     {/* Only the dot+label toggle the filter -- the number field
                         below is a sibling, not nested inside this Pressable,
@@ -465,16 +533,16 @@ export function CampaignComposer({
                     <Pressable
                       onPress={toggleInactiveFilter}
                       accessibilityRole="checkbox"
-                      accessibilityState={{ checked: filter.inactiveDays !== null }}
+                      accessibilityState={{ checked: inactiveOn }}
                       hitSlop={6}
                       style={styles.inactiveToggleTap}
                     >
-                      <View style={[styles.radioDot, filter.inactiveDays !== null && styles.radioDotOn]} />
+                      <View style={[styles.radioDot, inactiveOn && styles.radioDotOn]} />
                       <Text style={styles.optTitle}>Has not bought in</Text>
                     </Pressable>
-                    {filter.inactiveDays !== null ? (
+                    {inactiveOn ? (
                       <TextInput
-                        value={String(filter.inactiveDays)}
+                        value={inactiveDaysText}
                         onChangeText={handleInactiveDaysText}
                         keyboardType="number-pad"
                         style={styles.inactiveInput}
@@ -557,23 +625,24 @@ export function CampaignComposer({
                 </View>
               </StepSection>
 
+              {messageReason && <Caveat tone="wrong">{messageReason}</Caveat>}
               {zeroReason && <Caveat tone="wrong">{zeroReason}</Caveat>}
               {error && <Text style={styles.error}>{error}</Text>}
 
               <View style={styles.footer}>
                 <Pressable
-                  disabled={busy || !shop}
+                  disabled={busy || !shop || !hasMessage}
                   onPress={handleSaveDraft}
                   accessibilityRole="button"
-                  style={[styles.secondaryBtn, (busy || !shop) && styles.btnOff]}
+                  style={[styles.secondaryBtn, (busy || !shop || !hasMessage) && styles.btnOff]}
                 >
                   <Text style={styles.secondaryBtnText}>{saving === 'draft' ? 'Saving…' : 'Save as draft'}</Text>
                 </Pressable>
                 <Pressable
-                  disabled={busy || !shop || audience.reachable === 0}
+                  disabled={busy || !shop || !hasMessage || audience.reachable === 0}
                   onPress={handleStartSending}
                   accessibilityRole="button"
-                  style={[styles.primaryBtn, (busy || !shop || audience.reachable === 0) && styles.btnOff]}
+                  style={[styles.primaryBtn, (busy || !shop || !hasMessage || audience.reachable === 0) && styles.btnOff]}
                 >
                   <Text style={styles.primaryBtnText}>{saving === 'start' ? 'Starting…' : `Start sending · ${audience.reachable}`}</Text>
                 </Pressable>

@@ -20,7 +20,8 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { audienceSummary, isReachable, matchesAudience, type AudienceFilter } from '@/lib/campaign-audience';
 import { fillMessage, type MessageValues } from '@/lib/campaign-message';
 import { boughtWithin, countRecipients } from '@/lib/campaign-metrics';
-import { listCampaigns, listRecipients } from '@/lib/campaigns';
+import { deleteCampaign, listCampaigns, listRecipients } from '@/lib/campaigns';
+import { confirmDestructive } from '@/lib/confirm';
 import { CUSTOMER_SEGMENT_LABELS } from '@/lib/customer-segments';
 import { getCustomersStatsBatch, listCustomers, type CustomerStats } from '@/lib/customers';
 import { instantToEndDateInput } from '@/lib/promotion-dates';
@@ -310,7 +311,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
                 <View style={styles.rowMain}>
                   <Text style={styles.rowName}>{campaign.name}</Text>
                   <Text style={styles.rowSub}>
-                    {audienceWords(campaign.audience)} · {summary.reachable} reachable
+                    {audienceWords(campaign.audience)} · {summary.reachable} reachable · made {new Date(campaign.createdAt).toLocaleDateString()}
                   </Text>
                 </View>
                 <Badge variant="bento" label={chip.label} tone={chip.tone} />
@@ -321,6 +322,31 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
       )}
     </>
   );
+
+  // The composer has no "open an existing campaign" mode (Task 9), so a
+  // campaign saved with nothing sendable -- no message, no recipients, an
+  // offer that expired mid-write -- used to be a permanent row nobody could
+  // fix or remove. `deleteCampaign` cascades its recipients (already in the
+  // schema, see campaigns.ts), so this is the actual way out, not just a
+  // list-row removal.
+  const handleDeleteCampaign = () => {
+    if (!selected) return;
+    const campaignId = selected.id;
+    confirmDestructive(
+      'Delete this campaign?',
+      'This removes it and every recipient row ever queued for it. There is no undo.',
+      'Delete campaign',
+      async () => {
+        try {
+          await deleteCampaign(campaignId);
+          setSelectedId(null);
+          await reload();
+        } catch (err) {
+          setError(extractErrorMessage(err, 'Could not delete this campaign.'));
+        }
+      }
+    );
+  };
 
   const detail =
     selected && selectedAudience ? (
@@ -335,6 +361,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         branchName={activeLocation?.name ?? ''}
         onReviewUnreachable={() => router.push({ pathname: '/people', params: { tab: 'customers' } })}
         onContinueSending={() => setSendQueueForId(selected?.id ?? null)}
+        onDelete={handleDeleteCampaign}
       />
     ) : (
       <BentoCard style={styles.emptyDetail}>
@@ -418,6 +445,7 @@ function CampaignDetailPane({
   branchName,
   onReviewUnreachable,
   onContinueSending,
+  onDelete,
 }: {
   campaign: Campaign;
   promotion: Promotion | null;
@@ -429,6 +457,7 @@ function CampaignDetailPane({
   branchName: string;
   onReviewUnreachable: () => void;
   onContinueSending: () => void;
+  onDelete: () => void;
 }) {
   const counts = countRecipients(recipients);
   const bought = boughtWithin(recipients, salesByCustomer, 7);
@@ -457,9 +486,16 @@ function CampaignDetailPane({
             <Text style={styles.detName}>{campaign.name}</Text>
             <Badge variant="bento" label={chip.label} tone={chip.tone} />
           </View>
+          <Pressable onPress={onDelete} accessibilityRole="button" style={styles.deleteBtn}>
+            <Text style={styles.deleteBtnText}>Delete</Text>
+          </Pressable>
         </View>
+        {/* Two campaigns off the same offer share campaignNameFor's wording
+            verbatim, and neither the row above nor this pane ever showed
+            `createdAt` before -- `startedAt` is the only date a draft never
+            has. This is the tell: "the one I made this morning." */}
         <Text style={styles.detMeta}>
-          {audienceWords(campaign.audience)}
+          {audienceWords(campaign.audience)} · made {new Date(campaign.createdAt).toLocaleDateString()}
           {campaign.startedAt ? ` · started ${new Date(campaign.startedAt).toLocaleDateString()}` : ''}
         </Text>
 
@@ -549,6 +585,11 @@ const styles = StyleSheet.create({
   detIdent: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap', flexShrink: 1, minWidth: 0 },
   detName: { fontSize: 19, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.5 },
   detMeta: { fontSize: 12.5, color: theme.bentoMuted, marginBottom: 12 },
+  // Matches product-modal.tsx/customer-modal.tsx's confirmDestructive delete
+  // button in color only -- theme.bentoLoss instead of their hardcoded hex,
+  // since this is a bento screen and those are plain modals.
+  deleteBtn: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
+  deleteBtnText: { color: theme.bentoLoss, fontWeight: '700', fontSize: 12 },
   continueBtn: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11, alignItems: 'center', backgroundColor: theme.bentoInk, marginBottom: 14 },
   continueBtnText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 13.5 },
   doneNote: { fontSize: 12.5, fontWeight: '700', color: theme.bentoMuted, marginBottom: 14 },
