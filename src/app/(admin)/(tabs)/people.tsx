@@ -11,7 +11,7 @@ import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import
 import { CustomerModal } from '@/components/customer-modal';
 import { EditPayModal } from '@/components/edit-pay-modal';
 import { ExportMenu } from '@/components/export-menu';
-import { PromotionsTab } from '@/components/marketing/promotions-tab';
+import { MarketingTab } from '@/components/marketing/marketing-tab';
 import { NotesField } from '@/components/notes-field';
 import { ScheduleTab } from '@/components/schedule/schedule-tab';
 import { StaffSelfService } from '@/components/staff-self-service';
@@ -88,7 +88,9 @@ const TAB_BLURBS: Record<PeopleTab, { label: string; blurb: string }> = {
   schedule: { label: 'Schedule', blurb: 'Who is on, which day, at which store.' },
   marketing: {
     label: 'Marketing',
-    blurb: 'Set up the offers that come off at the till, and say when they run.',
+    // Covers both halves of the tab now. The old wording described only the
+    // offers, and read as a flat contradiction above a list of campaigns.
+    blurb: 'Set up the offers that come off at the till, and tell customers about them.',
   },
   me: { label: 'Me (self-service)', blurb: 'Your shifts, your hours, your time off.' },
 };
@@ -162,6 +164,23 @@ export default function PeopleScreen() {
     },
     [router]
   );
+  // Re-syncs when `?tab=` changes under an ALREADY-MOUNTED screen -- e.g. the
+  // Marketing tab's "Review the N" caveat pushes `/people?tab=customers` on
+  // itself (Marketing is a sub-tab of this same screen), which never remounts
+  // it, so the useState initializer above never runs again and the visible
+  // tab used to just sit there while the URL silently changed underneath it.
+  //
+  // Deliberately keyed on `tabParam` alone, not `tab`: a pill tap goes through
+  // `setTab`, which sets `tab` state directly AND writes the same value into
+  // `tabParam` via router.setParams. That write lands back here, but by then
+  // `tab` already equals it, so `next !== tab` is false and this is a no-op --
+  // one extra effect run, not a second state change, and nothing to bounce
+  // back from. An unpermitted or missing param computes to `null` and is
+  // ignored, same as the initializer.
+  useEffect(() => {
+    const next = permittedTab(tabParam);
+    if (next && next !== tab) setTabState(next);
+  }, [tabParam]);
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than each tab rendering a title and an action bar of its own. Same
   // mechanism Accounting uses; the tabs previously each drew "People" as a
@@ -204,7 +223,7 @@ export default function PeopleScreen() {
         {tab === 'team' && canSeeTeam ? <TeamManagementTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} /> : null}
         {tab === 'schedule' && canSeeSchedule ? <ScheduleTab setHeaderActions={setHeaderActions} /> : null}
         {tab === 'marketing' && canSeeMarketing ? (
-          <PromotionsTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} />
+          <MarketingTab compact={compact} setHeaderActions={setHeaderActions} setDetailSelected={setDetailSelected} />
         ) : null}
         {tab === 'me' && canUseSelfService && myMembership ? (
           <MeTab shopId={myMembership.shopId} member={myMembership} />

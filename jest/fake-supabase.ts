@@ -64,6 +64,8 @@ class FakeQuery implements PromiseLike<{ data: any; error: any; count?: number }
   private sorts: Sort[] = [];
   private selectClause: string | null = null;
   private rowLimit: number | null = null;
+  private rangeFrom: number | null = null;
+  private rangeTo: number | null = null;
   private singleMode: 'single' | 'maybeSingle' | null = null;
 
   constructor(
@@ -94,6 +96,15 @@ class FakeQuery implements PromiseLike<{ data: any; error: any; count?: number }
   }
   limit(n: number) {
     this.rowLimit = n;
+    return this;
+  }
+  // PostgREST's `.range(from, to)` is INCLUSIVE at both ends, so a page of 500
+  // is range(0, 499). Callers page until a short page comes back, which is how
+  // they know they have reached the end -- modelling the bounds loosely here
+  // would make that loop either stop early or never stop.
+  range(from: number, to: number) {
+    this.rangeFrom = from;
+    this.rangeTo = to;
     return this;
   }
   single() {
@@ -143,6 +154,7 @@ class FakeQuery implements PromiseLike<{ data: any; error: any; count?: number }
 
     let data = this.withEmbeds(sortRows(hits, this.sorts));
     if (this.rowLimit !== null) data = data.slice(0, this.rowLimit);
+    if (this.rangeFrom !== null && this.rangeTo !== null) data = data.slice(this.rangeFrom, this.rangeTo + 1);
     if (this.singleMode) {
       if (data.length === 1) return { data: data[0], error: null };
       if (this.singleMode === 'maybeSingle' && data.length === 0) return { data: null, error: null };

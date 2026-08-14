@@ -3,6 +3,7 @@ import {
   discountAmountCents,
   isPromotionLive,
   lineDiscountCents,
+  promotionLiveIssue,
 } from '@/lib/discounts';
 import type { CartLine, Product, Promotion } from '@/types/models';
 
@@ -64,6 +65,37 @@ describe('isPromotionLive', () => {
   it('is not live when archived', () => {
     const promo = makePromotion({ archivedAt: '2026-09-01T00:00:00Z' });
     expect(isPromotionLive(promo, AUG_14)).toBe(false);
+  });
+});
+
+describe('promotionLiveIssue', () => {
+  it('is null for a live promotion', () => {
+    expect(promotionLiveIssue(makePromotion(), AUG_14)).toBeNull();
+  });
+
+  it('names the promotion when it has ended', () => {
+    const promo = makePromotion({ name: 'Eid weekend', endsAt: '2026-08-10T21:00:00Z' });
+    expect(promotionLiveIssue(promo, AUG_14)).toBe('"Eid weekend" has ended.');
+  });
+
+  it('names the promotion when it has been paused', () => {
+    const promo = makePromotion({ name: 'Eid weekend', active: false });
+    expect(promotionLiveIssue(promo, AUG_14)).toBe('"Eid weekend" has been paused and no longer runs at the till.');
+  });
+
+  it('names the promotion when it has been archived', () => {
+    const promo = makePromotion({ name: 'Eid weekend', archivedAt: '2026-09-01T00:00:00Z' });
+    expect(promotionLiveIssue(promo, AUG_14)).toBe('"Eid weekend" has been archived and no longer runs at the till.');
+  });
+
+  it('names the promotion when it has not started yet', () => {
+    const promo = makePromotion({ name: 'Eid weekend', startsAt: '2026-08-18T08:00:00Z' });
+    expect(promotionLiveIssue(promo, AUG_14)).toBe('"Eid weekend" hasn\'t started yet.');
+  });
+
+  it('archived wins over paused when both are true', () => {
+    const promo = makePromotion({ name: 'Eid weekend', active: false, archivedAt: '2026-09-01T00:00:00Z' });
+    expect(promotionLiveIssue(promo, AUG_14)).toBe('"Eid weekend" has been archived and no longer runs at the till.');
   });
 });
 

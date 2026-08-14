@@ -49,6 +49,18 @@ export async function listPromotions(shopId: string): Promise<Promotion[]> {
   return (data ?? []).map(mapPromotionRow);
 }
 
+// Looks a promotion up by id WITHOUT the archived filter above -- for a caller
+// that already has an id from elsewhere (a campaign's `promotionId`, a sale
+// item's `promotionId`) and needs the row even if it has since been archived.
+// `on delete set null` on those foreign keys means the id only ever points at
+// a real row or nothing at all, never a dangling one -- so `null` here means
+// "no such promotion", not "hidden because archived".
+export async function getPromotion(id: string): Promise<Promotion | null> {
+  const { data, error } = await supabase.from('promotions').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? mapPromotionRow(data) : null;
+}
+
 export type NewPromotionInput = {
   name: string;
   discountType: 'percentage' | 'fixed';

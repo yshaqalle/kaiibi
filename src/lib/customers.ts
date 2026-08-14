@@ -45,15 +45,50 @@ function toRow(input: Partial<NewCustomerInput>) {
   };
 }
 
+// PostgREST caps any unbounded select at a server-side default (1000 rows) --
+// the same cap getCustomersStatsBatch's own comment documents below, and this
+// is the function that feeds it: campaigns-tab.tsx and send-queue.tsx both
+// build their `customersById` map straight from this list, and every
+// campaign metric (`reachableRecipientCount`, `hasRecipientsLeftToActOn`)
+// keys off it. A customer who fell outside a truncated first 1000 rows would
+// read as "unreachable" no matter how good their phone number is -- Reachable
+// would undercount, the "N have no usable number" caveat would name the
+// wrong people, and a campaign could be written 'done' while real,
+// never-messaged customers were sitting at 'waiting' the whole time (see the
+// CRITICAL fix on send-queue.tsx's status effect for why that's a one-way
+// door once it happens). Paged with `.range()`, same shape as
+// getCustomersStatsBatch just below and sales.ts's fetchAllRows.
+const CUSTOMERS_PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(runPage: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += CUSTOMERS_PAGE_SIZE) {
+    const { data, error } = await runPage(from, from + CUSTOMERS_PAGE_SIZE - 1);
+    if (error) throw error;
+    const page = data ?? [];
+    rows.push(...page);
+    if (page.length < CUSTOMERS_PAGE_SIZE) break;
+  }
+  return rows;
+}
+
 export async function listCustomers(shopId: string): Promise<Customer[]> {
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('shop_id', shopId)
-    .order('first_name', { ascending: true })
-    .order('last_name', { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map(mapCustomerRow);
+  // `id` is appended as a tiebreak, not just first_name/last_name -- two
+  // customers can share both names, and `.range()` pagination over a query
+  // whose order isn't fully deterministic has no guarantee page 2 picks up
+  // exactly where page 1 left off (same reasoning getCustomersStatsBatch's
+  // own comment gives for ordering by `id`).
+  const rows = await fetchAllRows<any>((from, to) =>
+    supabase
+      .from('customers')
+      .select('*')
+      .eq('shop_id', shopId)
+      .order('first_name', { ascending: true })
+      .order('last_name', { ascending: true })
+      .order('id', { ascending: true })
+      .range(from, to)
+  );
+  return rows.map(mapCustomerRow);
 }
 
 // Powers the POS checkout picker's type-ahead -- server-side so it works
@@ -186,18 +221,40 @@ export async function listCustomerPurchases(customerId: string): Promise<Custome
 // getCustomerStats itself.
 export type CustomerStats = { totalSpentCents: number; visitCount: number; lastOrderAt: string | null };
 
+// PostgREST caps any unbounded select at a server-side default (1000 rows) --
+// same limit src/lib/sales.ts already documents and pages around with its own
+// PAGE_SIZE/fetchAllRows, and the same shared `fetchAllRows` above (defined
+// for listCustomers, which hits the identical cap on the same table's own
+// row count). A shop past 1000 customer-attributed sales would otherwise have
+// this read silently truncate, and it isn't a "recent list" like listSales --
+// every campaign audience filter's "hasn't bought in N days" (matchesAudience
+// in campaign-audience.ts) runs off the lastOrderAt this produces, and treats
+// a MISSING one as "never bought" -- the strongest form of inactivity there
+// is. A truncated read here doesn't just under-count a total, it can turn a
+// shop's most loyal customers -- whose sales simply fell outside the first
+// 1000 rows returned -- into "we miss you" targets. Paged with `.range()`
+// instead of trusting one fetch to be complete.
 export async function getCustomersStatsBatch(shopId: string): Promise<Map<string, CustomerStats>> {
   // created_at comes along for `lastOrderAt` -- the rows were already being
   // read, so tracking the most recent one costs nothing extra and is what
   // "haven't seen them in a while" needs.
-  const { data, error } = await supabase
-    .from('sales')
-    .select('customer_id, total_cents, created_at')
-    .eq('shop_id', shopId)
-    .not('customer_id', 'is', null);
-  if (error) throw error;
+  //
+  // Ordered by id (a stable tiebreak, not a meaningful sort) rather than left
+  // unordered: `.range()` pagination over an unordered query has no
+  // guarantee that page 2 picks up where page 1 left off if the underlying
+  // scan order isn't fixed -- a real risk for a query with no WHERE clause
+  // selective enough to pin one index's scan order.
+  const rows = await fetchAllRows<{ customer_id: string; total_cents: number; created_at: string }>((from, to) =>
+    supabase
+      .from('sales')
+      .select('customer_id, total_cents, created_at')
+      .eq('shop_id', shopId)
+      .not('customer_id', 'is', null)
+      .order('id', { ascending: true })
+      .range(from, to)
+  );
   const stats = new Map<string, CustomerStats>();
-  for (const row of data ?? []) {
+  for (const row of rows) {
     const id = row.customer_id as string;
     const current = stats.get(id) ?? { totalSpentCents: 0, visitCount: 0, lastOrderAt: null };
     stats.set(id, {

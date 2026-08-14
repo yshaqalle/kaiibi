@@ -25,6 +25,25 @@ export function isPromotionLive(promo: Promotion, now: number = Date.now()): boo
   return true;
 }
 
+// The reason a promotion isPromotionLive just said no to, worded for a
+// screen that has to SAY why rather than just disable a button. Null means
+// the same thing isPromotionLive(promo, now) === true does -- there is
+// nothing wrong with it.
+//
+// Exists for campaigns: a campaign advertises an offer by name over
+// WhatsApp, long after the moment it was picked, so "is it still live"
+// has to be re-asked right before every send -- see
+// campaign-composer.tsx's checkPromotionStillLive for the first place this
+// mattered, and send-queue.tsx / campaigns-tab.tsx for the second (a queue
+// that outlives the offer it was built on).
+export function promotionLiveIssue(promo: Promotion, now: number = Date.now()): string | null {
+  if (promo.archivedAt) return `"${promo.name}" has been archived and no longer runs at the till.`;
+  if (!promo.active) return `"${promo.name}" has been paused and no longer runs at the till.`;
+  if (promo.endsAt && Date.parse(promo.endsAt) <= now) return `"${promo.name}" has ended.`;
+  if (promo.startsAt && Date.parse(promo.startsAt) > now) return `"${promo.name}" hasn't started yet.`;
+  return null;
+}
+
 // Among all promotions matching a product's brand/category (or a store-wide
 // one), picks whichever yields the single largest discount for this line — no
 // stacking, and no scope-precedence rules to reason about, just "best deal

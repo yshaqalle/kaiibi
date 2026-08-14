@@ -39,3 +39,51 @@ export function confirmChoice(title: string, message: string, confirmLabel: stri
     ]);
   });
 }
+
+// A confirm with THREE outcomes, not two -- for exactly one caller
+// (send-queue.tsx's "did that send?" question), where dismissing the dialog
+// without choosing must NOT read as either button.
+//
+// confirmChoice above collapses "the negative button" and "dismissed with no
+// answer" into the same `false` -- correct for every OTHER caller of it (a
+// declined confirmation and a shrugged-off one are the same thing to them),
+// and wrong for this one: "did that send?" backs a WRITE that reverts an
+// 'opened' recipient to 'waiting', which puts them back in line to be
+// messaged AGAIN. A mis-tap outside the dialog must not carry that write; it
+// must leave the row exactly as it was.
+//
+// 'deny' is still a real, reachable outcome -- an owner who opened WhatsApp
+// and genuinely didn't send can say so on purpose, and that answer is
+// honoured. 'dismiss' is everything that ISN'T a deliberate button press.
+export type TriChoiceAnswer = 'confirm' | 'deny' | 'dismiss';
+
+export function confirmTriChoice(title: string, message: string, confirmLabel: string, denyLabel: string): Promise<TriChoiceAnswer> {
+  if (Platform.OS === 'web') {
+    // window.confirm has exactly two outcomes, OK or Cancel, and a browser
+    // gives Escape and the dialog's own close control the SAME Cancel
+    // outcome as a deliberate click on it -- there is no way here to tell
+    // "I meant no" from "I bumped Escape". The ambiguous case is folded into
+    // 'dismiss', the one outcome that writes nothing, rather than into
+    // 'deny', which would revert (and re-message) someone the owner never
+    // actually said no to.
+    return Promise.resolve(window.confirm(`${title}\n\n${message}`) ? 'confirm' : 'dismiss');
+  }
+  return new Promise((resolve) => {
+    Alert.alert(
+      title,
+      message,
+      [
+        { text: denyLabel, onPress: () => resolve('deny') },
+        { text: confirmLabel, onPress: () => resolve('confirm') },
+      ],
+      // iOS never dismisses an Alert without a button tap, so `onDismiss`
+      // simply never fires there -- 'confirm'/'deny' are the only reachable
+      // outcomes, both deliberate. Android's back button and outside tap
+      // are real dismissals though, and `cancelable: true` plus this
+      // `onDismiss` routes them to their own outcome instead of silently
+      // matching neither button (the previous shape here had no `onDismiss`
+      // at all, so a back-button dismissal never resolved the promise).
+      { cancelable: true, onDismiss: () => resolve('dismiss') }
+    );
+  });
+}

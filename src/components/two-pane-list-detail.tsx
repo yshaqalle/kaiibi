@@ -25,6 +25,7 @@ export function TwoPaneListDetail({
   detail,
   detailOpen,
   onCloseDetail,
+  onDetailDismissed,
   detailTitle,
   listRefreshControl,
 }: {
@@ -33,6 +34,18 @@ export function TwoPaneListDetail({
   detail: ReactNode;
   detailOpen: boolean;
   onCloseDetail: () => void;
+  // Fires once the compact sheet has FINISHED dismissing, which is the only
+  // safe moment to present another sheet on top of this screen: iOS silently
+  // drops a modal presented while another is still up, so a caller with a
+  // second sheet to show (a poster, a send queue) closes this one and waits
+  // for this callback instead of rendering both at once.
+  //
+  // iOS only -- RN fires `onDismiss` on no other platform, and no other
+  // platform needs it, since Android modals are Dialogs and web's are plain
+  // DOM. Callers must therefore treat this as an optimisation of a path that
+  // still has to work when it never fires. See pos.tsx's staged receipt, the
+  // same constraint solved the same way.
+  onDetailDismissed?: () => void;
   detailTitle?: string;
   // Pull-to-refresh for the LIST only, in both layouts. The detail pane is
   // deliberately excluded: it shows one selected record, so a pull there reads
@@ -45,7 +58,7 @@ export function TwoPaneListDetail({
     return (
       <View style={styles.compact}>
         <ScrollView contentContainerStyle={styles.compactContent} refreshControl={listRefreshControl}>{list}</ScrollView>
-        <AppModal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail}>
+        <AppModal visible={detailOpen} transparent animationType="slide" onRequestClose={onCloseDetail} onDismiss={onDetailDismissed}>
           <View style={styles.overlay}>
             <View style={styles.sheet}>
               <View style={styles.sheetHeader}>
