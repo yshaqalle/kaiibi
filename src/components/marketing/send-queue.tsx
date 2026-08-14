@@ -8,12 +8,13 @@ import { Caveat } from '@/components/ui/caveat';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { isReachable, matchesAudience } from '@/lib/campaign-audience';
-import { confirmChoice } from '@/lib/confirm';
+import { confirmTriChoice, type TriChoiceAnswer } from '@/lib/confirm';
 import { fillMessage, type MessageValues } from '@/lib/campaign-message';
-import { countRecipients } from '@/lib/campaign-metrics';
-import { listRecipients, setRecipientState, syncRecipients } from '@/lib/campaigns';
+import { countRecipients, hasRecipientsLeftToActOn } from '@/lib/campaign-metrics';
+import { listRecipients, setRecipientState, syncRecipients, updateCampaign } from '@/lib/campaigns';
 import { customerDisplayName } from '@/lib/customers';
 import { CUSTOMER_SEGMENT_LABELS, segmentForCustomer } from '@/lib/customer-segments';
+import { promotionLiveIssue } from '@/lib/discounts';
 import { instantToEndDateInput } from '@/lib/promotion-dates';
 import { discountLabel } from '@/lib/promotions';
 import { openWhatsApp } from '@/lib/whatsapp';
@@ -230,6 +231,50 @@ export function SendQueue({
     setRecipients((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   }
 
+  // Maintains campaign.status -- nothing else in this branch ever writes
+  // 'sending' outside campaign-composer.tsx's "Start sending" at CREATION
+  // time, and nothing anywhere ever writes 'done' at all (see the migration's
+  // check constraint for the three values this is meant to cycle through).
+  // Without this a "Continue sending" campaign chips "Sending 84 of 84"
+  // forever, and its Continue button never goes away, even once nobody is
+  // left to act on.
+  //
+  // 'sending' fires the moment this queue is opened for a 'draft' campaign --
+  // opening it to work it out at all is "starting to work the queue", the
+  // exact same threshold the composer already uses at creation time. 'done'
+  // fires once hasRecipientsLeftToActOn says no -- see that function's own
+  // comment for why 'opened' rows (an unanswered "did that send?") keep a
+  // campaign OUT of 'done', and why an unreachable customer stuck at
+  // 'waiting' forever must not.
+  //
+  // Guarded by a ref, not by re-reading `campaign.status` from props: the
+  // parent only refreshes that on close (see campaigns-tab.tsx's onClose ->
+  // reload()), so it would still read 'draft' on every recipients change
+  // during this same session and re-fire the write every time. Best-effort on
+  // failure -- every recipient write behind this already landed, so a status
+  // write that fails once is a display lag the NEXT recipients change retries,
+  // not a reason to block the queue over.
+  const lastWrittenStatusRef = useRef<Campaign['status']>(campaign.status);
+  useEffect(() => {
+    if (!loaded || recipients.length === 0) return;
+    const current = lastWrittenStatusRef.current;
+    if (current === 'done') return;
+    const target: Campaign['status'] = hasRecipientsLeftToActOn(recipients, customersById)
+      ? current === 'draft'
+        ? 'sending'
+        : current
+      : 'done';
+    if (target === current) return;
+    lastWrittenStatusRef.current = target;
+    updateCampaign(campaign.id, {
+      status: target,
+      ...(current === 'draft' && { startedAt: campaign.startedAt ?? new Date().toISOString() }),
+    }).catch(() => {
+      lastWrittenStatusRef.current = current;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, recipients, customersById, campaign.id]);
+
   // Constant for every recipient in this run -- only {name} differs per
   // person, filled in at send time below.
   const baseValues: Omit<MessageValues, 'name'> = useMemo(() => {
@@ -243,6 +288,23 @@ export function SendQueue({
   }, [promotion, shop?.name, activeLocation?.name]);
 
   const messageTemplate = campaign.messageEn ?? campaign.messageSo ?? null;
+
+  // A mount-time snapshot, not a live clock -- calling Date.now() straight in
+  // a render body is impure (react-hooks/purity), same tradeoff
+  // campaign-composer.tsx's own `now` makes for its list of live promotions.
+  // This still catches every case CRITICAL 1 describes (a queue opened days
+  // after its offer ended, archived, or paused) -- those are all already-
+  // stale by the time this screen opens, not a promotion dying in the exact
+  // seconds this one sheet happens to stay on screen. `promotion === null` is
+  // deliberately NOT an issue here: it means either a campaign genuinely
+  // built with no discount (legitimate, must still send -- see
+  // campaign-composer.tsx's "Just a message, no discount") or one whose
+  // promotion was hard-deleted, which this table's own on-delete-set-null
+  // makes indistinguishable from the first case after the fact. Blocking
+  // every promotion-less campaign to catch the rare second case would break
+  // the common, legitimate first one.
+  const [now] = useState(() => Date.now());
+  const promotionIssue = promotion ? promotionLiveIssue(promotion, now) : null;
 
   // Stable order, independent of anything that can change underneath (a
   // recipient's state, a customer's phone number) -- otherwise the list would
@@ -285,13 +347,29 @@ export function SendQueue({
   // enabled (app.json experiments.reactCompiler) and reads a function used
   // before its declaration as a violation, which bails the whole component
   // out of optimisation.
-  async function handleAnswer(id: string, sent: boolean) {
-    const nextState: RecipientState = sent ? 'sent' : 'waiting';
+  async function handleAnswer(id: string, outcome: TriChoiceAnswer) {
+    if (outcome === 'dismiss') {
+      // Nothing was answered -- the row stays exactly as it is: 'opened',
+      // opened_at intact, re-askable later via `reaskAbout`. This is the
+      // fix for the mis-tap that used to silently write 'waiting' here
+      // (Escape, an outside tap, the browser X, or Android's back button),
+      // which put the recipient back in line to be messaged a second time.
+      pendingIdRef.current = null;
+      setAskingId(null);
+      return;
+    }
+    const nextState: RecipientState = outcome === 'confirm' ? 'sent' : 'waiting';
     setBusy(true);
     setError(null);
     try {
       await setRecipientState(id, nextState);
-      patchRecipient(id, { state: nextState, sentAt: sent ? new Date().toISOString() : null });
+      // A 'deny' answer retracts the open -- opened_at goes with it (see the
+      // identical fix in setRecipientState) so the local copy of the row
+      // doesn't say 'waiting' while still claiming a chat was opened.
+      patchRecipient(
+        id,
+        outcome === 'confirm' ? { state: nextState, sentAt: new Date().toISOString() } : { state: nextState, openedAt: null }
+      );
     } catch (err) {
       // Surfaced in the sheet, which by now is the only thing on screen --
       // the Alert has already closed by the time this runs, so there is no
@@ -306,13 +384,18 @@ export function SendQueue({
     }
   }
 
-  // Asks the "did that send?" question via a native Alert (confirmChoice)
+  // Asks the "did that send?" question via a native Alert (confirmTriChoice)
   // rather than a second AppModal. This codebase already documents that iOS
   // silently drops a modal presented while another is still up -- see the
   // staged-receipt comment in pos.tsx -- and the queue sheet below is always
   // an open AppModal while this question needs asking. Alert presents from
   // the topmost presented view controller instead of the root, so it works
   // over an open sheet where a second AppModal would not.
+  //
+  // confirmTriChoice, not confirmChoice: this question backs a WRITE that can
+  // re-message someone (a real "No" reverts them to 'waiting'), so a mis-tap
+  // or an accidental dismissal must not be able to trigger it -- see
+  // confirm.ts's own comment on the distinction.
   //
   // Fires only when `askingId` itself changes -- not on every re-render --
   // so recipients/customersById can be read straight from the render closure
@@ -325,13 +408,14 @@ export function SendQueue({
     let cancelled = false;
     (async () => {
       const title = `Did that send${customer ? ` to ${customer.firstName}` : ''}?`;
-      const sent = await confirmChoice(
+      const outcome = await confirmTriChoice(
         title,
-        'Tap "Yes, sent" if you sent it in WhatsApp. Otherwise this person stays in the queue so you can try again.',
-        'Yes, sent'
+        'Tap "Yes, sent" if you sent it in WhatsApp, or "No, not sent" to keep them in the queue and try again.',
+        'Yes, sent',
+        'No, not sent'
       );
       if (cancelled) return;
-      await handleAnswer(id, sent);
+      await handleAnswer(id, outcome);
     })();
     return () => {
       cancelled = true;
@@ -357,8 +441,20 @@ export function SendQueue({
   // already sent doesn't claim 40 just happened.
   const showBreakCaveat = counts.markedSent > 0 && counts.markedSent % SENT_BREAK_INTERVAL === 0;
 
+  // Belt-and-braces alongside the render guard below, which is what actually
+  // keeps the button off screen -- this stops it if that ever drifts. Reads
+  // the mount-time `promotionIssue` computed above rather than a fresh
+  // Date.now() here: this function isn't the render body, but the compiler's
+  // purity check (react-hooks/purity) still refuses an inline impure call
+  // textually inside it, so a fresh recheck stays confined to `promotionIssue`
+  // itself, recomputed on every render from `now`. In practice this is not a
+  // meaningfully smaller window than campaign-composer.tsx's own
+  // checkPromotionStillLive -- both catch a promotion that was ALREADY dead
+  // by the time this screen opened (every case CRITICAL 1 describes:
+  // archived, paused, ended), not one dying in the exact seconds a single
+  // render stays on screen.
   async function handleOpenWhatsApp() {
-    if (!current || !currentCustomer || !currentCustomer.phone || !messageTemplate) return;
+    if (!current || !currentCustomer || !currentCustomer.phone || !messageTemplate || promotionIssue) return;
     const message = fillMessage(messageTemplate, { ...baseValues, name: currentCustomer.firstName });
     setBusy(true);
     setError(null);
@@ -391,7 +487,7 @@ export function SendQueue({
     }
   }
 
-  // The "did that send?" question is asked via confirmChoice (an OS Alert),
+  // The "did that send?" question is asked via confirmTriChoice (an OS Alert),
   // not a second AppModal -- see the comment on the confirm effect above for
   // why. This is the only AppModal SendQueue ever renders.
   return (
@@ -420,6 +516,8 @@ export function SendQueue({
 
                 {!messageTemplate ? (
                   <Text style={styles.empty}>No message has been written for this campaign yet.</Text>
+                ) : promotionIssue ? (
+                  <Caveat tone="wrong">{`${promotionIssue} This campaign can no longer send — nobody here will be messaged until it's rebuilt with a different offer.`}</Caveat>
                 ) : current && currentCustomer ? (
                   <BentoCard>
                     <Text style={styles.currentName}>{customerDisplayName(currentCustomer)}</Text>

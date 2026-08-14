@@ -19,11 +19,12 @@ import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { audienceSummary, isReachable, matchesAudience, type AudienceFilter } from '@/lib/campaign-audience';
 import { fillMessage, type MessageValues } from '@/lib/campaign-message';
-import { boughtWithin, countRecipients } from '@/lib/campaign-metrics';
+import { boughtWithin, countRecipients, reachableRecipientCount, recipientsProcessed } from '@/lib/campaign-metrics';
 import { deleteCampaign, listCampaigns, listRecipients } from '@/lib/campaigns';
 import { confirmDestructive } from '@/lib/confirm';
 import { CUSTOMER_SEGMENT_LABELS } from '@/lib/customer-segments';
 import { getCustomersStatsBatch, listCustomers, type CustomerStats } from '@/lib/customers';
+import { promotionLiveIssue } from '@/lib/discounts';
 import { instantToEndDateInput } from '@/lib/promotion-dates';
 import { discountLabel, getPromotion, listPromotions, scopeLabel } from '@/lib/promotions';
 import { listSalesInRange } from '@/lib/sales';
@@ -117,6 +118,13 @@ function inclusiveEndDate(promotion: Promotion): Date | null {
   return new Date(year, month - 1, day);
 }
 
+// `reachable` must be sourced from this campaign's own recipient rows (see
+// reachableRecipientCount), never from re-evaluating the audience filter
+// live -- a live re-eval shrinks the moment someone the campaign already
+// reached stops matching (they came back and bought, in a win-back
+// campaign), which reads as "Sending 10 of 6" once `processed` overtakes it.
+// Every caller below sources it the same way, so this label can never
+// disagree with the tiles or the button next to it.
 function statusChipFor(
   campaign: Campaign,
   recipients: readonly CampaignRecipient[],
@@ -124,12 +132,7 @@ function statusChipFor(
 ): { label: string; tone: BadgeTone } {
   if (campaign.status === 'draft') return { label: 'Draft', tone: 'default' };
   if (campaign.status === 'done') return { label: 'Done', tone: 'success' };
-  const counts = countRecipients(recipients);
-  // Everyone the queue has already dealt with, whatever the outcome --
-  // skipped counts as "worked through" for pacing purposes even though it
-  // isn't progress toward a message actually going out.
-  const processed = counts.markedSent + counts.opened + counts.skipped;
-  return { label: `Sending ${processed} of ${reachable}`, tone: 'warning' };
+  return { label: `Sending ${recipientsProcessed(recipients)} of ${reachable}`, tone: 'warning' };
 }
 
 // Consumes `setCampaignsActions`/`setCampaignsDetailSelected` from
@@ -228,6 +231,24 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
     return map;
   }, [customerStats]);
 
+  // What reachableRecipientCount/hasRecipientsLeftToActOn need to answer "is
+  // THIS row's customer reachable" without re-deriving it from the audience
+  // filter -- same map send-queue.tsx builds for the same reason.
+  const customersById = useMemo(() => new Map(customers.map((c) => [c.id, c] as const)), [customers]);
+
+  // The chip/tile/button denominator for a campaign that has started sending:
+  // its own recipient ROWS, not a live re-evaluation of who currently matches
+  // its filter (see reachableRecipientCount's own comment for why that drifts
+  // mid-campaign). A campaign with no rows yet -- a draft nobody has opened
+  // the queue for -- has nothing to source from yet, so it falls back to the
+  // live filter purely as a size preview, same number the composer shows
+  // before a campaign exists at all.
+  function reachableFor(campaign: Campaign, recipients: readonly CampaignRecipient[]): number {
+    return recipients.length > 0
+      ? reachableRecipientCount(recipients, customersById)
+      : audienceSummary(customers, campaign.audience, lastPurchaseByCustomer).reachable;
+  }
+
   const salesByCustomer = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const sale of recentSales) {
@@ -295,13 +316,13 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
       {!loaded ? (
         <Text style={styles.empty}>Loading…</Text>
       ) : campaigns.length === 0 ? (
-        <Text style={styles.empty}>No campaigns yet — turning a promotion into a message is on its way.</Text>
+        <Text style={styles.empty}>No campaigns yet — use + New campaign above to tell customers about an offer over WhatsApp.</Text>
       ) : (
         <Card variant="bento" style={styles.list}>
           {campaigns.map((campaign) => {
-            const summary = audienceSummary(customers, campaign.audience, lastPurchaseByCustomer);
             const recipients = recipientsByCampaign.get(campaign.id) ?? [];
-            const chip = statusChipFor(campaign, recipients, summary.reachable);
+            const reachable = reachableFor(campaign, recipients);
+            const chip = statusChipFor(campaign, recipients, reachable);
             return (
               <Pressable
                 key={campaign.id}
@@ -311,7 +332,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
                 <View style={styles.rowMain}>
                   <Text style={styles.rowName}>{campaign.name}</Text>
                   <Text style={styles.rowSub}>
-                    {audienceWords(campaign.audience)} · {summary.reachable} reachable · made {new Date(campaign.createdAt).toLocaleDateString()}
+                    {audienceWords(campaign.audience)} · {reachable} reachable · made {new Date(campaign.createdAt).toLocaleDateString()}
                   </Text>
                 </View>
                 <Badge variant="bento" label={chip.label} tone={chip.tone} />
@@ -353,7 +374,8 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
       <CampaignDetailPane
         campaign={selected}
         promotion={selectedPromotion}
-        audience={selectedAudience}
+        liveAudience={selectedAudience}
+        customersById={customersById}
         recipients={selectedRecipients}
         salesByCustomer={salesByCustomer}
         sampleCustomer={sampleCustomer}
@@ -437,7 +459,8 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
 function CampaignDetailPane({
   campaign,
   promotion,
-  audience,
+  liveAudience,
+  customersById,
   recipients,
   salesByCustomer,
   sampleCustomer,
@@ -449,7 +472,13 @@ function CampaignDetailPane({
 }: {
   campaign: Campaign;
   promotion: Promotion | null;
-  audience: { matched: number; reachable: number; unreachable: number };
+  // The audience filter re-evaluated live -- used ONLY as a size preview for
+  // a draft that has no recipient rows yet (nobody has opened its queue, so
+  // there is nothing durable to source from). The moment `recipients` is
+  // non-empty, every figure below is sourced from those rows instead -- see
+  // the comment on `matched`/`reachable` just below.
+  liveAudience: { matched: number; reachable: number; unreachable: number };
+  customersById: ReadonlyMap<string, Customer>;
   recipients: readonly CampaignRecipient[];
   salesByCustomer: ReadonlyMap<string, readonly string[]>;
   sampleCustomer: Customer | null;
@@ -461,6 +490,21 @@ function CampaignDetailPane({
 }) {
   const counts = countRecipients(recipients);
   const bought = boughtWithin(recipients, salesByCustomer, 7);
+  // A mount-time snapshot, not a live clock -- same tradeoff
+  // campaign-composer.tsx's own `now` makes (see its comment), and for the
+  // same reason: calling Date.now() straight in a render body is impure
+  // (react-hooks/purity) and this button doesn't itself write anything, it
+  // only opens send-queue.tsx's sheet -- which re-checks with the ACTUAL
+  // clock right before the one action that does write (handleOpenWhatsApp).
+  // This is what covers the common case CRITICAL 1 is about (a campaign
+  // opened days after its offer ended); the sheet's own fresh check is what
+  // covers a promotion dying in the seconds this pane happens to be open.
+  const [now] = useState(() => Date.now());
+  // Duplicated rather than shared as a prop because this pane also has to
+  // gate the BUTTON that opens that sheet, not just the sheet's own send
+  // action. `promotion === null` is deliberately not an issue -- see the
+  // identical comment in send-queue.tsx.
+  const promotionIssue = promotion ? promotionLiveIssue(promotion, now) : null;
   const endDate = promotion ? inclusiveEndDate(promotion) : null;
   const messageTemplate = campaign.messageEn ?? campaign.messageSo ?? null;
   const messageValues: MessageValues = {
@@ -471,12 +515,23 @@ function CampaignDetailPane({
     branch: branchName,
   };
   const filledMessage = messageTemplate ? fillMessage(messageTemplate, messageValues) : null;
+  // The rows this campaign actually materialised are the source of truth the
+  // moment there are any -- see reachableRecipientCount's own comment for why
+  // re-deriving this from the live filter drifts mid-campaign (a win-back
+  // recipient who comes back and buys stops matching the filter without
+  // having stopped being a real row this campaign already reached). Falls
+  // back to the live filter only pre-send, when there is nothing to source
+  // from yet.
+  const hasRows = recipients.length > 0;
+  const matched = hasRows ? recipients.length : liveAudience.matched;
+  const reachable = hasRows ? reachableRecipientCount(recipients, customersById) : liveAudience.reachable;
+  const unreachable = matched - reachable;
   // Everyone the queue has already worked through, of the reachable total --
   // what's left is the reachable count minus that, never below zero (a fresh
   // top-up can raise `reachable` past what a stale recipient count expects).
-  const processed = counts.markedSent + counts.opened + counts.skipped;
-  const left = Math.max(0, audience.reachable - processed);
-  const chip = statusChipFor(campaign, recipients, audience.reachable);
+  const processed = recipientsProcessed(recipients);
+  const left = Math.max(0, reachable - processed);
+  const chip = statusChipFor(campaign, recipients, reachable);
 
   return (
     <View style={styles.detailStack}>
@@ -501,6 +556,13 @@ function CampaignDetailPane({
 
         {campaign.status === 'done' ? (
           <Text style={styles.doneNote}>Done — every reachable customer was worked through.</Text>
+        ) : promotionIssue ? (
+          <>
+            <Pressable disabled accessibilityRole="button" accessibilityState={{ disabled: true }} style={[styles.continueBtn, styles.continueBtnOff]}>
+              <Text style={styles.continueBtnText}>Continue sending · {left} left</Text>
+            </Pressable>
+            <Caveat tone="wrong">{`${promotionIssue} This campaign can no longer send until it's rebuilt with a different offer.`}</Caveat>
+          </>
         ) : (
           <Pressable onPress={onContinueSending} accessibilityRole="button" style={styles.continueBtn}>
             <Text style={styles.continueBtnText}>Continue sending · {left} left</Text>
@@ -508,8 +570,8 @@ function CampaignDetailPane({
         )}
 
         <View style={styles.tilesRow}>
-          <StatTile variant="bento" value={String(audience.matched)} label="Audience" hint={audienceWords(campaign.audience)} />
-          <StatTile variant="bento" value={String(audience.reachable)} label="Reachable" hint={`${audience.unreachable} have no usable number`} />
+          <StatTile variant="bento" value={String(matched)} label="Audience" hint={audienceWords(campaign.audience)} />
+          <StatTile variant="bento" value={String(reachable)} label="Reachable" hint={`${unreachable} have no usable number`} />
           <StatTile variant="bento" value={String(counts.markedSent)} label="Marked sent" hint="you said so — WhatsApp confirms nothing" />
           <StatTile variant="bento" value={String(counts.opened)} label="Chats opened" hint="WhatsApp opened, not yet confirmed" />
           <StatTile variant="bento" value={String(bought)} label="Bought within 7 days" hint="a sale rung up under their name" />
@@ -517,9 +579,9 @@ function CampaignDetailPane({
         <Caveat tone="context">What the till recorded, not proof the message caused it — walk-ins get the same discount.</Caveat>
       </BentoCard>
 
-      {audience.unreachable > 0 && (
-        <Caveat tone="wrong" action={{ label: `Review the ${audience.unreachable}`, onPress: onReviewUnreachable }}>
-          {`${audience.unreachable} customer${audience.unreachable === 1 ? '' : 's'} in this audience cannot be reached. Their phone number is missing or too short for WhatsApp to open a chat. Fix a number and they join the queue automatically.`}
+      {unreachable > 0 && (
+        <Caveat tone="wrong" action={{ label: `Review the ${unreachable}`, onPress: onReviewUnreachable }}>
+          {`${unreachable} customer${unreachable === 1 ? '' : 's'} in this audience cannot be reached. Their phone number is missing or too short for WhatsApp to open a chat. Fix a number and they join the queue automatically.`}
         </Caveat>
       )}
 
@@ -591,6 +653,7 @@ const styles = StyleSheet.create({
   deleteBtn: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 },
   deleteBtnText: { color: theme.bentoLoss, fontWeight: '700', fontSize: 12 },
   continueBtn: { borderRadius: 999, paddingHorizontal: 16, paddingVertical: 11, alignItems: 'center', backgroundColor: theme.bentoInk, marginBottom: 14 },
+  continueBtnOff: { opacity: 0.45 },
   continueBtnText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 13.5 },
   doneNote: { fontSize: 12.5, fontWeight: '700', color: theme.bentoMuted, marginBottom: 14 },
   tilesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },

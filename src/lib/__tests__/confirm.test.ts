@@ -1,8 +1,9 @@
 import { Alert, Platform } from 'react-native';
 
-import { confirmChoice } from '@/lib/confirm';
+import { confirmChoice, confirmTriChoice } from '@/lib/confirm';
 
 type AlertButton = { text?: string; style?: string; onPress?: () => void };
+type AlertOptions = { cancelable?: boolean; onDismiss?: () => void };
 
 // This suite runs under jest-environment-node (no jsdom), where jest-expo's
 // setup aliases `window` to the Node global object rather than a real
@@ -12,14 +13,14 @@ if (typeof (window as { confirm?: () => boolean }).confirm !== 'function') {
   (window as { confirm: () => boolean }).confirm = () => false;
 }
 
-function setPlatform(os: 'web' | 'ios') {
+function setPlatform(os: 'web' | 'ios' | 'android') {
   (Platform as { OS: string }).OS = os;
 }
 
 const realOS = Platform.OS;
 
 afterEach(() => {
-  setPlatform(realOS as 'web' | 'ios');
+  setPlatform(realOS as 'web' | 'ios' | 'android');
   jest.restoreAllMocks();
 });
 
@@ -83,5 +84,77 @@ describe('confirmChoice on native', () => {
     await confirmChoice('Title', 'Message', 'Save anyway');
 
     expect(captured.find((b) => b.text === 'Save anyway')?.style).toBeUndefined();
+  });
+});
+
+describe('confirmTriChoice on web', () => {
+  // window.confirm cannot tell "clicked Cancel" from "hit Escape" apart --
+  // both come back as a plain `false`. The safe reading of that ambiguity is
+  // 'dismiss' (writes nothing), never 'deny' (writes 'waiting' and puts the
+  // recipient back in line to be messaged again).
+  it('resolves "confirm" when window.confirm accepts', async () => {
+    setPlatform('web');
+    jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+    await expect(confirmTriChoice('Title', 'Message', 'Yes', 'No')).resolves.toBe('confirm');
+  });
+
+  it('resolves "dismiss", not "deny", when window.confirm is declined', async () => {
+    setPlatform('web');
+    jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+    await expect(confirmTriChoice('Title', 'Message', 'Yes', 'No')).resolves.toBe('dismiss');
+  });
+});
+
+describe('confirmTriChoice on native', () => {
+  it('resolves "confirm" when the confirm button is pressed', async () => {
+    setPlatform('ios');
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+      (buttons as AlertButton[]).find((b) => b.text === 'Yes')?.onPress?.();
+    });
+
+    await expect(confirmTriChoice('Title', 'Message', 'Yes', 'No')).resolves.toBe('confirm');
+  });
+
+  // The explicit negative button is a real, distinct answer -- not the same
+  // outcome as a dismissal. This is what makes a deliberate "No, not sent"
+  // possible at all.
+  it('resolves "deny" when the deny button is pressed, distinct from a dismissal', async () => {
+    setPlatform('ios');
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+      (buttons as AlertButton[]).find((b) => b.text === 'No')?.onPress?.();
+    });
+
+    await expect(confirmTriChoice('Title', 'Message', 'Yes', 'No')).resolves.toBe('deny');
+  });
+
+  // Neither button is styled 'cancel' -- there is no button here whose
+  // wording invites being misread as "forget this", the exact mis-tap
+  // failure the review called out.
+  it('styles neither button as cancel', async () => {
+    setPlatform('ios');
+    let captured: AlertButton[] = [];
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, buttons) => {
+      captured = buttons as AlertButton[];
+      captured[0]?.onPress?.();
+    });
+
+    await confirmTriChoice('Title', 'Message', 'Yes', 'No');
+
+    expect(captured.some((b) => b.style === 'cancel')).toBe(false);
+  });
+
+  // Android's back button / outside tap -- routed through onDismiss to its
+  // own 'dismiss' outcome rather than hanging forever (there was no
+  // onDismiss at all before this fix) or silently matching a button nobody
+  // tapped.
+  it('resolves "dismiss" when the dialog is dismissed without a button press', async () => {
+    setPlatform('android');
+    jest.spyOn(Alert, 'alert').mockImplementation((_t, _m, _b, options) => {
+      (options as AlertOptions | undefined)?.onDismiss?.();
+    });
+
+    await expect(confirmTriChoice('Title', 'Message', 'Yes', 'No')).resolves.toBe('dismiss');
   });
 });

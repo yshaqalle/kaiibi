@@ -152,6 +152,14 @@ export async function setRecipientState(id: string, state: RecipientState): Prom
       state,
       ...(state === 'opened' && { opened_at: 'now' }),
       ...(state === 'sent' && { sent_at: 'now' }),
+      // A row returning to 'waiting' is a RETRACTION of the open, not a
+      // fresh materialisation -- opened_at has to go with it, or the row is
+      // left in a shape none of the five documented states describes:
+      // 'waiting' with a timestamp that says it was already opened. The one
+      // caller that writes 'waiting' (send-queue.tsx's explicit "No, not
+      // sent" answer) always starts from 'opened', never from 'waiting'
+      // itself, so this is never a no-op standing in for a bug.
+      ...(state === 'waiting' && { opened_at: null }),
     })
     .eq('id', id);
   if (error) throw error;
