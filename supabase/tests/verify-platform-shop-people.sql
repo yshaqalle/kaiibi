@@ -40,7 +40,7 @@ begin
     values (
       v_shop_id, v_staff,
       (select id from public.roles where shop_id = v_shop_id and name = 'Cashier'),
-      true, 'Sahra Ismaaciil', 'sahra@example.test', '0634418820', 'monthly', 25000
+      true, 'Sahra Ismaaciil', 'sahra@example.test', '0634418820', 'salary', 25000
     )
     returning id into v_member;
   insert into public.shop_member_locations (shop_member_id, location_id) values (v_member, v_loc_two);
