@@ -1,0 +1,1249 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaiibi Platform — Who is this store, and who do I call?</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; } }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* The mocked app keeps the light bento palette in both themes — the portal
+     is pinned to Colors.light today, so showing it dark would be a lie. */
+  .doc{ --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --wa:#1fa855; --waWash:#e7f6ed;
+    --accentWash:#e6edff; --accentInk:#1b47b8; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1120px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,38px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:64ch;margin:0 0 24px;}
+  h2{font-size:20px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 18px;max-width:74ch;}
+  h3{font-size:14px;font-weight:800;margin:26px 0 8px;letter-spacing:-.01em;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  .note b{font-weight:800;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;margin:0 0 9px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:#c0392b;} .frameHead.good b{color:#0f7a45;}
+  .frameHead span{font-size:12px;color:var(--mut);}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;color:var(--d-ink);overflow-x:auto;}
+  .row2{display:grid;gap:20px;} @media(min-width:940px){.row2{grid-template-columns:1fr 1fr;}}
+  .row2>div{min-width:0;}
+
+  /* ---- bento primitives, as the portal draws them ---- */
+  .card{background:var(--d-sf);border-radius:22px;padding:16px 18px;}
+  .cardHead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:12px;}
+  .cardTitle{font-size:14px;font-weight:800;color:var(--d-ink);letter-spacing:-.2px;}
+  .cardScope{font-size:11px;color:var(--d-mut2);}
+  .sect{font-size:9.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;
+    color:var(--d-mut2);margin:20px 0 8px;}
+  .sect:first-child{margin-top:0;}
+
+  table{border-collapse:collapse;width:100%;min-width:780px;}
+  th{font-size:10px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--d-mut2);
+    text-align:left;padding:0 10px 9px;white-space:nowrap;}
+  th.num{text-align:right;}
+  td{padding:11px 10px;border-top:1px solid var(--d-rule);vertical-align:middle;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .tName{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .tMeta{font-size:11px;color:var(--d-mut);margin-top:2px;}
+  .tVal{font-size:12.5px;color:var(--d-ink2);font-variant-numeric:tabular-nums;}
+  .tVal.mut{color:var(--d-mut);}
+
+  .pill{display:inline-block;font-size:10px;font-weight:800;border-radius:999px;padding:2px 9px;white-space:nowrap;}
+  .pill.pay{background:#d9efe4;color:#00622f;} .pill.trial{background:var(--accentWash);color:var(--accentInk);}
+  .pill.exp{background:#fdecee;color:#a11726;} .pill.sus{background:#f6ecd9;color:#7d5104;}
+  .pill.role{background:var(--d-soft);color:var(--d-mut2);}
+  .pill.owner{background:#1a1a1e;color:#fff;}
+  .pill.off{background:transparent;color:var(--d-mut2);border:1px solid var(--d-rule);}
+
+  /* ---- the person row: the centrepiece ---- */
+  .person{display:flex;align-items:center;gap:12px;padding:11px 0;border-top:1px solid var(--d-rule);}
+  .person:first-of-type{border-top:none;padding-top:2px;}
+  .person.dim .pName,.person.dim .pLine{opacity:.5;}
+  .av{width:34px;height:34px;border-radius:12px;flex-shrink:0;display:grid;place-items:center;
+    background:var(--d-soft);color:var(--d-mut);font-size:12.5px;font-weight:800;letter-spacing:.2px;}
+  .av.own{background:#1a1a1e;color:#fff;}
+  .pMain{flex:1;min-width:0;}
+  .pTop{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .pName{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .pLine{font-size:11.5px;color:var(--d-mut);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .pLine .sep{color:var(--d-mut2);padding:0 5px;}
+  .pAct{display:flex;align-items:center;gap:7px;flex-shrink:0;}
+
+  .person.tap{background:var(--d-soft);border-radius:16px;padding:10px 12px;margin-top:10px;border-top:none;
+    cursor:pointer;transition:background .12s ease;}
+  .person.tap:hover{background:#ededf1;}
+  .person.tapPerson{cursor:pointer;}
+  .person.tapPerson:hover .pName{text-decoration:underline;text-underline-offset:3px;}
+  .person.open .chev.small{transform:rotate(90deg);}
+  .back{cursor:pointer;} .back:hover{color:var(--d-ink);}
+  .chev{font-size:19px;color:var(--d-mut2);line-height:1;}
+  .chev.small{font-size:15px;transition:transform .15s ease;display:inline-block;}
+  .live{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
+    background:#e6edff;color:#1b47b8;border-radius:999px;padding:3px 9px;}
+  .frameHead{align-items:center;}
+  .avStack{display:flex;flex-shrink:0;}
+  .avMini{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;font-size:10px;
+    font-weight:800;background:#e6e6ea;color:var(--d-mut);border:2px solid var(--d-soft);margin-left:-8px;}
+  .avMini:first-child{margin-left:0;}
+  .avMini.more{background:transparent;color:var(--d-mut2);}
+
+  .branch{display:flex;align-items:center;gap:11px;padding:10px 0;border-top:1px solid var(--d-rule);}
+  .branch:first-of-type{border-top:none;padding-top:2px;}
+  .bPin{width:30px;height:30px;border-radius:11px;flex-shrink:0;display:grid;place-items:center;
+    background:var(--d-soft);color:var(--d-mut2);font-size:13px;}
+  .pill.where{background:#eef4ff;color:#1e4bcc;}
+  .pill.whereAll{background:var(--d-soft);color:var(--d-mut2);}
+
+  .backRow{display:flex;align-items:center;gap:9px;}
+  .back{font-size:17px;color:var(--d-mut);line-height:1;}
+  .grpLabel{font-size:9.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;
+    color:var(--d-mut2);margin:16px 0 4px;}
+  .detail{background:var(--d-soft);border-radius:16px;padding:12px 14px;margin:2px 0 6px;}
+  .dRow{display:flex;justify-content:space-between;gap:14px;padding:4px 0;font-size:12px;}
+  .dRow .k{color:var(--d-mut);flex-shrink:0;}
+  .dRow .v{color:var(--d-ink2);font-weight:700;text-align:right;overflow:hidden;text-overflow:ellipsis;}
+  .perm{display:inline-block;font-size:10px;font-weight:700;background:var(--d-sf);color:var(--d-mut2);
+    border-radius:999px;padding:2px 8px;margin:3px 4px 0 0;}
+  .never{border-left:3px solid var(--d-rule);padding-left:11px;margin-top:10px;font-size:11px;color:var(--d-mut2);line-height:1.5;}
+
+  .iconBtn{width:34px;height:34px;border-radius:12px;display:grid;place-items:center;flex-shrink:0;}
+  .iconBtn.wa{background:var(--waWash);}
+  .iconBtn.wa svg{width:17px;height:17px;fill:var(--wa);display:block;}
+  .iconBtn.mail{background:var(--d-soft);}
+  .iconBtn.mail svg{width:16px;height:16px;fill:none;stroke:var(--d-mut);stroke-width:1.7;display:block;}
+  .iconBtn.dead{background:transparent;border:1px dashed var(--d-rule);}
+  .iconBtn.dead svg{width:16px;height:16px;fill:#c9c9d0;}
+  .waPillOld{display:inline-block;background:#0083401a;color:var(--profit);border-radius:999px;
+    padding:7px 13px;font-size:11.5px;font-weight:800;}
+  .missing{font-size:11px;color:var(--d-mut2);}
+
+  .attRow{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--d-rule);}
+  .attRow:first-of-type{border-top:none;padding-top:0;}
+  .attMain{flex:1;min-width:0;}
+  .attName{font-size:13.5px;font-weight:800;color:var(--d-ink);}
+  .attNote{font-size:11.5px;color:var(--d-mut);line-height:1.45;margin-top:2px;}
+
+  .sheet{background:var(--d-sf);border-radius:22px;overflow:hidden;max-width:470px;}
+  .sHead{padding:16px 18px 13px;border-bottom:1px solid var(--d-ln);display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+  .sTitle{font-size:17px;font-weight:800;letter-spacing:-.35px;color:var(--d-ink);margin:0;}
+  .sSub{font-size:11.5px;color:var(--d-mut);margin:4px 0 0;}
+  .x{font-size:14px;color:var(--d-mut);}
+  .sBody{padding:14px 18px 18px;}
+
+  .stack{background:var(--d-sf);border-radius:20px;padding:13px 15px;max-width:400px;}
+  .stack + .stack{margin-top:10px;}
+
+  .cav{display:flex;gap:11px;border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:14px;}
+  .cav.wrong{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .cav.context{border-color:var(--c1);background:#EEF4FF;color:#1E4BCC;}
+  .cav .i{font-size:13px;} .cav .t{font-size:12px;line-height:1.45;}
+  .cav .t b{font-weight:800;}
+
+  .sql{background:var(--pg2);border-radius:12px;padding:13px 15px;margin-top:12px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;line-height:1.65;color:var(--ink2);
+    overflow-x:auto;white-space:pre;}
+  .sql .k{color:#8250df;} .sql .c{color:var(--mut);}
+  @media (prefers-color-scheme: dark){ .sql .k{color:#c08cff;} }
+
+  .inv{width:100%;border-collapse:collapse;min-width:640px;margin-top:6px;}
+  .inv th{color:var(--mut);padding-bottom:8px;}
+  .inv td{border-top:1px solid var(--ln);padding:10px 10px;font-size:13px;color:var(--ink2);vertical-align:top;}
+  .inv td:first-child{font-weight:700;color:var(--ink);white-space:nowrap;}
+  .yes{color:#0f7a45;font-weight:800;} .no{color:#c0392b;font-weight:800;}
+  .scroll{overflow-x:auto;}
+
+  .q{border-left:3px solid var(--blue);padding:2px 0 2px 14px;margin:16px 0;font-size:14px;color:var(--ink2);}
+  .q b{color:var(--ink);}
+  ol.steps{max-width:74ch;font-size:13.5px;color:var(--ink2);padding-left:20px;}
+  ol.steps li{margin-bottom:7px;} ol.steps li b{color:var(--ink);}
+  hr{border:none;border-top:1px solid var(--ln);margin:50px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · Platform console · store identity &amp; contacts</p>
+<h1>Who is this store, and who do I call?</h1>
+<p class="lede">The console knows what every store <i>pays</i> and what it <i>uses</i>. It does not know
+who runs it. Today an operator can see “Hooyo Market · Standard · trial ends Tuesday” and still have
+no name to greet, no address to write to, and one switchboard number that may or may not reach a
+person. This adds the people.</p>
+
+<div class="q">
+  <b>The whole change in one line:</b> a store stops being a billing row and becomes a business with
+  an owner who has a name, an email, and a number you can tap to open WhatsApp — plus the rest of the
+  team behind them.
+</div>
+
+<!-- ===================================================================== -->
+<section>
+<h2>1 · What we hold today, and what we are missing</h2>
+<p class="h2sub">Nothing here needs new data <i>collected</i>. Every field below already exists in the
+database — the console simply never reads it. That matters: this is a permissions and surfacing job,
+not a “please fill in your profile” campaign aimed at stores.</p>
+
+<div class="scroll">
+<table class="inv">
+  <tr><th>Field</th><th>On the console today</th><th>Where it already lives</th></tr>
+  <tr>
+    <td>Store name</td><td class="yes">Yes</td>
+    <td><code>shops.name</code></td>
+  </tr>
+  <tr>
+    <td>Store phone</td><td class="yes">Yes</td>
+    <td><code>shop_locations.contact_phone</code> of the primary branch — the number on their receipts</td>
+  </tr>
+  <tr>
+    <td>City</td><td class="yes">Read, never shown</td>
+    <td><code>shop_locations.city</code> of the primary branch — already on <code>PlatformShopRow</code>,
+    fetched on every load, drawn in exactly zero places</td>
+  </tr>
+  <tr>
+    <td>Every branch, and where</td><td class="no">No — filtered out</td>
+    <td><code>shop_locations</code> name + city + phone. The operator policy already covers <b>all</b>
+    rows; <code>listPlatformShops</code> throws them away with <code>.eq('is_primary', true)</code></td>
+  </tr>
+  <tr>
+    <td>Owner’s name</td><td class="no">No</td>
+    <td><code>shop_members.full_name</code> — every shop has an owner row (backfilled 20260823), kept in step with <code>profiles.full_name</code> by trigger</td>
+  </tr>
+  <tr>
+    <td>Owner’s email</td><td class="no">No</td>
+    <td><code>shop_members.email</code>, denormalised from <code>auth.users</code> at provision time</td>
+  </tr>
+  <tr>
+    <td>Owner’s personal phone</td><td class="no">No</td>
+    <td><code>shop_members.phone</code> (20260819000200) — often null, and that is fine; the store number is the fallback</td>
+  </tr>
+  <tr>
+    <td>The rest of the team</td><td class="no">No</td>
+    <td><code>shop_members</code> × <code>roles</code> — name, email, phone, role name, active flag</td>
+  </tr>
+</table>
+</div>
+
+<p class="note" style="margin-top:18px;"><b>The one blocker.</b> <code>shop_members</code> has a single
+policy — <code>admin manages shop_members using owns_shop(shop_id)</code>. An operator is not the
+owner of anyone’s shop, so today the console reads exactly nothing from it. That is the migration this
+design needs, and section 6 keeps it as narrow as the support-author fix was.</p>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>2 · The Stores table — a row you can act on</h2>
+<p class="h2sub">Seven columns is already a lot, so this adds one and enriches one rather than bolting
+on four. The Store cell gains the person; a new Contact cell gains the tap.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Today</b><span>a name and a tier</span></div>
+    <div class="frame doc">
+      <div class="card" style="padding:16px 8px;">
+        <table>
+          <tr><th>Store</th><th>Status</th><th>Joined</th><th class="num">Products</th></tr>
+          <tr>
+            <td><div class="tName">Hooyo Market</div><div class="tMeta">Standard</div></td>
+            <td><span class="pill trial">Trialing</span></td>
+            <td><span class="tVal mut">14 Jul 2026</span></td>
+            <td class="num"><span class="tVal">412 / 2,000</span></td>
+          </tr>
+          <tr>
+            <td><div class="tName">Barwaaqo Electronics</div><div class="tMeta">Free → Starter</div></td>
+            <td><span class="pill pay">Paying</span></td>
+            <td><span class="tVal mut">2 Mar 2026</span></td>
+            <td class="num"><span class="tVal">88 / 200</span></td>
+          </tr>
+          <tr>
+            <td><div class="tName">Xamdi Pharmacy</div><div class="tMeta">Starter</div></td>
+            <td><span class="pill exp">Expired</span></td>
+            <td><span class="tVal mut">9 Jan 2026</span></td>
+            <td class="num"><span class="tVal">1,203 / 2,000</span></td>
+          </tr>
+        </table>
+      </div>
+      <p class="missing" style="margin:12px 4px 0;">To reach any of these you open the drawer, read a
+      switchboard number, and hope somebody who can make a decision picks up.</p>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead good"><b>Proposed</b><span>a person, and one tap</span></div>
+    <div class="frame doc">
+      <div class="card" style="padding:16px 8px;">
+        <table>
+          <tr><th>Store</th><th>Status</th><th>Contact</th><th class="num">Products</th></tr>
+          <tr>
+            <td>
+              <div class="tName">Hooyo Market</div>
+              <div class="tMeta">Faadumo Cabdi <span style="color:var(--d-mut2)">·</span> Hargeisa <span style="color:var(--d-mut2)">·</span> Standard</div>
+            </td>
+            <td><span class="pill trial">Trialing</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="iconBtn wa" title="WhatsApp Faadumo">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                </span>
+                <span class="tVal mut" style="font-size:11.5px;">+252 63 441 8820</span>
+              </div>
+            </td>
+            <td class="num"><span class="tVal">412 / 2,000</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tName">Barwaaqo Electronics</div>
+              <div class="tMeta">Cabdirisaaq Jaamac <span style="color:var(--d-mut2)">·</span> Burco +2 <span style="color:var(--d-mut2)">·</span> Free → Starter</div>
+            </td>
+            <td><span class="pill pay">Paying</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="iconBtn wa" title="WhatsApp Cabdirisaaq">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                </span>
+                <span class="tVal mut" style="font-size:11.5px;">+252 63 902 1174</span>
+              </div>
+            </td>
+            <td class="num"><span class="tVal">88 / 200</span></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="tName">Xamdi Pharmacy</div>
+              <div class="tMeta">Xamdi Maxamuud <span style="color:var(--d-mut2)">·</span> Hargeisa <span style="color:var(--d-mut2)">·</span> Starter</div>
+            </td>
+            <td><span class="pill exp">Expired</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <span class="iconBtn dead" title="No number on file">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                </span>
+                <span class="missing">no number — email instead</span>
+              </div>
+            </td>
+            <td class="num"><span class="tVal">1,203 / 2,000</span></td>
+          </tr>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Three rules the table follows</h3>
+<ol class="steps">
+  <li><b>The owner’s name goes in the Store cell, not a column of its own.</b> It is an attribute of
+  “which store is this”, and the existing <code>NameCell</code> already carries a meta line. A fourth
+  identity column would push Ends and Products off the edge on a 13″ laptop.</li>
+  <li><b>Contact replaces Joined, which moves to the drawer.</b> A signup date is read once a quarter;
+  a number is read every time the row is opened. Joined survives as <code>created</code> in the
+  drawer’s header line, where it already is.</li>
+  <li><b>Search widens to people and places.</b> <code>shops-tab.tsx</code>’s filter gains owner name,
+  email, phone and every branch city, so typing “faadumo”, “burco” or the last four digits of a number
+  finds the store. Operators think in people and towns, and the search box currently refuses both.</li>
+  <li><b>The city is the primary branch’s, with a count when there are more.</b> “Burco +2” rather than
+  three towns competing with the owner’s name for one line. The full list is in the drawer.</li>
+</ol>
+
+<h3>On a phone, the same row stacks</h3>
+<div class="frame doc" style="max-width:430px;">
+  <div class="stack">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+      <div style="font-size:14px;font-weight:800;">Hooyo Market</div>
+      <span class="pill trial">Trialing</span>
+    </div>
+    <div style="font-size:11.5px;color:var(--d-mut);margin-top:3px;">Faadumo Cabdi · Hargeisa</div>
+    <div style="font-size:11.5px;color:var(--d-mut);">Standard · joined 14 Jul 2026</div>
+    <div style="font-size:11.5px;color:var(--warn);font-weight:700;">trial ends 18 Aug 2026</div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+      <span class="iconBtn wa">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+      </span>
+      <span class="iconBtn mail">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+      </span>
+      <span style="font-size:11px;color:var(--d-mut2);">tap the card for everything else</span>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:12px;">The two icons sit <i>inside</i> the card and stop the press
+from bubbling — a tap on the glyph opens WhatsApp, a tap anywhere else opens the drawer. Same rule
+the Needs-attention row already follows on Overview.</p>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>3 · The drawer — People, above everything else</h2>
+<p class="h2sub">The store drawer opens today onto Usage. It should open onto the human beings, because
+the first question an operator has is never “how many products” — it is “who am I dealing with, and
+did the person I spoke to last week still work here”.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Today</b><span>status line, then straight to numbers</span></div>
+    <div class="frame doc">
+      <div class="sheet">
+        <div class="sHead">
+          <div><h3 class="sTitle" style="margin:0;">Hooyo Market</h3></div>
+          <div class="x">✕</div>
+        </div>
+        <div class="sBody">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="pill trial">Trialing</span>
+            <span style="font-size:12px;color:var(--d-mut);">created 2026-07-14 · Standard</span>
+          </div>
+          <div style="margin-top:14px;"><span class="waPillOld">✉ Message this store</span></div>
+          <div class="sect">Usage</div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;">
+            <span style="font-size:12.5px;color:var(--d-ink2);">Products</span>
+            <span style="font-size:12.5px;font-weight:800;">412 / 2,000</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;">
+            <span style="font-size:12.5px;color:var(--d-ink2);">Staff</span>
+            <span style="font-size:12.5px;font-weight:800;">4 / 11</span>
+          </div>
+          <p class="missing" style="margin-top:16px;">“Staff 4 / 11” is the only trace a team leaves
+          anywhere in this console. Four <i>what</i>? It is a number where four people should be.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead good"><b>Proposed</b><span>People first, and the seat count answers itself</span><span class="live">live — click it</span></div>
+    <div class="frame doc">
+      <div class="sheet" id="demo">
+
+      <!-- ============ view 1: the store ============ -->
+      <div data-view="store">
+        <div class="sHead">
+          <div>
+            <h3 class="sTitle" style="margin:0;">Hooyo Market</h3>
+            <p class="sSub">Hargeisa · created 14 Jul 2026 · Standard</p>
+          </div>
+          <div class="x">✕</div>
+        </div>
+        <div class="sBody">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="pill trial">Trialing</span>
+            <span style="font-size:12px;color:var(--d-mut);">trial ends 18 Aug 2026</span>
+          </div>
+
+          <div class="sect">People · 4 of 11 seats</div>
+
+          <div class="person">
+            <div class="av own">FC</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Faadumo Cabdi</span><span class="pill owner">Owner</span></div>
+              <div class="pLine">faadumo@hooyomarket.so<span class="sep">·</span>+252 63 441 8820</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person tap" data-go="team">
+            <div class="avStack">
+              <span class="avMini">MA</span><span class="avMini">SI</span><span class="avMini more">+2</span>
+            </div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Their team</span></div>
+              <div class="pLine">Maxamed, Sahra, Nasra <span class="sep">·</span> 1 who has left</div>
+            </div>
+            <div class="pAct"><span class="chev">›</span></div>
+          </div>
+
+          <p class="missing" style="margin-top:9px;">One row, not four. The drawer is where a plan gets
+          changed and a payment gets recorded — a staff list unrolled inside it pushes the reason the
+          drawer was opened below the fold.</p>
+
+          <div style="display:none">
+          <div class="person">
+            <div class="av own">FC</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Faadumo Cabdi</span><span class="pill owner">Owner</span></div>
+              <div class="pLine">faadumo@hooyomarket.so<span class="sep">·</span>+252 63 441 8820</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person">
+            <div class="av">MA</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Maxamed Aadan</span><span class="pill role">Manager</span></div>
+              <div class="pLine">maxamed.a@hooyomarket.so<span class="sep">·</span>+252 63 771 0043</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person">
+            <div class="av">SI</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Sahra Ismaaciil</span><span class="pill role">Cashier</span></div>
+              <div class="pLine">sahra@hooyomarket.so<span class="sep">·</span><span class="missing">no phone on file</span></div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn dead" title="No number on file">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Sahra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person dim">
+            <div class="av">CJ</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Cabdi Jibriil</span><span class="pill off">Cashier · left</span></div>
+              <div class="pLine">cabdi.j@hooyomarket.so</div>
+            </div>
+            <div class="pAct"><span class="missing">no longer active</span></div>
+          </div>
+          </div>
+
+          <div class="cav context">
+            <div class="i">ⓘ</div>
+            <div class="t">The store’s own number is <b>+252 63 441 8820</b> — the one on their
+            receipts. It is the same as Faadumo’s here, which is normal for a one-owner shop.</div>
+          </div>
+
+          <div class="sect">Where they trade · 2 of 3 branches</div>
+
+          <div class="branch">
+            <div class="bPin">◎</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Hooyo Market</span><span class="pill role">Main</span></div>
+              <div class="pLine">Jigjiga Yar, Hargeisa<span class="sep">·</span>+252 63 441 8820</div>
+            </div>
+            <span class="iconBtn wa" title="WhatsApp this branch">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            </span>
+          </div>
+
+          <div class="branch">
+            <div class="bPin">◎</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Hooyo Koodbuur</span></div>
+              <div class="pLine">Koodbuur, Hargeisa<span class="sep">·</span><span class="missing">no phone on file</span></div>
+            </div>
+          </div>
+
+          <div class="sect">Usage</div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;">
+            <span style="font-size:12.5px;color:var(--d-ink2);">Products</span>
+            <span style="font-size:12.5px;font-weight:800;">412 / 2,000</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;padding:5px 0;">
+            <span style="font-size:12.5px;color:var(--d-ink2);">Sales this month</span>
+            <span style="font-size:12.5px;font-weight:800;">1,904</span>
+          </div>
+          <p class="missing" style="margin-top:10px;">No “Staff 4 / 11” and no “Branches 2 / 3” row —
+          the two sections above already said both, and said them with names and places.</p>
+        </div>
+      </div>
+
+      <!-- ============ view 2: their team ============ -->
+      <div data-view="team" hidden>
+        <div class="sHead">
+          <div>
+            <div class="backRow">
+              <span class="back" data-go="store">‹</span>
+              <h3 class="sTitle" style="margin:0;">Their team</h3>
+            </div>
+            <p class="sSub">Hooyo Market · 4 of 11 seats · signed up by the store, not by us</p>
+          </div>
+          <div class="x">✕</div>
+        </div>
+        <div class="sBody">
+
+          <div class="grpLabel">Working here</div>
+
+          <div class="person tapPerson">
+            <div class="av own">FC</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Faadumo Cabdi</span><span class="pill owner">Owner</span><span class="pill whereAll">Both branches</span></div>
+              <div class="pLine">faadumo@hooyomarket.so<span class="sep">·</span>+252 63 441 8820</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+              <span class="chev small">›</span>
+            </div>
+          </div>
+          <div class="detail" hidden>
+            <div class="dRow"><span class="k">Role</span><span class="v">Owner — full authority</span></div>
+            <div class="dRow"><span class="k">Works at</span><span class="v">Every branch — always, by ownership</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">14 Jul 2026 · with the store</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v">faadumo@hooyomarket.so</span></div>
+            <div class="dRow"><span class="k">Phone</span><span class="v">+252 63 441 8820</span></div>
+            <div class="dRow"><span class="k">Also owns</span><span class="v">Hooyo Wholesale</span></div>
+          </div>
+
+          <div class="person tapPerson">
+            <div class="av">MA</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Maxamed Aadan</span><span class="pill role">Manager</span><span class="pill whereAll">Both branches</span></div>
+              <div class="pLine">maxamed.a@hooyomarket.so<span class="sep">·</span>+252 63 771 0043</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+              <span class="chev small">›</span>
+            </div>
+          </div>
+          <div class="detail" hidden>
+            <div class="dRow"><span class="k">Role</span><span class="v">Manager</span></div>
+            <div class="dRow"><span class="k">Works at</span><span class="v">Both branches — no assignment set</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">3 Aug 2026 · 10 days ago</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v">maxamed.a@hooyomarket.so</span></div>
+            <div class="dRow"><span class="k">Phone</span><span class="v">+252 63 771 0043</span></div>
+            <div class="dRow" style="display:block;">
+              <span class="k">What that role can do</span>
+              <div style="margin-top:2px;">
+                <span class="perm">Sales</span><span class="perm">Inventory</span><span class="perm">Customers</span>
+                <span class="perm">Expenses</span><span class="perm">Registers</span><span class="perm">+3</span>
+              </div>
+            </div>
+            <div class="never">Cannot change the plan — only the owner can. Not shown, and not returned
+            by the query at all: pay type, pay rate, hire date, photo, shifts.</div>
+          </div>
+
+          <div class="person tapPerson">
+            <div class="av">SI</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Sahra Ismaaciil</span><span class="pill role">Cashier</span><span class="pill where">Hooyo Market</span></div>
+              <div class="pLine">sahra@hooyomarket.so<span class="sep">·</span><span class="missing">no phone on file</span></div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn mail" title="Email Sahra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+              <span class="chev small">›</span>
+            </div>
+          </div>
+          <div class="detail" hidden>
+            <div class="dRow"><span class="k">Role</span><span class="v">Cashier</span></div>
+            <div class="dRow"><span class="k">Works at</span><span class="v">Hooyo Market only — Hargeisa</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">3 Aug 2026 · 10 days ago</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v">sahra@hooyomarket.so</span></div>
+            <div class="dRow"><span class="k">Phone</span><span class="v" style="color:var(--d-mut2);font-weight:400;">none on file — WhatsApp is not offered</span></div>
+            <div class="dRow" style="display:block;">
+              <span class="k">What that role can do</span>
+              <div style="margin-top:2px;"><span class="perm">Sales</span><span class="perm">Refunds</span></div>
+            </div>
+          </div>
+
+          <div class="person tapPerson">
+            <div class="av">NX</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Nasra Xasan</span><span class="pill role">Cashier</span><span class="pill where">Hooyo Koodbuur</span></div>
+              <div class="pLine">nasra@hooyomarket.so<span class="sep">·</span>+252 63 118 4402</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Nasra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Nasra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+              <span class="chev small">›</span>
+            </div>
+          </div>
+          <div class="detail" hidden>
+            <div class="dRow"><span class="k">Role</span><span class="v">Cashier</span></div>
+            <div class="dRow"><span class="k">Works at</span><span class="v">Hooyo Koodbuur only — Hargeisa</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">21 Aug 2026 · 8 days ago</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v">nasra@hooyomarket.so</span></div>
+            <div class="dRow"><span class="k">Phone</span><span class="v">+252 63 118 4402</span></div>
+            <div class="dRow" style="display:block;">
+              <span class="k">What that role can do</span>
+              <div style="margin-top:2px;"><span class="perm">Sales</span><span class="perm">Refunds</span></div>
+            </div>
+          </div>
+
+          <div class="grpLabel">No longer here</div>
+
+          <div class="person dim tapPerson">
+            <div class="av">CJ</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Cabdi Jibriil</span><span class="pill off">Cashier</span></div>
+              <div class="pLine">signed up 12 Feb 2026<span class="sep">·</span>deactivated 4 Jun 2026</div>
+            </div>
+            <div class="pAct"><span class="missing">no contact</span><span class="chev small">›</span></div>
+          </div>
+          <div class="detail" hidden>
+            <div class="dRow"><span class="k">Role</span><span class="v">Cashier · deactivated</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">12 Feb 2026</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v" style="color:var(--d-mut2);font-weight:400;">withheld while inactive</span></div>
+            <div class="never">Contact details are not shown for someone who has left. They are still in
+            the store’s own records — this console simply has no reason to reach them.</div>
+          </div>
+
+          <div class="cav context">
+            <div class="i">ⓘ</div>
+            <div class="t">This is the store’s own roster, as <b>they</b> set it up. We cannot add,
+            remove, rename or deactivate anyone here.</div>
+          </div>
+        </div>
+      </div>
+
+      </div><!-- /#demo -->
+    </div>
+  </div>
+</div>
+
+<h3>What the People section decides</h3>
+<ol class="steps">
+  <li><b>The owner is in full; the team is one row.</b> The owner is the person who can say yes to a
+  plan change, so their contact details are the thing the drawer owes you at a glance. Everyone else is
+  a question you sometimes have — so it gets a row that answers it in a tap, and section 4 is where the
+  answer lives.</li>
+  <li><b>“4 of 11 seats” is the section scope, not a Usage row.</b> The count and the list are the same
+  fact; showing them apart is how “Staff 4 / 11” ended up meaningless.</li>
+  <li><b>The summary line names names.</b> “3 others” is a number. “Maxamed, Sahra, Nasra · 1 who has
+  left” is often the whole answer, and saves the tap entirely.</li>
+  <li><b>No actions on a person, anywhere.</b> The console cannot deactivate a member, change their role,
+  or reset a password. This is a directory, and section 6 keeps it one at the database level too.</li>
+</ol>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>4 · The team modal — everyone the owner signed up</h2>
+<p class="h2sub">Tapping <i>Their team</i> swaps the drawer’s contents for the roster and puts a back
+arrow in the header. It is the <b>same modal</b>, not a second one on top: the console already made this
+call once — opening the composer from a store closes the drawer first, because two stacked sheets on a
+tablet leave an operator dismissing an edge they cannot see.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead good"><b>The roster</b><span>a still — the clickable one is in section 3</span></div>
+    <div class="frame doc">
+      <div class="sheet">
+        <div class="sHead">
+          <div>
+            <div class="backRow">
+              <span class="back">‹</span>
+              <h3 class="sTitle" style="margin:0;">Their team</h3>
+            </div>
+            <p class="sSub">Hooyo Market · 4 of 11 seats · signed up by the store, not by us</p>
+          </div>
+          <div class="x">✕</div>
+        </div>
+        <div class="sBody">
+
+          <div class="grpLabel">Working here</div>
+
+          <div class="person">
+            <div class="av own">FC</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Faadumo Cabdi</span><span class="pill owner">Owner</span></div>
+              <div class="pLine">faadumo@hooyomarket.so<span class="sep">·</span>+252 63 441 8820</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Faadumo">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person">
+            <div class="av">MA</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Maxamed Aadan</span><span class="pill role">Manager</span></div>
+              <div class="pLine">maxamed.a@hooyomarket.so<span class="sep">·</span>+252 63 771 0043</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Maxamed">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <!-- expanded -->
+          <div class="detail">
+            <div class="dRow"><span class="k">Role</span><span class="v">Manager</span></div>
+            <div class="dRow"><span class="k">Signed up</span><span class="v">3 Aug 2026 · 39 days ago</span></div>
+            <div class="dRow"><span class="k">Email</span><span class="v">maxamed.a@hooyomarket.so</span></div>
+            <div class="dRow"><span class="k">Phone</span><span class="v">+252 63 771 0043</span></div>
+            <div class="dRow" style="display:block;">
+              <span class="k">What that role can do</span>
+              <div style="margin-top:2px;">
+                <span class="perm">Sales</span><span class="perm">Inventory</span><span class="perm">Customers</span>
+                <span class="perm">Expenses</span><span class="perm">Registers</span><span class="perm">+3</span>
+              </div>
+            </div>
+            <div class="never">Not shown, and not returned by the query at all: pay type, pay rate,
+            hire date, photo, shifts, or anything they have recorded.</div>
+          </div>
+
+          <div class="person">
+            <div class="av">SI</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Sahra Ismaaciil</span><span class="pill role">Cashier</span></div>
+              <div class="pLine">sahra@hooyomarket.so<span class="sep">·</span><span class="missing">no phone on file</span></div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn mail" title="Email Sahra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="person">
+            <div class="av">NX</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Nasra Xasan</span><span class="pill role">Cashier</span><span class="pill where">Hooyo Koodbuur</span></div>
+              <div class="pLine">nasra@hooyomarket.so<span class="sep">·</span>+252 63 118 4402</div>
+            </div>
+            <div class="pAct">
+              <span class="iconBtn wa" title="WhatsApp Nasra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+              </span>
+              <span class="iconBtn mail" title="Email Nasra">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="grpLabel">No longer here</div>
+
+          <div class="person dim">
+            <div class="av">CJ</div>
+            <div class="pMain">
+              <div class="pTop"><span class="pName">Cabdi Jibriil</span><span class="pill off">Cashier</span></div>
+              <div class="pLine">signed up 12 Feb 2026<span class="sep">·</span>deactivated 4 Jun 2026</div>
+            </div>
+            <div class="pAct"><span class="missing">no contact</span></div>
+          </div>
+
+          <div class="cav context">
+            <div class="i">ⓘ</div>
+            <div class="t">This is the store’s own roster, as <b>they</b> set it up. We cannot add,
+            remove, rename or deactivate anyone here — if Faadumo needs a seat freed, she does it in
+            <b>People</b> on her own app.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>Why this shape</b><span>and what each part is for</span></div>
+    <div class="frame doc" style="background:var(--d-sf);">
+      <h3 style="margin-top:0;">One modal, two views</h3>
+      <p class="note" style="font-size:13px;">The drawer already owns a full-screen sheet on a tablet
+      and a bottom sheet on a phone. Pushing the team <i>inside</i> it means the back arrow returns you
+      to the store with your reason field, your plan chips and your scroll position intact — which a
+      second modal on top of the first would not.</p>
+
+      <h3>Grouped by whether they still work there</h3>
+      <p class="note" style="font-size:13px;">Two headings, not a status column. <b>Working here</b> is
+      who you can talk to; <b>No longer here</b> answers “I spoke to Cabdi in June, what happened?” and
+      is deliberately contact-free — WhatsApping an ex-employee about their former employer’s billing
+      is not something the UI should make easy.</p>
+
+      <h3>Tap a person, get the rest</h3>
+      <p class="note" style="font-size:13px;">The row carries what you scan for — name, role, email,
+      phone. The expanded panel carries what you occasionally need: when they were signed up, and what
+      their role is actually allowed to do, which is the question behind “can Maxamed change the plan
+      himself?” (he cannot; only the owner can).</p>
+
+      <h3>What it never says</h3>
+      <p class="note" style="font-size:13px;"><code>shop_members</code> also holds
+      <code>pay_type</code>, <code>pay_rate_cents</code>, <code>hire_date</code> and
+      <code>photo_url</code>. None of them are returned — not hidden in the UI, <i>absent from the
+      function</i>. Kaiibi operators have no business knowing what a shop pays its cashier, and the
+      only way to guarantee that is to never send it.</p>
+
+      <h3>Which branch each person can work at</h3>
+      <p class="note" style="font-size:13px;">A chip on the row: <b>Hooyo Koodbuur</b> for someone tied
+      to one branch, <b>Both branches</b> for someone who is not. It answers the question a multi-branch
+      store’s owner actually asks us — “why can’t Nasra see the Koodbuur till?” — without the console
+      being able to change a single assignment.</p>
+
+      <div class="cav wrong" style="margin-top:16px;">
+        <div class="i">⚠</div>
+        <div class="t"><b>Empty means everywhere, not nowhere.</b>
+        <code>can_access_location()</code> gives a member with <i>no</i> rows in
+        <code>shop_member_locations</code> access to <b>every</b> branch. A UI that renders an empty
+        array as “no branches” states the exact opposite of what the database enforces — so the label is
+        computed from the array’s length, and the owner is hard-coded to “every branch” because their
+        access comes from <code>owns_shop()</code> and not from an assignment row at all.</div>
+      </div>
+
+      <div class="cav wrong" style="margin-top:12px;">
+        <div class="i">⚠</div>
+        <div class="t"><b>“Signed up by the owner” is nearly true, so we don’t say it.</b> Nothing
+        records <i>who</i> added a member, and the write policy is <code>staff.manage</code> — which a
+        Manager can hold. So the header says “signed up by the store”, and each row gives the date it
+        can actually prove.</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>5 · The WhatsApp affordance</h2>
+<p class="h2sub">The console already opens WhatsApp — Overview’s Needs-attention rows do it with a text
+pill reading “WhatsApp”. Six of those stacked in a card is six identical words down a column. The glyph
+says the same thing in a third of the width, and reads as a button rather than a label.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Today</b><span>Needs attention, on Overview</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="cardHead"><span class="cardTitle">Needs attention</span><span class="cardScope">3 stores</span></div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Hooyo Market</div>
+            <div class="attNote">Trial ends in 5 days</div>
+          </div>
+          <span class="waPillOld">WhatsApp</span>
+        </div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Barwaaqo Electronics</div>
+            <div class="attNote">At their limit: products</div>
+          </div>
+          <span class="waPillOld">WhatsApp</span>
+        </div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Xamdi Pharmacy</div>
+            <div class="attNote">Plan lapsed — can view but not change anything</div>
+          </div>
+          <span class="missing">no phone</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead good"><b>Proposed</b><span>a glyph, and the person it reaches</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="cardHead"><span class="cardTitle">Needs attention</span><span class="cardScope">3 stores</span></div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Hooyo Market</div>
+            <div class="attNote">Trial ends in 5 days <span style="color:var(--d-mut2)">·</span> Faadumo Cabdi</div>
+          </div>
+          <span class="iconBtn wa">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          </span>
+        </div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Barwaaqo Electronics</div>
+            <div class="attNote">At their limit: products <span style="color:var(--d-mut2)">·</span> Cabdirisaaq Jaamac</div>
+          </div>
+          <span class="iconBtn wa">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+          </span>
+        </div>
+        <div class="attRow">
+          <div class="attMain">
+            <div class="attName">Xamdi Pharmacy</div>
+            <div class="attNote">Plan lapsed — can view but not change anything <span style="color:var(--d-mut2)">·</span> Xamdi Maxamuud</div>
+          </div>
+          <span class="iconBtn mail">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>Which number it dials, in order</h3>
+<ol class="steps">
+  <li><b>The owner’s personal phone</b> (<code>shop_members.phone</code>) — the person who can say yes
+  to a plan change.</li>
+  <li><b>The store’s number</b> (<code>shop_locations.contact_phone</code>) — today’s behaviour, kept as
+  the fallback, not removed.</li>
+  <li><b>Neither</b> → the WhatsApp glyph is not drawn at all and the mail glyph takes its place, because
+  every owner row has an email by construction. An outline glyph with a dashed edge is used only where the
+  layout needs the slot held (the Stores table), never as a dead button you can press.</li>
+</ol>
+<p class="note" style="margin-top:14px;">The prefilled first line does not change — <code>whatsappLink()</code>
+in <code>src/lib/whatsapp.ts</code> already normalises the number and carries the message. What changes
+is that it is now addressed to <b>Faadumo</b> rather than to “Hooyo Market”, so the greeting can use
+her name.</p>
+<p class="note"><b>Accessibility.</b> The glyph is a button with
+<code>aria-label="WhatsApp Faadumo Cabdi"</code> and a 44&nbsp;pt hit target, so the word that was
+removed from the screen is still there for a screen reader. Colour is never the only signal: an
+unavailable action is absent, not greyed.</p>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>6 · Where the data comes from, and what it is not allowed to become</h2>
+<p class="h2sub">One migration, one function, no new table and no new column. It follows
+<code>support_author_profiles()</code> exactly — the fix that was already made once for the same class
+of problem.</p>
+
+<div class="sql"><span class="c">-- Operators read the roster of any shop: names, work contact, role.
+-- A function rather than a policy, for 20260825000400's reason exactly: the
+-- table-wide select grant on shop_members means a row-scoped policy would
+-- ALSO hand back pay_type, pay_rate_cents, hire_date and photo_url -- the
+-- exact columns src/lib/staff.ts already routes around for the shop's own
+-- managers. This returns the nine the console draws and nothing else.</span>
+
+<span class="k">create or replace function</span> public.platform_shop_people(p_shop_ids uuid[])
+<span class="k">returns table</span> (shop_id uuid, user_id uuid, full_name text, email text,
+                phone text, role_name text, role_permissions text[],
+                is_owner boolean, active boolean, joined_at timestamptz,
+                branch_names text[])
+<span class="k">language</span> sql <span class="k">stable security definer set</span> search_path = public
+<span class="k">as</span> $$
+  <span class="k">select</span> m.shop_id, m.user_id, m.full_name, m.email, m.phone,
+         r.name, r.permissions, (s.owner_id = m.user_id), m.active, m.created_at,
+         <span class="c">-- Empty array = every branch. NOT "no branches" -- can_access_location()
+         -- (20260814000000) treats a member with no assignment rows as having
+         -- access to all of them, so the label is computed from length, and
+         -- getting it backwards would tell an operator the opposite of the truth.</span>
+         <span class="k">coalesce</span>((<span class="k">select array_agg</span>(l.name <span class="k">order by</span> l.is_primary <span class="k">desc</span>, l.name)
+                     <span class="k">from</span> public.shop_member_locations ml
+                     <span class="k">join</span> public.shop_locations l <span class="k">on</span> l.id = ml.location_id
+                    <span class="k">where</span> ml.shop_member_id = m.id), <span class="k">'{}'</span>)
+    <span class="k">from</span> public.shop_members m
+    <span class="k">join</span> public.roles r <span class="k">on</span> r.id = m.role_id
+    <span class="k">join</span> public.shops s <span class="k">on</span> s.id = m.shop_id
+   <span class="k">where</span> public.is_platform_admin()          <span class="c">-- aal2 enforced inside</span>
+     <span class="k">and</span> m.shop_id = <span class="k">any</span>(p_shop_ids);
+$$;
+
+<span class="c">-- PUBLIC gets execute on every new function, which on a definer function
+-- means anon. Revoked first, so the grant is the whole list of who can call it.</span>
+<span class="k">revoke execute on function</span> public.platform_shop_people(uuid[]) <span class="k">from</span> public;
+<span class="k">grant execute on function</span> public.platform_shop_people(uuid[]) <span class="k">to</span> authenticated;</div>
+
+<h3>Four properties this holds</h3>
+<ol class="steps">
+  <li><b>Read-only, forever.</b> <code>shop_members</code> gains no operator write policy and
+  <code>platform-admin</code> gains no action that touches it. An operator cannot add, remove,
+  rename or deactivate anybody’s staff. If we ever want that, it is a separate decision with its own
+  audit-log entry, not a side effect of a directory.</li>
+  <li><b>MFA still gates it.</b> <code>is_platform_admin()</code> demands <code>aal2</code>, so a stolen
+  operator password alone reads nothing — the same bar every other console read sits behind.</li>
+  <li><b>It is work contact, not private life.</b> Everything returned is what the shop typed into its
+  own Staff screen for its own team: the name on the receipt, the address we already email invoices to,
+  the number the shop itself printed. <b>Pay is absent from the return type</b>, along with hire date and
+  photo — not filtered in the client, not selected in the first place.</li>
+  <li><b>The privacy line in the drawer stays true.</b> “This portal cannot open this store’s products,
+  sales, books, or schedule” is unchanged — a roster is not trade. The line in the drawer gains one
+  clause: <i>…and it shows who works here so we can reach them, nothing they have recorded.</i></li>
+</ol>
+
+<div class="cav wrong" style="max-width:74ch;">
+  <div class="i">⚠</div>
+  <div class="t"><b>Batched, not per row.</b> The console loads once and holds every store in memory, so
+  this is <b>one</b> call passing every shop id — the same shape <code>listSupportThreads()</code> uses
+  for author profiles. A per-drawer fetch would be N+1 against the busiest screen in the portal and would
+  make opening a store feel slow for no reason.</div>
+</div>
+
+<p class="note" style="margin-top:18px;"><b>One index.</b> <code>shop_members_shop_id_idx</code> already
+exists (0017), which is exactly what <code>shop_id = any(...)</code> needs. Nothing to add.</p>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>7 · The states this has to survive</h2>
+<p class="h2sub">Every one of these is real in the data today, so each gets a drawn answer rather than
+a blank.</p>
+
+<div class="frame doc">
+  <div class="row2">
+    <div>
+      <div class="stack">
+        <div class="sect" style="margin-top:0;">A one-person shop</div>
+        <div class="person">
+          <div class="av own">AY</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Axmed Yuusuf</span><span class="pill owner">Owner</span></div>
+            <div class="pLine">axmed@example.so<span class="sep">·</span>+252 63 220 7781</div>
+          </div>
+          <div class="pAct"><span class="iconBtn wa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></span></div>
+        </div>
+        <p class="missing" style="margin-top:8px;">Scope reads <b>1 of 3 seats</b>. No “team” framing,
+        no empty-state copy — one person is a complete answer, not a shortfall.</p>
+      </div>
+
+      <div class="stack">
+        <div class="sect" style="margin-top:0;">A name we never got</div>
+        <div class="person">
+          <div class="av own">?</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName" style="color:var(--d-mut);">Owner</span><span class="pill owner">Owner</span></div>
+            <div class="pLine">nuur.h@example.so</div>
+          </div>
+          <div class="pAct"><span class="iconBtn mail"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg></span></div>
+        </div>
+        <p class="missing" style="margin-top:8px;">The provisioning trigger falls back to the local part
+        of the email, so a truly blank name is rare — when it happens we say “Owner”, never render an
+        empty row, and never invent one from the store name.</p>
+      </div>
+    </div>
+
+    <div>
+      <div class="stack">
+        <div class="sect" style="margin-top:0;">Two owners, one person</div>
+        <div class="person">
+          <div class="av own">FC</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Faadumo Cabdi</span><span class="pill owner">Owner</span></div>
+            <div class="pLine">faadumo@hooyomarket.so<span class="sep">·</span>also owns <b>Hooyo Wholesale</b></div>
+          </div>
+          <div class="pAct"><span class="iconBtn wa"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></span></div>
+        </div>
+        <p class="missing" style="margin-top:8px;">The console already holds every store, so “owns two of
+        these” is free to compute and worth saying — it changes the conversation from one renewal to two.</p>
+      </div>
+
+      <div class="stack">
+        <div class="sect" style="margin-top:0;">The read failed</div>
+        <div class="cav wrong" style="margin-top:0;">
+          <div class="i">⚠</div>
+          <div class="t">Could not load who works at this store. Everything else on this screen is
+          current. <b>Try again</b></div>
+        </div>
+        <p class="missing" style="margin-top:8px;">People load in the same batch as the six existing
+        reads, but they fail <i>alone</i>: a roster that will not load must not take Money, Usage and the
+        Danger zone down with it. Same lesson as the Support read that once left every tab spinning.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr>
+
+<!-- ===================================================================== -->
+<section>
+<h2>8 · What this is, in build order</h2>
+<ol class="steps">
+  <li><b>Migration</b> — <code>platform_shop_people()</code>, revoke, grant. No schema change.</li>
+  <li><b>Data layer</b> — <code>listShopPeople(shopIds)</code> in <code>src/lib/platform.ts</code>,
+  returning <code>ShopPerson[]</code> grouped by shop; <code>PlatformShopRow</code> gains
+  <code>owner: ShopPerson | null</code> so the table and Overview read one field rather than searching a
+  list.</li>
+  <li><b>Branches</b> — drop <code>.eq('is_primary', true)</code> from the <code>shop_locations</code>
+  read and keep the rows as <code>branches: Branch[]</code>, primary first. <b>No migration:</b> the
+  operator policy already covers every row, and <code>city</code> is already being fetched. This is a
+  filter coming off, not access going on.</li>
+  <li><b>WhatsApp glyph</b> — one small <code>&lt;WhatsAppButton phone message label /&gt;</code>
+  component wrapping the existing <code>whatsappLink()</code>, replacing the text pill on Overview and
+  used unchanged everywhere else.</li>
+  <li><b>Stores tab</b> — owner + city in the Store cell, Contact column in place of Joined, search
+  widened to people.</li>
+  <li><b>Store drawer</b> — People above Usage (owner in full, team as one row, seat count as the
+  scope), then <i>Where they trade</i> listing each branch with its city and phone. The Staff and
+  Branches rows come out of Usage, since both sections now say it with names.</li>
+  <li><b>Team view</b> — a second view inside the same modal, with the back arrow, the two groups, the
+  branch chip on every row, and the tap-to-expand detail.</li>
+  <li><b>Overview</b> — Needs-attention rows name the owner and use the glyph.</li>
+</ol>
+<p class="note" style="margin-top:16px;">Steps 4–7 are independent of each other once the data layer
+lands, so each screen can be reviewed on its own rather than as one large diff.</p>
+</section>
+
+</div>
+
+<script>
+  // The section-3 sheet is a working prototype of the two views, so the
+  // navigation can be felt rather than described. Everything else on the page
+  // is a still.
+  var demo = document.getElementById('demo');
+
+  function show(name){
+    demo.querySelectorAll('[data-view]').forEach(function (v){
+      v.hidden = v.dataset.view !== name;
+    });
+    // Every person collapses on the way out, so coming back is always the
+    // same screen you would get opening it fresh.
+    demo.querySelectorAll('.detail').forEach(function (d){ d.hidden = true; });
+    demo.querySelectorAll('.person.open').forEach(function (p){ p.classList.remove('open'); });
+  }
+
+  demo.addEventListener('click', function (e){
+    var go = e.target.closest('[data-go]');
+    if (go) { show(go.dataset.go); return; }
+
+    // A tap on WhatsApp or mail is the contact action, not the row — the same
+    // rule the real rows follow.
+    if (e.target.closest('.iconBtn')) { e.stopPropagation(); return; }
+
+    var person = e.target.closest('.tapPerson');
+    if (!person) return;
+    var detail = person.nextElementSibling;
+    if (!detail || !detail.classList.contains('detail')) return;
+    var opening = detail.hidden;
+    detail.hidden = !opening;
+    person.classList.toggle('open', opening);
+  });
+</script>

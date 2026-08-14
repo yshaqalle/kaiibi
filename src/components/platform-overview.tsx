@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BarChart, CHART_COLORS, DonutChart, planColor, type Bar } from '@/components/platform-charts';
+import { EmailButton, WhatsAppButton } from '@/components/platform/whatsapp-button';
 import { BentoCard } from '@/components/ui/bento-card';
 import { BentoTile, BentoTileRow } from '@/components/ui/bento-tile';
 import { BentoCell, BentoGrid } from '@/components/ui/bento';
@@ -10,7 +11,8 @@ import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import { limitLabel } from '@/components/platform/labels';
 import { LIMIT_RESOURCES, type LimitResource } from '@/lib/entitlements';
-import { whatsappLink, type PlatformAuditRow, type PlatformShopRow, type SubscriptionPaymentRow } from '@/lib/platform';
+import { type PlatformAuditRow, type PlatformShopRow, type SubscriptionPaymentRow } from '@/lib/platform';
+import { contactPhone } from '@/lib/shop-people';
 import type { Plan } from '@/lib/subscriptions';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -200,12 +202,16 @@ export function PlatformOverview({
   // card that holds the money rather than left for the reader to assume.
   const asOf = new Date(now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 
+  // Greets whoever we are actually writing to. `owner` is null only when the
+  // roster read failed, in which case this is the sentence it always was.
+  const greet = (shop: PlatformShopRow) => shop.owner?.name.split(' ')[0] ?? shop.shopName;
+
   const attention = [
     ...endingSoon.map((shop) => ({
       key: `t-${shop.shopId}`,
       shop,
       note: `Trial ends in ${Math.max(0, Math.ceil((new Date(shop.trialEndsAt!).getTime() - now) / DAY))} days`,
-      message: `Hi ${shop.shopName} — your Kaiibi trial ends soon. Would you like to keep going?`,
+      message: `Hi ${greet(shop)} — your Kaiibi trial ends soon. Would you like to keep going?`,
     })),
     ...atCap.map((shop) => {
       const hit = LIMIT_RESOURCES.filter((r) => {
@@ -216,14 +222,14 @@ export function PlatformOverview({
         key: `c-${shop.shopId}`,
         shop,
         note: `At their limit: ${hit.map((h) => h.label.toLowerCase()).join(', ')}`,
-        message: `Hi ${shop.shopName} — you've reached your plan's limit on Kaiibi. Want to move up a tier?`,
+        message: `Hi ${greet(shop)} — you've reached your plan's limit on Kaiibi. Want to move up a tier?`,
       };
     }),
     ...expired.map((shop) => ({
       key: `e-${shop.shopId}`,
       shop,
       note: 'Plan lapsed — can view but not change anything',
-      message: `Hi ${shop.shopName} — your Kaiibi plan has lapsed. Everything is still saved; shall we get you running again?`,
+      message: `Hi ${greet(shop)} — your Kaiibi plan has lapsed. Everything is still saved; shall we get you running again?`,
     })),
   ];
 
@@ -387,7 +393,8 @@ function AttentionRow({
   first: boolean;
   onOpen: (shopId: string) => void;
 }) {
-  const link = whatsappLink(shop.contactPhone, message);
+  const phone = contactPhone(shop.owner, shop.branches);
+  const who = shop.owner?.name ?? shop.shopName;
   return (
     <View style={[styles.attentionRow, first && styles.attentionRowFirst]}>
       <Pressable style={styles.attentionMain} onPress={() => onOpen(shop.shopId)}>
@@ -395,19 +402,17 @@ function AttentionRow({
           {shop.shopName}
         </Text>
         <Text style={styles.attentionNote} numberOfLines={2}>
-          {note}
+          {shop.owner ? `${note} · ${shop.owner.name}` : note}
         </Text>
       </Pressable>
-      {/* Opens WhatsApp with the shop's own number and a first line already
-          written. The number is the one they print on their receipts, read from
-          their primary store -- no new access, and no copying digits by hand. */}
-      {link ? (
-        <Pressable onPress={() => Linking.openURL(link)} style={styles.waButton}>
-          <Text style={styles.waText}>WhatsApp</Text>
-        </Pressable>
-      ) : (
-        <Text style={styles.waMissing}>no phone</Text>
-      )}
+      {/* Opens WhatsApp with the OWNER's own number and a first line already
+          written, falling back to the number they print on their receipts --
+          no new access, and no copying digits by hand. Six text pills reading
+          "WhatsApp" down one card is six identical words; the glyph says it in
+          a third of the width and reads as a button rather than a label. */}
+      <WhatsAppButton phone={phone} message={message} label={`WhatsApp ${who}`} />
+      {!phone ? <EmailButton email={shop.owner?.email} label={`Email ${who}`} /> : null}
+      {!phone && !shop.owner?.email ? <Text style={styles.waMissing}>no contact</Text> : null}
     </View>
   );
 }
@@ -435,8 +440,6 @@ const styles = StyleSheet.create({
   attentionMain: { flex: 1, gap: 3 },
   attentionName: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
   attentionNote: { fontSize: 11.5, color: theme.bentoMuted, lineHeight: 17 },
-  waButton: { backgroundColor: `${theme.bentoProfit}1A`, borderRadius: 999, paddingHorizontal: 13, paddingVertical: 7 },
-  waText: { color: theme.bentoProfit, fontSize: 11.5, fontWeight: '800' },
   waMissing: { color: theme.bentoMuted2, fontSize: 11 },
   empty: { fontSize: 13, color: theme.bentoMuted },
 });

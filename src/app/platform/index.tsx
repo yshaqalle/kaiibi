@@ -24,6 +24,7 @@ import {
   listOperators,
   listPendingPlanRequests,
   listPlatformShops,
+  listShopPeople,
   listSubscriptionPayments,
   listSupportThreads,
   type PendingPlanRequest,
@@ -32,6 +33,7 @@ import {
   type PlatformSettings,
   type PlatformShopRow,
   type PlatformSupportThread,
+  type ShopPerson,
   type SubscriptionPaymentRow,
 } from '@/lib/platform';
 import { listPlansForPlatform, type Plan } from '@/lib/subscriptions';
@@ -100,6 +102,9 @@ export default function PlatformHome() {
   // likely to fail first -- and a thrown error with nothing catching it used
   // to leave every tab, not just Support, on a spinner with no explanation.
   const [error, setError] = useState<string | null>(null);
+  // Set when the roster read alone fails. Separate from `error` on purpose:
+  // that one blanks the console, and a missing roster should not.
+  const [peopleError, setPeopleError] = useState<string | null>(null);
   // Published by the Overview once it has counted the money. Held here so it
   // can sit in the header beside the title.
   const [headline, setHeadline] = useState<string | null>(null);
@@ -134,6 +139,26 @@ export default function PlatformHome() {
         listSubscriptionPayments(),
         listSupportThreads(),
       ]);
+      // People load AFTER the stores, because the call needs their ids -- and
+      // it fails ALONE. A roster that will not load must not take Money, Usage
+      // and the Danger zone down with it, which is the lesson of the support
+      // read that once left every tab spinning.
+      let peopleByShop = new Map<string, ShopPerson[]>();
+      try {
+        peopleByShop = await listShopPeople(shopRows.map((s) => s.shopId));
+        setPeopleError(null);
+      } catch (err) {
+        // A REASON, not a sentence: the drawer reads this as a clause inside
+        // "Could not load who works at this store — <reason>." A full sentence
+        // here produced "…this store: Could not load who works at these
+        // stores.. Everything else here is current." on the real console.
+        setPeopleError(err instanceof Error ? err.message : 'the read did not come back');
+      }
+      for (const shop of shopRows) {
+        shop.people = peopleByShop.get(shop.shopId) ?? [];
+        shop.owner = shop.people.find((p) => p.isOwner) ?? null;
+      }
+
       setShops(shopRows);
       setPlans(activePlans);
       setArchivedPlans(planRows.filter((p) => !p.active));
@@ -299,6 +324,7 @@ export default function PlatformHome() {
           <ShopDrawer
             shop={selectedShop}
             plans={plans}
+            peopleError={peopleError}
             onDone={reload}
             // Closes the drawer as it opens the composer: two stacked modals on
             // a tablet leave the operator dismissing a sheet they cannot see

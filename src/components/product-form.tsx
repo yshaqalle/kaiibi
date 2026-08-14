@@ -417,7 +417,7 @@ export const ProductForm = forwardRef<ProductFormHandle, {
       <View style={styles.toggleRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.toggleTitle}>Expose to customers</Text>
-          <Text style={styles.toggleHint}>Show this product in the online Discover feed once it's live.</Text>
+          <Text style={styles.toggleHint}>Show this product in the online Discover feed once it&apos;s live.</Text>
         </View>
         <Switch value={isListedOnline} onValueChange={setIsListedOnline} />
       </View>

@@ -144,8 +144,29 @@ tables.shop_subscriptions = [
 
 tables.shop_usage_counters = [{ shop_id: 'shop-own-plan', resource: 'products', count: 12 }];
 
+// Every column listPlatformShops actually selects, and a SECOND branch on the
+// same shop: the read stopped filtering to is_primary (20260830000000's
+// companion change), so both the grouping and the primary-first ordering are
+// only exercised if a shop here has more than one.
 tables.shop_locations = [
-  { shop_id: 'shop-own-plan', contact_phone: '+252611234567', city: 'Hargeisa', is_primary: true },
+  {
+    id: 'loc-2',
+    shop_id: 'shop-own-plan',
+    name: 'Koodbuur',
+    contact_phone: null,
+    city: 'Hargeisa',
+    neighborhood: 'Koodbuur',
+    is_primary: false,
+  },
+  {
+    id: 'loc-1',
+    shop_id: 'shop-own-plan',
+    name: 'Main',
+    contact_phone: '+252611234567',
+    city: 'Hargeisa',
+    neighborhood: 'Jigjiga Yar',
+    is_primary: true,
+  },
 ];
 
 let rows: PlatformShopRow[];
@@ -171,9 +192,27 @@ describe('listPlatformShops', () => {
       retiringTo: null,
       status: 'active',
       usage: { products: 12 },
-      contactPhone: '+252611234567',
-      city: 'Hargeisa',
     });
+  });
+
+  // The primary branch leads, whatever order the rows arrive in -- the drawer
+  // reads this list top to bottom and "Main" is what an operator looks for.
+  it('carries every branch, primary first', () => {
+    expect(row('shop-own-plan').branches).toEqual([
+      {
+        id: 'loc-1',
+        name: 'Main',
+        city: 'Hargeisa',
+        neighborhood: 'Jigjiga Yar',
+        phone: '+252611234567',
+        isPrimary: true,
+      },
+      { id: 'loc-2', name: 'Koodbuur', city: 'Hargeisa', neighborhood: 'Koodbuur', phone: null, isPrimary: false },
+    ]);
+  });
+
+  it('leaves a shop with no branch row with an empty list rather than a hole', () => {
+    expect(row('shop-retiring-future').branches).toEqual([]);
   });
 
   it('names the successor ahead of time but keeps serving its own plan until the date passes', () => {
@@ -231,8 +270,6 @@ describe('listPlatformShops', () => {
       trialEndsAt: null,
       currentPeriodEnd: null,
       usage: {},
-      contactPhone: null,
-      city: null,
     });
   });
 });

@@ -26,6 +26,36 @@ const colTags = { flexBasis: '13%', flexGrow: 0, flexShrink: 0 } as const;
 const colPrice = { flexBasis: '9%', flexGrow: 0, flexShrink: 0 } as const;
 const colStock = { flexBasis: '21%', flexGrow: 0, flexShrink: 0 } as const;
 
+// Module scope, not inside the header below. Defined inline, this was a NEW
+// component type on every render, so React threw the header away and rebuilt
+// it rather than updating it -- on every keystroke in the search box and every
+// sort. The cells hold no state, so nothing broke; it was pure churn in one of
+// the two screens that render the most rows. (react-hooks/static-components.)
+//
+// It takes `active` rather than `field` + `sortField` because, hoisted, it can
+// no longer close over the parent's sort state -- and the answer reads better
+// at the call site than the inputs do.
+function HeaderCell({
+  label,
+  style,
+  active,
+  direction,
+  onPress,
+}: {
+  label: string;
+  style: object;
+  active: boolean;
+  direction: SortDirection;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={[styles.headerCell, style]}>
+      <Text style={styles.headerLabel}>{label}</Text>
+      {active && <Text style={styles.sortArrow}>{direction === 'asc' ? '▲' : '▼'}</Text>}
+    </Pressable>
+  );
+}
+
 // The desktop Inventory list — a real, sortable column table (PRODUCT /
 // BRAND / CATEGORY / TAGS / PRICE / STOCK). Narrow screens use
 // `ProductTile` instead (see inventory.tsx), which stacks the same info
@@ -43,23 +73,26 @@ export function ProductTableHeader({
   // else it would repeat the same name down every row.
   showLocation?: boolean;
 }) {
-  const HeaderCell = ({ field, label, style }: { field: SortField; label: string; style: object }) => (
-    <Pressable onPress={() => onSort(field)} style={[styles.headerCell, style]}>
-      <Text style={styles.headerLabel}>{label}</Text>
-      {sortField === field && <Text style={styles.sortArrow}>{sortDirection === 'asc' ? '▲' : '▼'}</Text>}
-    </Pressable>
+  const cell = (field: SortField, label: string, style: object) => (
+    <HeaderCell
+      label={label}
+      style={style}
+      active={sortField === field}
+      direction={sortDirection}
+      onPress={() => onSort(field)}
+    />
   );
 
   return (
     <View style={styles.headerRow}>
       <View style={styles.dataCols}>
-        <HeaderCell field="name" label="PRODUCT" style={colProduct} />
+        {cell('name', 'PRODUCT', colProduct)}
         {showLocation && <Text style={[styles.headerLabel, colLocation]}>LOCATION</Text>}
-        <HeaderCell field="brand" label="BRAND" style={colBrand} />
-        <HeaderCell field="category" label="CATEGORY" style={colCategory} />
+        {cell('brand', 'BRAND', colBrand)}
+        {cell('category', 'CATEGORY', colCategory)}
         <Text style={[styles.headerLabel, colTags]}>TAGS</Text>
-        <HeaderCell field="price" label="PRICE" style={colPrice} />
-        <HeaderCell field="stock" label="STOCK" style={colStock} />
+        {cell('price', 'PRICE', colPrice)}
+        {cell('stock', 'STOCK', colStock)}
       </View>
       <View style={styles.colEdit} />
     </View>

@@ -1,0 +1,376 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaiibi Platform — four things the real data showed</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; } }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  .doc{ --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --wa:#1fa855; --waWash:#e7f6ed; --accentWash:#e6edff; --accentInk:#1b47b8; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1080px;margin:0 auto;padding:44px 22px 80px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(26px,4.2vw,36px);line-height:1.12;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:64ch;margin:0 0 8px;}
+  h2{font-size:19px;font-weight:800;letter-spacing:-.018em;margin:0 0 4px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:76ch;}
+  section{margin-top:46px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:76ch;} .note b{font-weight:800;}
+  .note + .note{margin-top:10px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .frameHead{display:flex;align-items:center;gap:10px;margin:0 0 9px;}
+  .frameHead b{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.09em;color:var(--mut);}
+  .frameHead.bad b{color:#c0392b;} .frameHead.good b{color:#0f7a45;}
+  .frameHead span{font-size:12px;color:var(--mut);}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;color:var(--d-ink);overflow-x:auto;}
+  .row2{display:grid;gap:18px;} @media(min-width:920px){.row2{grid-template-columns:1fr 1fr;}}
+  .row2>div{min-width:0;}
+  .card{background:var(--d-sf);border-radius:20px;padding:14px 16px;}
+
+  table{border-collapse:collapse;width:100%;min-width:420px;}
+  th{font-size:9.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:var(--d-mut2);
+    text-align:left;padding:0 9px 8px;white-space:nowrap;}
+  td{padding:10px 9px;border-top:1px solid var(--d-rule);vertical-align:middle;}
+  .tName{font-size:13px;font-weight:800;color:var(--d-ink);}
+  .tMeta{font-size:11px;color:var(--d-mut);margin-top:2px;}
+  .none{font-size:11px;color:var(--d-mut2);}
+  .num{font-size:11.5px;color:var(--d-mut);}
+
+  .iconBtn{width:30px;height:30px;border-radius:11px;display:inline-grid;place-items:center;vertical-align:middle;}
+  .iconBtn.wa{background:var(--waWash);} .iconBtn.wa svg{width:15px;height:15px;fill:var(--wa);display:block;}
+  .iconBtn.mail{background:var(--d-soft);} .iconBtn.mail svg{width:14px;height:14px;fill:none;stroke:var(--d-mut);stroke-width:1.7;display:block;}
+  .contact{display:flex;align-items:center;gap:8px;}
+
+  .sect{font-size:9.5px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--d-mut2);margin:16px 0 8px;}
+  .sect:first-child{margin-top:0;}
+  .person{display:flex;align-items:center;gap:11px;padding:10px 0;}
+  .av{width:32px;height:32px;border-radius:11px;display:grid;place-items:center;background:var(--d-soft);
+    color:var(--d-mut);font-size:12px;font-weight:800;flex-shrink:0;}
+  .av.own{background:#1a1a1e;color:#fff;}
+  .pMain{flex:1;min-width:0;}
+  .pTop{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .pName{font-size:13px;font-weight:800;}
+  .pLine{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .pill{font-size:9.5px;font-weight:800;border-radius:999px;padding:2px 8px;background:var(--d-soft);color:var(--d-mut2);}
+  .pill.own{background:#1a1a1e;color:#fff;}
+  .pill.where{background:var(--accentWash);color:var(--accentInk);}
+
+  .callout{border-left:3px solid;border-radius:0 12px 12px 0;padding:11px 14px;margin-top:14px;font-size:12.5px;line-height:1.5;}
+  .callout.why{border-color:var(--blue);background:#EEF4FF;color:#1E4BCC;}
+  .callout.no{border-color:var(--loss);background:#FDECEE;color:#A11726;}
+  .callout b{font-weight:800;}
+
+  .tally{width:100%;border-collapse:collapse;margin-top:8px;min-width:560px;}
+  .tally th{color:var(--mut);padding-bottom:8px;}
+  .tally td{border-top:1px solid var(--ln);padding:9px;font-size:13px;color:var(--ink2);}
+  .tally td:first-child{font-weight:700;color:var(--ink);white-space:nowrap;}
+  .scroll{overflow-x:auto;}
+  hr{border:none;border-top:1px solid var(--ln);margin:46px 0 0;}
+</style>
+
+<div class="wrap">
+
+<p class="eyebrow">Kaiibi · Platform console · fixes from the live console</p>
+<h1>Four things the real data showed</h1>
+<p class="lede">The feature works — owner names, cities, branch chips and the team row are all on screen against
+eleven real stores. What the mockup could not predict is what real rows look like: most stores have
+<b>no phone at all</b>, some have an email where a name should be, and two labels read like bugs.</p>
+
+<div class="scroll">
+<table class="tally">
+  <tr><th>What the screen shows</th><th>Why it is wrong</th><th>Fix</th></tr>
+  <tr>
+    <td>“no number” on 9 of 11 rows</td>
+    <td>A dead end. Every one of those stores has an <i>email</i> we already hold — the Contact column
+    just never offers it.</td>
+    <td>Mail glyph as the fallback, matching the dial order the design already states</td>
+  </tr>
+  <tr>
+    <td>PEOPLE · 4 PEOPLE</td>
+    <td>Says “people” twice. The section is already called People.</td>
+    <td>“People · 4”, and “4 of 11 seats” only when there is a cap</td>
+  </tr>
+  <tr>
+    <td>mmooge@gmail.com · Hargeisa · Trial</td>
+    <td>An email standing in for a person’s name, competing with the city and plan for one line.</td>
+    <td>Show the local part in the table; keep the full address in the drawer</td>
+  </tr>
+  <tr>
+    <td>no address on file · no phone on file</td>
+    <td>Says “on file” twice in six words.</td>
+    <td>“no address or phone on file”</td>
+  </tr>
+</table>
+</div>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>1 · “no number” is a dead end, and it is most of the column</h2>
+<p class="h2sub">This is the big one. The Contact column was built around the phone, and on real data the
+phone is the thing stores least often have — so the column that was supposed to make reaching a customer
+one tap mostly offers nothing at all.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Now</b><span>9 rows of nothing</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <table>
+          <tr><th>Store</th><th>Contact</th></tr>
+          <tr>
+            <td><div class="tName">GarGar Supermarket</div><div class="tMeta">mmooge@gmail.com · Hargeisa · Trial</div></td>
+            <td><span class="none">no number</span></td>
+          </tr>
+          <tr>
+            <td><div class="tName">Barwaaqo Market</div><div class="tMeta">Ahmed Mooge · Hargeisa · Trial</div></td>
+            <td><span class="none">no number</span></td>
+          </tr>
+          <tr>
+            <td><div class="tName">Jaalala Skincare</div><div class="tMeta">Jaalala · Hargeisa +1 · Pro</div></td>
+            <td>
+              <div class="contact">
+                <span class="iconBtn wa"><svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></span>
+                <span class="num">+252-063-9186568</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div class="tName">Hargeisa Collection</div><div class="tMeta">Mohamed Abdi · Hargeisa · Standard</div></td>
+            <td><span class="none">no number</span></td>
+          </tr>
+        </table>
+      </div>
+      <div class="callout no">The column earns its width on <b>2 rows in 11</b>. On the other nine it is
+      grey text telling an operator what they cannot do.</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead good"><b>Proposed</b><span>every row offers something</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <table>
+          <tr><th>Store</th><th>Contact</th></tr>
+          <tr>
+            <td><div class="tName">GarGar Supermarket</div><div class="tMeta">mmooge · Hargeisa · Trial</div></td>
+            <td>
+              <div class="contact">
+                <span class="iconBtn mail"><svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg></span>
+                <span class="num">mmooge@gmail.com</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div class="tName">Barwaaqo Market</div><div class="tMeta">Ahmed Mooge · Hargeisa · Trial</div></td>
+            <td>
+              <div class="contact">
+                <span class="iconBtn mail"><svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg></span>
+                <span class="num">ahmed@barwaaqo.so</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div class="tName">Jaalala Skincare</div><div class="tMeta">Jaalala · Hargeisa +1 · Pro</div></td>
+            <td>
+              <div class="contact">
+                <span class="iconBtn wa"><svg viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></span>
+                <span class="num">+252-063-9186568</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><div class="tName">Hargeisa Collection</div><div class="tMeta">Mohamed Abdi · Hargeisa · Standard</div></td>
+            <td>
+              <div class="contact">
+                <span class="iconBtn mail"><svg viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M3 7l9 6 9-6"/></svg></span>
+                <span class="num">mohamed@hcollection.so</span>
+              </div>
+            </td>
+          </tr>
+        </table>
+      </div>
+      <div class="callout why">The rule is the one the design already wrote down for the Overview and
+      never applied here: <b>owner’s phone → store’s phone → email</b>. Only a store with neither shows
+      “no contact”, and that should be rare, because every owner row has an email by construction.</div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:16px;"><b>Green stays rare.</b> A mail glyph in the same slot keeps the
+column scannable in exactly the way the WhatsApp green was meant to be: green now means “you can message
+them right now”, and grey means “you will have to write”. Nine identical green circles would have said
+nothing; nine grey ones say something true.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>2 · “People · 4 people”</h2>
+<p class="h2sub">My fix for “0 of ∞ seats” traded one bad label for another. The section heading already
+says the word.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Now</b></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="sect">People · 4 people</div>
+        <div class="person">
+          <div class="av own">J</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Jaalala</span><span class="pill own">Owner</span><span class="pill where">Both branches</span></div>
+            <div class="pLine">sales@jaalala.com · no phone on file</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead good"><b>Proposed</b></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="sect">People · 4</div>
+        <div class="person">
+          <div class="av own">J</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Jaalala</span><span class="pill own">Owner</span><span class="pill where">Both branches</span></div>
+            <div class="pLine">sales@jaalala.com · no phone on file</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout why">Capped plans keep the cap, because there the number is a
+      <i>budget</i>: <b>People · 4 of 11 seats</b>. Uncapped ones just count. The team view keeps the long
+      form — “4 people · signed up by the store, not by us” — where there is no heading to repeat.</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>3 · An email standing in for a name</h2>
+<p class="h2sub">Real stores sign up without ever typing a name, and what lands in
+<code>shop_members.full_name</code> is whatever the app had — sometimes the whole email address.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Now</b><span>three long things on one line</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <table>
+          <tr><th>Store</th></tr>
+          <tr><td><div class="tName">GarGar Supermarket</div><div class="tMeta">mmooge@gmail.com · Hargeisa · Trial</div></td></tr>
+          <tr><td><div class="tName">xcwipx</div><div class="tMeta">jfykwd · ajdhde · Trial</div></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead good"><b>Proposed</b><span>the part a person is called by</span></div>
+    <div class="frame doc">
+      <div class="card">
+        <table>
+          <tr><th>Store</th></tr>
+          <tr><td><div class="tName">GarGar Supermarket</div><div class="tMeta">mmooge · Hargeisa · Trial</div></td></tr>
+          <tr><td><div class="tName">xcwipx</div><div class="tMeta">jfykwd · ajdhde · Trial</div></td></tr>
+        </table>
+      </div>
+      <div class="callout why">Only in the <b>table</b>, where the line is shared with two other facts.
+      The drawer still shows <code>mmooge@gmail.com</code> in full, because that is the address you would
+      actually write to — and the mail button uses it either way.</div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:14px;"><code>xcwipx / jfykwd · ajdhde</code> is left exactly as it is.
+That store's name, owner and city are genuinely junk in the database, and a console that quietly tidies
+junk is a console that hides it.</p>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>4 · “no address on file · no phone on file”</h2>
+<p class="h2sub">A branch with neither says “on file” twice in six words.</p>
+
+<div class="row2">
+  <div>
+    <div class="frameHead bad"><b>Now</b></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="person">
+          <div class="av">◎</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Jaalala 2</span></div>
+            <div class="pLine">no address on file · no phone on file</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead good"><b>Proposed</b></div>
+    <div class="frame doc">
+      <div class="card">
+        <div class="person">
+          <div class="av">◎</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Jaalala 2</span></div>
+            <div class="pLine">no address or phone on file</div>
+          </div>
+        </div>
+        <div class="person" style="border-top:1px solid var(--d-rule);">
+          <div class="av">◎</div>
+          <div class="pMain">
+            <div class="pTop"><span class="pName">Jaalala Skincare</span><span class="pill">Main</span></div>
+            <div class="pLine">Jigjiga yar, Hargeisa · +252-063-9186568</div>
+          </div>
+        </div>
+      </div>
+      <div class="callout why">One missing thing keeps its own phrase — “Jigjiga yar, Hargeisa · no phone
+      on file”. Only the both-missing case collapses.</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr>
+
+<!-- ============================================================ -->
+<section>
+<h2>What is deliberately not changing</h2>
+<p class="note"><b>“Their team — Abid, Ali, Jaalala” listing a second Jaalala.</b> The summary excludes
+the owner, so that is a different member who happens to share the name — real data, correctly rendered.
+Hiding it would be worse.</p>
+<p class="note"><b>No branch chip on single-branch stores.</b> Ten of eleven stores have one branch, so
+the chip is almost never drawn. That is the rule working: “All branches” beside a store with one branch is
+noise. It appears on Jaalala Skincare, which has two — and it did.</p>
+<p class="note"><b><code>yusefshop</code>’s number, 3253253253.</b> It has no country code and is
+almost certainly junk, but it is ten digits and dialable-looking, so the link builder accepts it.
+Rejecting numbers that <i>look</i> wrong would eventually reject a real one, and the operator finds out
+in one tap either way.</p>
+</section>
+
+</div>
