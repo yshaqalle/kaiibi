@@ -9,6 +9,7 @@ import { DateInput } from '@/components/date-input';
 import { PosterSheet } from '@/components/marketing/poster-sheet';
 import { StatTile } from '@/components/stat-tile';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
+import { useStagedSheet } from '@/components/use-staged-sheet';
 import { BentoCard } from '@/components/ui/bento-card';
 import { GlanceStrip } from '@/components/ui/glance-strip';
 import { Colors } from '@/constants/theme';
@@ -99,9 +100,11 @@ export function PromotionsTab({ compact, setHeaderActions, setDetailSelected }: 
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   // Which promotion the poster sheet is open for -- a full row, not just an
   // id, so PosterSheet has everything posterCopyFor needs without a second
-  // lookup. Independent of `editingId`/`formOpen`: opening a poster does not
-  // close or reset the edit form underneath it.
-  const [posterPromotion, setPosterPromotion] = useState<Promotion | null>(null);
+  // lookup. `editingId` and the form's own fields are left alone either way --
+  // but on an iPhone the form SHEET is closed first and the poster opened from
+  // its dismissal, because iOS drops a modal presented over another one. See
+  // useStagedSheet.
+  const poster = useStagedSheet<Promotion>();
   // Set once deletePromotion resolves, replacing the delete confirm with its
   // outcome -- there is no toast/snackbar surface anywhere in this app (see
   // src/lib/confirm.ts: both helpers there are pre-action confirms, not
@@ -498,7 +501,7 @@ export function PromotionsTab({ compact, setHeaderActions, setDetailSelected }: 
                   <Pressable
                     onPress={() => {
                       if (isFormDirty) return;
-                      if (editingPromotion) setPosterPromotion(editingPromotion);
+                      if (editingPromotion) poster.open(editingPromotion, compact);
                     }}
                     disabled={isFormDirty}
                     style={[styles.actionButton, isFormDirty && styles.actionButtonDisabled]}
@@ -544,13 +547,17 @@ export function PromotionsTab({ compact, setHeaderActions, setDetailSelected }: 
         compact={compact}
         list={list}
         detail={detail}
-        detailOpen={formOpen}
+        // The poster sheet cannot be presented while this one is still up on
+        // iOS, so on a phone the editor closes first and the poster is opened
+        // from its dismissal -- see useStagedSheet.
+        detailOpen={formOpen && !poster.presenterSuppressed}
         onCloseDetail={closeForm}
+        onDetailDismissed={poster.onPresenterDismissed}
         detailTitle={editingId ? 'Edit sale' : 'New sale'}
       />
 
-      {posterPromotion && (
-        <PosterSheet promotion={posterPromotion} promotions={promotions} onClose={() => setPosterPromotion(null)} />
+      {poster.value && (
+        <PosterSheet promotion={poster.value} promotions={promotions} onClose={poster.close} />
       )}
     </View>
   );

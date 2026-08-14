@@ -170,6 +170,7 @@ export function CampaignComposer({
   lastPurchaseByCustomer,
   onClose,
   onCreated,
+  onDismissed,
 }: {
   // Every live-or-not promotion the shop has -- filtered down to the ones
   // inside their window below (isPromotionLive). campaigns-tab.tsx already
@@ -188,6 +189,11 @@ export function CampaignComposer({
   // caller whether to open the send queue for it (Start sending) or just
   // reload the list (Save as draft).
   onCreated: (campaign: Campaign, startSending: boolean) => void;
+  // Fires once this sheet has FINISHED dismissing. "Start sending" hands over
+  // to the send queue, which is another AppModal, and iOS drops a modal
+  // presented while this one is still up -- so the queue waits for this rather
+  // than opening into a sheet that never appears. See useStagedSheet.
+  onDismissed?: () => void;
 }) {
   const { shop, activeLocation } = useAuth();
 
@@ -453,7 +459,7 @@ export function CampaignComposer({
   const busy = saving !== null;
 
   return (
-    <AppModal visible animationType="slide" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="slide" transparent onRequestClose={onClose} onDismiss={onDismissed}>
       <View style={styles.overlay}>
         <View style={styles.sheet}>
           <View style={styles.head}>

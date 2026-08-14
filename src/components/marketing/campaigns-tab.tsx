@@ -10,6 +10,7 @@ import { type PromotionsTabProps } from '@/components/marketing/promotions-tab';
 import { SendQueue } from '@/components/marketing/send-queue';
 import { StatTile } from '@/components/stat-tile';
 import { TwoPaneListDetail } from '@/components/two-pane-list-detail';
+import { useStagedSheet } from '@/components/use-staged-sheet';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { GlanceStrip } from '@/components/ui/glance-strip';
@@ -167,9 +168,14 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
   // means the queue is open only while the campaign it was opened for is still
   // the selected one, which is a fact rather than a flag to keep in sync. It
   // needs no effect to correct it, which is also why there is none.
-  const [sendQueueForId, setSendQueueForId] = useState<string | null>(null);
+  //
+  // Held by useStagedSheet rather than plain state because the queue is opened
+  // from a button INSIDE the compact detail sheet, and iOS drops a modal
+  // presented while another is up -- on a phone "Continue sending" did nothing
+  // whatsoever. The hook still stores the id, so the gating below is unchanged.
+  const sendQueue = useStagedSheet<string>();
   // Whether the composer (Task 9) is open. A bare boolean is enough here,
-  // unlike sendQueueForId above -- the composer isn't opened FOR an existing
+  // unlike sendQueue above -- the composer isn't opened FOR an existing
   // campaign, so there is no id for a reload to drop out from under it.
   const [composerOpen, setComposerOpen] = useState(false);
 
@@ -399,7 +405,7 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         branchName={activeLocation?.name ?? ''}
         canTopUpWhenDone={selectedNewMatchAvailable}
         onReviewUnreachable={() => router.push({ pathname: '/people', params: { tab: 'customers' } })}
-        onContinueSending={() => setSendQueueForId(selected?.id ?? null)}
+        onContinueSending={() => { if (selected) sendQueue.open(selected.id, compact); }}
         onDelete={handleDeleteCampaign}
       />
     ) : (
@@ -424,19 +430,24 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         compact={compact}
         list={list}
         detail={detail}
-        detailOpen={selected !== null}
+        // The queue sheet cannot be presented over this one on iOS, so on a
+        // phone the detail closes first and the queue opens from its
+        // dismissal -- see useStagedSheet. The selection itself is untouched,
+        // so closing the queue puts the reader back on the campaign.
+        detailOpen={selected !== null && !sendQueue.presenterSuppressed}
         onCloseDetail={() => setSelectedId(null)}
+        onDetailDismissed={sendQueue.onPresenterDismissed}
         detailTitle="Campaign"
       />
 
-      {selected && sendQueueForId === selected.id && (
+      {selected && sendQueue.value === selected.id && (
         <SendQueue
           campaign={selected}
           promotion={selectedPromotion}
           customers={customers}
           lastPurchaseByCustomer={lastPurchaseByCustomer}
           onClose={() => {
-            setSendQueueForId(null);
+            sendQueue.close();
             // The queue just wrote recipient states (and possibly synced new
             // rows) straight to the server -- reload() is what pulls those
             // changes back into the stat tiles and status chip behind it,
@@ -447,12 +458,13 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
         />
       )}
 
-      {composerOpen && (
+      {composerOpen && !sendQueue.presenterSuppressed && (
         <CampaignComposer
           promotions={promotions}
           customers={customers}
           lastPurchaseByCustomer={lastPurchaseByCustomer}
           onClose={() => setComposerOpen(false)}
+          onDismissed={sendQueue.onPresenterDismissed}
           onCreated={(campaign, startSending) => {
             setComposerOpen(false);
             setSelectedId(campaign.id);
@@ -460,7 +472,9 @@ export function CampaignsTab({ compact, setHeaderActions, setDetailSelected }: P
             // steps exist so the queue can take over, not so the owner has to
             // find the campaign again to begin. Left closed for a draft: the
             // campaign is created, but nothing has started.
-            if (startSending) setSendQueueForId(campaign.id);
+            // `true`, not `compact`: the composer is a modal at every width, so
+            // this handover has to be staged on a tablet too.
+            if (startSending) sendQueue.open(campaign.id, true);
             // The composer wrote straight to the server (createCampaign,
             // possibly updateCampaign) -- reload() is what pulls the new row
             // (and its recipients, once the queue syncs them) back into this
