@@ -18,7 +18,7 @@
 - **An empty branch-assignment array means EVERY branch, not none.** `can_access_location()` (`supabase/migrations/20260814000000_staff_multi_store.sql:96`) grants a member with no rows in `shop_member_locations` access to all branches. Any label computed the other way states the opposite of what the database enforces.
 - **The portal is pinned to the light palette.** Every new component starts with `const theme = Colors.light;` — no dark-mode switching in `src/app/platform/` or `src/components/platform/`.
 - **Colours come from `Colors.light` tokens only.** Never write a hex literal into a screen (see the `building-bento-screens` skill). The one exception this plan introduces is the WhatsApp brand green, which is defined once as a named constant in Task 4 and imported everywhere else.
-- **Migration filename must be `20260829000000_platform_shop_people.sql`.** This worktree is branched from `origin/main`, which does not yet contain `20260828000000_campaigns.sql` from the `marketing-phase3-campaigns` branch. Using `20260828…` would collide on merge.
+- **Migration filename must be `20260830000000_platform_shop_people.sql`.** This branch was rebased onto `origin/main` at `5706070` (PR #54, the campaigns work), which already carries `20260828000000_campaigns.sql` and `20260829000000_promotion_archive_covers_campaigns.sql`. Both earlier timestamps are taken. **Before creating the file, run `ls supabase/migrations | tail -3` and pick the next free stamp** — main moves while this branch does not.
 - **Never edit an existing migration.** Every file in `supabase/migrations/` is applied to the remote project; changing one leaves the deployed database and this repository describing different schemas.
 - **Commit after every task.** Do not push. This worktree is on branch `worktree-platform-store-people`.
 
@@ -28,7 +28,7 @@
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260829000000_platform_shop_people.sql` | **Create.** The one narrow read function. |
+| `supabase/migrations/20260830000000_platform_shop_people.sql` | **Create.** The one narrow read function. |
 | `supabase/tests/verify-platform-shop-people.sql` | **Create.** Security assertions: non-operator blocked, aal1 blocked, pay columns unreachable. |
 | `src/lib/shop-people.ts` | **Create.** Types + pure decisions: branch-access label, people sorting, team summary line, search matching. No I/O. |
 | `src/lib/__tests__/shop-people.test.ts` | **Create.** Unit tests for the above. |
@@ -49,7 +49,7 @@
 ### Task 1: The read function and its security proof
 
 **Files:**
-- Create: `supabase/migrations/20260829000000_platform_shop_people.sql`
+- Create: `supabase/migrations/20260830000000_platform_shop_people.sql`
 - Create: `supabase/tests/verify-platform-shop-people.sql`
 
 **Interfaces:**
@@ -58,7 +58,7 @@
 
 - [ ] **Step 1: Write the migration**
 
-Create `supabase/migrations/20260829000000_platform_shop_people.sql`:
+Create `supabase/migrations/20260830000000_platform_shop_people.sql`:
 
 ```sql
 -- Who works at a store, for the operator console.
@@ -140,7 +140,7 @@ Create `supabase/tests/verify-platform-shop-people.sql`, following the shape of 
 
 ```sql
 -- Security verification for platform_shop_people() (migration
--- 20260829000000). One DO block, rolled back by its own exception clause, so
+-- 20260830000000). One DO block, rolled back by its own exception clause, so
 -- it leaves no rows behind.
 --
 -- Written as "the attacker got this far, and then could not", because that is
@@ -254,7 +254,7 @@ If the local Supabase stack is not running, start it with `supabase start` first
 - [ ] **Step 4: Commit**
 
 ```bash
-git add supabase/migrations/20260829000000_platform_shop_people.sql supabase/tests/verify-platform-shop-people.sql
+git add supabase/migrations/20260830000000_platform_shop_people.sql supabase/tests/verify-platform-shop-people.sql
 git commit -m "feat(platform): let operators read a store's roster, and nothing it pays them"
 ```
 
@@ -750,7 +750,7 @@ Then add the function, after `listPlatformShops`:
 // uses for author profiles: the console already holds every store in memory,
 // and a per-store read would be N+1 against the busiest screen in the portal.
 //
-// Goes through platform_shop_people() (20260829000000) rather than a select on
+// Goes through platform_shop_people() (20260830000000) rather than a select on
 // shop_members: that table's select grant is column-unrestricted, so a
 // row-scoped policy would hand back pay_type and pay_rate_cents along with the
 // name and role the console shows. The function returns only what is drawn.
