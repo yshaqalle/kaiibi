@@ -8,6 +8,8 @@ import { DataTable, NameCell, ValueCell, type Column } from '@/components/ui/dat
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { coverEnd, fmtDate } from '@/components/platform/labels';
 import { Field } from '@/components/platform/kit';
+import { WhatsAppButton } from '@/components/platform/whatsapp-button';
+import { cityLabel, contactPhone, personMatchesQuery } from '@/lib/shop-people';
 import { Colors } from '@/constants/theme';
 import { formatCents } from '@/lib/currency';
 import type { SubscriptionStatus } from '@/lib/entitlements';
@@ -35,6 +37,18 @@ const FILTERS: { key: StatusFilter; label: string }[] = [
   { key: 'suspended', label: 'Suspended' },
   { key: 'retiring', label: 'Retiring plan' },
 ];
+
+// The line under a store's name. Shared by the table and the compact card so
+// the two cannot drift apart.
+function storeMeta(shop: PlatformShopRow): string {
+  const plan =
+    shop.retiringTo && shop.retiringTo !== shop.planName
+      ? `${shop.planName} → ${shop.retiringTo}`
+      : shop.storedPlanKey !== shop.planKey
+        ? `${shop.storedPlanName} → ${shop.planName}`
+        : shop.planName;
+  return [shop.owner?.name, cityLabel(shop.branches), plan].filter(Boolean).join(' · ');
+}
 
 export function ShopsTab({
   shops,
@@ -69,7 +83,10 @@ export function ShopsTab({
         // the tier it is actually PAYING for finds nothing, while the MRR
         // tile above is pricing it off exactly that plan.
         shop.storedPlanKey.includes(q) ||
-        shop.status.includes(q)
+        shop.status.includes(q) ||
+        // Operators think in people and towns; the box used to refuse both.
+        shop.people.some((p) => personMatchesQuery(p, q)) ||
+        shop.branches.some((b) => b.city?.toLowerCase().includes(q))
       );
     });
   }, [shops, search, status]);
@@ -102,7 +119,10 @@ export function ShopsTab({
       key: 'shop',
       header: 'Store',
       render: (shop) => (
-        // Two different divergences share this one line, in order:
+        // Who runs it, where it is, and what it pays -- in that order, because
+        // that is the order an operator reads a row in.
+        //
+        // Two different divergences share the plan clause, in order:
         // - BEFORE `retire_at`: `retiringTo` names the successor while
         //   `planName` is still the current tier -- "current -> future".
         //   Once the date passes, `planName` has already resolved to the
@@ -114,16 +134,7 @@ export function ShopsTab({
         //   billed -- has not, so showing `planName` alone hides exactly the
         //   plan the MRR tile above is pricing this row off. "billed ->
         //   entitled" fills that gap the same way the pre-date arrow does.
-        <NameCell
-          title={shop.shopName}
-          meta={
-            shop.retiringTo && shop.retiringTo !== shop.planName
-              ? `${shop.planName} → ${shop.retiringTo}`
-              : shop.storedPlanKey !== shop.planKey
-                ? `${shop.storedPlanName} → ${shop.planName}`
-                : shop.planName
-          }
-        />
+        <NameCell title={shop.shopName} meta={storeMeta(shop)} />
       ),
     },
     {
@@ -140,11 +151,29 @@ export function ShopsTab({
         );
       },
     },
+    // Where "Joined" used to be. A signup date is read once a quarter; a number
+    // is read every time a row is opened -- and the date survives in the
+    // drawer's own header line, which is where it was already repeated.
     {
-      key: 'joined',
-      header: 'Joined',
-      width: 118,
-      render: (shop) => <ValueCell value={fmtDate(shop.createdAt)} tone="muted" />,
+      key: 'contact',
+      header: 'Contact',
+      width: 190,
+      render: (shop) => {
+        const phone = contactPhone(shop.owner, shop.branches);
+        const who = shop.owner?.name ?? shop.shopName;
+        return (
+          <View style={styles.contactCell}>
+            <WhatsAppButton phone={phone} message={`Hi ${who} — this is Kaiibi.`} label={`WhatsApp ${who}`} />
+            {phone ? (
+              <Text style={styles.contactPhone} numberOfLines={1}>
+                {phone}
+              </Text>
+            ) : (
+              <Text style={styles.contactNone}>no number</Text>
+            )}
+          </View>
+        );
+      },
     },
     {
       key: 'ends',
@@ -219,7 +248,7 @@ export function ShopsTab({
         <Field
           value={search}
           onChangeText={setSearch}
-          placeholder="Search store, plan, or status"
+          placeholder="Search store, owner, city, plan, or status"
           // White, not the kit's `bentoSoft` default: this one sits on the grey
           // PAGE rather than inside a white card, and soft-on-page is two greys
           // 1% apart — the field disappeared entirely. It also matches the
@@ -293,9 +322,8 @@ function ShopCard({ shop, first, onPress }: { shop: PlatformShopRow; first: bool
         </Text>
         <SubscriptionStatusPill status={shop.status} />
       </View>
-      <Text style={styles.shopMeta}>
-        {shop.planName} · joined {fmtDate(shop.createdAt)}
-      </Text>
+      <Text style={styles.shopMeta}>{storeMeta(shop)}</Text>
+      <Text style={styles.shopMeta}>joined {fmtDate(shop.createdAt)}</Text>
       {ends ? (
         <Text style={[styles.shopMeta, endsSoon(ends) && styles.shopMetaWarn]}>
           {label} {fmtDate(ends)}
@@ -306,6 +334,16 @@ function ShopCard({ shop, first, onPress }: { shop: PlatformShopRow; first: bool
         {storeLimit != null ? `/${storeLimit}` : ''} branches · {products.toLocaleString()}
         {productLimit != null ? `/${productLimit.toLocaleString()}` : ''} products
       </Text>
+      {/* Inside the card: a tap on the glyph opens WhatsApp, a tap anywhere
+          else opens the drawer. Pressable stops the press propagating on its
+          own, so the two do not fight. */}
+      <View style={styles.cardContact}>
+        <WhatsAppButton
+          phone={contactPhone(shop.owner, shop.branches)}
+          message={`Hi ${shop.owner?.name ?? shop.shopName} — this is Kaiibi.`}
+          label={`WhatsApp ${shop.owner?.name ?? shop.shopName}`}
+        />
+      </View>
     </Pressable>
   );
 }
@@ -331,6 +369,11 @@ function endsSoon(iso: string | null): boolean {
 }
 
 const styles = StyleSheet.create({
+  contactCell: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  contactPhone: { fontSize: 11.5, color: theme.bentoMuted, flexShrink: 1 },
+  contactNone: { fontSize: 11, color: theme.bentoMuted2 },
+  cardContact: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+
   controls: { gap: 10, marginBottom: 14 },
   search: { backgroundColor: theme.bentoSurface },
   filters: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
