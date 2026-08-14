@@ -320,6 +320,7 @@ export default function PlatformHome() {
           <ShopDrawer
             shop={selectedShop}
             plans={plans}
+            peopleError={peopleError}
             onDone={reload}
             // Closes the drawer as it opens the composer: two stacked modals on
             // a tablet leave the operator dismissing a sheet they cannot see

@@ -3,6 +3,8 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ActionRow, Chip, Field, LabelledField, PlatformButton, SectionLabel } from '@/components/platform/kit';
 import { limitLabel } from '@/components/platform/labels';
+import { BranchRow, PeopleGroups, PersonRow } from '@/components/platform/people-list';
+import { teamSummary } from '@/lib/shop-people';
 import { Caveat } from '@/components/ui/caveat';
 import { SubscriptionStatusPill } from '@/components/ui/subscription-status';
 import { Colors } from '@/constants/theme';
@@ -23,11 +25,14 @@ const theme = Colors.light;
 export function ShopDrawer({
   shop,
   plans,
+  peopleError,
   onDone,
   onMessage,
 }: {
   shop: PlatformShopRow;
   plans: Plan[];
+  /** Set when the roster read alone failed. The rest of the drawer is fine. */
+  peopleError?: string | null;
   onDone: () => Promise<void>;
   /** Closes this drawer and opens the outbound composer with this store filled in. */
   onMessage: () => void;
@@ -42,6 +47,13 @@ export function ShopDrawer({
   // store is actually being enforced under.
   const [planKey, setPlanKey] = useState(shop.storedPlanKey);
   const [days, setDays] = useState('14');
+  // Which of the drawer's two screens is showing. The team is a VIEW inside
+  // this modal, not a modal on top of it: two stacked sheets on a tablet leave
+  // an operator dismissing an edge they cannot see -- the same call
+  // platform/index.tsx already makes when it closes this drawer to open the
+  // composer. Going back keeps the reason field, the plan chips and the scroll
+  // position, which a second modal would not.
+  const [view, setView] = useState<'store' | 'team'>('store');
 
   const run = async (action: string, payload: Record<string, unknown>) => {
     if (!reason.trim()) {
@@ -73,6 +85,26 @@ export function ShopDrawer({
     : [];
 
   const planModules = plans.find((p) => p.key === shop.planKey)?.modules ?? [];
+  const summary = teamSummary(shop.people);
+  const seats = `${shop.people.length} of ${shop.limits.staff ?? '∞'} seats`;
+
+  if (view === 'team') {
+    return (
+      <View>
+        <Pressable onPress={() => setView('store')} style={styles.backRow} aria-label={`Back to ${shop.shopName}`}>
+          <Text style={styles.back}>‹ Back</Text>
+        </Pressable>
+        <Text style={styles.teamScope}>{`${seats} · signed up by the store, not by us`}</Text>
+        <PeopleGroups people={shop.people} branchCount={shop.branches.length} />
+        <View style={styles.caveat}>
+          <Caveat tone="context">
+            This is the store&apos;s own roster, as they set it up. We cannot add, remove, rename or deactivate anyone
+            here.
+          </Caveat>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View>
@@ -92,8 +124,54 @@ export function ShopDrawer({
         <PlatformButton label="✉ Message this store" quiet onPress={onMessage} />
       </ActionRow>
 
+      {/* Above Usage, because the first question an operator has is never "how
+          many products" -- it is "who am I dealing with". The owner is in full
+          because they are the person who can say yes to a plan change;
+          everyone else is one row, opened on demand. */}
+      <SectionLabel>{`People · ${seats}`}</SectionLabel>
+      {peopleError ? (
+        <Caveat tone="wrong">
+          {`Could not load who works at this store: ${peopleError}. Everything else here is current.`}
+        </Caveat>
+      ) : shop.owner ? (
+        <>
+          <PersonRow
+            person={shop.owner}
+            branchCount={shop.branches.length}
+            expanded={false}
+            onToggle={() => setView('team')}
+            first
+          />
+          {summary ? (
+            <Pressable onPress={() => setView('team')} style={styles.teamRow} aria-label="Their team">
+              <View style={styles.teamMain}>
+                <Text style={styles.teamTitle}>Their team</Text>
+                <Text style={styles.teamLine} numberOfLines={1}>
+                  {summary}
+                </Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Pressable>
+          ) : null}
+        </>
+      ) : (
+        <Text style={styles.hint}>Nobody is recorded as working here yet.</Text>
+      )}
+
+      <SectionLabel>
+        {`Where they trade · ${shop.branches.length} of ${shop.limits.locations ?? '∞'} branches`}
+      </SectionLabel>
+      {shop.branches.length === 0 ? (
+        <Text style={styles.hint}>No branch has been set up yet.</Text>
+      ) : (
+        shop.branches.map((branch, i) => <BranchRow key={branch.id} branch={branch} first={i === 0} />)
+      )}
+
       <SectionLabel>Usage</SectionLabel>
-      {LIMIT_RESOURCES.map((r) => {
+      {/* Staff and branches are gone from this list: the two sections above
+          already say both, and say them with names and places. A count with no
+          people behind it is how "Staff 4 / 11" ended up meaning nothing. */}
+      {LIMIT_RESOURCES.filter((r) => r.key !== 'staff' && r.key !== 'locations').map((r) => {
         const limit = shop.limits[r.key] ?? null;
         const used = shop.usage[r.key] ?? 0;
         const atLimit = limit != null && used >= limit;
@@ -454,6 +532,27 @@ export function addMonths(iso: string, months: number): string {
 const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   meta: { fontSize: 12, color: theme.bentoMuted },
+
+  backRow: { paddingVertical: 6, marginBottom: 4 },
+  back: { fontSize: 13, fontWeight: '800', color: theme.bentoMuted },
+  teamScope: { fontSize: 11.5, color: theme.bentoMuted, marginBottom: 8 },
+  // One row for the whole team, not four. The drawer is where a plan gets
+  // changed and a payment gets recorded -- a staff list unrolled inside it
+  // pushes the reason the drawer was opened below the fold.
+  teamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: theme.bentoSoft,
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+  teamMain: { flex: 1, minWidth: 0 },
+  teamTitle: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
+  teamLine: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },
+  chevron: { fontSize: 18, color: theme.bentoMuted2 },
 
   usageRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, paddingVertical: 5 },
   usageLabel: { fontSize: 12.5, color: theme.bentoInk2 },
