@@ -88,7 +88,9 @@ const TAB_BLURBS: Record<PeopleTab, { label: string; blurb: string }> = {
   schedule: { label: 'Schedule', blurb: 'Who is on, which day, at which store.' },
   marketing: {
     label: 'Marketing',
-    blurb: 'Set up the offers that come off at the till, and say when they run.',
+    // Covers both halves of the tab now. The old wording described only the
+    // offers, and read as a flat contradiction above a list of campaigns.
+    blurb: 'Set up the offers that come off at the till, and tell customers about them.',
   },
   me: { label: 'Me (self-service)', blurb: 'Your shifts, your hours, your time off.' },
 };
