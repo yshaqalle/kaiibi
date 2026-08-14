@@ -181,8 +181,11 @@ export function ShopsTab({
               <EmailButton email={email} label={`Email ${who}`} />
             )}
             {phone || email ? (
+              // The local part, not the whole address: `mohamed@hcollection.so`
+              // truncates to nothing useful in 190px, and the button carries
+              // the real address anyway. The drawer shows it in full.
               <Text style={styles.contactPhone} numberOfLines={1}>
-                {phone ?? email}
+                {phone ?? shortName(email!)}
               </Text>
             ) : (
               <Text style={styles.contactNone}>no contact</Text>

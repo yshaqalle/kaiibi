@@ -113,6 +113,24 @@ export function personMatchesQuery(person: ShopPerson, query: string): boolean {
 }
 
 /**
+ * The owner's OTHER stores, by name.
+ *
+ * Free to compute -- the console already holds every store in memory -- and
+ * worth saying, because it changes the conversation from one renewal to two.
+ *
+ * An empty `ownerId` never groups: a failed read leaves several rows sharing
+ * nothing but a blank, and "also owns" is the wrong thing to say about that.
+ */
+export function alsoOwnedNames(
+  shopId: string,
+  ownerId: string,
+  shops: { shopId: string; ownerId: string; shopName: string }[]
+): string[] {
+  if (!ownerId) return [];
+  return shops.filter((s) => s.ownerId === ownerId && s.shopId !== shopId).map((s) => s.shopName);
+}
+
+/**
  * What to call someone where the line is shared with other facts.
  *
  * A store that signed up without ever typing a name can end up with the whole

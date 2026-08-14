@@ -151,6 +151,12 @@ export function ShopDrawer({
             onToggle={() => setView('team')}
             first
           />
+          {/* One person running two shops is one conversation, not two --
+              worth saying before an operator opens a renewal thread about
+              only half of what they run. */}
+          {shop.alsoOwns.length > 0 ? (
+            <Text style={styles.alsoOwns}>{`Also owns ${shop.alsoOwns.join(', ')}`}</Text>
+          ) : null}
           {summary ? (
             <Pressable onPress={() => setView('team')} style={styles.teamRow} aria-label="Their team">
               <View style={styles.teamMain}>
@@ -556,6 +562,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginTop: 10,
   },
+  alsoOwns: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 6, marginLeft: 46 },
   teamMain: { flex: 1, minWidth: 0 },
   teamTitle: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk },
   teamLine: { fontSize: 11.5, color: theme.bentoMuted, marginTop: 2 },

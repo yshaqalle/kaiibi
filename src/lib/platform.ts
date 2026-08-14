@@ -1,5 +1,5 @@
 import type { LimitResource, SubscriptionStatus } from '@/lib/entitlements';
-import { sortPeople, type Branch, type ShopPerson } from '@/lib/shop-people';
+import { alsoOwnedNames, sortPeople, type Branch, type ShopPerson } from '@/lib/shop-people';
 import type { Plan } from '@/lib/subscriptions';
 import { supabase } from '@/lib/supabase';
 
@@ -47,6 +47,11 @@ export type PlatformShopRow = {
   people: ShopPerson[];
   /** shops.owner_id's person, resolved once so callers do not search a list. */
   owner: ShopPerson | null;
+  /**
+   * The names of this owner's OTHER stores. Free to compute here, and worth
+   * saying: it turns one renewal conversation into two.
+   */
+  alsoOwns: string[];
 };
 
 export type SubscriptionPaymentRow = {
@@ -291,7 +296,7 @@ export async function listPlatformShops(plans: Plan[], postTrialPlanKey: string)
     usage.set(row.shop_id, existing);
   }
 
-  return (shopsRes.data ?? []).map((shop: any) => {
+  const rows: PlatformShopRow[] = (shopsRes.data ?? []).map((shop: any) => {
     const sub = subs.get(shop.id);
     // Derived client-side with the same rules as shop_effective_status(). The
     // server remains the authority for enforcement; this is just so the list
@@ -346,8 +351,16 @@ export async function listPlatformShops(plans: Plan[], postTrialPlanKey: string)
       // that fails to load leaves these empty rather than failing the store.
       people: [],
       owner: null,
+      alsoOwns: [],
     };
   });
+
+  // Filled in after the rows exist, because it is a fact about the SET of
+  // stores rather than about any one of them.
+  for (const row of rows) {
+    row.alsoOwns = alsoOwnedNames(row.shopId, row.ownerId, rows);
+  }
+  return rows;
 }
 
 function deriveStatus(sub: any): SubscriptionStatus {

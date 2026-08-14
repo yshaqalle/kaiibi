@@ -1,4 +1,5 @@
 import {
+  alsoOwnedNames,
   branchAccessLabel,
   branchesLabel,
   branchLine,
@@ -205,6 +206,33 @@ describe('branchLine', () => {
   // "no address on file · no phone on file" says "on file" twice in six words.
   it('collapses to one phrase when both are missing', () => {
     expect(branchLine('', null)).toBe('no address or phone on file');
+  });
+});
+
+// One person owning two stores changes the conversation from one renewal to
+// two, and the console already holds every store, so it is free to work out.
+describe('alsoOwnedNames', () => {
+  const stores = [
+    { shopId: 's1', ownerId: 'u1', shopName: 'Hooyo Market' },
+    { shopId: 's2', ownerId: 'u1', shopName: 'Hooyo Wholesale' },
+    { shopId: 's3', ownerId: 'u2', shopName: 'Xamdi Pharmacy' },
+  ];
+
+  it('names the owner’s other stores', () => {
+    expect(alsoOwnedNames('s1', 'u1', stores)).toEqual(['Hooyo Wholesale']);
+  });
+
+  it('never includes the store you are looking at', () => {
+    expect(alsoOwnedNames('s2', 'u1', stores)).toEqual(['Hooyo Market']);
+  });
+
+  it('is empty for someone who owns one store', () => {
+    expect(alsoOwnedNames('s3', 'u2', stores)).toEqual([]);
+  });
+
+  // Two owners can share nothing but a null id if a read failed.
+  it('does not group stores together on a missing owner', () => {
+    expect(alsoOwnedNames('s1', '', [{ shopId: 's9', ownerId: '', shopName: 'Nobody' }])).toEqual([]);
   });
 });
 

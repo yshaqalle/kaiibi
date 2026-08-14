@@ -46,6 +46,7 @@ const shop = (over: Partial<PlatformShopRow> = {}): PlatformShopRow => ({
   ],
   people: [owner()],
   owner: owner(),
+  alsoOwns: [],
   ...over,
 });
 
@@ -111,7 +112,9 @@ describe('the Contact cell', () => {
         }),
       ])
     );
-    expect(t).toContain('faadumo@hooyo.so');
+    // The local part: a full address truncates to nothing useful in 190px,
+    // and the button carries the real one.
+    expect(t).toContain('faadumo');
     expect(t).not.toContain('no contact');
   });
 

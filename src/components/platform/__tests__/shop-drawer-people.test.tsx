@@ -67,6 +67,7 @@ const shop: PlatformShopRow = {
   ],
   people: [owner, maxamed, nasra, cabdi],
   owner,
+  alsoOwns: [],
 };
 
 function texts(tree: ReactTestRenderer): string[] {
@@ -143,6 +144,14 @@ describe('the store view', () => {
 
   it('keeps the cap where there is one, because there the number is a budget', () => {
     expect(texts(render())).toContain('PEOPLE · 4 OF 11 SEATS');
+  });
+
+  it('names the owner’s other stores, because that is one conversation not two', () => {
+    expect(texts(render({ alsoOwns: ['Hooyo Wholesale'] }))).toContain('Also owns Hooyo Wholesale');
+  });
+
+  it('says nothing about other stores for someone who owns one', () => {
+    expect(texts(render()).some((s) => s.startsWith('Also owns'))).toBe(false);
   });
 
   it('says nothing about a team when there is only the owner', () => {
