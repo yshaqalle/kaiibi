@@ -9,6 +9,7 @@ import { CategoryChip } from '@/components/category-chip';
 import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
+import { DualAmount } from '@/components/pos/dual-amount';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
 import { RegisterSessionDetail } from '@/components/register-session-detail';
@@ -38,6 +39,7 @@ import { cartTotalCents } from '@/lib/cart';
 import { confirmDestructive } from '@/lib/confirm';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
+import { displayCurrency } from '@/lib/display-currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
@@ -158,6 +160,9 @@ export default function PosScreen() {
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
   const [pointsRedeemed, setPointsRedeemed] = usePosSessionField('pointsRedeemed');
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  // The shop's second currency, resolved once per render and passed down, so a
+  // tile, a cart line and the total can never echo different rates.
+  const secondCurrency = displayCurrency(currencies);
   // Height of a single compact grid tile, measured from the first rendered
   // tile — rows stretch every tile to match the tallest in that row, so this
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
@@ -722,7 +727,7 @@ export default function PosScreen() {
             {product.brand && <Text style={[styles.gridBrand, compact && styles.gridBrandCompact]}>{product.brand.toUpperCase()}</Text>}
             <Text style={[styles.gridName, compact && styles.gridNameCompact]} numberOfLines={2}>{product.name}</Text>
             <View style={[styles.gridFooter, compact && styles.gridFooterCompact]}>
-              <Text style={[styles.gridPrice, compact && styles.gridPriceCompact]}>{formatCents(product.priceCents)}</Text>
+              <DualAmount cents={product.priceCents} currency={secondCurrency} size="tile" align="left" />
               {product.stock <= 0 ? (
                 <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Out of stock</Text>
               ) : (
@@ -861,7 +866,7 @@ export default function PosScreen() {
       </View>
       <View style={styles.totalRow}>
         <Text style={styles.totalLabel}>Total</Text>
-        <Text style={styles.totalValue}>{formatCents(total)}</Text>
+        <DualAmount cents={total} currency={secondCurrency} size="total" />
       </View>
       {pointsEarned > 0 && <Text style={styles.earnsPoints}>Earns {pointsEarned.toLocaleString()} points</Text>}
 
