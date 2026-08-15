@@ -1,0 +1,2244 @@
+<title>Kaiibi POS &mdash; the current sale, panel and sheet</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-s1:#2f6bff; --d-profit:#008340; --d-loss:#d72b3e; --d-warn:#b07206;
+    --d-upwash:#d9efe4; --d-upink:#007a38; --d-accwash:#e6edff; --d-accink:#1b47b8;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  button{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 6px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td b{font-weight:700;}
+  .swatch{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px;
+    border:1px solid rgba(0,0,0,.12);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1180{width:1180px;} .frame.w380{width:380px;} .frame.w420{width:420px;max-width:100%;}
+  /* The comparison frame is about WHAT is on the panel, not how it scrolls, so
+     it flows to its full height instead of pinning and scrolling. */
+  .w420 .d-panel .d-card{height:auto;}
+  .w420 .d-mid{overflow:visible;}
+  .pair.cmp{gap:24px;}
+  @media(min-width:980px){ .pair.cmp{grid-template-columns:1fr 1fr;align-items:start;} }
+
+  /* ---- "today": pos.tsx's cart pane and its sheet, as they ship ----
+     Drawn from the real style objects, so the comparison is against the screen
+     that exists and not a remembered version of it. */
+  .t-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .t-titlerow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;}
+  .t-title{font-size:17px;font-weight:800;letter-spacing:-.3px;}
+  .t-actions{display:flex;gap:7px;}
+  .t-scan{background:var(--d-ink);color:#fff;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:800;}
+  .t-clear{background:var(--d-soft);color:var(--d-ink2);border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;}
+  .t-line{display:flex;align-items:flex-start;gap:10px;padding:12px 0;border-bottom:1px solid var(--d-ln);}
+  .t-lb{flex:1;min-width:0;}
+  .t-nm{font-size:13px;font-weight:700;}
+  .t-pricerow{font-size:12px;color:var(--d-mut);margin-top:2px;}
+  .t-pricerow s{color:var(--d-mut2);}
+  .t-promo{font-size:11.5px;color:var(--d-profit);margin-top:3px;}
+  /* An underlined text link, which is what cartLineDiscountToggle is today. */
+  .t-link{font-size:11.5px;font-weight:700;color:var(--d-mut);text-decoration:underline;margin-top:6px;}
+  .t-step{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .t-step span{width:28px;height:28px;border-radius:50%;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:15px;}
+  .t-step b{font-size:13px;min-width:14px;text-align:center;}
+  .t-summary{padding-top:12px;}
+  .t-srow{display:flex;justify-content:space-between;font-size:13px;padding:4px 0;color:var(--d-mut);}
+  .t-srow .num{color:var(--d-ink);font-weight:700;}
+  .t-less{color:var(--d-profit);}
+  .t-totalrow{display:flex;align-items:baseline;justify-content:space-between;margin-top:12px;}
+  .t-totall{font-size:15px;font-weight:800;}
+  .t-totalv{font-size:30px;font-weight:800;letter-spacing:-1px;}
+  .t-earns{font-size:11.5px;font-weight:700;color:var(--d-mut);margin-top:6px;}
+  .t-checkout{margin-top:18px;height:56px;border-radius:16px;background:var(--d-ink);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;letter-spacing:-.2px;}
+
+  .t-sheetlabel{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--d-mut2);margin:18px 0 8px;}
+  .t-sheet{background:var(--d-pg);border-radius:24px;padding:16px;}
+  .t-sheethead{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .t-sheethead b{font-size:17px;letter-spacing:-.3px;}
+  .t-close{background:var(--d-sf);border:1px solid var(--d-ln);border-radius:999px;padding:6px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .t-block{background:var(--d-sf);border-radius:16px;padding:14px;margin-bottom:8px;}
+  .t-blocklabel{font-size:10.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;
+    color:var(--d-mut);margin-bottom:9px;}
+  .t-chips{display:flex;flex-wrap:wrap;gap:8px;}
+  /* CategoryChip's default variant, which is still the cream one inside the
+     sheet - the note in theme.ts about modals not being converted yet. */
+  .t-chip{background:#FAF9F5;border:1px solid #EFEEE9;color:#17261F;border-radius:999px;padding:7px 13px;
+    font-size:12.5px;font-weight:700;}
+  .t-chip.on{background:#17261F;color:#FAF9F5;border-color:#17261F;}
+  .t-cust{font-size:12.5px;color:var(--d-ink2);}
+  .t-x{color:var(--d-loss);font-weight:700;font-size:11.5px;margin-left:6px;}
+  .t-pointsrow{display:flex;gap:8px;}
+  .t-input{flex:1;background:var(--d-soft);border:1px solid var(--d-ln);border-radius:12px;height:40px;
+    display:flex;align-items:center;padding:0 12px;font-size:13px;color:var(--d-mut2);}
+  .t-usemax{background:var(--d-soft);border:1px solid var(--d-ln);border-radius:999px;height:40px;
+    display:flex;align-items:center;padding:0 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .t-note{font-size:11.5px;color:var(--d-mut);margin-top:8px;}
+  .t-paid{display:flex;justify-content:space-between;font-size:12.5px;font-weight:700;
+    background:var(--d-soft);border-radius:12px;padding:9px 11px;margin-bottom:8px;}
+  .t-complete{height:56px;border-radius:16px;background:var(--d-ink);color:#fff;display:flex;
+    align-items:center;justify-content:center;font-size:16px;font-weight:800;margin-top:10px;}
+  /* today's phone: the till behind, the sheet over it */
+  .frame.static{height:753px;position:relative;overflow:hidden;}
+  .t-behind{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .t-behind .t-line{padding:10px 0;}
+  .t-scrim{position:absolute;inset:0;background:rgba(11,11,13,.45);border-radius:16px;
+    display:flex;align-items:flex-end;}
+  .t-sheet.phone{width:100%;max-height:85%;overflow:hidden;border-radius:24px 24px 16px 16px;}
+  .pair{display:grid;gap:28px;grid-template-columns:1fr;}
+  @media(min-width:1100px){ .pair.two{grid-template-columns:412px 1fr;align-items:start;} }
+
+  /* ================= the frames &mdash; every colour is a bento token ================= */
+  .d-split{display:grid;grid-template-columns:1fr 392px;gap:16px;align-items:start;}
+  /* Grid and flex items default to min-width:auto, so ONE row that overflows -
+     the category chips - stretches its whole column instead of scrolling
+     inside it, and takes the product grid and the panel with it. */
+  .d-split > *{min-width:0;}
+  .d-browse .d-card,.d-panel .d-card{min-width:0;}
+  .w380 .d-split{grid-template-columns:1fr;}
+  .w380 .d-browse{order:2;} .w380 .d-panel{order:1;}
+
+  /* register bar, above both panes &mdash; the component that already exists */
+  .d-reg{display:flex;align-items:center;gap:10px;background:var(--d-sf);border-radius:26px;
+    padding:12px 16px;margin-bottom:14px;}
+  .d-reg .dot{width:8px;height:8px;border-radius:50%;background:var(--d-profit);flex-shrink:0;}
+  .d-reg .rn{font-size:13px;font-weight:800;}
+  .d-reg .rs{font-size:12px;color:var(--d-mut);}
+  .d-reg .spacer{flex:1;}
+  .d-reg .rt{font-size:12.5px;font-weight:700;}
+  .d-reg .rt span{color:var(--d-mut);font-weight:600;}
+
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-browse .d-card{padding:16px;}
+
+  .d-searchrow{display:flex;gap:9px;}
+  .d-search{flex:1;display:flex;align-items:center;gap:9px;background:var(--d-soft);border-radius:999px;
+    padding:12px 16px;min-width:0;}
+  .d-search svg{color:var(--d-mut2);flex-shrink:0;}
+  .d-search input{border:none;outline:none;background:transparent;font-size:13.5px;width:100%;
+    color:var(--d-ink);font-family:inherit;}
+  .d-scan{flex-shrink:0;width:46px;height:46px;border-radius:50%;border:none;background:var(--d-ink);
+    color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .d-scan.busy{animation:pulse .9s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+  @media (prefers-reduced-motion: reduce){ .d-scan.busy{animation:none;} }
+
+  /* One row that scrolls sideways, never a wrapping block - a shop with a dozen
+     categories must not push the product grid down the screen. This is the
+     horizontal ScrollView pos.tsx already uses, indicator hidden. */
+  .d-cats{display:flex;gap:7px;margin-top:14px;flex-wrap:nowrap;overflow-x:auto;
+    scrollbar-width:none;-ms-overflow-style:none;}
+  .d-cats::-webkit-scrollbar{display:none;}
+  /* A fade on whichever edge has more behind it - the only thing telling a
+     cashier the row continues, since the indicator is hidden. Applied by
+     measurement, so a shop with four categories never gets a false hint. */
+  .d-cats.moreRight{mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent);
+    -webkit-mask-image:linear-gradient(to right,#000 calc(100% - 34px),transparent);}
+  .d-cats.moreLeft{mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent);
+    -webkit-mask-image:linear-gradient(to left,#000 calc(100% - 34px),transparent);}
+  .d-cats.moreLeft.moreRight{mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent);
+    -webkit-mask-image:linear-gradient(to right,transparent,#000 34px,#000 calc(100% - 34px),transparent);}
+  .d-chip{flex-shrink:0;border:none;background:var(--d-soft);color:var(--d-ink2);border-radius:999px;
+    padding:7px 14px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap;}
+  .d-chip.on{background:var(--d-ink);color:#fff;}
+
+  .d-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:14px;}
+  .w380 .d-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr));}
+  .d-tile{background:var(--d-soft);border-radius:18px;padding:10px;cursor:pointer;text-align:left;
+    border:none;font-family:inherit;color:var(--d-ink);display:block;width:100%;}
+  .d-tile:hover{background:var(--d-accwash);}
+  .d-tile[disabled]{opacity:.5;cursor:not-allowed;}
+  /* The photo slot: one crop for every tile, whether the product has a picture
+     or not, so a half-photographed catalogue still lines up. */
+  .d-tile .th{display:flex;height:62px;border-radius:12px;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:15px;margin-bottom:8px;overflow:hidden;}
+  .d-tile .th.photo{background:var(--d-sf);}
+  .d-photo{width:100%;height:100%;object-fit:cover;display:block;}
+  .d-tile .br{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--d-mut2);}
+  .d-tile .nm{font-size:12px;font-weight:700;line-height:1.3;margin:2px 0 6px;}
+  .d-tile .pr{font-size:13px;font-weight:800;}
+  .d-tile .sl{font-size:10px;font-weight:600;color:var(--d-mut2);margin-top:1px;}
+  .d-tile .st{font-size:10.5px;color:var(--d-mut);margin-top:4px;}
+  .d-tile .st.low{color:var(--d-warn);font-weight:700;}
+  .d-tile .st.out{color:var(--d-loss);font-weight:700;}
+  .d-tile .offer{display:inline-block;font-size:9.5px;font-weight:800;color:var(--d-upink);
+    background:var(--d-upwash);border-radius:999px;padding:1px 7px;margin-top:5px;}
+
+  /* ---- the sale panel ---- */
+  .d-panel .d-card{padding:0;overflow:hidden;}
+  .d-sec{padding:16px 18px;}
+  .d-sec + .d-sec{border-top:1px solid var(--d-ln);}
+  .d-lab{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--d-mut2);
+    margin-bottom:10px;}
+
+  .d-titlerow{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .d-title{font-size:17px;font-weight:800;letter-spacing:-.01em;}
+  .d-count{font-size:12px;font-weight:700;color:var(--d-mut);background:var(--d-soft);border-radius:999px;padding:3px 10px;}
+  .d-clear{border:none;background:var(--d-soft);color:var(--d-mut);border-radius:999px;padding:5px 11px;
+    font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .d-clear:hover{color:var(--d-ink2);}
+  .d-clear.danger{background:#fbeaec;color:var(--d-loss);}
+  .d-qbtn{position:relative;width:32px;height:32px;border-radius:50%;border:none;background:var(--d-soft);
+    color:var(--d-ink2);cursor:pointer;display:flex;align-items:center;justify-content:center;}
+  .d-qbtn.on{background:var(--d-ink);color:#fff;}
+  .d-qbadge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;
+    background:var(--d-s1);color:#fff;font-size:9.5px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+
+  .d-queue{margin-top:12px;background:var(--d-soft);border-radius:18px;overflow:hidden;}
+  .d-qi{display:flex;align-items:center;gap:10px;padding:10px 12px;}
+  .d-qi + .d-qi{border-top:1px solid var(--d-ln);}
+  .d-qi .m{flex:1;min-width:0;}
+  .d-qi .n{font-size:12.5px;font-weight:700;}
+  .d-qi .s{font-size:11px;color:var(--d-mut);}
+  .d-qi .t{font-size:12.5px;font-weight:800;}
+  .d-qempty{padding:14px 12px;font-size:12px;color:var(--d-mut);}
+  .d-resume{border:none;background:var(--d-sf);color:var(--d-ink2);border-radius:999px;padding:7px 13px;
+    font-size:11.5px;font-weight:700;cursor:pointer;flex-shrink:0;}
+
+  .d-cust{display:flex;align-items:center;gap:11px;margin-top:14px;padding:11px 12px;background:var(--d-soft);
+    border-radius:18px;cursor:pointer;width:100%;border:none;font-family:inherit;text-align:left;color:var(--d-ink);}
+  .d-ava{width:34px;height:34px;border-radius:50%;background:var(--d-ink);color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;}
+  .d-ava.walk{background:var(--d-sf);color:var(--d-mut2);}
+  .d-cust .b{flex:1;min-width:0;}
+  .d-cust .nm{display:block;font-size:13.5px;font-weight:700;}
+  .d-cust .sb{display:block;font-size:11.5px;color:var(--d-mut);line-height:1.45;}
+  .d-cust .sb .pts{color:var(--d-accink);font-weight:700;}
+
+  /* An older debt, shown against the customer who owes it. */
+  .d-owes{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px 12px;
+    background:var(--d-accwash);border-radius:18px;}
+  .d-owes .m{flex:1;min-width:0;}
+  .d-owes .m b{display:block;font-size:12.5px;color:var(--d-accink);}
+  .d-owes .m span{display:block;font-size:10.5px;color:var(--d-accink);opacity:.85;}
+  .d-owesbtn{border:none;background:var(--d-sf);color:var(--d-accink);border-radius:999px;padding:8px 14px;
+    font-size:11.5px;font-weight:800;cursor:pointer;font-family:inherit;flex-shrink:0;}
+  .d-owesbtn.on{background:var(--d-accink);color:#fff;}
+
+  .d-pop{margin-top:8px;background:var(--d-soft);border-radius:18px;overflow:hidden;}
+  .d-popsearch{display:flex;align-items:center;gap:8px;padding:11px 12px;border-bottom:1px solid var(--d-ln);}
+  .d-popsearch input{border:none;outline:none;background:transparent;font-size:13px;width:100%;
+    color:var(--d-ink);font-family:inherit;}
+  .d-opt{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;width:100%;border:none;
+    background:transparent;font-family:inherit;text-align:left;color:var(--d-ink);}
+  .d-opt:hover{background:var(--d-sf);}
+  .d-opt .ava{width:27px;height:27px;border-radius:50%;background:var(--d-ink);color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;}
+  .d-opt .m{flex:1;min-width:0;}
+  .d-opt .m b{display:block;font-size:12.5px;}
+  .d-opt .m span{display:block;font-size:11px;color:var(--d-mut);}
+  .d-opt .v{font-size:10.5px;color:var(--d-mut2);font-weight:700;}
+  .d-new{padding:12px;border-top:1px solid var(--d-ln);}
+  .d-newfields{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px;}
+  .d-newfields input{border:none;background:var(--d-sf);border-radius:12px;padding:9px 11px;font-size:12.5px;
+    font-family:inherit;color:var(--d-ink);outline:none;width:100%;}
+  .d-newbtn{width:100%;padding:10px;border:none;border-radius:999px;background:var(--d-ink);color:#fff;
+    font-size:12.5px;font-weight:700;cursor:pointer;}
+  .d-newbtn[disabled]{opacity:.35;cursor:not-allowed;}
+
+  /* Same rule as the receipt: the counter is a FIXED frame, and only the middle
+     of it moves. The title and customer stay at the top, the totals and the
+     charge button stay at the bottom, and the sale itself - items, discount,
+     payment - scrolls between them. A basket of twenty lines must never push
+     the total off a counter's screen.
+     Both panes need a concrete height for `flex:1` to resolve against; sized to
+     a counter tablet here rather than left to the content. */
+  .w1180 .d-split{height:840px;}
+  .w1180 .d-browse,.w1180 .d-panel{height:100%;min-height:0;}
+  .w1180 .d-browse .d-card{height:100%;display:flex;flex-direction:column;}
+  /* `align-content:start` or the rows stretch to fill the scroller and every
+     tile grows a hand's width of dead space under its price. */
+  .w1180 .d-grid{flex:1;min-height:0;overflow-y:auto;align-content:start;}
+  .d-panel .d-card{height:100%;display:flex;flex-direction:column;}
+  .d-panel .d-sec{flex-shrink:0;}
+  .d-mid{flex:1;min-height:0;overflow-y:auto;}
+  .d-custsec{padding-top:0;}
+  /* The pinned total sits on the page grey, not the card white, so the edge of
+     the scroller is visible - a cashier can see there is more above. */
+  .d-grand{background:var(--d-soft);}
+  .d-lines{padding:6px 18px;}
+  /* On a phone the PAGE scrolls, because pos.tsx stacks the cart above browse -
+     so the total is near the top already, and the sheet does the rest. Sized to
+     a handset here so the sheet below reads at its real proportions. */
+  .w380 .d-split{height:720px;overflow-y:auto;}
+  .w380 .d-panel,.w380 .d-panel .d-card{height:auto;}
+  .w380 .d-mid{overflow:visible;}
+  .w380 .d-lines{max-height:290px;overflow-y:auto;}
+  /* The phone's foot, kept short. Nothing here is a decision about the sale -
+     it is one button and two conveniences. */
+  .w380 .d-cfoot{padding:12px 14px 14px;}
+  .d-go.small{padding:14px;font-size:14.5px;}
+  .d-cfootrow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px;}
+  .d-holdmini{display:inline-flex;align-items:center;gap:5px;border:none;background:var(--d-soft);
+    color:var(--d-mut);border-radius:999px;padding:7px 13px;font-size:11.5px;font-weight:700;
+    cursor:pointer;font-family:inherit;flex-shrink:0;}
+  .d-holdmini[disabled]{opacity:.45;cursor:not-allowed;}
+  .d-servedmini{font-size:11px;color:var(--d-mut);text-align:right;min-width:0;}
+  .d-servedmini b{color:var(--d-ink2);font-weight:700;}
+  .d-servedmini .chg{color:var(--d-accink);font-weight:700;}
+  /* Two rows of products, then it scrolls - the same cap pos.tsx applies with
+     `compactTileHeight * 2 + 8`, measured off the first tile rather than
+     guessed, so a shorter or taller tile still lands on exactly two rows. */
+  .w380 .d-grid{overflow-y:auto;align-content:start;}
+  .d-line{display:flex;align-items:flex-start;gap:11px;padding:12px 0;}
+  .d-line + .d-line{border-top:1px solid var(--d-ln);}
+  .d-line .sw{width:38px;height:38px;border-radius:12px;flex-shrink:0;display:flex;align-items:center;
+    justify-content:center;overflow:hidden;background:var(--d-soft);}
+  .d-line .sw .mono{width:100%;height:100%;display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:800;font-size:12.5px;}
+  /* Two rows, not one: at 392px a name, a stepper, a total and a remove button
+     on one line leaves the name three words wide. The name and its tags own the
+     first row; the stepper and the money own the second. */
+  .d-line .b{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;}
+  .d-line .r1{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+  .d-line .r2{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .d-line .nm{font-size:13px;font-weight:700;line-height:1.3;}
+  .d-line .meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+  .d-line .pr{font-size:11.5px;color:var(--d-mut);}
+  .d-line .pr s{color:var(--d-mut2);}
+  .d-tag{font-size:10px;font-weight:800;border-radius:999px;padding:2px 8px;border:none;cursor:pointer;
+    font-family:inherit;background:var(--d-soft);color:var(--d-mut);}
+  .d-tag.set{background:var(--d-upwash);color:var(--d-upink);}
+  .d-tag.promo{background:var(--d-upwash);color:var(--d-upink);cursor:default;}
+  .d-qty{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .d-qty button{width:30px;height:30px;border-radius:50%;border:none;background:var(--d-soft);color:var(--d-ink);
+    font-size:16px;line-height:1;cursor:pointer;}
+  .d-qty span{font-size:13px;font-weight:800;min-width:15px;text-align:center;}
+  .d-line .tot{min-width:80px;text-align:right;flex-shrink:0;}
+  .d-line .tot .v{font-size:13px;font-weight:800;}
+  .sub{font-size:10px;font-weight:600;color:var(--d-mut2);}
+  .d-rm{width:26px;height:26px;border-radius:50%;border:none;background:transparent;color:var(--d-mut2);
+    cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+  .d-rm:hover{background:#fbeaec;color:var(--d-loss);}
+  .d-empty{padding:38px 18px;text-align:center;color:var(--d-mut);font-size:13px;}
+  .d-empty svg{color:var(--d-mut2);margin-bottom:8px;}
+
+  .d-pills{display:flex;gap:7px;flex-wrap:wrap;}
+  .d-pill{border:none;background:var(--d-soft);color:var(--d-ink2);border-radius:999px;padding:9px 15px;
+    font-size:12.5px;font-weight:700;cursor:pointer;}
+  .d-pill.accent{background:var(--d-accwash);color:var(--d-accink);}
+  .d-applied{display:flex;align-items:center;justify-content:space-between;background:var(--d-upwash);
+    border-radius:999px;padding:8px 8px 8px 14px;}
+  .d-applied b{font-size:12.5px;color:var(--d-upink);}
+  .d-x{width:22px;height:22px;border-radius:50%;border:none;background:rgba(255,255,255,.6);cursor:pointer;
+    display:flex;align-items:center;justify-content:center;color:inherit;flex-shrink:0;}
+
+  .d-pays{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .d-pay{display:flex;align-items:center;gap:9px;padding:11px 12px;background:var(--d-soft);border-radius:18px;
+    cursor:pointer;border:none;font-family:inherit;color:var(--d-ink);width:100%;text-align:left;}
+  .d-pay.on{background:var(--d-ink);color:#fff;}
+  .d-pay[disabled]{opacity:.45;cursor:not-allowed;}
+  .d-pay .ic{width:27px;height:27px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+    font-size:11px;font-weight:800;flex-shrink:0;color:#fff;}
+  .d-pay .l{font-size:12.5px;font-weight:700;flex:1;}
+  .d-pay .a{font-size:11px;font-weight:700;color:var(--d-mut);}
+  .d-pay.on .a{color:rgba(255,255,255,.7);}
+  /* payments already taken on this sale */
+  .d-taken{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;}
+  .d-tk{display:flex;align-items:center;gap:9px;background:var(--d-soft);border-radius:14px;padding:9px 10px;}
+  .d-tk .ic{width:24px;height:24px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+    font-size:10.5px;font-weight:800;color:#fff;flex-shrink:0;}
+  .d-tk .m{flex:1;min-width:0;}
+  .d-tk .m b{font-size:12.5px;}
+  .d-tk .m span{display:block;font-size:10.5px;color:var(--d-mut);}
+  .d-tk .amt{font-size:12.5px;font-weight:800;flex-shrink:0;}
+  .d-remain{display:flex;align-items:center;justify-content:space-between;font-size:12.5px;margin:10px 0 2px;}
+  .d-remain .l{color:var(--d-mut);}
+  .d-remain .v{font-weight:800;}
+  .d-fullypaid{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:var(--d-upink);
+    background:var(--d-upwash);border-radius:999px;padding:8px 14px;margin-top:2px;}
+
+  /* the amount capture, one payment at a time */
+  .d-draft{background:var(--d-soft);border-radius:18px;padding:12px;margin-top:9px;}
+  .d-drafthead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .d-drafthead b{font-size:13px;display:flex;align-items:center;gap:8px;}
+  .d-drafthead .ic{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    font-size:10px;font-weight:800;color:#fff;}
+  .d-cancel{border:none;background:none;color:var(--d-mut);font-size:12px;font-weight:700;cursor:pointer;
+    font-family:inherit;padding:0;}
+  .d-field{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--d-mut2);
+    margin:10px 0 6px;}
+  .d-input{width:100%;border:none;background:var(--d-sf);border-radius:14px;padding:12px 14px;font-size:19px;
+    font-weight:800;font-family:inherit;color:var(--d-ink);outline:none;font-variant-numeric:tabular-nums;}
+  .d-input.small{font-size:13px;font-weight:600;padding:10px 12px;}
+  .d-tenders{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+  .d-tender{border:none;background:var(--d-sf);color:var(--d-ink2);border-radius:999px;padding:7px 12px;
+    font-size:12px;font-weight:700;cursor:pointer;font-variant-numeric:tabular-nums;}
+  .d-tender.on{background:var(--d-ink);color:#fff;}
+  .d-conv{font-size:11.5px;color:var(--d-mut);margin-top:7px;}
+  .d-change{font-size:12.5px;font-weight:700;color:var(--d-upink);margin-top:7px;}
+  .d-short{font-size:11.5px;color:var(--d-accink);background:var(--d-accwash);border-radius:12px;padding:8px 10px;
+    margin-top:8px;line-height:1.45;}
+  .d-add{width:100%;margin-top:11px;padding:12px;border:none;border-radius:999px;background:var(--d-ink);color:#fff;
+    font-size:13px;font-weight:800;cursor:pointer;}
+  .d-add[disabled]{opacity:.35;cursor:not-allowed;}
+
+  /* what happens to the part that was not collected */
+  .d-rest{margin-top:12px;}
+  .d-restrow{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .d-restbtn{background:var(--d-soft);border:none;border-radius:16px;padding:11px 12px;cursor:pointer;
+    font-family:inherit;text-align:left;color:var(--d-ink);}
+  .d-restbtn b{display:block;font-size:12.5px;font-weight:700;}
+  .d-restbtn span{display:block;font-size:10.5px;color:var(--d-mut);margin-top:2px;}
+  .d-restbtn.on{background:var(--d-accwash);}
+  .d-restbtn.on b,.d-restbtn.on span{color:var(--d-accink);}
+
+  /* ---- the phone's checkout sheet: today's modal, restyled ----
+     Slides up over the till, and is the PAGE rather than a card: grey ground,
+     white blocks on it. Same fixed-frame rule as everything else - the header
+     and the charge button hold still, the blocks scroll between them. */
+  .d-sheetscrim{position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:16px;z-index:28;
+    display:flex;align-items:flex-end;}
+  .d-sheet{background:var(--d-pg);width:100%;height:93%;border-radius:26px 26px 16px 16px;
+    display:flex;flex-direction:column;overflow:hidden;}
+  .d-grab{width:38px;height:4px;border-radius:999px;background:var(--d-rule);margin:9px auto 0;flex-shrink:0;}
+  .d-sheethead{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;flex-shrink:0;}
+  .d-sheettitle{font-size:19px;font-weight:800;letter-spacing:-.02em;}
+  .d-sheetmid{flex:1;min-height:0;overflow-y:auto;padding:0 14px 14px;display:flex;flex-direction:column;gap:10px;}
+  /* Without this the blocks shrink to fit the scroller and clip themselves -
+     the payment chips lose their second row and nothing scrolls at all. */
+  .d-sheetmid > *{flex-shrink:0;}
+  .d-block{background:var(--d-sf);border-radius:26px;overflow:hidden;}
+  .d-block .d-sec{border-top:none;}
+  .d-block .d-custsec{padding-top:16px;}
+  .d-sheetfoot{flex-shrink:0;background:var(--d-sf);border-radius:26px 26px 0 0;}
+  .d-sheetfoot .d-grand{background:transparent;border-radius:26px 26px 0 0;}
+  .d-sheetfoot .d-sec{border-top:none;}
+
+  /* ---- the receipt: unchanged from what ships today ----
+     receipt-modal.tsx, reproduced rather than redesigned. The card takes a
+     CONCRETE height (88% in the app) so the paper inside can be flex:1 and
+     scroll - against a content-sized parent the scroller collapses to zero and
+     the card grows with the basket instead. Header and actions never move. */
+  .frame{position:relative;}
+  .d-scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:16px;display:flex;
+    align-items:center;justify-content:center;padding:20px;z-index:30;}
+  .d-receipt{background:#fff;border-radius:20px;padding:20px;width:100%;max-width:420px;height:88%;
+    overflow:hidden;display:flex;flex-direction:column;}
+  .d-rhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-shrink:0;
+    padding-bottom:14px;}
+  .d-rhead .lft{display:flex;align-items:center;gap:10px;min-width:0;}
+  .d-rbadge{width:30px;height:30px;border-radius:50%;background:#111;color:#fff;flex-shrink:0;
+    display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:800;}
+  .d-rtitle{font-size:17px;font-weight:800;color:#111;}
+  .d-done{border:none;background:#f2f2f2;color:#111;border-radius:12px;padding:9px 18px;
+    font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;flex-shrink:0;}
+
+  /* the scrolling middle - the only part that moves */
+  .d-rscroll{flex:1;min-height:0;overflow-y:auto;}
+  .d-paper{background:#fff;border:1px solid #e6e4de;border-radius:4px;padding:20px 16px 14px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#111;}
+  .d-paper .mid{text-align:center;}
+  .d-rlogo{width:44px;height:44px;border-radius:6px;margin:0 auto 8px;display:block;object-fit:cover;}
+  .d-rshopname{font-size:17px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;text-align:center;
+    margin-bottom:3px;}
+  .d-rmeta{font-size:10.5px;color:#333;text-align:center;margin:1px 0;}
+  .d-dash{border-top:1px dashed #cfcdc7;margin:12px 0;}
+  .d-prow{display:flex;justify-content:space-between;gap:12px;font-size:11.5px;padding:1.5px 0;}
+  .d-prow .l{color:#333;}
+  .d-prow .v{color:#111;text-align:right;white-space:nowrap;}
+  .d-phead{display:flex;font-size:10px;font-weight:700;letter-spacing:.6px;padding-bottom:4px;}
+  .d-prule{border-top:1px solid #111;margin-bottom:6px;}
+  .d-pitem{display:flex;font-size:11px;padding:3px 0;align-items:flex-start;}
+  .c-name{flex:1;min-width:0;} .c-qty{width:34px;text-align:right;} .c-price{width:62px;text-align:right;}
+  .c-total{width:66px;text-align:right;}
+  .d-pitem .sub2{font-size:9.5px;color:#666;}
+  .d-pgrand{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #111;
+    margin-top:8px;padding-top:8px;font-size:15px;font-weight:700;letter-spacing:.5px;}
+  .d-psub{font-size:9.5px;color:#666;margin-bottom:2px;}
+  .d-plabel{font-size:9.5px;font-weight:700;color:#666;letter-spacing:1px;margin-bottom:3px;}
+  .d-pcust{font-size:10.5px;color:#333;}
+  /* The one line the paper has never had to carry. */
+  .d-powed{display:flex;justify-content:space-between;gap:12px;font-size:12px;font-weight:700;
+    border:1px dashed #111;border-radius:4px;padding:7px 9px;margin-top:9px;}
+  .d-qrblock{text-align:center;margin-top:14px;}
+  .d-qrnum{font-size:9.5px;color:#333;letter-spacing:2.5px;margin-top:6px;}
+  .d-thanks{font-size:11.5px;font-weight:700;letter-spacing:.5px;text-align:center;margin:12px 0 3px;}
+  .d-policy{font-size:9.5px;color:#555;line-height:1.45;text-align:center;}
+  .d-pb{display:flex;align-items:center;justify-content:center;gap:5px;margin-top:10px;}
+  .d-pb span{font-size:9.5px;color:#888;} .d-pb b{font-size:10.5px;color:#111;letter-spacing:.4px;}
+  .d-pbmark{width:13px;height:13px;border-radius:3px;background:#111;}
+
+  /* pinned under the scroller, exactly as today */
+  .d-ractions{display:flex;flex-wrap:wrap;gap:10px;flex-shrink:0;padding-top:14px;}
+  .d-raction{flex:1 1 22%;min-width:76px;background:#111;color:#fff;border:none;border-radius:12px;
+    padding:13px 6px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:inherit;}
+
+  .d-trow{display:flex;justify-content:space-between;align-items:flex-start;font-size:13px;padding:4px 0;gap:12px;}
+  .d-trow .l{color:var(--d-mut);}
+  .d-trow .r{text-align:right;}
+  .d-trow .v{font-weight:700;}
+  .d-trow.less .v{color:var(--d-profit);}
+  .d-trow.total{border-top:1px solid var(--d-rule);margin-top:8px;padding-top:12px;}
+  .d-trow.total .l{font-size:14.5px;font-weight:800;color:var(--d-ink);}
+  .d-trow.total .v{font-size:23px;font-weight:800;letter-spacing:-.02em;}
+  .d-trow.bal .l{color:var(--d-accink);font-weight:700;}
+  .d-trow.bal .v{color:var(--d-accink);}
+
+  .d-go{width:100%;background:var(--d-ink);color:#fff;border:none;border-radius:999px;padding:17px;
+    font-size:15px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;}
+  .d-go[disabled]{opacity:.35;cursor:not-allowed;}
+  .d-hint{text-align:center;font-size:11.5px;color:var(--d-mut);margin-top:9px;}
+  .d-hold{width:100%;margin-top:10px;padding:13px;border-radius:999px;border:none;background:var(--d-soft);
+    color:var(--d-mut);font-size:12.5px;font-weight:700;cursor:pointer;}
+  .d-hold[disabled]{opacity:.5;cursor:not-allowed;}
+  .d-served{display:flex;align-items:center;justify-content:space-between;margin-top:12px;font-size:11.5px;
+    color:var(--d-mut);}
+  .d-served b{color:var(--d-ink2);font-weight:700;}
+
+  .d-toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(10px);z-index:60;
+    background:#0b0b0d;color:#fff;border-radius:999px;padding:12px 20px;font-size:13px;font-weight:700;
+    opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;
+    box-shadow:0 14px 32px -14px rgba(0,0,0,.5);max-width:90vw;}
+  .d-toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  .vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;}
+</style>
+
+<svg class="vh" aria-hidden="true"><defs>
+  <symbol id="i-search" viewBox="0 0 20 20"><circle cx="9" cy="9" r="6.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M13.6 13.6 18 18" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-scan" viewBox="0 0 20 20"><path d="M3 6V4.5A1.5 1.5 0 0 1 4.5 3H6M14 3h1.5A1.5 1.5 0 0 1 17 4.5V6M17 14v1.5a1.5 1.5 0 0 1-1.5 1.5H14M6 17H4.5A1.5 1.5 0 0 1 3 15.5V14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M4 10h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 20 20"><path d="M6 6l8 8M14 6l-8 8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 20 20"><path d="M7 5 13 10 7 15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cart" viewBox="0 0 24 24"><path d="M3 4h2l2.4 12.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L21 8H6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="21" r="1.3" fill="currentColor"/><circle cx="17" cy="21" r="1.3" fill="currentColor"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 20 20"><rect x="4.5" y="9" width="11" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 9V6.5a3.5 3.5 0 0 1 7 0V9" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 6v4l3 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-queue" viewBox="0 0 20 20"><rect x="3" y="4" width="14" height="3.2" rx="1.4" fill="currentColor"/><rect x="3" y="8.4" width="14" height="3.2" rx="1.4" fill="currentColor" opacity=".6"/><rect x="3" y="12.8" width="14" height="3.2" rx="1.4" fill="currentColor" opacity=".3"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 20 20"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+  <symbol id="i-wallet" viewBox="0 0 20 20"><path d="M3 6.5a2 2 0 0 1 2-2h9.5a1 1 0 0 1 1 1V15a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7h12.5" stroke="currentColor" stroke-width="1.6"/><circle cx="13.2" cy="11.3" r="1.15" fill="currentColor"/></symbol>
+</defs></svg>
+
+<div class="wrap doc">
+  <p class="eyebrow">Design &middot; POS &middot; current sale</p>
+  <h1>The current sale &mdash; one panel, or one sheet</h1>
+  <p class="lede">Today the money is behind a door. A cashier taps <b>Checkout</b>, and a sheet
+  slides up carrying the cashier chips, the customer, the points and the payment &mdash; four decisions
+  that were invisible while the basket was being built. <b>On a counter tablet this redesign brings all
+  four into the sale panel itself.</b> <b>On a phone the sheet stays</b>, because a handset cannot hold a
+  basket and a payment at once &mdash; it is redrawn, not removed. Both then gain the four things a counter
+  in Hargeisa keeps asking for: <i>hold this one</i>, <i>they'll pay the rest tomorrow</i>,
+  <i>they're here to settle up</i>, and <i>what is that in shillings</i>.</p>
+
+  <p class="note">Everything in the frames below is drawn in the tokens from
+  <code>src/constants/theme.ts</code> &mdash; grey page, borderless 26px cards, cool-grey ink ramp &mdash; so this
+  is the POS in the same language Dashboard and Accounting already speak. The frames are live and share
+  one sale: add a product, take a payment in two parts, hold an order and resume it, attach the customer
+  who owes money, or tap <b>Checkout</b> on the phone to open the sheet.</p>
+
+  <section>
+    <h2>The counter &mdash; 1180px</h2>
+    <p class="note">Browse on the left, the whole sale on the right. Nothing about this sale is one
+    tap further away than anything else about it.</p>
+    <p class="note"><b>The category row scrolls sideways here too.</b> <code>pos.tsx</code> passes
+    <code>horizontal: true</code> in both branches of <code>categoryListProps</code> &mdash; the wide layout
+    only differs in its padding &mdash; so a shop with sixteen categories scrolls on a counter tablet just as
+    it does on a phone. Drag it, and note that it stays where you left it when you add a product: a row
+    that jumps back to <i>All</i> on every tap makes a cashier re-find their category all shift. A fade
+    marks whichever end still has categories behind it, since the scrollbar is hidden; with four
+    categories there is no fade, because there is nothing more to see.</p>
+    <div class="frameHead" style="margin-top:16px;"><b>Tablet / desktop</b><i>width &ge; 900 &middot; TABLET_BREAKPOINT</i></div>
+    <div class="scroller">
+      <div class="frame w1180">
+        <div class="d-reg">
+          <span class="dot"></span>
+          <div>
+            <div class="rn">Till 1 &middot; Jaalala Skincare, Hargeisa</div>
+            <div class="rs">Open since 08:12 &middot; Amran Jama</div>
+          </div>
+          <div class="spacer"></div>
+          <div class="rt num" data-reg-taken><span>Taken so far</span> $412.50</div>
+        </div>
+        <div class="d-split">
+          <div class="d-browse" data-browse></div>
+          <div class="d-panel" data-panel></div>
+        </div>
+        <div data-modal></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>The phone &mdash; 380px</h2>
+    <p class="note">Same state, cart above browse &mdash; which is already how <code>pos.tsx</code> stacks
+    the two panes under <code>TABLET_BREAKPOINT</code>. <b>The phone keeps the sheet.</b> Discount and
+    payment do not go inline here: there is no room to hold a basket and a payment on screen at once,
+    and inlining them would put the money below however many items the customer brought. So the panel
+    is the sale &mdash; items, total, <b>Checkout &middot; $84.74</b> &mdash; and everything about taking the money
+    lives behind that button, in the modal it already uses. Tap it in the frame below, or read it
+    standing open, beside today's, in <a href="#phone-checkout">the next section</a>.</p>
+    <p class="note">What changes is the sheet's design, not its existence: the same blocks in the same
+    order as the tablet's panel, on grey rather than white. That is deliberate and not new &mdash;
+    <code>checkout-panel.tsx</code> already notes that the sheet is the <i>page</i> and the blocks on it
+    are the cards, because a white sheet flattens them into it. Header pinned, charge button pinned,
+    the blocks scroll between them.</p>
+    <p class="note">Three rules keep the small screen honest, and every one of them is about giving the
+    space back to what is being sold:</p>
+    <ul class="note" style="margin-top:8px;padding-left:20px;">
+      <li><b>The foot stays short.</b> One <b>Checkout</b> button at full size, then Hold and who is
+      serving share a single line under it &mdash; about 110px instead of 200. Every pixel it takes is a
+      pixel of basket the cashier cannot see.</li>
+      <li><b>The product grid is two rows, then it scrolls.</b> Measured off the first tile rather than
+      guessed, which is exactly what <code>pos.tsx</code> does today with
+      <code>compactTileHeight * 2 + 8</code> &mdash; a phone that shows six products and no basket is a
+      browsing app, not a till.</li>
+      <li><b>The categories are one row that scrolls sideways</b>, never a wrapping block &mdash; and that is
+      true at <i>both</i> sizes, not just here. See the note under the counter frame.</li>
+    </ul>
+    <div class="pair two" style="margin-top:16px;">
+      <div>
+        <div class="frameHead"><b>Phone</b><i>width &lt; 900</i></div>
+        <div class="frame w380">
+          <div class="d-split">
+            <div class="d-browse" data-browse></div>
+            <div class="d-panel" data-panel></div>
+          </div>
+          <div data-modal></div>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-top:0;">What moved out of the sheet &mdash; on a tablet</h3>
+        <p class="note" style="margin-bottom:6px;">On a phone every row below stays in the sheet, in
+        this order, restyled.</p>
+        <div class="tableWrap">
+          <table>
+            <tr><th>Was</th><th>Now</th></tr>
+            <tr><td>Customer picker, inside the sheet</td><td>Row under the title, visible from the first scan &mdash; so points and a balance can be offered before the total is read out</td></tr>
+            <tr><td>Points, inside the sheet</td><td>On the customer row and its own summary line</td></tr>
+            <tr><td>Payment method, inside the sheet</td><td>Four chips in the panel. Each opens its own amount, and every payment taken stays listed above a running <b>Still to pay</b> &mdash; a split is a second amount, not a second screen</td></tr>
+            <tr><td>Clear all, beside the title</td><td>Unchanged, beside the title &mdash; and it still asks once</td></tr>
+            <tr><td>Cashier chips, top of the sheet</td><td>A "Served by" line at the foot of the panel &mdash; it is sticky across sales, so it is status, not a per-sale decision</td></tr>
+            <tr><td>Order discount, mid-panel text link</td><td>Chips: 5 / 10 / 15 / 20 / custom</td></tr>
+            <tr><td><b>Checkout</b> &rarr; sheet &rarr; <b>Complete sale</b></td><td>One button that names the amount and the method. On a phone it is still two steps &mdash; <b>Checkout</b> opens the sheet, and the charge button inside it carries the same sentence</td></tr>
+            <tr><td>Customer's older balance</td><td>Nowhere today. Under their name, with the control that clears it &mdash; on both sizes</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2 id="phone-checkout">The phone's checkout, before and after</h2>
+    <p class="note">Both frames below are 380px, both have the sheet standing open, and neither needs a
+    tap to read. <b>It is the same modal in both</b> &mdash; same trigger, same slide-up, same grey ground
+    with white blocks on it, same black button at the end. What changes is what those blocks contain and
+    where the button sits.</p>
+
+    <div class="pair cmp">
+      <div>
+        <div class="frameHead"><b>Today</b><i>checkout-panel.tsx</i></div>
+        <div class="frame w380 static">
+          <div class="t-behind">
+            <div class="t-titlerow"><span class="t-title">Current sale</span></div>
+            <div class="t-line"><div class="t-lb"><div class="t-nm">Balanceful Cica Serum</div></div></div>
+            <div class="t-line"><div class="t-lb"><div class="t-nm">Royal Honey Propolis Essence</div></div></div>
+          </div>
+          <div class="t-scrim">
+            <div class="t-sheet phone">
+              <div class="t-sheethead"><b>Checkout</b><span class="t-close">Close</span></div>
+              <div class="t-block">
+                <div class="t-blocklabel">Cashier</div>
+                <div class="t-chips"><span class="t-chip on">Amran Jama</span><span class="t-chip">Hodan</span></div>
+              </div>
+              <div class="t-block">
+                <div class="t-blocklabel">Customer</div>
+                <div class="t-cust">Amina Yusuf &middot; +252 61 555 0142 <span class="t-x">Remove</span></div>
+              </div>
+              <div class="t-block">
+                <div class="t-blocklabel">Points</div>
+                <div class="t-pointsrow"><span class="t-input">0</span><span class="t-usemax">Use max</span></div>
+                <div class="t-note">240 available &middot; worth $2.40</div>
+              </div>
+              <div class="t-block">
+                <div class="t-blocklabel">Payment method</div>
+                <div class="t-paid"><span>Cash &middot; $50.00</span><span class="t-x">&times;</span></div>
+                <div class="t-note">Remaining: $34.74</div>
+                <div class="t-chips">
+                  <span class="t-chip">Cash</span><span class="t-chip">ZAAD</span>
+                  <span class="t-chip">e-Dahab</span><span class="t-chip">Other</span>
+                </div>
+              </div>
+              <div class="t-complete">Complete sale</div>
+            </div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:12px;">The sheet is already grey with white blocks &mdash; that part
+        is not new. What it does not have: a total anywhere, an amount owed, any way to take less than
+        the full price, and a button that says only <b>Complete sale</b>. It also scrolls as one long
+        form, so on a short handset the button sits below the fold with the payment.</p>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>The redesign</b><i>same modal, live &middot; scroll the blocks</i></div>
+        <div class="frame w380">
+          <div class="d-split">
+            <div class="d-browse" data-browse></div>
+            <div class="d-panel" data-panel></div>
+          </div>
+          <div data-modal data-always></div>
+        </div>
+        <p class="note" style="margin-top:12px;">Same modal, same order of blocks, plus what the sale
+        actually needs: the customer carries their points <i>and</i> anything they already owe; payment
+        captures an amount per method against a running <b>Still to pay</b>; the remainder is an explicit
+        <b>Collect it now</b> or <b>Pay later</b>; and the foot is pinned &mdash; <b>Total</b>, what is still
+        to pay, and a button that names the amount and the method. Scroll the blocks: the header and
+        that button do not move.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Today and the redesign, side by side</h2>
+    <p class="note">Same sale, same width, drawn from the two sources: on the left
+    <code>pos.tsx</code>'s cart pane and the sheet <code>checkout-panel.tsx</code> opens, as they ship
+    today; on the right the panel from the frames above. The point of this pair is the accounting
+    underneath it &mdash; every capability the till has now, and where it went.</p>
+
+    <div class="pair cmp">
+      <div>
+        <div class="frameHead"><b>Today</b><i>pos.tsx &middot; checkout-panel.tsx</i></div>
+        <div class="frame w420">
+          <div class="t-card">
+            <div class="t-titlerow">
+              <span class="t-title">Current sale</span>
+              <span class="t-actions">
+                <span class="t-scan">Scan</span>
+                <span class="t-clear">Clear all</span>
+              </span>
+            </div>
+
+            <div class="t-line">
+              <div class="t-lb">
+                <div class="t-nm">Balanceful Cica Serum</div>
+                <div class="t-pricerow"><s class="num">$22.00</s> <span class="num">$18.70</span></div>
+                <div class="t-promo">Eid weekend</div>
+                <div class="t-link">Add discount</div>
+              </div>
+              <div class="t-step"><span>&minus;</span><b class="num">1</b><span>+</span></div>
+            </div>
+            <div class="t-line">
+              <div class="t-lb">
+                <div class="t-nm">Royal Honey Propolis Essence</div>
+                <div class="t-pricerow"><span class="num">$31.00</span></div>
+                <div class="t-link">Add discount</div>
+              </div>
+              <div class="t-step"><span>&minus;</span><b class="num">2</b><span>+</span></div>
+            </div>
+
+            <div class="t-summary">
+              <div class="t-srow"><span>Subtotal</span><span class="num">$84.00</span></div>
+              <div class="t-srow"><span>Discount</span><span class="num t-less">&minus;$3.30</span></div>
+              <div class="t-srow"><span>Tax (5%)</span><span class="num">$4.04</span></div>
+              <div class="t-link">Add order discount</div>
+            </div>
+
+            <div class="t-totalrow"><span class="t-totall">Total</span><span class="t-totalv num">$84.74</span></div>
+            <div class="t-earns">Earns 80 points</div>
+            <div class="t-checkout">Checkout</div>
+          </div>
+
+          <div class="t-sheetlabel">Behind that button, in the sheet</div>
+          <div class="t-sheet">
+            <div class="t-sheethead"><b>Checkout</b><span class="t-close">Close</span></div>
+            <div class="t-block">
+              <div class="t-blocklabel">Cashier</div>
+              <div class="t-chips"><span class="t-chip on">Amran Jama</span><span class="t-chip">Hodan</span></div>
+            </div>
+            <div class="t-block">
+              <div class="t-blocklabel">Customer</div>
+              <div class="t-cust">Amina Yusuf &middot; +252 61 555 0142 <span class="t-x">Remove</span></div>
+            </div>
+            <div class="t-block">
+              <div class="t-blocklabel">Points</div>
+              <div class="t-pointsrow"><span class="t-input">0</span><span class="t-usemax">Use max</span></div>
+              <div class="t-note">240 available &middot; worth $2.40</div>
+            </div>
+            <div class="t-block">
+              <div class="t-blocklabel">Payment method</div>
+              <div class="t-paid"><span>Cash &middot; $50.00</span><span class="t-x">&times;</span></div>
+              <div class="t-note">Remaining: $34.74</div>
+              <div class="t-chips">
+                <span class="t-chip">Cash</span><span class="t-chip">ZAAD</span>
+                <span class="t-chip">e-Dahab</span><span class="t-chip">Other</span>
+              </div>
+            </div>
+            <div class="t-complete">Complete sale</div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="frameHead"><b>The redesign</b><i>the tablet panel &middot; live</i></div>
+        <div class="frame w420">
+          <div class="d-panel" data-panel></div>
+        </div>
+        <p class="note" style="margin-top:12px;">This column is the <b>tablet</b> panel, shown narrow so
+        the two sit side by side. The phone's version of the same sale is the sheet in the section
+        above &mdash; it is not this.</p>
+      </div>
+    </div>
+
+    <h3>Every capability, and where it went</h3>
+    <p class="note">Read this as the checklist. <b>Kept</b> means it works the same and looks
+    different; <b>moved</b> means the same control sits somewhere else; <b>new</b> means it does not
+    exist today.</p>
+    <div class="tableWrap">
+      <table>
+        <tr><th>In the till today</th><th></th><th>In the redesign</th></tr>
+
+        <tr><td colspan="3" style="padding-top:16px;"><b>Browsing and scanning</b></td></tr>
+        <tr><td>Register bar, open / close / handover / detail</td><td><b>Untouched</b></td><td>Above both panes, as now</td></tr>
+        <tr><td>Register gate where a store requires an open till</td><td><b>Untouched</b></td><td>Still replaces the panel, grid still browsable behind it</td></tr>
+        <tr><td>Till keyboard notice</td><td><b>Untouched</b></td><td>Top of the browse pane</td></tr>
+        <tr><td>Search by name, brand, SKU or barcode</td><td><b>Kept</b></td><td>Same row, bento field</td></tr>
+        <tr><td>Camera scan button, hardware wedge, on-screen keypad</td><td><b>Kept</b></td><td>Same three paths; the round scan button is unchanged in behaviour</td></tr>
+        <tr><td>Scan feedback banner (added / out of stock / ambiguous)</td><td><b>Kept</b></td><td>Same place, same three tones</td></tr>
+        <tr><td>Unknown barcode &rarr; create the product mid-sale</td><td><b>Kept</b></td><td>Same offer under the search row, same permission and plan-limit gates</td></tr>
+        <tr><td>Category chips</td><td><b>Kept</b></td><td>Bento chips, still one horizontal scroller, now with a fade at the end that has more</td></tr>
+        <tr><td>Product tile: photo, brand, name, price, stock, low stock, out of stock</td><td><b>Kept</b></td><td>All of it, plus the shilling price under the dollar one</td></tr>
+        <tr><td>Two-row product grid on a phone</td><td><b>Kept</b></td><td>Measured off the first tile, exactly as <code>compactTileHeight</code> does</td></tr>
+
+        <tr><td colspan="3" style="padding-top:16px;"><b>The basket</b></td></tr>
+        <tr><td>"Current sale" title, item count</td><td><b>Kept</b></td><td>Pinned, never scrolls away</td></tr>
+        <tr><td>Scan button beside the cart title</td><td><b>Kept</b></td><td>Phone only, where the cart sits above the search row</td></tr>
+        <tr><td>Clear all, with a confirm</td><td><b>Kept</b></td><td>Beside the item count; asks once</td></tr>
+        <tr><td>Line: name, price, struck price when discounted</td><td><b>Kept</b></td><td>Two rows instead of one, so a long name is not three words wide</td></tr>
+        <tr><td>Promotion tag on a line</td><td><b>Kept</b></td><td>Green tag; still not removable by the cashier</td></tr>
+        <tr><td>Line discount editor, gated on <code>discounts.manual</code></td><td><b>Kept</b></td><td>Chips in front of the same editor, same gate</td></tr>
+        <tr><td>Quantity stepper, remove at zero</td><td><b>Kept</b></td><td>Plus an explicit remove, so nobody taps minus five times</td></tr>
+        <tr><td>Order discount editor</td><td><b>Kept</b></td><td>Chips: 5 / 10 / 15 / 20 / custom</td></tr>
+        <tr><td>Subtotal, discount, points and tax rows</td><td><b>Kept</b></td><td>In the scrolling middle; each carries its shilling line</td></tr>
+        <tr><td>Total</td><td><b>Kept</b></td><td>Pinned above the button, with the shilling figure under it</td></tr>
+        <tr><td>"Earns N points"</td><td><b>Kept</b></td><td>Under the breakdown</td></tr>
+        <tr><td>Payments cleared whenever the total changes</td><td><b>Kept</b></td><td>Same rule, now with a sentence saying it happened</td></tr>
+        <tr><td>Prices pinned to when the cart started</td><td><b>Untouched</b></td><td><code>pricedAt</code> logic is unchanged</td></tr>
+
+        <tr><td colspan="3" style="padding-top:16px;"><b>Taking the money</b></td></tr>
+        <tr><td>Checkout button opens a sheet</td><td><b>Moved</b></td><td>Tablet: the sheet's contents are inline. <b>Phone: unchanged</b> &mdash; same button, same modal</td></tr>
+        <tr><td>Cashier chips at the top of the sheet</td><td><b>Moved</b></td><td>"Served by" at the foot of the panel; it is sticky across sales, so it is status, not a per-sale choice</td></tr>
+        <tr><td>Customer picker, search and create</td><td><b>Kept</b></td><td>A row under the title on a tablet, first block in the sheet on a phone</td></tr>
+        <tr><td>Points: balance, maturing, use max, clamp warning</td><td><b>Kept</b></td><td>On the customer row and its own line; the warm clamp colour stays warm</td></tr>
+        <tr><td>Payment methods limited by shop settings</td><td><b>Kept</b></td><td>Same <code>enabledPaymentMethods</code>; Other is always offered</td></tr>
+        <tr><td>Amount per payment, with cash change</td><td><b>Kept</b></td><td>Same draft flow, plus note buttons for what a cashier is actually handed</td></tr>
+        <tr><td>Foreign currency tender at its rate</td><td><b>Kept</b></td><td>USD / SLSH per payment, conversion shown before it is taken</td></tr>
+        <tr><td>ZAAD / e-Dahab sender name and number</td><td><b>Kept</b></td><td>Same optional fields, same receipt lines, same merchant ID</td></tr>
+        <tr><td>Split across methods, <code>allowSplit</code> off</td><td><b>Kept</b></td><td>Each payment listed with its amount; the setting still forbids mixing</td></tr>
+        <tr><td>"Remaining" and "Fully paid"</td><td><b>Kept</b></td><td>Permanent line rather than one that appears mid-flow</td></tr>
+        <tr><td>Checkout error (offer moved, stock, totals mismatch)</td><td><b>Kept</b></td><td>Sits directly above the charge button, where it is today</td></tr>
+        <tr><td>Complete sale &rarr; receipt, staged behind the dismissal on iOS</td><td><b>Untouched</b></td><td>Same handoff, same <code>onDismiss</code> guard</td></tr>
+        <tr><td>Receipt: paper, QR, Print / Email / WhatsApp / Share</td><td><b>Untouched</b></td><td>The shipped design, plus one BALANCE DUE line</td></tr>
+
+        <tr><td colspan="3" style="padding-top:16px;"><b>Not in the till today</b></td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>Held orders.</b> Park a sale and resume it</td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>Part payment.</b> Take some now, the rest is a balance</td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>Pay later.</b> Nothing collected, the whole sale is owed</td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>Settling an older balance</b>, with or without a basket</td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>Shillings under every figure</b>, from the shop's own rate</td></tr>
+        <tr><td>&mdash;</td><td><b>New</b></td><td><b>A button that names the amount and the method</b></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Paying off an older balance</h2>
+    <p class="note">Pay later only works if there is a way to pay. A balance is created at this
+    counter, so it has to be clearable at this counter &mdash; not in Accounting, and not by a shop owner
+    editing a figure later.</p>
+    <p class="note">Attach a customer who owes something &mdash; <b>Farah Hassan</b> in the frames above,
+    $34.74 unpaid since 12 Aug &mdash; and the debt appears under their name the moment they are attached,
+    with the one control that clears it. <b>Collect it</b> adds the balance to what this counter is
+    asking for, and the totals then name both debts rather than quietly summing them: <i>This sale</i>,
+    <i>Older balance</i>, <i>To collect</i>. The payment side does not change at all &mdash; the same
+    methods, the same amounts, the same split.</p>
+    <p class="note"><b>With an empty basket it still works.</b> A customer walking in only to settle up
+    is a real transaction: attach them, tap <b>Collect it</b>, take the money, and the button reads
+    <code>Take $34.74 off the balance</code>. The receipt prints as a payment against the older sale and
+    says what they owe afterwards.</p>
+    <div class="verdict">
+      <div class="vx mid">
+        <b>Renamed: "Put it on account" is now "Pay later"</b>
+        <p>One name for one idea, and it is the customer's word rather than the bookkeeper's. It reads
+        the same on the button (<code>Save as unpaid</code> &rarr; the sale is owed), on the receipt
+        (<code>BALANCE DUE</code>) and on the customer row (<code>Owes $34.74</code>).</p>
+      </div>
+      <div class="vx bad">
+        <b>This is the piece that needs the server</b>
+        <p>A balance has to exist somewhere before it can be shown or settled: a sale status, an amount
+        owed, the customer it belongs to, payments recorded against it afterwards, and a place in
+        Accounting's receivables so a shop owner can see who owes what. Settling is a second write on
+        top of that &mdash; a payment that belongs to an older sale rather than to this one. Everything
+        else in this document is a screen change; this is a data change, and it should be planned on
+        its own before either is built.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What is new, and what only moved</h2>
+
+    <h3>1 &middot; A button that says what it will do</h3>
+    <p class="note">"Checkout" is a door, not a commitment. The button that <i>takes the money</i> &mdash; the
+    panel's on a tablet, the sheet's on a phone &mdash; now reads <code>Charge $84.74 &middot; Cash</code>, or
+    <code>Take $50.00 now &middot; $34.74 owed</code>, or <code>Save as unpaid &middot; $84.74 owed</code>, or
+    <code>Take $34.74 off the balance</code>. When it cannot fire it says which decision is missing &mdash;
+    "Take a payment", "Attach a customer to carry the balance" &mdash; instead of sitting greyed out with no
+    reason. The phone keeps a plain <b>Checkout &middot; $84.74</b> on the till itself, because at that point
+    the decision it opens has not been made yet.</p>
+
+    <h3>2 &middot; Held orders</h3>
+    <p class="note">A customer goes back for one more thing and the queue behind them is four deep.
+    <b>Hold for later</b> parks the whole sale &mdash; basket, customer, discounts, part-payment &mdash; behind the
+    stack icon by the title, and <b>Resume</b> brings it back exactly as it was. The badge counts what is
+    parked, so nothing can be silently forgotten at the end of a shift.</p>
+
+    <h3>3 &middot; Every payment carries its own amount</h3>
+    <p class="note">A split is not an even divide. Each method opens an amount &mdash; defaulted to what
+    is still owed, which is the amount in nearly every sale &mdash; and what is entered is what is taken.
+    Cash can be entered in USD or shillings, with the note buttons a cashier is actually handed
+    ($5, $10, $20, $50), and anything over the balance shows as <b>change due</b> rather than being
+    quietly swallowed. ZAAD and e-Dahab keep the optional name and number that go on the receipt.
+    This is the model <code>PaymentMethodPicker</code> already implements; what changes is where it sits
+    &mdash; inline on a tablet, first-class in the sheet on a phone &mdash; and that the running <b>Still to
+    pay</b> figure now has a permanent place instead of appearing mid-flow.</p>
+
+    <h3>4 &middot; Part now, the rest later &mdash; said out loud</h3>
+    <p class="note">Take $50 of an $84.74 basket and $34.74 is unaccounted for. Neither surface leaves
+    that implicit: <b>Collect it now</b> (take another payment) or <b>Pay later</b> (the customer owes
+    it). Nothing is collected at all? That is the same choice with no payments against it, and the
+    button reads <code>Save as unpaid</code>. Both require a customer &mdash; a balance with nobody's name
+    against it is a loss, not a debt &mdash; and the amount owed rides the button, the totals and the
+    receipt, in both currencies. The other end of it &mdash; how that customer pays the balance off &mdash; has
+    its own section above.</p>
+
+    <h3>5 &middot; Clear all, still one tap and one question</h3>
+    <p class="note">Unchanged in spirit from today's <code>clearSale</code>: it sits by the item count,
+    and it asks once before emptying a basket someone is standing at.</p>
+
+    <h3>6 &middot; Charging hands over the receipt &mdash; the one that already ships</h3>
+    <p class="note">The button completes the sale and the receipt comes up over the till, and the
+    receipt is <b>not</b> part of this redesign: what the frames show is
+    <code>receipt-modal.tsx</code> as it stands &mdash; the monospace paper, the dashed rules, the shop
+    block, ITEM / QTY / PRICE / TOTAL, the QR and its short code, THANK YOU FOR YOUR PURCHASE!, and the
+    three black actions (a fourth, Share, appears on native). It earns exactly one new line: a part-paid
+    sale prints <b>BALANCE DUE</b> and whose it is, in the same idiom as everything above it. The till
+    clears when the receipt is dismissed, not when the money is taken &mdash; on iOS the receipt cannot even
+    be presented until the sheet before it has finished dismissing, which is why <code>pos.tsx</code>
+    stages it on <code>onDismiss</code> today.</p>
+
+    <h3>7 &middot; Shillings under every figure</h3>
+    <p class="note">The price a customer hears is rarely the price on the tile. Every money figure
+    carries a second line in the shop's local currency: line totals, the grand total, the balance due.
+    The rate comes from the shop's own currency row (<code>currencies.rateToUsd</code>), which the shop
+    already maintains for cash drawer counts &mdash; never a constant in the client.</p>
+
+    <h3>8 &middot; Discounts as chips</h3>
+    <p class="note">Both discounts &mdash; the line and the order &mdash; are now 5 / 10 / 15 / 20 and a custom
+    field, gated on <code>discounts.manual</code> exactly as the editor is today. An offer that is
+    already running still shows as its own green tag on the line, and cannot be tapped away by accident.</p>
+
+    <h3>9 &middot; The counter is a fixed frame</h3>
+    <p class="note">Nothing on this screen is allowed to grow the window. The receipt already works
+    this way and keeps doing so: its card takes a <b>concrete</b> height, so the paper inside can be
+    <code>flex:1</code> and scroll while the header and the three actions never move &mdash; and the comment
+    in <code>receipt-modal.tsx</code> explains why it is <code>height</code> and not
+    <code>maxHeight</code> (against a content-sized parent the scroller resolves to zero and scrolls
+    nothing).</p>
+    <p class="note">The sale panel now takes the same shape. The title, the item count and <b>Clear
+    all</b> are pinned at the top; the total, the charge button and <b>Hold for later</b> are pinned at
+    the bottom; and everything that grows with the sale &mdash; the customer, the items, the discount, the
+    payment and the itemised breakdown &mdash; scrolls between them. Only the two figures a cashier reads
+    aloud hold still. A twenty-line basket
+    changes what is in the scroller and nothing else: the total and the charge button stay exactly where
+    the cashier's thumb left them. The product grid on the left scrolls in its own pane for the same
+    reason, which is what <code>pos.tsx</code> already does with two independent
+    <code>ScrollView</code>s on a wide screen.</p>
+    <p class="note">The phone is deliberately different, and matches what ships today: the page itself
+    scrolls, because the cart renders <i>above</i> the browse pane there, so the total is near the top
+    already. The item list caps at about four lines and scrolls inside itself, so a long basket cannot
+    push <b>Checkout</b> off the screen. The sheet then repeats the same shape one level down &mdash; pinned
+    header, pinned charge button, blocks scrolling between them &mdash; which is why the payment can never
+    end up below a basket on the small screen.</p>
+
+    <div class="verdict">
+      <div class="vx good">
+        <b>Kept from the source design</b>
+        <p>The inline panel (on a tablet), the customer row with its search-and-create dropdown, the
+        held-order queue, pay later, and the speaking checkout button. All of it survives contact with
+        kaiibi's data.</p>
+        <p><b>Not kept: the even split.</b> The source divided the total across the selected methods and
+        showed a share on each chip. Real counters take $50 in cash and the rest on ZAAD, so each payment
+        carries the amount that was actually handed over &mdash; which is also what
+        <code>PaymentMethodPicker</code> already does.</p>
+      </div>
+      <div class="vx mid">
+        <b>Changed: the line discount tag no longer cycles</b>
+        <p>In the source, tapping a line's discount tag steps 5 &rarr; 10 &rarr; 15 &rarr; 20 &rarr; off. At a counter that
+        is a price change with no confirmation and no undo, one mis-tap wide &mdash; and the cashier who
+        overshoots has to tap four more times to get back. Here the tag opens the same chip row the
+        order discount uses.</p>
+      </div>
+      <div class="vx bad">
+        <b>Restored: what the source design dropped</b>
+        <p>The source panel has no tax, no loyalty points, no promotion tags, no register, no stock
+        state and no cashier. Every one of those is live in <code>pos.tsx</code> today, and three of them
+        change the total. They are all back in the frames above; the table below says where each one
+        landed.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Where kaiibi's own pieces landed</h2>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Piece</th><th>Lives in the app as</th><th>Where it goes</th></tr>
+        <tr><td><b>Tax</b></td><td><code>taxCentsFor</code>, on when <code>shop.taxEnabled</code></td><td>A summary line above the total, after discounts and points &mdash; the order complete_sale computes in</td></tr>
+        <tr><td><b>Loyalty points</b></td><td><code>effectiveRedemption</code>, <code>pointsEarnedFor</code></td><td>Spendable balance on the customer row; redemption as a "less" line; earned points under the total</td></tr>
+        <tr><td><b>Promotions</b></td><td><code>appliedPromotionForLine</code></td><td>A green tag on the line, beside the struck-through price. Not removable &mdash; it is the shop's price, not the cashier's discount</td></tr>
+        <tr><td><b>Register session</b></td><td><code>RegisterBar</code> / <code>RegisterGate</code></td><td>Unchanged, above both panes. The gate still replaces the panel where a store requires an open register</td></tr>
+        <tr><td><b>Cashier</b></td><td><code>cashierName</code>, sticky across sales</td><td>"Served by" at the foot of the till on both sizes, tap to change. It stays on the till rather than moving into the phone's sheet &mdash; who is serving is not a checkout decision</td></tr>
+        <tr><td><b>Customer's balance</b></td><td>Nothing yet &mdash; needs the server work below</td><td>Under the customer's name the moment they are attached, on the till on a tablet and in the sheet's first block on a phone</td></tr>
+        <tr><td><b>Stock</b></td><td><code>product.stock</code>, <code>reorderLevel</code></td><td>On the tile, as now &mdash; out of stock stays untappable</td></tr>
+        <tr><td><b>Scan</b></td><td>wedge, camera, on-screen keypad</td><td>Search row keeps the scan button; the panel keeps its own, since on a phone the cart sits above the search row</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Palette translation</h2>
+    <p class="note">The source mockup carries its own hexes. Four of them are close to a kaiibi token
+    and two are not &mdash; the greens and reds in particular have to move, because ours are stepped for
+    contrast against <code>bentoSoft</code> rather than white.</p>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Source</th><th>kaiibi token</th><th>Why it moves</th></tr>
+        <tr><td><span class="swatch" style="background:#2f6bff;"></span>#2f6bff accent</td><td><b>bentoSeries1</b> #2f6bff</td><td>Identical. Used for the balance-due state only, never as decoration</td></tr>
+        <tr><td><span class="swatch" style="background:#0f9d58;"></span>#0f9d58 brand green</td><td><b>bentoProfit</b> #008340 on ink, <b>bentoUpInk</b> #007a38 on <b>bentoUpWash</b> #d9efe4</td><td>#0f9d58 is 2.9:1 on white &mdash; under AA for the 10px discount tag it was carrying</td></tr>
+        <tr><td><span class="swatch" style="background:#d92d3f;"></span>#d92d3f danger</td><td><b>bentoLoss</b> #d72b3e</td><td>Same hue, stepped to 4.5:1 on soft</td></tr>
+        <tr><td><span class="swatch" style="background:#68686f;"></span>#68686f muted</td><td><b>bentoMuted</b> #5e5d65 / <b>bentoMuted2</b> #717078</td><td>Two steps, not one: labels and hints are different jobs</td></tr>
+        <tr><td>1px #e7e7ec borders on every card</td><td><b>No border.</b> <code>Card variant="bento"</code></td><td>Bento cards are borderless &mdash; the grey page is the separation</td></tr>
+        <tr><td>radius 24 / 16 / 11</td><td><b>BENTO_RADIUS</b> 26 / <b>BENTO_RADIUS_TILE</b> 18 / 999</td><td>Three radii in the system, not five</td></tr>
+        <tr><td>Card shadows</td><td><b>None</b></td><td>Nothing in bento is elevated. A shadow here would put the sale on a different plane from Dashboard's cards</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>What each piece costs to build</h2>
+    <div class="tableWrap">
+      <table>
+        <tr><th>Piece</th><th>Reach</th><th>Notes</th></tr>
+        <tr><td>Inline customer, discount, payment, totals &mdash; <b>tablet only</b></td><td><b>Client only</b></td><td>Moves what <code>CheckoutPanel</code>'s sheet already renders into the panel above <code>TABLET_BREAKPOINT</code>. <code>CustomerPicker</code>, <code>PaymentMethodPicker</code>, <code>DiscountEditor</code> and <code>PointsSection</code> all come across unchanged</td></tr>
+        <tr><td>The phone's checkout sheet</td><td><b>Restyle only</b></td><td>Same <code>AppModal</code>, same trigger, same blocks in the same order, same dismissal handoff to the receipt. It gets the bento treatment and the new payment capture, and loses nothing &mdash; the one structural change is pinning the charge button under a scroller instead of letting it sit at the end of a long form</td></tr>
+        <tr><td>Speaking checkout button</td><td><b>Client only</b></td><td>Label derived from the state that already disables it</td></tr>
+        <tr><td>Discount chips</td><td><b>Client only</b></td><td>A preset row in front of <code>DiscountEditor</code>, same permission gate</td></tr>
+        <tr><td>Local currency echo</td><td><b>Client only</b></td><td><code>usdCentsToForeignCents</code> exists. Needs a shop-level "display currency" pick &mdash; today <code>currencies</code> is a list with no primary</td></tr>
+        <tr><td>Held orders</td><td><b>Client, then storage</b></td><td>One in-progress sale lives in <code>use-pos-session.ts</code> module state. A list is the same shape, but held orders must survive an app restart and belong to a register, so they want a table &mdash; a shift ending with a forgotten hold is worse than no hold at all</td></tr>
+        <tr><td>Per-payment amounts, cash change, foreign tender</td><td><b>Client only</b></td><td>Already built &mdash; <code>PaymentMethodPicker</code> captures amount, tendered, change, currency and the mobile-money name. The redesign restyles it and surfaces "still to pay" permanently; the note buttons are the one genuinely new control</td></tr>
+        <tr><td>Receipt after charging</td><td><b>Nothing to build</b></td><td>It ships. <code>ReceiptModal</code> already prints, emails, WhatsApps and shares, and <code>pos.tsx</code> already stages it behind the sheet's dismissal on iOS. Its one new line is BALANCE DUE &mdash; which needs the field below to exist first</td></tr>
+        <tr><td>Fixed frame, scrolling middle</td><td><b>Client only</b></td><td>The wide pane already owns a <code>ScrollView</code>; this moves the boundary so the customer, discount and payment scroll with the items while the total and the button stay pinned. The phone gets the same shape inside the sheet, plus a cap on the till's item list</td></tr>
+        <tr><td>Phone: two-row grid, scrolling categories, short foot</td><td><b>Client only</b></td><td>The two-row cap already exists (<code>compactTileHeight</code>) and the category row is already horizontal &mdash; the work is the compact foot, and a <code>minWidth: 0</code> on the rows that overflow so they scroll instead of widening their pane</td></tr>
+        <tr><td>Part payment and Pay later</td><td><b>Server</b></td><td>The largest piece by far. <code>complete_sale</code> refuses payments that do not equal the total; a part-paid sale needs a status, a balance, a customer link, later payments against it, and a place in Accounting's receivables. This is the one item that should be planned on its own</td></tr>
+        <tr><td>Settling an older balance</td><td><b>Server</b>, after the above</td><td>Reads the balance to show it, then writes a payment that belongs to an <i>older</i> sale &mdash; including with no basket at all, which is a transaction this till cannot currently produce. The screen work on top is small: one row on the customer, one line in the totals, one line on the receipt</td></tr>
+      </table>
+    </div>
+    <p class="note" style="margin-top:16px;">Everything above the last two lines ships as one screen
+    change, at both sizes. The last two are features with their own data, and both surfaces are drawn so
+    that neither leaves a hole if they land later: with no held orders the stack icon is simply absent,
+    with no balances the <b>Pay later</b> choice and the <b>Owes</b> row do not render, and the receipt
+    prints exactly as it does today.</p>
+  </section>
+</div>
+
+<div class="d-toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- the shop ----------------------------------------------------------
+  // Rate lives on the shop's currency row (currencies.rateToUsd), not here.
+  var RATE = 8500, TAX_PCT = 5, CENTS_PER_POINT = 1, POINTS_PER_USD = 1;
+
+  // `art` stands in for product.imageUrl. Four of these six have a photo, two
+  // do not - which is the honest ratio for a shop mid-way through photographing
+  // its catalogue, and the case the tile has to survive.
+  var PRODUCTS = [
+    {id:'p1', brand:'AVEENO',    name:'Daily Moisture Lotion 24oz', cents:2400, color:'#8a6d4e', stock:12, art:'pump'},
+    {id:'p2', brand:'TORRIDEN',  name:'Balanceful Cica Serum',      cents:2200, color:'#00a396', stock:3, promo:{name:'Eid weekend', pct:15}, art:'dropper'},
+    {id:'p3', brand:'SOME BY MI',name:'Snail Truecica Starter Kit', cents:2000, color:'#d4457e', stock:7, art:'box'},
+    {id:'p4', brand:'SOME BY MI',name:'AHA.BHA.PHA 30 Days Kit',    cents:2600, color:'#245c45', stock:0, art:null},
+    {id:'p5', brand:'SKINFOOD',  name:'Royal Honey Propolis Essence',cents:3100, color:'#c8791a', stock:9, art:'jar'},
+    {id:'p6', brand:'SKINFOOD',  name:'Rice Brightening Cleanser',  cents:1400, color:'#2f6bff', stock:24, art:null}
+  ];
+  // `owes` is what an earlier sale was left short by - the other end of Pay
+  // later, and the reason a till has to be able to take money with no basket.
+  var CUSTOMERS = [
+    {id:'c1', name:'Amina Yusuf',   phone:'+252 61 555 0142', visits:'6th visit', points:240, owes:0},
+    {id:'c2', name:'Farah Hassan',  phone:'+252 63 402 8871', visits:'2nd visit', points:0, owes:3474, owedSince:'12 Aug'},
+    {id:'c3', name:'Deeqa Warsame', phone:'+252 65 118 4420', visits:'New',       points:0, owes:0}
+  ];
+  var PAY = [
+    {id:'cash',   label:'Cash',    color:'#008340', mono:'$'},
+    {id:'zaad',   label:'ZAAD',    color:'#c8191a', mono:'Z'},
+    {id:'edahab', label:'e-Dahab', color:'#c8791a', mono:'e'},
+    {id:'other',  label:'Other',   color:'#5e5d65', icon:'i-wallet'}
+  ];
+
+  // ---- state -------------------------------------------------------------
+  var S = {
+    cart: [],            // {id, qty, discPct}
+    customer: null,
+    orderDiscPct: 0,
+    // Payments are LINES, not a set of selected methods - each one carries the
+    // amount actually taken, which is what PaymentMethodPicker builds today:
+    // {method, cents, tendered, currency, foreign, name, phone}
+    payments: [],
+    draft: null,         // the payment being entered: {method, currency, amount, name, phone}
+    restOwed: false,     // the uncollected remainder is left for the customer to pay later
+    settleCents: 0,      // how much of an OLDER balance they are paying off now
+    held: [],
+    redeemPoints: 0,
+    custOpen: false, custQuery: '', newName:'', newPhone:'',
+    queueOpen: false,
+    discPickerOpen: false,
+    linePickerFor: null,
+    confirmClear: false,
+    sheetOpen: false,    // the phone's checkout modal
+    receipt: null,
+    category: 'All'
+  };
+
+  // ---- money -------------------------------------------------------------
+  function fmt(c){ return '$' + (c/100).toFixed(2); }
+  function fmtSL(c){ return 'SLSH ' + Math.round(c/100*RATE).toLocaleString('en-US'); }
+  function esc(s){ return String(s).replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+  function initials(n){ return n.split(/\s+/).slice(0,2).map(function(w){return w[0];}).join('').toUpperCase(); }
+  function product(id){ return PRODUCTS.filter(function(p){ return p.id===id; })[0]; }
+
+  function lineGross(l){ return product(l.id).cents * l.qty; }
+  function linePromoPct(l){ var p = product(l.id); return p.promo ? p.promo.pct : 0; }
+  // A manual discount replaces the offer rather than stacking on it, which is
+  // what lineDiscountCents does today.
+  function lineNet(l){
+    var pct = l.discPct || linePromoPct(l);
+    return Math.round(lineGross(l) * (1 - pct/100));
+  }
+  function subtotal(){ return S.cart.reduce(function(s,l){ return s + lineNet(l); }, 0); }
+  function grossTotal(){ return S.cart.reduce(function(s,l){ return s + lineGross(l); }, 0); }
+  function orderDisc(){ return Math.round(subtotal() * S.orderDiscPct / 100); }
+  function preRedemption(){ return subtotal() - orderDisc(); }
+  function redemptionCents(){
+    if(!S.customer) return 0;
+    var wanted = Math.min(S.redeemPoints, S.customer.points) * CENTS_PER_POINT;
+    return Math.max(0, Math.min(wanted, preRedemption()));
+  }
+  function preTax(){ return preRedemption() - redemptionCents(); }
+  function taxCents(){ return Math.round(preTax() * TAX_PCT / 100); }
+  function total(){ return preTax() + taxCents(); }
+  function pointsEarned(){ return S.customer ? Math.floor(preTax()/100 * POINTS_PER_USD) : 0; }
+  // What the customer already owed before this sale started, and how much of it
+  // they are settling now. An old balance is a separate debt from a new basket,
+  // but it is one moment at the counter, so it is one payment.
+  function owedBefore(){ return S.customer ? (S.customer.owes || 0) : 0; }
+  function settling(){ return Math.min(S.settleCents, owedBefore()); }
+  function toCollect(){ return total() + settling(); }
+
+  // One source of truth for "how much has actually been taken": the payment
+  // lines. The balance is whatever is being asked for, short of them.
+  function collected(){ return S.payments.reduce(function(s,p){ return s + p.cents; }, 0); }
+  function remaining(){ return Math.max(0, toCollect() - collected()); }
+  function paidNow(){ return Math.min(collected(), toCollect()); }
+  function balance(){ return remaining(); }
+  function itemCount(){ return S.cart.reduce(function(s,l){ return s + l.qty; }, 0); }
+
+  // ---- markup ------------------------------------------------------------
+  function icon(id, size){ return '<svg width="'+size+'" height="'+size+'" aria-hidden="true"><use href="#'+id+'"/></svg>'; }
+
+  // The tile's top slot is product.imageUrl. A real photo cannot be embedded in
+  // a design doc, so each shape below stands in for one - a dropper bottle, a
+  // pump bottle, a jar, a boxed kit. What matters here is the slot: same 4:3
+  // crop, same object-fit, same rounded corner, and the same fallback when a
+  // product has no photo at all (p4 and p6).
+  function art(p, tall){
+    if(!p.art) return null;
+    var c = p.color, h = tall ? 62 : 38, shape;
+    if(p.art === 'dropper'){
+      shape = '<rect x="41" y="10" width="18" height="9" rx="3" fill="'+c+'" opacity=".55"/>' +
+              '<rect x="45" y="17" width="10" height="8" fill="'+c+'" opacity=".8"/>' +
+              '<rect x="36" y="24" width="28" height="48" rx="7" fill="'+c+'"/>' +
+              '<rect x="41" y="34" width="8" height="28" rx="4" fill="#fff" opacity=".28"/>';
+    } else if(p.art === 'pump'){
+      shape = '<path d="M50 8h9v5h-9z" fill="'+c+'" opacity=".55"/>' +
+              '<rect x="44" y="12" width="9" height="10" rx="2" fill="'+c+'" opacity=".7"/>' +
+              '<rect x="31" y="21" width="38" height="52" rx="9" fill="'+c+'"/>' +
+              '<rect x="37" y="32" width="9" height="32" rx="4" fill="#fff" opacity=".26"/>' +
+              '<rect x="31" y="52" width="38" height="10" fill="#fff" opacity=".14"/>';
+    } else if(p.art === 'jar'){
+      shape = '<rect x="28" y="20" width="44" height="12" rx="5" fill="'+c+'" opacity=".6"/>' +
+              '<rect x="26" y="30" width="48" height="42" rx="10" fill="'+c+'"/>' +
+              '<ellipse cx="50" cy="30" rx="24" ry="5" fill="#fff" opacity=".18"/>' +
+              '<rect x="33" y="40" width="9" height="24" rx="4" fill="#fff" opacity=".24"/>';
+    } else { // box
+      shape = '<rect x="24" y="22" width="52" height="50" rx="6" fill="'+c+'"/>' +
+              '<rect x="24" y="38" width="52" height="9" fill="#fff" opacity=".26"/>' +
+              '<rect x="30" y="28" width="16" height="5" rx="2.5" fill="#fff" opacity=".4"/>' +
+              '<path d="M24 22h52v50" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="2"/>';
+    }
+    return '<svg class="d-photo" style="height:'+h+'px;" viewBox="0 0 100 80" role="img" aria-label="'+esc(p.name)+'">' +
+      '<rect width="100" height="80" fill="'+c+'" opacity=".10"/>' +
+      '<ellipse cx="50" cy="73" rx="26" ry="4" fill="'+c+'" opacity=".18"/>' + shape + '</svg>';
+  }
+  // No photo yet: the brand's initials on a soft tile, which is what the app
+  // draws today rather than a broken image frame.
+  function thumbHTML(p, tall){
+    var a = art(p, tall);
+    if(a) return '<span class="th photo">' + a + '</span>';
+    return '<span class="th mono" style="background:'+p.color+';">' + initials(p.brand) + '</span>';
+  }
+  function money(c, cls){ return '<div class="'+(cls||'v')+' num">'+fmt(c)+'</div><div class="sub num">'+fmtSL(c)+'</div>'; }
+
+  function browseHTML(){
+    // A real shop's list, not four - the row has to survive being long at BOTH
+    // sizes. pos.tsx scrolls this horizontally on a tablet as well as a phone;
+    // nine categories simply happened to fit on a wide screen and hid it.
+    var cats = ['All','Skincare','Cleansers','Serums','Toners','Moisturisers','Masks','Sun care',
+                'Kits','Hair','Body','Fragrance','Makeup','Baby','Men','Gifts'];
+    return '<div class="d-card">' +
+      '<div class="d-searchrow">' +
+        '<div class="d-search">' + icon('i-search',15) +
+          '<input placeholder="Search or scan a product" aria-label="Search or scan a product">' +
+        '</div>' +
+        '<button class="d-scan" data-act="scan" aria-label="Scan a barcode">' + icon('i-scan',19) + '</button>' +
+      '</div>' +
+      '<div class="d-cats">' + cats.map(function(c){
+        return '<button class="d-chip' + (S.category===c?' on':'') + '" data-act="cat" data-v="'+c+'">'+c+'</button>';
+      }).join('') + '</div>' +
+      '<div class="d-grid">' + PRODUCTS.map(tileHTML).join('') + '</div>' +
+    '</div>';
+  }
+
+  function tileHTML(p){
+    var out = p.stock <= 0;
+    var stock = out
+      ? '<div class="st out">Out of stock</div>'
+      : (p.stock <= 5 ? '<div class="st low">Only ' + p.stock + ' left</div>'
+                      : '<div class="st">' + p.stock + ' in stock</div>');
+    return '<button class="d-tile" data-act="add" data-v="'+p.id+'"' + (out?' disabled':'') + '>' +
+      thumbHTML(p, true) +
+      '<div class="br">'+esc(p.brand)+'</div>' +
+      '<div class="nm">'+esc(p.name)+'</div>' +
+      '<div class="pr num">'+fmt(p.cents)+'</div>' +
+      '<div class="sl num">'+fmtSL(p.cents)+'</div>' +
+      stock +
+      (p.promo ? '<span class="offer">'+esc(p.promo.name)+' \u2212'+p.promo.pct+'%</span>' : '') +
+    '</button>';
+  }
+
+  // Pinned, scrolling, pinned. Only the middle knows how big the sale is: the
+  // title and Clear all stay put at the top, the total and the charge button
+  // stay put at the bottom, and everything that grows lives between them.
+  //
+  // On a phone the panel stops there. Discount and payment do NOT go inline -
+  // there is no width for a basket and a payment at once, and inlining them
+  // would bury the money under however many items the customer brought. They
+  // stay where they are today, behind Checkout, in the sheet below.
+  function panelHTML(compact){
+    // A settlement with no basket is a real transaction at this till, so the
+    // payment side has to appear for it exactly as it does for a sale.
+    var hasMoneyToTake = S.cart.length > 0 || settling() > 0;
+    if(compact){
+      return '<div class="d-card">' + headHTML() +
+        '<div class="d-mid">' + custSectionHTML() + linesHTML() + '</div>' +
+        grandHTML() + compactFootHTML() + '</div>';
+    }
+    return '<div class="d-card">' + headHTML() +
+      '<div class="d-mid">' + custSectionHTML() + linesHTML() +
+        (S.cart.length ? discountHTML() : '') +
+        (hasMoneyToTake ? paymentHTML() + breakdownHTML() : '') + '</div>' +
+      grandHTML() + footHTML() + '</div>';
+  }
+
+  // Deliberately shorter than the tablet's foot. Every pixel this takes is a
+  // pixel of basket the cashier cannot see, so the button keeps its size and
+  // everything around it gives way: holding a sale and who is serving share one
+  // row underneath.
+  function compactFootHTML(){
+    return '<div class="d-sec d-cfoot">' +
+      '<button class="d-go small" data-act="sheet-open"' + (S.cart.length ? '' : ' disabled') + '>' +
+        icon('i-lock',15) + '<span>' + (S.cart.length ? 'Checkout \u00b7 ' + fmt(total()) : 'Nothing to charge yet') + '</span></button>' +
+      '<div class="d-cfootrow">' +
+        '<button class="d-holdmini" data-act="hold"' + (S.cart.length?'':' disabled') + '>' +
+          icon('i-clock',12) + ' Hold</button>' +
+        '<span class="d-servedmini">Served by <b>Amran Jama</b> \u00b7 <span class="chg">Change</span></span>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // The phone's checkout, in the modal it already uses. Same blocks as the
+  // tablet's panel, in the same order, on the same grey - the sheet is the
+  // PAGE and the blocks on it are the cards, which is the note
+  // checkout-panel.tsx leaves about why the sheet must not be white.
+  // `force` is for the frame that shows the sheet standing open, so the phone's
+  // checkout can be read without tapping anything.
+  function sheetHTML(force){
+    if((!S.sheetOpen && !force) || !S.cart.length) return '';
+    return '<div class="d-sheetscrim" data-act="sheet-scrim"><div class="d-sheet" role="dialog" aria-label="Checkout">' +
+      '<div class="d-grab"></div>' +
+      '<div class="d-sheethead"><span class="d-sheettitle">Checkout</span>' +
+        '<button class="d-done" data-act="sheet-close">Close</button></div>' +
+      '<div class="d-sheetmid">' +
+        '<div class="d-block">' + custSectionHTML() + '</div>' +
+        '<div class="d-block">' + discountHTML() + '</div>' +
+        '<div class="d-block">' + paymentHTML() + '</div>' +
+        '<div class="d-block">' + breakdownHTML() + '</div>' +
+      '</div>' +
+      '<div class="d-sheetfoot">' + grandHTML() + footHTML(true) + '</div>' +
+    '</div></div>';
+  }
+
+  function headHTML(){
+    var h = '<div class="d-sec">' +
+      '<div class="d-titlerow">' +
+        '<span class="d-title">Current sale</span>' +
+        '<span style="display:flex;align-items:center;gap:8px;">' +
+          '<span class="d-count num">' + itemCount() + (itemCount()===1?' item':' items') + '</span>' +
+          // Clearing a basket someone is standing at is destructive, so it asks
+          // once - the same confirmDestructive guard pos.tsx puts on it today.
+          (S.cart.length
+            ? (S.confirmClear
+                ? '<button class="d-clear danger" data-act="clear-yes">Clear everything?</button>' +
+                  '<button class="d-clear" data-act="clear-no">Keep</button>'
+                : '<button class="d-clear" data-act="clear">Clear all</button>')
+            : '') +
+          (S.held.length
+            ? '<button class="d-qbtn' + (S.queueOpen?' on':'') + '" data-act="queue" aria-label="Held orders">' +
+                icon('i-queue',15) + '<span class="d-qbadge num">' + S.held.length + '</span></button>'
+            : '') +
+        '</span>' +
+      '</div>';
+
+    if(S.queueOpen && S.held.length){
+      h += '<div class="d-queue">' + S.held.map(function(o){
+        return '<div class="d-qi">' +
+          '<div class="m"><div class="n">' + (o.customer ? esc(o.customer.name) : 'Walk-in customer') + '</div>' +
+          '<div class="s">' + o.items + (o.items===1?' item':' items') + ' \u00b7 held ' + o.when + '</div></div>' +
+          '<span class="t num">' + fmt(o.total) + '</span>' +
+          '<button class="d-resume" data-act="resume" data-v="'+o.id+'">Resume</button>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    return h + '</div>';
+  }
+
+  // The customer scrolls with the sale rather than pinning: it is set once, at
+  // the start, and after that it is something to read, not to reach.
+  function custSectionHTML(){
+    return '<div class="d-sec d-custsec">' + custHTML() + '</div>';
+  }
+
+  function custHTML(){
+    var c = S.customer, h;
+    if(c){
+      var pts = c.points > 0
+        ? ' \u00b7 <span class="pts">' + c.points.toLocaleString() + ' points</span>'
+        : '';
+      h = '<button class="d-cust" data-act="cust-toggle">' +
+        '<span class="d-ava">'+initials(c.name)+'</span>' +
+        '<span class="b"><span class="nm">'+esc(c.name)+'</span>' +
+        '<span class="sb">'+esc(c.phone)+' \u00b7 '+esc(c.visits)+pts+'</span></span>' +
+        '<span class="d-rm" data-act="cust-clear" role="button" aria-label="Remove customer">'+icon('i-x',12)+'</span>' +
+      '</button>';
+      // An old debt cannot wait to be discovered in a report. It surfaces the
+      // moment the customer is attached, next to the one control that clears
+      // it - whether or not there is anything in the basket.
+      if(owedBefore() > 0){
+        h += '<div class="d-owes">' +
+          '<span class="m"><b>Owes ' + fmt(owedBefore()) + '</b>' +
+            '<span>Unpaid since ' + esc(c.owedSince || 'an earlier sale') + ' \u00b7 ' + fmtSL(owedBefore()) + '</span></span>' +
+          (settling() > 0
+            ? '<button class="d-owesbtn on" data-act="settle" data-v="0">Collecting ' + fmt(settling()) + '</button>'
+            : '<button class="d-owesbtn" data-act="settle" data-v="all">Collect it</button>') +
+        '</div>';
+      }
+    } else {
+      h = '<button class="d-cust" data-act="cust-toggle">' +
+        '<span class="d-ava walk">'+icon('i-search',15)+'</span>' +
+        '<span class="b"><span class="nm">Walk-in customer</span>' +
+        '<span class="sb">Attach one for points, a receipt or a balance</span></span>' +
+        icon('i-chev',16) +
+      '</button>';
+    }
+    if(!S.custOpen) return h;
+
+    var q = S.custQuery.toLowerCase();
+    var matches = CUSTOMERS.filter(function(x){
+      return x.name.toLowerCase().indexOf(q) >= 0 || x.phone.indexOf(q) >= 0;
+    });
+    h += '<div class="d-pop">' +
+      '<div class="d-popsearch">' + icon('i-search',14) +
+        '<input placeholder="Search by name or phone" data-act="cust-query" value="'+esc(S.custQuery)+'" aria-label="Search customers">' +
+      '</div>' +
+      (matches.length ? matches.map(function(x){
+        return '<button class="d-opt" data-act="cust-pick" data-v="'+x.id+'">' +
+          '<span class="ava">'+initials(x.name)+'</span>' +
+          '<span class="m"><b>'+esc(x.name)+'</b><span>'+esc(x.phone)+'</span></span>' +
+          '<span class="v">'+esc(x.visits)+'</span></button>';
+      }).join('') : '<div class="d-qempty">Nobody by that name \u2014 add them below.</div>') +
+      '<div class="d-new">' +
+        '<div class="d-lab">New customer</div>' +
+        '<div class="d-newfields">' +
+          '<input data-act="new-name" placeholder="Name" value="'+esc(S.newName)+'" aria-label="New customer name">' +
+          '<input data-act="new-phone" placeholder="Phone" value="'+esc(S.newPhone)+'" aria-label="New customer phone">' +
+        '</div>' +
+        '<button class="d-newbtn" data-act="cust-create"' +
+          ((S.newName.trim() && S.newPhone.trim()) ? '' : ' disabled') + '>Add customer</button>' +
+      '</div></div>';
+    return h;
+  }
+
+  function linesHTML(){
+    if(!S.cart.length){
+      return '<div class="d-empty">' + icon('i-cart',32) +
+        '<div><b>Nothing in this sale yet.</b><br>Tap a product, or scan one.</div></div>';
+    }
+    return '<div class="d-lines">' + S.cart.map(function(l){
+      var p = product(l.id), gross = lineGross(l), net = lineNet(l), promo = p.promo && !l.discPct;
+      var meta = '<span class="pr num">' + (net !== gross ? '<s>'+fmt(gross)+'</s> ' : '') + fmt(net) + '</span>';
+      if(promo){ meta += '<span class="d-tag promo">'+esc(p.promo.name)+' \u2212'+p.promo.pct+'%</span>'; }
+      meta += '<button class="d-tag' + (l.discPct?' set':'') + '" data-act="line-picker" data-v="'+l.id+'">' +
+        (l.discPct ? l.discPct + '% off' : '+ Discount') + '</button>';
+      var picker = S.linePickerFor === l.id
+        ? '<div class="d-pills" style="margin-top:8px;">' +
+            [5,10,15,20].map(function(pct){
+              return '<button class="d-pill" data-act="line-disc" data-v="'+l.id+':'+pct+'">'+pct+'%</button>';
+            }).join('') +
+            '<button class="d-pill accent" data-act="line-disc-custom" data-v="'+l.id+'">Custom</button>' +
+            (l.discPct ? '<button class="d-pill" data-act="line-disc" data-v="'+l.id+':0">Remove</button>' : '') +
+          '</div>'
+        : '';
+      return '<div class="d-line">' +
+        '<span class="sw">' + (art(p, false) || '<span class="mono" style="background:'+p.color+';">'+initials(p.brand)+'</span>') + '</span>' +
+        '<span class="b">' +
+          '<span class="r1"><span class="nm">'+esc(p.name)+'</span>' +
+            '<button class="d-rm" data-act="rm" data-v="'+l.id+'" aria-label="Remove ' + esc(p.name) + '">'+icon('i-x',12)+'</button></span>' +
+          '<span class="meta">'+meta+'</span>' + picker +
+          '<span class="r2">' +
+            '<span class="d-qty">' +
+              '<button data-act="qty" data-v="'+l.id+':-1" aria-label="One fewer">\u2212</button>' +
+              '<span class="num">'+l.qty+'</span>' +
+              '<button data-act="qty" data-v="'+l.id+':1" aria-label="One more">+</button>' +
+            '</span>' +
+            '<span class="tot">'+money(net)+'</span>' +
+          '</span>' +
+        '</span>' +
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  function discountHTML(){
+    var body;
+    if(S.orderDiscPct){
+      body = '<div class="d-applied"><b>' + S.orderDiscPct + '% off the order</b>' +
+        '<button class="d-x" data-act="disc" data-v="0" aria-label="Remove order discount" style="color:#007a38;">' +
+        icon('i-x',11) + '</button></div>';
+    } else if(S.discPickerOpen){
+      body = '<div class="d-pills">' +
+        [5,10,15,20].map(function(p){ return '<button class="d-pill" data-act="disc" data-v="'+p+'">'+p+'%</button>'; }).join('') +
+        '<button class="d-pill accent" data-act="disc-custom">Custom</button>' +
+        '<button class="d-pill" data-act="disc-cancel">Cancel</button></div>';
+    } else {
+      body = '<button class="d-pill" data-act="disc-open">+ Discount the order</button>';
+    }
+    return '<div class="d-sec"><div class="d-lab">Discount</div>' + body + '</div>';
+  }
+
+  function method(id){ return PAY.filter(function(m){ return m.id===id; })[0]; }
+  function methodIcon(m, size){
+    return '<span class="ic" style="background:'+m.color+';">' + (m.icon ? icon(m.icon, size||14) : m.mono) + '</span>';
+  }
+
+  // Everything typed into the draft is in the draft's currency. Converted to
+  // USD cents once, here, so every figure downstream is the same arithmetic
+  // the USD-only path does - which is how payment-method-picker.tsx handles it.
+  function draftEntered(){
+    var raw = parseFloat((S.draft && S.draft.amount) || '0');
+    if(isNaN(raw) || raw < 0) return {foreign:0, usd:0};
+    var minor = Math.round(raw * 100);
+    return {foreign: minor, usd: S.draft.currency === 'SLSH' ? Math.round(minor / RATE * 100) : minor};
+  }
+
+  function paymentHTML(){
+    var h = '<div class="d-sec"><div class="d-lab">Payment</div>';
+
+    if(S.payments.length){
+      h += '<div class="d-taken">' + S.payments.map(function(p, i){
+        var m = method(p.method), meta = [];
+        if(p.currency === 'SLSH'){ meta.push('SLSH ' + (p.foreign/100).toLocaleString('en-US')); }
+        if(p.tendered){ meta.push('Tendered ' + fmt(p.tendered) + ' \u00b7 change ' + fmt(p.tendered - p.cents)); }
+        if(p.name){ meta.push(p.name + (p.phone ? ' \u00b7 ' + p.phone : '')); }
+        return '<div class="d-tk">' + methodIcon(m, 12) +
+          '<span class="m"><b>' + m.label + '</b>' +
+          (meta.length ? '<span class="num">' + esc(meta.join(' \u00b7 ')) + '</span>' : '') + '</span>' +
+          '<span class="amt num">' + fmt(p.cents) + '</span>' +
+          '<button class="d-rm" data-act="pay-rm" data-v="'+i+'" aria-label="Remove this payment">'+icon('i-x',12)+'</button>' +
+        '</div>';
+      }).join('') + '</div>';
+    }
+
+    if(remaining() <= 0 && S.payments.length){
+      h += '<div class="d-fullypaid">' + icon('i-lock',13) + ' Paid in full</div>';
+      return h + '</div>';
+    }
+
+    if(S.payments.length){
+      h += '<div class="d-remain"><span class="l">Still to pay</span><span class="v num">' + fmt(remaining()) + '</span></div>';
+    }
+
+    if(S.draft){ h += draftHTML(); }
+    else {
+      h += '<div class="d-pays">' + PAY.map(function(m){
+        return '<button class="d-pay" data-act="draft-open" data-v="'+m.id+'">' + methodIcon(m) +
+          '<span class="l">'+m.label+'</span></button>';
+      }).join('') + '</div>';
+    }
+
+    // The remainder has to go somewhere, and the cashier says where. Left as an
+    // implicit "not fully paid" it is the bug this screen exists to prevent.
+    if(!S.draft){
+      h += '<div class="d-rest"><div class="d-lab" style="margin:14px 0 8px;">The remaining ' +
+        fmt(remaining()) + '</div><div class="d-restrow">' +
+        '<button class="d-restbtn' + (S.restOwed ? '' : ' on') + '" data-act="rest" data-v="collect">' +
+          '<b>Collect it now</b><span>Take another payment</span></button>' +
+        '<button class="d-restbtn' + (S.restOwed ? ' on' : '') + '" data-act="rest" data-v="owed">' +
+          '<b>Pay later</b><span>' + (S.customer ? esc(S.customer.name) + ' owes it' : 'Needs a customer') + '</span></button>' +
+        '</div></div>';
+    }
+    return h + '</div>';
+  }
+
+  function draftHTML(){
+    var m = method(S.draft.method), isCash = S.draft.method === 'cash';
+    var entered = draftEntered();
+    var applied = Math.min(entered.usd, remaining());
+    var change = isCash && entered.usd > remaining() ? entered.usd - remaining() : 0;
+    var short = entered.usd > 0 && entered.usd < remaining() ? remaining() - entered.usd : 0;
+    var isMobileMoney = S.draft.method === 'zaad' || S.draft.method === 'edahab';
+
+    var h = '<div class="d-draft">' +
+      '<div class="d-drafthead"><b>' + methodIcon(m, 12) + m.label + '</b>' +
+        '<button class="d-cancel" data-act="draft-cancel">Cancel</button></div>' +
+      '<div class="d-tenders">' +
+        ['USD','SLSH'].map(function(c){
+          return '<button class="d-tender' + (S.draft.currency===c ? ' on':'') + '" data-act="draft-ccy" data-v="'+c+'">'+c+'</button>';
+        }).join('') +
+      '</div>' +
+      '<div class="d-field">' + (isCash ? (S.draft.currency==='SLSH' ? 'SLSH received' : 'Cash received') :
+        'Amount' + (S.draft.currency==='SLSH' ? ' (SLSH)' : '')) + '</div>' +
+      '<input class="d-input num" data-act="draft-amount" inputmode="decimal" value="' + esc(S.draft.amount) + '" ' +
+        'placeholder="0.00" aria-label="Amount taken">';
+
+    if(isCash){
+      // What a cashier is actually handed: notes. Faster and less error-prone
+      // than typing, and it is how the amount arrives at a counter.
+      var notes = S.draft.currency === 'SLSH' ? [50000,100000,200000,500000] : [5,10,20,50];
+      h += '<div class="d-tenders">' +
+        '<button class="d-tender" data-act="draft-exact">Exact ' +
+          (S.draft.currency==='SLSH' ? Math.round(remaining()/100*RATE).toLocaleString('en-US') : fmt(remaining())) + '</button>' +
+        notes.map(function(n){
+          return '<button class="d-tender" data-act="draft-note" data-v="'+n+'">' +
+            (S.draft.currency==='SLSH' ? n.toLocaleString('en-US') : '$'+n) + '</button>';
+        }).join('') + '</div>';
+    }
+
+    if(S.draft.currency === 'SLSH' && entered.foreign > 0){
+      h += '<div class="d-conv num">\u2248 ' + fmt(entered.usd) + ' at ' + RATE.toLocaleString('en-US') + ' to the dollar</div>';
+    }
+    if(change > 0){ h += '<div class="d-change num">Change due ' + fmt(change) + ' \u00b7 ' + fmtSL(change) + '</div>'; }
+    if(short > 0){
+      h += '<div class="d-short">Applies ' + fmt(entered.usd) + ' to this sale. ' + fmt(short) +
+        ' is still owed \u2014 take it on another method, or put it on the customer\'s account.</div>';
+    }
+    if(isMobileMoney){
+      h += '<div class="d-field">Sent by (optional)</div>' +
+        '<input class="d-input small" data-act="draft-name" value="'+esc(S.draft.name)+'" placeholder="Name on the transfer" aria-label="Name on the transfer">' +
+        '<div class="d-field">Their number (optional)</div>' +
+        '<input class="d-input small" data-act="draft-phone" inputmode="tel" value="'+esc(S.draft.phone)+'" placeholder="+252" aria-label="Their number">';
+    }
+    h += '<button class="d-add" data-act="draft-add"' + (applied > 0 ? '' : ' disabled') + '>' +
+      (applied > 0 ? 'Take ' + fmt(applied) : 'Enter an amount') + '</button></div>';
+    return h;
+  }
+
+  // The itemised part of the bill, which scrolls with the sale it itemises.
+  function breakdownHTML(){
+    // No zero-total block on an idle till: the empty state above already says
+    // what to do, and a column of $0.00 says nothing.
+    if(!S.cart.length){
+      // Settling on its own still needs its one line.
+      return settling() > 0
+        ? '<div class="d-sec"><div class="d-trow"><span class="l">Older balance being paid</span>' +
+          '<span class="r">'+money(settling())+'</span></div></div>'
+        : '';
+    }
+    var rows = '<div class="d-trow"><span class="l">Subtotal</span><span class="r">'+money(grossTotal())+'</span></div>';
+    var savedOnLines = grossTotal() - subtotal();
+    if(savedOnLines > 0){
+      rows += '<div class="d-trow less"><span class="l">Offers and line discounts</span><span class="r">' +
+        '<div class="v num">\u2212'+fmt(savedOnLines)+'</div><div class="sub num">\u2212'+fmtSL(savedOnLines)+'</div></span></div>';
+    }
+    if(orderDisc() > 0){
+      rows += '<div class="d-trow less"><span class="l">Order discount ('+S.orderDiscPct+'%)</span><span class="r">' +
+        '<div class="v num">\u2212'+fmt(orderDisc())+'</div><div class="sub num">\u2212'+fmtSL(orderDisc())+'</div></span></div>';
+    }
+    if(redemptionCents() > 0){
+      rows += '<div class="d-trow less"><span class="l">Points ('+S.redeemPoints.toLocaleString()+')</span><span class="r">' +
+        '<div class="v num">\u2212'+fmt(redemptionCents())+'</div><div class="sub num">\u2212'+fmtSL(redemptionCents())+'</div></span></div>';
+    }
+    if(taxCents() > 0){
+      rows += '<div class="d-trow"><span class="l">Tax ('+TAX_PCT+'%)</span><span class="r">'+money(taxCents())+'</span></div>';
+    }
+    if(pointsEarned() > 0){
+      rows += '<div class="d-trow"><span class="l">Earns</span><span class="r"><div class="v num">' +
+        pointsEarned().toLocaleString() + ' points</div></span></div>';
+    }
+    return '<div class="d-sec">' + rows + '</div>';
+  }
+
+  // Pinned. The two figures a cashier reads aloud - what it comes to, and what
+  // is still owed - never scroll away from the button that acts on them.
+  function grandHTML(){
+    if(!S.cart.length && settling() <= 0) return '';
+    var rows = '';
+    // Two debts, one moment: the basket and what they already owed. Adding them
+    // silently would be the wrong kind of helpful, so both are named.
+    if(settling() > 0 && S.cart.length){
+      rows += '<div class="d-trow"><span class="l">This sale</span><span class="r">' +
+        '<div class="v num">'+fmt(total())+'</div></span></div>' +
+        '<div class="d-trow"><span class="l">Older balance</span><span class="r">' +
+        '<div class="v num">'+fmt(settling())+'</div></span></div>';
+    }
+    rows += '<div class="d-trow total"><span class="l">' + (settling() > 0 ? 'To collect' : 'Total') +
+      '</span><span class="r">' +
+      '<div class="v num">'+fmt(toCollect())+'</div><div class="sub num" style="font-size:11px;">'+fmtSL(toCollect())+'</div></span></div>';
+    // Only once money has actually been taken, or the rest has been put on
+    // account. Before that it would just repeat the total in a second colour.
+    if(balance() > 0 && (collected() > 0 || S.restOwed)){
+      rows += '<div class="d-trow bal"><span class="l">' + (S.restOwed ? 'Owed after this sale' : 'Still to pay') +
+        '</span><span class="r"><div class="v num">'+fmt(balance())+'</div>' +
+        '<div class="sub num">'+fmtSL(balance())+'</div></span></div>';
+    }
+    return '<div class="d-sec d-grand">' + rows + '</div>';
+  }
+
+  // `inSheet` drops the two controls that belong to the till rather than to the
+  // payment: holding a sale and who is serving it are not checkout decisions.
+  function footHTML(inSheet){
+    var label, hint = '', disabled = false;
+    var settleOnly = !S.cart.length && settling() > 0;
+    if(!S.cart.length && settling() <= 0){
+      label = 'Nothing to charge yet'; disabled = true;
+    } else if(remaining() <= 0){
+      var only = S.payments.length === 1 ? method(S.payments[0].method).label : null;
+      if(settleOnly){
+        label = 'Take ' + fmt(settling()) + ' off the balance';
+        hint = S.customer.name + ' will owe ' + fmt(owedBefore() - settling()) + ' after this';
+      } else {
+        label = 'Charge ' + fmt(toCollect()) + ' \u00b7 ' + (only || 'split ' + S.payments.length + ' ways');
+        hint = (settling() > 0 ? 'Includes ' + fmt(settling()) + ' off an older balance \u00b7 ' : '') +
+          (S.customer ? 'Receipt saved to ' + S.customer.name : 'No customer \u2014 the receipt is printed, not saved') +
+          ' \u00b7 ' + fmtSL(toCollect());
+      }
+    } else if(!S.restOwed){
+      label = S.payments.length ? 'Collect the remaining ' + fmt(remaining()) : 'Take a payment';
+      disabled = true;
+    } else if(!S.customer){
+      label = 'Attach a customer to carry the balance'; disabled = true;
+    } else if(S.payments.length){
+      label = 'Take ' + fmt(paidNow()) + ' now \u00b7 ' + fmt(remaining()) + ' owed';
+      hint = S.customer.name + ' owes ' + fmt(remaining()) + ' \u00b7 ' + fmtSL(remaining());
+    } else {
+      label = 'Save as unpaid \u00b7 ' + fmt(total()) + ' owed';
+      hint = 'Nothing collected \u00b7 ' + S.customer.name + ' owes ' + fmtSL(total());
+    }
+    return '<div class="d-sec">' +
+      '<button class="d-go" data-act="checkout"' + (disabled?' disabled':'') + '>' +
+        icon('i-lock',16) + '<span>' + esc(label) + '</span></button>' +
+      (hint ? '<div class="d-hint">'+esc(hint)+'</div>' : '') +
+      (inSheet ? '' :
+        '<button class="d-hold" data-act="hold"' + (S.cart.length?'':' disabled') + '>Hold for later</button>' +
+        '<div class="d-served"><span>Served by <b>Amran Jama</b></span><span>Change</span></div>') +
+    '</div>';
+  }
+
+  // A stand-in for the real QR, which is generated from the sale id. Drawn, not
+  // decoded - it is here to hold the right amount of space on the paper.
+  function qrBlock(seed){
+    var n = 21, cells = '', h = 0, i, x, y;
+    for(i=0;i<seed.length;i++){ h = (h*31 + seed.charCodeAt(i)) >>> 0; }
+    function finder(ox, oy){
+      return '<rect x="'+ox+'" y="'+oy+'" width="7" height="7" fill="#111"/>' +
+             '<rect x="'+(ox+1)+'" y="'+(oy+1)+'" width="5" height="5" fill="#fff"/>' +
+             '<rect x="'+(ox+2)+'" y="'+(oy+2)+'" width="3" height="3" fill="#111"/>';
+    }
+    for(y=0;y<n;y++){
+      for(x=0;x<n;x++){
+        var inFinder = (x<8 && y<8) || (x>n-9 && y<8) || (x<8 && y>n-9);
+        if(inFinder) continue;
+        h = (h*1103515245 + 12345) >>> 0;
+        if((h >>> 16) % 100 < 46) cells += '<rect x="'+x+'" y="'+y+'" width="1" height="1" fill="#111"/>';
+      }
+    }
+    return '<svg width="62" height="62" viewBox="0 0 21 21" role="img" aria-label="Receipt code">' +
+      cells + finder(0,0) + finder(14,0) + finder(0,14) + '</svg>';
+  }
+
+  // The receipt is NOT part of the redesign: this is receipt-modal.tsx as it
+  // ships - monospace paper, dashed rules, QR, the same three actions. The only
+  // line that is new is the balance, and it prints in the same idiom.
+  function receiptHTML(){
+    var r = S.receipt;
+    if(!r) return '';
+
+    var items = r.items.map(function(it){
+      return '<div class="d-pitem">' +
+        '<span class="c-name">' + esc(it.name) +
+          (it.disc > 0 ? '<div class="sub2">discount \u2212' + (it.disc/100).toFixed(2) + '</div>' : '') + '</span>' +
+        '<span class="c-qty">' + it.qty + '</span>' +
+        '<span class="c-price">' + (it.unit/100).toFixed(2) + '</span>' +
+        '<span class="c-total">' + (it.cents/100).toFixed(2) + '</span>' +
+      '</div>';
+    }).join('');
+
+    var pays = r.payments.map(function(p){
+      var m = method(p.method);
+      var sub = '';
+      if(p.currency === 'SLSH'){
+        sub = '<div class="d-psub">SLSH ' + (p.foreign/100).toLocaleString('en-US') + ' @ ' +
+          RATE.toLocaleString('en-US') + '/$' +
+          (p.tendered ? ' \u00b7 change ' + fmtSL(p.tendered - p.cents) : '') + '</div>';
+      } else if(p.tendered){
+        sub = '<div class="d-psub">tendered ' + (p.tendered/100).toFixed(2) +
+          ' \u00b7 change ' + ((p.tendered - p.cents)/100).toFixed(2) + '</div>';
+      }
+      if(p.method === 'zaad' || p.method === 'edahab'){
+        sub += '<div class="d-psub">Merchant ID 9184' + (p.method === 'zaad' ? '20' : '77') + '</div>';
+      }
+      return '<div class="d-prow"><span class="l">' + m.label +
+        (p.currency === 'SLSH' ? ' (SLSH)' : '') + '</span>' +
+        '<span class="v">' + fmt(p.cents) + '</span></div>' + sub;
+    }).join('');
+
+    return '<div class="d-scrim" data-act="receipt-scrim"><div class="d-receipt" role="dialog" aria-label="Receipt">' +
+      '<div class="d-rhead"><span class="lft"><span class="d-rbadge">\u2713</span>' +
+        '<span class="d-rtitle">' + (r.owed > 0 ? 'Part paid' : 'Sale complete') + ' \u2713</span></span>' +
+        '<button class="d-done" data-act="receipt-done">Done</button></div>' +
+
+      '<div class="d-rscroll"><div class="d-paper">' +
+        '<div class="d-rlogo" style="background:#2f6bff;"></div>' +
+        '<div class="d-rshopname">Jaalala Skincare</div>' +
+        '<div class="d-rmeta">Hargeisa \u00b7 Jiija</div>' +
+        '<div class="d-rmeta">+252 63 402 8871</div>' +
+        '<div class="d-rmeta">Open today 08:00 - 21:00</div>' +
+
+        '<div class="d-dash"></div>' +
+        '<div class="d-prow"><span class="l">Receipt #</span><span class="v">' + esc(r.code) + '</span></div>' +
+        '<div class="d-prow"><span class="l">Date</span><span class="v">' + esc(r.date) + '</span></div>' +
+        '<div class="d-prow"><span class="l">Time</span><span class="v">' + esc(r.time) + '</span></div>' +
+        '<div class="d-prow"><span class="l">Cashier</span><span class="v">Amran Jama</span></div>' +
+
+        '<div class="d-dash"></div>' +
+        '<div class="d-phead"><span class="c-name">ITEM</span><span class="c-qty">QTY</span>' +
+          '<span class="c-price">PRICE</span><span class="c-total">TOTAL</span></div>' +
+        '<div class="d-prule"></div>' + items +
+
+        '<div style="margin-top:10px;">' +
+          (r.discount > 0
+            ? '<div class="d-prow"><span class="l">Subtotal</span><span class="v">' + (r.gross/100).toFixed(2) + '</span></div>' +
+              '<div class="d-prow"><span class="l">Discount</span><span class="v">\u2212' + (r.discount/100).toFixed(2) + '</span></div>'
+            : '') +
+          (r.points > 0 ? '<div class="d-prow"><span class="l">Points used (' + r.redeemed + ')</span><span class="v">\u2212' + (r.points/100).toFixed(2) + '</span></div>' : '') +
+          (r.tax > 0 ? '<div class="d-prow"><span class="l">Tax (' + TAX_PCT + '%)</span><span class="v">' + (r.tax/100).toFixed(2) + '</span></div>' : '') +
+          '<div class="d-pgrand"><span>TOTAL</span><span>' + fmt(r.total) + '</span></div>' +
+          '<div class="d-prow"><span class="l">' + esc(fmtSL(r.total)) + '</span><span class="v"></span></div>' +
+        '</div>' +
+
+        '<div class="d-dash"></div>' +
+        (r.settled > 0
+          ? '<div class="d-prow"><span class="l">Older balance paid</span><span class="v">' + fmt(r.settled) + '</span></div>'
+          : '') +
+        (pays || '<div class="d-prow"><span class="l">Nothing collected</span><span class="v">0.00</span></div>') +
+        (r.owed > 0
+          ? '<div class="d-powed"><span>BALANCE DUE</span><span>' + fmt(r.owed) + '</span></div>' +
+            '<div class="d-psub" style="margin-top:4px;">' + esc(r.customer) + ' \u00b7 ' + esc(fmtSL(r.owed)) + '</div>'
+          : '') +
+        (r.settled > 0 && typeof r.owedAfter === 'number'
+          ? '<div class="d-psub" style="margin-top:6px;">' + esc(r.customer) + ' now owes ' + fmt(r.owedAfter) + '</div>'
+          : '') +
+
+        (r.customerPhone
+          ? '<div class="d-dash"></div><div class="d-plabel">CUSTOMER</div>' +
+            '<div class="d-pcust">' + esc(r.customer) + '</div>' +
+            '<div class="d-pcust">' + esc(r.customerPhone) + '</div>' +
+            (r.earned > 0 ? '<div class="d-pcust">Points earned: ' + r.earned + '</div>' : '')
+          : '') +
+
+        '<div class="d-qrblock">' + qrBlock(r.code) + '<div class="d-qrnum">' + esc(r.code) + '</div></div>' +
+        '<div class="d-thanks">THANK YOU FOR YOUR PURCHASE!</div>' +
+        '<div class="d-policy">Exchange within 7 days with this receipt. Opened skincare cannot be returned.</div>' +
+        '<div class="d-pb"><span>Powered by</span><span class="d-pbmark"></span><b>Kaiibi</b></div>' +
+      '</div></div>' +
+
+      '<div class="d-ractions">' +
+        ['Print','Email','WhatsApp'].map(function(a){
+          return '<button class="d-raction" data-act="receipt-share" data-v="'+a+'">'+a+'</button>';
+        }).join('') +
+      '</div>' +
+    '</div></div>';
+  }
+
+  // Replacing innerHTML throws away every scroll position with it, so a cashier
+  // who scrolled to Fragrance and tapped a product would be thrown back to All.
+  // React keeps its ScrollViews across a re-render; this restores them by hand.
+  function keepScroll(host, selectors, html){
+    var saved = selectors.map(function(sel){
+      var el = host.querySelector(sel);
+      return el ? {sel: sel, left: el.scrollLeft, top: el.scrollTop} : null;
+    });
+    host.innerHTML = html;
+    saved.forEach(function(rec){
+      if(!rec) return;
+      var el = host.querySelector(rec.sel);
+      if(el){ el.scrollLeft = rec.left; el.scrollTop = rec.top; }
+    });
+  }
+
+  // ---- render ------------------------------------------------------------
+  function render(){
+    var panels = document.querySelectorAll('[data-panel]');
+    var browses = document.querySelectorAll('[data-browse]');
+    var modals = document.querySelectorAll('[data-modal]');
+    var b = browseHTML(), r = receiptHTML(), sheet = sheetHTML(), sheetOpen = sheetHTML(true);
+    var i, isPhone;
+    for(i=0;i<panels.length;i++){
+      isPhone = !!panels[i].closest('.w380');
+      keepScroll(panels[i], ['.d-mid','.d-lines'], panelHTML(isPhone));
+    }
+    for(i=0;i<browses.length;i++){ keepScroll(browses[i], ['.d-cats','.d-grid'], b); }
+    // The receipt outranks the sheet: completing a sale closes one and opens
+    // the other, and on iOS it cannot even be presented until that dismissal
+    // has finished (pos.tsx stages it on `onDismiss`).
+    for(i=0;i<modals.length;i++){
+      isPhone = !!modals[i].closest('.w380');
+      if(modals[i].hasAttribute('data-always')){
+        // The showcase frame: always the sheet, never the receipt, so the
+        // phone's checkout is legible at a glance on the page.
+        modals[i].innerHTML = sheetOpen;
+      } else {
+        modals[i].innerHTML = r || (isPhone ? sheet : '');
+      }
+    }
+    capCompactGrid();
+  }
+
+  // pos.tsx measures the first tile it renders and caps the compact grid at two
+  // of them, so the cart is reachable without paging through the catalogue.
+  // Same here, and for the same reason: a phone that shows six products and no
+  // basket is a browsing app, not a till.
+  function capCompactGrid(){
+    var grids = document.querySelectorAll('.w380 .d-grid');
+    for(var i=0;i<grids.length;i++){
+      var tile = grids[i].querySelector('.d-tile');
+      if(!tile) continue;
+      var h = tile.getBoundingClientRect().height;
+      if(h > 0) grids[i].style.maxHeight = Math.round(h * 2 + 10) + 'px';
+    }
+    markCategoryOverflow();
+  }
+
+  // Which end of the category row has more behind it. Measured rather than
+  // assumed: the same row overflows on a phone at four categories and on a
+  // counter tablet at about a dozen.
+  function markCategoryOverflow(){
+    var rows = document.querySelectorAll('.d-cats');
+    for(var i=0;i<rows.length;i++){
+      var row = rows[i];
+      var overflow = row.scrollWidth - row.clientWidth;
+      row.classList.toggle('moreRight', overflow > 2 && row.scrollLeft < overflow - 2);
+      row.classList.toggle('moreLeft', row.scrollLeft > 2);
+      if(!row.dataset.watched){
+        row.dataset.watched = '1';
+        row.addEventListener('scroll', markCategoryOverflow, {passive:true});
+      }
+    }
+  }
+
+  var toastTimer;
+  function toast(msg){
+    var el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function(){ el.classList.remove('show'); }, 2600);
+  }
+
+  // ---- actions -----------------------------------------------------------
+  function add(id){
+    var p = product(id);
+    if(!p || p.stock <= 0) return;
+    var line = S.cart.filter(function(l){ return l.id===id; })[0];
+    if(line){ line.qty = Math.min(line.qty + 1, p.stock); }
+    else { S.cart.push({id:id, qty:1, discPct:0}); }
+  }
+  function clearSale(){
+    S.cart = []; S.customer = null; S.orderDiscPct = 0; S.payments = [];
+    S.draft = null; S.restOwed = false; S.redeemPoints = 0; S.settleCents = 0;
+    S.discPickerOpen = false; S.linePickerFor = null; S.custOpen = false;
+    S.confirmClear = false;
+    // Emptying the cart is what closes the sheet, on the phone as in the app:
+    // there is nothing left to check out, so it must not stay up.
+    S.sheetOpen = false;
+  }
+  // Any change to what is owed invalidates a payment already taken against the
+  // old figure - same rule as the clear-payments effect in pos.tsx. A cashier
+  // who has already collected has to be told, not silently re-billed.
+  function repriced(){
+    if(S.payments.length) toast('The total changed, so the payments were cleared. Take them again.');
+    S.payments = []; S.draft = null; S.restOwed = false;
+  }
+  function startDraft(id){
+    // Defaults to what is still owed, which is the amount in nearly every sale.
+    S.draft = {
+      method: id,
+      currency: 'USD',
+      amount: remaining() > 0 ? (remaining()/100).toFixed(2) : '',
+      name: '', phone: ''
+    };
+  }
+
+  var scanIndex = 0;
+
+  document.addEventListener('click', function(e){
+    var el = e.target.closest('[data-act]');
+    if(!el) return;
+    var act = el.getAttribute('data-act');
+    var v = el.getAttribute('data-v');
+    var parts = (v || '').split(':');
+
+    switch(act){
+      case 'add': add(v); repriced(); break;
+      case 'cat': S.category = v; break;
+      case 'qty': {
+        var line = S.cart.filter(function(l){ return l.id===parts[0]; })[0];
+        if(!line) break;
+        var next = line.qty + Number(parts[1]);
+        var stock = product(line.id).stock;
+        if(next <= 0){ S.cart = S.cart.filter(function(l){ return l.id!==line.id; }); }
+        else if(next > stock){ toast('Only ' + stock + ' of that in stock at this store.'); break; }
+        else { line.qty = next; }
+        repriced();
+        break;
+      }
+      case 'rm': S.cart = S.cart.filter(function(l){ return l.id!==v; }); repriced(); break;
+      case 'line-picker': S.linePickerFor = S.linePickerFor === v ? null : v; break;
+      case 'line-disc': {
+        var l2 = S.cart.filter(function(l){ return l.id===parts[0]; })[0];
+        if(l2){ l2.discPct = Number(parts[1]); }
+        S.linePickerFor = null; repriced();
+        break;
+      }
+      case 'line-disc-custom': {
+        var pct = prompt('Percent off this line:', '12');
+        var n = parseFloat(pct);
+        if(n > 0 && n <= 100){
+          var l3 = S.cart.filter(function(l){ return l.id===v; })[0];
+          if(l3) l3.discPct = n;
+        }
+        S.linePickerFor = null; repriced();
+        break;
+      }
+      case 'disc-open': S.discPickerOpen = true; break;
+      case 'disc-cancel': S.discPickerOpen = false; break;
+      case 'disc': S.orderDiscPct = Number(v); S.discPickerOpen = false; repriced(); break;
+      case 'disc-custom': {
+        var d = prompt('Percent off the order:', '10');
+        var dn = parseFloat(d);
+        if(dn > 0 && dn <= 100) S.orderDiscPct = dn;
+        S.discPickerOpen = false; repriced();
+        break;
+      }
+      case 'cust-toggle': S.custOpen = !S.custOpen; break;
+      case 'cust-clear':
+        e.stopPropagation();
+        S.customer = null; S.redeemPoints = 0; S.custOpen = false; repriced();
+        break;
+      case 'cust-pick': {
+        S.customer = CUSTOMERS.filter(function(c){ return c.id===v; })[0];
+        S.custOpen = false; S.custQuery = ''; S.redeemPoints = 0;
+        if(S.customer.points > 0){
+          toast(S.customer.name + ' has ' + S.customer.points + ' points \u2014 worth ' +
+            fmt(S.customer.points * CENTS_PER_POINT) + ' off.');
+        }
+        break;
+      }
+      case 'cust-create': {
+        if(!S.newName.trim() || !S.newPhone.trim()) break;
+        S.customer = {id:'new', name:S.newName.trim(), phone:S.newPhone.trim(), visits:'New', points:0};
+        S.newName = ''; S.newPhone = ''; S.custOpen = false;
+        break;
+      }
+      case 'sheet-open': S.sheetOpen = true; break;
+      case 'sheet-close': S.sheetOpen = false; break;
+      case 'sheet-scrim':
+        if(e.target.closest('.d-sheet')) return;
+        S.sheetOpen = false;
+        break;
+
+      case 'clear': S.confirmClear = true; break;
+      case 'clear-no': S.confirmClear = false; break;
+      case 'clear-yes': clearSale(); toast('Cart cleared.'); break;
+
+      case 'draft-open': startDraft(v); break;
+      case 'draft-cancel': S.draft = null; break;
+      case 'draft-ccy': {
+        if(!S.draft) break;
+        S.draft.currency = v;
+        var owed = remaining();
+        S.draft.amount = v === 'SLSH'
+          ? String(Math.round(owed/100*RATE))
+          : (owed/100).toFixed(2);
+        break;
+      }
+      case 'draft-exact':
+        if(!S.draft) break;
+        S.draft.amount = S.draft.currency === 'SLSH'
+          ? String(Math.round(remaining()/100*RATE))
+          : (remaining()/100).toFixed(2);
+        break;
+      case 'draft-note': {
+        if(!S.draft) break;
+        // Notes add up, the way they do in a hand: two twenties is a tap each.
+        var have = parseFloat(S.draft.amount) || 0;
+        var already = S.draft.noteMode ? have : 0;
+        S.draft.noteMode = true;
+        S.draft.amount = S.draft.currency === 'SLSH'
+          ? String(Math.round(already + Number(v)))
+          : (already + Number(v)).toFixed(2);
+        break;
+      }
+      case 'draft-add': {
+        if(!S.draft) break;
+        var got = draftEntered();
+        var take = Math.min(got.usd, remaining());
+        if(take <= 0) break;
+        S.payments.push({
+          method: S.draft.method,
+          cents: take,
+          tendered: S.draft.method === 'cash' && got.usd > take ? got.usd : null,
+          currency: S.draft.currency,
+          foreign: S.draft.currency === 'SLSH' ? got.foreign : null,
+          name: S.draft.name.trim() || null,
+          phone: S.draft.phone.trim() || null
+        });
+        S.draft = null;
+        if(remaining() > 0) toast(fmt(remaining()) + ' still to pay.');
+        break;
+      }
+      case 'pay-rm': S.payments.splice(Number(v), 1); break;
+      case 'rest':
+        S.restOwed = v === 'owed';
+        if(S.restOwed && !S.customer) toast('A balance needs a name against it - attach a customer.');
+        break;
+      case 'settle':
+        S.settleCents = v === 'all' ? owedBefore() : 0;
+        S.payments = []; S.draft = null; S.restOwed = false;
+        break;
+      case 'queue': S.queueOpen = !S.queueOpen; break;
+      case 'hold': {
+        if(!S.cart.length) break;
+        S.held.push({
+          id: 'h' + Date.now(),
+          customer: S.customer,
+          items: itemCount(),
+          total: total(),
+          when: 'just now',
+          snapshot: JSON.parse(JSON.stringify({cart:S.cart, orderDiscPct:S.orderDiscPct,
+            payments:S.payments, restOwed:S.restOwed, redeemPoints:S.redeemPoints})),
+          customerRef: S.customer
+        });
+        clearSale();
+        toast('Held. It is behind the stack icon until someone resumes it.');
+        break;
+      }
+      case 'resume': {
+        var idx = -1;
+        S.held.forEach(function(o,k){ if(o.id===v) idx = k; });
+        if(idx < 0) break;
+        var held = S.held[idx];
+        S.held.splice(idx,1);
+        S.cart = held.snapshot.cart;
+        S.orderDiscPct = held.snapshot.orderDiscPct;
+        S.payments = held.snapshot.payments;
+        S.restOwed = held.snapshot.restOwed;
+        S.redeemPoints = held.snapshot.redeemPoints;
+        S.customer = held.customerRef;
+        S.queueOpen = false;
+        break;
+      }
+      case 'scan': {
+        var btn = el;
+        if(btn.classList.contains('busy')) break;
+        btn.classList.add('busy');
+        setTimeout(function(){
+          var p2 = PRODUCTS.filter(function(x){ return x.stock > 0; })[scanIndex % 5];
+          scanIndex++;
+          add(p2.id); repriced(); render();
+          toast('Scanned \u2014 ' + p2.name + ' added.');
+        }, 480);
+        return; // the re-render happens in the callback
+      }
+      // Charging hands straight to the receipt, which is what pos.tsx does
+      // today (completeSale -> ReceiptData -> ReceiptModal). The till is not
+      // cleared until the receipt is dismissed - on iOS the receipt cannot even
+      // be presented until the sheet before it has finished dismissing.
+      case 'checkout': {
+        var code = (total() * 7 + S.cart.length).toString(16).toUpperCase();
+        S.receipt = {
+          code: (code.slice(0,4) + '-' + code.slice(-4)).toUpperCase(),
+          date: '8/15/2026',
+          time: '4:00 PM',
+          items: S.cart.map(function(l){
+            return {name: product(l.id).name, qty: l.qty, unit: product(l.id).cents,
+                    disc: lineGross(l) - lineNet(l), cents: lineNet(l)};
+          }),
+          gross: grossTotal(),
+          discount: (grossTotal() - subtotal()) + orderDisc(),
+          redeemed: S.redeemPoints,
+          points: redemptionCents(),
+          tax: taxCents(),
+          total: total(),
+          payments: S.payments.slice(),
+          settled: settling(),
+          owed: remaining(),
+          earned: pointsEarned(),
+          customer: S.customer ? S.customer.name : 'Walk-in customer',
+          customerPhone: S.customer ? S.customer.phone : null
+        };
+        // The customer's ledger moves here: what they settled comes off, what
+        // this sale was left short by goes on.
+        if(S.customer){
+          S.customer.owes = Math.max(0, owedBefore() - settling()) + (S.restOwed ? remaining() : 0);
+          S.receipt.owedAfter = S.customer.owes;
+        }
+        break;
+      }
+      case 'receipt-share': toast(v + ' is wired already - buildReceiptText / buildReceiptHtml in receipt-modal.tsx.'); break;
+      case 'receipt-done':
+      case 'receipt-scrim': {
+        if(act === 'receipt-scrim' && e.target.closest('.d-receipt')) return;
+        S.receipt = null;
+        clearSale();
+        break;
+      }
+      default: return;
+    }
+    render();
+  });
+
+  // Typing does not re-render the whole panel - that would steal focus on every
+  // keystroke. Only the state behind the button is updated.
+  document.addEventListener('input', function(e){
+    var el = e.target.closest('[data-act]');
+    if(!el) return;
+    var act = el.getAttribute('data-act');
+    if(act === 'cust-query'){
+      S.custQuery = el.value;
+      render();
+      var live = document.querySelector('[data-act="cust-query"]');
+      if(live){ live.focus(); live.setSelectionRange(live.value.length, live.value.length); }
+    } else if(act === 'new-name' || act === 'new-phone'){
+      if(act === 'new-name') S.newName = el.value; else S.newPhone = el.value;
+      var btn2 = el.closest('.d-new').querySelector('.d-newbtn');
+      if(btn2) btn2.disabled = !(S.newName.trim() && S.newPhone.trim());
+    } else if(act === 'draft-amount' && S.draft){
+      // The change-due and still-owed lines have to follow the digits, so this
+      // one does re-render - and puts the caret back where it was.
+      S.draft.amount = el.value;
+      S.draft.noteMode = false;
+      var caret = el.selectionStart, host = el.closest('[data-panel]');
+      render();
+      var again = host && host.querySelector('[data-act="draft-amount"]');
+      if(again){ again.focus(); again.setSelectionRange(caret, caret); }
+    } else if(act === 'draft-name' && S.draft){ S.draft.name = el.value; }
+    else if(act === 'draft-phone' && S.draft){ S.draft.phone = el.value; }
+  });
+
+  // The cap is measured, so it has to be re-measured when the tile changes size.
+  window.addEventListener('resize', capCompactGrid);
+
+  // Preload one sale so the frames land on something to read rather than an
+  // empty cart - a mockup of an empty screen says nothing. Part paid in cash,
+  // which is the state the rest of this page is arguing about.
+  S.cart = [{id:'p2', qty:1, discPct:0}, {id:'p5', qty:2, discPct:0}];
+  S.customer = CUSTOMERS[0];
+  S.payments = [{method:'cash', cents:5000, tendered:null, currency:'USD', foreign:null, name:null, phone:null}];
+  S.restOwed = false;
+  render();
+})();
+</script>
