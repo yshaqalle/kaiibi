@@ -46,7 +46,7 @@ import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/li
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
 import { displayCurrency, secondaryAmount } from '@/lib/display-currency';
-import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
+import { appliedPromotionForLine, bestPromotionForProduct, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { cashMovementsByCurrency, withDenomination } from '@/lib/register-sessions';
@@ -793,13 +793,27 @@ export default function PosScreen() {
             <View style={[styles.gridFooter, compact && styles.gridFooterCompact]}>
               <DualAmount cents={product.priceCents} currency={secondCurrency} size="tile" align="left" />
               {product.stock <= 0 ? (
-                <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Out of stock</Text>
+                <Text style={styles.gridStockOut}>Out of stock</Text>
+              ) : product.stock <= (product.reorderLevel ?? 5) ? (
+                // The number is the useful part when it is nearly gone: "Only 3
+                // left" answers "can I sell three?" where a Low stock badge
+                // does not.
+                <Text style={styles.gridStockLow}>Only {product.stock} left</Text>
               ) : (
-                <View style={styles.gridStockWithBadge}>
-                  <Text style={[styles.gridStock, compact && styles.gridStockCompact]}>{product.stock} in stock</Text>
-                  {product.stock <= (product.reorderLevel ?? 5) && <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Low stock</Text>}
-                </View>
+                <Text style={styles.gridStock}>{product.stock} in stock</Text>
               )}
+              {(() => {
+                // One unit's price as the gross: a tile is an offer to sell one, and a
+                // promotion with a minimum spend should not claim to apply until
+                // the basket actually reaches it.
+                const offer = bestPromotionForProduct(product, promotions, product.priceCents, pricingNow);
+                if (!offer) return null;
+                return (
+                  <View style={styles.gridOffer}>
+                    <Text style={styles.gridOfferText} numberOfLines={1}>{offer.name}</Text>
+                  </View>
+                );
+              })()}
             </View>
           </Pressable>
         ))}
@@ -1240,20 +1254,20 @@ const styles = StyleSheet.create({
   // arm's length in shop lighting, and the tile carries the most information
   // per pixel in the app -- a visible edge is worth more here than the cleaner
   // borderless look the desk screens get.
+  // Borderless and on the soft tile fill, like every other bento surface -- and
+  // narrow enough that a counter screen shows four across instead of three.
   gridTile: {
-    flexBasis: '31%',
+    flexBasis: '23%',
     flexGrow: 0,
     flexShrink: 0,
-    minWidth: 190,
-    backgroundColor: theme.bentoSurface,
+    minWidth: 150,
+    backgroundColor: theme.bentoSoft,
     borderRadius: BENTO_RADIUS_TILE,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: theme.bentoLine,
+    padding: 12,
   },
   gridTileCompact: { flexBasis: '31%', minWidth: 90, flexGrow: 0, flexShrink: 0, borderRadius: 12, padding: 8 },
   gridTileDisabled: { opacity: 0.45 },
-  gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 12 },
+  gridThumb: { width: '100%', aspectRatio: 2.2, borderRadius: 12, marginBottom: 10, backgroundColor: theme.bentoSurface },
   gridThumbCompact: { aspectRatio: 1.3, borderRadius: 8, marginBottom: 6 },
   gridThumbPlaceholder: { backgroundColor: theme.bentoSoft, alignItems: 'center', justifyContent: 'center' },
   // A teardrop silhouette built from a rotated square with three rounded
@@ -1274,13 +1288,17 @@ const styles = StyleSheet.create({
   gridThumbDropMuted: { backgroundColor: theme.bentoMuted2 },
   gridBrand: { color: theme.bentoMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 },
   gridBrandCompact: { fontSize: 8 },
-  gridName: { color: theme.bentoInk, fontSize: 14, fontWeight: '700', minHeight: 38, marginTop: 3, lineHeight: 18 },
+  gridName: { color: theme.bentoInk, fontSize: 12.5, fontWeight: '700', minHeight: 32, marginTop: 2, lineHeight: 16 },
   gridNameCompact: { fontSize: 11, minHeight: 15, marginTop: 2, lineHeight: 14 },
-  gridFooter: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' },
+  gridFooter: { marginTop: 8, alignItems: 'flex-start', gap: 4 },
   gridFooterCompact: { marginTop: 5, flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   gridPrice: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] },
   gridPriceCompact: { fontSize: 13 },
-  gridStock: { color: theme.bentoMuted, fontSize: 11.5 },
+  gridStock: { color: theme.bentoMuted, fontSize: 10.5 },
+  gridStockLow: { color: theme.bentoWarn, fontSize: 10.5, fontWeight: '700' },
+  gridStockOut: { color: theme.bentoLoss, fontSize: 10.5, fontWeight: '700' },
+  gridOffer: { backgroundColor: theme.bentoUpWash, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, marginTop: 2 },
+  gridOfferText: { color: theme.bentoUpInk, fontSize: 10, fontWeight: '800' },
   gridStockCompact: { fontSize: 9 },
   gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   // Warm on purpose: a low-stock flag is SUPPOSED to sit warmer than the
