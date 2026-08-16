@@ -1,9 +1,13 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { customerDisplayName, customerPointsAvailable, quickAddCustomer, searchCustomers } from '@/lib/customers';
 import { pointsValueLabel } from '@/lib/loyalty';
 import type { Customer } from '@/types/models';
+
+// Pinned to the light palette for now -- no dark-mode switching yet.
+const theme = Colors.light;
 
 // `pointsBalance` rides along because pos_search_customers returns whole
 // customer rows, so showing a balance costs no extra query.
@@ -44,6 +48,7 @@ function extractErrorMessage(err: unknown, fallback: string): string {
 export function CustomerPicker({
   shopId,
   selected,
+  variant = 'link',
   onSelect,
   onClear,
   showPoints = false,
@@ -51,6 +56,12 @@ export function CustomerPicker({
 }: {
   shopId: string;
   selected: SelectedCustomer | null;
+  /**
+   * `link` is the quiet text toggle a filter wants. `row` is the till's: a
+   * full-width tile naming who is buying, because at a counter that is a
+   * decision worth seeing from across the shop, not a footnote.
+   */
+  variant?: 'link' | 'row';
   onSelect: (customer: SelectedCustomer) => void;
   onClear: () => void;
   // Off by default so the sale editor, which has no redemption flow, keeps its
@@ -128,6 +139,24 @@ export function CustomerPicker({
     }
   };
 
+  if (selected && variant === 'row') {
+    const initials = selected.name.split(/\s+/).slice(0, 2).map((word) => word[0] ?? '').join('').toUpperCase();
+    return (
+      <Pressable onPress={onClear} style={styles.row} accessibilityLabel={`Remove ${selected.name}`}>
+        <View style={styles.avatar}><Text style={styles.avatarText}>{initials}</Text></View>
+        <View style={styles.rowBody}>
+          <Text style={styles.rowTitle} numberOfLines={1}>{selected.name}</Text>
+          <Text style={styles.rowSub} numberOfLines={1}>
+            {[selected.phone, showPoints && selected.pointsBalance > 0
+              ? pointsValueLabel(selected.pointsBalance, centsPerPoint)
+              : null].filter(Boolean).join(' · ') || 'Tap to remove'}
+          </Text>
+        </View>
+        <Text style={styles.rowChevron}>✕</Text>
+      </Pressable>
+    );
+  }
+
   if (selected) {
     return (
       <View style={styles.selectedRow}>
@@ -142,9 +171,20 @@ export function CustomerPicker({
 
   return (
     <View>
-      <Pressable onPress={() => setOpen((v) => !v)} style={styles.toggle}>
-        <Text style={styles.toggleText}>{open ? '▴' : '▾'} Add customer (optional)</Text>
-      </Pressable>
+      {variant === 'row' ? (
+        <Pressable onPress={() => setOpen((v) => !v)} style={styles.row}>
+          <View style={[styles.avatar, styles.avatarWalkIn]}><Text style={styles.avatarWalkInText}>⌕</Text></View>
+          <View style={styles.rowBody}>
+            <Text style={styles.rowTitle}>Walk-in customer</Text>
+            <Text style={styles.rowSub} numberOfLines={1}>Attach one for points and a saved receipt</Text>
+          </View>
+          <Text style={styles.rowChevron}>{open ? '⌃' : '›'}</Text>
+        </Pressable>
+      ) : (
+        <Pressable onPress={() => setOpen((v) => !v)} style={styles.toggle}>
+          <Text style={styles.toggleText}>{open ? '▴' : '▾'} Add customer (optional)</Text>
+        </Pressable>
+      )}
       {open && (
         <View style={styles.panel}>
           <TextInput value={query} onChangeText={runSearch} placeholder="Search by name or phone…" placeholderTextColor="#9B9B9B" style={styles.input} />
@@ -184,6 +224,21 @@ export function CustomerPicker({
 }
 
 const styles = StyleSheet.create({
+  row: {
+    flexDirection: 'row', alignItems: 'center', gap: 11, marginTop: 12,
+    backgroundColor: theme.bentoSoft, borderRadius: BENTO_RADIUS_TILE, paddingVertical: 11, paddingHorizontal: 12,
+  },
+  avatar: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: theme.bentoInk,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
+  avatarWalkIn: { backgroundColor: theme.bentoSurface },
+  avatarWalkInText: { color: theme.bentoMuted2, fontSize: 16 },
+  rowBody: { flex: 1, minWidth: 0 },
+  rowTitle: { color: theme.bentoInk, fontSize: 13.5, fontWeight: '700' },
+  rowSub: { color: theme.bentoMuted, fontSize: 11.5, marginTop: 1 },
+  rowChevron: { color: theme.bentoMuted2, fontSize: 15, fontWeight: '700' },
   toggle: { paddingVertical: 4, marginTop: 14 },
   toggleText: { fontSize: 12, fontWeight: '700', color: '#999999' },
   panel: { gap: 8, marginTop: 10 },

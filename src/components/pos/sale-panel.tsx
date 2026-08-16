@@ -74,13 +74,13 @@ export function SalePanel({
   return (
     <Card variant="bento" style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.head}>
-        <Text style={styles.title}>Current sale</Text>
+        <Text style={styles.title} numberOfLines={1}>Current sale</Text>
         <View style={styles.headActions}>
-          <Text style={styles.count}>{itemCount} {itemCount === 1 ? 'item' : 'items'}</Text>
+          <Text style={styles.count} numberOfLines={1}>{itemCount} {itemCount === 1 ? 'item' : 'items'}</Text>
           {scanButton}
           {onClearAll && (
             <Pressable onPress={onClearAll} style={styles.clear}>
-              <Text style={styles.clearText}>Clear all</Text>
+              <Text style={styles.clearText}>⌫ Clear</Text>
             </Pressable>
           )}
           {head}
@@ -145,17 +145,25 @@ const styles = StyleSheet.create({
   // panel lays out wider than the screen and disappears off the side of it.
   cardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0 },
   head: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
     paddingHorizontal: 18, paddingTop: 18, paddingBottom: 10,
   },
-  title: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
-  headActions: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1, minWidth: 0 },
+  title: { flexShrink: 1, minWidth: 0, color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  headActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
+  // Sized and coloured to match the Scan button beside it, so the head reads as
+  // one row of equal weights rather than a label and a control.
   count: {
-    color: theme.bentoMuted, fontSize: 12, fontWeight: '700', backgroundColor: theme.bentoSoft,
-    borderRadius: 999, paddingVertical: 3, paddingHorizontal: 10,
+    color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800', backgroundColor: theme.bentoInk,
+    borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13, overflow: 'hidden',
+    // The head is a row of four now; the count must not wrap to two lines and
+    // take the title's width with it.
+    flexShrink: 0,
   },
-  clear: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 11 },
-  clearText: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700' },
+  // Same pill as the count and the scan button beside it. It asks before it
+  // empties anything (confirmDestructive in pos.tsx), which is what keeps a
+  // control this prominent from being a one-tap way to lose a basket.
+  clear: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 13 },
+  clearText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   middle: { flex: 1 },
   middleContent: { paddingBottom: 4 },
   grand: { backgroundColor: theme.bentoSoft, paddingHorizontal: 18, paddingVertical: 14 },

@@ -59,9 +59,9 @@ describe('SalePanel', () => {
     expect(render({ itemCount: 3 }).join('')).toContain('3 items');
   });
 
-  it('offers Clear all only when there is something to clear', () => {
-    expect(render()).toContain('Clear all');
-    expect(render({ onClearAll: null })).not.toContain('Clear all');
+  it('offers Clear only when there is something to clear', () => {
+    expect(render().join('')).toContain('Clear');
+    expect(render({ onClearAll: null }).join('')).not.toContain('Clear');
   });
 
   it('opens the sheet instead of charging where the payment is not on the panel', () => {

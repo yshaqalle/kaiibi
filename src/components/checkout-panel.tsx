@@ -201,6 +201,7 @@ export function CustomerBlock({
   return (
     <>
       <CustomerPicker
+        variant="row"
         shopId={shopId}
         selected={selectedCustomer}
         onSelect={onSelectCustomer}

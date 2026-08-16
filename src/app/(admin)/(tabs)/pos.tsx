@@ -26,7 +26,7 @@ import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
-import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
+import { BENTO_RADIUS, BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
@@ -736,8 +736,8 @@ export default function PosScreen() {
   // the nested-scroller sizing fight the note there describes.
   const CartList = ScrollView;
   const cartListProps = compact
-    ? { style: styles.cartListCompact, nestedScrollEnabled: true }
-    : { style: styles.cartList };
+    ? { style: styles.cartListCompact, contentContainerStyle: styles.cartListContent, nestedScrollEnabled: true }
+    : { style: styles.cartList, contentContainerStyle: styles.cartListContent };
 
   const browsePaneEl = (
     <View
@@ -746,6 +746,7 @@ export default function PosScreen() {
     >
       <TillKeyboardNotice />
 
+      <View style={[styles.browseCard, compact && styles.browseCardCompact]}>
       <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
         <SearchRow
           value={search}
@@ -826,6 +827,7 @@ export default function PosScreen() {
           </Pressable>
         ))}
       </GridList>
+      </View>
     </View>
   );
 
@@ -975,14 +977,17 @@ export default function PosScreen() {
             <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
           </View>
         )}
-        {can('discounts.manual') && (
+        {/* Nothing to discount until something is rung up: an order discount on
+            an empty till is a percentage of zero, and offering it invites a
+            cashier to set one and then wonder why the total never moved. */}
+        {cart.length > 0 && can('discounts.manual') && (
           <Pressable onPress={() => setEditingTransactionDiscount((open) => !open)} style={styles.orderDiscountChip}>
             <Text style={styles.orderDiscountChipText}>
               {transactionDiscount ? 'Order discount set' : '+ Discount the order'}
             </Text>
           </Pressable>
         )}
-        {editingTransactionDiscount && can('discounts.manual') && (
+        {cart.length > 0 && editingTransactionDiscount && can('discounts.manual') && (
           <View style={styles.orderDiscountPresets}>
             {/* The steps a shop actually gives, in front of the editor rather
                 than instead of it -- anything else is still Custom. */}
@@ -1247,6 +1252,11 @@ const styles = StyleSheet.create({
   splitCompact: { flex: 1, flexDirection: 'column' },
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },
   browsePane: { flex: 2, padding: 18 },
+  // One card holds the search, the categories and the grid: the tiles inside it
+  // are the soft fill, and without a white ground behind them their edges
+  // disappear into the page.
+  browseCard: { flex: 1, minHeight: 0, backgroundColor: theme.bentoSurface, borderRadius: BENTO_RADIUS, padding: 16 },
+  browseCardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', padding: 14 },
   browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 10 },
   // `minWidth: 0` on both: a dozen categories overflow this row, and without it
   // Yoga sizes the pane to the whole list instead of letting the row scroll --
@@ -1324,15 +1334,20 @@ const styles = StyleSheet.create({
   // `flex: 0` leaves flexBasis to interpretation.
   miniButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
   miniButtonText: { color: theme.bentoInk2, fontSize: 11.5, fontWeight: '700' },
-  // Black and larger than its neighbour: scanning is how a basket actually
-  // gets built, and this is the one scan control still in reach once the phone
-  // has pushed the search field below the cart. Clear all stays quiet beside
-  // it -- two black pills would make "wipe the sale" look equally inviting.
+  // The head is one row of matching black pills -- the count, this, and Clear.
+  // Scanning is how a basket actually gets built, and this is the one scan
+  // control still in reach once the phone has pushed the search field below the
+  // cart. Clear carries the same weight at the shop's request; what keeps it
+  // from being a one-tap way to lose a basket is the confirm on `clearSale`.
   scanCartButton: { backgroundColor: theme.bentoInk, borderWidth: 1, borderColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
   scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
+  // The same 18 the head and the foot are inset by. Without it the money and
+  // the remove button sit hard against the card's edge while everything above
+  // and below them is indented -- and the line dividers run edge to edge.
+  cartListContent: { paddingHorizontal: 18 },
   // About four lines. Enough that most sales never scroll at all, and short
   // enough that the total stays on screen when they do.
   cartListCompact: { maxHeight: 320, flexGrow: 0, flexShrink: 0 },
@@ -1348,7 +1363,7 @@ const styles = StyleSheet.create({
   // A ruled row, not a nested grey card: a card inside a card at every line
   // made the basket read as a stack of panels rather than as a list.
   cartLineDiscountToggle: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6, textDecorationLine: 'underline' },
-  discountSection: { marginTop: 4 },
+  discountSection: { marginTop: 4, paddingHorizontal: 18 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryLabel: { color: theme.bentoMuted, fontSize: 13 },
   summaryValue: { color: theme.bentoInk, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
