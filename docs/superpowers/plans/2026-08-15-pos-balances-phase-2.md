@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Phase 1 is [`2026-08-15-pos-current-sale-phase-1.md`](./2026-08-15-pos-current-sale-phase-1.md)** and ships without any of this. Do not start Phase 2 until Phase 1 is merged: it composes the surfaces this plan drops controls into.
+> **Phase 1 is [`2026-08-15-pos-current-sale-phase-1.md`](./2026-08-15-pos-current-sale-phase-1.md)** and ships without any of this. It is built and open as PR #56; do not start Phase 2 until that merges, because this plan drops controls into the surfaces it composes.
 
 **Goal:** Let a sale be paid in part or not at all, carry what is left as a balance against a named customer, and let that customer pay it off at the till later — with the shop able to see who owes what.
 
@@ -20,8 +20,24 @@
 - **A balance always has a name against it.** No customer, no credit — an unpaid sale with nobody attached is a loss, not a debt, and the RPC must refuse it rather than the UI merely discouraging it.
 - **Money is integer cents.** No numeric, no rounding in the client.
 - **Never hardcode a hex in a screen**; POS and Accounting read `Colors.light` bento tokens.
-- **Tests:** `npm test` (105 suites / 1545 tests, ~10s). Pure logic in `src/lib/__tests__/`.
-- **Never `git add -A`** — a concurrent session may share this repository. Never push.
+- **Tests:** `npm test` (112 suites / 1599 tests after Phase 1, ~3s). Pure logic in `src/lib/__tests__/`; components with `react-test-renderer` wrapped in `act`, joining text nodes with `''` before asserting on anything interpolated.
+- **Never `git add -A`** — a concurrent session may share this repository (one has been running refunds against `yusefshop` throughout Phase 1). Never push without being asked.
+- **`pos.tsx` carries 10 pre-existing `react-compiler` errors.** Count them before and after; the gate is that this work adds none.
+
+## What Phase 1 already left you
+
+Read these before writing anything — every task below plugs into them rather than
+inventing a parallel path.
+
+| Ships in Phase 1 | What Phase 2 does with it |
+|---|---|
+| `src/lib/checkout-intent.ts` — one pure function both surfaces put on their button | Task 4 adds the credit branches. Nothing else composes a button label |
+| `src/lib/checkout-errors.ts` — `extractErrorMessage`, `isClosedRegisterError`, `checkoutErrorMessage` | Add the new server refusals here, with a test. A raw RPC sentence must never reach a cashier |
+| `CustomerBlock` / `PaymentBlock` (exported from `checkout-panel.tsx`) | The balance row goes inside `CustomerBlock`; the rest-choice goes inside `PaymentBlock`. Both surfaces then get it for free |
+| `SalePanel`'s pinned foot (`grandHTML` equivalent: total + action) | The "owed after this sale" line belongs in that pinned block, not in the scroller |
+| `checkout(retryOnSession?)` in `pos.tsx` | Already takes an argument and is wired through arrows. Keep that shape — a bare handler passes a press event |
+| `src/lib/held-orders.ts` — parked sales, per user and till, in AsyncStorage | A hold still reserves nothing. If Phase 2 ever reserves stock, holds move to the server first |
+| `DualAmount` + `display-currency.ts` | Every new figure (owed, settled, balance due) takes the same treatment: dollars, and the shop's own currency underneath |
 
 ## The data model, settled first
 
@@ -526,5 +542,7 @@ Run: `npm test && npx eslint src --max-warnings=0`
 **Spec coverage.** Every deferred item from Phase 1's "Explicitly out of scope" table has a task: part payment (2, 4, 5), Pay later (2, 4, 5), settling an older balance (2, 3, 5), receivables (7), and the receipt's balance line (6).
 
 **Known gaps, deliberately left.** Refunds and negative balances are out of scope and refused by the same checks. Partial settlement across more than one sale is handled by `allocate` (Task 3) but only surfaced as one figure in the UI — a per-sale breakdown is a follow-up, not a blocker. There is no reminder or messaging flow; that belongs with the marketing/campaign work, not here.
+
+**Verify like Phase 1 did.** Every layout claim in Phase 1 that was proven only by tests turned out to have a bug in it; thirteen were found by driving the running app, four of which passed the whole suite. Use `/testing-kaiibi`, and read the result off the screen — a balance that "saved" is only real if it shows on the customer, on the receipt, and in Accounting.
 
 **Type consistency.** `CustomerBalance` (Task 3) is consumed by Tasks 5 and 7. `CheckoutIntentInput`'s new fields (Task 4) are set by Task 5's controls. `settle_sale_balance`'s return (cents still owed) is what `settleBalance` returns and what Task 5 shows in its toast.
