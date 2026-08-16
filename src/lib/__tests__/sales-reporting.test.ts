@@ -5,11 +5,13 @@ import {
   hourlyTakings,
   grossSalesCents,
   netRevenueCents,
+  netTaxCollectedCents,
   paymentMethodMix,
   productDailyRevenue,
   productMovers,
   productPerformance,
   refundedCents,
+  refundedTaxCents,
   refundPreviewCents,
   saleProfit,
   saleRefundState,
@@ -134,6 +136,43 @@ describe('revenue is reported net of refunds', () => {
     const sale = makeSale({ totalCents: 2310, taxCents: 110 });
     const refund = makeRefund({ totalCents: 1155, saleTotalCents: 2310, saleTaxCents: 110 });
     expect(netRevenueCents([sale], [refund])).toBe(1100);
+  });
+});
+
+// Refunding a sale hands the tax back with it. That tax is no longer owed
+// onward, so a liability figure that ignores refunds overstates what the shop
+// has to remit -- a fully refunded sale would still claim its tax is being
+// held for the authority.
+describe('sales tax owed is net of what went back', () => {
+  it('reports the tax handed back with refunds', () => {
+    const refunds = [
+      makeRefund({ id: 'a', totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 }),
+      makeRefund({ id: 'b', totalCents: 1050, saleTotalCents: 1050, saleTaxCents: 50 }),
+    ];
+    expect(refundedTaxCents(refunds)).toBe(160);
+  });
+
+  it('reports no refunded tax for a shop that charges none', () => {
+    expect(refundedTaxCents([makeRefund({ totalCents: 2200, saleTotalCents: 2200, saleTaxCents: 0 })])).toBe(0);
+  });
+
+  it('nets a fully refunded sale to owing nothing', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(taxCollectedCents([sale])).toBe(110);
+    expect(netTaxCollectedCents([sale], [refund])).toBe(0);
+  });
+
+  it('leaves the owed figure at what was collected when nothing came back', () => {
+    expect(netTaxCollectedCents([makeSale({ totalCents: 2310, taxCents: 110 })], [])).toBe(110);
+  });
+
+  // Revenue must keep using the GROSS tax term. Netting refunded tax there too
+  // would add it back into revenue, undoing the fix this all started with.
+  it('does not let the netted tax figure leak into revenue', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(0);
   });
 });
 
@@ -590,6 +629,42 @@ describe('bucketDailyTotals', () => {
     const buckets = bucketDailyTotals(sales, refunds, since, until);
     expect(buckets[0].netRevenueCents).toBe(2200);
     expect(buckets[2].netRevenueCents).toBe(-2200);
+  });
+
+  // The Overview CSV prints these columns per day, and an accountant reads
+  // across the row. Gross − Refunds − Sales tax owed has to land on Revenue,
+  // or the export is four numbers that quietly disagree.
+  it('gives a day whose columns reconcile across the row', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 1, 10, 0).toISOString(),
+        totalCents: 1155,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const [day] = bucketDailyTotals(sales, refunds, since, until);
+    expect(day.grossCents - day.refundCents - (day.taxCents - day.refundTaxCents)).toBe(day.netRevenueCents);
+  });
+
+  // A refund landing on a day with no sales of its own drives the owed-tax
+  // column negative, which is the correct reading: that tax was remitted-in-
+  // waiting last period and has now gone back out.
+  it('reconciles a day that holds only a refund', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 3, 9, 0).toISOString(),
+        totalCents: 2310,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const day = bucketDailyTotals(sales, refunds, since, until)[2];
+    expect(day.refundTaxCents).toBe(110);
+    expect(day.grossCents - day.refundCents - (day.taxCents - day.refundTaxCents)).toBe(day.netRevenueCents);
+    expect(day.netRevenueCents).toBe(-2200);
   });
 
   it('counts orders and rolls up line-level discounts', () => {

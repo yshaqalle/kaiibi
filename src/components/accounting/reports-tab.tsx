@@ -32,6 +32,8 @@ import {
   grossSalesCents,
   netRevenueCents,
   refundedCents,
+  netTaxCollectedCents,
+  refundedTaxCents,
   taxCollectedCents,
 } from '@/lib/sales-reporting';
 import { listStaff } from '@/lib/staff';
@@ -56,6 +58,8 @@ const theme = Colors.light;
 type SalesPerformance = {
   grossSalesCents: number;
   taxCollectedCents: number;
+  refundedTaxCents: number;
+  netTaxCollectedCents: number;
   refundedCents: number;
   netRevenueCents: number;
   cogsCents: number;
@@ -121,6 +125,8 @@ export function ReportsTab({
       setPerformance({
         grossSalesCents: grossSalesCents(sales),
         taxCollectedCents: taxCollectedCents(sales),
+        refundedTaxCents: refundedTaxCents(refunds),
+        netTaxCollectedCents: netTaxCollectedCents(sales, refunds),
         refundedCents: refundedCents(refunds),
         netRevenueCents: netRevenueCents(sales, refunds),
         ...costOfGoodsSold(sales, refunds),
@@ -263,6 +269,10 @@ export function ReportsTab({
           rows: [
             { label: 'Gross takings', amount: formatAccountingCents(performance.grossSalesCents) },
             { label: 'Sales tax collected', amount: formatAccountingCents(performance.taxCollectedCents) },
+            ...(performance.refundedTaxCents > 0
+              ? [{ label: 'Tax handed back with refunds', amount: `-${formatAccountingCents(performance.refundedTaxCents)}` }]
+              : []),
+            { label: 'Sales tax owed', amount: formatAccountingCents(performance.netTaxCollectedCents) },
             { label: 'Refunds issued', amount: formatAccountingCents(performance.refundedCents) },
           ],
         },
@@ -421,10 +431,25 @@ export function ReportsTab({
           <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
           <StatementRow
             label="Sales tax collected"
-            hint="held for the tax authority"
+            hint={performance.refundedTaxCents > 0 ? undefined : 'held for the tax authority'}
             amountCents={performance.taxCollectedCents}
-            last={performance.refundedCents === 0}
+            last={performance.refundedCents === 0 && performance.refundedTaxCents === 0}
           />
+          {/* A refund hands the tax back with it, so that much is no longer
+              owed onward. Without this the card claimed a fully refunded
+              sale's tax was still being held for the authority. */}
+          {performance.refundedTaxCents > 0 && (
+            <>
+              <StatementRow label="Tax handed back with refunds" amountCents={-performance.refundedTaxCents} />
+              <StatementRow
+                label="Sales tax owed"
+                hint="held for the tax authority"
+                amountCents={performance.netTaxCollectedCents}
+                variant="total"
+                last={performance.refundedCents === 0}
+              />
+            </>
+          )}
           {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} last />}
           {salesTaxNote.dismissed ? null : (
             <Caveat tone="context" onDismiss={salesTaxNote.dismiss}>

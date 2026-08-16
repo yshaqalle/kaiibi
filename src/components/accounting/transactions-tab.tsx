@@ -432,7 +432,7 @@ function SaleRow({
           <View style={{ flex: 1 }}>
             <Text style={styles.saleItems} numberOfLines={1}>{itemsSummary}</Text>
             <View style={styles.saleMetaRow}>
-              <Text style={styles.saleMeta} numberOfLines={1}>
+              <Text style={[styles.saleMeta, styles.saleMetaText]} numberOfLines={1}>
                 {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
                 {sale.customerName ? ` · ${sale.customerName}` : ''}
               </Text>
@@ -838,6 +838,11 @@ const styles = StyleSheet.create({
   expandIcon: { color: '#999999', fontSize: 12, fontWeight: '800' },
   saleItems: { color: '#111111', fontSize: 13, fontWeight: '700' },
   saleMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
+  // Shrink is applied HERE rather than on `saleMeta`, which seven other call
+  // sites share as a plain column child -- there the main axis is vertical and
+  // a shrink factor would let the line clip rather than ellipsize. Same job as
+  // `itemsCellText` does for the table row.
+  saleMetaText: { flexShrink: 1 },
   // `flexShrink: 1` on the text and nothing on the badge: the badge is the
   // short, fixed thing, so the product name is what gives way when the column
   // runs out. `minWidth: 0` is what lets it, in both rows.

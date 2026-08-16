@@ -64,7 +64,6 @@ import {
   productMovers,
   netRevenueCents,
   productPerformance,
-  taxCollectedCents,
   type CogsResult,
   type DailyBucket,
   type ProductSales,
@@ -686,7 +685,14 @@ export default function DashboardScreen() {
       })),
     [paymentMix]
   );
-  const salesTaxCents = useMemo(() => taxCollectedCents(rangeSales), [rangeSales]);
+  // Net of tax handed back with refunds: a refunded sale's tax went back over
+  // the counter, so it is not "held" and not owed onward. Read off `daily`
+  // rather than `rangeSales` so this and `revenueCents` above come from the
+  // same buckets -- mixing the two sources is how they drift.
+  const salesTaxCents = useMemo(
+    () => daily.reduce((sum, d) => sum + d.taxCents - d.refundTaxCents, 0),
+    [daily]
+  );
 
   // Pace reads the recorded buckets rather than scaling a total: the last
   // bucket IS today, and the last seven ARE this week, whatever range the

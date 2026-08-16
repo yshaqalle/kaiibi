@@ -66,6 +66,27 @@ export function refundedCents(refunds: PeriodRefund[]): number {
 // nothing on the row distinguishes them -- the migration deliberately left
 // them unrestated -- and inferring it from the amount would be guesswork in a
 // money path.
+// The tax handed back with a period's refunds, and so no longer owed onward.
+//
+// The counterpart to `refundPreTaxCents`: a refund is part revenue and part
+// tax, and the two halves cancel against different things. This is the half
+// that cancels tax collected.
+export function refundedTaxCents(refunds: PeriodRefund[]): number {
+  return refunds.reduce((sum, refund) => sum + (refund.totalCents - refundPreTaxCents(refund)), 0);
+}
+
+// What the shop actually owes the authority: collected on sales, less what
+// went back out with refunds.
+//
+// Deliberately NOT what `netRevenueCents` subtracts. Revenue takes the GROSS
+// tax term, because the refund's own revenue share is already coming off
+// separately -- netting the tax in both places would put the refunded tax back
+// into revenue and reinstate the bug this module was fixed for. There is a
+// test pinning exactly that.
+export function netTaxCollectedCents(sales: Sale[], refunds: PeriodRefund[] = []): number {
+  return taxCollectedCents(sales) - refundedTaxCents(refunds);
+}
+
 export function refundPreTaxCents(refund: PeriodRefund): number {
   if (refund.saleTotalCents <= 0 || refund.saleTaxCents <= 0) return refund.totalCents;
   return Math.round((refund.totalCents * (refund.saleTotalCents - refund.saleTaxCents)) / refund.saleTotalCents);
@@ -480,6 +501,10 @@ export type DailyBucket = {
   // revenue line that already excludes tax. Split out rather than folded away
   // so a chart can label the two without either being a mystery.
   refundRevenueCents: number;
+  // The other half: tax handed back, which cancels `taxCents` rather than
+  // revenue. Carried so the CSV export's row reconciles --
+  // gross − refunds − (tax − refundTax) lands on netRevenue.
+  refundTaxCents: number;
   netRevenueCents: number;
   orderCount: number;
   discountCents: number;
@@ -502,6 +527,7 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
       taxCents: 0,
       refundCents: 0,
       refundRevenueCents: 0,
+      refundTaxCents: 0,
       netRevenueCents: 0,
       orderCount: 0,
       discountCents: 0,
@@ -521,8 +547,10 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
   for (const refund of refunds) {
     const bucket = buckets.get(dayKeyFor(refund.createdAt));
     if (!bucket) continue;
+    const revenueShare = refundPreTaxCents(refund);
     bucket.refundCents += refund.totalCents;
-    bucket.refundRevenueCents += refundPreTaxCents(refund);
+    bucket.refundRevenueCents += revenueShare;
+    bucket.refundTaxCents += refund.totalCents - revenueShare;
   }
 
   for (const bucket of buckets.values()) {
