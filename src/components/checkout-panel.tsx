@@ -18,6 +18,8 @@ const theme = Colors.light;
 // (pinned above the product grid on mobile, its line-item list height-
 // capped) stays a fixed size regardless of checkout state.
 export function CheckoutPanel({
+  visible,
+  onClose,
   cartEmpty,
   cashiers,
   cashierName,
@@ -47,6 +49,10 @@ export function CheckoutPanel({
   availableKnown,
   onDismiss,
 }: {
+  // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
+  // button, the "Served by" row and a completed sale all open or close it.
+  visible: boolean;
+  onClose: () => void;
   cartEmpty: boolean;
   cashiers: string[];
   cashierName: string | null;
@@ -83,20 +89,21 @@ export function CheckoutPanel({
   // its own, which is what pos.tsx does with the receipt.
   onDismiss?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Controlled by the caller rather than by a button of its own: the sale panel
+  // owns the till's one primary action now, and two buttons that both mean
+  // "check out" is exactly the confusion this screen was redesigned to end.
+  const open = visible;
+  const setOpen = (next: boolean) => { if (!next) onClose(); };
 
   // Covers both a completed sale (pos.tsx clears the cart on success) and
   // the cart being emptied manually mid-flow -- either way there's nothing
   // left to check out, so the sheet shouldn't stay open.
   useEffect(() => {
-    if (cartEmpty) setOpen(false);
-  }, [cartEmpty]);
+    if (cartEmpty) onClose();
+  }, [cartEmpty, onClose]);
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} disabled={cartEmpty} style={[styles.checkout, cartEmpty && styles.checkoutDisabled]}>
-        <Text style={styles.checkoutText}>Checkout</Text>
-      </Pressable>
 
       {/* `onDismiss` fires only once the sheet's dismissal transition has
           actually finished. pos.tsx needs that signal because iOS refuses to

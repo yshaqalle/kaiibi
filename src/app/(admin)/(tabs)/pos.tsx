@@ -4,12 +4,12 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimen
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
-import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
 import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
+import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
 import { RegisterSessionDetail } from '@/components/register-session-detail';
@@ -36,10 +36,11 @@ import { updateShop } from '@/lib/shops';
 import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
+import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
-import { displayCurrency } from '@/lib/display-currency';
+import { displayCurrency, secondaryAmount } from '@/lib/display-currency';
 import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
@@ -172,6 +173,10 @@ export default function PosScreen() {
   // not dismiss a notice per item.
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // The checkout sheet. Owned here rather than inside CheckoutPanel, because
+  // the panel's primary button, the "Served by" row and a completed sale all
+  // need to open or close the same one.
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
@@ -749,6 +754,17 @@ export default function PosScreen() {
   // supervisor walks over with the float.
   const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
 
+  // One sentence, shared by the panel and the sheet, so the two surfaces can
+  // never disagree about what the next tap does.
+  const intent = checkoutIntent({
+    cartEmpty: cart.length === 0,
+    totalCents: total,
+    payments,
+    customerName: selectedCustomer?.name ?? null,
+    submitting,
+    secondaryTotal: secondaryAmount(total, secondCurrency),
+  });
+
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
@@ -756,26 +772,32 @@ export default function PosScreen() {
           white column with a hairline down its left edge, which read as a
           second page rather than as the thing being built. */}
       {!registerBlocks && (
-      <Card variant="bento" style={[styles.cartCard, compact && styles.cartCardCompact]}>
-      <View style={styles.cartTitleRow}>
-        <Text style={styles.cartTitle}>Current sale</Text>
-        <View style={styles.cartTitleActions}>
-          {/* Beside the sale itself, not only above the product grid. On a
-              phone the cart renders ABOVE the browse pane, so this is the one
-              scan control that stays in reach mid-checkout without scrolling
-              back up past the whole basket. */}
-          {scanner.camera && (
-            <Pressable onPress={() => setScannerOpen(true)} style={styles.scanCartButton}>
-              <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
-            </Pressable>
-          )}
-          {cart.length > 0 && (
-            <Pressable onPress={clearSale} style={styles.clearAll}>
-              <Text style={styles.clearAllText}>⌫ Clear all</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
+      <SalePanel
+        compact={compact}
+        // Until the payment blocks move onto the panel, both sizes take the
+        // money in the sheet -- so the button opens it rather than promising a
+        // charge the panel cannot yet complete.
+        mode="sheet"
+        itemCount={cart.reduce((sum, line) => sum + line.quantity, 0)}
+        onClearAll={cart.length > 0 ? clearSale : null}
+        // Beside the sale itself, not only above the product grid. On a phone
+        // the cart renders ABOVE the browse pane, so this is the one scan
+        // control that stays in reach mid-checkout without scrolling back up
+        // past the whole basket.
+        scanButton={scanner.camera ? (
+          <Pressable onPress={() => setScannerOpen(true)} style={styles.scanCartButton}>
+            <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
+          </Pressable>
+        ) : null}
+        totalCents={total}
+        currency={secondCurrency}
+        intent={intent}
+        onPrimary={() => setCheckoutOpen(true)}
+        onHold={null}
+        servedBy={cashierName}
+        onChangeServedBy={() => setCheckoutOpen(true)}
+        earnsPoints={pointsEarned}
+      >
       <CartList {...cartListProps}>
         {cart.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -864,14 +886,10 @@ export default function PosScreen() {
           />
         )}
       </View>
-      <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Total</Text>
-        <DualAmount cents={total} currency={secondCurrency} size="total" />
-      </View>
-      {pointsEarned > 0 && <Text style={styles.earnsPoints}>Earns {pointsEarned.toLocaleString()} points</Text>}
-
       {shop && (
         <CheckoutPanel
+          visible={checkoutOpen}
+          onClose={() => setCheckoutOpen(false)}
           cartEmpty={cart.length === 0}
           cashiers={cashiers}
           cashierName={cashierName}
@@ -907,7 +925,7 @@ export default function PosScreen() {
           onDismiss={showStagedReceipt}
         />
       )}
-      </Card>
+      </SalePanel>
       )}
     </View>
   );
@@ -1167,14 +1185,9 @@ const styles = StyleSheet.create({
   // ---- cart: one card, sitting on the page like every other card ----
   cartPane: { flex: 1, padding: 18, paddingLeft: 4, minWidth: 340 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 0 },
-  cartCard: { flex: 1, padding: 16 },
   // Spelled out rather than `flex: 0`, matching the panes above: inside the
   // page's vertical scroller the card must size to its content, and a bare
   // `flex: 0` leaves flexBasis to interpretation.
-  cartCardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
-  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 },
-  cartTitleActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cartTitle: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
   miniButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
   miniButtonText: { color: theme.bentoInk2, fontSize: 11.5, fontWeight: '700' },
   // Black and larger than its neighbour: scanning is how a basket actually
@@ -1183,8 +1196,6 @@ const styles = StyleSheet.create({
   // it -- two black pills would make "wipe the sale" look equally inviting.
   scanCartButton: { backgroundColor: theme.bentoInk, borderWidth: 1, borderColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
   scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
-  clearAll: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
-  clearAllText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
@@ -1211,8 +1222,4 @@ const styles = StyleSheet.create({
   // The one loud thing on the screen. This is the number said out loud to the
   // customer and the one that gets a sale wrong if it is misread, so it does
   // not share a size with "Subtotal".
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 12, borderTopWidth: 2, borderTopColor: theme.bentoInk, marginTop: 10 },
-  totalLabel: { color: theme.bentoInk, fontSize: 15, fontWeight: '800' },
-  totalValue: { color: theme.bentoInk, fontSize: 30, fontWeight: '800', letterSpacing: -1, fontVariant: ['tabular-nums'] },
-  earnsPoints: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6 },
 });
