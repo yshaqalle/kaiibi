@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -107,9 +108,14 @@ export function SalePanel({
           disabled={!primaryEnabled}
           style={[styles.primary, !primaryEnabled && styles.primaryDisabled]}
         >
-          {/* The lock is the one on the mockup's charge button: this is the
-              step that takes money, and it should not look like the rest. */}
-          <Text style={styles.primaryText}>🔒  {primaryLabel}</Text>
+          {/* A drawn icon rather than an emoji: an emoji keeps its own colours,
+              so the lock stayed pale cream on the black button and turned
+              invisible on the grey disabled one. This one takes the label's
+              colour, whatever state the button is in. And it is money, because
+              that is what the button does -- the lock said "secure", which is
+              not the thing a cashier is about to do. */}
+          <Ionicons name="cash-outline" size={18} color={theme.bentoSurface} />
+          <Text style={styles.primaryText}>{primaryLabel}</Text>
         </Pressable>
         {mode === 'inline' && intent.hint && <Text style={styles.hint}>{intent.hint}</Text>}
 
@@ -119,7 +125,8 @@ export function SalePanel({
         <View style={styles.footRow}>
           {onHold && (
             <Pressable onPress={onHold} style={styles.hold}>
-              <Text style={styles.holdText}>⏱  {compact ? 'Hold' : 'Hold for later'}</Text>
+              <Ionicons name="time-outline" size={13} color={theme.bentoMuted} />
+              <Text style={styles.holdText}>{compact ? 'Hold' : 'Hold for later'}</Text>
             </Pressable>
           )}
           <Pressable onPress={onChangeServedBy} style={styles.served}>
@@ -179,13 +186,13 @@ const styles = StyleSheet.create({
   foot: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12 },
   primary: {
     backgroundColor: theme.bentoInk, height: 50, borderRadius: 999,
-    alignItems: 'center', justifyContent: 'center',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
   },
   primaryDisabled: { opacity: 0.35 },
   primaryText: { color: theme.bentoSurface, fontSize: 15, fontWeight: '800' },
   hint: { color: theme.bentoMuted, fontSize: 11.5, textAlign: 'center', marginTop: 7 },
   footRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 },
-  hold: { paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999, backgroundColor: theme.bentoSoft },
+  hold: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999, backgroundColor: theme.bentoSoft },
   holdText: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700' },
   served: { paddingVertical: 4, flexShrink: 1, minWidth: 0 },
   servedText: { color: theme.bentoMuted, fontSize: 11.5 },
