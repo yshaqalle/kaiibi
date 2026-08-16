@@ -8,11 +8,12 @@ import type { HeldOrder } from '@/lib/held-orders';
 // Pinned to the light palette for now -- no dark-mode switching yet.
 const theme = Colors.light;
 
-function heldAgo(iso: string, now: number): string {
-  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60000));
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  return `${Math.round(minutes / 60)}h ago`;
+// The clock time it was parked, not "12m ago". Relative time needs `Date.now()`
+// during render -- which is impure, and goes stale on a screen that sits open
+// at a counter all afternoon. "held 8:42 PM" is true whenever it is read, and
+// it is what a cashier and a customer can actually compare notes on.
+function heldAt(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 /**
@@ -25,11 +26,9 @@ function heldAgo(iso: string, now: number): string {
 export function HeldOrdersMenu({
   orders,
   onResume,
-  now = Date.now(),
 }: {
   orders: HeldOrder[];
   onResume: (id: string) => void;
-  now?: number;
 }) {
   const [open, setOpen] = useState(false);
   if (orders.length === 0) return null;
@@ -50,7 +49,7 @@ export function HeldOrdersMenu({
               <View style={styles.meta}>
                 <Text style={styles.name}>{order.customer?.name ?? 'Walk-in customer'}</Text>
                 <Text style={styles.sub}>
-                  {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'} · held {heldAgo(order.heldAt, now)}
+                  {order.itemCount} {order.itemCount === 1 ? 'item' : 'items'} · held {heldAt(order.heldAt)}
                 </Text>
               </View>
               <Text style={styles.total}>{formatCents(order.totalCents)}</Text>
