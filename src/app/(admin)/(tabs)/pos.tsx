@@ -459,6 +459,14 @@ export default function PosScreen() {
     setCashierName((current) => current ?? sessionMember.fullName);
   }, [sessionMember, setCashierName]);
 
+  // The clock the GRID prices against, which is not the cart's. The cart pins
+  // its clock when the sale starts so a price cannot move mid-basket; a tile is
+  // browsing, and wants to stop advertising an offer whose window has closed.
+  // Held in state rather than read from Date.now() during render -- that is an
+  // impure call, and it re-runs every time anything on the screen changes.
+  const [browseClock, setBrowseClock] = useState(() => Date.now());
+  useRefreshOnFocus(useCallback(async () => { setBrowseClock(Date.now()); }, []));
+
   // One clock for one transaction. Every discount function takes an optional
   // `now`, and left to default they each call Date.now() independently -- so a
   // promotion whose window closes between the render that showed the total and
@@ -806,7 +814,7 @@ export default function PosScreen() {
                 // One unit's price as the gross: a tile is an offer to sell one, and a
                 // promotion with a minimum spend should not claim to apply until
                 // the basket actually reaches it.
-                const offer = bestPromotionForProduct(product, promotions, product.priceCents, pricingNow);
+                const offer = bestPromotionForProduct(product, promotions, product.priceCents, browseClock);
                 if (!offer) return null;
                 return (
                   <View style={styles.gridOffer}>
