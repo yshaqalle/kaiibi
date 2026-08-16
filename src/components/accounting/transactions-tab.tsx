@@ -527,9 +527,16 @@ function SaleRow({
                   <Text style={[styles.detailItemPrice, styles.muted]}>−{formatCents(profit.refundedTaxCents)}</Text>
                 </View>
               )}
+              {/* Can go negative: a sale over-refunded under the pre-migration
+                  maths keeps its old refund rows, and refund_sale_items
+                  deliberately never claws that back. Coloured like the profit
+                  line below rather than left in plain ink, so the two negatives
+                  in one pane don't read as different kinds of number. */}
               <View style={[styles.detailRow, styles.detailRowTotal]}>
                 <Text style={styles.profitLabel}>Kept</Text>
-                <Text style={styles.profitValue}>{formatCents(profit.keptCents)}</Text>
+                <Text style={[styles.profitValue, profit.keptCents < 0 && styles.profitNegative]}>
+                  {formatCents(profit.keptCents)}
+                </Text>
               </View>
             </>
           )}

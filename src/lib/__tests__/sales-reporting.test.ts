@@ -444,6 +444,54 @@ describe('saleRefundState', () => {
     });
     expect(saleRefundState(sale)).toEqual({ kind: 'full' });
   });
+
+  // A refund whose lines an edit later dropped. Money genuinely went back, so
+  // the row must not go silent -- there is nothing left to count against, and
+  // saying nothing came back is the one answer that is definitely wrong.
+  it('still reports a refund whose original lines were edited away', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'b', quantity: 1, lineTotalCents: 2200 })],
+      refunds: [refundOf('gone', 1, 2200)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+
+  it('still reports a refund on a sale whose items are all gone', () => {
+    const sale = makeSale({ items: [], refunds: [refundOf('gone', 1, 2200)] });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+});
+
+describe('the row and the period agree to the cent', () => {
+  // saleProfit used to round the SUMMED refund total once while
+  // netRevenueCents rounded each refund and then added them, so a sale
+  // refunded in two visits could report a penny more revenue on its own row
+  // than it contributed to the period containing it.
+  it('nets the same revenue whether a sale is read alone or in a period', () => {
+    const refund = (id: string) => ({
+      id,
+      saleId: 's1',
+      refundedBy: null,
+      totalCents: 333,
+      createdAt: new Date(2026, 7, 3).toISOString(),
+      items: [{ id: `ri-${id}`, refundId: id, saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 333 }],
+    });
+    const sale = makeSale({
+      totalCents: 1000,
+      taxCents: 100,
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 900, unitCostCents: 0 })],
+      refunds: [refund('r1'), refund('r2')],
+    });
+    const periodView = netRevenueCents(
+      [sale],
+      [
+        makeRefund({ id: 'r1', totalCents: 333, saleTotalCents: 1000, saleTaxCents: 100 }),
+        makeRefund({ id: 'r2', totalCents: 333, saleTotalCents: 1000, saleTaxCents: 100 }),
+      ]
+    );
+    expect(saleProfit(sale).netRevenueCents).toBe(periodView);
+    expect(periodView).toBe(300);
+  });
 });
 
 describe('cashierPerformance', () => {

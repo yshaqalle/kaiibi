@@ -205,7 +205,8 @@ export type SaleProfit = {
 // revenue excludes tax, cost comes from the snapshot frozen on each line, and
 // refunded quantities reverse out of both sides.
 export function saleProfit(sale: Sale): SaleProfit {
-  const refundedCentsOnSale = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
+  const refunds = sale.refunds ?? [];
+  const refundedCentsOnSale = refunds.reduce((sum, refund) => sum + refund.totalCents, 0);
   // totalCents is already after any sale-level discount, so the discount needs
   // no separate subtraction here.
   //
@@ -213,9 +214,17 @@ export function saleProfit(sale: Sale): SaleProfit {
   // its revenue share comes off -- the tax that went back with it is already
   // out via the taxCents term. Subtracting it whole left a fully refunded
   // taxed sale reporting minus its own tax as both revenue and profit.
+  //
+  // Rounded PER REFUND and then summed, not summed and rounded once, so this
+  // matches `refundPreTaxCents` term for term. Rounding the sum instead let a
+  // sale refunded over two visits report a penny more revenue on its own row
+  // than it contributed to the period containing it.
   const refundedRevenueCents =
     sale.totalCents > 0 && sale.taxCents > 0
-      ? Math.round((refundedCentsOnSale * (sale.totalCents - sale.taxCents)) / sale.totalCents)
+      ? refunds.reduce(
+          (sum, refund) => sum + Math.round((refund.totalCents * (sale.totalCents - sale.taxCents)) / sale.totalCents),
+          0
+        )
       : refundedCentsOnSale;
   const netRevenueCents = sale.totalCents - sale.taxCents - refundedRevenueCents;
 
@@ -269,12 +278,14 @@ export function saleRefundState(sale: Sale): SaleRefundState {
     refundedQuantity += Math.min(item.quantity, refundedQuantityFor(sale, item.id));
   }
 
-  if (refundedQuantity <= 0) return { kind: 'none' };
-  // A refund exists but the lines it points at are gone -- an edit dropped
-  // them. Reporting `none` would hide a refund that really happened, and
-  // reporting a count would print a proportion of a basket that no longer
-  // matches. Full is the honest reading: nothing refundable is left.
-  if (totalQuantity <= 0 || refundedQuantity >= totalQuantity) return { kind: 'full' };
+  // Past here a refund exists, so `none` is never the answer -- money went back
+  // whatever the lines now say, and a silent row is the one reading that is
+  // definitely wrong.
+  //
+  // A `refundedQuantity` of zero means the lines the refund pointed at are
+  // gone, dropped by a later edit. Nothing is left to count against, so any
+  // proportion would be invented; full is the honest reading.
+  if (totalQuantity <= 0 || refundedQuantity <= 0 || refundedQuantity >= totalQuantity) return { kind: 'full' };
   return { kind: 'partial', refundedQuantity, totalQuantity };
 }
 
