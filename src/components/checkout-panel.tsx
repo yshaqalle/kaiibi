@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { CategoryChip } from '@/components/category-chip';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { PaymentMethodPicker } from '@/components/payment-method-picker';
 import { Colors } from '@/constants/theme';
+import type { CheckoutIntent } from '@/lib/checkout-intent';
 import { formatCents } from '@/lib/currency';
 import { formatPoints, pointsToCents } from '@/lib/loyalty';
 import type { Currency, PaymentLine, PaymentMethod } from '@/types/models';
@@ -13,15 +13,18 @@ import { AppModal } from '@/components/ui/app-modal';
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
-// Cashier/customer/payment live in a bottom-sheet modal behind a single
-// "Checkout" button rather than inline in the cart pane, so the cart pane
-// (pinned above the product grid on mobile, its line-item list height-
-// capped) stays a fixed size regardless of checkout state.
+// The phone's checkout. Customer, points and payment cannot go inline on a
+// handset -- there is no room to hold a basket and a payment at once, and
+// inlining them would put the money below however many items the customer
+// brought -- so on compact they stay here, behind the panel's one button.
+//
+// Who is serving is NOT here any more: it is sticky across sales, so it is
+// status rather than a per-sale decision, and it lives on the panel's foot.
 export function CheckoutPanel({
+  visible,
+  onClose,
   cartEmpty,
-  cashiers,
-  cashierName,
-  onSelectCashier,
+  intent,
   shopId,
   selectedCustomer,
   onSelectCustomer,
@@ -47,10 +50,14 @@ export function CheckoutPanel({
   availableKnown,
   onDismiss,
 }: {
+  // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
+  // button, the "Served by" row and a completed sale all open or close it.
+  visible: boolean;
+  onClose: () => void;
   cartEmpty: boolean;
-  cashiers: string[];
-  cashierName: string | null;
-  onSelectCashier: (name: string) => void;
+  // The same sentence the sale panel puts on its own button, so the two can
+  // never disagree about what completing this sale will do.
+  intent: CheckoutIntent;
   shopId: string;
   selectedCustomer: SelectedCustomer | null;
   onSelectCustomer: (customer: SelectedCustomer) => void;
@@ -83,20 +90,21 @@ export function CheckoutPanel({
   // its own, which is what pos.tsx does with the receipt.
   onDismiss?: () => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Controlled by the caller rather than by a button of its own: the sale panel
+  // owns the till's one primary action now, and two buttons that both mean
+  // "check out" is exactly the confusion this screen was redesigned to end.
+  const open = visible;
+  const setOpen = (next: boolean) => { if (!next) onClose(); };
 
   // Covers both a completed sale (pos.tsx clears the cart on success) and
   // the cart being emptied manually mid-flow -- either way there's nothing
   // left to check out, so the sheet shouldn't stay open.
   useEffect(() => {
-    if (cartEmpty) setOpen(false);
-  }, [cartEmpty]);
+    if (cartEmpty) onClose();
+  }, [cartEmpty, onClose]);
 
   return (
     <>
-      <Pressable onPress={() => setOpen(true)} disabled={cartEmpty} style={[styles.checkout, cartEmpty && styles.checkoutDisabled]}>
-        <Text style={styles.checkoutText}>Checkout</Text>
-      </Pressable>
 
       {/* `onDismiss` fires only once the sheet's dismissal transition has
           actually finished. pos.tsx needs that signal because iOS refuses to
@@ -119,70 +127,167 @@ export function CheckoutPanel({
               </Pressable>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled">
-              {cashiers.length > 0 && (
-                <View style={styles.cashierSection}>
-                  <Text style={styles.cashierLabel}>CASHIER</Text>
-                  <View style={styles.cashierChips}>
-                    {cashiers.map((name) => (
-                      <CategoryChip key={name} label={name} active={cashierName === name} onPress={() => onSelectCashier(name)} />
-                    ))}
-                  </View>
-                </View>
-              )}
-
-              <CustomerPicker
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetScrollContent} keyboardShouldPersistTaps="handled">
+              <CheckoutBlocks
                 shopId={shopId}
-                selected={selectedCustomer}
-                onSelect={onSelectCustomer}
-                onClear={onClearCustomer}
-                showPoints={loyaltyEnabled}
-                centsPerPoint={centsPerPoint}
-              />
-
-              {/* Between the customer and the payment on purpose. The sheet
-                  reads top to bottom, and entering points changes the total,
-                  which clears whatever split has been entered -- so points have
-                  to be spent before the money is counted, not after. */}
-              {loyaltyEnabled && selectedCustomer && (
-                <PointsSection
-                  balance={selectedCustomer.pointsBalance}
-                  maturing={pointsMaturing}
-                  availableKnown={availableKnown}
-                  centsPerPoint={centsPerPoint}
-                  pointsRedeemed={pointsRedeemed}
-                  maxRedeemable={maxRedeemable}
-                  redemptionCents={redemptionCents}
-                  pointsEarned={pointsEarned}
-                  onChange={onChangePointsRedeemed}
-                />
-              )}
-
-              <PaymentMethodPicker
+                selectedCustomer={selectedCustomer}
+                onSelectCustomer={onSelectCustomer}
+                onClearCustomer={onClearCustomer}
                 totalCents={totalCents}
                 payments={payments}
                 currencies={currencies}
-                onChange={onChangePayments}
-                enabledMethods={enabledPaymentMethods}
+                onChangePayments={onChangePayments}
+                enabledPaymentMethods={enabledPaymentMethods}
                 allowSplit={allowSplit}
+                error={error}
+                loyaltyEnabled={loyaltyEnabled}
+                centsPerPoint={centsPerPoint}
+                pointsRedeemed={pointsRedeemed}
+                maxRedeemable={maxRedeemable}
+                pointsMaturing={pointsMaturing}
+                availableKnown={availableKnown}
+                redemptionCents={redemptionCents}
+                pointsEarned={pointsEarned}
+                onChangePointsRedeemed={onChangePointsRedeemed}
               />
+            </ScrollView>
 
-              {error && <Text style={styles.error}>{error}</Text>}
-
+            {/* Pinned under the scroller rather than sitting at the end of a
+                long form: on a short handset the button was below the fold
+                with the payment, so the last thing a cashier did was scroll
+                looking for it. */}
+            <View style={styles.sheetFoot}>
               <Pressable
                 onPress={onCheckout}
-                disabled={cartEmpty || !fullyPaid || submitting}
-                style={[styles.checkout, styles.completeSale, (cartEmpty || !fullyPaid || submitting) && styles.checkoutDisabled]}
+                disabled={!intent.enabled}
+                style={[styles.checkout, styles.completeSale, !intent.enabled && styles.checkoutDisabled]}
               >
-                <Text style={styles.checkoutText}>{submitting ? 'Completing…' : 'Complete sale'}</Text>
+                <Text style={styles.checkoutText}>{intent.label}</Text>
               </Pressable>
-            </ScrollView>
+              {intent.hint && <Text style={styles.sheetHint}>{intent.hint}</Text>}
+            </View>
           </View>
         </View>
       </AppModal>
     </>
   );
 }
+
+/**
+ * Customer, points and payment -- the three decisions between a basket and a
+ * completed sale. Rendered inline on the sale panel where the counter has the
+ * width for it, and inside the sheet on a phone, which does not.
+ *
+ * Extracted so neither surface can drift from the other: there is one order of
+ * blocks, and points sit between the customer and the payment on purpose --
+ * spending points changes the total, which clears whatever split has been
+ * entered, so they have to be spent before the money is counted.
+ */
+export function CustomerBlock({
+  shopId,
+  selectedCustomer,
+  onSelectCustomer,
+  onClearCustomer,
+  loyaltyEnabled,
+  centsPerPoint,
+  pointsRedeemed,
+  maxRedeemable,
+  pointsMaturing,
+  availableKnown,
+  redemptionCents,
+  pointsEarned,
+  onChangePointsRedeemed,
+}: CheckoutBlocksProps) {
+  return (
+    <>
+      <CustomerPicker
+        variant="row"
+        shopId={shopId}
+        selected={selectedCustomer}
+        onSelect={onSelectCustomer}
+        onClear={onClearCustomer}
+        showPoints={loyaltyEnabled}
+        centsPerPoint={centsPerPoint}
+      />
+
+      {/* Points sit with the customer they belong to, and before the money:
+          spending them changes the total, which clears whatever split has been
+          entered, so they have to be spent before the payment is counted. */}
+      {loyaltyEnabled && selectedCustomer && (
+        <PointsSection
+          balance={selectedCustomer.pointsBalance}
+          maturing={pointsMaturing}
+          availableKnown={availableKnown}
+          centsPerPoint={centsPerPoint}
+          pointsRedeemed={pointsRedeemed}
+          maxRedeemable={maxRedeemable}
+          redemptionCents={redemptionCents}
+          pointsEarned={pointsEarned}
+          onChange={onChangePointsRedeemed}
+        />
+      )}
+    </>
+  );
+}
+
+export function PaymentBlock({
+  totalCents,
+  payments,
+  currencies,
+  onChangePayments,
+  enabledPaymentMethods,
+  allowSplit,
+  error,
+}: CheckoutBlocksProps) {
+  return (
+    <>
+      <PaymentMethodPicker
+        totalCents={totalCents}
+        payments={payments}
+        currencies={currencies}
+        onChange={onChangePayments}
+        enabledMethods={enabledPaymentMethods}
+        allowSplit={allowSplit}
+      />
+
+      {error && <Text style={styles.error}>{error}</Text>}
+    </>
+  );
+}
+
+// Both halves in the order the sheet reads them, for the surface that shows
+// them together.
+export function CheckoutBlocks(props: CheckoutBlocksProps) {
+  return (
+    <>
+      <CustomerBlock {...props} />
+      <PaymentBlock {...props} />
+    </>
+  );
+}
+
+export type CheckoutBlocksProps = {
+  shopId: string;
+  selectedCustomer: SelectedCustomer | null;
+  onSelectCustomer: (customer: SelectedCustomer) => void;
+  onClearCustomer: () => void;
+  totalCents: number;
+  payments: PaymentLine[];
+  currencies: Currency[];
+  onChangePayments: (payments: PaymentLine[]) => void;
+  enabledPaymentMethods: PaymentMethod[];
+  allowSplit: boolean;
+  error: string | null;
+  loyaltyEnabled: boolean;
+  centsPerPoint: number;
+  pointsRedeemed: number;
+  maxRedeemable: number;
+  pointsMaturing: number;
+  availableKnown: boolean;
+  redemptionCents: number;
+  pointsEarned: number;
+  onChangePointsRedeemed: (points: number) => void;
+};
 
 // Rendered only when loyalty is on AND a customer is attached, so there is
 // never a disabled points control on screen needing an explanation.
@@ -277,22 +382,26 @@ function PointsSection({
 const styles = StyleSheet.create({
   // The sale's primary action: 56px, full width, black. Nothing else on the
   // sheet competes with it.
-  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   checkoutDisabled: { backgroundColor: theme.bentoSoft },
   checkoutText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
   overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
   // The sheet is the PAGE, not a card — the blocks inside it are the cards, and
   // a white sheet would flatten them into it.
-  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 24, maxHeight: '85%' },
+  // `height`, not `maxHeight` -- `sheetScroll` below is `flex: 1` and needs a
+  // concrete parent size to fill. Against a content-sized parent it resolves to
+  // zero and scrolls nothing, which is the trap receipt-modal.tsx records.
+  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 20, height: '88%' },
+  sheetScroll: { flex: 1 },
+  sheetScrollContent: { paddingBottom: 12 },
+  sheetFoot: { paddingTop: 12 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   title: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
   close: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999 },
   closePressed: { opacity: 0.6 },
   closeText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
-  cashierSection: { backgroundColor: theme.bentoSurface, borderRadius: 16, padding: 14, marginBottom: 8 },
-  cashierLabel: { fontSize: 10.5, letterSpacing: 0.7, fontWeight: '800', color: theme.bentoMuted, marginBottom: 9, textTransform: 'uppercase' },
-  cashierChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  completeSale: { marginBottom: 4 },
+  completeSale: {},
+  sheetHint: { color: theme.bentoMuted, fontSize: 11.5, textAlign: 'center', marginTop: 9 },
   error: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginTop: 10 },
   pointsSection: { backgroundColor: theme.bentoSurface, borderRadius: 16, padding: 14, marginTop: 8 },
   pointsLabel: { fontSize: 10.5, letterSpacing: 0.7, fontWeight: '800', color: theme.bentoMuted, marginBottom: 9, textTransform: 'uppercase' },

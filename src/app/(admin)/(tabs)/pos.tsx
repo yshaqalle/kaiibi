@@ -4,11 +4,16 @@ import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimen
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
-import { Card } from '@/components/card';
 import { CategoryChip } from '@/components/category-chip';
+import { OptionPicker } from '@/components/option-picker';
 import { ProductModal } from '@/components/product-modal';
-import { CheckoutPanel } from '@/components/checkout-panel';
+import { CheckoutPanel, CustomerBlock, PaymentBlock } from '@/components/checkout-panel';
+import type { SelectedCustomer } from '@/components/customer-picker';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
+import { DualAmount } from '@/components/pos/dual-amount';
+import { HeldOrdersMenu } from '@/components/pos/held-orders-menu';
+import { SaleLine } from '@/components/pos/sale-line';
+import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
 import { RegisterSessionDetail } from '@/components/register-session-detail';
@@ -21,7 +26,7 @@ import { SearchRow, useSearchKeypadState } from '@/components/search-row';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { TABLET_BREAKPOINT } from '@/constants/layout';
-import { BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
+import { BENTO_RADIUS, BENTO_RADIUS_TILE, Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
 import { usePosSessionField } from '@/hooks/use-pos-session';
@@ -30,15 +35,19 @@ import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
-import { sessionCashSummary } from '@/lib/registers';
+import { openSessionAt, sessionCashSummary } from '@/lib/registers';
 import { updateShop } from '@/lib/shops';
 import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
+import { checkoutErrorMessage, extractErrorMessage, isClosedRegisterError } from '@/lib/checkout-errors';
+import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
+import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/lib/held-orders';
 import { listCurrencies } from '@/lib/currencies';
 import { formatCents } from '@/lib/currency';
-import { appliedPromotionForLine, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
+import { displayCurrency, secondaryAmount } from '@/lib/display-currency';
+import { appliedPromotionForLine, bestPromotionForProduct, cartSubtotalCents, discountAmountCents, lineDiscountCents, lineGrossCents } from '@/lib/discounts';
 import { effectiveRedemption, maxRedeemablePoints, pointsEarnedFor, type LoyaltySettings } from '@/lib/loyalty';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { cashMovementsByCurrency, withDenomination } from '@/lib/register-sessions';
@@ -52,47 +61,6 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
-
-// Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
-// (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
-// X: has 7, need 100") are plain `{code, details, hint, message}` objects
-// that are never `instanceof Error`. Check for a string `.message` on either
-// shape so the user sees the RPC's actual reason instead of a generic one.
-function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return 'Could not complete this sale.';
-}
-
-// complete_sale refuses when the payments do not add up to the total it
-// computes, and says so in cents: "payments total 1440 does not match sale
-// total 1800". That is the right check and the wrong sentence to put in front
-// of a cashier with a customer waiting -- it names no cause and no next step.
-//
-// The cause is almost always an offer whose window moved. The cart is priced
-// as of when it started (see `pricingNow`), which keeps the client consistent
-// with itself, but a basket left open longer than the server's grace period
-// still lands here. Repricing against the clock now says whether that is what
-// happened, and by how much.
-function checkoutErrorMessage(err: unknown, cart: CartLine[], promotions: Promotion[], pricedAt: number): string {
-  const message = extractErrorMessage(err);
-  // Two shapes, one cause. The server refuses an offer outside its window
-  // ("promotion Eid weekend has ended"), and separately refuses a total that
-  // the payments do not add up to. Pinning the cart's clock makes the second
-  // rare, but a basket held open past the server's grace still hits the first,
-  // and neither sentence tells a cashier what to do about it.
-  const movedWindow = /promotion .* (has ended|has not started yet)/.test(message);
-  const mismatch = /payments total \d+ does not match sale total \d+/.test(message);
-  if (!movedWindow && !mismatch) return message;
-
-  const wasCents = cartSubtotalCents(cart, promotions, pricedAt);
-  const nowCents = cartSubtotalCents(cart, promotions, Date.now());
-  if (wasCents === nowCents) return message;
-
-  const direction = nowCents > wasCents ? 'ended' : 'started';
-  return `An offer ${direction} while you were ringing this up, so the price changed from ${formatCents(wasCents)} to ${formatCents(nowCents)}. Clear the payment and take it again at the new total.`;
-}
 
 export default function PosScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
@@ -158,6 +126,9 @@ export default function PosScreen() {
   const [editingTransactionDiscount, setEditingTransactionDiscount] = useState(false);
   const [pointsRedeemed, setPointsRedeemed] = usePosSessionField('pointsRedeemed');
   const [currencies, setCurrencies] = useState<Currency[]>([]);
+  // The shop's second currency, resolved once per render and passed down, so a
+  // tile, a cart line and the total can never echo different rates.
+  const secondCurrency = displayCurrency(currencies);
   // Height of a single compact grid tile, measured from the first rendered
   // tile — rows stretch every tile to match the tallest in that row, so this
   // doubles as the row height. Used to cap the mobile product grid at 2 rows.
@@ -167,6 +138,14 @@ export default function PosScreen() {
   // not dismiss a notice per item.
   const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
+  // The checkout sheet. Owned here rather than inside CheckoutPanel, because
+  // the panel's primary button, the "Served by" row and a completed sale all
+  // need to open or close the same one.
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // The cashier chooser on a counter, where there is no sheet to hold it.
+  const [servedByOpen, setServedByOpen] = useState(false);
+  // Sales parked at this till, read from storage so they survive a force-quit.
+  const [heldOrders, setHeldOrders] = useState<HeldOrder[]>([]);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
@@ -201,6 +180,16 @@ export default function PosScreen() {
   }, [shop, activeLocation]);
 
   useEffect(() => { reload(); }, [reload]);
+
+  // Parked sales belong to a person at a counter, so both scope the read.
+  useEffect(() => {
+    if (!profile) return;
+    let cancelled = false;
+    readHeldOrders(profile.id, activeLocation?.id ?? null)
+      .then((orders) => { if (!cancelled) setHeldOrders(orders); })
+      .catch(() => { if (!cancelled) setHeldOrders([]); });
+    return () => { cancelled = true; };
+  }, [profile, activeLocation]);
 
   // The roster, for the open sheet's person picker and the register bar's name.
   // Fails soft to an empty list: a cashier without staff.manage cannot read it,
@@ -430,6 +419,14 @@ export default function PosScreen() {
     setCashierName((current) => current ?? sessionMember.fullName);
   }, [sessionMember, setCashierName]);
 
+  // The clock the GRID prices against, which is not the cart's. The cart pins
+  // its clock when the sale starts so a price cannot move mid-basket; a tile is
+  // browsing, and wants to stop advertising an offer whose window has closed.
+  // Held in state rather than read from Date.now() during render -- that is an
+  // impure call, and it re-runs every time anything on the screen changes.
+  const [browseClock, setBrowseClock] = useState(() => Date.now());
+  useRefreshOnFocus(useCallback(async () => { setBrowseClock(Date.now()); }, []));
+
   // One clock for one transaction. Every discount function takes an optional
   // `now`, and left to default they each call Date.now() independently -- so a
   // promotion whose window closes between the render that showed the total and
@@ -489,7 +486,14 @@ export default function PosScreen() {
   // it rather than let a stale split silently under/over-cover the sale.
   useEffect(() => { setPayments([]); }, [total, setPayments]);
 
-  const checkout = async () => {
+  // `retryOnSession` is set only by the closed-register recovery below, which
+  // is also what stops it recursing: a second refusal is reported, not retried.
+  //
+  // Every call site wraps this in an arrow. A Pressable hands its handler the
+  // press event, which would arrive here as a register session id and be sent
+  // to the server -- Supabase then fails on the circular structure rather than
+  // on anything to do with the sale.
+  const checkout = async (retryOnSession?: string) => {
     if (!shop || cart.length === 0 || !fullyPaid) return;
     // Refuse rather than let complete_sale fall back to the primary location.
     // The fallback exists for callers that never had a location (CSV import, an
@@ -522,7 +526,7 @@ export default function PosScreen() {
         transactionDiscountCents,
         activeLocation.id,
         redemption.points,
-        registerSession?.id ?? null,
+        retryOnSession ?? registerSession?.id ?? null,
         pricingNow
       );
       const completed: ReceiptData = {
@@ -584,6 +588,23 @@ export default function PosScreen() {
       await reloadPromotions();
     } catch (err) {
       const message = extractErrorMessage(err);
+      // The till this sale was going to be filed against was closed underneath
+      // it -- by a supervisor, by another device, or by the same person on
+      // another tab. Nothing was written, so the sale can simply be filed
+      // against whichever register is open NOW rather than leaving a cashier
+      // holding a basket they cannot sell.
+      if (isClosedRegisterError(message) && !retryOnSession && activeLocation) {
+        const open = await openSessionAt(activeLocation.id).catch(() => null);
+        await reloadRegister();
+        if (open && open.id !== registerSession?.id) {
+          setError(null);
+          setSubmitting(false);
+          await checkout(open.id);
+          return;
+        }
+        setError(checkoutErrorMessage(err, cart, promotions, pricingNow));
+        return;
+      }
       // The server refused because an offer moved out of its window. Saying so
       // is not enough: this screen's promotions were loaded when it mounted, so
       // the cart is still priced by the old ones and every retry is refused the
@@ -605,6 +626,60 @@ export default function PosScreen() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Park the whole sale -- basket, customer, discount, points -- and hand the
+  // till back empty for the next person in the queue. The cashier stays: they
+  // are still the one serving.
+  const holdCurrentSale = async () => {
+    if (!profile || cart.length === 0) return;
+    const orders = await holdOrder(profile.id, activeLocation?.id ?? null, {
+      cart,
+      customer: selectedCustomer,
+      transactionDiscount,
+      pointsRedeemed,
+      totalCents: total,
+      itemCount: cart.reduce((sum, line) => sum + line.quantity, 0),
+    });
+    setHeldOrders(orders);
+    setCart([]);
+    setPayments([]);
+    setSelectedCustomer(null);
+    setTransactionDiscount(null);
+    setPointsRedeemed(0);
+    setEditingTransactionDiscount(false);
+    setEditingLineDiscount(null);
+  };
+
+  const resumeSale = async (id: string) => {
+    if (!profile) return;
+    // A basket already on the till is not in anyone's way -- it is someone's
+    // shopping. Park it before loading the other one, so recalling a sale can
+    // never be the thing that loses one. Both then sit in the queue together.
+    if (cart.length > 0) await holdCurrentSale();
+    const { order, remaining } = await resumeHeldOrder(profile.id, activeLocation?.id ?? null, id);
+    setHeldOrders(remaining);
+    if (!order) return;
+    // A parked basket reserves nothing, so an hour later the shelf may have
+    // moved. Say which lines cannot be filled NOW rather than letting the
+    // cashier find out from a refused charge with a customer waiting.
+    const short = order.cart.filter((line) => {
+      const onHand = products.find((product) => product.id === line.product.id)?.stock ?? line.product.stock;
+      return onHand < line.quantity;
+    });
+    if (short.length > 0) {
+      setScanFeedback({
+        tone: 'warn',
+        message: `Stock has moved since this was held: ${short.map((line) => line.product.name).join(', ')}. Check before charging.`,
+      });
+    }
+    setCart(order.cart);
+    setSelectedCustomer(order.customer);
+    setTransactionDiscount(order.transactionDiscount);
+    setPointsRedeemed(order.pointsRedeemed);
+    // Whatever was entered against the old total is meaningless against this
+    // one, which is being repriced as it lands.
+    setPayments([]);
   };
 
   const clearSale = () => {
@@ -651,16 +726,31 @@ export default function PosScreen() {
         nestedScrollEnabled: true,
       }
     : { contentContainerStyle: styles.grid };
-  // On mobile the cart list is a plain View, for exactly the reason the note
-  // above gives: it was a nested, flex-sized ScrollView capped at 240px, which
-  // is the sizing fight that note describes, and it left a tall band of dead
-  // page between the checkout button and the product grid.
+  // On a phone the list scrolls inside a capped height rather than growing the
+  // page. An uncapped list looks fine at two lines and fails at seven: the
+  // subtotal, the total and the button that acts on them are pushed off the
+  // bottom, so the last thing a cashier does on every sale is scroll past the
+  // whole basket to reach Checkout.
   //
-  // The cap it used to carry was meant to keep the total reachable. It is not
-  // needed here — the cart renders ABOVE the browse pane on a phone, so the
-  // total is already near the top of the page rather than beyond a long list.
-  const CartList = compact ? View : ScrollView;
-  const cartListProps = compact ? {} : { style: styles.cartList };
+  // The cap is an explicit pixel height, NOT a flex size -- which is the same
+  // exception the product grid above already makes, and the reason it escapes
+  // the nested-scroller sizing fight the note there describes.
+  const CartList = ScrollView;
+  const cartListProps = compact
+    ? { style: styles.cartListCompact, contentContainerStyle: styles.cartListContent, nestedScrollEnabled: true }
+    : { style: styles.cartList, contentContainerStyle: styles.cartListContent };
+
+  // Units sitting in parked baskets at THIS till. Held stock is not reserved --
+  // nothing is deducted until complete_sale runs -- so the grid keeps showing
+  // the real figure and names the parked units beside it. A cashier who knows
+  // three of the five are promised to someone else can decide for themselves;
+  // a silently reduced number would be a lie in the other direction.
+  const heldUnits = new Map<string, number>();
+  heldOrders.forEach((order) => {
+    order.cart.forEach((line) => {
+      heldUnits.set(line.product.id, (heldUnits.get(line.product.id) ?? 0) + line.quantity);
+    });
+  });
 
   const browsePaneEl = (
     <View
@@ -669,6 +759,7 @@ export default function PosScreen() {
     >
       <TillKeyboardNotice />
 
+      <View style={[styles.browseCard, compact && styles.browseCardCompact]}>
       <View onLayout={(e) => { searchRowY.current = e.nativeEvent.layout.y; }}>
         <SearchRow
           value={search}
@@ -722,19 +813,37 @@ export default function PosScreen() {
             {product.brand && <Text style={[styles.gridBrand, compact && styles.gridBrandCompact]}>{product.brand.toUpperCase()}</Text>}
             <Text style={[styles.gridName, compact && styles.gridNameCompact]} numberOfLines={2}>{product.name}</Text>
             <View style={[styles.gridFooter, compact && styles.gridFooterCompact]}>
-              <Text style={[styles.gridPrice, compact && styles.gridPriceCompact]}>{formatCents(product.priceCents)}</Text>
+              <DualAmount cents={product.priceCents} currency={secondCurrency} size="tile" align="left" />
               {product.stock <= 0 ? (
-                <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Out of stock</Text>
+                <Text style={styles.gridStockOut}>Out of stock</Text>
+              ) : product.stock <= (product.reorderLevel ?? 5) ? (
+                // The number is the useful part when it is nearly gone: "Only 3
+                // left" answers "can I sell three?" where a Low stock badge
+                // does not.
+                <Text style={styles.gridStockLow}>Only {product.stock} left</Text>
               ) : (
-                <View style={styles.gridStockWithBadge}>
-                  <Text style={[styles.gridStock, compact && styles.gridStockCompact]}>{product.stock} in stock</Text>
-                  {product.stock <= (product.reorderLevel ?? 5) && <Text style={[styles.stockPill, compact && styles.stockPillCompact]}>⚠ Low stock</Text>}
-                </View>
+                <Text style={styles.gridStock}>{product.stock} in stock</Text>
               )}
+              {(heldUnits.get(product.id) ?? 0) > 0 && (
+                <Text style={styles.gridHeld}>{heldUnits.get(product.id)} in a held sale</Text>
+              )}
+              {(() => {
+                // One unit's price as the gross: a tile is an offer to sell one, and a
+                // promotion with a minimum spend should not claim to apply until
+                // the basket actually reaches it.
+                const offer = bestPromotionForProduct(product, promotions, product.priceCents, browseClock);
+                if (!offer) return null;
+                return (
+                  <View style={styles.gridOffer}>
+                    <Text style={styles.gridOfferText} numberOfLines={1}>{offer.name}</Text>
+                  </View>
+                );
+              })()}
             </View>
           </Pressable>
         ))}
       </GridList>
+      </View>
     </View>
   );
 
@@ -744,6 +853,45 @@ export default function PosScreen() {
   // supervisor walks over with the float.
   const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
 
+  // The three decisions between a basket and a completed sale, built once and
+  // handed to whichever surface is showing them -- the panel on a counter, the
+  // sheet on a phone.
+  const checkoutBlockProps = shop ? {
+    shopId: shop.id,
+    selectedCustomer,
+    // A redemption is against one specific balance, so changing or clearing
+    // the customer has to drop it rather than carry it over.
+    onSelectCustomer: (customer: SelectedCustomer) => { setSelectedCustomer(customer); setPointsRedeemed(0); },
+    onClearCustomer: () => { setSelectedCustomer(null); setPointsRedeemed(0); },
+    totalCents: total,
+    payments,
+    currencies,
+    onChangePayments: setPayments,
+    enabledPaymentMethods,
+    allowSplit: shop.paymentSplitEnabled ?? true,
+    error,
+    loyaltyEnabled: loyalty.enabled,
+    centsPerPoint: loyalty.centsPerPoint,
+    pointsRedeemed,
+    maxRedeemable: maxRedeemablePoints(preRedemptionCents, spendablePoints, loyalty),
+    pointsMaturing: Math.max((selectedCustomer?.pointsBalance ?? 0) - spendablePoints, 0),
+    availableKnown: selectedCustomer?.availablePoints !== null && selectedCustomer?.availablePoints !== undefined,
+    redemptionCents: redemption.cents,
+    pointsEarned,
+    onChangePointsRedeemed: setPointsRedeemed,
+  } : null;
+
+  // One sentence, shared by the panel and the sheet, so the two surfaces can
+  // never disagree about what the next tap does.
+  const intent = checkoutIntent({
+    cartEmpty: cart.length === 0,
+    totalCents: total,
+    payments,
+    customerName: selectedCustomer?.name ?? null,
+    submitting,
+    secondaryTotal: secondaryAmount(total, secondCurrency),
+  });
+
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
       {registerBlocks && <RegisterGate onOpen={() => setRegisterSheet('open')} />}
@@ -751,31 +899,42 @@ export default function PosScreen() {
           white column with a hairline down its left edge, which read as a
           second page rather than as the thing being built. */}
       {!registerBlocks && (
-      <Card variant="bento" style={[styles.cartCard, compact && styles.cartCardCompact]}>
-      <View style={styles.cartTitleRow}>
-        <Text style={styles.cartTitle}>Current sale</Text>
-        <View style={styles.cartTitleActions}>
-          {/* Beside the sale itself, not only above the product grid. On a
-              phone the cart renders ABOVE the browse pane, so this is the one
-              scan control that stays in reach mid-checkout without scrolling
-              back up past the whole basket. */}
-          {scanner.camera && (
-            <Pressable onPress={() => setScannerOpen(true)} style={styles.scanCartButton}>
-              <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
-            </Pressable>
-          )}
-          {cart.length > 0 && (
-            <Pressable onPress={clearSale} style={styles.clearAll}>
-              <Text style={styles.clearAllText}>⌫ Clear all</Text>
-            </Pressable>
-          )}
+      <SalePanel
+        compact={compact}
+        // The counter has the width to take payment in place; the phone does
+        // not, so there the button opens the sheet that does.
+        mode={compact ? 'sheet' : 'inline'}
+        itemCount={cart.reduce((sum, line) => sum + line.quantity, 0)}
+        onClearAll={cart.length > 0 ? clearSale : null}
+        // Beside the sale itself, not only above the product grid. On a phone
+        // the cart renders ABOVE the browse pane, so this is the one scan
+        // control that stays in reach mid-checkout without scrolling back up
+        // past the whole basket.
+        head={<HeldOrdersMenu orders={heldOrders} onResume={resumeSale} />}
+        scanButton={scanner.camera ? (
+          <Pressable onPress={() => setScannerOpen(true)} style={styles.scanCartButton}>
+            <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
+          </Pressable>
+        ) : null}
+        totalCents={total}
+        currency={secondCurrency}
+        intent={intent}
+        onPrimary={compact ? () => setCheckoutOpen(true) : () => checkout()}
+        onHold={cart.length > 0 ? holdCurrentSale : null}
+        servedBy={cashierName}
+        onChangeServedBy={() => (compact ? setCheckoutOpen(true) : setServedByOpen((open) => !open))}
+        earnsPoints={pointsEarned}
+      >
+      {!compact && checkoutBlockProps && (
+        <View style={styles.customerBlock}>
+          <CustomerBlock {...checkoutBlockProps} />
         </View>
-      </View>
+      )}
       <CartList {...cartListProps}>
         {cart.length === 0 ? (
           <View style={styles.emptyWrap}>
-            <Text style={styles.emptyIcon}>🛒</Text>
-            <Text style={styles.empty}>Cart is empty.{'\n'}Tap a product to add it.</Text>
+            <Text style={styles.emptyTitle}>Nothing in this sale yet</Text>
+            <Text style={styles.empty}>Tap a product, or scan one.</Text>
           </View>
         ) : (
           cart.map((line) => {
@@ -784,41 +943,82 @@ export default function PosScreen() {
             const promo = appliedPromotionForLine(line, promotions, pricingNow);
             const isEditing = editingLineDiscount === line.product.id;
             return (
-              <View key={line.product.id} style={styles.cartLine}>
-                <View style={styles.cartLineRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cartLineName}>{line.product.name}</Text>
-                    <View style={styles.cartLinePriceRow}>
-                      {discountCents > 0 ? (
-                        <>
-                          <Text style={styles.cartLinePriceStruck}>{formatCents(gross)}</Text>
-                          <Text style={styles.cartLinePrice}>{formatCents(gross - discountCents)}</Text>
-                        </>
-                      ) : (
-                        <Text style={styles.cartLinePrice}>{formatCents(line.product.priceCents)}</Text>
-                      )}
-                    </View>
-                    {promo && !line.manualDiscount && <Text style={styles.cartLinePromo}>🏷 {promo.name}</Text>}
-                    {can('discounts.manual') && (
-                      <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
-                        <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                  <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
-                </View>
-                {isEditing && (
+              <SaleLine
+                key={line.product.id}
+                line={line}
+                grossCents={gross}
+                netCents={gross - discountCents}
+                offerName={promo && !line.manualDiscount ? promo.name : null}
+                currency={secondCurrency}
+                canDiscount={can('discounts.manual')}
+                editing={isEditing}
+                onToggleEditing={() => setEditingLineDiscount(isEditing ? null : line.product.id)}
+                onQuantity={(next) => setQuantity(line.product.id, next)}
+                onRemove={() => setQuantity(line.product.id, 0)}
+                onDiscount={(discount) => { setLineDiscount(line.product.id, discount); setEditingLineDiscount(null); }}
+                editor={
                   <DiscountEditor
                     initial={line.manualDiscount}
                     onApply={(discount) => { setLineDiscount(line.product.id, discount); setEditingLineDiscount(null); }}
                     onRemove={line.manualDiscount ? () => { setLineDiscount(line.product.id, null); setEditingLineDiscount(null); } : undefined}
                   />
-                )}
-              </View>
+                }
+              />
             );
           })
         )}
       </CartList>
+      <View style={styles.discountSection}>
+        {/* Nothing to discount until something is rung up: an order discount on
+            an empty till is a percentage of zero, and offering it invites a
+            cashier to set one and then wonder why the total never moved. */}
+        {cart.length > 0 && can('discounts.manual') && (
+          <Pressable onPress={() => setEditingTransactionDiscount((open) => !open)} style={styles.orderDiscountChip}>
+            <Text style={styles.orderDiscountChipText}>
+              {transactionDiscount ? 'Order discount set' : '+ Discount the order'}
+            </Text>
+          </Pressable>
+        )}
+        {cart.length > 0 && editingTransactionDiscount && can('discounts.manual') && (
+          <View style={styles.orderDiscountPresets}>
+            {/* The steps a shop actually gives, in front of the editor rather
+                than instead of it -- anything else is still Custom. */}
+            {[5, 10, 15, 20].map((percent) => (
+              <Pressable
+                key={percent}
+                onPress={() => { setTransactionDiscount({ type: 'percentage', value: percent }); setEditingTransactionDiscount(false); }}
+                style={styles.orderDiscountPreset}
+              >
+                <Text style={styles.orderDiscountPresetText}>{percent}%</Text>
+              </Pressable>
+            ))}
+            {transactionDiscount && (
+              <Pressable
+                onPress={() => { setTransactionDiscount(null); setEditingTransactionDiscount(false); }}
+                style={styles.orderDiscountPreset}
+              >
+                <Text style={styles.orderDiscountPresetText}>Remove</Text>
+              </Pressable>
+            )}
+            <View style={styles.orderDiscountEditor}>
+              <DiscountEditor
+                initial={transactionDiscount}
+                onApply={(discount) => { setTransactionDiscount(discount); setEditingTransactionDiscount(false); }}
+                onRemove={transactionDiscount ? () => { setTransactionDiscount(null); setEditingTransactionDiscount(false); } : undefined}
+              />
+            </View>
+          </View>
+        )}
+      </View>
+      {/* Nothing to pay for, nothing to decide: an idle till shows the sale it
+          is waiting for, not a row of dead payment methods. Above the
+          arithmetic, because taking the money is the decision and the
+          subtotal is only the explanation of it. */}
+      {!compact && checkoutBlockProps && cart.length > 0 && (
+        <View style={styles.inlineBlocks}>
+          <PaymentBlock {...checkoutBlockProps} />
+        </View>
+      )}
       <View style={styles.discountSection}>
         {hasAnyDiscount && (
           <>
@@ -844,65 +1044,38 @@ export default function PosScreen() {
             <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
           </View>
         )}
-        {can('discounts.manual') && (
-          <Pressable onPress={() => setEditingTransactionDiscount((v) => !v)}>
-            <Text style={styles.cartLineDiscountToggle}>
-              {transactionDiscount ? 'Edit order discount' : '+ Add order discount'}
-            </Text>
-          </Pressable>
-        )}
-        {editingTransactionDiscount && (
-          <DiscountEditor
-            initial={transactionDiscount}
-            onApply={(discount) => { setTransactionDiscount(discount); setEditingTransactionDiscount(false); }}
-            onRemove={transactionDiscount ? () => { setTransactionDiscount(null); setEditingTransactionDiscount(false); } : undefined}
-          />
-        )}
       </View>
-      <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Total</Text>
-        <Text style={styles.totalValue}>{formatCents(total)}</Text>
-      </View>
-      {pointsEarned > 0 && <Text style={styles.earnsPoints}>Earns {pointsEarned.toLocaleString()} points</Text>}
-
-      {shop && (
+      {compact && shop && checkoutBlockProps && (
         <CheckoutPanel
+          visible={checkoutOpen}
+          onClose={() => setCheckoutOpen(false)}
           cartEmpty={cart.length === 0}
-          cashiers={cashiers}
-          cashierName={cashierName}
-          onSelectCashier={(name) => setCashierName((current) => (current === name ? null : name))}
-          shopId={shop.id}
-          selectedCustomer={selectedCustomer}
-          // A redemption is against one specific balance, so changing or
-          // clearing the customer has to drop it rather than carry it over.
-          onSelectCustomer={(customer) => { setSelectedCustomer(customer); setPointsRedeemed(0); }}
-          onClearCustomer={() => { setSelectedCustomer(null); setPointsRedeemed(0); }}
-          totalCents={total}
-          payments={payments}
-          currencies={currencies}
-          onChangePayments={setPayments}
-          enabledPaymentMethods={enabledPaymentMethods}
-          allowSplit={shop?.paymentSplitEnabled ?? true}
+          intent={intent}
+          {...checkoutBlockProps}
           fullyPaid={fullyPaid}
           submitting={submitting}
-          error={error}
-          onCheckout={checkout}
-          loyaltyEnabled={loyalty.enabled}
-          centsPerPoint={loyalty.centsPerPoint}
-          pointsRedeemed={pointsRedeemed}
-          maxRedeemable={maxRedeemablePoints(preRedemptionCents, spendablePoints, loyalty)}
-          pointsMaturing={Math.max((selectedCustomer?.pointsBalance ?? 0) - spendablePoints, 0)}
-          availableKnown={selectedCustomer?.availablePoints !== null && selectedCustomer?.availablePoints !== undefined}
-          redemptionCents={redemption.cents}
-          pointsEarned={pointsEarned}
-          onChangePointsRedeemed={setPointsRedeemed}
+          onCheckout={() => checkout()}
           // The sheet is fully gone, so it's now safe to present the receipt.
           // A no-op when nothing is staged, which is every dismissal that
           // wasn't a completed sale (the cashier tapping Close).
           onDismiss={showStagedReceipt}
         />
       )}
-      </Card>
+      {/* Who is serving. Sticky across sales, so it sits with the sale rather
+          than inside the payment, and it only appears where the shop keeps a
+          list of cashiers to choose from. */}
+      {servedByOpen && cashiers.length > 0 && (
+        <View style={styles.inlineBlocks}>
+          <OptionPicker
+            title="Served by"
+            options={cashiers.map((name) => ({ id: name, label: name }))}
+            value={cashierName}
+            onChange={(name) => { setCashierName(() => name); setServedByOpen(false); }}
+            placeholder="Choose a cashier"
+          />
+        </View>
+      )}
+      </SalePanel>
       )}
     </View>
   );
@@ -1099,10 +1272,18 @@ const styles = StyleSheet.create({
   splitCompact: { flex: 1, flexDirection: 'column' },
   splitCompactContent: { flexDirection: 'column', width: '100%', minWidth: 0 },
   browsePane: { flex: 2, padding: 18 },
+  // One card holds the search, the categories and the grid: the tiles inside it
+  // are the soft fill, and without a white ground behind them their edges
+  // disappear into the page.
+  browseCard: { flex: 1, minHeight: 0, backgroundColor: theme.bentoSurface, borderRadius: BENTO_RADIUS, padding: 16 },
+  browseCardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', padding: 14 },
   browsePaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 10 },
-  categoryScroll: { flexGrow: 0, flexShrink: 0 },
+  // `minWidth: 0` on both: a dozen categories overflow this row, and without it
+  // Yoga sizes the pane to the whole list instead of letting the row scroll --
+  // taking the product grid and the sale panel with it.
+  categoryScroll: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   categoryRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingBottom: 16 },
-  categoryScrollCompact: { flexGrow: 0, flexShrink: 0 },
+  categoryScrollCompact: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   categoryRowCompact: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCompact: { gap: 8 },
@@ -1111,20 +1292,20 @@ const styles = StyleSheet.create({
   // arm's length in shop lighting, and the tile carries the most information
   // per pixel in the app -- a visible edge is worth more here than the cleaner
   // borderless look the desk screens get.
+  // Borderless and on the soft tile fill, like every other bento surface -- and
+  // narrow enough that a counter screen shows four across instead of three.
   gridTile: {
-    flexBasis: '31%',
+    flexBasis: '23%',
     flexGrow: 0,
     flexShrink: 0,
-    minWidth: 190,
-    backgroundColor: theme.bentoSurface,
+    minWidth: 150,
+    backgroundColor: theme.bentoSoft,
     borderRadius: BENTO_RADIUS_TILE,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: theme.bentoLine,
+    padding: 12,
   },
   gridTileCompact: { flexBasis: '31%', minWidth: 90, flexGrow: 0, flexShrink: 0, borderRadius: 12, padding: 8 },
   gridTileDisabled: { opacity: 0.45 },
-  gridThumb: { width: '100%', aspectRatio: 1, borderRadius: 12, marginBottom: 12 },
+  gridThumb: { width: '100%', aspectRatio: 2.2, borderRadius: 12, marginBottom: 10, backgroundColor: theme.bentoSurface },
   gridThumbCompact: { aspectRatio: 1.3, borderRadius: 8, marginBottom: 6 },
   gridThumbPlaceholder: { backgroundColor: theme.bentoSoft, alignItems: 'center', justifyContent: 'center' },
   // A teardrop silhouette built from a rotated square with three rounded
@@ -1145,13 +1326,18 @@ const styles = StyleSheet.create({
   gridThumbDropMuted: { backgroundColor: theme.bentoMuted2 },
   gridBrand: { color: theme.bentoMuted2, fontSize: 10, fontWeight: '800', letterSpacing: 0.9 },
   gridBrandCompact: { fontSize: 8 },
-  gridName: { color: theme.bentoInk, fontSize: 14, fontWeight: '700', minHeight: 38, marginTop: 3, lineHeight: 18 },
+  gridName: { color: theme.bentoInk, fontSize: 12.5, fontWeight: '700', minHeight: 32, marginTop: 2, lineHeight: 16 },
   gridNameCompact: { fontSize: 11, minHeight: 15, marginTop: 2, lineHeight: 14 },
-  gridFooter: { marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap' },
+  gridFooter: { marginTop: 8, alignItems: 'flex-start', gap: 4 },
   gridFooterCompact: { marginTop: 5, flexDirection: 'column', alignItems: 'flex-start', gap: 2 },
   gridPrice: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] },
   gridPriceCompact: { fontSize: 13 },
-  gridStock: { color: theme.bentoMuted, fontSize: 11.5 },
+  gridStock: { color: theme.bentoMuted, fontSize: 10.5 },
+  gridStockLow: { color: theme.bentoWarn, fontSize: 10.5, fontWeight: '700' },
+  gridHeld: { color: theme.bentoAccentInk, fontSize: 10.5, fontWeight: '700' },
+  gridStockOut: { color: theme.bentoLoss, fontSize: 10.5, fontWeight: '700' },
+  gridOffer: { backgroundColor: theme.bentoUpWash, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, marginTop: 2 },
+  gridOfferText: { color: theme.bentoUpInk, fontSize: 10, fontWeight: '800' },
   gridStockCompact: { fontSize: 9 },
   gridStockWithBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   // Warm on purpose: a low-stock flag is SUPPOSED to sit warmer than the
@@ -1160,43 +1346,45 @@ const styles = StyleSheet.create({
   stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6 },
 
   // ---- cart: one card, sitting on the page like every other card ----
+  inlineBlocks: { paddingHorizontal: 18, paddingBottom: 8 },
+  customerBlock: { paddingHorizontal: 18, paddingBottom: 4 },
   cartPane: { flex: 1, padding: 18, paddingLeft: 4, minWidth: 340 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 0 },
-  cartCard: { flex: 1, padding: 16 },
   // Spelled out rather than `flex: 0`, matching the panes above: inside the
   // page's vertical scroller the card must size to its content, and a bare
   // `flex: 0` leaves flexBasis to interpretation.
-  cartCardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
-  cartTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 },
-  cartTitleActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  cartTitle: { color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
   miniButton: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 11 },
   miniButtonText: { color: theme.bentoInk2, fontSize: 11.5, fontWeight: '700' },
-  // Black and larger than its neighbour: scanning is how a basket actually
-  // gets built, and this is the one scan control still in reach once the phone
-  // has pushed the search field below the cart. Clear all stays quiet beside
-  // it -- two black pills would make "wipe the sale" look equally inviting.
+  // The head is one row of matching black pills -- the count, this, and Clear.
+  // Scanning is how a basket actually gets built, and this is the one scan
+  // control still in reach once the phone has pushed the search field below the
+  // cart. Clear carries the same weight at the shop's request; what keeps it
+  // from being a one-tap way to lose a basket is the confirm on `clearSale`.
   scanCartButton: { backgroundColor: theme.bentoInk, borderWidth: 1, borderColor: theme.bentoInk, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 16 },
   scanCartButtonText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
-  clearAll: { borderWidth: 1, borderColor: theme.bentoLine, backgroundColor: theme.bentoSurface, borderRadius: 999, paddingVertical: 10, paddingHorizontal: 14 },
-  clearAllText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
-  emptyWrap: { alignItems: 'center', marginTop: 40, marginBottom: 24 },
-  emptyIcon: { fontSize: 30, marginBottom: 10, opacity: 0.5 },
+  // The same 18 the head and the foot are inset by. Without it the money and
+  // the remove button sit hard against the card's edge while everything above
+  // and below them is indented -- and the line dividers run edge to edge.
+  cartListContent: { paddingHorizontal: 18 },
+  // About four lines. Enough that most sales never scroll at all, and short
+  // enough that the total stays on screen when they do.
+  cartListCompact: { maxHeight: 320, flexGrow: 0, flexShrink: 0 },
+  orderDiscountChip: { alignSelf: 'flex-start', backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, marginTop: 4 },
+  orderDiscountChipText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
+  orderDiscountPresets: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 },
+  orderDiscountPreset: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
+  orderDiscountPresetText: { color: theme.bentoInk2, fontSize: 12, fontWeight: '700' },
+  orderDiscountEditor: { width: '100%' },
+  emptyWrap: { alignItems: 'center', paddingVertical: 38, gap: 4 },
+  emptyTitle: { color: theme.bentoInk2, fontSize: 13.5, fontWeight: '700' },
   empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },
   // A ruled row, not a nested grey card: a card inside a card at every line
   // made the basket read as a stack of panels rather than as a list.
-  cartLine: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoRule },
-  cartLineRow: { flexDirection: 'row', alignItems: 'center' },
-  cartLineName: { color: theme.bentoInk, fontSize: 13.5, fontWeight: '700' },
-  cartLinePriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 },
-  cartLinePrice: { color: theme.bentoMuted, fontSize: 12 },
-  cartLinePriceStruck: { color: theme.bentoMuted2, fontSize: 12, textDecorationLine: 'line-through' },
-  cartLinePromo: { color: theme.bentoProfit, fontSize: 11, fontWeight: '700', marginTop: 4 },
   cartLineDiscountToggle: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6, textDecorationLine: 'underline' },
-  discountSection: { marginTop: 4 },
+  discountSection: { marginTop: 4, paddingHorizontal: 18 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   summaryLabel: { color: theme.bentoMuted, fontSize: 13 },
   summaryValue: { color: theme.bentoInk, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
@@ -1206,8 +1394,4 @@ const styles = StyleSheet.create({
   // The one loud thing on the screen. This is the number said out loud to the
   // customer and the one that gets a sale wrong if it is misread, so it does
   // not share a size with "Subtotal".
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingTop: 12, borderTopWidth: 2, borderTopColor: theme.bentoInk, marginTop: 10 },
-  totalLabel: { color: theme.bentoInk, fontSize: 15, fontWeight: '800' },
-  totalValue: { color: theme.bentoInk, fontSize: 30, fontWeight: '800', letterSpacing: -1, fontVariant: ['tabular-nums'] },
-  earnsPoints: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6 },
 });

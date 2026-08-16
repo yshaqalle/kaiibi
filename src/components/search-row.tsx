@@ -17,9 +17,19 @@ const theme = Colors.light;
  */
 export function useSearchKeypadState(useKeypad: boolean) {
   const [keypadOpen, setKeypadOpen] = useState(false);
-  useEffect(() => {
+  // Adjusted during render rather than in an effect. An effect renders the
+  // keypad once with the scanner already gone before closing it, and the rule
+  // against setState-in-effect is about exactly that extra pass. React
+  // re-renders this component immediately instead, before anything is shown.
+  //
+  // Note this is NOT the same as deriving `useKeypad && keypadOpen`: that would
+  // merely hide the keypad while unplugged and spring it back open on plugging
+  // in, which is the behaviour the paragraph above exists to prevent.
+  const [hadKeypad, setHadKeypad] = useState(useKeypad);
+  if (hadKeypad !== useKeypad) {
+    setHadKeypad(useKeypad);
     if (!useKeypad) setKeypadOpen(false);
-  }, [useKeypad]);
+  }
   return { keypadOpen, setKeypadOpen };
 }
 
@@ -293,7 +303,19 @@ const styles = StyleSheet.create({
   // POS: bigger field, read at arm's length in shop lighting rather than at a
   // desk. Layered over `field` (and `fieldWithIcon`/`fieldWithScan`), so the
   // desk sizes above stay visible and this doesn't need to repeat them.
-  fieldCounter: { height: 52, paddingLeft: 42, paddingRight: 54, fontSize: 15 },
+  // The counter's field sits INSIDE the browse card, so it takes the soft fill
+  // and drops the hairline: a white box on a white card has no edge to read,
+  // and a border around it would be the only one on the screen. Inventory's
+  // 'desk' size is untouched -- there the field is on the grey page.
+  fieldCounter: {
+    height: 52,
+    paddingLeft: 42,
+    paddingRight: 54,
+    fontSize: 15,
+    backgroundColor: theme.bentoSoft,
+    borderColor: 'transparent',
+    borderRadius: 999,
+  },
   icon: { position: 'absolute', left: 13, fontSize: 15, color: theme.bentoMuted2, zIndex: 1 },
   iconCounter: { left: 16, fontSize: 18 },
   live: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 12, paddingLeft: 2 },

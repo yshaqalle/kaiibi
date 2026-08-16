@@ -107,13 +107,54 @@ export function RegisterBar({
         )}
       </Pressable>
       <View style={styles.actions}>
-        <Pressable onPress={onHandover} style={[styles.action, styles.actionDark]} accessibilityLabel="Handover">
-          <Text style={styles.actionDarkText}>{roomForLabels ? '⇄  Handover' : '⇄'}</Text>
-        </Pressable>
-        <Pressable onPress={onClose} style={[styles.action, styles.actionDark]} accessibilityLabel="Close register">
-          <Text style={styles.actionDarkText}>{roomForLabels ? '⊘  Close register' : '⊘'}</Text>
-        </Pressable>
+        <IconAction glyph="⇄" label="Handover" showLabel={roomForLabels} onPress={onHandover} />
+        <IconAction glyph="⊘" label="Close register" showLabel={roomForLabels} onPress={onClose} />
       </View>
+    </View>
+  );
+}
+
+/**
+ * A register action, with its name available when the bar is too narrow to
+ * print it.
+ *
+ * Two unlabelled glyphs that both act on the till -- one hands it to the next
+ * person, the other closes it and counts the drawer -- are not a guess anyone
+ * should have to make. `accessibilityLabel` alone only helps a screen reader,
+ * so the name also shows on hover (a counter tablet with a mouse, and the web
+ * build) and on a long press (a touch screen, where there is no hover).
+ */
+function IconAction({
+  glyph,
+  label,
+  showLabel,
+  onPress,
+}: {
+  glyph: string;
+  label: string;
+  showLabel: boolean;
+  onPress: () => void;
+}) {
+  const [hinting, setHinting] = useState(false);
+  const showHint = hinting && !showLabel;
+  return (
+    <View>
+      {showHint && (
+        <View style={styles.tooltip} pointerEvents="none">
+          <Text style={styles.tooltipText}>{label}</Text>
+        </View>
+      )}
+      <Pressable
+        onPress={onPress}
+        onHoverIn={() => setHinting(true)}
+        onHoverOut={() => setHinting(false)}
+        onLongPress={() => setHinting(true)}
+        onPressOut={() => setHinting(false)}
+        style={[styles.action, styles.actionDark]}
+        accessibilityLabel={label}
+      >
+        <Text style={styles.actionDarkText}>{showLabel ? `${glyph}  ${label}` : glyph}</Text>
+      </Pressable>
     </View>
   );
 }
@@ -172,6 +213,13 @@ const styles = StyleSheet.create({
   actionAlone: { marginLeft: 'auto' },
   actionDark: { backgroundColor: theme.bentoInk, borderColor: theme.bentoInk },
   actionDarkText: { fontSize: 11.5, fontWeight: '700', color: '#fff' },
+  // Above the button rather than below it: the bar sits at the top of the
+  // screen, and a bubble under a button here would cover the sale.
+  tooltip: {
+    position: 'absolute', bottom: '100%', right: 0, marginBottom: 6, zIndex: 30,
+    backgroundColor: theme.bentoInk, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 9,
+  },
+  tooltipText: { color: '#fff', fontSize: 11, fontWeight: '700' },
   gate: { backgroundColor: theme.surface, borderRadius: 26, padding: 34, alignItems: 'center' },
   gateTitle: { fontSize: 17, fontWeight: '800', letterSpacing: -0.3, color: theme.bentoInk, marginBottom: 5 },
   gateBody: { fontSize: 13, color: theme.bentoMuted, textAlign: 'center', maxWidth: 340, lineHeight: 19 },
