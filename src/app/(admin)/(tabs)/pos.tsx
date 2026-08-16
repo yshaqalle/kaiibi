@@ -35,11 +35,12 @@ import { useScannerSettings } from '@/hooks/use-scanner-settings';
 import { useKeypadProven } from '@/lib/keypad-proof';
 import { barcodeCandidates, looksLikeBarcode, posScanOutcome, type ScanFeedback } from '@/lib/barcode';
 import { listCashiers } from '@/lib/cashiers';
-import { sessionCashSummary } from '@/lib/registers';
+import { openSessionAt, sessionCashSummary } from '@/lib/registers';
 import { updateShop } from '@/lib/shops';
 import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
+import { checkoutErrorMessage, extractErrorMessage, isClosedRegisterError } from '@/lib/checkout-errors';
 import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
 import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/lib/held-orders';
@@ -60,47 +61,6 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
-
-// Real `Error` instances have `.message`, but Supabase's `rpc()`/query errors
-// (e.g. PostgrestError from the complete_sale RPC — "insufficient stock for
-// X: has 7, need 100") are plain `{code, details, hint, message}` objects
-// that are never `instanceof Error`. Check for a string `.message` on either
-// shape so the user sees the RPC's actual reason instead of a generic one.
-function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
-    return (err as { message: string }).message;
-  }
-  return 'Could not complete this sale.';
-}
-
-// complete_sale refuses when the payments do not add up to the total it
-// computes, and says so in cents: "payments total 1440 does not match sale
-// total 1800". That is the right check and the wrong sentence to put in front
-// of a cashier with a customer waiting -- it names no cause and no next step.
-//
-// The cause is almost always an offer whose window moved. The cart is priced
-// as of when it started (see `pricingNow`), which keeps the client consistent
-// with itself, but a basket left open longer than the server's grace period
-// still lands here. Repricing against the clock now says whether that is what
-// happened, and by how much.
-function checkoutErrorMessage(err: unknown, cart: CartLine[], promotions: Promotion[], pricedAt: number): string {
-  const message = extractErrorMessage(err);
-  // Two shapes, one cause. The server refuses an offer outside its window
-  // ("promotion Eid weekend has ended"), and separately refuses a total that
-  // the payments do not add up to. Pinning the cart's clock makes the second
-  // rare, but a basket held open past the server's grace still hits the first,
-  // and neither sentence tells a cashier what to do about it.
-  const movedWindow = /promotion .* (has ended|has not started yet)/.test(message);
-  const mismatch = /payments total \d+ does not match sale total \d+/.test(message);
-  if (!movedWindow && !mismatch) return message;
-
-  const wasCents = cartSubtotalCents(cart, promotions, pricedAt);
-  const nowCents = cartSubtotalCents(cart, promotions, Date.now());
-  if (wasCents === nowCents) return message;
-
-  const direction = nowCents > wasCents ? 'ended' : 'started';
-  return `An offer ${direction} while you were ringing this up, so the price changed from ${formatCents(wasCents)} to ${formatCents(nowCents)}. Clear the payment and take it again at the new total.`;
-}
 
 export default function PosScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
@@ -526,7 +486,14 @@ export default function PosScreen() {
   // it rather than let a stale split silently under/over-cover the sale.
   useEffect(() => { setPayments([]); }, [total, setPayments]);
 
-  const checkout = async () => {
+  // `retryOnSession` is set only by the closed-register recovery below, which
+  // is also what stops it recursing: a second refusal is reported, not retried.
+  //
+  // Every call site wraps this in an arrow. A Pressable hands its handler the
+  // press event, which would arrive here as a register session id and be sent
+  // to the server -- Supabase then fails on the circular structure rather than
+  // on anything to do with the sale.
+  const checkout = async (retryOnSession?: string) => {
     if (!shop || cart.length === 0 || !fullyPaid) return;
     // Refuse rather than let complete_sale fall back to the primary location.
     // The fallback exists for callers that never had a location (CSV import, an
@@ -559,7 +526,7 @@ export default function PosScreen() {
         transactionDiscountCents,
         activeLocation.id,
         redemption.points,
-        registerSession?.id ?? null,
+        retryOnSession ?? registerSession?.id ?? null,
         pricingNow
       );
       const completed: ReceiptData = {
@@ -621,6 +588,23 @@ export default function PosScreen() {
       await reloadPromotions();
     } catch (err) {
       const message = extractErrorMessage(err);
+      // The till this sale was going to be filed against was closed underneath
+      // it -- by a supervisor, by another device, or by the same person on
+      // another tab. Nothing was written, so the sale can simply be filed
+      // against whichever register is open NOW rather than leaving a cashier
+      // holding a basket they cannot sell.
+      if (isClosedRegisterError(message) && !retryOnSession && activeLocation) {
+        const open = await openSessionAt(activeLocation.id).catch(() => null);
+        await reloadRegister();
+        if (open && open.id !== registerSession?.id) {
+          setError(null);
+          setSubmitting(false);
+          await checkout(open.id);
+          return;
+        }
+        setError(checkoutErrorMessage(err, cart, promotions, pricingNow));
+        return;
+      }
       // The server refused because an offer moved out of its window. Saying so
       // is not enough: this screen's promotions were loaded when it mounted, so
       // the cart is still priced by the old ones and every retry is refused the
@@ -935,7 +919,7 @@ export default function PosScreen() {
         totalCents={total}
         currency={secondCurrency}
         intent={intent}
-        onPrimary={compact ? () => setCheckoutOpen(true) : checkout}
+        onPrimary={compact ? () => setCheckoutOpen(true) : () => checkout()}
         onHold={cart.length > 0 ? holdCurrentSale : null}
         servedBy={cashierName}
         onChangeServedBy={() => (compact ? setCheckoutOpen(true) : setServedByOpen((open) => !open))}
@@ -1070,7 +1054,7 @@ export default function PosScreen() {
           {...checkoutBlockProps}
           fullyPaid={fullyPaid}
           submitting={submitting}
-          onCheckout={checkout}
+          onCheckout={() => checkout()}
           // The sheet is fully gone, so it's now safe to present the receipt.
           // A no-op when nothing is staged, which is every dismissal that
           // wasn't a completed sale (the cashier tapping Close).
