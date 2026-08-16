@@ -127,7 +127,7 @@ export function CheckoutPanel({
               </Pressable>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.sheetScrollContent} keyboardShouldPersistTaps="handled">
               <CheckoutBlocks
                 shopId={shopId}
                 selectedCustomer={selectedCustomer}
@@ -150,8 +150,13 @@ export function CheckoutPanel({
                 pointsEarned={pointsEarned}
                 onChangePointsRedeemed={onChangePointsRedeemed}
               />
+            </ScrollView>
 
-
+            {/* Pinned under the scroller rather than sitting at the end of a
+                long form: on a short handset the button was below the fold
+                with the payment, so the last thing a cashier did was scroll
+                looking for it. */}
+            <View style={styles.sheetFoot}>
               <Pressable
                 onPress={onCheckout}
                 disabled={!intent.enabled}
@@ -160,7 +165,7 @@ export function CheckoutPanel({
                 <Text style={styles.checkoutText}>{intent.label}</Text>
               </Pressable>
               {intent.hint && <Text style={styles.sheetHint}>{intent.hint}</Text>}
-            </ScrollView>
+            </View>
           </View>
         </View>
       </AppModal>
@@ -355,19 +360,25 @@ function PointsSection({
 const styles = StyleSheet.create({
   // The sale's primary action: 56px, full width, black. Nothing else on the
   // sheet competes with it.
-  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginTop: 18 },
+  checkout: { backgroundColor: theme.bentoInk, height: 56, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
   checkoutDisabled: { backgroundColor: theme.bentoSoft },
   checkoutText: { color: theme.bentoSurface, fontWeight: '800', fontSize: 16, letterSpacing: -0.2 },
   overlay: { flex: 1, backgroundColor: 'rgba(11,11,13,0.45)', justifyContent: 'flex-end' },
   // The sheet is the PAGE, not a card — the blocks inside it are the cards, and
   // a white sheet would flatten them into it.
-  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 24, maxHeight: '85%' },
+  // `height`, not `maxHeight` -- `sheetScroll` below is `flex: 1` and needs a
+  // concrete parent size to fill. Against a content-sized parent it resolves to
+  // zero and scrolls nothing, which is the trap receipt-modal.tsx records.
+  sheet: { backgroundColor: theme.bentoPage, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, paddingBottom: 20, height: '88%' },
+  sheetScroll: { flex: 1 },
+  sheetScrollContent: { paddingBottom: 12 },
+  sheetFoot: { paddingTop: 12 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   title: { fontSize: 17, fontWeight: '800', color: theme.bentoInk, letterSpacing: -0.3 },
   close: { backgroundColor: theme.bentoSurface, borderWidth: 1, borderColor: theme.bentoLine, paddingVertical: 7, paddingHorizontal: 14, borderRadius: 999 },
   closePressed: { opacity: 0.6 },
   closeText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoInk2 },
-  completeSale: { marginBottom: 4 },
+  completeSale: {},
   sheetHint: { color: theme.bentoMuted, fontSize: 11.5, textAlign: 'center', marginTop: 9 },
   error: { color: theme.bentoLoss, fontSize: 13, fontWeight: '700', marginTop: 10 },
   pointsSection: { backgroundColor: theme.bentoSurface, borderRadius: 16, padding: 14, marginTop: 8 },
