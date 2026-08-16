@@ -1197,7 +1197,11 @@ export default function DashboardScreen() {
                 scope={rangeLabel}
                 entries={cashiers}
                 emptyLabel="No sales are attributed to a cashier in this range."
-                foot="Attribution is the cashier name frozen on each sale, so it survives someone leaving. Gross of tax, like a till reading."
+                // Says refunds too, not just tax. `cashierPerformance` ranks
+                // what was rung up -- deliberately, since this is a staff
+                // question -- but a range where a third of the takings came
+                // back makes "gross of tax" alone a half-answer.
+                foot="Attribution is the cashier name frozen on each sale, so it survives someone leaving. Gross of tax and of refunds, like a till reading."
               />
             </BentoCell>
           ) : null}
