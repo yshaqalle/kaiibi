@@ -138,7 +138,12 @@ const styles = StyleSheet.create({
   // against -- against a content-sized parent a flex scroller collapses to
   // nothing, which is the same trap receipt-modal.tsx documents.
   card: { flex: 1, padding: 0, overflow: 'hidden' },
-  cardCompact: { flex: 0 },
+  // Spelled out rather than a bare `flex: 0`, which is the trap the cart card
+  // carried a comment about before this component existed: inside the page's
+  // vertical scroller the panel must size to its content, and `flex: 0` alone
+  // leaves flexBasis to interpretation -- on web it resolves to 0% and the
+  // panel lays out wider than the screen and disappears off the side of it.
+  cardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0 },
   head: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
     paddingHorizontal: 18, paddingTop: 18, paddingBottom: 10,
