@@ -137,6 +137,18 @@ export const Colors = {
     // lightness as the pair above.
     bentoAccentWash: '#e6edff',
     bentoAccentInk: '#1b47b8', // 6.79:1 on its wash
+    // A sale that came back. Amber for the same reason `bentoWarn` is amber:
+    // this is the third status -- needs noticing, is not broken. Red would say
+    // the sale is a loss, which it is not, and would sit next to a genuinely
+    // negative profit figure crying the same wolf; green is nonsense for money
+    // going out. Washed to the lightness of the delta pills above so the three
+    // read as one family of badges rather than three unrelated marks.
+    //
+    // The badge carries a `↩` as well as the colour -- same deutan rule as
+    // `bentoProfit`/`bentoLoss`, and the reason a partial refund is a count
+    // ("1 of 4 back") rather than a differently-coloured dot.
+    bentoRefundWash: '#f8efdc',
+    bentoRefundInk: '#8a5a05', // 5.18:1 on its wash
     // Single-hue mark color for magnitude/trend charts (line, bars,
     // sparklines) — same blue as `chartSeries1`, the reference palette's
     // designated sequential default. Kept as its own name so single-series
@@ -215,6 +227,11 @@ export const Colors = {
     bentoDownInk: '#ff8a93',
     bentoAccentWash: '#1a2440',
     bentoAccentInk: '#8fb4ff',
+    // Same inversion the delta washes take: the wash goes dark, the ink goes
+    // light, so the pill still reads as a pill without being the brightest
+    // thing on the card. 8.20:1 on its wash.
+    bentoRefundWash: '#3a2c12',
+    bentoRefundInk: '#f2c26a',
   },
 } as const;
 

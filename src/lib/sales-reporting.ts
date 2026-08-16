@@ -192,6 +192,13 @@ export type SaleProfit = {
   // lines have no cost on file, so the profit shown is an upper bound.
   uncostedItemCount: number;
   uncostedRevenueCents: number;
+  // The three figures the Refunded block reconciles: what was handed back
+  // (tax included, the counter figure), the tax sitting inside it, and what
+  // the shop was left holding. Derived here rather than in the row so the
+  // block cannot disagree with the profit line under it.
+  refundedCents: number;
+  refundedTaxCents: number;
+  keptCents: number;
 };
 
 // Per-transaction profit, on the same terms as the period figures above:
@@ -235,7 +242,40 @@ export function saleProfit(sale: Sale): SaleProfit {
     marginPercent: netRevenueCents > 0 ? (profitCents / netRevenueCents) * 100 : null,
     uncostedItemCount,
     uncostedRevenueCents,
+    refundedCents: refundedCentsOnSale,
+    refundedTaxCents: refundedCentsOnSale - refundedRevenueCents,
+    keptCents: sale.totalCents - refundedCentsOnSale,
   };
+}
+
+// How much of a sale came back, for the badge on its row.
+//
+// `full` is measured in units rather than money: a basket returned line by
+// line over two visits is fully refunded even though no single refund covers
+// the sale, and a sale whose lines were all discounted to nothing would read
+// as full on money alone while the goods are still with the customer.
+export type SaleRefundState =
+  | { kind: 'none' }
+  | { kind: 'full' }
+  | { kind: 'partial'; refundedQuantity: number; totalQuantity: number };
+
+export function saleRefundState(sale: Sale): SaleRefundState {
+  if (!sale.refunds || sale.refunds.length === 0) return { kind: 'none' };
+
+  let totalQuantity = 0;
+  let refundedQuantity = 0;
+  for (const item of sale.items ?? []) {
+    totalQuantity += item.quantity;
+    refundedQuantity += Math.min(item.quantity, refundedQuantityFor(sale, item.id));
+  }
+
+  if (refundedQuantity <= 0) return { kind: 'none' };
+  // A refund exists but the lines it points at are gone -- an edit dropped
+  // them. Reporting `none` would hide a refund that really happened, and
+  // reporting a count would print a proportion of a basket that no longer
+  // matches. Full is the honest reading: nothing refundable is left.
+  if (totalQuantity <= 0 || refundedQuantity >= totalQuantity) return { kind: 'full' };
+  return { kind: 'partial', refundedQuantity, totalQuantity };
 }
 
 // Takings per cashier. Gross rather than net: this ranks who rang up the most,

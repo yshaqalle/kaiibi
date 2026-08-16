@@ -12,6 +12,7 @@ import {
   refundedCents,
   refundPreviewCents,
   saleProfit,
+  saleRefundState,
   taxCollectedCents,
   type PeriodRefund,
 } from '@/lib/sales-reporting';
@@ -357,6 +358,91 @@ describe('saleProfit', () => {
   it('reports no margin for a sale that earned nothing', () => {
     const sale = makeSale({ totalCents: 0, items: [] });
     expect(saleProfit(sale).marginPercent).toBeNull();
+  });
+
+  // The three figures the detail pane's Refunded block reconciles with:
+  // paid, less what went back, leaves what the shop kept. Split out here
+  // rather than recomputed in the component so the screen cannot disagree
+  // with the profit line directly beneath it.
+  it('reports what went back, the tax inside it, and what was kept', () => {
+    const sale = makeSale({
+      totalCents: 1292,
+      taxCents: 32,
+      items: [makeItem({ id: 'a', quantity: 1, unitPriceCents: 1260, lineTotalCents: 1260, unitCostCents: 500 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1292,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.refundedCents).toBe(1292);
+    expect(result.refundedTaxCents).toBe(32);
+    expect(result.keptCents).toBe(0);
+  });
+
+  it('leaves the kept figure at the total when nothing was refunded', () => {
+    const result = saleProfit(makeSale({ totalCents: 2310, taxCents: 110 }));
+    expect(result.refundedCents).toBe(0);
+    expect(result.refundedTaxCents).toBe(0);
+    expect(result.keptCents).toBe(2310);
+  });
+});
+
+// What the row badge says. A pure function rather than a branch inside the
+// row, because "how much of this came back" is the question the old `1↩`
+// glyph could not answer and the one worth pinning down in a test.
+describe('saleRefundState', () => {
+  const refundOf = (saleItemId: string, quantity: number, totalCents: number) => ({
+    id: `r-${saleItemId}-${quantity}`,
+    saleId: 's1',
+    refundedBy: null,
+    totalCents,
+    createdAt: new Date(2026, 7, 3).toISOString(),
+    items: [{ id: 'ri1', refundId: 'r1', saleItemId, productId: 'p1', quantity, amountCents: totalCents }],
+  });
+
+  it('reports nothing for a sale that was never refunded', () => {
+    expect(saleRefundState(makeSale())).toEqual({ kind: 'none' });
+  });
+
+  it('reports a whole basket going back as full', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 2, lineTotalCents: 4400 })],
+      refunds: [refundOf('a', 2, 4400)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+
+  // The distinction the old glyph lost: one unit back out of four and the
+  // whole basket back both rendered as `1↩`.
+  it('counts the units when only part of the basket went back', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 8800 })],
+      refunds: [refundOf('a', 1, 2200)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'partial', refundedQuantity: 1, totalQuantity: 4 });
+  });
+
+  it('adds up refunds taken across several visits', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 8800 })],
+      refunds: [refundOf('a', 1, 2200), refundOf('a', 2, 4400)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'partial', refundedQuantity: 3, totalQuantity: 4 });
+  });
+
+  it('reads a basket refunded line by line as full once nothing is left', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 1, lineTotalCents: 2200 }), makeItem({ id: 'b', quantity: 1, lineTotalCents: 3000 })],
+      refunds: [refundOf('a', 1, 2200), refundOf('b', 1, 3000)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
   });
 });
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
+import { Badge } from '@/components/badge';
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
 import { ExportMenu } from '@/components/export-menu';
@@ -22,7 +23,7 @@ import { hasMultipleLocations } from '@/lib/location-selection';
 import { buildReceiptFromSale } from '@/lib/receipt';
 import { deleteSale, editSale, listSalesInRange } from '@/lib/sales';
 import { type AcceptedSale, runSalesImport, SALES_EXAMPLE_ROWS, SALES_TEMPLATE_COLUMNS } from '@/lib/sales-import';
-import { saleProfit } from '@/lib/sales-reporting';
+import { saleProfit, saleRefundState, type SaleRefundState } from '@/lib/sales-reporting';
 import { taxCentsFor } from '@/lib/tax';
 import type { PaymentLine, Product, Sale, SaleItemSnapshot, Shop } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -47,6 +48,27 @@ const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Total', value: (s) => (s.totalCents / 100).toFixed(2) },
 ];
 type SaleSortField = 'date' | 'customer' | 'payment' | 'total';
+
+// What came back, said on the row rather than left for whoever opens it.
+//
+// The `↩` is load-bearing, not decoration: colour alone can't carry a state
+// here, the same rule that makes StatementRow print its minus sign. And a
+// partial refund is a COUNT, because the old `1↩` glyph rendered one unit
+// coming back out of four identically to the whole basket coming back.
+function RefundBadge({ state }: { state: SaleRefundState }) {
+  if (state.kind === 'none') return null;
+  if (state.kind === 'full') return <Badge label="↩ Refunded" tone="refund" variant="bento" />;
+  return <Badge label={`↩ ${state.refundedQuantity} of ${state.totalQuantity} back`} tone="info" variant="bento" />;
+}
+
+// Neutral on purpose: an edit is bookkeeping, not money moving. It becomes a
+// pill at the same time as the refund only because the two shared one
+// overloaded Payment cell -- leaving this a bare glyph beside a pill would
+// read as the lesser fact, which it isn't.
+function EditBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return <Badge label={count === 1 ? '✎ Edited' : `✎ Edited ${count}×`} tone="default" variant="bento" />;
+}
 
 // Column widths as plain inline objects, not StyleSheet.create entries —
 // see product-table-row.tsx for why (RN's Text/View style types disagree
@@ -398,10 +420,10 @@ function SaleRow({
   const [showReceipt, setShowReceipt] = useState(false);
   const [showRefund, setShowRefund] = useState(false);
   const editCount = sale.edits?.length ?? 0;
-  const refundCount = sale.refunds?.length ?? 0;
   const refundableCount = (sale.items ?? []).reduce((sum, item) => sum + Math.max(0, item.quantity - refundedQtyFor(sale, item.id)), 0);
   const itemsSummary = sale.items?.map((item) => `${item.quantity}× ${item.productName}`).join(', ') ?? '';
   const profit = saleProfit(sale);
+  const refundState = saleRefundState(sale);
 
   return (
     <View style={[styles.card, !compact && styles.cardTableRow]}>
@@ -409,12 +431,14 @@ function SaleRow({
         <Pressable onPress={onToggle} style={styles.saleRow}>
           <View style={{ flex: 1 }}>
             <Text style={styles.saleItems} numberOfLines={1}>{itemsSummary}</Text>
-            <Text style={styles.saleMeta}>
-              {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
-              {sale.customerName ? ` · ${sale.customerName}` : ''}
-              {editCount > 0 ? ` · Edited ${editCount}×` : ''}
-              {refundCount > 0 ? ` · Refunded ${refundCount}×` : ''}
-            </Text>
+            <View style={styles.saleMetaRow}>
+              <Text style={styles.saleMeta} numberOfLines={1}>
+                {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
+                {sale.customerName ? ` · ${sale.customerName}` : ''}
+              </Text>
+              <RefundBadge state={refundState} />
+              <EditBadge count={editCount} />
+            </View>
           </View>
           <Text style={styles.saleTotal}>{formatCents(sale.totalCents)}</Text>
         </Pressable>
@@ -422,9 +446,15 @@ function SaleRow({
         <Pressable onPress={onToggle} style={styles.tableRow}>
           <View style={styles.dataCols}>
             <Text style={[styles.cellText, colDate]} numberOfLines={1}>{new Date(sale.createdAt).toLocaleString()}</Text>
-            <Text style={[styles.cellText, colItems]} numberOfLines={1}>{itemsSummary}</Text>
+            <View style={[styles.itemsCell, colItems]}>
+              {/* The name yields before the badge does: a truncated product is
+                  still readable, a truncated badge is a mystery. */}
+              <Text style={[styles.cellText, styles.itemsCellText]} numberOfLines={1}>{itemsSummary}</Text>
+              <RefundBadge state={refundState} />
+              <EditBadge count={editCount} />
+            </View>
             <Text style={[styles.cellText, styles.muted, colCustomer]} numberOfLines={1}>{sale.customerName || '—'}</Text>
-            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}{editCount > 0 ? ` · ${editCount}✎` : ''}{refundCount > 0 ? ` · ${refundCount}↩` : ''}</Text>
+            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}</Text>
             <Text style={[styles.cellText, styles.muted, colCashier]} numberOfLines={1}>{sale.cashierName || '—'}</Text>
             <Text style={[styles.cellText, styles.price, colTotal]} numberOfLines={1}>{formatCents(sale.totalCents)}</Text>
           </View>
@@ -472,6 +502,37 @@ function SaleRow({
               <Text style={styles.detailItemPrice}>{formatCents(payment.amountCents)}</Text>
             </View>
           ))}
+
+          {/* The row's own reconciliation: paid, less what went back, leaves
+              what the shop kept. Three lines that add up -- which is the thing
+              a bare "Revenue $0.00" could never show, and the reason the old
+              -$0.32 read as a bug rather than as tax counted twice.
+
+              The tax line is a sub-item of the refund, not a deduction of its
+              own: it is money already inside the figure above it, called out
+              because that is the part that cancels tax collected rather than
+              revenue. */}
+          {refundState.kind !== 'none' && (
+            <>
+              <Text style={[styles.detailLabel, { marginTop: 14 }]}>REFUNDED</Text>
+              {sale.refunds?.map((refund) => (
+                <View key={refund.id} style={styles.detailRow}>
+                  <Text style={styles.detailItemName}>{new Date(refund.createdAt).toLocaleString()}</Text>
+                  <Text style={styles.detailItemPrice}>−{formatCents(refund.totalCents)}</Text>
+                </View>
+              ))}
+              {profit.refundedTaxCents > 0 && (
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailItemName, styles.muted]}>of which sales tax</Text>
+                  <Text style={[styles.detailItemPrice, styles.muted]}>−{formatCents(profit.refundedTaxCents)}</Text>
+                </View>
+              )}
+              <View style={[styles.detailRow, styles.detailRowTotal]}>
+                <Text style={styles.profitLabel}>Kept</Text>
+                <Text style={styles.profitValue}>{formatCents(profit.keptCents)}</Text>
+              </View>
+            </>
+          )}
 
           {/* What this sale actually made, on the same terms as the period
               figures: tax excluded (not the shop's money) and refunds netted
@@ -770,6 +831,12 @@ const styles = StyleSheet.create({
   expandIcon: { color: '#999999', fontSize: 12, fontWeight: '800' },
   saleItems: { color: '#111111', fontSize: 13, fontWeight: '700' },
   saleMeta: { color: '#999999', fontSize: 11, marginTop: 3 },
+  // `flexShrink: 1` on the text and nothing on the badge: the badge is the
+  // short, fixed thing, so the product name is what gives way when the column
+  // runs out. `minWidth: 0` is what lets it, in both rows.
+  itemsCell: { flexDirection: 'row', alignItems: 'center', gap: 7, minWidth: 0 },
+  itemsCellText: { flexShrink: 1 },
+  saleMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' },
   saleTotal: { color: '#111111', fontSize: 14, fontWeight: '800' },
   empty: { color: '#999999', fontSize: 13, marginTop: 20, textAlign: 'center' },
   error: { color: '#C0392B', fontSize: 12, fontWeight: '700', marginBottom: 12 },
@@ -778,6 +845,9 @@ const styles = StyleSheet.create({
   detail: { padding: 14, paddingTop: 0, borderTopWidth: 1, borderTopColor: '#ECECEC' },
   detailLabel: { fontSize: 10, fontWeight: '800', color: '#999999', letterSpacing: 0.6, marginTop: 12, marginBottom: 6 },
   detailRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  // Matches `totalRow` above -- the same hairline this file already uses to
+  // close a block that sums.
+  detailRowTotal: { borderTopWidth: 1, borderTopColor: '#ECECEC', marginTop: 6, paddingTop: 10 },
   detailItemName: { fontSize: 13, fontWeight: '700', color: '#111111', flex: 1 },
   detailItemPrice: { fontSize: 13, fontWeight: '700', color: '#111111' },
 

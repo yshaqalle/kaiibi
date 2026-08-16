@@ -1,0 +1,486 @@
+<meta charset="utf-8" />
+<title>Kaiibi Transactions — Saying a sale came back</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). Every
+     value below is the real token, not an approximation of it. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --profit:#008340; --loss:#d72b3e; --warn:#b07206;
+    --downwash:#fbeaec; --downink:#d12339;
+    --accentwash:#e6edff; --accentink:#1b47b8;
+    /* PROPOSED — the one pair this design adds. See "What it costs". */
+    --refwash:#f8efdc; --refink:#8a5a05;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 80px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;max-width:72ch;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- the transactions card ---- */
+  .card{background:var(--d-sf);border-radius:26px;padding:18px 10px;}
+  .card.pad{padding:18px;}
+  .cardTitle{font-size:15px;font-weight:800;letter-spacing:-.01em;margin:0 0 2px;padding:0 8px;}
+  .cardScope{font-size:12px;color:var(--d-mut);margin:0 0 14px;padding:0 8px;}
+
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;}
+  th{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--d-mut);
+    text-align:left;padding:0 8px 9px;border-bottom:1px solid var(--d-rule);white-space:nowrap;}
+  th.r,td.r{text-align:right;}
+  td{font-size:13.5px;padding:11px 8px;border-bottom:1px solid var(--d-ln);vertical-align:middle;}
+  tr:last-child td{border-bottom:0;}
+  td.mut{color:var(--d-mut);}
+  td.price{font-weight:700;}
+  .cw-date{width:16%;} .cw-items{width:26%;} .cw-cust{width:16%;}
+  .cw-pay{width:12%;} .cw-cash{width:12%;} .cw-total{width:12%;} .cw-x{width:20px;}
+  .chev{color:var(--d-mut2);font-size:12px;}
+
+  /* the badge this mockup is arguing for */
+  .pill{display:inline-flex;align-items:center;gap:4px;border-radius:999px;
+    padding:2px 8px;font-size:11px;font-weight:800;letter-spacing:.01em;white-space:nowrap;
+    vertical-align:middle;}
+  .pill.ref{background:var(--refwash);color:var(--refink);}
+  .pill.part{background:var(--accentwash);color:var(--accentink);}
+  .pill.edit{background:var(--d-soft);color:var(--d-mut);}
+  .items{display:flex;align-items:center;gap:7px;min-width:0;}
+  .items span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+  /* option B only */
+  .rowTint td{background:var(--refwash);}
+  .rowRule td:first-child{box-shadow:inset 3px 0 0 var(--refink);}
+
+  /* option C only */
+  .stack{display:flex;flex-direction:column;align-items:flex-end;line-height:1.3;}
+  .stack s{color:var(--d-mut2);font-weight:600;text-decoration-thickness:1px;}
+  .stack em{font-style:normal;font-size:11.5px;font-weight:700;color:var(--refink);}
+
+  /* ---- detail pane ---- */
+  .detail{background:var(--d-sf);border-radius:26px;padding:18px;margin-top:10px;}
+  .dlabel{font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--d-mut);margin:0 0 7px;}
+  .dlabel.sp{margin-top:16px;}
+  .drow{display:flex;justify-content:space-between;gap:12px;align-items:baseline;
+    font-size:13.5px;font-variant-numeric:tabular-nums;padding:2px 0;}
+  .drow b{font-weight:700;}
+  .ditem{display:flex;justify-content:space-between;gap:12px;background:var(--d-soft);
+    border-radius:12px;padding:9px 12px;font-size:13.5px;font-variant-numeric:tabular-nums;}
+  .ditem .q{color:var(--d-mut);font-weight:700;margin-right:8px;}
+  .tot{border-top:1px solid var(--d-rule);margin-top:8px;padding-top:9px;font-weight:800;}
+  .neg{color:var(--loss);font-weight:800;}
+  .ok{color:var(--d-ink);font-weight:800;}
+  .caveat{margin-top:12px;background:var(--d-soft);border-radius:12px;padding:10px 12px;
+    font-size:12.5px;color:var(--d-ink2);}
+  .btns{display:flex;gap:8px;margin-top:16px;}
+  .btns span{border-radius:999px;background:var(--d-soft);padding:7px 14px;font-size:12.5px;font-weight:700;}
+  .btns span.dg{color:var(--loss);}
+
+  /* phone */
+  .prow{display:flex;justify-content:space-between;gap:10px;padding:11px 8px;border-bottom:1px solid var(--d-ln);}
+  .prow:last-child{border-bottom:0;}
+  .prow .nm{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .prow .mt{font-size:11.5px;color:var(--d-mut);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+  .prow .pr{font-size:13.5px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+
+  .tokens{display:grid;gap:10px;margin-top:16px;}
+  .tok{display:flex;align-items:center;gap:12px;border:1px solid var(--ln);border-radius:12px;
+    padding:10px 14px;background:var(--sf);flex-wrap:wrap;}
+  .sw{width:76px;height:30px;border-radius:8px;display:grid;place-items:center;
+    font-size:11px;font-weight:800;flex:none;}
+  .tok code{flex:none;}
+  .tok p{margin:0;font-size:13px;color:var(--ink2);}
+
+  @media (max-width:640px){ .wrap{padding:30px 14px 60px;} }
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Accounting → Transactions</p>
+  <h1>Saying a sale came back</h1>
+  <p class="lede">
+    Two things are wrong on this tab. One is arithmetic and is already fixed: a refunded sale
+    reported minus its own tax as revenue and profit. The other is that nothing on the list
+    tells you a sale was refunded until you open it.
+  </p>
+
+  <section>
+    <h2>1. The arithmetic, before and after</h2>
+    <p class="h2sub">
+      A $12.60 line, taxed to $12.92, refunded in full. The refund handed back all $12.92 — tax
+      included — but revenue had already excluded the tax, so subtracting the refund whole took
+      the tax out twice and left the sale at exactly minus its own tax.
+    </p>
+
+    <div class="pair">
+      <div>
+        <p class="frameHead"><b>Before</b> <i>−$0.32 on a sale that netted nothing</i></p>
+        <div class="scroller">
+          <div class="frame w1280">
+            <div class="detail">
+              <p class="dlabel">Items</p>
+              <div class="ditem"><span><i class="q">1×</i>Dr Althea (1 refunded)</span><span>$12.60</span></div>
+              <p class="dlabel sp">Payment</p>
+              <div class="drow"><b>Cash</b><b>$12.92</b></div>
+              <p class="dlabel sp">Profit</p>
+              <div class="drow"><b>Revenue (excl. tax)</b><b class="neg">−$0.32</b></div>
+              <div class="drow"><b>Cost of goods</b><b>$0.00</b></div>
+              <div class="drow tot"><span>Profit</span><span class="neg">−$0.32</span></div>
+              <div class="btns"><span>Receipt</span><span>Edit</span><span class="dg">Delete</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="frameHead"><b>After</b> <i>the refund is its own block, and it reconciles</i></p>
+        <div class="scroller">
+          <div class="frame w1280">
+            <div class="detail">
+              <p class="dlabel">Items</p>
+              <div class="ditem"><span><i class="q">1×</i>Dr Althea <span class="pill ref">↩ Refunded</span></span><span>$12.60</span></div>
+              <p class="dlabel sp">Payment</p>
+              <div class="drow"><b>Cash</b><b>$12.92</b></div>
+              <p class="dlabel sp">Refunded</p>
+              <div class="drow"><span>15 Aug 2026, 4:12 pm · Yusef</span><b>−$12.92</b></div>
+              <div class="drow"><span style="color:var(--d-mut)">of which sales tax</span><span style="color:var(--d-mut)">−$0.32</span></div>
+              <p class="dlabel sp">Profit</p>
+              <div class="drow"><b>Revenue (excl. tax)</b><b class="ok">$0.00</b></div>
+              <div class="drow"><b>Cost of goods</b><b>$0.00</b></div>
+              <div class="drow tot"><span>Profit</span><span class="ok">$0.00</span></div>
+              <div class="caveat">Fully refunded — the goods went back into stock, so neither their revenue nor their cost counts.</div>
+              <div class="btns"><span>Receipt</span><span>Edit</span><span class="dg">Delete</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="vx good"><b>The Refunded block is the point</b>
+        <p>Showing $0.00 without saying why just moves the confusion. The block names the money that
+        went back and splits the tax out of it, so the reader can see the two figures that used to
+        collide.</p></div>
+      <div class="vx mid"><b>Payment still says $12.92</b>
+        <p>That is what was rung up and what the till saw. It is not corrected downward, because
+        the refund is a separate event with its own date — the same reason refunds book to the day
+        they happened everywhere else.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. The list problem</h2>
+    <p class="h2sub">
+      Today a refund shows as <code>· 1↩</code> appended to the <b>Payment</b> column, sharing that
+      cell with the edit glyph <code>· 1✎</code>. It is in the wrong column, at 13.5px, and it is
+      the only thing distinguishing a sale that was fully handed back from one that stuck.
+    </p>
+
+    <p class="frameHead"><b>Today</b> <i>row 2 was refunded in full — find it</i></p>
+    <div class="scroller">
+      <div class="frame w1280">
+        <div class="card">
+          <p class="cardTitle">Transactions</p>
+          <p class="cardScope">1–15 Aug 2026 · Bakaara</p>
+          <table>
+            <thead><tr>
+              <th class="cw-date">Date</th><th class="cw-items">Items</th><th class="cw-cust">Customer</th>
+              <th class="cw-pay">Payment</th><th class="cw-cash">Cashier</th><th class="cw-total r">Total</th><th class="cw-x"></th>
+            </tr></thead>
+            <tbody>
+              <tr><td>15 Aug, 3:04 pm</td><td>2× COSRX Snail Mucin</td><td class="mut">Halima A.</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$44.00</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 4:12 pm</td><td>1× Dr Althea</td><td class="mut">—</td><td>Cash · 1↩</td><td class="mut">Hodan</td><td class="r price">$12.92</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 5:40 pm</td><td>3× Beauty of Joseon</td><td class="mut">Amran O.</td><td>Card · 1✎</td><td class="mut">Amran</td><td class="r price">$61.50</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 6:02 pm</td><td>1× ANUA Heartleaf Toner</td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$23.10</td><td class="chev">▾</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Three ways to say it</h2>
+    <p class="h2sub">
+      All three carry a glyph as well as a colour. Colour alone is not the signal — green/red is
+      ΔE 4.0 for deutan viewers, and the same rule that makes <code>StatementRow</code> print its
+      minus sign applies to a row that has to read as returned.
+    </p>
+
+    <p class="frameHead"><b>Option A</b> <i>a badge in Items, beside what came back</i></p>
+    <div class="scroller">
+      <div class="frame w1280">
+        <div class="card">
+          <p class="cardTitle">Transactions</p>
+          <p class="cardScope">1–15 Aug 2026 · Bakaara</p>
+          <table>
+            <thead><tr>
+              <th class="cw-date">Date</th><th class="cw-items">Items</th><th class="cw-cust">Customer</th>
+              <th class="cw-pay">Payment</th><th class="cw-cash">Cashier</th><th class="cw-total r">Total</th><th class="cw-x"></th>
+            </tr></thead>
+            <tbody>
+              <tr><td>15 Aug, 3:04 pm</td><td><div class="items"><span>2× COSRX Snail Mucin</span></div></td><td class="mut">Halima A.</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$44.00</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 4:12 pm</td><td><div class="items"><span>1× Dr Althea</span><span class="pill ref">↩ Refunded</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$12.92</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 5:40 pm</td><td><div class="items"><span>3× Beauty of Joseon</span><span class="pill edit">✎ Edited</span></div></td><td class="mut">Amran O.</td><td>Card</td><td class="mut">Amran</td><td class="r price">$61.50</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 6:02 pm</td><td><div class="items"><span>4× ANUA Toner</span><span class="pill part">↩ 1 of 4 back</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$92.40</td><td class="chev">▾</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      <div class="vx good"><b>Partial reads differently from full</b>
+        <p>"1 of 4 back" is the fact a shopkeeper actually needs; "1↩" made a one-unit return and a
+        whole-basket return look identical. The two states get two washes, not one.</p></div>
+      <div class="vx mid"><b>Costs the Items column room</b>
+        <p>Items is 26% of the row. A long product name plus a badge will truncate sooner. The
+        badge is <code>flex:none</code> so the name yields first, never the badge.</p></div>
+    </div>
+
+    <p class="frameHead" style="margin-top:34px"><b>Option B</b> <i>tint the whole row</i></p>
+    <div class="scroller">
+      <div class="frame w1280">
+        <div class="card">
+          <p class="cardTitle">Transactions</p>
+          <p class="cardScope">1–15 Aug 2026 · Bakaara</p>
+          <table>
+            <thead><tr>
+              <th class="cw-date">Date</th><th class="cw-items">Items</th><th class="cw-cust">Customer</th>
+              <th class="cw-pay">Payment</th><th class="cw-cash">Cashier</th><th class="cw-total r">Total</th><th class="cw-x"></th>
+            </tr></thead>
+            <tbody>
+              <tr><td>15 Aug, 3:04 pm</td><td>2× COSRX Snail Mucin</td><td class="mut">Halima A.</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$44.00</td><td class="chev">▾</td></tr>
+              <tr class="rowTint rowRule"><td>15 Aug, 4:12 pm</td><td><div class="items"><span>1× Dr Althea</span><span class="pill ref">↩ Refunded</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$12.92</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 5:40 pm</td><td>3× Beauty of Joseon</td><td class="mut">Amran O.</td><td>Card</td><td class="mut">Amran</td><td class="r price">$61.50</td><td class="chev">▾</td></tr>
+              <tr class="rowTint rowRule"><td>15 Aug, 6:02 pm</td><td><div class="items"><span>4× ANUA Toner</span><span class="pill ref">↩ 1 of 4 back</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$92.40</td><td class="chev">▾</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      <div class="vx bad"><b>Too loud for how often refunds happen</b>
+        <p>A tinted row is the strongest signal the table has, and it is spent on a state that is
+        normal. On a busy day the ledger stripes and the reader stops seeing it.</p></div>
+      <div class="vx bad"><b>The wash collides with row selection</b>
+        <p><code>bentoSoft</code> already marks the selected/expanded row. Two fills competing on
+        the same row means the expanded refunded row has to pick one, and either choice loses a
+        state.</p></div>
+    </div>
+
+    <p class="frameHead" style="margin-top:34px"><b>Option C</b> <i>the Total column carries it</i></p>
+    <div class="scroller">
+      <div class="frame w1280">
+        <div class="card">
+          <p class="cardTitle">Transactions</p>
+          <p class="cardScope">1–15 Aug 2026 · Bakaara</p>
+          <table>
+            <thead><tr>
+              <th class="cw-date">Date</th><th class="cw-items">Items</th><th class="cw-cust">Customer</th>
+              <th class="cw-pay">Payment</th><th class="cw-cash">Cashier</th><th class="cw-total r">Total</th><th class="cw-x"></th>
+            </tr></thead>
+            <tbody>
+              <tr><td>15 Aug, 3:04 pm</td><td>2× COSRX Snail Mucin</td><td class="mut">Halima A.</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$44.00</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 4:12 pm</td><td>1× Dr Althea</td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td>
+                <td class="r"><span class="stack"><s>$12.92</s><em>↩ $0.00 kept</em></span></td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 5:40 pm</td><td>3× Beauty of Joseon</td><td class="mut">Amran O.</td><td>Card</td><td class="mut">Amran</td><td class="r price">$61.50</td><td class="chev">▾</td></tr>
+              <tr><td>15 Aug, 6:02 pm</td><td>4× ANUA Toner</td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td>
+                <td class="r"><span class="stack"><s>$92.40</s><em>↩ $69.30 kept</em></span></td><td class="chev">▾</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <div class="verdict">
+      <div class="vx good"><b>Answers the money question directly</b>
+        <p>"$69.30 kept" is more useful than any badge — it is the figure the reader would other­wise
+        open the row to compute.</p></div>
+      <div class="vx bad"><b>Breaks the column and the sort</b>
+        <p>Total is sortable. Two numbers in one cell means the header sorts by a figure that is no
+        longer the only one shown, and every refunded row grows to two lines — the row height
+        stops being uniform down a ledger that is read by scanning.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Recommendation — A, with C's number moved into the open row</h2>
+    <p class="h2sub">
+      The badge marks the state where the eye already is; the kept figure appears in the detail
+      pane, where there is room for it and where it can be labelled. Nothing is struck through and
+      no column changes width.
+    </p>
+
+    <div class="pair">
+      <div>
+        <p class="frameHead"><b>Desktop</b> <i>1280 · closed and open</i></p>
+        <div class="scroller">
+          <div class="frame w1280">
+            <div class="card">
+              <p class="cardTitle">Transactions</p>
+              <p class="cardScope">1–15 Aug 2026 · Bakaara</p>
+              <table>
+                <thead><tr>
+                  <th class="cw-date">Date</th><th class="cw-items">Items</th><th class="cw-cust">Customer</th>
+                  <th class="cw-pay">Payment</th><th class="cw-cash">Cashier</th><th class="cw-total r">Total</th><th class="cw-x"></th>
+                </tr></thead>
+                <tbody>
+                  <tr><td>15 Aug, 3:04 pm</td><td><div class="items"><span>2× COSRX Snail Mucin</span></div></td><td class="mut">Halima A.</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$44.00</td><td class="chev">▾</td></tr>
+                  <tr><td>15 Aug, 4:12 pm</td><td><div class="items"><span>1× Dr Althea</span><span class="pill ref">↩ Refunded</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$12.92</td><td class="chev">▴</td></tr>
+                </tbody>
+              </table>
+              <div class="detail" style="background:var(--d-soft);margin:0 8px;">
+                <p class="dlabel">Items</p>
+                <div class="ditem" style="background:var(--d-sf)"><span><i class="q">1×</i>Dr Althea <span class="pill ref">↩ Refunded</span></span><span>$12.60</span></div>
+                <p class="dlabel sp">Payment</p>
+                <div class="drow"><b>Cash</b><b>$12.92</b></div>
+                <p class="dlabel sp">Refunded</p>
+                <div class="drow"><span>15 Aug 2026, 4:12 pm · Yusef</span><b>−$12.92</b></div>
+                <div class="drow"><span style="color:var(--d-mut)">of which sales tax</span><span style="color:var(--d-mut)">−$0.32</span></div>
+                <div class="drow tot"><span>Kept</span><span>$0.00</span></div>
+                <p class="dlabel sp">Profit</p>
+                <div class="drow"><b>Revenue (excl. tax)</b><b class="ok">$0.00</b></div>
+                <div class="drow"><b>Cost of goods</b><b>$0.00</b></div>
+                <div class="drow tot"><span>Profit</span><span class="ok">$0.00</span></div>
+                <div class="btns"><span>Receipt</span><span>Edit</span><span class="dg">Delete</span></div>
+              </div>
+              <table style="margin-top:10px">
+                <tbody>
+                  <tr><td class="cw-date">15 Aug, 5:40 pm</td><td class="cw-items"><div class="items"><span>3× Beauty of Joseon</span><span class="pill edit">✎ Edited</span></div></td><td class="cw-cust mut">Amran O.</td><td class="cw-pay">Card</td><td class="cw-cash mut">Amran</td><td class="cw-total r price">$61.50</td><td class="cw-x chev">▾</td></tr>
+                  <tr><td>15 Aug, 6:02 pm</td><td><div class="items"><span>4× ANUA Toner</span><span class="pill part">↩ 1 of 4 back</span></div></td><td class="mut">—</td><td>Cash</td><td class="mut">Hodan</td><td class="r price">$92.40</td><td class="chev">▾</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p class="frameHead"><b>Phone</b> <i>380 · the badge moves to the meta line</i></p>
+        <div class="scroller">
+          <div class="frame w380">
+            <div class="card">
+              <p class="cardTitle">Transactions</p>
+              <p class="cardScope">1–15 Aug · Bakaara</p>
+              <div style="padding:0 8px">
+                <div class="prow">
+                  <div style="min-width:0"><div class="nm">2× COSRX Snail Mucin</div>
+                    <div class="mt">15 Aug, 3:04 pm · Cash · Halima A.</div></div>
+                  <div class="pr">$44.00</div>
+                </div>
+                <div class="prow">
+                  <div style="min-width:0"><div class="nm">1× Dr Althea</div>
+                    <div class="mt">15 Aug, 4:12 pm · Cash <span class="pill ref">↩ Refunded</span></div></div>
+                  <div class="pr">$12.92</div>
+                </div>
+                <div class="prow">
+                  <div style="min-width:0"><div class="nm">4× ANUA Heartleaf Toner</div>
+                    <div class="mt">15 Aug, 6:02 pm · Cash <span class="pill part">↩ 1 of 4 back</span></div></div>
+                  <div class="pr">$92.40</div>
+                </div>
+                <div class="prow">
+                  <div style="min-width:0"><div class="nm">3× Beauty of Joseon</div>
+                    <div class="mt">15 Aug, 5:40 pm · Card · Amran O. <span class="pill edit">✎ Edited</span></div></div>
+                  <div class="pr">$61.50</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <div class="vx good"><b>"Kept" is the row's own reconciliation</b>
+        <p>Payment $12.92, refunded −$12.92, kept $0.00. Three lines that add up, which is what the
+        −$0.32 never did. On the partial row it reads $92.40 / −$23.10 / $69.30.</p></div>
+      <div class="vx mid"><b>Edited becomes a pill too</b>
+        <p>Not strictly in scope, but <code>· 1✎</code> is in the same overloaded cell. Leaving it as
+        a glyph while the refund becomes a pill makes the edit state look like the lesser fact,
+        which it is not. Cheap to do at the same time.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>5. What it costs</h2>
+    <p class="h2sub">One new token pair. The other two are already in <code>theme.ts</code>.</p>
+
+    <div class="tokens">
+      <div class="tok">
+        <span class="sw" style="background:#f8efdc;color:#8a5a05">↩ Aa</span>
+        <code>bentoRefundWash / bentoRefundInk</code>
+        <p><b>New.</b> Amber, because a refund is the third status — needs noticing, not broken.
+        Red would say the sale is a loss and would cry wolf beside a genuinely negative profit;
+        green is nonsense. Same family as <code>bentoWarn</code>, washed to the lightness of the
+        existing badge pairs. The exact steps need the contrast solve the others got —
+        <code>bentoUpInk</code> and <code>bentoDownInk</code> are both documented at 4.5:1 on
+        their own wash, and this pair has to clear the same bar before it ships.</p>
+      </div>
+      <div class="tok">
+        <span class="sw" style="background:#e6edff;color:#1b47b8">↩ Aa</span>
+        <code>bentoAccentWash / bentoAccentInk</code>
+        <p>Already exists, already documented as "a figure being carried beside a status one, with
+        no status of its own" — which is exactly a partial refund: informational, not a state the
+        sale is in.</p>
+      </div>
+      <div class="tok">
+        <span class="sw" style="background:#f6f6f7;color:#5e5d65">✎ Aa</span>
+        <code>bentoSoft / bentoMuted</code>
+        <p>Already exists. The edit pill stays neutral — an edit is bookkeeping, not money moving.</p>
+      </div>
+    </div>
+
+    <p class="note" style="margin-top:20px">
+      Components: the pill is a new <code>bento</code> variant on <code>Badge</code>, which the
+      skill already flags as hardcoding the cream palette and needing one. This gives it a first
+      caller rather than adding a one-off <code>View</code> to the row.
+    </p>
+    <p class="note">
+      Not changed: the <b>Total</b> column, which keeps meaning what was rung up; the
+      <b>Refunds issued</b> line on Reports, which keeps meaning what was handed across the
+      counter; and the sort, which still has one number per row to sort by.
+    </p>
+  </section>
+
+</div>
