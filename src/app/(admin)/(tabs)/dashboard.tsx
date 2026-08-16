@@ -693,6 +693,10 @@ export default function DashboardScreen() {
     () => daily.reduce((sum, d) => sum + d.taxCents - d.refundTaxCents, 0),
     [daily]
   );
+  // What was handed back over the counter. Together with the tax above this is
+  // the whole of the gap between takings and revenue, which two notes on this
+  // screen claim to explain -- and could not, naming only the tax.
+  const refundedCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);
 
   // Pace reads the recorded buckets rather than scaling a total: the last
   // bucket IS today, and the last seven ARE this week, whatever range the
@@ -861,6 +865,7 @@ export default function DashboardScreen() {
               revenueCents={revenueCents}
               expenseCents={pnl.operatingCents}
               taxCents={salesTaxCents}
+              refundedCents={refundedCents}
               canSeeExpenses={canSeeExpenses}
               onSeeProfitAndLoss={scrollToProfitAndLoss}
             />
@@ -973,9 +978,13 @@ export default function DashboardScreen() {
                   <StatTile variant="bento" value={`${hr.activeToday}/${hr.teamTotal}`} label="Team on today" />
                 )}
               </View>
+              {/* "by exactly this much" was a checkable claim, and on a range
+                  with refunds it did not check out: takings ran ahead of
+                  revenue by the tax AND the refunds. Says both, or neither. */}
               <Text style={styles.cardFoot}>
-                Sales tax is collected for the authority and is not yours to spend — which is why
-                takings above exceed revenue by exactly this much.
+                {refundedCents > 0
+                  ? `Sales tax is collected for the authority and is not yours to spend. Takings above run ahead of revenue by this and by the ${formatAccountingCents(refundedCents)} refunded in the range.`
+                  : 'Sales tax is collected for the authority and is not yours to spend — which is why takings above exceed revenue by exactly this much.'}
               </Text>
             </Card>
           </BentoCell>
