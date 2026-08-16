@@ -1,5 +1,5 @@
 import { dayKeyFor, startOfDay } from '@/lib/period';
-import type { PaymentMethod, Sale } from '@/types/models';
+import type { PaymentMethod, Sale, SaleItem } from '@/types/models';
 
 // Pure arithmetic behind every revenue and profit figure. Separate from
 // sales.ts for the same reason expense-reporting.ts is separate from
@@ -326,6 +326,32 @@ export function cashierPerformance(sales: Sale[], limit = 5): { name: string; re
     .slice(0, limit);
 }
 
+// What of one line actually stayed sold, in the line's OWN money.
+//
+// The basis matters more than it looks. `refund_items.amount_cents` is a share
+// of `sales.total_cents` since migration 20260820000200, so it carries the
+// sale's tax and is net of its order discount, while `lineTotalCents` is the
+// line's own price and carries neither. Subtracting one from the other is the
+// same mixing of bases that put -$0.32 on a refunded sale's detail pane. So the
+// share going back is rebuilt from QUANTITY against the line total, which keeps
+// both sides in one currency of meaning.
+//
+// The trade-off, stated: this books a return against the period of the SALE,
+// not the period of the refund -- the opposite of what the money figures do.
+// For a ranking that is the useful reading ("what stayed sold"), and unlike
+// revenue it restates no liability; last month's best-seller list can change if
+// last month's goods come back, which is the honest answer to "what sold".
+function soldAfterRefunds(sale: Sale, item: SaleItem): { unitsSold: number; revenueCents: number } {
+  const refunded = Math.min(item.quantity, refundedQuantityFor(sale, item.id));
+  if (refunded <= 0) return { unitsSold: item.quantity, revenueCents: item.lineTotalCents };
+
+  const unitsSold = item.quantity - refunded;
+  if (unitsSold <= 0 || item.quantity <= 0) return { unitsSold: 0, revenueCents: 0 };
+  // Rounded on the kept share rather than the returned one, so a line sold in
+  // full lands on its own total to the cent.
+  return { unitsSold, revenueCents: Math.round((item.lineTotalCents * unitsSold) / item.quantity) };
+}
+
 export type ProductSales = {
   // Null once the product itself is deleted. Kept in the key rather than
   // discarded: two deleted products can share a name, and folding those into
@@ -339,25 +365,34 @@ export type ProductSales = {
 // What sold, from the frozen line snapshots on each sale — so a product
 // renamed or repriced later doesn't rewrite what last week sold for.
 //
-// Gross of refunds, deliberately. A `PeriodRefund`'s items carry only
-// `{ quantity, unitCostCents }` (see refund_sale_items), with no product
-// identity on them, so a refund cannot be attributed to a line here. Any screen
-// showing these figures beside net revenue has to say which it is showing.
+// Net of returns -- see `soldAfterRefunds` for the basis and for which period
+// a return is booked against.
+//
+// This was gross of refunds for a long time, on the reasoning that a
+// `PeriodRefund`'s items carry no product identity so a refund could not be
+// attributed to a line. True of that projection, but beside the point: every
+// sale already carries its own `refunds`, whose items point at the sale item
+// they reverse, which is a firmer link than a product id anyway. The cost of
+// the old reading was a product returned in bulk still ranking as a best
+// seller.
 export function productPerformance(sales: Sale[], limit = 5): ProductSales[] {
   const totals = new Map<string, ProductSales>();
   for (const sale of sales) {
     for (const item of sale.items ?? []) {
+      const { unitsSold, revenueCents } = soldAfterRefunds(sale, item);
+      if (unitsSold <= 0) continue;
+
       const key = item.productId ?? `name:${item.productName}`;
       const row = totals.get(key);
       if (row) {
-        row.unitsSold += item.quantity;
-        row.revenueCents += item.lineTotalCents;
+        row.unitsSold += unitsSold;
+        row.revenueCents += revenueCents;
       } else {
         totals.set(key, {
           productId: item.productId,
           name: item.productName,
-          unitsSold: item.quantity,
-          revenueCents: item.lineTotalCents,
+          unitsSold,
+          revenueCents,
         });
       }
     }
@@ -589,7 +624,9 @@ export function productDailyRevenue(
     if (!byDay.has(key)) continue;
     for (const item of sale.items ?? []) {
       if ((item.productId ?? `name:${item.productName}`) !== wanted) continue;
-      byDay.set(key, (byDay.get(key) ?? 0) + item.lineTotalCents);
+      // Netted the same way `productPerformance` nets, or this line would
+      // contradict the figure printed directly above it on the mover card.
+      byDay.set(key, (byDay.get(key) ?? 0) + soldAfterRefunds(sale, item).revenueCents);
     }
   }
   return Array.from(byDay.values());

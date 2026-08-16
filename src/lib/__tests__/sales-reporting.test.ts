@@ -752,6 +752,39 @@ describe('productPerformance', () => {
   const rice = () => makeItem({ id: 'i-rice', productId: 'p-rice', productName: 'Basmati Rice 5kg', quantity: 2, lineTotalCents: 2300 });
   const oil = () => makeItem({ id: 'i-oil', productId: 'p-oil', productName: 'Cooking Oil 3L', quantity: 1, lineTotalCents: 1450 });
 
+  // Goods that came back were not sold, so a heavily returned product must not
+  // rank as a top seller. Netted from the sale's own lines and kept in
+  // `lineTotalCents` throughout: `refund_items.amount_cents` is a share of
+  // `sales.total_cents` and carries tax, so subtracting it from a line total
+  // would mix two bases -- the same error that put -$0.32 on a sale detail.
+  const refundOfLine = (saleItemId: string, productId: string, quantity: number) => ({
+    id: `r-${saleItemId}`,
+    saleId: 's1',
+    refundedBy: null,
+    totalCents: 0,
+    createdAt: new Date(2026, 7, 3).toISOString(),
+    items: [{ id: 'ri1', refundId: `r-${saleItemId}`, saleItemId, productId, quantity, amountCents: 0 }],
+  });
+
+  it('nets returned units out of the ranking', () => {
+    const sale = makeSale({ items: [rice(), oil()], refunds: [refundOfLine('i-rice', 'p-rice', 1)] });
+    const rows = productPerformance([sale]);
+    const riceRow = rows.find((r) => r.productId === 'p-rice');
+    expect(riceRow?.unitsSold).toBe(1);
+    expect(riceRow?.revenueCents).toBe(1150);
+  });
+
+  it('drops a product returned in full rather than ranking it at zero', () => {
+    const sale = makeSale({ items: [rice(), oil()], refunds: [refundOfLine('i-rice', 'p-rice', 2)] });
+    const rows = productPerformance([sale]);
+    expect(rows.map((r) => r.productId)).toEqual(['p-oil']);
+  });
+
+  it('leaves an unrefunded line at its full take', () => {
+    const sale = makeSale({ items: [rice()], refunds: [] });
+    expect(productPerformance([sale])[0].revenueCents).toBe(2300);
+  });
+
   it('sums units and money per product across sales', () => {
     const rows = productPerformance([
       makeSale({ id: 's1', items: [rice(), oil()] }),
@@ -876,6 +909,27 @@ describe('productDailyRevenue', () => {
       createdAt: new Date(2026, 7, day, 11, 0).toISOString(),
       items: [makeItem({ productId: 'p-rice', productName: 'Rice', lineTotalCents, quantity: 1 })],
     });
+
+  // The sparkline sits under the mover card's figure, so it has to net the
+  // same way productPerformance does or the line contradicts the number over it.
+  it('nets a returned line out of its day', () => {
+    const sale = makeSale({
+      createdAt: new Date(2026, 7, 1, 11, 0).toISOString(),
+      items: [makeItem({ id: 'i1', productId: 'p-rice', productName: 'Rice', lineTotalCents: 2000, quantity: 2 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 0,
+          createdAt: new Date(2026, 7, 1).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p-rice', quantity: 1, amountCents: 0 }],
+        },
+      ],
+    });
+    const series = productDailyRevenue([sale], { productId: 'p-rice', name: 'Rice' }, new Date(2026, 7, 1), new Date(2026, 7, 2));
+    expect(series[0]).toBe(1000);
+  });
 
   it('gives one figure per day in the range, zeros included', () => {
     const series = productDailyRevenue(
