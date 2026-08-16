@@ -74,7 +74,7 @@ export function SalePanel({
   return (
     <Card variant="bento" style={[styles.card, compact && styles.cardCompact]}>
       <View style={styles.head}>
-        <Text style={styles.title} numberOfLines={1}>Current sale</Text>
+        <Text style={styles.title}>Current sale</Text>
         <View style={styles.headActions}>
           <Text style={styles.count} numberOfLines={1}>{itemCount} {itemCount === 1 ? 'item' : 'items'}</Text>
           {scanButton}
@@ -144,11 +144,15 @@ const styles = StyleSheet.create({
   // leaves flexBasis to interpretation -- on web it resolves to 0% and the
   // panel lays out wider than the screen and disappears off the side of it.
   cardCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0 },
+  // Wraps rather than truncates. Four controls and a title do not fit a narrow
+  // panel, and "Current sale" clipped to "C" is worse than a second line: the
+  // pills drop below as a group, all still readable.
   head: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    flexWrap: 'wrap', gap: 8, rowGap: 10,
     paddingHorizontal: 18, paddingTop: 18, paddingBottom: 10,
   },
-  title: { flexShrink: 1, minWidth: 0, color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
+  title: { flexGrow: 1, color: theme.bentoInk, fontSize: 17, fontWeight: '800', letterSpacing: -0.3 },
   headActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   // Sized and coloured to match the Scan button beside it, so the head reads as
   // one row of equal weights rather than a label and a control.

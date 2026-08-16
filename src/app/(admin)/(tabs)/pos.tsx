@@ -669,6 +669,10 @@ export default function PosScreen() {
 
   const resumeSale = async (id: string) => {
     if (!profile) return;
+    // A basket already on the till is not in anyone's way -- it is someone's
+    // shopping. Park it before loading the other one, so recalling a sale can
+    // never be the thing that loses one. Both then sit in the queue together.
+    if (cart.length > 0) await holdCurrentSale();
     const { order, remaining } = await resumeHeldOrder(profile.id, activeLocation?.id ?? null, id);
     setHeldOrders(remaining);
     if (!order) return;
