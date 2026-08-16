@@ -9,6 +9,7 @@ import { ProductModal } from '@/components/product-modal';
 import { CheckoutPanel } from '@/components/checkout-panel';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
+import { SaleLine } from '@/components/pos/sale-line';
 import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
@@ -811,37 +812,27 @@ export default function PosScreen() {
             const promo = appliedPromotionForLine(line, promotions, pricingNow);
             const isEditing = editingLineDiscount === line.product.id;
             return (
-              <View key={line.product.id} style={styles.cartLine}>
-                <View style={styles.cartLineRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.cartLineName}>{line.product.name}</Text>
-                    <View style={styles.cartLinePriceRow}>
-                      {discountCents > 0 ? (
-                        <>
-                          <Text style={styles.cartLinePriceStruck}>{formatCents(gross)}</Text>
-                          <Text style={styles.cartLinePrice}>{formatCents(gross - discountCents)}</Text>
-                        </>
-                      ) : (
-                        <Text style={styles.cartLinePrice}>{formatCents(line.product.priceCents)}</Text>
-                      )}
-                    </View>
-                    {promo && !line.manualDiscount && <Text style={styles.cartLinePromo}>🏷 {promo.name}</Text>}
-                    {can('discounts.manual') && (
-                      <Pressable onPress={() => setEditingLineDiscount(isEditing ? null : line.product.id)}>
-                        <Text style={styles.cartLineDiscountToggle}>{line.manualDiscount ? 'Edit discount' : '+ Add discount'}</Text>
-                      </Pressable>
-                    )}
-                  </View>
-                  <QuantityStepper quantity={line.quantity} onChange={(next) => setQuantity(line.product.id, next)} />
-                </View>
-                {isEditing && (
+              <SaleLine
+                key={line.product.id}
+                line={line}
+                grossCents={gross}
+                netCents={gross - discountCents}
+                offerName={promo && !line.manualDiscount ? promo.name : null}
+                currency={secondCurrency}
+                canDiscount={can('discounts.manual')}
+                editing={isEditing}
+                onToggleEditing={() => setEditingLineDiscount(isEditing ? null : line.product.id)}
+                onQuantity={(next) => setQuantity(line.product.id, next)}
+                onRemove={() => setQuantity(line.product.id, 0)}
+                onDiscount={(discount) => { setLineDiscount(line.product.id, discount); setEditingLineDiscount(null); }}
+                editor={
                   <DiscountEditor
                     initial={line.manualDiscount}
                     onApply={(discount) => { setLineDiscount(line.product.id, discount); setEditingLineDiscount(null); }}
                     onRemove={line.manualDiscount ? () => { setLineDiscount(line.product.id, null); setEditingLineDiscount(null); } : undefined}
                   />
-                )}
-              </View>
+                }
+              />
             );
           })
         )}
@@ -1204,13 +1195,6 @@ const styles = StyleSheet.create({
   empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },
   // A ruled row, not a nested grey card: a card inside a card at every line
   // made the basket read as a stack of panels rather than as a list.
-  cartLine: { paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoRule },
-  cartLineRow: { flexDirection: 'row', alignItems: 'center' },
-  cartLineName: { color: theme.bentoInk, fontSize: 13.5, fontWeight: '700' },
-  cartLinePriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 2 },
-  cartLinePrice: { color: theme.bentoMuted, fontSize: 12 },
-  cartLinePriceStruck: { color: theme.bentoMuted2, fontSize: 12, textDecorationLine: 'line-through' },
-  cartLinePromo: { color: theme.bentoProfit, fontSize: 11, fontWeight: '700', marginTop: 4 },
   cartLineDiscountToggle: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6, textDecorationLine: 'underline' },
   discountSection: { marginTop: 4 },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
