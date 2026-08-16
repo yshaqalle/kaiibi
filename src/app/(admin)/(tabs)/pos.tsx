@@ -5,8 +5,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
+import { OptionPicker } from '@/components/option-picker';
 import { ProductModal } from '@/components/product-modal';
-import { CheckoutPanel } from '@/components/checkout-panel';
+import { CheckoutBlocks, CheckoutPanel } from '@/components/checkout-panel';
+import type { SelectedCustomer } from '@/components/customer-picker';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
 import { SaleLine } from '@/components/pos/sale-line';
@@ -178,6 +180,8 @@ export default function PosScreen() {
   // the panel's primary button, the "Served by" row and a completed sale all
   // need to open or close the same one.
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  // The cashier chooser on a counter, where there is no sheet to hold it.
+  const [servedByOpen, setServedByOpen] = useState(false);
   const [unknownCode, setUnknownCode] = useState<string | null>(null);
   const [showAddProduct, setShowAddProduct] = useState(false);
   const scanner = useScannerSettings();
@@ -755,6 +759,34 @@ export default function PosScreen() {
   // supervisor walks over with the float.
   const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
 
+  // The three decisions between a basket and a completed sale, built once and
+  // handed to whichever surface is showing them -- the panel on a counter, the
+  // sheet on a phone.
+  const checkoutBlockProps = shop ? {
+    shopId: shop.id,
+    selectedCustomer,
+    // A redemption is against one specific balance, so changing or clearing
+    // the customer has to drop it rather than carry it over.
+    onSelectCustomer: (customer: SelectedCustomer) => { setSelectedCustomer(customer); setPointsRedeemed(0); },
+    onClearCustomer: () => { setSelectedCustomer(null); setPointsRedeemed(0); },
+    totalCents: total,
+    payments,
+    currencies,
+    onChangePayments: setPayments,
+    enabledPaymentMethods,
+    allowSplit: shop.paymentSplitEnabled ?? true,
+    error,
+    loyaltyEnabled: loyalty.enabled,
+    centsPerPoint: loyalty.centsPerPoint,
+    pointsRedeemed,
+    maxRedeemable: maxRedeemablePoints(preRedemptionCents, spendablePoints, loyalty),
+    pointsMaturing: Math.max((selectedCustomer?.pointsBalance ?? 0) - spendablePoints, 0),
+    availableKnown: selectedCustomer?.availablePoints !== null && selectedCustomer?.availablePoints !== undefined,
+    redemptionCents: redemption.cents,
+    pointsEarned,
+    onChangePointsRedeemed: setPointsRedeemed,
+  } : null;
+
   // One sentence, shared by the panel and the sheet, so the two surfaces can
   // never disagree about what the next tap does.
   const intent = checkoutIntent({
@@ -775,10 +807,9 @@ export default function PosScreen() {
       {!registerBlocks && (
       <SalePanel
         compact={compact}
-        // Until the payment blocks move onto the panel, both sizes take the
-        // money in the sheet -- so the button opens it rather than promising a
-        // charge the panel cannot yet complete.
-        mode="sheet"
+        // The counter has the width to take payment in place; the phone does
+        // not, so there the button opens the sheet that does.
+        mode={compact ? 'sheet' : 'inline'}
         itemCount={cart.reduce((sum, line) => sum + line.quantity, 0)}
         onClearAll={cart.length > 0 ? clearSale : null}
         // Beside the sale itself, not only above the product grid. On a phone
@@ -793,10 +824,10 @@ export default function PosScreen() {
         totalCents={total}
         currency={secondCurrency}
         intent={intent}
-        onPrimary={() => setCheckoutOpen(true)}
+        onPrimary={compact ? () => setCheckoutOpen(true) : checkout}
         onHold={null}
         servedBy={cashierName}
-        onChangeServedBy={() => setCheckoutOpen(true)}
+        onChangeServedBy={() => (compact ? setCheckoutOpen(true) : setServedByOpen((open) => !open))}
         earnsPoints={pointsEarned}
       >
       <CartList {...cartListProps}>
@@ -877,44 +908,42 @@ export default function PosScreen() {
           />
         )}
       </View>
-      {shop && (
+      {compact && shop && checkoutBlockProps && (
         <CheckoutPanel
           visible={checkoutOpen}
           onClose={() => setCheckoutOpen(false)}
           cartEmpty={cart.length === 0}
-          cashiers={cashiers}
-          cashierName={cashierName}
-          onSelectCashier={(name) => setCashierName((current) => (current === name ? null : name))}
-          shopId={shop.id}
-          selectedCustomer={selectedCustomer}
-          // A redemption is against one specific balance, so changing or
-          // clearing the customer has to drop it rather than carry it over.
-          onSelectCustomer={(customer) => { setSelectedCustomer(customer); setPointsRedeemed(0); }}
-          onClearCustomer={() => { setSelectedCustomer(null); setPointsRedeemed(0); }}
-          totalCents={total}
-          payments={payments}
-          currencies={currencies}
-          onChangePayments={setPayments}
-          enabledPaymentMethods={enabledPaymentMethods}
-          allowSplit={shop?.paymentSplitEnabled ?? true}
+          intent={intent}
+          {...checkoutBlockProps}
           fullyPaid={fullyPaid}
           submitting={submitting}
-          error={error}
           onCheckout={checkout}
-          loyaltyEnabled={loyalty.enabled}
-          centsPerPoint={loyalty.centsPerPoint}
-          pointsRedeemed={pointsRedeemed}
-          maxRedeemable={maxRedeemablePoints(preRedemptionCents, spendablePoints, loyalty)}
-          pointsMaturing={Math.max((selectedCustomer?.pointsBalance ?? 0) - spendablePoints, 0)}
-          availableKnown={selectedCustomer?.availablePoints !== null && selectedCustomer?.availablePoints !== undefined}
-          redemptionCents={redemption.cents}
-          pointsEarned={pointsEarned}
-          onChangePointsRedeemed={setPointsRedeemed}
           // The sheet is fully gone, so it's now safe to present the receipt.
           // A no-op when nothing is staged, which is every dismissal that
           // wasn't a completed sale (the cashier tapping Close).
           onDismiss={showStagedReceipt}
         />
+      )}
+      {/* Nothing to pay for, nothing to decide: an idle till shows the sale
+          it is waiting for, not a customer picker and a row of dead methods. */}
+      {!compact && checkoutBlockProps && cart.length > 0 && (
+        <View style={styles.inlineBlocks}>
+          <CheckoutBlocks {...checkoutBlockProps} />
+        </View>
+      )}
+      {/* Who is serving. Sticky across sales, so it sits with the sale rather
+          than inside the payment, and it only appears where the shop keeps a
+          list of cashiers to choose from. */}
+      {servedByOpen && cashiers.length > 0 && (
+        <View style={styles.inlineBlocks}>
+          <OptionPicker
+            title="Served by"
+            options={cashiers.map((name) => ({ id: name, label: name }))}
+            value={cashierName}
+            onChange={(name) => { setCashierName(() => name); setServedByOpen(false); }}
+            placeholder="Choose a cashier"
+          />
+        </View>
       )}
       </SalePanel>
       )}
@@ -1174,6 +1203,7 @@ const styles = StyleSheet.create({
   stockPillCompact: { fontSize: 8, paddingVertical: 2, paddingHorizontal: 6 },
 
   // ---- cart: one card, sitting on the page like every other card ----
+  inlineBlocks: { paddingHorizontal: 18, paddingBottom: 8 },
   cartPane: { flex: 1, padding: 18, paddingLeft: 4, minWidth: 340 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 0 },
   // Spelled out rather than `flex: 0`, matching the panes above: inside the
