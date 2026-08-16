@@ -310,6 +310,24 @@ export function saleRefundState(sale: Sale): SaleRefundState {
   return { kind: 'partial', refundedQuantity, totalQuantity };
 }
 
+// What a customer actually spent: what they handed over, less what was handed
+// back to them.
+//
+// Both sides are already the PAID figure -- `sales.total_cents` is what was
+// tendered and `refunds.total_cents` has been a share of it since migration
+// 20260820000200 -- so these subtract directly. No tax to strip and no basis
+// to reconcile, unlike revenue (where the refund carries tax the revenue line
+// has already excluded) or product ranking (where a line total and a refund
+// share are quoted in different money entirely).
+//
+// Clamped per order, not on the sum. A sale over-refunded under the old maths
+// keeps its old refund rows -- refund_sale_items deliberately never claws that
+// back -- and letting one such order run negative would drag a customer's
+// lifetime spend below someone who never bought anything.
+export function keptSpendCents(orders: { totalCents: number; refundedCents: number }[]): number {
+  return orders.reduce((sum, order) => sum + Math.max(0, order.totalCents - order.refundedCents), 0);
+}
+
 // Takings per cashier. Gross rather than net: this ranks who rang up the most,
 // which is a staff question, not a profit one — netting tax out of it would
 // make the number harder to reconcile against a till without answering

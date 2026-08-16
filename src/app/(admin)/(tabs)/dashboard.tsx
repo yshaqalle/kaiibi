@@ -1216,7 +1216,7 @@ export default function DashboardScreen() {
                 scope="All time"
                 entries={topCustomers}
                 emptyLabel="No sales have been linked to a customer yet."
-                foot="Lifetime spend, so this one does not follow the date range."
+                foot="Lifetime spend, net of anything returned, so this one does not follow the date range."
               />
             </BentoCell>
           ) : null}

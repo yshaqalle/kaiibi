@@ -4,6 +4,7 @@ import {
   costOfGoodsSold,
   hourlyTakings,
   grossSalesCents,
+  keptSpendCents,
   netRevenueCents,
   netTaxCollectedCents,
   paymentMethodMix,
@@ -530,6 +531,44 @@ describe('the row and the period agree to the cent', () => {
     );
     expect(saleProfit(sale).netRevenueCents).toBe(periodView);
     expect(periodView).toBe(300);
+  });
+});
+
+// What a customer actually spent, for their lifetime total and their ranking.
+//
+// Both sides are the PAID figure -- `sales.total_cents` and
+// `refunds.total_cents` are each tax-inclusive since migration
+// 20260820000200 -- so unlike the product and revenue figures these subtract
+// directly, with no basis to reconcile.
+describe('keptSpendCents', () => {
+  it('counts an unrefunded order in full', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 0 }])).toBe(2310);
+  });
+
+  it('takes a refund off the order it belongs to', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 1155 }])).toBe(1155);
+  });
+
+  it('drops a fully refunded order to nothing rather than counting it as spend', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 2310 }])).toBe(0);
+  });
+
+  it('adds up across orders', () => {
+    expect(
+      keptSpendCents([
+        { totalCents: 5000, refundedCents: 0 },
+        { totalCents: 2310, refundedCents: 2310 },
+        { totalCents: 1000, refundedCents: 400 },
+      ])
+    ).toBe(5600);
+  });
+
+  // A sale over-refunded under the pre-migration maths would otherwise make a
+  // customer's lifetime spend go DOWN past zero and rank them below someone
+  // who never bought anything.
+  it('never lets an over-refunded order push lifetime spend negative', () => {
+    expect(keptSpendCents([{ totalCents: 1000, refundedCents: 1200 }])).toBe(0);
+    expect(keptSpendCents([{ totalCents: 5000, refundedCents: 0 }, { totalCents: 1000, refundedCents: 1200 }])).toBe(5000);
   });
 });
 
