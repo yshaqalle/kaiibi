@@ -717,16 +717,19 @@ export default function PosScreen() {
         nestedScrollEnabled: true,
       }
     : { contentContainerStyle: styles.grid };
-  // On mobile the cart list is a plain View, for exactly the reason the note
-  // above gives: it was a nested, flex-sized ScrollView capped at 240px, which
-  // is the sizing fight that note describes, and it left a tall band of dead
-  // page between the checkout button and the product grid.
+  // On a phone the list scrolls inside a capped height rather than growing the
+  // page. An uncapped list looks fine at two lines and fails at seven: the
+  // subtotal, the total and the button that acts on them are pushed off the
+  // bottom, so the last thing a cashier does on every sale is scroll past the
+  // whole basket to reach Checkout.
   //
-  // The cap it used to carry was meant to keep the total reachable. It is not
-  // needed here — the cart renders ABOVE the browse pane on a phone, so the
-  // total is already near the top of the page rather than beyond a long list.
-  const CartList = compact ? View : ScrollView;
-  const cartListProps = compact ? {} : { style: styles.cartList };
+  // The cap is an explicit pixel height, NOT a flex size -- which is the same
+  // exception the product grid above already makes, and the reason it escapes
+  // the nested-scroller sizing fight the note there describes.
+  const CartList = ScrollView;
+  const cartListProps = compact
+    ? { style: styles.cartListCompact, nestedScrollEnabled: true }
+    : { style: styles.cartList };
 
   const browsePaneEl = (
     <View
@@ -1298,6 +1301,9 @@ const styles = StyleSheet.create({
   addFromScan: { backgroundColor: theme.bentoInk, borderRadius: 999, paddingHorizontal: 15, paddingVertical: 11, marginBottom: 14, alignSelf: 'flex-start' },
   addFromScanText: { color: theme.bentoSurface, fontSize: 12, fontWeight: '800' },
   cartList: { flex: 1 },
+  // About four lines. Enough that most sales never scroll at all, and short
+  // enough that the total stays on screen when they do.
+  cartListCompact: { maxHeight: 320, flexGrow: 0, flexShrink: 0 },
   orderDiscountChip: { alignSelf: 'flex-start', backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 8, paddingHorizontal: 14, marginTop: 4 },
   orderDiscountChipText: { color: theme.bentoInk2, fontSize: 12.5, fontWeight: '700' },
   orderDiscountPresets: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 8 },

@@ -67,7 +67,7 @@ export function SaleLine({
         <Image source={{ uri: product.imageUrl }} contentFit="cover" style={styles.thumb} />
       ) : (
         <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <View style={styles.thumbDrop} />
+          <Text style={styles.thumbInitial}>{(product.brand || product.name).trim().charAt(0).toUpperCase()}</Text>
         </View>
       )}
 
@@ -92,7 +92,11 @@ export function SaleLine({
           {canDiscount && (
             <Pressable onPress={onToggleEditing} style={[styles.tag, line.manualDiscount && styles.tagSet]}>
               <Text style={[styles.tagText, line.manualDiscount && styles.tagTextSet]}>
-                {line.manualDiscount ? 'Discount set' : 'Discount'}
+                {line.manualDiscount
+                  ? (line.manualDiscount.type === 'percentage'
+                      ? `${line.manualDiscount.value}% off`
+                      : `${formatCents(line.manualDiscount.value)} off`)
+                  : '+ Discount'}
               </Text>
             </Pressable>
           )}
@@ -128,26 +132,26 @@ export function SaleLine({
 }
 
 const styles = StyleSheet.create({
-  line: { flexDirection: 'row', alignItems: 'flex-start', gap: 11, paddingVertical: 12,
+  line: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
-  thumb: { width: 38, height: 38, borderRadius: 12, backgroundColor: theme.bentoSoft },
+  thumb: { width: 42, height: 42, borderRadius: 12, backgroundColor: theme.bentoSoft },
   thumbPlaceholder: { alignItems: 'center', justifyContent: 'center' },
-  thumbDrop: { width: 14, height: 14, borderRadius: 7, backgroundColor: theme.bentoLine },
+  thumbInitial: { color: theme.bentoMuted2, fontSize: 15, fontWeight: '800' },
   // `minWidth: 0` or a long product name widens the row instead of wrapping in
   // it -- Yoga's default is `auto`, which measures the longest word.
-  body: { flex: 1, minWidth: 0, gap: 6 },
+  body: { flex: 1, minWidth: 0, gap: 8 },
   topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 },
-  name: { flex: 1, minWidth: 0, color: theme.bentoInk, fontSize: 13, fontWeight: '700', lineHeight: 17 },
+  name: { flex: 1, minWidth: 0, color: theme.bentoInk, fontSize: 14, fontWeight: '700', lineHeight: 18 },
   remove: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
-  removeText: { color: theme.bentoMuted2, fontSize: 13, fontWeight: '700' },
+  removeText: { color: theme.bentoMuted2, fontSize: 14, fontWeight: '600' },
   meta: { flexDirection: 'row', alignItems: 'center', gap: 7, flexWrap: 'wrap' },
-  struck: { color: theme.bentoMuted2, fontSize: 11.5, textDecorationLine: 'line-through' },
-  price: { color: theme.bentoMuted, fontSize: 11.5 },
-  offer: { backgroundColor: theme.bentoUpWash, borderRadius: 999, paddingVertical: 2, paddingHorizontal: 8 },
-  offerText: { color: theme.bentoUpInk, fontSize: 10, fontWeight: '800' },
-  tag: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 2, paddingHorizontal: 8 },
+  struck: { color: theme.bentoMuted2, fontSize: 12, textDecorationLine: 'line-through' },
+  price: { color: theme.bentoMuted, fontSize: 12 },
+  offer: { backgroundColor: theme.bentoUpWash, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
+  offerText: { color: theme.bentoUpInk, fontSize: 10.5, fontWeight: '800' },
+  tag: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
   tagSet: { backgroundColor: theme.bentoUpWash },
-  tagText: { color: theme.bentoMuted, fontSize: 10, fontWeight: '800' },
+  tagText: { color: theme.bentoMuted, fontSize: 10.5, fontWeight: '800' },
   tagTextSet: { color: theme.bentoUpInk },
   presets: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   preset: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },

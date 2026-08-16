@@ -75,8 +75,13 @@ describe('SaleLine', () => {
   });
 
   it('offers a discount only to someone allowed to give one', () => {
-    expect(render()).toContain('Discount');
-    expect(render({ canDiscount: false })).not.toContain('Discount');
+    expect(render()).toContain('+ Discount');
+    expect(render({ canDiscount: false }).join('')).not.toContain('Discount');
+  });
+
+  it('says how much came off once a discount is on the line', () => {
+    const withDiscount: CartLine = { ...line, manualDiscount: { type: 'percentage', value: 15 } };
+    expect(render({ line: withDiscount })).toContain('15% off');
   });
 
   it('shows the presets while the discount is being set, and not before', () => {
