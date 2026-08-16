@@ -7,7 +7,7 @@ import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
 import { OptionPicker } from '@/components/option-picker';
 import { ProductModal } from '@/components/product-modal';
-import { CheckoutBlocks, CheckoutPanel } from '@/components/checkout-panel';
+import { CheckoutPanel, CustomerBlock, PaymentBlock } from '@/components/checkout-panel';
 import type { SelectedCustomer } from '@/components/customer-picker';
 import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
@@ -885,6 +885,11 @@ export default function PosScreen() {
         onChangeServedBy={() => (compact ? setCheckoutOpen(true) : setServedByOpen((open) => !open))}
         earnsPoints={pointsEarned}
       >
+      {!compact && checkoutBlockProps && (
+        <View style={styles.customerBlock}>
+          <CustomerBlock {...checkoutBlockProps} />
+        </View>
+      )}
       <CartList {...cartListProps}>
         {cart.length === 0 ? (
           <View style={styles.emptyWrap}>
@@ -1006,7 +1011,7 @@ export default function PosScreen() {
           it is waiting for, not a customer picker and a row of dead methods. */}
       {!compact && checkoutBlockProps && cart.length > 0 && (
         <View style={styles.inlineBlocks}>
-          <CheckoutBlocks {...checkoutBlockProps} />
+          <PaymentBlock {...checkoutBlockProps} />
         </View>
       )}
       {/* Who is serving. Sticky across sales, so it sits with the sale rather
@@ -1285,6 +1290,7 @@ const styles = StyleSheet.create({
 
   // ---- cart: one card, sitting on the page like every other card ----
   inlineBlocks: { paddingHorizontal: 18, paddingBottom: 8 },
+  customerBlock: { paddingHorizontal: 18, paddingBottom: 4 },
   cartPane: { flex: 1, padding: 18, paddingLeft: 4, minWidth: 340 },
   cartPaneCompact: { flex: 0, flexGrow: 0, flexShrink: 0, flexBasis: 'auto', width: '100%', minWidth: 0, padding: 16, paddingBottom: 0 },
   // Spelled out rather than `flex: 0`, matching the panes above: inside the

@@ -183,18 +183,11 @@ export function CheckoutPanel({
  * spending points changes the total, which clears whatever split has been
  * entered, so they have to be spent before the money is counted.
  */
-export function CheckoutBlocks({
+export function CustomerBlock({
   shopId,
   selectedCustomer,
   onSelectCustomer,
   onClearCustomer,
-  totalCents,
-  payments,
-  currencies,
-  onChangePayments,
-  enabledPaymentMethods,
-  allowSplit,
-  error,
   loyaltyEnabled,
   centsPerPoint,
   pointsRedeemed,
@@ -216,6 +209,9 @@ export function CheckoutBlocks({
         centsPerPoint={centsPerPoint}
       />
 
+      {/* Points sit with the customer they belong to, and before the money:
+          spending them changes the total, which clears whatever split has been
+          entered, so they have to be spent before the payment is counted. */}
       {loyaltyEnabled && selectedCustomer && (
         <PointsSection
           balance={selectedCustomer.pointsBalance}
@@ -229,7 +225,21 @@ export function CheckoutBlocks({
           onChange={onChangePointsRedeemed}
         />
       )}
+    </>
+  );
+}
 
+export function PaymentBlock({
+  totalCents,
+  payments,
+  currencies,
+  onChangePayments,
+  enabledPaymentMethods,
+  allowSplit,
+  error,
+}: CheckoutBlocksProps) {
+  return (
+    <>
       <PaymentMethodPicker
         totalCents={totalCents}
         payments={payments}
@@ -240,6 +250,17 @@ export function CheckoutBlocks({
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
+    </>
+  );
+}
+
+// Both halves in the order the sheet reads them, for the surface that shows
+// them together.
+export function CheckoutBlocks(props: CheckoutBlocksProps) {
+  return (
+    <>
+      <CustomerBlock {...props} />
+      <PaymentBlock {...props} />
     </>
   );
 }
