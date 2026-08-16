@@ -192,6 +192,7 @@ describe('OpenHoursCard', () => {
     grossCents: netRevenueCents,
     taxCents: 0,
     refundCents: 0,
+    refundRevenueCents: 0,
     netRevenueCents,
     orderCount: 1,
     discountCents: 0,

@@ -119,7 +119,11 @@ export function OverviewTab({
   useTabRefresh(setRefresh, reload);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
-  const refundCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);
+  // What the refunds actually took out of revenue, which is less than what was
+  // handed back (`DailyBucket.refundCents`): the tax portion of a refund
+  // cancels tax collected, not income. The caveat below quotes this so the
+  // number it claims is deducted is the number that was deducted.
+  const refundRevenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundRevenueCents, 0), [daily]);
   const taxCents = useMemo(() => daily.reduce((sum, d) => sum + d.taxCents, 0), [daily]);
 
   // Revenue less what the goods cost. NOT net profit: operating expenses and
@@ -250,7 +254,7 @@ export function OverviewTab({
           {revenueNote.dismissed ? null : (
             <Caveat tone="context" onDismiss={revenueNote.dismiss}>
               {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
-                refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
+                refundRevenueCents > 0 ? ` ${formatAccountingCents(refundRevenueCents)} of refunds is already deducted.` : ''
               }`}
             </Caveat>
           )}

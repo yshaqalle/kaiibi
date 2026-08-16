@@ -70,6 +70,8 @@ function makeRefund(overrides: Partial<PeriodRefund> = {}): PeriodRefund {
     id: 'r1',
     createdAt: new Date(2026, 7, 3, 12, 0, 0).toISOString(),
     totalCents: 2200,
+    saleTotalCents: 2200,
+    saleTaxCents: 0,
     items: [{ quantity: 1, unitCostCents: 1200 }],
     ...overrides,
   };
@@ -115,6 +117,22 @@ describe('revenue is reported net of refunds', () => {
 
   it('sums multiple refunds', () => {
     expect(refundedCents([makeRefund({ id: 'a', totalCents: 1000 }), makeRefund({ id: 'b', totalCents: 500 })])).toBe(1500);
+  });
+
+  // Since migration 20260820000200 a refund hands back what the customer
+  // actually PAID, tax included. Revenue here is already net of tax, so
+  // subtracting the paid figure whole takes the tax out a second time and
+  // leaves a fully refunded sale sitting at minus its own tax.
+  it('subtracts only the pre-tax share of a refund, not the tax handed back with it', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(0);
+  });
+
+  it('subtracts the pre-tax share of a partial refund', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 1155, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(1100);
   });
 });
 
@@ -253,6 +271,55 @@ describe('saleProfit', () => {
     expect(result.marginPercent).toBeNull();
   });
 
+  // A refund hands back what the customer PAID -- tax included -- since
+  // migration 20260820000200. netRevenue is already net of tax, so subtracting
+  // the paid figure whole removes the tax twice and lands a fully refunded
+  // sale on minus its own tax. These are the real figures off a $12.60 line
+  // taxed to $12.92, which reported -$0.32 revenue and -$0.32 profit.
+  it('nets a fully refunded taxed sale to zero rather than to minus its tax', () => {
+    const sale = makeSale({
+      totalCents: 1292,
+      taxCents: 32,
+      items: [makeItem({ id: 'a', quantity: 1, unitPriceCents: 1260, lineTotalCents: 1260, unitCostCents: 500 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1292,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(0);
+    expect(result.costCents).toBe(0);
+    expect(result.profitCents).toBe(0);
+  });
+
+  it('nets only the pre-tax share of a partial refund on a taxed sale', () => {
+    const sale = makeSale({
+      totalCents: 2310,
+      taxCents: 110,
+      items: [makeItem({ id: 'a', quantity: 2, unitPriceCents: 1100, lineTotalCents: 2200, unitCostCents: 600 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1155,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1155 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(1100);
+    expect(result.costCents).toBe(600);
+    expect(result.profitCents).toBe(500);
+  });
+
   // The number has to admit what it doesn't know. Treating an unknown cost as
   // zero would show this sale as pure profit.
   it('flags lines with no cost on file instead of valuing them at zero', () => {
@@ -371,6 +438,24 @@ describe('bucketDailyTotals', () => {
     expect(buckets[0].netRevenueCents).toBe(2200);
     expect(buckets[2].netRevenueCents).toBe(-2200);
     expect(buckets[2].refundCents).toBe(2200);
+  });
+
+  // Same double-subtraction the period total had: refundCents is what the
+  // customer was handed (tax included), so the chart has to net the tax out of
+  // it before it meets a revenue line that already excludes tax.
+  it('nets only the pre-tax share of a refund against a taxed sale', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 3, 9, 0).toISOString(),
+        totalCents: 2310,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const buckets = bucketDailyTotals(sales, refunds, since, until);
+    expect(buckets[0].netRevenueCents).toBe(2200);
+    expect(buckets[2].netRevenueCents).toBe(-2200);
   });
 
   it('counts orders and rolls up line-level discounts', () => {

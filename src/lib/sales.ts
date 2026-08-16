@@ -386,12 +386,16 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: string;
     created_at: string;
     total_cents: number;
+    // The parent sale was already joined to scope by shop; its total and tax
+    // ride along so the refund's revenue share can be split out of what the
+    // customer was handed. See PeriodRefund.
+    sales: { total_cents: number; tax_cents: number } | null;
     refund_items: { quantity: number; sale_items: { unit_cost_cents: number | null } | null }[] | null;
   };
   const rows = await fetchAllRows<RefundRow>((from, to) => {
     let query = supabase
       .from('refunds')
-      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id)')
+      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
       .eq('sales.shop_id', shopId)
       .gte('created_at', startOfDay(sinceDate).toISOString());
     if (locationId) query = query.eq('sales.location_id', locationId);
@@ -402,6 +406,11 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: row.id,
     createdAt: row.created_at,
     totalCents: row.total_cents,
+    // Zero when the parent somehow didn't come back: refundPreTaxCents then
+    // treats the refund as wholly revenue, which is the pre-tax-shop answer
+    // and the safe direction -- it never inflates revenue.
+    saleTotalCents: row.sales?.total_cents ?? 0,
+    saleTaxCents: row.sales?.tax_cents ?? 0,
     items: (row.refund_items ?? []).map((item) => ({
       quantity: item.quantity,
       unitCostCents: item.sale_items?.unit_cost_cents ?? null,
