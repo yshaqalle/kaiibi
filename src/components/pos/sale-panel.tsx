@@ -107,19 +107,19 @@ export function SalePanel({
           disabled={!primaryEnabled}
           style={[styles.primary, !primaryEnabled && styles.primaryDisabled]}
         >
-          <Text style={styles.primaryText}>{primaryLabel}</Text>
+          {/* The lock is the one on the mockup's charge button: this is the
+              step that takes money, and it should not look like the rest. */}
+          <Text style={styles.primaryText}>🔒  {primaryLabel}</Text>
         </Pressable>
         {mode === 'inline' && intent.hint && <Text style={styles.hint}>{intent.hint}</Text>}
 
         {/* Short on a phone by design: every pixel this row takes is a pixel of
             basket the cashier cannot see. Holding a sale and who is serving it
             share one line there, and stack on a counter that has the room. */}
-        <View style={compact ? styles.footRowCompact : undefined}>
+        <View style={styles.footRow}>
           {onHold && (
-            <Pressable onPress={onHold} style={compact ? styles.holdMini : styles.hold}>
-              <Text style={compact ? styles.holdMiniText : styles.holdText}>
-                {compact ? 'Hold' : 'Hold for later'}
-              </Text>
+            <Pressable onPress={onHold} style={styles.hold}>
+              <Text style={styles.holdText}>⏱  {compact ? 'Hold' : 'Hold for later'}</Text>
             </Pressable>
           )}
           <Pressable onPress={onChangeServedBy} style={styles.served}>
@@ -166,24 +166,24 @@ const styles = StyleSheet.create({
   clearText: { color: theme.bentoSurface, fontSize: 13.5, fontWeight: '800' },
   middle: { flex: 1 },
   middleContent: { paddingBottom: 4 },
-  grand: { backgroundColor: theme.bentoSoft, paddingHorizontal: 18, paddingVertical: 14 },
+  grand: { backgroundColor: theme.bentoSoft, paddingHorizontal: 18, paddingVertical: 11 },
   grandRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   grandLabel: { color: theme.bentoInk, fontSize: 15, fontWeight: '800' },
-  earns: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 6 },
-  foot: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 16 },
+  earns: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700', marginTop: 4 },
+  // Kept short on purpose: every pixel down here is a pixel of basket and
+  // payment the cashier cannot see.
+  foot: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 12 },
   primary: {
-    backgroundColor: theme.bentoInk, height: 56, borderRadius: 999,
+    backgroundColor: theme.bentoInk, height: 50, borderRadius: 999,
     alignItems: 'center', justifyContent: 'center',
   },
   primaryDisabled: { opacity: 0.35 },
   primaryText: { color: theme.bentoSurface, fontSize: 15, fontWeight: '800' },
-  hint: { color: theme.bentoMuted, fontSize: 11.5, textAlign: 'center', marginTop: 9 },
-  footRowCompact: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 9 },
-  hold: { marginTop: 10, paddingVertical: 13, borderRadius: 999, backgroundColor: theme.bentoSoft, alignItems: 'center' },
-  holdText: { color: theme.bentoMuted, fontSize: 12.5, fontWeight: '700' },
-  holdMini: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
-  holdMiniText: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700' },
-  served: { paddingVertical: 6, flexShrink: 1, minWidth: 0 },
+  hint: { color: theme.bentoMuted, fontSize: 11.5, textAlign: 'center', marginTop: 7 },
+  footRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 },
+  hold: { paddingVertical: 7, paddingHorizontal: 13, borderRadius: 999, backgroundColor: theme.bentoSoft },
+  holdText: { color: theme.bentoMuted, fontSize: 11.5, fontWeight: '700' },
+  served: { paddingVertical: 4, flexShrink: 1, minWidth: 0 },
   servedText: { color: theme.bentoMuted, fontSize: 11.5 },
   servedName: { color: theme.bentoInk2, fontWeight: '700' },
 });

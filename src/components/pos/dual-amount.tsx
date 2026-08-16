@@ -40,9 +40,9 @@ const styles = StyleSheet.create({
   left: { alignItems: 'flex-start' },
   primary: { color: theme.bentoInk, fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
   primaryTile: { fontSize: 13.5 },
-  primaryTotal: { fontSize: 30, letterSpacing: -1 },
+  primaryTotal: { fontSize: 26, letterSpacing: -0.8 },
   // Deliberately quiet: it is the same money said again for the customer's ear,
   // not a second figure anyone reconciles.
   secondary: { color: theme.bentoMuted2, fontSize: 10, fontWeight: '600', fontVariant: ['tabular-nums'] },
-  secondaryTotal: { fontSize: 11 },
+  secondaryTotal: { fontSize: 10.5 },
 });

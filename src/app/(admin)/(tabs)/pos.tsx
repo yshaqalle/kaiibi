@@ -953,30 +953,6 @@ export default function PosScreen() {
         )}
       </CartList>
       <View style={styles.discountSection}>
-        {hasAnyDiscount && (
-          <>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Subtotal</Text>
-              <Text style={styles.summaryValue}>{formatCents(grossCents)}</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Discount</Text>
-              <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - preRedemptionCents)}</Text>
-            </View>
-          </>
-        )}
-        {redemption.points > 0 && (
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Points ({redemption.points.toLocaleString()})</Text>
-            <Text style={styles.summaryValueDiscount}>-{formatCents(redemption.cents)}</Text>
-          </View>
-        )}
-        {taxCents > 0 && (
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Tax ({shop?.taxRatePercent}%)</Text>
-            <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
-          </View>
-        )}
         {/* Nothing to discount until something is rung up: an order discount on
             an empty till is a percentage of zero, and offering it invites a
             cashier to set one and then wonder why the total never moved. */}
@@ -1018,6 +994,41 @@ export default function PosScreen() {
           </View>
         )}
       </View>
+      {/* Nothing to pay for, nothing to decide: an idle till shows the sale it
+          is waiting for, not a row of dead payment methods. Above the
+          arithmetic, because taking the money is the decision and the
+          subtotal is only the explanation of it. */}
+      {!compact && checkoutBlockProps && cart.length > 0 && (
+        <View style={styles.inlineBlocks}>
+          <PaymentBlock {...checkoutBlockProps} />
+        </View>
+      )}
+      <View style={styles.discountSection}>
+        {hasAnyDiscount && (
+          <>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Subtotal</Text>
+              <Text style={styles.summaryValue}>{formatCents(grossCents)}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Discount</Text>
+              <Text style={styles.summaryValueDiscount}>-{formatCents(grossCents - preRedemptionCents)}</Text>
+            </View>
+          </>
+        )}
+        {redemption.points > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Points ({redemption.points.toLocaleString()})</Text>
+            <Text style={styles.summaryValueDiscount}>-{formatCents(redemption.cents)}</Text>
+          </View>
+        )}
+        {taxCents > 0 && (
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>Tax ({shop?.taxRatePercent}%)</Text>
+            <Text style={styles.summaryValue}>{formatCents(taxCents)}</Text>
+          </View>
+        )}
+      </View>
       {compact && shop && checkoutBlockProps && (
         <CheckoutPanel
           visible={checkoutOpen}
@@ -1033,13 +1044,6 @@ export default function PosScreen() {
           // wasn't a completed sale (the cashier tapping Close).
           onDismiss={showStagedReceipt}
         />
-      )}
-      {/* Nothing to pay for, nothing to decide: an idle till shows the sale
-          it is waiting for, not a customer picker and a row of dead methods. */}
-      {!compact && checkoutBlockProps && cart.length > 0 && (
-        <View style={styles.inlineBlocks}>
-          <PaymentBlock {...checkoutBlockProps} />
-        </View>
       )}
       {/* Who is serving. Sticky across sales, so it sits with the sale rather
           than inside the payment, and it only appears where the shop keeps a
