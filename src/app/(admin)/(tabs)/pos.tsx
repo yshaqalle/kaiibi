@@ -676,6 +676,19 @@ export default function PosScreen() {
     const { order, remaining } = await resumeHeldOrder(profile.id, activeLocation?.id ?? null, id);
     setHeldOrders(remaining);
     if (!order) return;
+    // A parked basket reserves nothing, so an hour later the shelf may have
+    // moved. Say which lines cannot be filled NOW rather than letting the
+    // cashier find out from a refused charge with a customer waiting.
+    const short = order.cart.filter((line) => {
+      const onHand = products.find((product) => product.id === line.product.id)?.stock ?? line.product.stock;
+      return onHand < line.quantity;
+    });
+    if (short.length > 0) {
+      setScanFeedback({
+        tone: 'warn',
+        message: `Stock has moved since this was held: ${short.map((line) => line.product.name).join(', ')}. Check before charging.`,
+      });
+    }
     setCart(order.cart);
     setSelectedCustomer(order.customer);
     setTransactionDiscount(order.transactionDiscount);
@@ -742,6 +755,18 @@ export default function PosScreen() {
   const cartListProps = compact
     ? { style: styles.cartListCompact, contentContainerStyle: styles.cartListContent, nestedScrollEnabled: true }
     : { style: styles.cartList, contentContainerStyle: styles.cartListContent };
+
+  // Units sitting in parked baskets at THIS till. Held stock is not reserved --
+  // nothing is deducted until complete_sale runs -- so the grid keeps showing
+  // the real figure and names the parked units beside it. A cashier who knows
+  // three of the five are promised to someone else can decide for themselves;
+  // a silently reduced number would be a lie in the other direction.
+  const heldUnits = new Map<string, number>();
+  heldOrders.forEach((order) => {
+    order.cart.forEach((line) => {
+      heldUnits.set(line.product.id, (heldUnits.get(line.product.id) ?? 0) + line.quantity);
+    });
+  });
 
   const browsePaneEl = (
     <View
@@ -814,6 +839,9 @@ export default function PosScreen() {
                 <Text style={styles.gridStockLow}>Only {product.stock} left</Text>
               ) : (
                 <Text style={styles.gridStock}>{product.stock} in stock</Text>
+              )}
+              {(heldUnits.get(product.id) ?? 0) > 0 && (
+                <Text style={styles.gridHeld}>{heldUnits.get(product.id)} in a held sale</Text>
               )}
               {(() => {
                 // One unit's price as the gross: a tile is an offer to sell one, and a
@@ -1322,6 +1350,7 @@ const styles = StyleSheet.create({
   gridPriceCompact: { fontSize: 13 },
   gridStock: { color: theme.bentoMuted, fontSize: 10.5 },
   gridStockLow: { color: theme.bentoWarn, fontSize: 10.5, fontWeight: '700' },
+  gridHeld: { color: theme.bentoAccentInk, fontSize: 10.5, fontWeight: '700' },
   gridStockOut: { color: theme.bentoLoss, fontSize: 10.5, fontWeight: '700' },
   gridOffer: { backgroundColor: theme.bentoUpWash, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8, marginTop: 2 },
   gridOfferText: { color: theme.bentoUpInk, fontSize: 10, fontWeight: '800' },
