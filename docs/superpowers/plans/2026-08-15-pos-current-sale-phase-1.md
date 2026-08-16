@@ -74,7 +74,7 @@ The panel's button and the sheet's button must never disagree, so neither of the
   - `checkoutIntent(input: CheckoutIntentInput): CheckoutIntent` where
     `type CheckoutIntentInput = { cartEmpty: boolean; totalCents: number; payments: PaymentLine[]; customerName: string | null; submitting: boolean; secondaryTotal: string | null }`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/lib/__tests__/checkout-intent.test.ts`:
 
@@ -180,12 +180,12 @@ describe('checkoutIntent', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and watch them fail**
+- [x] **Step 2: Run the tests and watch them fail**
 
 Run: `npx jest src/lib/__tests__/checkout-intent.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/checkout-intent'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/checkout-intent.ts`:
 
@@ -247,12 +247,12 @@ export function checkoutIntent(input: CheckoutIntentInput): CheckoutIntent {
 }
 ```
 
-- [ ] **Step 4: Run the tests and watch them pass**
+- [x] **Step 4: Run the tests and watch them pass**
 
 Run: `npx jest src/lib/__tests__/checkout-intent.test.ts`
 Expected: PASS, 10 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/checkout-intent.ts src/lib/__tests__/checkout-intent.test.ts
@@ -275,7 +275,7 @@ Every money figure on the till gains a second line in the shop's own currency. T
   - `displayCurrency(currencies: Currency[]): Currency | null`
   - `secondaryAmount(usdCents: number, currency: Currency | null): string | null`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/lib/__tests__/display-currency.test.ts`:
 
@@ -336,12 +336,12 @@ describe('secondaryAmount', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and watch them fail**
+- [x] **Step 2: Run the tests and watch them fail**
 
 Run: `npx jest src/lib/__tests__/display-currency.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/display-currency'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/lib/display-currency.ts`:
 
@@ -364,12 +364,12 @@ export function secondaryAmount(usdCents: number, currency: Currency | null): st
 }
 ```
 
-- [ ] **Step 4: Run the tests and watch them pass**
+- [x] **Step 4: Run the tests and watch them pass**
 
 Run: `npx jest src/lib/__tests__/display-currency.test.ts`
 Expected: PASS, 8 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/display-currency.ts src/lib/__tests__/display-currency.test.ts
@@ -391,7 +391,7 @@ One component so the pairing is identical on a tile, a cart line and a total, an
 - Consumes: `secondaryAmount` from Task 2.
 - Produces: `<DualAmount cents={number} currency={Currency | null} size="tile" | "line" | "total" align="left" | "right" />`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/components/__tests__/dual-amount.test.tsx`:
 
@@ -427,12 +427,12 @@ describe('DualAmount', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and watch it fail**
+- [x] **Step 2: Run the test and watch it fail**
 
 Run: `npx jest src/components/__tests__/dual-amount.test.tsx`
 Expected: FAIL — `Cannot find module '@/components/pos/dual-amount'`.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Create `src/components/pos/dual-amount.tsx`:
 
@@ -483,12 +483,12 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run the test and watch it pass**
+- [x] **Step 4: Run the test and watch it pass**
 
 Run: `npx jest src/components/__tests__/dual-amount.test.tsx`
 Expected: PASS, 2 tests.
 
-- [ ] **Step 5: Use it on the product tile and the total**
+- [x] **Step 5: Use it on the product tile and the total**
 
 In `src/app/(admin)/(tabs)/pos.tsx`:
 
@@ -519,12 +519,12 @@ const secondCurrency = displayCurrency(currencies);
 <DualAmount cents={total} currency={secondCurrency} size="total" />
 ```
 
-- [ ] **Step 6: Run the whole suite**
+- [x] **Step 6: Run the whole suite**
 
 Run: `npm test`
 Expected: PASS. No test asserts on the removed `totalValue` text node; if one does, update it to read the same string from `DualAmount`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/pos/dual-amount.tsx src/components/__tests__/dual-amount.test.tsx "src/app/(admin)/(tabs)/pos.tsx"
@@ -564,7 +564,7 @@ The structural change everything else sits inside. The title, item count and **C
 </SalePanel>
 ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/components/__tests__/sale-panel.test.tsx`:
 
@@ -631,12 +631,12 @@ describe('SalePanel', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and watch it fail**
+- [x] **Step 2: Run the test and watch it fail**
 
 Run: `npx jest src/components/__tests__/sale-panel.test.tsx`
 Expected: FAIL — `Cannot find module '@/components/pos/sale-panel'`.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Create `src/components/pos/sale-panel.tsx`. The shape is the receipt's: a card with a real height, a `flex: 1` scroller in the middle, and regions above and below it that never move.
 
@@ -779,12 +779,12 @@ const styles = StyleSheet.create({
 });
 ```
 
-- [ ] **Step 4: Run the test and watch it pass**
+- [x] **Step 4: Run the test and watch it pass**
 
 Run: `npx jest src/components/__tests__/sale-panel.test.tsx`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Compose it in `pos.tsx`**
+- [x] **Step 5: Compose it in `pos.tsx`**
 
 Replace the body of `cartPaneEl` so the `<Card variant="bento">` and its title row, totals block, `CheckoutPanel` trigger, and the clear/scan buttons become:
 
@@ -833,14 +833,14 @@ const [checkoutOpen, setCheckoutOpen] = useState(false);
 
 Keep the existing cart lines and discount section as the children for now; Task 5 restyles them and Task 6 moves the payment blocks in.
 
-- [ ] **Step 6: Run the suite and the app**
+- [x] **Step 6: Run the suite and the app**
 
 Run: `npm test`
 Expected: PASS.
 
 Run the app and confirm on a wide window: the total and the button stay put while the cart list scrolls, and the button reads `Take a payment` until a payment exists.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/pos/sale-panel.tsx src/components/__tests__/sale-panel.test.tsx "src/app/(admin)/(tabs)/pos.tsx"
@@ -878,7 +878,7 @@ At 392px a name, a stepper, a total and a remove button on one line leave the na
 />
 ```
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `src/components/__tests__/sale-line.test.tsx`:
 
@@ -949,12 +949,12 @@ describe('SaleLine', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and watch it fail**
+- [x] **Step 2: Run the test and watch it fail**
 
 Run: `npx jest src/components/__tests__/sale-line.test.tsx`
 Expected: FAIL — `Cannot find module '@/components/pos/sale-line'`.
 
-- [ ] **Step 3: Write the component**
+- [x] **Step 3: Write the component**
 
 Create `src/components/pos/sale-line.tsx` with two rows inside the body. Requirements the test pins, plus the ones it cannot see:
 
@@ -964,12 +964,12 @@ Create `src/components/pos/sale-line.tsx` with two rows inside the body. Require
 - Row two: `QuantityStepper` on the left, `<DualAmount cents={netCents} currency={currency} />` on the right.
 - Every preset chip calls `onDiscount({ kind: 'percent', value })` using the `Discount` shape `DiscountEditor` already produces; `Remove` calls `onDiscount(null)`.
 
-- [ ] **Step 4: Run the test and watch it pass**
+- [x] **Step 4: Run the test and watch it pass**
 
 Run: `npx jest src/components/__tests__/sale-line.test.tsx`
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Use it in `pos.tsx`**
+- [x] **Step 5: Use it in `pos.tsx`**
 
 Replace the `cart.map((line) => { ... })` body with `<SaleLine>`, passing the values already computed there:
 
@@ -992,12 +992,12 @@ Replace the `cart.map((line) => { ... })` body with `<SaleLine>`, passing the va
 ))}
 ```
 
-- [ ] **Step 6: Run the suite**
+- [x] **Step 6: Run the suite**
 
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/components/pos/sale-line.tsx src/components/__tests__/sale-line.test.tsx "src/app/(admin)/(tabs)/pos.tsx"
@@ -1019,15 +1019,15 @@ Above `TABLET_BREAKPOINT` the customer, the points and the payment render in the
 - Its blocks are extracted so both surfaces render the same nodes:
   `export function CheckoutBlocks(props: CheckoutBlocksProps): JSX.Element` — cashier chips are **not** part of it (they became "Served by").
 
-- [ ] **Step 1: Extract the blocks**
+- [x] **Step 1: Extract the blocks**
 
 In `src/components/checkout-panel.tsx`, move everything between the header and the `Complete sale` button — `CustomerPicker`, `PointsSection`, `PaymentMethodPicker`, the error `Text` — into `CheckoutBlocks`, exported from the same file. The sheet renders `<CheckoutBlocks {...} />`; the panel will render the same component.
 
-- [ ] **Step 2: Make the modal controlled**
+- [x] **Step 2: Make the modal controlled**
 
 Replace `const [open, setOpen] = useState(false);` and the trigger `Pressable` with the `visible` / `onClose` props. The effect that closed the sheet when the cart emptied stays, calling `onClose()` instead of `setOpen(false)`.
 
-- [ ] **Step 3: Render inline when wide**
+- [x] **Step 3: Render inline when wide**
 
 In `pos.tsx`, inside `<SalePanel>`'s children, after the cart lines and discount section:
 
@@ -1054,18 +1054,18 @@ and render the sheet only on a phone:
 
 Build `checkoutBlockProps` once, from the props `CheckoutPanel` takes today (`shopId`, `selectedCustomer`, `onSelectCustomer`, `onClearCustomer`, `totalCents`, `payments`, `currencies`, `onChangePayments`, `enabledPaymentMethods`, `allowSplit`, the loyalty group, `error`) so the two surfaces cannot drift.
 
-- [ ] **Step 4: Move the cashier chips out**
+- [x] **Step 4: Move the cashier chips out**
 
 Delete the `cashierSection` from the sheet. `SalePanel`'s "Served by" row is now the only place a cashier is chosen: `onChangeServedBy` opens a small picker listing `cashiers`. On a phone that picker is the sheet (already the case via `setCheckoutOpen(true)`); on a tablet render an `OptionPicker` from `src/components/option-picker.tsx`.
 
-- [ ] **Step 5: Run the suite and both layouts**
+- [x] **Step 5: Run the suite and both layouts**
 
 Run: `npm test`
 Expected: PASS.
 
 Run the app. Wide: customer, points and payment sit in the panel, the sheet never opens. Narrow: the panel shows items and `Checkout · $84.74`; that button opens the sheet with the same blocks.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/components/checkout-panel.tsx "src/app/(admin)/(tabs)/pos.tsx"
@@ -1081,7 +1081,7 @@ Same modal, same trigger, same dismissal handoff to the receipt. What changes: i
 **Files:**
 - Modify: `src/components/checkout-panel.tsx`
 
-- [ ] **Step 1: Give the sheet a real height and three regions**
+- [x] **Step 1: Give the sheet a real height and three regions**
 
 `styles.sheet` gains `height: '93%'` (a concrete height, not `maxHeight` — the note in `receipt-modal.tsx` says why) and `flexDirection: 'column'`. Inside it:
 
@@ -1091,15 +1091,15 @@ Same modal, same trigger, same dismissal handoff to the receipt. What changes: i
 
 Each block inside the scroller keeps `backgroundColor: theme.bentoSurface` and `borderRadius: BENTO_RADIUS` on the sheet's `theme.bentoPage` ground, which is the arrangement the file already documents.
 
-- [ ] **Step 2: Put the shared sentence on the button**
+- [x] **Step 2: Put the shared sentence on the button**
 
 Replace the `Complete sale` label with `intent.label`, and disable on `!intent.enabled`. The hint line under it renders `intent.hint`.
 
-- [ ] **Step 3: Verify the handoff still works**
+- [x] **Step 3: Verify the handoff still works**
 
 The receipt is presented from `onDismiss` on iOS. Confirm the staged-receipt path is untouched: complete a sale on an iPhone and the receipt appears after the sheet finishes dismissing.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/components/checkout-panel.tsx
@@ -1125,7 +1125,7 @@ Park the whole sale — basket, customer, discounts, payments entered so far —
   - `holdOrder(userId: string, locationId: string | null, order: Omit<HeldOrder, 'id' | 'heldAt'>): Promise<HeldOrder>`
   - `resumeHeldOrder(userId: string, locationId: string | null, id: string): Promise<HeldOrder | null>` — removes it as it returns it
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `src/lib/__tests__/held-orders.test.ts`, following the shape of `support-draft.test.ts` (same AsyncStorage mock, same `settle()` helper). Cover:
 
@@ -1142,37 +1142,37 @@ it('survives a corrupt payload rather than throwing at the till', async () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx jest src/lib/__tests__/held-orders.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/held-orders'`.
 
-- [ ] **Step 3: Write the store**
+- [x] **Step 3: Write the store**
 
 Create `src/lib/held-orders.ts` copying `support-draft.ts`'s structure exactly: `keyFor(userId, locationId)` → `kaiibi.pos.held.${userId}.${locationId ?? 'shop'}`, a synchronous `window.localStorage` read on web, `AsyncStorage` elsewhere, every parse guarded so a corrupt payload reads as an empty list rather than throwing mid-shift.
 
-- [ ] **Step 4: Run them and watch them pass**
+- [x] **Step 4: Run them and watch them pass**
 
 Run: `npx jest src/lib/__tests__/held-orders.test.ts`
 Expected: PASS, 7 tests.
 
-- [ ] **Step 5: Build the menu**
+- [x] **Step 5: Build the menu**
 
 Create `src/components/pos/held-orders-menu.tsx`: a 32px round button carrying a badge with the count, which opens a list of `<customer or "Walk-in customer"> · N items · held Xm ago · total` rows each with **Resume**. It renders nothing at all when the list is empty — an always-present control for a feature nobody is using is noise.
 
-- [ ] **Step 6: Wire it into `pos.tsx`**
+- [x] **Step 6: Wire it into `pos.tsx`**
 
 - Load on mount and after each hold/resume: `readHeldOrders(profile.id, activeLocation?.id ?? null)`.
 - `head={<HeldOrdersMenu ... />}` on `SalePanel`.
 - `onHold` collects the current sale, calls `holdOrder`, then clears the till exactly as a completed sale does (cart, customer, discount, points, payments) — **without** clearing `cashierName`, which is sticky.
 - Resume writes the returned order back into the session fields and clears the payments (the total is being re-derived, so a stale payment must not survive).
 
-- [ ] **Step 7: Run the suite**
+- [x] **Step 7: Run the suite**
 
 Run: `npm test`
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add src/lib/held-orders.ts src/lib/__tests__/held-orders.test.ts src/components/pos/held-orders-menu.tsx "src/app/(admin)/(tabs)/pos.tsx"
@@ -1188,19 +1188,19 @@ Three space fixes, all of them about giving the screen back to what is being sol
 **Files:**
 - Modify: `src/app/(admin)/(tabs)/pos.tsx`
 
-- [ ] **Step 1: Stop the category row widening its pane**
+- [x] **Step 1: Stop the category row widening its pane**
 
 The row is already a horizontal `ScrollView`. Give its container `minWidth: 0` and the row `flexShrink: 1`, so an overflowing set of chips scrolls inside the pane instead of stretching it. Verify with a shop that has a dozen categories: the product grid must not move.
 
-- [ ] **Step 2: Confirm the two-row grid cap still holds**
+- [x] **Step 2: Confirm the two-row grid cap still holds**
 
 `compactGridHeight` is `compactTileHeight * 2 + 8`, measured from the first rendered tile. The tile grew a second price line in Task 3, so re-measure on a device: exactly two rows must be visible, with the third clipped and reachable by scrolling.
 
-- [ ] **Step 3: Keep the compact foot short**
+- [x] **Step 3: Keep the compact foot short**
 
 The compact foot is one full-width button plus a single row holding **Hold** and "Served by" (already built in Task 4). Confirm on a phone that it is close to 110px, not 200px, and that four cart lines are visible above it.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add "src/app/(admin)/(tabs)/pos.tsx"
@@ -1213,7 +1213,7 @@ git commit -m "fix(pos): a long category list scrolls instead of pushing the pro
 
 Nothing here is proven by Jest alone — the layout claims are all about height, scrolling and touch.
 
-- [ ] **Step 1: Run the suite and the linter**
+- [x] **Step 1: Run the suite and the linter**
 
 Run: `npm test`
 Expected: PASS — 108 suites / 1567 tests, about 3 seconds.
@@ -1226,7 +1226,7 @@ the gate is that this work adds none. Count them before starting and after
 finishing rather than trusting a clean exit code, which this file has not had
 for some time.
 
-- [ ] **Step 2: Drive the app**
+- [x] **Step 2 (web): Drive the app**
 
 Use the `/testing-kaiibi` skill for web, iOS and Android. On each, with a basket of at least six lines:
 
@@ -1238,7 +1238,7 @@ Use the `/testing-kaiibi` skill for web, iOS and Android. On each, with a basket
 6. completing a sale hands over to the receipt — on iOS, after the sheet has dismissed;
 7. a long category list scrolls sideways without moving the grid.
 
-- [ ] **Step 3: Commit any fixes**
+- [x] **Step 3: Commit any fixes**
 
 ```bash
 git add -u
@@ -1254,3 +1254,60 @@ git commit -m "fix(pos): <what the device found>"
 **Deliberate omissions.** The category row's fade edge (needs `expo-linear-gradient`, not a dependency) and the cash note buttons (`$5 / $10 / $20 / $50`) — the notes are a nicety on top of an amount field that already works, and belong with the payment work in the next plan rather than as a bolt-on here.
 
 **Type consistency.** `CheckoutIntent` is defined in Task 1 and consumed unchanged in Tasks 4, 6 and 7. `secondaryAmount` (Task 2) is consumed by `DualAmount` (Task 3) and by `checkoutIntent`'s `secondaryTotal` argument in Task 4. `HeldOrder` (Task 8) is the only new persisted shape and is not referenced by earlier tasks.
+
+---
+
+## Verification log
+
+Web was driven against the real `yusefshop` (Playwright, `localhost:8081`).
+Everything below was read off the screen, not inferred from a click returning
+no error.
+
+| Flow | State |
+|---|---|
+| Counter layout: payment inline, total and button pinned while the sale scrolls | Verified, web |
+| A real sale end to end | Verified, web -- receipt `3B57-976A`, register moved `2 sales · $26.70` to `3 sales · $39.62` |
+| Line discount presets | Verified, web -- 20% gave line `$11.20`, discount `-$2.80`, tax recomputed, total `$11.48` |
+| Phone: `Checkout · $X` opens the sheet; sheet header and charge button pinned | Verified, web at 400-420px |
+| Phone: seven-line basket scrolls (320px of 901px) with the total still on screen | Verified, web |
+| Two-row product grid, measured cap | Verified, web -- grid `maxHeight: 394` against a 193px tile |
+| Held: park, force-reload, resume the same basket | Verified, web |
+| Held: resuming parks the basket already on the till | Verified, web -- one in, one out, nothing dropped |
+| Held units named on the tile | Verified, web -- `9 in stock · 1 in a held sale` |
+| Scan: real barcode via wedge simulation | Verified, web (`4006381333931` added *QA scanwidget*, field self-cleared) **and confirmed on iOS by the shop owner** |
+| Scan: unknown barcode offers to create the product | Verified, web |
+| Register tooltips on hover | Verified, web at 480px |
+| **Register gate** (`requireOpenRegister`) | **Not exercised.** Needs the till closed; the QA shop is shared with another live session |
+| **iOS layout, and the receipt staged behind the sheet's dismissal** | **Not exercised.** Scanner confirmed by the owner; the rest is unproven on device |
+| **Android phone and both tablets** | **Not exercised** |
+
+### Bugs found while verifying, and fixed
+
+1. `flex: 0` on the compact panel -- the card it replaced spelled out
+   `flexGrow/flexShrink/flexBasis` *and carried a comment saying why*. Deleting
+   the style deleted the warning; the phone layout broke.
+2. Inline blocks rendered on an empty cart, so an idle till showed a customer
+   picker and four dead payment methods.
+3. "Served by" opened nothing on a counter once the cashier chips left the sheet.
+4. `Date.now()` during render in the held queue (purity rule). Labels are a clock
+   time now, which also does not go stale on a screen open all afternoon.
+5. `bestPromotionForProduct` was passed the clock in the gross-cents argument.
+   Both are numbers, so TypeScript accepted it.
+6. The grid read the cart's pinned clock from a ref during render. It has its own
+   clock now -- and it is the right one: the cart pins a price, a tile advertises.
+7. A long basket buried the total on a phone; the list is capped and scrolls.
+8. The customer rendered below the payment, where the design puts them above.
+9. `PAYMENT METHOD` rendered twice after a reorder -- the removal did not match.
+10. Recalling a held sale overwrote whatever was on the till.
+11. The held queue was a dropdown inside a card with `overflow: hidden`, so it
+    was clipped and painted under the customer row.
+12. `heldUnits` was declared below the grid that reads it -- a temporal dead zone
+    crash that TypeScript and 1591 tests all missed, and loading the page caught.
+13. The charge button's lock was an emoji, so it kept its own colours and washed
+    out on the disabled state. Ionicons, and money rather than a padlock.
+
+### Deliberately not built
+
+- The category row's fade edge -- needs `expo-linear-gradient`, not a dependency.
+- Cash note buttons (`$5 / $10 / $20 / $50`). The amount field they sit on top of
+  already works; they belong with the payment work in Phase 2.
