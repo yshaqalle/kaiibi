@@ -81,6 +81,19 @@ export type ReceiptData = {
   // different number the second time is worse than one that omits it.
   pointsEarned?: number;
   totalCents: number;
+  // What is still owed on THIS sale after the payments above -- a sale taken
+  // partly or wholly on credit. Printed as its own boxed line rather than
+  // folded into the total: the total is what the goods came to, and it does not
+  // change because the customer has not finished paying for them.
+  //
+  // Unlike `pointsEarned` this IS reproducible on a reprint --
+  // buildReceiptFromSale can read it back off the sale's own payments -- so a
+  // second copy shows the same figure as the first.
+  balanceDueCents?: number;
+  // Money taken in this transaction against an OLDER sale. Nothing to do with
+  // the goods listed above, which is exactly why it is a separate line: folding
+  // it into the payments would make the receipt's arithmetic stop adding up.
+  olderBalancePaidCents?: number;
   createdAt: string;
 };
 
@@ -205,6 +218,22 @@ export function buildReceiptFromSale(
     pointsRedeemedCents: sale.pointsRedeemedCents,
     pointsEarned: sale.pointsEarned,
     totalCents: sale.totalCents,
+    // Derived from the sale's own rows, so a reprint shows the balance CURRENT
+    // rather than as it was: reprint a receipt for a sale since paid off and the
+    // line is simply gone. Settlements live in `sale.payments` alongside the
+    // till's own, which is what makes that work (migration 20260831000100 keeps
+    // them there rather than replacing them).
+    //
+    // Gated on settled_at, not on the payments alone. mapSaleRow coerces missing
+    // payments to `[]`, so a caller that selected the sale without them is
+    // indistinguishable from one where nothing was ever paid -- and subtracting
+    // nothing from the total would print a fabricated debt, with the customer's
+    // name on it, on a receipt for a sale they settled in full. An absent
+    // settled_at reads as settled for the same reason: the wrong direction here
+    // is a receipt that invents money owed, not one that omits a line.
+    balanceDueCents: sale.settledAt === null
+      ? Math.max(0, sale.totalCents - (sale.payments ?? []).reduce((sum, p) => sum + p.amountCents, 0))
+      : 0,
     createdAt: sale.createdAt,
   };
 }
@@ -274,6 +303,17 @@ export function buildReceiptText(receipt: ReceiptData): string {
     lines.push(formatPaymentLine(payment));
     const merchantId = merchantIdFor(receipt, payment.method);
     if (merchantId) lines.push(`  Merchant ID ${merchantId}`);
+  }
+  if (receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0) {
+    lines.push(`OLDER BALANCE PAID: ${formatCents(receipt.olderBalancePaidCents)}`);
+  }
+  if (receipt.balanceDueCents && receipt.balanceDueCents > 0) {
+    lines.push('');
+    lines.push(`*** BALANCE DUE: ${formatCents(receipt.balanceDueCents)} ***`);
+    // The name is on the line itself, not only in the CUSTOMER block below: this
+    // is the half of the receipt that will be handed back over the counter when
+    // they come to pay, and it has to say whose debt it is on its own.
+    if (receipt.customer.name) lines.push(`Owed by ${receipt.customer.name}`);
   }
   if (receipt.customer.name || receipt.customer.phone || receipt.customer.email) {
     lines.push('');
@@ -357,6 +397,21 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
       return `<div class="row"><span class="label">${label}</span><span class="value">${formatCents(p.amountCents)}</span></div>${currencyNote}${merchantNote}`;
     })
     .join('');
+
+  // Sits with the payments because it IS one -- money that changed hands in this
+  // transaction -- but labelled so nobody reconciles it against the goods above.
+  const olderBalanceRow = receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0
+    ? `<div class="row"><span class="label">Older balance paid</span><span class="value">${formatCents(receipt.olderBalancePaidCents)}</span></div>`
+    : '';
+
+  // Boxed, not just another row: this is the one number on the paper that means
+  // the transaction is not finished, and it has to survive being glanced at.
+  const balanceDueBlock = receipt.balanceDueCents && receipt.balanceDueCents > 0
+    ? `<div class="balance-due">
+         <div class="row"><span>BALANCE DUE</span><span>${formatCents(receipt.balanceDueCents)}</span></div>
+         ${receipt.customer.name ? `<div class="balance-owed-by">Owed by ${esc(receipt.customer.name)}</div>` : ''}
+       </div>`
+    : '';
 
   const hasCustomer = Boolean(receipt.customer.name || receipt.customer.phone || receipt.customer.email);
   const customerBlock = hasCustomer
@@ -443,6 +498,12 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
   .qr { text-align: center; margin: 14px 0 4px; }
   .qr svg { display: block; margin: 0 auto; }
   .qr-num { font-size: 9.5px; letter-spacing: 2.5px; margin-top: 6px; color: #333333; }
+  /* Same type scale and monospace as every other line -- the receipt design does
+     not change, it gains a line. The box is a 1.5px rule to match .row.grand,
+     because this is the second figure on the paper that carries that weight. */
+  .balance-due { border: 1.5px solid #111111; padding: 7px 8px; margin: 9px 0 3px; }
+  .balance-due .row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
+  .balance-owed-by { font-size: 10.5px; margin-top: 3px; }
   .thanks { text-align: center; font-size: 11.5px; font-weight: 700; letter-spacing: 0.5px; margin: 12px 0 3px; }
   .policy { text-align: center; font-size: 9.5px; line-height: 1.45; color: #555555; margin-bottom: 3px; }
   .powered-by { display: flex; align-items: center; justify-content: center; gap: 5px; margin-top: 14px; padding-top: 11px; background-image: repeating-linear-gradient(to right, #8F8F8F 0 4px, transparent 4px 9px); background-size: 100% 1px; background-repeat: no-repeat; background-position: top left; }
@@ -487,7 +548,8 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
 
     <div class="dashed"></div>
 
-    <div class="payment">${paymentRows}</div>
+    <div class="payment">${paymentRows}${olderBalanceRow}</div>
+    ${balanceDueBlock}
     ${customerBlock}
     ${qrBlock}
 

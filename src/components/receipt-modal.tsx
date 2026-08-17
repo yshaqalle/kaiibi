@@ -306,6 +306,33 @@ export function ReceiptModal({
                 );
               })}
 
+              {/* Sits with the payments because it IS one -- money that changed
+                  hands in this transaction -- but labelled so nobody tries to
+                  reconcile it against the goods above. */}
+              {Boolean(receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0) && (
+                <View style={styles.row}>
+                  <Text style={styles.rowLabel}>Older balance paid</Text>
+                  <Text style={styles.rowValue}>{formatCents(receipt.olderBalancePaidCents as number)}</Text>
+                </View>
+              )}
+
+              {/* Boxed, not just another row: this is the one number on the
+                  paper that says the transaction is not finished, and it has to
+                  survive being glanced at. The name is on it rather than only in
+                  CUSTOMER below -- this is the half that comes back over the
+                  counter when they pay, and it must say whose debt it is alone. */}
+              {Boolean(receipt.balanceDueCents && receipt.balanceDueCents > 0) && (
+                <View style={styles.balanceDue}>
+                  <View style={styles.row}>
+                    <Text style={styles.balanceDueLabel}>BALANCE DUE</Text>
+                    <Text style={styles.balanceDueValue}>{formatCents(receipt.balanceDueCents as number)}</Text>
+                  </View>
+                  {receipt.customer.name && (
+                    <Text style={styles.balanceOwedBy}>Owed by {receipt.customer.name}</Text>
+                  )}
+                </View>
+              )}
+
               {hasCustomer && (
                 <>
                   <View style={styles.dashedDivider} />
@@ -424,6 +451,13 @@ const styles = StyleSheet.create({
   colTotal: { width: 56 },
 
   totals: { marginTop: 8 },
+  // Same monospace and type scale as every other line -- the receipt design does
+  // not change, it gains a line. The 1.5px rule matches grandRow, because this is
+  // the second figure on the paper that carries that weight.
+  balanceDue: { borderWidth: 1.5, borderColor: '#111111', paddingVertical: 7, paddingHorizontal: 8, marginTop: 9, marginBottom: 3 },
+  balanceDueLabel: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#111111', letterSpacing: 0.5 },
+  balanceDueValue: { fontFamily: MONO, fontSize: 13, fontWeight: '700', color: '#111111' },
+  balanceOwedBy: { fontFamily: MONO, fontSize: 10.5, color: '#111111', marginTop: 3 },
   grandRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', borderTopWidth: 1.5, borderTopColor: '#111111', marginTop: 8, paddingTop: 9 },
   grandLabel: { fontFamily: MONO, fontSize: 15, fontWeight: '700', color: '#111111', letterSpacing: 0.5 },
   grandValue: { fontFamily: MONO, fontSize: 15, fontWeight: '700', color: '#111111' },

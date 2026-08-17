@@ -591,6 +591,11 @@ export type Sale = {
   createdAt: string;
   items?: SaleItem[];
   payments?: SalePayment[];
+  // When the last of this sale's money arrived; null while any of it is still
+  // owed (migration 20260831000000). Undefined on a caller that did not select
+  // it, which reads the same as settled -- the safe direction, because the only
+  // thing that consumes it is whether to print a BALANCE DUE line.
+  settledAt?: string | null;
   edits?: SaleEdit[];
   refunds?: Refund[];
 };

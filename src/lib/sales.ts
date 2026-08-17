@@ -170,6 +170,9 @@ function mapSaleRow(row: any): Sale {
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,
+    // Left undefined rather than coerced when the column was not selected, so
+    // "not loaded" stays distinguishable from "still owed".
+    settledAt: row.settled_at,
     items: (row.sale_items ?? []).map(
       (item: any): SaleItem => ({
         id: item.id,

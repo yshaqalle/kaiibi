@@ -675,6 +675,10 @@ export default function PosScreen() {
         pointsRedeemedCents: redemption.cents,
         pointsEarned,
         totalCents: total,
+        // What the customer is walking out still owing on THIS sale. The total
+        // above is unchanged -- it is what the goods came to, and it does not
+        // move because they have not finished paying for them.
+        balanceDueCents: leavingBalance ? Math.max(0, total - paidCents) : 0,
         createdAt: new Date().toISOString(),
       };
       // Emptying the cart below is what closes the checkout sheet, so on iOS the
