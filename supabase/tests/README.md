@@ -7,31 +7,48 @@ arithmetic; this covers the parts the database itself enforces.
 ## Running
 
 ```bash
-supabase start                 # first run pulls images, takes a few minutes
-supabase db reset              # applies every migration from scratch
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-accounting-writes.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-entitlements.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-platform-portal.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-loyalty.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-refunds.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-balances.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-owner-membership.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-support.sql
+npx supabase start   # first run pulls images, takes a few minutes
+npm run test:db      # applies every migration, then runs every check
 ```
 
-Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
+That is the whole command. It rebuilds from the full migration chain — worth
+doing every time, because it proves the chain still applies to an empty database,
+which pushing incrementally to a long-lived project never checks — and then runs
+each script and exits non-zero if any of them fails.
 
-`supabase db reset` is itself worth running: it proves the whole migration
-chain still applies to an empty database, which pushing incrementally to a
-long-lived project never checks.
+`npm run test:db -- --no-reset` skips the rebuild when iterating on one script.
+
+**Why a runner exists.** `verify-loyalty` check 11 was red for four migrations
+and nobody noticed. The test was right and was written for exactly the bug that
+had happened; it sat there failing because running the suite meant remembering
+eleven `psql` invocations out of this file and reading eleven walls of `NOTICE`
+output looking for the word FAIL. A suite you have to assemble by hand is a suite
+that quietly stops running.
+
+**Two kinds of script live here.** Most build their own fixture, assert, and roll
+back — those are what the runner exercises. Three do not, and say so on their
+first line:
+
+| Marker | Means |
+|---|---|
+| `@requires-populated-database` | Reads an existing shop instead of building one. Run it against a dev database that already has a shop and a sale |
+| `@no-verdict` | Prints figures to read rather than asserting PASS/FAIL |
+
+The runner names those as **not exercised** and never counts them as passing.
+Marked on the script rather than listed in the runner, so the fact travels with
+the file.
+
+## The copy-forward guard
+
+`complete_sale` and `edit_sale` are re-created in full by every migration that
+touches them — eighteen and counting for `complete_sale`, ~350 lines each time.
+Every copy is a chance to copy from the wrong ancestor and drop an edit made in
+between, which is exactly what happened to the loyalty maturation guard.
+
+`accumulated-rpc-edits.test.ts` runs under `npm test` (not this runner) and
+asserts that every edit ever made to those two functions is still present in the
+newest definition of them, naming the migration each came from. If you copy a
+function forward and lose something, it fails before the SQL is ever applied.
 
 ## Safety
 

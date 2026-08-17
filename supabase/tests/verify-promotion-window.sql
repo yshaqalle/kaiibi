@@ -1,3 +1,4 @@
+-- @no-verdict: prints figures to read, rather than asserting PASS/FAIL itself.
 -- Runtime proof for the server-side promotion window (finding B).
 -- Everything happens inside one transaction and is rolled back.
 \set ON_ERROR_STOP off
