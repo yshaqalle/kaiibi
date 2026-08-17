@@ -103,6 +103,11 @@ export default function InventoryScreen() {
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
+  // Where a newly imported product's opening stock actually lands: the
+  // opening-stock trigger picks `order by is_primary desc, created_at asc`
+  // (migration 20260810000000), so this mirrors that rather than guessing.
+  const primaryLocationName =
+    locations.find((location) => location.isPrimary)?.name ?? locations[0]?.name ?? 'your main store';
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
   // Phone only. The store filter, Export, Import and Move stock live behind one
@@ -339,11 +344,26 @@ export default function InventoryScreen() {
         filenamePrefix: 'products',
         templateColumns: PRODUCTS_TEMPLATE_COLUMNS,
         exampleRows: PRODUCTS_EXAMPLE_ROWS,
+        // Says what this import is for, because it was being used for something
+        // else: stocking a second store by re-importing the catalogue, which
+        // counts the same units twice. New stock lands at the primary store
+        // either way -- that is the opening-stock trigger (migration
+        // 20260810000000), not a choice this screen makes -- so naming the
+        // store here is the honest thing rather than offering a picker that
+        // could not be honoured.
+        purpose: showLocationFilter
+          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already stock an item and want it at another store? That's a move, not an import — importing it again would double the count.`
+          : "For adding products you don't sell yet.",
+        elsewhere:
+          canEdit && showLocationFilter
+            ? { label: 'Move stock instead', onPress: () => setShowTransfer(true) }
+            : undefined,
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>
           runProductsImport(shop.id, parsed, {
             headroom: productLimit == null ? null : Math.max(0, productLimit - usageOf('products')),
+            hasStores: showLocationFilter,
           }),
       }
     : null;

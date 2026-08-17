@@ -25,6 +25,14 @@ export function StoreDropdown({
   // 'field' fills the width and matches the form inputs beside it; 'compact'
   // sits in a header row next to the export buttons.
   variant = 'compact',
+  // Stores that are shown but cannot be picked, keyed id -> why not. Moving
+  // stock needs this for the source: transfer_stock refuses a move to the store
+  // it came from, so offering it is offering a dead end.
+  //
+  // Shown-and-greyed rather than filtered out, because a store that silently
+  // disappears from a list of stores reads as a store that has gone missing --
+  // the user then goes looking for it instead of reading the reason.
+  unselectable,
 }: {
   value: string | null;
   onChange: (locationId: string | null) => void;
@@ -32,6 +40,7 @@ export function StoreDropdown({
   title?: string;
   placeholder?: string;
   variant?: 'compact' | 'field';
+  unselectable?: Record<string, string>;
 }) {
   const { locations } = useAuth();
   const [open, setOpen] = useState(false);
@@ -77,18 +86,22 @@ export function StoreDropdown({
                   }}
                 />
               )}
-              {selectable.map((location) => (
-                <Option
-                  key={location.id}
-                  label={location.name}
-                  hint={location.code ? `#${location.code}` : undefined}
-                  selected={value === location.id}
-                  onPress={() => {
-                    onChange(location.id);
-                    setOpen(false);
-                  }}
-                />
-              ))}
+              {selectable.map((location) => {
+                const blocked = unselectable?.[location.id];
+                return (
+                  <Option
+                    key={location.id}
+                    label={location.name}
+                    hint={blocked ?? (location.code ? `#${location.code}` : undefined)}
+                    selected={value === location.id}
+                    disabled={blocked !== undefined}
+                    onPress={() => {
+                      onChange(location.id);
+                      setOpen(false);
+                    }}
+                  />
+                );
+              })}
             </ScrollView>
           </View>
         </Pressable>
@@ -101,15 +114,22 @@ function Option({
   label,
   hint,
   selected,
+  disabled = false,
   onPress,
 }: {
   label: string;
   hint?: string;
   selected: boolean;
+  disabled?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Pressable onPress={onPress} style={[styles.option, selected && styles.optionSelected]}>
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityState={{ disabled, selected }}
+      style={[styles.option, selected && styles.optionSelected, disabled && styles.optionDisabled]}
+    >
       <View style={styles.optionText}>
         <Text style={styles.optionLabel}>{label}</Text>
         {/* Ternary, not `hint && …`: hint is a string, and an empty one would
@@ -140,6 +160,7 @@ const styles = StyleSheet.create({
   list: { flexGrow: 0 },
   option: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 10 },
   optionSelected: { backgroundColor: '#F2F2F2' },
+  optionDisabled: { opacity: 0.45 },
   optionText: { flex: 1 },
   optionLabel: { fontSize: 14, fontWeight: '700', color: '#111111' },
   optionHint: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },

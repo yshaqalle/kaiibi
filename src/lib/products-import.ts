@@ -105,7 +105,7 @@ function parseWholeNumber(value: string | undefined): number | null {
 export async function runProductsImport(
   shopId: string,
   parsed: ParsedCsv,
-  options?: { headroom?: number | null }
+  options?: { headroom?: number | null; hasStores?: boolean }
 ): Promise<ImportReport<Product>> {
   const existing = await listProducts(shopId);
   const existingNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
@@ -148,8 +148,19 @@ export async function runProductsImport(
     const barcode = normalizeBarcode(raw['Barcode'] ?? '') || null;
     const barcodeKey = barcode?.toLowerCase();
 
+    // Named as a MOVE rather than as an edit. The old wording ("edit it in
+    // Inventory instead of importing") answered the wrong question: the shop
+    // hitting this is usually stocking a second store, and doing that by
+    // re-importing the catalogue counts the same units twice and inflates the
+    // shop's stock. Sending them to edit 214 products by hand is also not a
+    // thing anyone does. `hasStores` because a single-store shop reading about
+    // moving stock between stores would be told to use a tool it has not got.
     if (existingNames.has(nameKey) || (skuKey && existingSkus.has(skuKey))) {
-      return reject(`A product named "${name}"${sku ? ` or with SKU "${sku}"` : ''} already exists — edit it in Inventory instead of importing.`);
+      return reject(
+        options?.hasStores
+          ? `You already stock "${name}". To put it in another store use Move stock — importing it again would add units you don't have.`
+          : `A product named "${name}"${sku ? ` or with SKU "${sku}"` : ''} already exists — edit it in Inventory instead of importing.`
+      );
     }
     // Separate from the name/SKU message above because the fix is different: a
     // barcode is unique by constraint, so the only way forward is to correct
