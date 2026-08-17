@@ -53,6 +53,8 @@ export function CustomerPicker({
   onClear,
   showPoints = false,
   centsPerPoint = 1,
+  open: openProp,
+  onOpenChange,
 }: {
   shopId: string;
   selected: SelectedCustomer | null;
@@ -68,8 +70,21 @@ export function CustomerPicker({
   // current shape.
   showPoints?: boolean;
   centsPerPoint?: number;
+  // Pass BOTH to drive the picker from outside; pass neither and it manages its
+  // own open state exactly as it always has.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Openable from outside as well as by its own row. The pay-later control needs
+  // it: telling a cashier "attach a customer" and leaving them to find the
+  // picker themselves is the dead end that made that control look disabled.
+  // Uncontrolled by default, so every existing caller is unchanged.
+  const [selfOpen, setSelfOpen] = useState(false);
+  const open = openProp ?? selfOpen;
+  const setOpen = (next: boolean) => {
+    if (onOpenChange) onOpenChange(next);
+    else setSelfOpen(next);
+  };
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Customer[]>([]);
   const [quickAdd, setQuickAdd] = useState(false);
@@ -172,7 +187,7 @@ export function CustomerPicker({
   return (
     <View>
       {variant === 'row' ? (
-        <Pressable onPress={() => setOpen((v) => !v)} style={styles.row}>
+        <Pressable onPress={() => setOpen(!open)} style={styles.row}>
           <View style={[styles.avatar, styles.avatarWalkIn]}><Text style={styles.avatarWalkInText}>⌕</Text></View>
           <View style={styles.rowBody}>
             <Text style={styles.rowTitle}>Walk-in customer</Text>
@@ -181,7 +196,7 @@ export function CustomerPicker({
           <Text style={styles.rowChevron}>{open ? '⌃' : '›'}</Text>
         </Pressable>
       ) : (
-        <Pressable onPress={() => setOpen((v) => !v)} style={styles.toggle}>
+        <Pressable onPress={() => setOpen(!open)} style={styles.toggle}>
           <Text style={styles.toggleText}>{open ? '▴' : '▾'} Add customer (optional)</Text>
         </Pressable>
       )}

@@ -3,6 +3,13 @@ import type { OpeningHours } from '@/lib/store-hours';
 
 export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
 
+// What a SALE's summary column can say, which is one more thing than a payment
+// picker can offer: 'unpaid' is not a way to pay, it is the absence of one, on a
+// sale taken on credit against a customer (migration 20260831000100). Kept out
+// of PaymentMethod deliberately -- expenses and recurring bills use that list
+// and money going out is never unpaid.
+export type SalePaymentMethod = PaymentMethod | 'unpaid';
+
 export type Profile = {
   id: string;
   role: 'admin' | 'customer' | 'staff';
@@ -480,6 +487,11 @@ export type SalePayment = PaymentLine & {
   id: string;
   saleId: string;
   createdAt: string;
+  // Money taken against this sale AFTER it was rung up, at whatever till was
+  // open (migration 20260831000100). The sale editor has to exclude these when
+  // it seeds itself: it re-sends what it is given, and edit_sale preserves
+  // settlements independently, so including them counts the same money twice.
+  isSettlement: boolean;
 };
 
 // A snapshotted line item inside a `SaleEdit.previousSnapshot` — same shape
@@ -505,7 +517,7 @@ export type SaleEdit = {
   previousSnapshot: {
     totalCents: number;
     itemCount: number;
-    paymentMethod: PaymentMethod;
+    paymentMethod: SalePaymentMethod;
     customerName: string | null;
     customerPhone: string | null;
     customerEmail: string | null;
@@ -531,7 +543,11 @@ export type Refund = {
   id: string;
   saleId: string;
   refundedBy: string | null;
+  // Cash handed back, capped at what was collected. `goodsCents` is the value
+  // returned, which is what cancels the debt and the revenue -- the two differ
+  // only on a sale taken on credit (migration 20260831000200).
   totalCents: number;
+  goodsCents: number;
   createdAt: string;
   items: RefundItem[];
 };
@@ -544,7 +560,7 @@ export type Sale = {
   // location), so per-location reporting can never have an unattributed row.
   locationId: string;
   createdBy: string | null;
-  paymentMethod: PaymentMethod;
+  paymentMethod: SalePaymentMethod;
   paymentNote: string | null;
   // Who the sale was for, independent of payment method — unlike
   // `SalePayment.customerName/customerPhone` (only meaningful for
@@ -584,6 +600,11 @@ export type Sale = {
   createdAt: string;
   items?: SaleItem[];
   payments?: SalePayment[];
+  // When the last of this sale's money arrived; null while any of it is still
+  // owed (migration 20260831000000). Undefined on a caller that did not select
+  // it, which reads the same as settled -- the safe direction, because the only
+  // thing that consumes it is whether to print a BALANCE DUE line.
+  settledAt?: string | null;
   edits?: SaleEdit[];
   refunds?: Refund[];
 };

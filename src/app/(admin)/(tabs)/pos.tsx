@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -13,6 +14,8 @@ import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
 import { HeldOrdersMenu } from '@/components/pos/held-orders-menu';
 import { SaleLine } from '@/components/pos/sale-line';
+import { CustomerBalanceRow } from '@/components/pos/customer-balance-row';
+import { RestChoice } from '@/components/pos/rest-choice';
 import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
@@ -41,6 +44,7 @@ import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { checkoutErrorMessage, extractErrorMessage, isClosedRegisterError } from '@/lib/checkout-errors';
+import { allocate, customerBalance, settleBalance, trimPayments, type CustomerBalance } from '@/lib/balances';
 import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
 import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/lib/held-orders';
@@ -61,6 +65,12 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
+
+type CustomerBalanceState = { owedCents: number; oldest: CustomerBalance | null; sales: CustomerBalance[] };
+
+// A customer who owes nothing. A stable module-level constant rather than a
+// fresh object each render, so nothing downstream re-runs on identity alone.
+const NO_BALANCE: CustomerBalanceState = { owedCents: 0, oldest: null, sales: [] };
 
 export default function PosScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
@@ -87,6 +97,33 @@ export default function PosScreen() {
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [selectedCustomer, setSelectedCustomer] = usePosSessionField('selectedCustomer');
+  // Whether the uncovered part of the bill is being carried on the customer's
+  // account. Off by default and off again on every basket change: taking the
+  // money is the ordinary path, and this is the deliberate departure from it.
+  const [payLater, setPayLater] = useState(false);
+  // The customer picker's open state, held here so the pay-later control can
+  // open it. Without that, "attach a customer" was an instruction with nowhere
+  // to follow it to.
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  // What the attached customer already owed before this basket, stored WITH the
+  // customer it was read for. Keyed rather than cleared on change: a balance
+  // shown against the wrong name is worse than none, and deriving it means
+  // there is no window in which the previous customer's debt is on screen.
+  const [fetchedBalance, setFetchedBalance] = useState<{ customerId: string; data: CustomerBalanceState } | null>(null);
+  const balance: CustomerBalanceState =
+    fetchedBalance && fetchedBalance.customerId === selectedCustomer?.id ? fetchedBalance.data : NO_BALANCE;
+  // Which customer the cashier asked to collect from, not an amount. The amount
+  // is always today's owed figure, so it cannot go stale against a balance
+  // another till just moved.
+  const [settlingFor, setSettlingFor] = useState<string | null>(null);
+  // The phone's route to an account. On a counter the customer row sits on the
+  // panel, so an idle till can attach someone and see what they owe; on a phone
+  // the customer lives in the sheet and the sheet opens from the primary button,
+  // which is disabled on an empty till -- so settling was unreachable there
+  // entirely. This is set by the empty till's own offer to settle, and it is what
+  // keeps the sheet from dismissing itself before a customer is even chosen.
+  const [settleIntent, setSettleIntent] = useState(false);
+  const settlingCents = settlingFor && settlingFor === selectedCustomer?.id ? balance.owedCents : 0;
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   // A completed sale hands off from the checkout sheet's modal to the receipt's,
   // and iOS will not present a modal while another is still mid-dismiss -- it
@@ -479,12 +516,51 @@ export default function PosScreen() {
   const hasAnyDiscount = grossCents !== preRedemptionCents;
   const pointsEarned = loyalty.enabled && selectedCustomer ? pointsEarnedFor(preTaxTotalCents, loyalty.pointsPerUsd) : 0;
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
-  const fullyPaid = payments.length > 0 && paidCents === total;
+  // Goods plus whatever of an older account is being cleared in the same
+  // breath. `fullyPaid` is against this, not the basket, or a cashier taking
+  // $34.74 off an account with an empty till is told the payment is short.
+  const dueCents = total + settlingCents;
+  const fullyPaid = payments.length > 0 && paidCents === dueCents;
+  // Only offered while there is a shortfall AND a basket to carry it: settling
+  // an old account is not itself a thing you can half-do on credit.
+  const restCents = Math.max(0, dueCents - paidCents);
+  const canOfferCredit = cart.length > 0 && restCents > 0;
+  const leavingBalance = canOfferCredit && payLater && Boolean(selectedCustomer);
 
   // Any cart change invalidates whatever's already been entered in the
   // payment picker (the amounts no longer sum to the new total), so clear
   // it rather than let a stale split silently under/over-cover the sale.
   useEffect(() => { setPayments([]); }, [total, setPayments]);
+
+  // "Pay later" is a decision about one specific shortfall. Change the basket
+  // and that shortfall is a different number, so the choice goes back to the
+  // safe one rather than silently carrying over onto a bill nobody agreed to.
+  //
+  // Adjusted during render rather than in an effect, which is what react-compiler
+  // asks for and what search-row.tsx's keypad state already does: an effect here
+  // would paint one frame with the old choice against the new total.
+  const [choiceSetForTotal, setChoiceSetForTotal] = useState(total);
+  if (choiceSetForTotal !== total) {
+    setChoiceSetForTotal(total);
+    setPayLater(false);
+  }
+
+  // What this customer already owed. Fetch only -- nothing is cleared here,
+  // because `balance` above is derived from whether the stored read still
+  // belongs to the attached customer.
+  useEffect(() => {
+    const shopId = shop?.id;
+    const customerId = selectedCustomer?.id;
+    if (!shopId || !customerId) return;
+    let cancelled = false;
+    customerBalance(shopId, customerId)
+      .then((next) => { if (!cancelled) setFetchedBalance({ customerId, data: next }); })
+      // Failing soft: a till that cannot read an old balance must still be able
+      // to sell. The server refuses an overshoot anyway, so the worst case is
+      // the cashier not being offered a settlement they could have taken.
+      .catch(() => { if (!cancelled) setFetchedBalance({ customerId, data: NO_BALANCE }); });
+    return () => { cancelled = true; };
+  }, [shop?.id, selectedCustomer?.id]);
 
   // `retryOnSession` is set only by the closed-register recovery below, which
   // is also what stops it recursing: a second refusal is reported, not retried.
@@ -493,8 +569,103 @@ export default function PosScreen() {
   // press event, which would arrive here as a register session id and be sent
   // to the server -- Supabase then fails on the circular structure rather than
   // on anything to do with the sale.
+  // One sentence, shared by the panel and the sheet, so the two surfaces can
+  // never disagree about what the next tap does.
+  const intent = checkoutIntent({
+    cartEmpty: cart.length === 0,
+    totalCents: total,
+    payments,
+    customerName: selectedCustomer?.name ?? null,
+    submitting,
+    secondaryTotal: secondaryAmount(total, secondCurrency),
+    restOwed: canOfferCredit && payLater,
+    settlingCents,
+  });
+
+  // Taking money off an older sale. Its own path, not a variant of the sale
+  // one: nothing is being sold, no stock moves, and the money lands on sales
+  // that were rung up days ago.
+  //
+  // Sequentially, never in parallel: each call takes a row lock and re-reads
+  // what is owed, so two at once against the same customer would both be
+  // allowed the same shortfall.
+  const settleOlderBalance = async () => {
+    if (!shop || balance.sales.length === 0) return;
+    const plan = allocate(payments, balance.sales);
+
+    // What the cashier entered, against what the debts can actually absorb.
+    // allocate truncates rather than over-applying, so without this the excess
+    // would be recorded nowhere and nobody told -- and `balance` can be stale by
+    // exactly that much if another till settled part of this account first.
+    const entered = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    const allocated = plan.reduce(
+      (sum, step) => sum + step.payments.reduce((inner, payment) => inner + payment.amountCents, 0),
+      0
+    );
+    if (allocated < entered) {
+      setError(
+        `Only ${formatCents(allocated)} of the ${formatCents(entered)} entered is still owed — someone may have already taken part of this. Adjust the payment and try again.`
+      );
+      return;
+    }
+
+    setSubmitting(true);
+    setError(null);
+    // Sales that went through before a later one failed. Their money IS taken, so
+    // the payment lines that paid them must not be re-sent on a retry -- doing so
+    // is what turned one failure into "this sale is already paid in full" and a
+    // dead end.
+    const settled: string[] = [];
+    try {
+      for (const step of plan) {
+        await settleBalance(step.saleId, step.payments, registerSession?.id ?? null);
+        settled.push(step.saleId);
+      }
+      setPayments([]);
+      setSettlingFor(null);
+      setSettleIntent(false);
+    } catch (err) {
+      // Drop only what succeeded. Whatever is left is what still has to be
+      // collected, so the cashier can retry with the till showing the truth.
+      const done = new Set(settled);
+      const paidAlready = plan
+        .filter((step) => done.has(step.saleId))
+        .flatMap((step) => step.payments)
+        .reduce((sum, payment) => sum + payment.amountCents, 0);
+      setPayments(paidAlready > 0 ? trimPayments(payments, paidAlready) : payments);
+      setError(
+        settled.length > 0
+          ? `${formatCents(paidAlready)} went through before this failed, and has been taken off the payment. ${extractErrorMessage(err)}`
+          : extractErrorMessage(err)
+      );
+    } finally {
+      // Always re-read, success or not: after a partial settlement the local
+      // figure is wrong in a way that makes every retry refuse.
+      if (selectedCustomer?.id) {
+        const customerId = selectedCustomer.id;
+        const next = await customerBalance(shop.id, customerId).catch(() => NO_BALANCE);
+        setFetchedBalance({ customerId, data: next });
+      }
+      await reload();
+      // The register header counts settlement cash as takings now (migration
+      // 20260831000300), so it has to be re-read here too -- otherwise the till's
+      // own "taken" figure sits stale until the screen is refocused, and a
+      // cashier reconciling a drawer reads a number that is short by whatever
+      // they just collected.
+      await reloadRegister();
+      setSubmitting(false);
+    }
+  };
+
   const checkout = async (retryOnSession?: string) => {
-    if (!shop || cart.length === 0 || !fullyPaid) return;
+    if (!shop) return;
+    // Nothing in the basket means this tap is about an older account, not a
+    // sale. `intent` has already decided whether it is allowed to fire.
+    if (cart.length === 0) {
+      if (settlingCents > 0 && intent.enabled) await settleOlderBalance();
+      return;
+    }
+    if (!fullyPaid && !leavingBalance) return;
     // Refuse rather than let complete_sale fall back to the primary location.
     // The fallback exists for callers that never had a location (CSV import, an
     // older client); here the register genuinely has one and simply hasn't
@@ -527,7 +698,8 @@ export default function PosScreen() {
         activeLocation.id,
         redemption.points,
         retryOnSession ?? registerSession?.id ?? null,
-        pricingNow
+        pricingNow,
+        leavingBalance
       );
       const completed: ReceiptData = {
         saleId,
@@ -567,6 +739,10 @@ export default function PosScreen() {
         pointsRedeemedCents: redemption.cents,
         pointsEarned,
         totalCents: total,
+        // What the customer is walking out still owing on THIS sale. The total
+        // above is unchanged -- it is what the goods came to, and it does not
+        // move because they have not finished paying for them.
+        balanceDueCents: leavingBalance ? Math.max(0, total - paidCents) : 0,
         createdAt: new Date().toISOString(),
       };
       // Emptying the cart below is what closes the checkout sheet, so on iOS the
@@ -579,6 +755,12 @@ export default function PosScreen() {
       setSelectedCustomer(null);
       setTransactionDiscount(null);
       setPointsRedeemed(0);
+      // Clearing the customer above empties the balance through the effect that
+      // watches them; these two are reset here as well so the next sale starts
+      // from the safe choice even if the same customer is picked straight back.
+      setPayLater(false);
+      setSettlingFor(null);
+      setSettleIntent(false);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
@@ -853,6 +1035,39 @@ export default function PosScreen() {
   // supervisor walks over with the float.
   const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
 
+  // The two credit controls, built once so the counter and the phone can never
+  // show different ones. Each renders nothing when it has nothing to say, which
+  // is every sale in a shop that does not give credit.
+  const balanceRowEl = (
+    <CustomerBalanceRow
+      owedCents={balance.owedCents}
+      since={balance.oldest?.saleCreatedAt ?? null}
+      saleCount={balance.sales.length}
+      currency={secondCurrency}
+      collecting={settlingCents > 0}
+      canCollect={cart.length === 0}
+      onCollect={() => {
+        setSettlingFor(selectedCustomer?.id ?? null);
+        // On a phone the payment methods live in the sheet, so asking to collect
+        // has to open it -- otherwise the request is made and there is nowhere
+        // to hand the money over.
+        if (compact) setCheckoutOpen(true);
+      }}
+      onCancel={() => { setSettlingFor(null); setPayments([]); }}
+    />
+  );
+  const restChoiceEl = canOfferCredit ? (
+    <RestChoice
+      remainingCents={restCents}
+      collectedCents={paidCents}
+      chosen={payLater}
+      customerName={selectedCustomer?.name ?? null}
+      currency={secondCurrency}
+      onChange={setPayLater}
+      onNeedCustomer={() => setCustomerPickerOpen(true)}
+    />
+  ) : null;
+
   // The three decisions between a basket and a completed sale, built once and
   // handed to whichever surface is showing them -- the panel on a counter, the
   // sheet on a phone.
@@ -863,7 +1078,10 @@ export default function PosScreen() {
     // the customer has to drop it rather than carry it over.
     onSelectCustomer: (customer: SelectedCustomer) => { setSelectedCustomer(customer); setPointsRedeemed(0); },
     onClearCustomer: () => { setSelectedCustomer(null); setPointsRedeemed(0); },
-    totalCents: total,
+    // dueCents, not the basket: PaymentMethodPicker derives "remaining" from
+    // this, so on an empty till settling an account it would otherwise show
+    // nothing to collect and hide every method button.
+    totalCents: dueCents,
     payments,
     currencies,
     onChangePayments: setPayments,
@@ -879,18 +1097,17 @@ export default function PosScreen() {
     redemptionCents: redemption.cents,
     pointsEarned,
     onChangePointsRedeemed: setPointsRedeemed,
+    // Slots rather than components built inside the blocks: pos.tsx owns the
+    // credit state, and passing them through here is what stops the counter and
+    // the phone rendering them in two different places.
+    balanceRow: balanceRowEl,
+    restChoice: restChoiceEl,
+    // The same condition the counter gates its inline PaymentBlock on.
+    showPayment: cart.length > 0 || settlingCents > 0,
+    customerPickerOpen,
+    onCustomerPickerOpenChange: setCustomerPickerOpen,
   } : null;
 
-  // One sentence, shared by the panel and the sheet, so the two surfaces can
-  // never disagree about what the next tap does.
-  const intent = checkoutIntent({
-    cartEmpty: cart.length === 0,
-    totalCents: total,
-    payments,
-    customerName: selectedCustomer?.name ?? null,
-    submitting,
-    secondaryTotal: secondaryAmount(total, secondCurrency),
-  });
 
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
@@ -916,7 +1133,11 @@ export default function PosScreen() {
             <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
           </Pressable>
         ) : null}
-        totalCents={total}
+        // dueCents, not the basket: while an account is being settled the basket
+        // is empty, and a pinned "Total $0.00" above a button reading "Take
+        // $20.50 off the balance" is the most prominent figure on the panel
+        // disagreeing with the only one that matters.
+        totalCents={dueCents}
         currency={secondCurrency}
         intent={intent}
         onPrimary={compact ? () => setCheckoutOpen(true) : () => checkout()}
@@ -935,6 +1156,17 @@ export default function PosScreen() {
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyTitle}>Nothing in this sale yet</Text>
             <Text style={styles.empty}>Tap a product, or scan one.</Text>
+            {/* Only on a phone. A counter already has the customer row on the
+                panel, so this would be a second door to the same place. */}
+            {compact && (
+              <Pressable
+                onPress={() => { setSettleIntent(true); setCheckoutOpen(true); }}
+                style={styles.settleLink}
+              >
+                <Ionicons name="time-outline" size={14} color={theme.bentoMuted} />
+                <Text style={styles.settleLinkText}>Or settle a customer&apos;s account</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           cart.map((line) => {
@@ -1014,7 +1246,10 @@ export default function PosScreen() {
           is waiting for, not a row of dead payment methods. Above the
           arithmetic, because taking the money is the decision and the
           subtotal is only the explanation of it. */}
-      {!compact && checkoutBlockProps && cart.length > 0 && (
+      {/* Also when the basket is empty and an account is being settled -- gating
+          this on the cart alone is what left the whole settle-at-the-till flow
+          with no way to enter a payment. */}
+      {!compact && checkoutBlockProps && (cart.length > 0 || settlingCents > 0) && (
         <View style={styles.inlineBlocks}>
           <PaymentBlock {...checkoutBlockProps} />
         </View>
@@ -1048,8 +1283,8 @@ export default function PosScreen() {
       {compact && shop && checkoutBlockProps && (
         <CheckoutPanel
           visible={checkoutOpen}
-          onClose={() => setCheckoutOpen(false)}
-          cartEmpty={cart.length === 0}
+          onClose={() => { setCheckoutOpen(false); setSettleIntent(false); }}
+          cartEmpty={cart.length === 0 && settlingCents === 0 && !settleIntent}
           intent={intent}
           {...checkoutBlockProps}
           fullyPaid={fullyPaid}
@@ -1378,6 +1613,8 @@ const styles = StyleSheet.create({
   orderDiscountPreset: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
   orderDiscountPresetText: { color: theme.bentoInk2, fontSize: 12, fontWeight: '700' },
   orderDiscountEditor: { width: '100%' },
+  settleLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingVertical: 4 },
+  settleLinkText: { fontSize: 13, fontWeight: '700', color: theme.bentoMuted },
   emptyWrap: { alignItems: 'center', paddingVertical: 38, gap: 4 },
   emptyTitle: { color: theme.bentoInk2, fontSize: 13.5, fontWeight: '700' },
   empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },

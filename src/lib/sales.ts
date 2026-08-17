@@ -37,10 +37,17 @@ export async function completeSale(
   // the payments -- which the server refuses, at the payment screen, in front
   // of the customer. Defaulted so callers that never showed a total (imports,
   // tests) keep working.
-  now: number = Date.now()
+  now: number = Date.now(),
+  // Let the payments fall short of the total and carry the difference as a
+  // balance against the customer. Off by default, so the server keeps refusing
+  // every caller that has not explicitly asked -- which is the whole point of
+  // the guard: an under-charge nobody chose is a bug, not a credit. The server
+  // also refuses it with no customer attached, so this is a request rather
+  // than an instruction.
+  allowBalance = false
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
-  if (payments.length === 0) throw new Error('At least one payment is required');
+  if (payments.length === 0 && !allowBalance) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
     p_items: buildSalePayload(lines, promotions, now),
@@ -54,6 +61,12 @@ export async function completeSale(
     p_points_redeemed: pointsRedeemed,
     ...(locationId ? { p_location_id: locationId } : {}),
     ...(registerSessionId ? { p_register_session_id: registerSessionId } : {}),
+    // Sent only when asked for, like the two above. An ordinary sale's payload is
+    // therefore byte-identical to what it was before credit existed, which is
+    // what keeps this working against a server that has not taken migration
+    // 20260831000100 yet -- only the credit path fails there, and it fails
+    // loudly rather than silently charging the wrong amount.
+    ...(allowBalance ? { p_allow_balance: true } : {}),
   });
   if (error) throw error;
   return data as string;
@@ -77,10 +90,14 @@ export async function editSale(
   items: { productId: string; quantity: number; discountCents?: number; promotionId?: string | null }[],
   payments: PaymentLine[],
   customer?: SaleCustomer,
-  transactionDiscountCents = 0
+  transactionDiscountCents = 0,
+  // Same meaning as completeSale's: let the payments fall short and carry the
+  // difference. An edit that raises a part-paid sale's total leaves a bigger
+  // balance rather than being refused, and a wholly unpaid sale stays editable.
+  allowBalance = false
 ): Promise<void> {
   if (items.length === 0) throw new Error('A sale must have at least one item');
-  if (payments.length === 0) throw new Error('At least one payment is required');
+  if (payments.length === 0 && !allowBalance) throw new Error('At least one payment is required');
   const { error } = await supabase.rpc('edit_sale', {
     p_sale_id: saleId,
     p_items: items.map((item) => ({
@@ -95,6 +112,9 @@ export async function editSale(
     p_customer_email: customer?.email ?? null,
     p_discount_cents: transactionDiscountCents,
     p_customer_id: customer?.id ?? null,
+    // Sent only when asked for, like completeSale's -- so an ordinary edit's
+    // payload is unchanged and only the credit path needs the newer server.
+    ...(allowBalance ? { p_allow_balance: true } : {}),
   });
   if (error) throw error;
 }
@@ -120,7 +140,10 @@ export async function refundSaleItems(saleId: string, items: { saleItemId: strin
   return data as string;
 }
 
-function buildPaymentPayload(payments: PaymentLine[]) {
+// Exported for balances.ts, which sends the same payment shape to
+// settle_sale_balance. Duplicating the mapping would let the two drift, and a
+// key this side renames silently arrives at the server as null.
+export function buildPaymentPayload(payments: PaymentLine[]) {
   return payments.map((p) => ({
     method: p.method,
     amount_cents: p.amountCents,
@@ -160,6 +183,9 @@ function mapSaleRow(row: any): Sale {
     totalCents: row.total_cents,
     itemCount: row.item_count,
     createdAt: row.created_at,
+    // Left undefined rather than coerced when the column was not selected, so
+    // "not loaded" stays distinguishable from "still owed".
+    settledAt: row.settled_at,
     items: (row.sale_items ?? []).map(
       (item: any): SaleItem => ({
         id: item.id,
@@ -188,6 +214,7 @@ function mapSaleRow(row: any): Sale {
         exchangeRate: payment.exchange_rate !== null && payment.exchange_rate !== undefined ? Number(payment.exchange_rate) : null,
         foreignAmountCents: payment.foreign_amount_cents,
         foreignChangeCents: payment.foreign_change_cents,
+        isSettlement: payment.is_settlement ?? false,
         createdAt: payment.created_at,
       })
     ),
@@ -233,6 +260,9 @@ function mapSaleRow(row: any): Sale {
         saleId: refund.sale_id,
         refundedBy: refund.refunded_by,
         totalCents: refund.total_cents,
+        // Historically equal to the cash figure, so that is the fallback rather
+        // than zero -- see migration 20260831000200.
+        goodsCents: refund.goods_cents ?? refund.total_cents,
         createdAt: refund.created_at,
         items: (refund.refund_items ?? []).map((ri: any): RefundItem => ({
           id: ri.id,
@@ -386,6 +416,7 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: string;
     created_at: string;
     total_cents: number;
+    goods_cents: number | null;
     // The parent sale was already joined to scope by shop; its total and tax
     // ride along so the refund's revenue share can be split out of what the
     // customer was handed. See PeriodRefund.
@@ -395,7 +426,7 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
   const rows = await fetchAllRows<RefundRow>((from, to) => {
     let query = supabase
       .from('refunds')
-      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
+      .select('id, created_at, total_cents, goods_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
       .eq('sales.shop_id', shopId)
       .gte('created_at', startOfDay(sinceDate).toISOString());
     if (locationId) query = query.eq('sales.location_id', locationId);
@@ -406,6 +437,10 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: row.id,
     createdAt: row.created_at,
     totalCents: row.total_cents,
+    // Falls back to the cash figure when the column was not selected. Every
+    // refund before 20260831000200 had the two equal, so that is the historically
+    // correct answer rather than a guess.
+    goodsCents: row.goods_cents ?? row.total_cents,
     // Zero when the parent somehow didn't come back: refundPreTaxCents then
     // treats the refund as wholly revenue, which is the pre-tax-shop answer
     // and the safe direction -- it never inflates revenue.

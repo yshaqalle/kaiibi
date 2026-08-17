@@ -1,3 +1,4 @@
+-- @requires-populated-database: reads an existing shop rather than building its own fixture.
 -- Verification for 20260826000000 and 20260826000100. Run against a database
 -- with at least one shop and one completed sale. Each block prints PASS/FAIL.
 

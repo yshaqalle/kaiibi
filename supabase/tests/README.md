@@ -7,29 +7,48 @@ arithmetic; this covers the parts the database itself enforces.
 ## Running
 
 ```bash
-supabase start                 # first run pulls images, takes a few minutes
-supabase db reset              # applies every migration from scratch
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-accounting-writes.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-entitlements.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-platform-portal.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-loyalty.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-refunds.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-owner-membership.sql
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
-  -f supabase/tests/verify-support.sql
+npx supabase start   # first run pulls images, takes a few minutes
+npm run test:db      # applies every migration, then runs every check
 ```
 
-Look for `ALL CHECKS PASSED`. Any failure raises and stops the script.
+That is the whole command. It rebuilds from the full migration chain — worth
+doing every time, because it proves the chain still applies to an empty database,
+which pushing incrementally to a long-lived project never checks — and then runs
+each script and exits non-zero if any of them fails.
 
-`supabase db reset` is itself worth running: it proves the whole migration
-chain still applies to an empty database, which pushing incrementally to a
-long-lived project never checks.
+`npm run test:db -- --no-reset` skips the rebuild when iterating on one script.
+
+**Why a runner exists.** `verify-loyalty` check 11 was red for four migrations
+and nobody noticed. The test was right and was written for exactly the bug that
+had happened; it sat there failing because running the suite meant remembering
+eleven `psql` invocations out of this file and reading eleven walls of `NOTICE`
+output looking for the word FAIL. A suite you have to assemble by hand is a suite
+that quietly stops running.
+
+**Two kinds of script live here.** Most build their own fixture, assert, and roll
+back — those are what the runner exercises. Three do not, and say so on their
+first line:
+
+| Marker | Means |
+|---|---|
+| `@requires-populated-database` | Reads an existing shop instead of building one. Run it against a dev database that already has a shop and a sale |
+| `@no-verdict` | Prints figures to read rather than asserting PASS/FAIL |
+
+The runner names those as **not exercised** and never counts them as passing.
+Marked on the script rather than listed in the runner, so the fact travels with
+the file.
+
+## The copy-forward guard
+
+`complete_sale` and `edit_sale` are re-created in full by every migration that
+touches them — eighteen and counting for `complete_sale`, ~350 lines each time.
+Every copy is a chance to copy from the wrong ancestor and drop an edit made in
+between, which is exactly what happened to the loyalty maturation guard.
+
+`accumulated-rpc-edits.test.ts` runs under `npm test` (not this runner) and
+asserts that every edit ever made to those two functions is still present in the
+newest definition of them, naming the migration each came from. If you copy a
+function forward and lose something, it fails before the SQL is ever applied.
 
 ## Safety
 
@@ -179,6 +198,72 @@ Note the deliberate limit: the paid-equals-refunded guarantee holds for sales
 refunded entirely **after** that migration. Prior refunds are read from the
 stored rows and never recomputed, so an old partial refund is never silently
 "corrected" months later.
+
+## What `verify-balances.sql` covers
+
+`customer_balances` computes one number across three tables, which makes it
+wrong in two directions that both look fine. Neither raises; both send someone
+to ask a customer for money already handed over, so both are asserted on exact
+cents.
+
+1. A sale paid in full is not a balance.
+2. A part-paid sale owes **exactly** the shortfall.
+3. Goods that come back are not a debt — returning one unit of three drops the
+   debt by that unit, and returning the rest removes the row entirely. A refund
+   on an unpaid sale hands back no cash, because none was ever taken.
+4. **Two payments and one refund do not multiply.** Joined directly rather than
+   through lateral subqueries, two payment rows against one refund row give a
+   two-row cross product and the refund is counted twice. Every fixture with one
+   payment and one refund passes anyway, which is why this one has two.
+5. No name, no debt: an unpaid sale with nobody attached is a loss to write off,
+   not a receivable to chase.
+6. **A role holding only `customers.view` reads the true figure.** 20260802030100
+   widened `sales` and `sale_items` to that key and left `sale_payments` and
+   `refunds` behind, so before 20260831000000 this role read `owed = total` on a
+   sale that was paid off — measured at **4000 owed on a sale owing 500**, with
+   no error, on the exact screen used to ring that customer up.
+7. Another shop reads nothing.
+
+Then the credit rules themselves, once `complete_sale` can accept a shortfall:
+
+8. **A shortfall nobody asked for is still refused.** The guard is not removed,
+   only made conditional — the call that failed before this migration fails the
+   same way after it.
+9. Over-payment is refused however it is asked for. `p_allow_balance` does not
+   become a way past it: change is `tendered_cents`, not a larger payment.
+10. Credit needs a name, refused by the server rather than discouraged by the UI.
+11. Asked for, against a name: the sale stands, owes the shortfall, and is not
+    stamped settled.
+12. Paying in full stamps `settled_at` even when credit was offered, or the sale
+    stays on the receivables list forever.
+13. Settling in two instalments — the RPC's return and the view agree at each
+    step, and the last payment stamps the sale and clears the row.
+14. A settlement cannot overshoot what is owed, or repeat on a paid sale.
+15. **Editing a sale does not erase a settlement.** `edit_sale` deletes a sale's
+    payments and re-inserts what the client sent — lossless while every payment
+    arrived at the till in one go, destructive the moment money can arrive days
+    later. Reverting that one `where` clause drops the settlement row entirely
+    and puts the customer back in debt for cash they had already handed over.
+16. A settlement will not go into a closed drawer — the same refusal
+    `complete_sale` makes, arriving by a new road.
+17. Reading a balance is not permission to take money: the `customers.view` role
+    from check 6 can see what is owed and cannot record a payment.
+
+And loyalty, which is where credit turns into a way to take value out of a shop
+without paying for it:
+
+18. **Goods on account earn no points until paid.** Otherwise the loop is: buy on
+    account, earn, spend the points on a second basket, never settle the first.
+    The sale still remembers the rate it will earn at.
+19. Settling earns them **at the sale's own frozen rate**, not the rate the shop
+    offers on the day the money arrives — asserted by moving the shop's rate
+    between the sale and the settlement. A part-settlement earns nothing, and
+    `customers.points_balance` still equals the ledger afterwards.
+20. **Paying in full at the till still earns immediately** — the regression that
+    matters most, because that is every sale this shop has ever taken.
+21. A sale returned against **before** it was settled earns nothing at all.
+    Proportioning it would have to agree with the refund clawback's own
+    proportioning against a base it does not share.
 
 ## What `verify-owner-membership.sql` covers
 

@@ -11,6 +11,7 @@ import { ExpensesTab } from '@/components/accounting/expenses-tab';
 import { InvoicesTab } from '@/components/accounting/invoices-tab';
 import { OverviewTab } from '@/components/accounting/overview-tab';
 import { PayrollTab } from '@/components/accounting/payroll-tab';
+import { ReceivablesTab } from '@/components/accounting/receivables-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
 import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
@@ -28,7 +29,7 @@ const theme = Colors.light;
 // Tabs land incrementally (see the phased plan); only the ones that exist are
 // listed, so the bar never offers a destination that renders nothing.
 
-type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
+type AccountingTab = 'overview' | 'transactions' | 'receivables' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
 
 // The blurb says what the tab is FOR. Seven tabs of money is a lot to hold in
 // your head, and "Bills" alone does not distinguish what you owe suppliers
@@ -36,6 +37,9 @@ type AccountingTab = 'overview' | 'transactions' | 'invoices' | 'expenses' | 'pa
 const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
   { key: 'overview', label: 'Overview', blurb: 'Where the money came from and where it went.' },
   { key: 'transactions', label: 'Transactions', blurb: 'Every sale and refund, line by line.' },
+  // Beside Bills on purpose: one is what the shop owes, the other what it is
+  // owed, and they are the same question asked in two directions.
+  { key: 'receivables', label: 'Owed to you', blurb: 'Which customers owe the shop, and since when.' },
   { key: 'invoices', label: 'Bills', blurb: 'What you owe suppliers, and when it is due.' },
   { key: 'expenses', label: 'Expenses', blurb: 'What the shop spent, by category.' },
   { key: 'payroll', label: 'Payroll', blurb: 'Pay runs and what each one cost.' },
@@ -147,6 +151,7 @@ export default function AccountingScreen() {
           <>
             {tab === 'overview' && <OverviewTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'transactions' && <TransactionsTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
+            {tab === 'receivables' && <ReceivablesTab setRefresh={setTabRefresh} />}
             {tab === 'invoices' && <InvoicesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}

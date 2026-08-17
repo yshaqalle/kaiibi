@@ -45,7 +45,7 @@ inventing a parallel path.
 |---|---|
 | Where does a balance live? | Derived: `sales.total_cents - sum(sale_payments.amount_cents)`. Never stored twice |
 | How is a part-paid sale recognised? | `sales.settled_at is null and paid < total`. A generated column `sales.amount_paid_cents` is **not** used — a payment row must not require a write to two tables |
-| What records a later payment? | Another `sale_payments` row on the same sale, with `taken_at` and `register_session_id` |
+| What records a later payment? | Another `sale_payments` row on the same sale, stamped by its own `created_at` and carrying `register_session_id` |
 | Who may owe? | Only `sales.customer_id is not null`. The RPC enforces it |
 | What does Accounting read? | `public.customer_balances`, a view over the same rows |
 | What about refunds? | **Not out of scope any more** — see the section below. A refund reduces what is owed before it pays anything back |
@@ -83,7 +83,7 @@ shop can already do.
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260831000000_sale_balances.sql` | `sale_payments.taken_at` / `register_session_id`, `sales.settled_at`, the `customer_balances` view, RLS, indexes |
+| `supabase/migrations/20260831000000_sale_balances.sql` | **Shipped `5c5182f`.** `sale_payments.register_session_id`, `sales.settled_at`, the `customer_balances` view, the `customers.view` read widening, indexes |
 | `supabase/migrations/20260831000100_complete_sale_allows_credit.sql` | `complete_sale` gains `p_allow_balance boolean`; `edit_sale` carries the same rule; `settle_sale_balance` RPC |
 | `src/lib/balances.ts` | Client: read a customer's balance, list outstanding sales, settle |
 | `src/lib/__tests__/balances.test.ts` | Its tests, against mocked Supabase responses |
@@ -91,7 +91,7 @@ shop can already do.
 | `src/lib/__tests__/checkout-intent.test.ts` | Modify: their tests |
 | `src/components/pos/rest-choice.tsx` | "Collect it now" / "Pay later", and the balance being settled |
 | `src/components/pos/customer-balance-row.tsx` | "Owes $34.74 · Collect it" under the attached customer |
-| `src/components/receipt-modal.tsx` | Modify: the BALANCE DUE line and "older balance paid" |
+| `src/components/receipt-modal.tsx` | Modify: the BALANCE DUE line |
 | `src/components/accounting/receivables-tab.tsx` | Who owes what, and since when |
 | `src/app/(admin)/(tabs)/pos.tsx` | Modify: wire the choice, the balance row and the settle path |
 
@@ -103,101 +103,67 @@ shop can already do.
 - Create: `supabase/migrations/20260831000000_sale_balances.sql`
 
 **Interfaces:**
-- Produces: `sale_payments.taken_at timestamptz not null default now()`, `sale_payments.register_session_id uuid`, `sales.settled_at timestamptz`, and `public.customer_balances (shop_id, customer_id, customer_name, sale_id, sale_created_at, total_cents, paid_cents, owed_cents)`.
+- Produces: `sale_payments.register_session_id uuid`, `sales.settled_at timestamptz`, and `public.customer_balances (shop_id, customer_id, customer_name, sale_id, sale_created_at, total_cents, paid_cents, refunded_cents, owed_cents)`.
 
-- [ ] **Step 1: Read the current shape**
+> **DONE** — shipped as `5c5182f`, verified against a database rebuilt from the
+> whole migration chain by `supabase/tests/verify-balances.sql` (7 checks).
+> Three departures from the SQL drafted below, all found by running it:
+>
+> 1. **`taken_at` is not there.** `sale_payments.created_at` already records when
+>    the money arrived, so a second timestamp is the "stored twice" this plan's
+>    own architecture note refuses — and `not null default now()` would have
+>    stamped every historical payment with the migration's own clock. **Task 2's
+>    `settle_sale_balance` therefore writes no `taken_at`, and anything ordering a
+>    sale's payments reads `created_at`.** The `(sale_id, taken_at)` index went
+>    with it; `sale_payments_sale_id_idx` from 0005 already covers the lookup.
+> 2. **`read sale_payments` and `read refunds` had to be widened to
+>    `customers.view`**, which the draft below missed entirely. 20260802030100
+>    widened `sales` and `sale_items` to that key and left these two behind, so
+>    the view — being `security_invoker` — returned `owed = total` to a role that
+>    could see a sale but not its payments. Measured before the fix: **4000 owed
+>    on a sale owing 500**, no error raised. `verify-balances.sql` check 6 pins it.
+> 3. **The backfill stamps what the payments actually cover** rather than
+>    asserting every older sale is paid, so it is idempotent and checkable.
+>
+> The view also left-joins `customers` and coalesces the name, because `read
+> customers` needs `customers.view`/`pos.access`/`sales.edit` — a receivables
+> reader holding only `sales.view` would otherwise have every row vanish.
+
+- [x] **Step 1: Read the current shape**
 
 Run: `grep -rn "create table public.sale_payments" -A 20 supabase/migrations/0005_sale_payments.sql`
 Confirm the column list before adding to it, and confirm `sales` has `customer_id` (added in `0007_sale_customer.sql`).
 
-- [ ] **Step 2: Write the migration**
+- [x] **Step 2: Write the migration**
 
-Create `supabase/migrations/20260831000000_sale_balances.sql`:
+Shipped as `supabase/migrations/20260831000000_sale_balances.sql` — **read that
+file, not a draft of it.** It differs from what was sketched here in the three
+ways listed at the top of this task, and `sale_payments.taken_at` in particular
+does not exist, so anything below that referenced it would not compile.
 
-```sql
--- A balance is arithmetic, not a second ledger: what a sale came to, less what
--- has been taken against it. Storing it as a column would mean every payment
--- had to write two places and could disagree with itself.
+- [x] **Step 3: Apply it and check all three directions**
 
-alter table public.sale_payments
-  add column if not exists taken_at timestamptz not null default now(),
-  add column if not exists register_session_id uuid references public.register_sessions(id) on delete set null;
+Done as `supabase/tests/verify-balances.sql`, following the repo's `verify-*.sql`
+convention rather than the hand-typed psql sketched here — 7 checks inside one
+rolled-back `DO` block:
 
--- Stamped when the last of a sale's money arrives. Null on a sale that is
--- still owed, which is what makes "who owes me" a cheap index scan rather than
--- a sum over every payment row in the shop's history.
-alter table public.sales
-  add column if not exists settled_at timestamptz;
-
--- Everything already paid in full is settled as of its own creation, so the
--- new column never reads as "the whole history is outstanding".
-update public.sales s set settled_at = s.created_at
-where s.settled_at is null;
-
-create index if not exists sales_unsettled_idx
-  on public.sales (shop_id, customer_id)
-  where settled_at is null;
-
-create index if not exists sale_payments_sale_taken_idx
-  on public.sale_payments (sale_id, taken_at);
-
--- Subqueries rather than two left joins: joining both payments and refunds
--- multiplies the rows against each other, and the sums come out wrong in a way
--- that looks plausible on a sale with one of each.
-create or replace view public.customer_balances as
-select
-  s.shop_id,
-  s.customer_id,
-  s.customer_name,
-  s.id as sale_id,
-  s.created_at as sale_created_at,
-  s.total_cents,
-  coalesce(paid.total, 0)::integer as paid_cents,
-  coalesce(returned.total, 0)::integer as refunded_cents,
-  (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0))::integer as owed_cents
-from public.sales s
-left join lateral (
-  select sum(p.amount_cents) as total from public.sale_payments p where p.sale_id = s.id
-) paid on true
-left join lateral (
-  -- Goods that came back are not a debt. Without this a returned basket keeps
-  -- appearing on the customer's account, and the shop chases money it was
-  -- never owed.
-  select sum(r.total_cents) as total from public.refunds r where r.sale_id = s.id
-) returned on true
-where s.settled_at is null
-  and s.customer_id is not null
-  and (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0)) > 0;
-
--- The view inherits the underlying tables' RLS through security_invoker, so a
--- staff member sees exactly the sales they could already read.
-alter view public.customer_balances set (security_invoker = on);
-
-grant select on public.customer_balances to authenticated;
+```bash
+npx supabase db reset --local     # proves the whole chain still applies
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-balances.sql
 ```
 
-- [ ] **Step 3: Apply it and check all three directions**
+Beyond the three directions asked for, it pins the two failures that do not
+raise: **two payments against one refund** (the cross product that counts the
+refund twice) and **a `customers.view`-only role** reading the balance. Both were
+confirmed to fail before the fix and pass after — reverting just the two policies
+makes check 6 report `owed 4000` on a sale owing `500`.
 
-Run: `npx supabase db reset` (local) or `npx supabase migration up`.
-Then, in `psql`:
+One neighbouring script, `verify-loyalty.sql` check 11, fails — and fails
+identically on `main` with this migration removed. Pre-existing, untouched, and
+worth its own look.
 
-```sql
--- 1. A fully paid sale is not a balance.
-select count(*) from public.customer_balances;  -- expect 0 on seed data
-
--- 2. A part-paid sale is, for exactly the shortfall.
---    (take a seeded sale, delete one of its payments, re-check)
-select owed_cents from public.customer_balances where sale_id = '<id>';
-
--- 3. Refunding that sale reduces what is owed, and clearing it entirely
---    removes the row. This is the case the naive view got wrong.
-insert into public.refunds (sale_id, total_cents) values ('<id>', <part>);
-select owed_cents from public.customer_balances where sale_id = '<id>';  -- down by <part>
-insert into public.refunds (sale_id, total_cents) values ('<id>', <rest>);
-select count(*) from public.customer_balances where sale_id = '<id>';    -- expect 0
-```
-
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/20260831000000_sale_balances.sql
@@ -211,16 +177,58 @@ git commit -m "feat(db): a sale knows when it was settled, and what is still owe
 **Files:**
 - Create: `supabase/migrations/20260831000100_complete_sale_allows_credit.sql`
 
+> **DONE** — shipped as `962f11a`
+> (`supabase/migrations/20260831000100_complete_sale_allows_credit.sql`), proved by
+> checks 8–17 of `supabase/tests/verify-balances.sql` on a database rebuilt from
+> the whole chain. Three things the plan did not cover:
+>
+> 1. **`edit_sale` had to stop deleting settlement payments.** It wipes a sale's
+>    `sale_payments` and re-inserts whatever the client sent — lossless while
+>    every payment arrived at the till in one go, destructive the moment money can
+>    arrive days later. Measured by reverting the one `where` clause: **the
+>    settlement row disappears**, and a customer who had paid 800 is back to owing
+>    2000 with no record they ever paid. `sale_payments.is_settlement` (added by
+>    this migration) marks them — flagged rather than inferred from timestamps,
+>    because `complete_sale` takes `p_created_at` and a sale can be backdated.
+> 2. **Both functions are `drop`ped first.** `create or replace` with an extra
+>    defaulted parameter does not replace anything — it adds an overload, and
+>    every existing 13-argument call then resolves to two candidates and fails as
+>    ambiguous. 0005 set this precedent.
+> 3. **`settle_sale_balance` gates on `pos.access`/`sales.edit`, not
+>    `is_shop_member`**, and validates the register session the way `complete_sale`
+>    does. Reading a balance is not permission to take money, and a settlement
+>    filed into a closed drawer is the failure Phase 1 built a recovery path for,
+>    arriving by a new road.
+>
+> **Loyalty now waits for payment** (`219da61`, checks 18–21). Goods on account
+> earn nothing until the sale is settled — otherwise credit plus redemption is a
+> way to take value out of the shop and never pay for it. The rate is still frozen
+> at ring-up, so settling earns what was promised at the till rather than what the
+> shop offers that day, and `sales.points_earned` keeps meaning points *credited*
+> so the refund clawback proportions against the right base. A sale returned
+> against before it was settled earns nothing at all.
+>
+> That work turned up **a guard that was lost rather than written**: only matured
+> points may be redeemed. It shipped in `20260820000100`, was dropped when
+> `20260822000000` copied `complete_sale` forward from an older ancestor, and has
+> been missing since — the maturation window has not been enforced in production.
+> `verify-loyalty` check 11 had been failing on `main` for exactly this reason,
+> and that failure was hiding checks 12–14. Restored here; **the whole database
+> suite now passes for the first time.**
+>
+> Worth noting for the rest of this plan: that is two separate bugs caused by the
+> copy-forward convention, in one function, found within a day of each other.
+
 **Interfaces:**
 - Produces:
   - `complete_sale(..., p_allow_balance boolean default false)` — same signature as today plus one trailing argument, so existing callers are unaffected.
   - `settle_sale_balance(p_sale_id uuid, p_payments jsonb, p_register_session_id uuid default null) returns integer` — returns the cents still owed after the payments land.
 
-- [ ] **Step 1: Copy the current definitions forward**
+- [x] **Step 1: Copy the current definitions forward**
 
 Copy `complete_sale` and `edit_sale` verbatim from `supabase/migrations/20260826000100_sale_promotion_attribution.sql` into the new migration. Do not retype them.
 
-- [ ] **Step 2: Change exactly three things in `complete_sale`**
+- [x] **Step 2: Change exactly three things in `complete_sale`**
 
 1. Add the trailing parameter `p_allow_balance boolean default false`.
 2. Replace the guard:
@@ -260,7 +268,7 @@ with:
 
 Apply the same three changes to `edit_sale`, whose guard is the same sentence — an edit that raises a sale's total above what was paid leaves a balance rather than failing.
 
-- [ ] **Step 3: State the refund rule in the settle path**
+- [x] **Step 3: State the refund rule in the settle path**
 
 A refund on a sale that was never fully paid cannot hand back money that was never
 taken. `settle_sale_balance` therefore reads what is owed through the same
@@ -269,7 +277,7 @@ already covers it: `v_owed <= 0` refuses, and `v_taking > v_owed` refuses. Compu
 `v_owed` with refunds subtracted, or a refunded sale will happily accept a
 settlement for money the shop no longer expects.
 
-- [ ] **Step 4: Add the settle RPC**
+- [x] **Step 4: Add the settle RPC**
 
 ```sql
 create or replace function public.settle_sale_balance(
@@ -323,13 +331,13 @@ begin
     insert into public.sale_payments
       (sale_id, method, amount_cents, tendered_cents, customer_name, customer_phone,
        currency_code, exchange_rate, foreign_amount_cents, foreign_change_cents,
-       taken_at, register_session_id)
+       register_session_id)
     values
       (p_sale_id, v_payment->>'method', (v_payment->>'amount_cents')::integer,
        (v_payment->>'tendered_cents')::integer, v_payment->>'customer_name',
        v_payment->>'customer_phone', nullif(v_payment->>'currency_code', ''),
        (v_payment->>'exchange_rate')::numeric, (v_payment->>'foreign_amount_cents')::integer,
-       (v_payment->>'foreign_change_cents')::integer, now(), p_register_session_id);
+       (v_payment->>'foreign_change_cents')::integer, p_register_session_id);
   end loop;
 
   if v_taking = v_owed then
@@ -345,7 +353,7 @@ grant execute on function public.settle_sale_balance(uuid, jsonb, uuid) to authe
 
 Confirm `public.is_shop_member` is the helper this schema uses (`grep -rn "function public.is_shop_member" supabase/migrations | head -1`); if it is named differently, use the existing name rather than adding one.
 
-- [ ] **Step 4: Prove all four rules by hand**
+- [x] **Step 4: Prove all four rules by hand**
 
 In `psql`, against a seeded sale:
 
@@ -384,7 +392,7 @@ git commit -m "feat(db): a sale may be left owing, against a named customer only
   - `settleBalance(saleId: string, payments: PaymentLine[], registerSessionId: string | null): Promise<number>`
   - `allocate(payments: PaymentLine[], sales: CustomerBalance[]): { saleId: string; payments: PaymentLine[] }[]` — **pure**, oldest sale first
 
-- [ ] **Step 1: Write the failing tests for `allocate`**
+- [x] **Step 1: Write the failing tests for `allocate`**
 
 The only real logic on the client is which sale a settlement pays down when a customer owes on three. Oldest first, and never more than a sale owes.
 
@@ -429,21 +437,21 @@ describe('allocate', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx jest src/lib/__tests__/balances.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/balances'`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 `allocate` is pure and sorts by `saleCreatedAt` ascending, splitting a payment across sales by cents. The three Supabase functions follow the shape of the other files in `src/lib/` — `customerBalance` and `listOutstanding` select from `customer_balances`; `settleBalance` calls the RPC and returns the remaining cents.
 
-- [ ] **Step 4: Run them and watch them pass**
+- [x] **Step 4: Run them and watch them pass**
 
 Run: `npx jest src/lib/__tests__/balances.test.ts`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/balances.ts src/lib/__tests__/balances.test.ts
@@ -462,7 +470,7 @@ git commit -m "feat(pos): read what a customer owes, and pay the oldest of it fi
 - `CheckoutIntentInput` gains `restOwed: boolean` and `settlingCents: number`.
 - `checkoutIntent` gains the branches Phase 1 deliberately left out.
 
-- [ ] **Step 1: Add the failing tests**
+- [x] **Step 1: Add the failing tests**
 
 ```ts
 it('takes part now and names what is left owing', () => {
@@ -490,12 +498,12 @@ it('takes money off an older balance with no basket', () => {
 });
 ```
 
-- [ ] **Step 2: Run, fail, implement, pass**
+- [x] **Step 2: Run, fail, implement, pass**
 
 Run: `npx jest src/lib/__tests__/checkout-intent.test.ts`
 Expected: FAIL, then PASS with all 14 tests once the branches are added. The ordering rule: `submitting` → empty (with nothing being settled) → no payments and nothing owed → `restOwed` branches → remaining > 0 → covered.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/lib/checkout-intent.ts src/lib/__tests__/checkout-intent.test.ts
@@ -512,19 +520,19 @@ git commit -m "feat(pos): the button says when money is being left owing"
 - Modify: `src/app/(admin)/(tabs)/pos.tsx`
 - Test: `src/components/__tests__/rest-choice.test.tsx`
 
-- [ ] **Step 1: Write the failing test for `RestChoice`**
+- [x] **Step 1: Write the failing test for `RestChoice`**
 
 It renders two options — **Collect it now** and **Pay later** — the second disabled with "Needs a customer" when none is attached, and it renders nothing at all when the payments already cover the bill.
 
-- [ ] **Step 2: Build both components**
+- [x] **Step 2: Build both components**
 
 `RestChoice` is two tiles on `bentoSoft`, the chosen one on `bentoAccentWash` with `bentoAccentInk` text. `CustomerBalanceRow` shows `Owes $34.74`, when it has been owed since, and **Collect it** — and renders nothing when the balance is zero, so a shop with no credit never sees the feature.
 
-- [ ] **Step 3: Wire them into the panel and the sheet**
+- [x] **Step 3: Wire them into the panel and the sheet**
 
 Both surfaces from Phase 1 take them as children — the panel's scrolling middle on a tablet, the sheet's payment block on a phone. The settle path works with an empty cart: `checkout()` branches to `settleBalance` when there are no items and `settlingCents > 0`.
 
-- [ ] **Step 4: Run the suite and commit**
+- [x] **Step 4: Run the suite and commit**
 
 ```bash
 npm test
@@ -540,15 +548,28 @@ git commit -m "feat(pos): take part of it now, and let them clear an old balance
 - Modify: `src/components/receipt-modal.tsx`
 - Modify: `src/lib/receipt.ts`
 
-- [ ] **Step 1: Extend `ReceiptData`**
+- [x] **Step 1: Extend `ReceiptData`**
 
 Add `balanceDueCents: number` and `olderBalancePaidCents: number`, both defaulting to 0 so every existing caller is unchanged.
 
-- [ ] **Step 2: Print them in the paper's own idiom**
+- [x] **Step 2: Print them in the paper's own idiom**
 
-Under the payment lines: an `Older balance paid` row when one was settled, and a boxed `BALANCE DUE` line with the customer's name when one remains. Monospace, dashed rule, same type scale as every other line — the receipt design does not change, it gains a line. `buildReceiptText` and `buildReceiptHtml` get the same two lines, or a WhatsApped receipt will disagree with the printed one.
+A boxed `BALANCE DUE` line with the customer's name when one remains.
 
-- [ ] **Step 3: Run the suite and commit**
+> **Note on what shipped:** the planned `Older balance paid` row is NOT there. It
+> only makes sense on a transaction that both sells goods and settles an older
+> sale, and Task 5 deliberately restricted settlement to an **empty basket** — two
+> RPCs in one tap is not atomic, and splitting one tender between a sale and a
+> debt is arithmetic nobody asked for. The field was built, found to be
+> unreachable, and removed rather than left as dead code with a passing test.
+>
+> A settlement therefore prints nothing at the till. It is not unevidenced: the
+> payment lands in `sale_payments`, so **reprinting the settled sale's own receipt
+> from Accounting shows it**, with `BALANCE DUE` reduced or gone — that is
+> `buildReceiptFromSale`'s tested behaviour. An immediate proof-of-payment slip is
+> a Phase 3 item, not a hole in this one. Monospace, dashed rule, same type scale as every other line — the receipt design does not change, it gains a line. `buildReceiptText` and `buildReceiptHtml` get the same two lines, or a WhatsApped receipt will disagree with the printed one.
+
+- [x] **Step 3: Run the suite and commit**
 
 ```bash
 npm test
@@ -564,15 +585,15 @@ git commit -m "feat(pos): a part-paid receipt says what is still owed, and by wh
 - Create: `src/components/accounting/receivables-tab.tsx`
 - Modify: `src/app/(admin)/(tabs)/accounting.tsx`
 
-- [ ] **Step 1: Build the tab**
+- [x] **Step 1: Build the tab**
 
 A `BentoCard` with a `DataTable`: customer, what they owe, the oldest unpaid sale's date, and how many sales it spans. Read from `listOutstanding`. Follow the bento rules in the `building-bento-screens` skill — a ledger is read down a column, so it takes the full width and stays out of `BentoGrid`.
 
-- [ ] **Step 2: Add the total to the period strip**
+- [x] **Step 2: Add the total to the period strip**
 
 One `StatTile`: **Owed to you**, with a `Caveat tone="context"` explaining that it is money already recognised as revenue, not a forecast — a shop owner reading it as extra income is the specific misunderstanding to prevent.
 
-- [ ] **Step 3: Run the suite and commit**
+- [x] **Step 3: Run the suite and commit**
 
 ```bash
 npm test
@@ -584,31 +605,107 @@ git commit -m "feat(accounting): who owes the shop, and since when"
 
 ### Task 8: Verify it on the three platforms
 
-- [ ] **Step 1: Suite and linter**
+**Automated verification — done.**
 
-Run: `npm test && npx eslint src --max-warnings=0`
+| Gate | Result |
+|---|---|
+| `npm test` | 118 suites / 1732 tests pass |
+| `npm run test:db` | 10 checks pass, 3 named as not exercised (all pre-existing) |
+| `verify-balances.sql` | 24 checks, on a database rebuilt from the whole migration chain |
+| `npx tsc --noEmit` | clean |
+| `pos.tsx` react-compiler errors | **9 — unchanged from before this branch**, rule sets diffed and identical |
+| Migrations on the remote project | `20260831000000` and `20260831000100` applied; nothing pending |
 
-- [ ] **Step 2: Drive the app** with `/testing-kaiibi` on web, iOS and Android:
+**Interactive verification — web: DONE.**
 
-1. a sale with no customer cannot be left unpaid — the button says so;
-2. $50 of an $84.74 basket, marked Pay later, completes and prints `BALANCE DUE $34.74`;
-3. that customer, attached to a new sale, shows `Owes $34.74`;
-4. **Collect it** with an empty basket takes the money and prints a settlement receipt;
-5. a second till cannot settle the same balance twice — the RPC refuses with "already paid in full";
-6. Accounting's receivables total matches the sum of the outstanding rows;
-7. **refunding a part-paid sale drops what is owed by the refund**, and refunding the
-   rest clears the customer's balance entirely rather than leaving a debt behind.
+Driven with Playwright against `yusefshop` on the real (migrated) database, on
+2026-08-17. The whole flow, both halves:
 
-- [ ] **Step 3: Commit any fixes**
+| Step | Result |
+|---|---|
+| Attach a customer, balance row appears | `Owes $20.50 · since Aug 17 · Collect it` |
+| "Collect it" on an empty till | `PAYMENT METHOD` renders, all four methods, cash prefilled to `20.50` |
+| The row while collecting | `Take the payment below` + **Cancel** |
+| Settle | balance row gone, no error |
+| Receivables tab | `$0 · Nobody owes the shop anything` |
+| Zero-down credit sale | `Carry $2.05 on Ali Warfa's account` → `Save as unpaid · $2.05 owed` → completed |
+| Receipt | boxed `BALANCE DUE $2.05` / `Owed by Ali Warfa`, under an unchanged `TOTAL $2.05` |
+| Receivables tab, with data | `Ali Warfa · $2.05 · Aug 17 · today`, `from 1 customer` |
+| Transactions ledger | reads `Unpaid`, no `undefined` anywhere |
+| Ledger search for "unpaid" | filters to that sale — the line that would have crashed before `paymentLabel` |
+| Second settlement | clean; register went `3 sales · $20.50` → `4 sales · $43.05`, i.e. both settlements counted |
+| Console | no errors; only the repo's pre-existing `shadow*` deprecation warning |
 
----
+Every one of the eleven review findings was exercised through the UI rather than
+only through a test.
 
-## Self-review
+**Two defects the pass found, both fixed:**
 
-**Spec coverage.** Every deferred item from Phase 1's "Explicitly out of scope" table has a task: part payment (2, 4, 5), Pay later (2, 4, 5), settling an older balance (2, 3, 5), receivables (7), and the receipt's balance line (6).
+1. **The pinned total read `$0.00` while collecting $20.50.** The most prominent
+   figure on the panel, disagreeing with the only one that mattered. `SalePanel`
+   now takes `dueCents`.
+2. **The register header did not refresh after a settlement.** It caught up on the
+   next focus, so a cashier reconciling a drawer read a figure short by whatever
+   they had just collected. `settleOlderBalance` now calls `reloadRegister()`.
 
-**Known gaps, deliberately left.** Refunds and negative balances are out of scope and refused by the same checks. Partial settlement across more than one sale is handled by `allocate` (Task 3) but only surfaced as one figure in the UI — a per-sale breakdown is a follow-up, not a blocker. There is no reminder or messaging flow; that belongs with the marketing/campaign work, not here.
+**Interactive verification — iPhone and Android: DONE.**
 
-**Verify like Phase 1 did.** Every layout claim in Phase 1 that was proven only by tests turned out to have a bug in it; thirteen were found by driving the running app, four of which passed the whole suite. Use `/testing-kaiibi`, and read the result off the screen — a balance that "saved" is only real if it shows on the customer, on the receipt, and in Accounting.
+Driven 2026-08-17 against the same migrated database. iOS via Maestro on an
+iPhone 16 Pro (iOS 18.3); Android via `scripts/droid.sh` on the Pixel 8, which
+gives a real element tree.
 
-**Type consistency.** `CustomerBalance` (Task 3) is consumed by Tasks 5 and 7. `CheckoutIntentInput`'s new fields (Task 4) are set by Task 5's controls. `settle_sale_balance`'s return (cents still owed) is what `settleBalance` returns and what Task 5 shows in its toast.
+| Step | iPhone | Android |
+|---|---|---|
+| "Or settle a customer's account" on an idle till | renders, taps | renders, `clickable=true` |
+| Sheet opens and STAYS open | ✓ | ✓ |
+| No dangling `PAYMENT METHOD` header | ✓ (`assertNotVisible`) | ✓ |
+| Customer picker opens, searches, attaches | ✓ | ✓ |
+| Balance row | `Owes $14.35 · since Aug 17 · Collect it` | `Owes $6.15` |
+| "Collect it" reveals the methods, row offers **Cancel** | ✓ | ✓ (`Button 'Cancel'`) |
+| `Take $X off the balance` | ✓ | ✓ |
+| Settlement completes, balance clears, no error | ✓ | ✓ |
+| Pay-later card with no customer opens the picker | — | ✓ |
+| Zero-down credit sale | — | ✓ |
+| Receipt's boxed `BALANCE DUE` / `Owed by` | — | ✓, identical to web |
+| Accessibility role on the pay-later control | — | exposed as `Switch` |
+
+**The register's takings reconcile across all three platforms:** $43.05 after the
+web pass, + $14.35 settled on iPhone, + $6.15 settled on Android = **$63.55**,
+which is what the till reads. That is migration 20260831000300 working on real
+data on every surface.
+
+**Two defects this pass found, both fixed:**
+
+1. **Settling was completely unreachable on a phone.** The counter's fix did not
+   carry: on compact there is no customer row on the panel, and the only route to
+   the picker is the checkout sheet — whose button is disabled on an empty till.
+   So a phone could take credit and never collect it. An idle phone till now
+   offers "Or settle a customer's account", and `settleIntent` keeps the sheet
+   from dismissing itself before a customer has even been chosen.
+2. **A dangling `PAYMENT METHOD` header.** The picker draws its heading
+   unconditionally and its buttons only while something is owed, so the sheet
+   opened on a section header above blank space. `showPayment` gates the whole
+   block on the same condition the counter uses.
+
+Both were invisible to every test and to the web pass, because the web pass ran
+at counter width.
+
+**Still not exercised:**
+
+| Platform | State |
+|---|---|
+| iPad | **not exercised.** A tablet renders the counter layout, which the web pass covers at the same width — but the sidebar shell and the sheet-vs-inline switch are its own thing |
+| Android tablets (11", 14") | **not exercised.** Same reason, and `scripts/droid.sh -t 11` can drive them |
+
+Correction to an earlier note in this plan: iOS taps ARE available here. Maestro
+has been installed since 2026-08-09 and drove the whole flow above; the
+"unavailable" line came from the skill's older summary rather than
+`references/drivers.md`.
+
+Phase 1's own outstanding native pass is inherited by this branch and is the same
+piece of work.
+
+**Test artefacts left on `yusefshop`:** one $2.05 sale against Ali Warfa
+("another item"), taken on credit and then settled in cash, plus a $20.50
+settlement of a balance that already existed. Both accounts are clear; nothing is
+outstanding.

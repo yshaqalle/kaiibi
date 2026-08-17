@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
@@ -48,12 +48,19 @@ export function CheckoutPanel({
   onChangePointsRedeemed,
   pointsMaturing,
   availableKnown,
+  balanceRow,
+  restChoice,
+  customerPickerOpen,
+  onCustomerPickerOpenChange,
+  showPayment,
   onDismiss,
 }: {
   // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
   // button, the "Served by" row and a completed sale all open or close it.
   visible: boolean;
   onClose: () => void;
+  // "Nothing left to do here", not literally an empty basket -- an empty till
+  // that is settling an account has plenty to do. See the effect below.
   cartEmpty: boolean;
   // The same sentence the sale panel puts on its own button, so the two can
   // never disagree about what completing this sale will do.
@@ -85,6 +92,12 @@ export function CheckoutPanel({
   // window. Shown so a cashier can answer "why can't I use all of them".
   pointsMaturing: number;
   availableKnown: boolean;
+  // Handed straight through to the blocks below -- see CheckoutBlocksProps.
+  balanceRow?: ReactNode;
+  restChoice?: ReactNode;
+  customerPickerOpen?: boolean;
+  onCustomerPickerOpenChange?: (open: boolean) => void;
+  showPayment?: boolean;
   // Fired once the sheet has FINISHED dismissing (iOS only -- RN's `onDismiss`
   // is iOS-only). This is the safe moment for the caller to present a modal of
   // its own, which is what pos.tsx does with the receipt.
@@ -96,9 +109,10 @@ export function CheckoutPanel({
   const open = visible;
   const setOpen = (next: boolean) => { if (!next) onClose(); };
 
-  // Covers both a completed sale (pos.tsx clears the cart on success) and
-  // the cart being emptied manually mid-flow -- either way there's nothing
-  // left to check out, so the sheet shouldn't stay open.
+  // Covers a completed sale (pos.tsx clears the cart on success) and the cart
+  // being emptied manually mid-flow. `cartEmpty` is really "nothing to do":
+  // settling an older balance happens on an EMPTY till, and closing the sheet
+  // out from under that was what made the whole flow unreachable on a phone.
   useEffect(() => {
     if (cartEmpty) onClose();
   }, [cartEmpty, onClose]);
@@ -149,6 +163,11 @@ export function CheckoutPanel({
                 redemptionCents={redemptionCents}
                 pointsEarned={pointsEarned}
                 onChangePointsRedeemed={onChangePointsRedeemed}
+                balanceRow={balanceRow}
+                restChoice={restChoice}
+                customerPickerOpen={customerPickerOpen}
+                onCustomerPickerOpenChange={onCustomerPickerOpenChange}
+                showPayment={showPayment}
               />
             </ScrollView>
 
@@ -197,6 +216,9 @@ export function CustomerBlock({
   redemptionCents,
   pointsEarned,
   onChangePointsRedeemed,
+  balanceRow,
+  customerPickerOpen,
+  onCustomerPickerOpenChange,
 }: CheckoutBlocksProps) {
   return (
     <>
@@ -208,6 +230,8 @@ export function CustomerBlock({
         onClear={onClearCustomer}
         showPoints={loyaltyEnabled}
         centsPerPoint={centsPerPoint}
+        open={customerPickerOpen}
+        onOpenChange={onCustomerPickerOpenChange}
       />
 
       {/* Points sit with the customer they belong to, and before the money:
@@ -226,6 +250,11 @@ export function CustomerBlock({
           onChange={onChangePointsRedeemed}
         />
       )}
+
+      {/* What they already owed, with the customer it belongs to rather than
+          down beside the money -- it is a fact about the person, and it is the
+          thing that decides whether "Pay later" is even offered. */}
+      {balanceRow}
     </>
   );
 }
@@ -238,7 +267,14 @@ export function PaymentBlock({
   enabledPaymentMethods,
   allowSplit,
   error,
+  restChoice,
+  showPayment = true,
 }: CheckoutBlocksProps) {
+  // Nothing to collect yet -- an empty till whose customer has not been chosen.
+  // The picker draws its PAYMENT METHOD heading unconditionally and its method
+  // buttons only while something is owed, so without this the sheet opens on a
+  // section header with a blank space under it, which reads as broken.
+  if (!showPayment) return error ? <Text style={styles.error}>{error}</Text> : null;
   return (
     <>
       <PaymentMethodPicker
@@ -249,6 +285,10 @@ export function PaymentBlock({
         enabledMethods={enabledPaymentMethods}
         allowSplit={allowSplit}
       />
+
+      {/* Under the methods, because it is a question about the money just
+          entered rather than another way to enter it. */}
+      {restChoice}
 
       {error && <Text style={styles.error}>{error}</Text>}
     </>
@@ -287,6 +327,19 @@ export type CheckoutBlocksProps = {
   redemptionCents: number;
   pointsEarned: number;
   onChangePointsRedeemed: (points: number) => void;
+  // The two credit controls, passed in rather than built here. pos.tsx owns the
+  // state behind them, and threading them through the shared props is what
+  // stops the counter and the phone rendering them in two different places.
+  // Both are absent on a shop that has never given credit.
+  balanceRow?: ReactNode;
+  restChoice?: ReactNode;
+  // The customer picker, driven from pos.tsx so the pay-later control can open
+  // it. Both or neither -- see CustomerPicker.
+  customerPickerOpen?: boolean;
+  onCustomerPickerOpenChange?: (open: boolean) => void;
+  // False while there is nothing to take money for. Defaulted true so callers
+  // that always have something keep their current behaviour.
+  showPayment?: boolean;
 };
 
 // Rendered only when loyalty is on AND a customer is attached, so there is

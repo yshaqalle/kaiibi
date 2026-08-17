@@ -74,6 +74,10 @@ function makeRefund(overrides: Partial<PeriodRefund> = {}): PeriodRefund {
     id: 'r1',
     createdAt: new Date(2026, 7, 3, 12, 0, 0).toISOString(),
     totalCents: 2200,
+    // Defaulted to the cash figure, which is what every refund before migration
+    // 20260831000200 had -- so every assertion below keeps meaning what it meant.
+    // A credit refund, where the two differ, is asserted explicitly instead.
+    goodsCents: overrides.totalCents ?? 2200,
     saleTotalCents: 2200,
     saleTaxCents: 0,
     items: [{ quantity: 1, unitCostCents: 1200 }],
@@ -279,6 +283,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 2200,
+          goodsCents: 2200,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 2200 }],
         },
@@ -300,6 +305,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 2200,
+          goodsCents: 2200,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 2200 }],
         },
@@ -328,6 +334,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 1292,
+          goodsCents: 1292,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
         },
@@ -350,6 +357,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 1155,
+          goodsCents: 1155,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1155 }],
         },
@@ -387,6 +395,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 3000,
+          goodsCents: 3000,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'b', productId: 'p1', quantity: 1, amountCents: 3000 }],
         },
@@ -415,6 +424,7 @@ describe('saleProfit', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 1292,
+          goodsCents: 1292,
           createdAt: new Date(2026, 7, 3).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
         },
@@ -443,6 +453,7 @@ describe('saleRefundState', () => {
     saleId: 's1',
     refundedBy: null,
     totalCents,
+    goodsCents: totalCents,
     createdAt: new Date(2026, 7, 3).toISOString(),
     items: [{ id: 'ri1', refundId: 'r1', saleItemId, productId: 'p1', quantity, amountCents: totalCents }],
   });
@@ -513,6 +524,7 @@ describe('the row and the period agree to the cent', () => {
       saleId: 's1',
       refundedBy: null,
       totalCents: 333,
+      goodsCents: 333,
       createdAt: new Date(2026, 7, 3).toISOString(),
       items: [{ id: `ri-${id}`, refundId: id, saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 333 }],
     });
@@ -595,8 +607,8 @@ describe('paymentMethodMix', () => {
     const sale = makeSale({
       totalCents: 10000,
       payments: [
-        { id: 'p1', saleId: 's1', method: 'cash', amountCents: 6000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, createdAt: '' },
-        { id: 'p2', saleId: 's1', method: 'zaad', amountCents: 4000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, createdAt: '' },
+        { id: 'p1', saleId: 's1', method: 'cash', amountCents: 6000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, isSettlement: false, createdAt: '' },
+        { id: 'p2', saleId: 's1', method: 'zaad', amountCents: 4000, tenderedCents: null, customerName: null, customerPhone: null, currencyCode: null, exchangeRate: null, foreignAmountCents: null, foreignChangeCents: null, isSettlement: false, createdAt: '' },
       ],
     });
     const mix = paymentMethodMix([sale]);
@@ -766,7 +778,7 @@ describe('refundPreviewCents', () => {
       totalCents: 5982,
       discountCents: 300,
       taxCents: 285,
-      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1994, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1994 }] }],
+      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1994, goodsCents: 1994, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1994 }] }],
     });
     expect(refundPreviewCents(sale, { i1: 2 })).toBe(5982 - 1994);
   });
@@ -776,7 +788,7 @@ describe('refundPreviewCents', () => {
       items: [soap({ quantity: 2, lineTotalCents: 3998 })],
       totalCents: 3598,
       discountCents: 400,
-      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1999, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1999 }] }],
+      refunds: [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1999, goodsCents: 1999, createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1999 }] }],
     });
     expect(refundPreviewCents(sale, { i1: 1 })).toBeGreaterThanOrEqual(0);
   });
@@ -801,6 +813,7 @@ describe('productPerformance', () => {
     saleId: 's1',
     refundedBy: null,
     totalCents: 0,
+    goodsCents: 0,
     createdAt: new Date(2026, 7, 3).toISOString(),
     items: [{ id: 'ri1', refundId: `r-${saleItemId}`, saleItemId, productId, quantity, amountCents: 0 }],
   });
@@ -961,6 +974,8 @@ describe('productDailyRevenue', () => {
           saleId: 's1',
           refundedBy: null,
           totalCents: 0,
+
+          goodsCents: 0,
           createdAt: new Date(2026, 7, 1).toISOString(),
           items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p-rice', quantity: 1, amountCents: 0 }],
         },
@@ -999,5 +1014,64 @@ describe('productDailyRevenue', () => {
       items: [makeItem({ productId: null, productName: 'Retired blend', lineTotalCents: 700, quantity: 1 })],
     });
     expect(productDailyRevenue([sale], { productId: null, name: 'Retired blend' }, new Date(2026, 7, 1), new Date(2026, 7, 1))).toEqual([700]);
+  });
+});
+
+// ── The refund preview after credit sales exist ──────────────────────────────
+//
+// refundPreviewCents quotes the cashier "$X will be refunded". Before migration
+// 20260831000200 it apportioned sales.total_cents, which was also what was
+// collected -- so on a sale taken on credit it promised the customer the full
+// value of a basket they had not paid for.
+describe('refundPreviewCents on a sale that was not paid in full', () => {
+  const item = { id: 'i1', quantity: 2, lineTotalCents: 4000, unitPriceCents: 2000, discountCents: 0 };
+  const creditSale = (collectedCents: number, refunds: any[] = []) =>
+    ({
+      id: 's1',
+      totalCents: 4000,
+      taxCents: 0,
+      discountCents: 0,
+      pointsRedeemedCents: 0,
+      items: [item],
+      // null: still owed. That is the signal the cap is gated on, because an
+      // empty payments array cannot be told from an unloaded one.
+      settledAt: collectedCents >= 4000 ? '2026-08-16T00:00:00.000Z' : null,
+      payments: collectedCents > 0 ? [{ method: 'cash', amountCents: collectedCents }] : [],
+      refunds,
+    }) as unknown as Sale;
+
+  it('quotes nothing back on a sale nobody paid for', () => {
+    expect(refundPreviewCents(creditSale(0), { i1: 2 })).toBe(0);
+  });
+
+  it('quotes only what came in on a part-paid sale', () => {
+    expect(refundPreviewCents(creditSale(1000), { i1: 2 })).toBe(1000);
+  });
+
+  it('is unchanged on a sale that was paid in full', () => {
+    expect(refundPreviewCents(creditSale(4000), { i1: 2 })).toBe(4000);
+  });
+
+  it('subtracts cash already handed back, not the goods already returned', () => {
+    // 1000 collected, one unit already returned for 1000 cash against 2000 of
+    // goods. Nothing left to hand over, even though goods remain returnable.
+    const prior = [{ id: 'r1', saleId: 's1', refundedBy: null, totalCents: 1000, goodsCents: 2000,
+                     createdAt: '', items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p1', quantity: 1, amountCents: 1000 }] }];
+    expect(refundPreviewCents(creditSale(1000, prior), { i1: 1 })).toBe(0);
+  });
+
+  it('quotes nothing when unsettled and the payments were not loaded', () => {
+    const noPayments = { id: 's1', totalCents: 4000, taxCents: 0, discountCents: 0,
+                         pointsRedeemedCents: 0, items: [item], refunds: [], settledAt: null } as unknown as Sale;
+    // An unsettled sale with no payment rows genuinely owes everything, so
+    // nothing goes back. The unloaded case is covered by the settled path above.
+    expect(refundPreviewCents(noPayments, { i1: 2 })).toBe(0);
+  });
+
+  it('quotes the full figure when settled_at was never selected', () => {
+    // The guard that stops an unloaded join reading as "nothing was paid".
+    const unknown = { id: 's1', totalCents: 4000, taxCents: 0, discountCents: 0,
+                      pointsRedeemedCents: 0, items: [item], refunds: [], payments: [] } as unknown as Sale;
+    expect(refundPreviewCents(unknown, { i1: 2 })).toBe(4000);
   });
 });
