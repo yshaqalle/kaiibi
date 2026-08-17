@@ -585,15 +585,15 @@ git commit -m "feat(pos): a part-paid receipt says what is still owed, and by wh
 - Create: `src/components/accounting/receivables-tab.tsx`
 - Modify: `src/app/(admin)/(tabs)/accounting.tsx`
 
-- [ ] **Step 1: Build the tab**
+- [x] **Step 1: Build the tab**
 
 A `BentoCard` with a `DataTable`: customer, what they owe, the oldest unpaid sale's date, and how many sales it spans. Read from `listOutstanding`. Follow the bento rules in the `building-bento-screens` skill — a ledger is read down a column, so it takes the full width and stays out of `BentoGrid`.
 
-- [ ] **Step 2: Add the total to the period strip**
+- [x] **Step 2: Add the total to the period strip**
 
 One `StatTile`: **Owed to you**, with a `Caveat tone="context"` explaining that it is money already recognised as revenue, not a forecast — a shop owner reading it as extra income is the specific misunderstanding to prevent.
 
-- [ ] **Step 3: Run the suite and commit**
+- [x] **Step 3: Run the suite and commit**
 
 ```bash
 npm test
