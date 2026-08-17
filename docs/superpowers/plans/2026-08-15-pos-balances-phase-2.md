@@ -103,14 +103,38 @@ shop can already do.
 - Create: `supabase/migrations/20260831000000_sale_balances.sql`
 
 **Interfaces:**
-- Produces: `sale_payments.taken_at timestamptz not null default now()`, `sale_payments.register_session_id uuid`, `sales.settled_at timestamptz`, and `public.customer_balances (shop_id, customer_id, customer_name, sale_id, sale_created_at, total_cents, paid_cents, owed_cents)`.
+- Produces: `sale_payments.register_session_id uuid`, `sales.settled_at timestamptz`, and `public.customer_balances (shop_id, customer_id, customer_name, sale_id, sale_created_at, total_cents, paid_cents, refunded_cents, owed_cents)`.
 
-- [ ] **Step 1: Read the current shape**
+> **DONE** — shipped as `5c5182f`, verified against a database rebuilt from the
+> whole migration chain by `supabase/tests/verify-balances.sql` (7 checks).
+> Three departures from the SQL drafted below, all found by running it:
+>
+> 1. **`taken_at` is not there.** `sale_payments.created_at` already records when
+>    the money arrived, so a second timestamp is the "stored twice" this plan's
+>    own architecture note refuses — and `not null default now()` would have
+>    stamped every historical payment with the migration's own clock. **Task 2's
+>    `settle_sale_balance` therefore writes no `taken_at`, and anything ordering a
+>    sale's payments reads `created_at`.** The `(sale_id, taken_at)` index went
+>    with it; `sale_payments_sale_id_idx` from 0005 already covers the lookup.
+> 2. **`read sale_payments` and `read refunds` had to be widened to
+>    `customers.view`**, which the draft below missed entirely. 20260802030100
+>    widened `sales` and `sale_items` to that key and left these two behind, so
+>    the view — being `security_invoker` — returned `owed = total` to a role that
+>    could see a sale but not its payments. Measured before the fix: **4000 owed
+>    on a sale owing 500**, no error raised. `verify-balances.sql` check 6 pins it.
+> 3. **The backfill stamps what the payments actually cover** rather than
+>    asserting every older sale is paid, so it is idempotent and checkable.
+>
+> The view also left-joins `customers` and coalesces the name, because `read
+> customers` needs `customers.view`/`pos.access`/`sales.edit` — a receivables
+> reader holding only `sales.view` would otherwise have every row vanish.
+
+- [x] **Step 1: Read the current shape**
 
 Run: `grep -rn "create table public.sale_payments" -A 20 supabase/migrations/0005_sale_payments.sql`
 Confirm the column list before adding to it, and confirm `sales` has `customer_id` (added in `0007_sale_customer.sql`).
 
-- [ ] **Step 2: Write the migration**
+- [x] **Step 2: Write the migration**
 
 Create `supabase/migrations/20260831000000_sale_balances.sql`:
 
@@ -176,7 +200,7 @@ alter view public.customer_balances set (security_invoker = on);
 grant select on public.customer_balances to authenticated;
 ```
 
-- [ ] **Step 3: Apply it and check all three directions**
+- [x] **Step 3: Apply it and check all three directions**
 
 Run: `npx supabase db reset` (local) or `npx supabase migration up`.
 Then, in `psql`:
@@ -197,7 +221,7 @@ insert into public.refunds (sale_id, total_cents) values ('<id>', <rest>);
 select count(*) from public.customer_balances where sale_id = '<id>';    -- expect 0
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add supabase/migrations/20260831000000_sale_balances.sql
