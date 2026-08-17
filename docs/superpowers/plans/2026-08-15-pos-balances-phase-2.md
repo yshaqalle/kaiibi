@@ -45,7 +45,7 @@ inventing a parallel path.
 |---|---|
 | Where does a balance live? | Derived: `sales.total_cents - sum(sale_payments.amount_cents)`. Never stored twice |
 | How is a part-paid sale recognised? | `sales.settled_at is null and paid < total`. A generated column `sales.amount_paid_cents` is **not** used — a payment row must not require a write to two tables |
-| What records a later payment? | Another `sale_payments` row on the same sale, with `taken_at` and `register_session_id` |
+| What records a later payment? | Another `sale_payments` row on the same sale, stamped by its own `created_at` and carrying `register_session_id` |
 | Who may owe? | Only `sales.customer_id is not null`. The RPC enforces it |
 | What does Accounting read? | `public.customer_balances`, a view over the same rows |
 | What about refunds? | **Not out of scope any more** — see the section below. A refund reduces what is owed before it pays anything back |
@@ -83,7 +83,7 @@ shop can already do.
 
 | File | Responsibility |
 |---|---|
-| `supabase/migrations/20260831000000_sale_balances.sql` | `sale_payments.taken_at` / `register_session_id`, `sales.settled_at`, the `customer_balances` view, RLS, indexes |
+| `supabase/migrations/20260831000000_sale_balances.sql` | **Shipped `5c5182f`.** `sale_payments.register_session_id`, `sales.settled_at`, the `customer_balances` view, the `customers.view` read widening, indexes |
 | `supabase/migrations/20260831000100_complete_sale_allows_credit.sql` | `complete_sale` gains `p_allow_balance boolean`; `edit_sale` carries the same rule; `settle_sale_balance` RPC |
 | `src/lib/balances.ts` | Client: read a customer's balance, list outstanding sales, settle |
 | `src/lib/__tests__/balances.test.ts` | Its tests, against mocked Supabase responses |
@@ -136,90 +136,32 @@ Confirm the column list before adding to it, and confirm `sales` has `customer_i
 
 - [x] **Step 2: Write the migration**
 
-Create `supabase/migrations/20260831000000_sale_balances.sql`:
-
-```sql
--- A balance is arithmetic, not a second ledger: what a sale came to, less what
--- has been taken against it. Storing it as a column would mean every payment
--- had to write two places and could disagree with itself.
-
-alter table public.sale_payments
-  add column if not exists taken_at timestamptz not null default now(),
-  add column if not exists register_session_id uuid references public.register_sessions(id) on delete set null;
-
--- Stamped when the last of a sale's money arrives. Null on a sale that is
--- still owed, which is what makes "who owes me" a cheap index scan rather than
--- a sum over every payment row in the shop's history.
-alter table public.sales
-  add column if not exists settled_at timestamptz;
-
--- Everything already paid in full is settled as of its own creation, so the
--- new column never reads as "the whole history is outstanding".
-update public.sales s set settled_at = s.created_at
-where s.settled_at is null;
-
-create index if not exists sales_unsettled_idx
-  on public.sales (shop_id, customer_id)
-  where settled_at is null;
-
-create index if not exists sale_payments_sale_taken_idx
-  on public.sale_payments (sale_id, taken_at);
-
--- Subqueries rather than two left joins: joining both payments and refunds
--- multiplies the rows against each other, and the sums come out wrong in a way
--- that looks plausible on a sale with one of each.
-create or replace view public.customer_balances as
-select
-  s.shop_id,
-  s.customer_id,
-  s.customer_name,
-  s.id as sale_id,
-  s.created_at as sale_created_at,
-  s.total_cents,
-  coalesce(paid.total, 0)::integer as paid_cents,
-  coalesce(returned.total, 0)::integer as refunded_cents,
-  (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0))::integer as owed_cents
-from public.sales s
-left join lateral (
-  select sum(p.amount_cents) as total from public.sale_payments p where p.sale_id = s.id
-) paid on true
-left join lateral (
-  -- Goods that came back are not a debt. Without this a returned basket keeps
-  -- appearing on the customer's account, and the shop chases money it was
-  -- never owed.
-  select sum(r.total_cents) as total from public.refunds r where r.sale_id = s.id
-) returned on true
-where s.settled_at is null
-  and s.customer_id is not null
-  and (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0)) > 0;
-
--- The view inherits the underlying tables' RLS through security_invoker, so a
--- staff member sees exactly the sales they could already read.
-alter view public.customer_balances set (security_invoker = on);
-
-grant select on public.customer_balances to authenticated;
-```
+Shipped as `supabase/migrations/20260831000000_sale_balances.sql` — **read that
+file, not a draft of it.** It differs from what was sketched here in the three
+ways listed at the top of this task, and `sale_payments.taken_at` in particular
+does not exist, so anything below that referenced it would not compile.
 
 - [x] **Step 3: Apply it and check all three directions**
 
-Run: `npx supabase db reset` (local) or `npx supabase migration up`.
-Then, in `psql`:
+Done as `supabase/tests/verify-balances.sql`, following the repo's `verify-*.sql`
+convention rather than the hand-typed psql sketched here — 7 checks inside one
+rolled-back `DO` block:
 
-```sql
--- 1. A fully paid sale is not a balance.
-select count(*) from public.customer_balances;  -- expect 0 on seed data
-
--- 2. A part-paid sale is, for exactly the shortfall.
---    (take a seeded sale, delete one of its payments, re-check)
-select owed_cents from public.customer_balances where sale_id = '<id>';
-
--- 3. Refunding that sale reduces what is owed, and clearing it entirely
---    removes the row. This is the case the naive view got wrong.
-insert into public.refunds (sale_id, total_cents) values ('<id>', <part>);
-select owed_cents from public.customer_balances where sale_id = '<id>';  -- down by <part>
-insert into public.refunds (sale_id, total_cents) values ('<id>', <rest>);
-select count(*) from public.customer_balances where sale_id = '<id>';    -- expect 0
+```bash
+npx supabase db reset --local     # proves the whole chain still applies
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-balances.sql
 ```
+
+Beyond the three directions asked for, it pins the two failures that do not
+raise: **two payments against one refund** (the cross product that counts the
+refund twice) and **a `customers.view`-only role** reading the balance. Both were
+confirmed to fail before the fix and pass after — reverting just the two policies
+makes check 6 report `owed 4000` on a sale owing `500`.
+
+One neighbouring script, `verify-loyalty.sql` check 11, fails — and fails
+identically on `main` with this migration removed. Pre-existing, untouched, and
+worth its own look.
 
 - [x] **Step 4: Commit**
 
@@ -347,13 +289,13 @@ begin
     insert into public.sale_payments
       (sale_id, method, amount_cents, tendered_cents, customer_name, customer_phone,
        currency_code, exchange_rate, foreign_amount_cents, foreign_change_cents,
-       taken_at, register_session_id)
+       register_session_id)
     values
       (p_sale_id, v_payment->>'method', (v_payment->>'amount_cents')::integer,
        (v_payment->>'tendered_cents')::integer, v_payment->>'customer_name',
        v_payment->>'customer_phone', nullif(v_payment->>'currency_code', ''),
        (v_payment->>'exchange_rate')::numeric, (v_payment->>'foreign_amount_cents')::integer,
-       (v_payment->>'foreign_change_cents')::integer, now(), p_register_session_id);
+       (v_payment->>'foreign_change_cents')::integer, p_register_session_id);
   end loop;
 
   if v_taking = v_owed then
