@@ -6,7 +6,7 @@
 
 **Goal:** Let a sale be paid in part or not at all, carry what is left as a balance against a named customer, and let that customer pay it off at the till later — with the shop able to see who owes what.
 
-**Architecture:** A balance is **not a new ledger**. A sale already has `total_cents` and a `sale_payments` list; the balance is the arithmetic between them, and settling is inserting another `sale_payments` row against an *older* sale. That choice is what keeps this from becoming an accounts-receivable subsystem: no parallel truth to reconcile, one place a payment lives, and Accounting reads the same rows the till wrote. Three server changes carry it — `complete_sale` stops demanding payments equal the total when a customer is attached, a new `settle_sale_balance` RPC records later payments, and a view exposes what is outstanding.
+**Architecture:** A balance is **not a new ledger**. A sale already knows what it came to, what came back, and what was taken — so the balance is the arithmetic between those three (`total_cents` less `refunds` less `sale_payments`), and settling is inserting another `sale_payments` row against an *older* sale. That choice is what keeps this from becoming an accounts-receivable subsystem: no parallel truth to reconcile, one place a payment lives, and Accounting reads the same rows the till wrote. Three server changes carry it — `complete_sale` stops demanding payments equal the total when a customer is attached, a new `settle_sale_balance` RPC records later payments, and a view exposes what is outstanding.
 
 **Tech Stack:** Supabase Postgres (plpgsql, RLS), Expo SDK 57 / React Native, TypeScript, Jest.
 
