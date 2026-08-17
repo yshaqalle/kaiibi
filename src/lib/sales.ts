@@ -61,6 +61,12 @@ export async function completeSale(
     p_points_redeemed: pointsRedeemed,
     ...(locationId ? { p_location_id: locationId } : {}),
     ...(registerSessionId ? { p_register_session_id: registerSessionId } : {}),
+    // Sent only when asked for, like the two above. An ordinary sale's payload is
+    // therefore byte-identical to what it was before credit existed, which is
+    // what keeps this working against a server that has not taken migration
+    // 20260831000100 yet -- only the credit path fails there, and it fails
+    // loudly rather than silently charging the wrong amount.
+    ...(allowBalance ? { p_allow_balance: true } : {}),
   });
   if (error) throw error;
   return data as string;
