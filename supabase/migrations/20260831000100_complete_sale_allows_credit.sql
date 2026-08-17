@@ -11,15 +11,23 @@
 -- (complete_sale lines 38-390, edit_sale lines 409-774), extracted
 -- mechanically rather than retyped, with only the edits listed below.
 --
--- complete_sale, three edits:
+-- Points are earned on money taken, not on goods handed over: a sale left on
+-- account earns nothing until it is settled. Otherwise credit plus redemption
+-- is a way to take value out of the shop without ever paying for it.
+--
+-- complete_sale, four edits:
 --   1. trailing parameter `p_allow_balance boolean default false`
 --   2. the payments guard split into over-payment (always refused) and
 --      under-payment (refused unless asked for, against a customer)
 --   3. `settled_at` stamped in the closing `update public.sales set ...`
+--   4. points zeroed when the sale is not paid in full
 --
--- edit_sale, the same three, plus:
---   4. it no longer deletes settlement payments -- see the comment at the
---      delete for why that one matters more than the rest.
+-- edit_sale, the same four, plus:
+--   5. it no longer deletes settlement payments -- see the comment at the
+--      delete for why that one matters more than the rest;
+--   6. loyalty_points_per_usd is kept whenever loyalty is on rather than only
+--      when points were earned, so a credit sale remembers the rate it will
+--      earn at once it is paid.
 --
 -- Both are DROPPED first. `create or replace` with an extra defaulted
 -- parameter does not replace anything -- it adds an overload, and every
@@ -77,6 +85,9 @@ declare
   v_loyalty_enabled boolean;
   v_points_per_usd numeric;
   v_cents_per_point integer;
+  v_grace_days integer;
+  v_pending_points integer := 0;
+  v_points_available integer := 0;
   v_loyalty_active boolean := false;
   v_points_redeemed integer := greatest(coalesce(p_points_redeemed, 0), 0);
   v_redeem_cents integer := 0;
@@ -162,9 +173,11 @@ begin
   end if;
 
   select tax_enabled, tax_rate_percent,
-         loyalty_enabled, loyalty_points_per_usd, loyalty_cents_per_point
+         loyalty_enabled, loyalty_points_per_usd, loyalty_cents_per_point,
+         loyalty_points_available_after_days
     into v_tax_enabled, v_tax_rate,
-         v_loyalty_enabled, v_points_per_usd, v_cents_per_point
+         v_loyalty_enabled, v_points_per_usd, v_cents_per_point,
+         v_grace_days
     from public.shops where id = p_shop_id;
 
   -- The module check is not belt and braces. public.customers and
@@ -301,8 +314,35 @@ begin
     if v_balance is null then
       raise exception 'customer % not found in this shop', p_customer_id;
     end if;
-    if v_points_redeemed > v_balance then
-      raise exception 'customer has % points, cannot redeem %', v_balance, v_points_redeemed;
+    -- RESTORED. This guard shipped in 20260820000100 and was dropped when
+    -- 20260822000000 copied complete_sale forward from an older ancestor; it has
+    -- been missing ever since, so the maturation window has not actually been
+    -- enforced. verify-loyalty check 11 has been failing on main because of it.
+    --
+    -- Only points that have finished maturing can be spent. Computed inside the
+    -- lock so a redemption cannot race a sale that is still earning, and
+    -- restricted to `earn` rows -- a reversal or a manual grant is not made to
+    -- wait again. The points THIS sale is about to earn are written further
+    -- down, so they correctly play no part in its own redemption.
+    select coalesce(sum(l.delta_points), 0) into v_pending_points
+      from public.customer_points_ledger l
+     where l.customer_id = p_customer_id
+       and l.reason = 'earn'
+       and l.created_at > now() - make_interval(days => coalesce(v_grace_days, 0));
+    v_points_available := greatest(v_balance - v_pending_points, 0);
+
+    if v_points_redeemed > v_points_available then
+      -- Reported as balance-minus-available rather than the raw sum of earn
+      -- rows in the window: spends and clawbacks have already reduced the
+      -- balance, so the raw figure can exceed it and read as nonsense ("160 of
+      -- 70 still maturing"). This way available + on-hold always equals the
+      -- balance the customer can see.
+      if v_balance > v_points_available then
+        raise exception 'customer has % points available to spend (% of % still maturing), cannot redeem %',
+          v_points_available, v_balance - v_points_available, v_balance, v_points_redeemed;
+      else
+        raise exception 'customer has % points, cannot redeem %', v_points_available, v_points_redeemed;
+      end if;
     end if;
 
     v_redeem_cents := v_points_redeemed * v_cents_per_point;
@@ -372,6 +412,13 @@ begin
     if p_customer_id is null then
       raise exception 'a sale can only be left unpaid against a customer';
     end if;
+  end if;
+
+  -- Points are earned on money taken, not on goods handed over. A sale left on
+  -- account earns nothing yet; settle_sale_balance credits it when the last of
+  -- the money arrives, recomputed from this sale's own frozen rate.
+  if v_payments_total < v_total_cents then
+    v_points_earned := 0;
   end if;
 
   update public.sales set
@@ -750,6 +797,13 @@ begin
     end if;
   end if;
 
+  -- Points are earned on money taken, not on goods handed over. A sale left on
+  -- account earns nothing yet; settle_sale_balance credits it when the last of
+  -- the money arrives, recomputed from this sale's own frozen rate.
+  if v_payments_total < v_total_cents then
+    v_points_earned_new := 0;
+  end if;
+
   update public.sales set
     total_cents = v_total_cents,
     item_count = v_item_count,
@@ -762,7 +816,10 @@ begin
     tax_cents = v_tax_cents,
     tax_rate_percent = case when v_tax_enabled then v_tax_rate else null end,
     points_earned = v_points_earned_new,
-    loyalty_points_per_usd = case when v_points_earned_new > 0 then v_rate_used else null end,
+    -- Keyed off loyalty being on, not off points having been earned: a sale
+    -- left on account earns nothing yet and still has to remember the rate it
+    -- will earn at when it is paid off.
+    loyalty_points_per_usd = case when v_loyalty_active and p_customer_id is not null then v_rate_used else null end,
     -- coalesce, not a bare now(): re-pricing a sale that was paid off last
     -- month must not move the date it was paid off.
     settled_at = case when v_payments_total >= v_total_cents then coalesce(settled_at, now()) else null end
@@ -834,6 +891,7 @@ declare
   v_owed integer;
   v_payment jsonb;
   v_taking integer := 0;
+  v_points integer := 0;
 begin
   -- for update: two cashiers taking the last of the same balance at two tills
   -- would otherwise both read the same shortfall and both be allowed it.
@@ -912,6 +970,37 @@ begin
 
   if v_taking = v_owed then
     update public.sales set settled_at = now() where id = p_sale_id;
+
+    -- The whole of a credit sale's earning happens here, because points are
+    -- earned on money taken and not on goods handed over. Recomputed from the
+    -- sale's own frozen rate rather than today's -- and from the pre-tax
+    -- merchandise, because points are never earned on money collected for the
+    -- state. That is the identical arithmetic complete_sale ran at ring-up:
+    -- it stored total_cents as (that base + tax_cents), so subtracting the tax
+    -- gets the base back exactly.
+    --
+    -- A sale that had something brought back before it was paid off earns
+    -- nothing at all. Proportioning it would have to agree with the refund
+    -- clawback's own proportioning against a base it does not share, and a
+    -- basket half returned before the customer settled is not a purchase worth
+    -- paying points on.
+    if v_refunded = 0
+       and v_sale.customer_id is not null
+       and coalesce(v_sale.loyalty_points_per_usd, 0) > 0
+       and public.shop_has_module(v_sale.shop_id, 'customers') then
+      v_points := round((v_sale.total_cents - coalesce(v_sale.tax_cents, 0))
+                        * v_sale.loyalty_points_per_usd / 100)::integer;
+      if v_points > 0 then
+        -- sales.points_earned means points CREDITED, which is what the refund
+        -- clawback proportions against. Left at zero until now, a refund on an
+        -- unpaid sale correctly claws back nothing.
+        update public.sales set points_earned = v_points where id = p_sale_id;
+        insert into public.customer_points_ledger
+          (shop_id, customer_id, sale_id, delta_points, reason, points_per_usd, created_by)
+          values (v_sale.shop_id, v_sale.customer_id, p_sale_id, v_points, 'earn',
+                  v_sale.loyalty_points_per_usd, auth.uid());
+      end if;
+    end if;
   end if;
 
   return v_owed - v_taking;

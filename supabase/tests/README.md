@@ -232,6 +232,22 @@ Then the credit rules themselves, once `complete_sale` can accept a shortfall:
 17. Reading a balance is not permission to take money: the `customers.view` role
     from check 6 can see what is owed and cannot record a payment.
 
+And loyalty, which is where credit turns into a way to take value out of a shop
+without paying for it:
+
+18. **Goods on account earn no points until paid.** Otherwise the loop is: buy on
+    account, earn, spend the points on a second basket, never settle the first.
+    The sale still remembers the rate it will earn at.
+19. Settling earns them **at the sale's own frozen rate**, not the rate the shop
+    offers on the day the money arrives — asserted by moving the shop's rate
+    between the sale and the settlement. A part-settlement earns nothing, and
+    `customers.points_balance` still equals the ledger afterwards.
+20. **Paying in full at the till still earns immediately** — the regression that
+    matters most, because that is every sale this shop has ever taken.
+21. A sale returned against **before** it was settled earns nothing at all.
+    Proportioning it would have to agree with the refund clawback's own
+    proportioning against a base it does not share.
+
 ## What `verify-owner-membership.sql` covers
 
 The owner of a shop had no `shop_members` row — adminship was `shops.owner_id`

@@ -38,6 +38,10 @@ declare
   v_settled     timestamptz;
   v_raised      boolean;
   v_detail      text;
+  v_points      integer;
+  v_bal         integer;
+  v_ledger      integer;
+  v_loyal_sale  uuid;
   v_items2 jsonb;
   v_items3 jsonb;
   v_items4 jsonb;
@@ -446,6 +450,135 @@ begin
   end if;
   raise notice 'OK: refused (%)', v_detail;
   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+
+  ------------------------------------------------------------------
+  raise notice '=== 18. Goods on account earn no points until paid ===';
+  ------------------------------------------------------------------
+  -- Otherwise credit plus redemption is a way to take value out of the shop
+  -- without ever paying for it: buy on account, earn, spend the points on a
+  -- second basket, never settle the first.
+  update public.shops set loyalty_enabled = true, loyalty_points_per_usd = 1,
+                          loyalty_cents_per_point = 1, loyalty_points_available_after_days = 0
+    where id = v_shop_id;
+
+  select public.complete_sale(
+    v_shop_id, v_items3,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 0 then
+    raise exception 'FAIL: a sale with 2000 still owed credited % points', v_points;
+  end if;
+
+  select count(*) into v_rows from public.customer_points_ledger
+    where sale_id = v_loyal_sale and reason = 'earn';
+  if v_rows <> 0 then
+    raise exception 'FAIL: an unpaid sale posted % earn rows to the ledger', v_rows;
+  end if;
+
+  -- The rate must survive anyway, or there is nothing to earn at later.
+  select loyalty_points_per_usd into v_bal from public.sales where id = v_loyal_sale;
+  if v_bal is null then
+    raise exception 'FAIL: the sale forgot the rate it will earn at when settled';
+  end if;
+  raise notice 'OK: 3000 of goods on account, 0 points, rate remembered';
+
+  ------------------------------------------------------------------
+  raise notice '=== 19. Settling the balance earns them, at the frozen rate ===';
+  ------------------------------------------------------------------
+  -- The shop changes its rate between the sale and the settlement. The customer
+  -- earns what they were promised at the till, not what the shop offers today.
+  update public.shops set loyalty_points_per_usd = 5 where id = v_shop_id;
+
+  perform public.settle_sale_balance(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)));
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 0 then
+    raise exception 'FAIL: a part-settled sale credited % points', v_points;
+  end if;
+
+  perform public.settle_sale_balance(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)));
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 30 then
+    raise exception 'FAIL: 3000 of goods at the sale''s own rate is 30 points, credited %', v_points;
+  end if;
+
+  select coalesce(sum(delta_points), 0) into v_ledger from public.customer_points_ledger
+    where sale_id = v_loyal_sale and reason = 'earn';
+  if v_ledger <> 30 then
+    raise exception 'FAIL: the ledger says % where the sale says 30', v_ledger;
+  end if;
+
+  select points_balance into v_bal from public.customers where id = v_customer_id;
+  select coalesce(sum(delta_points), 0) into v_ledger from public.customer_points_ledger
+    where customer_id = v_customer_id;
+  if v_bal <> v_ledger then
+    raise exception 'FAIL: counter % <> ledger % -- every other figure here is meaningless', v_bal, v_ledger;
+  end if;
+  raise notice 'OK: paid off, 30 points at the frozen rate, counter and ledger agree';
+
+  ------------------------------------------------------------------
+  raise notice '=== 20. Paying in full at the till still earns immediately ===';
+  ------------------------------------------------------------------
+  -- The regression that matters most: the ordinary sale, which is every sale
+  -- this shop has ever taken, must be untouched by any of the above.
+  declare v_cash_sale uuid;
+  begin
+    select public.complete_sale(
+      v_shop_id, v_items2,
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000, 'tendered_cents', 2000)),
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0
+    ) into v_cash_sale;
+    select points_earned into v_points from public.sales where id = v_cash_sale;
+    if v_points <> 100 then
+      raise exception 'FAIL: a cash sale of 2000 at rate 5 earned % points, expected 100', v_points;
+    end if;
+  end;
+  raise notice 'OK: cash over the counter earns at the till, as it always did';
+
+  ------------------------------------------------------------------
+  raise notice '=== 21. Returned before it was paid for: no points ===';
+  ------------------------------------------------------------------
+  -- Buy three on account, bring one back, then settle. Crediting the full
+  -- basket here would be the same loophole by a longer route, and proportioning
+  -- it would have to agree with the refund clawback on a base it does not
+  -- share -- so a sale returned against before it was settled earns nothing.
+  select public.complete_sale(
+    v_shop_id, v_items3,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select id into v_item_id from public.sale_items where sale_id = v_loyal_sale;
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+
+  -- 3000 of goods, 1000 returned, 1000 already down: 1000 left to settle.
+  select owed_cents into v_owed from public.customer_balances where sale_id = v_loyal_sale;
+  if v_owed <> 1000 then raise exception 'FAIL: expected 1000 owed, got %', v_owed; end if;
+
+  perform public.settle_sale_balance(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)));
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 0 then
+    raise exception 'FAIL: a sale returned against before settlement credited % points', v_points;
+  end if;
+
+  -- And the counter still reconciles, which is the check that a skipped earn
+  -- did not leave a clawback to fire against somebody else's points.
+  select points_balance into v_bal from public.customers where id = v_customer_id;
+  select coalesce(sum(delta_points), 0) into v_ledger from public.customer_points_ledger
+    where customer_id = v_customer_id;
+  if v_bal <> v_ledger then
+    raise exception 'FAIL: counter % <> ledger %', v_bal, v_ledger;
+  end if;
+  raise notice 'OK: brought back before paying earns nothing, and nothing drifted';
 
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';
