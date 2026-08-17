@@ -200,10 +200,24 @@ git commit -m "feat(db): a sale knows when it was settled, and what is still owe
 >    filed into a closed drawer is the failure Phase 1 built a recovery path for,
 >    arriving by a new road.
 >
-> Left deliberately alone: **an unpaid sale still earns loyalty points.** Goods on
-> credit currently earn immediately and only claw back on refund, so credit plus
-> redemption is a way to take value without paying. It is a business-rule
-> decision, not an arithmetic bug, so it is flagged rather than quietly changed.
+> **Loyalty now waits for payment** (`219da61`, checks 18–21). Goods on account
+> earn nothing until the sale is settled — otherwise credit plus redemption is a
+> way to take value out of the shop and never pay for it. The rate is still frozen
+> at ring-up, so settling earns what was promised at the till rather than what the
+> shop offers that day, and `sales.points_earned` keeps meaning points *credited*
+> so the refund clawback proportions against the right base. A sale returned
+> against before it was settled earns nothing at all.
+>
+> That work turned up **a guard that was lost rather than written**: only matured
+> points may be redeemed. It shipped in `20260820000100`, was dropped when
+> `20260822000000` copied `complete_sale` forward from an older ancestor, and has
+> been missing since — the maturation window has not been enforced in production.
+> `verify-loyalty` check 11 had been failing on `main` for exactly this reason,
+> and that failure was hiding checks 12–14. Restored here; **the whole database
+> suite now passes for the first time.**
+>
+> Worth noting for the rest of this plan: that is two separate bugs caused by the
+> copy-forward convention, in one function, found within a day of each other.
 
 **Interfaces:**
 - Produces:
