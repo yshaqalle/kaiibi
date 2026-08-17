@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Phase 1 is [`2026-08-15-pos-current-sale-phase-1.md`](./2026-08-15-pos-current-sale-phase-1.md)** and ships without any of this. Do not start Phase 2 until Phase 1 is merged: it composes the surfaces this plan drops controls into.
+> **Phase 1 is [`2026-08-15-pos-current-sale-phase-1.md`](./2026-08-15-pos-current-sale-phase-1.md)** and shipped without any of this — PR #56, merged 16 Aug as `c2dad47`. Its surfaces are what this plan drops controls into, so read that plan's verification log before starting.
 
 **Goal:** Let a sale be paid in part or not at all, carry what is left as a balance against a named customer, and let that customer pay it off at the till later — with the shop able to see who owes what.
 
-**Architecture:** A balance is **not a new ledger**. A sale already has `total_cents` and a `sale_payments` list; the balance is the arithmetic between them, and settling is inserting another `sale_payments` row against an *older* sale. That choice is what keeps this from becoming an accounts-receivable subsystem: no parallel truth to reconcile, one place a payment lives, and Accounting reads the same rows the till wrote. Three server changes carry it — `complete_sale` stops demanding payments equal the total when a customer is attached, a new `settle_sale_balance` RPC records later payments, and a view exposes what is outstanding.
+**Architecture:** A balance is **not a new ledger**. A sale already knows what it came to, what came back, and what was taken — so the balance is the arithmetic between those three (`total_cents` less `refunds` less `sale_payments`), and settling is inserting another `sale_payments` row against an *older* sale. That choice is what keeps this from becoming an accounts-receivable subsystem: no parallel truth to reconcile, one place a payment lives, and Accounting reads the same rows the till wrote. Three server changes carry it — `complete_sale` stops demanding payments equal the total when a customer is attached, a new `settle_sale_balance` RPC records later payments, and a view exposes what is outstanding.
 
 **Tech Stack:** Supabase Postgres (plpgsql, RLS), Expo SDK 57 / React Native, TypeScript, Jest.
 
@@ -14,14 +14,30 @@
 
 - **Expo docs:** read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code that touches an Expo API (`AGENTS.md`).
 - **Postgres work:** load the `supabase:supabase-postgres-best-practices` skill before writing any migration, RLS policy or index in this plan.
-- **Migration numbering:** the newest existing migration is `20260830000000_platform_shop_people.sql`. This plan uses `20260831000000` and `20260831000100`. Re-check `ls supabase/migrations | tail -1` before creating either — another session may have landed one first.
+- **Migration numbering:** the newest existing migration is still `20260830000000_platform_shop_people.sql` as of `5fe4837` (PR #57, the refund reporting work, added none). This plan uses `20260831000000` and `20260831000100`. Re-check `ls supabase/migrations | tail -1` before creating either — another session may have landed one first.
 - **This repo re-creates functions in full.** `complete_sale` is redefined wholesale by each migration that touches it; the newest definition lives in `supabase/migrations/20260826000100_sale_promotion_attribution.sql` (`complete_sale` and `edit_sale` both). Copy the current body forward verbatim and change only what each task names — never hand-write a fresh body.
 - **The guard being changed is deliberate.** `raise exception 'payments total % does not match sale total %'` protects against a client under-charging by accident. It is not being removed; it is being made conditional on an explicit, named intent.
 - **A balance always has a name against it.** No customer, no credit — an unpaid sale with nobody attached is a loss, not a debt, and the RPC must refuse it rather than the UI merely discouraging it.
 - **Money is integer cents.** No numeric, no rounding in the client.
 - **Never hardcode a hex in a screen**; POS and Accounting read `Colors.light` bento tokens.
-- **Tests:** `npm test` (105 suites / 1545 tests, ~10s). Pure logic in `src/lib/__tests__/`.
-- **Never `git add -A`** — a concurrent session may share this repository. Never push.
+- **Tests:** `npm test` (112 suites / 1599 tests after Phase 1, ~3s). Pure logic in `src/lib/__tests__/`; components with `react-test-renderer` wrapped in `act`, joining text nodes with `''` before asserting on anything interpolated.
+- **Never `git add -A`** — a concurrent session may share this repository (one has been running refunds against `yusefshop` throughout Phase 1). Never push without being asked.
+- **`pos.tsx` carries 10 pre-existing `react-compiler` errors.** Count them before and after; the gate is that this work adds none.
+
+## What Phase 1 already left you
+
+Read these before writing anything — every task below plugs into them rather than
+inventing a parallel path.
+
+| Ships in Phase 1 | What Phase 2 does with it |
+|---|---|
+| `src/lib/checkout-intent.ts` — one pure function both surfaces put on their button | Task 4 adds the credit branches. Nothing else composes a button label |
+| `src/lib/checkout-errors.ts` — `extractErrorMessage`, `isClosedRegisterError`, `checkoutErrorMessage` | Add the new server refusals here, with a test. A raw RPC sentence must never reach a cashier |
+| `CustomerBlock` / `PaymentBlock` (exported from `checkout-panel.tsx`) | The balance row goes inside `CustomerBlock`; the rest-choice goes inside `PaymentBlock`. Both surfaces then get it for free |
+| `SalePanel`'s pinned foot (`grandHTML` equivalent: total + action) | The "owed after this sale" line belongs in that pinned block, not in the scroller |
+| `checkout(retryOnSession?)` in `pos.tsx` | Already takes an argument and is wired through arrows. Keep that shape — a bare handler passes a press event |
+| `src/lib/held-orders.ts` — parked sales, per user and till, in AsyncStorage | A hold still reserves nothing. If Phase 2 ever reserves stock, holds move to the server first |
+| `DualAmount` + `display-currency.ts` | Every new figure (owed, settled, balance due) takes the same treatment: dollars, and the shop's own currency underneath |
 
 ## The data model, settled first
 
@@ -32,7 +48,36 @@
 | What records a later payment? | Another `sale_payments` row on the same sale, with `taken_at` and `register_session_id` |
 | Who may owe? | Only `sales.customer_id is not null`. The RPC enforces it |
 | What does Accounting read? | `public.customer_balances`, a view over the same rows |
-| What about refunds? | Out of scope. A negative balance is refused by the same check that refuses over-payment |
+| What about refunds? | **Not out of scope any more** — see the section below. A refund reduces what is owed before it pays anything back |
+
+## Refunds change the arithmetic — read this before Task 1
+
+`refunds` (and `refund_items`) already exist: `supabase/migrations/20260802015200_refunds.sql`,
+one row per refund with `sale_id` and `total_cents`, line-level through
+`refund_items`, so a sale can be partly returned. PR #57 (merged 16 Aug) fixed how
+refunds report through Dashboard, Accounting and People.
+
+That breaks the naive balance. A sale of $84.74 with $50 taken owes $34.74 — but if
+$30 of it comes back over the counter tomorrow, the shop must not keep chasing the
+customer for the full $34.74. **What is owed is what the sale came to, less what was
+returned, less what was taken:**
+
+```
+owed = sales.total_cents - refunds.total_cents - sale_payments.amount_cents
+```
+
+Two consequences this plan commits to:
+
+1. **The `customer_balances` view must subtract refunds**, or a returned basket keeps
+   showing as a debt. The definition in Task 1 does this, and Task 1 grew a step that
+   proves it against a part-paid, part-refunded sale.
+2. **A refund on an unpaid sale pays nothing out.** Money that was never taken cannot
+   be handed back: the refund cancels the debt first, and only a genuine excess
+   reaches the drawer. The refund RPC does not know about balances today, so Task 2
+   states the rule and Task 8 checks it on a real sale.
+
+Neither is a new feature. Both are the arithmetic being right about something the
+shop can already do.
 
 ## File Structure
 
@@ -96,6 +141,9 @@ create index if not exists sales_unsettled_idx
 create index if not exists sale_payments_sale_taken_idx
   on public.sale_payments (sale_id, taken_at);
 
+-- Subqueries rather than two left joins: joining both payments and refunds
+-- multiplies the rows against each other, and the sums come out wrong in a way
+-- that looks plausible on a sale with one of each.
 create or replace view public.customer_balances as
 select
   s.shop_id,
@@ -104,14 +152,22 @@ select
   s.id as sale_id,
   s.created_at as sale_created_at,
   s.total_cents,
-  coalesce(sum(p.amount_cents), 0)::integer as paid_cents,
-  (s.total_cents - coalesce(sum(p.amount_cents), 0))::integer as owed_cents
+  coalesce(paid.total, 0)::integer as paid_cents,
+  coalesce(returned.total, 0)::integer as refunded_cents,
+  (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0))::integer as owed_cents
 from public.sales s
-left join public.sale_payments p on p.sale_id = s.id
+left join lateral (
+  select sum(p.amount_cents) as total from public.sale_payments p where p.sale_id = s.id
+) paid on true
+left join lateral (
+  -- Goods that came back are not a debt. Without this a returned basket keeps
+  -- appearing on the customer's account, and the shop chases money it was
+  -- never owed.
+  select sum(r.total_cents) as total from public.refunds r where r.sale_id = s.id
+) returned on true
 where s.settled_at is null
   and s.customer_id is not null
-group by s.shop_id, s.customer_id, s.customer_name, s.id, s.created_at, s.total_cents
-having (s.total_cents - coalesce(sum(p.amount_cents), 0)) > 0;
+  and (s.total_cents - coalesce(returned.total, 0) - coalesce(paid.total, 0)) > 0;
 
 -- The view inherits the underlying tables' RLS through security_invoker, so a
 -- staff member sees exactly the sales they could already read.
@@ -120,14 +176,25 @@ alter view public.customer_balances set (security_invoker = on);
 grant select on public.customer_balances to authenticated;
 ```
 
-- [ ] **Step 3: Apply it and check both directions**
+- [ ] **Step 3: Apply it and check all three directions**
 
 Run: `npx supabase db reset` (local) or `npx supabase migration up`.
 Then, in `psql`:
 
 ```sql
--- A fully paid sale is not a balance.
+-- 1. A fully paid sale is not a balance.
 select count(*) from public.customer_balances;  -- expect 0 on seed data
+
+-- 2. A part-paid sale is, for exactly the shortfall.
+--    (take a seeded sale, delete one of its payments, re-check)
+select owed_cents from public.customer_balances where sale_id = '<id>';
+
+-- 3. Refunding that sale reduces what is owed, and clearing it entirely
+--    removes the row. This is the case the naive view got wrong.
+insert into public.refunds (sale_id, total_cents) values ('<id>', <part>);
+select owed_cents from public.customer_balances where sale_id = '<id>';  -- down by <part>
+insert into public.refunds (sale_id, total_cents) values ('<id>', <rest>);
+select count(*) from public.customer_balances where sale_id = '<id>';    -- expect 0
 ```
 
 - [ ] **Step 4: Commit**
@@ -193,7 +260,16 @@ with:
 
 Apply the same three changes to `edit_sale`, whose guard is the same sentence — an edit that raises a sale's total above what was paid leaves a balance rather than failing.
 
-- [ ] **Step 3: Add the settle RPC**
+- [ ] **Step 3: State the refund rule in the settle path**
+
+A refund on a sale that was never fully paid cannot hand back money that was never
+taken. `settle_sale_balance` therefore reads what is owed through the same
+arithmetic as the view (total less refunds less payments), and the guard below
+already covers it: `v_owed <= 0` refuses, and `v_taking > v_owed` refuses. Compute
+`v_owed` with refunds subtracted, or a refunded sale will happily accept a
+settlement for money the shop no longer expects.
+
+- [ ] **Step 4: Add the settle RPC**
 
 ```sql
 create or replace function public.settle_sale_balance(
@@ -205,6 +281,7 @@ language plpgsql security definer set search_path = public as $$
 declare
   v_sale public.sales%rowtype;
   v_paid integer;
+  v_refunded integer;
   v_owed integer;
   v_payment jsonb;
   v_taking integer := 0;
@@ -222,7 +299,10 @@ begin
 
   select coalesce(sum(amount_cents), 0) into v_paid
     from public.sale_payments where sale_id = p_sale_id;
-  v_owed := v_sale.total_cents - v_paid;
+  select coalesce(sum(total_cents), 0) into v_refunded
+    from public.refunds where sale_id = p_sale_id;
+  -- Same arithmetic as customer_balances. Goods that came back are not owed.
+  v_owed := v_sale.total_cents - v_refunded - v_paid;
 
   if v_owed <= 0 then
     raise exception 'this sale is already paid in full';
@@ -515,7 +595,9 @@ Run: `npm test && npx eslint src --max-warnings=0`
 3. that customer, attached to a new sale, shows `Owes $34.74`;
 4. **Collect it** with an empty basket takes the money and prints a settlement receipt;
 5. a second till cannot settle the same balance twice — the RPC refuses with "already paid in full";
-6. Accounting's receivables total matches the sum of the outstanding rows.
+6. Accounting's receivables total matches the sum of the outstanding rows;
+7. **refunding a part-paid sale drops what is owed by the refund**, and refunding the
+   rest clears the customer's balance entirely rather than leaving a debt behind.
 
 - [ ] **Step 3: Commit any fixes**
 
@@ -526,5 +608,7 @@ Run: `npm test && npx eslint src --max-warnings=0`
 **Spec coverage.** Every deferred item from Phase 1's "Explicitly out of scope" table has a task: part payment (2, 4, 5), Pay later (2, 4, 5), settling an older balance (2, 3, 5), receivables (7), and the receipt's balance line (6).
 
 **Known gaps, deliberately left.** Refunds and negative balances are out of scope and refused by the same checks. Partial settlement across more than one sale is handled by `allocate` (Task 3) but only surfaced as one figure in the UI — a per-sale breakdown is a follow-up, not a blocker. There is no reminder or messaging flow; that belongs with the marketing/campaign work, not here.
+
+**Verify like Phase 1 did.** Every layout claim in Phase 1 that was proven only by tests turned out to have a bug in it; thirteen were found by driving the running app, four of which passed the whole suite. Use `/testing-kaiibi`, and read the result off the screen — a balance that "saved" is only real if it shows on the customer, on the receipt, and in Accounting.
 
 **Type consistency.** `CustomerBalance` (Task 3) is consumed by Tasks 5 and 7. `CheckoutIntentInput`'s new fields (Task 4) are set by Task 5's controls. `settle_sale_balance`'s return (cents still owed) is what `settleBalance` returns and what Task 5 shows in its toast.
