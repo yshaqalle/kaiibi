@@ -20,6 +20,8 @@ psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-refunds.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
+  -f supabase/tests/verify-balances.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-owner-membership.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" \
   -f supabase/tests/verify-support.sql
@@ -179,6 +181,31 @@ Note the deliberate limit: the paid-equals-refunded guarantee holds for sales
 refunded entirely **after** that migration. Prior refunds are read from the
 stored rows and never recomputed, so an old partial refund is never silently
 "corrected" months later.
+
+## What `verify-balances.sql` covers
+
+`customer_balances` computes one number across three tables, which makes it
+wrong in two directions that both look fine. Neither raises; both send someone
+to ask a customer for money already handed over, so both are asserted on exact
+cents.
+
+1. A sale paid in full is not a balance.
+2. A part-paid sale owes **exactly** the shortfall.
+3. Goods that come back are not a debt — returning one unit of three drops the
+   debt by that unit, and returning the rest removes the row entirely. A refund
+   on an unpaid sale hands back no cash, because none was ever taken.
+4. **Two payments and one refund do not multiply.** Joined directly rather than
+   through lateral subqueries, two payment rows against one refund row give a
+   two-row cross product and the refund is counted twice. Every fixture with one
+   payment and one refund passes anyway, which is why this one has two.
+5. No name, no debt: an unpaid sale with nobody attached is a loss to write off,
+   not a receivable to chase.
+6. **A role holding only `customers.view` reads the true figure.** 20260802030100
+   widened `sales` and `sale_items` to that key and left `sale_payments` and
+   `refunds` behind, so before 20260831000000 this role read `owed = total` on a
+   sale that was paid off — measured at **4000 owed on a sale owing 500**, with
+   no error, on the exact screen used to ring that customer up.
+7. Another shop reads nothing.
 
 ## What `verify-owner-membership.sql` covers
 
