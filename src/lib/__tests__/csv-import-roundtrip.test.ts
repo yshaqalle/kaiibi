@@ -8,6 +8,8 @@
 // staff.ts, shifts.ts and the five import modules). Only the client is faked;
 // see jest/fake-supabase.ts for what that does and does not model.
 
+import { listBrands } from '@/lib/brands';
+import { listCategories } from '@/lib/categories';
 import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
 import { listCustomers } from '@/lib/customers';
 import { CUSTOMERS_EXAMPLE_ROW, CUSTOMERS_TEMPLATE_COLUMNS, runCustomersImport } from '@/lib/customers-import';
@@ -21,6 +23,7 @@ import { listShiftsForWeek, runScheduleImport } from '@/lib/shifts';
 import { listStaff } from '@/lib/staff';
 import { TEAM_EXPORT_COLUMNS_WITH_PAY } from '@/lib/staff-export';
 import { runStaffImport, STAFF_EXAMPLE_ROW, STAFF_TEMPLATE_COLUMNS } from '@/lib/staff-import';
+import { listTags } from '@/lib/tags';
 import type { FakeSupabase } from '../../../jest/fake-supabase';
 import type { Role, Shop, ShopLocation, StaffMember } from '@/types/models';
 
@@ -102,6 +105,60 @@ describe('products import', () => {
       reorderLevel: null,
       tags: [],
     });
+  });
+
+  // The bug this covers: an imported category was written to `products.category`
+  // as free text and never given a row in `categories`, so POS -- which builds
+  // its filter row from listCategories(), not from the products -- had no chip
+  // for it. A shop that imported its whole catalogue saw only the handful of
+  // categories it had typed by hand, which read as "categories are capped".
+  //
+  // Asserted through the same list queries the screens call, so "registered"
+  // means "POS would draw a chip for it", not "an upsert was attempted".
+  it('registers the categories, brands and tags it imported, so POS can filter by them', async () => {
+    const parsed = downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS);
+    await runProductsImport(SHOP_ID, parsed);
+
+    expect((await listCategories(SHOP_ID)).map((c) => c.name)).toEqual(['Apparel']);
+    expect((await listBrands(SHOP_ID)).map((b) => b.name)).toEqual(['Acme']);
+    expect((await listTags(SHOP_ID)).map((t) => t.name).sort()).toEqual(['bestseller', 'summer']);
+  });
+
+  // Both template rows are 'Apparel'. One row, not two -- the shop-wide list
+  // has to stay a list of distinct names however many products carry each one.
+  it('registers a category once however many rows carry it', async () => {
+    await runProductsImport(SHOP_ID, downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS));
+    expect(await listCategories(SHOP_ID)).toHaveLength(1);
+  });
+
+  // A rejected row's category must not be registered: the product it came from
+  // does not exist, so a chip for it would filter to nothing.
+  it('does not register the category of a row it rejected', async () => {
+    const parsed = parseCsvText(
+      templateCsvText(PRODUCTS_TEMPLATE_COLUMNS, [
+        { ...PRODUCTS_EXAMPLE_ROWS[0], Name: 'Rejected Row', Category: 'Ghost Category', Price: '' },
+      ])
+    );
+    const report = await runProductsImport(SHOP_ID, parsed);
+
+    expect(report.accepted).toEqual([]);
+    expect(report.rejected).toHaveLength(1);
+    expect(await listCategories(SHOP_ID)).toEqual([]);
+  });
+
+  // Registering the names must never cost the shop its import. The products are
+  // already inserted by the time this runs, so a failure here is cosmetic --
+  // the chips are missing, which is recoverable, whereas a thrown error would
+  // report a successful import as a failure and invite a duplicate re-upload.
+  it('still reports the import when registering the names fails', async () => {
+    const parsed = downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS);
+    fake.failTable('categories');
+
+    const report = await runProductsImport(SHOP_ID, parsed);
+
+    expect(report.rejected).toEqual([]);
+    expect(report.accepted).toHaveLength(2);
+    expect(await listProducts(SHOP_ID)).toHaveLength(2);
   });
 
   it('rejects the same template on a second import, since the products are now there', async () => {

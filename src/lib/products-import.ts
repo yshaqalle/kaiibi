@@ -1,7 +1,10 @@
 import { normalizeBarcode } from '@/lib/barcode';
+import { createBrand } from '@/lib/brands';
+import { createCategory } from '@/lib/categories';
 import type { ParsedCsv } from '@/lib/csv';
 import type { ImportReport, RejectedRow } from '@/lib/import-shared';
 import { createProducts, listProducts } from '@/lib/products';
+import { createTag } from '@/lib/tags';
 import type { NewProductInput, Product } from '@/types/models';
 
 export const PRODUCTS_TEMPLATE_COLUMNS: { header: string; required: boolean }[] = [
@@ -190,5 +193,43 @@ export async function runProductsImport(
   });
 
   const accepted = toCreate.length > 0 ? await createProducts(shopId, toCreate) : [];
+  await registerNames(shopId, toCreate);
   return { accepted, rejected };
+}
+
+// Gives the brand/category/tag names an imported file introduced a row of their
+// own, which is what the product form has always done for a name typed by hand
+// (see product-form.tsx) and what this import never did.
+//
+// It matters because those tables are not a cache of what's on the products --
+// they ARE the list. POS builds its filter row from listCategories(), so a
+// category that only ever existed as free text on a product had no chip, and a
+// shop that imported its whole catalogue saw only the few categories it had
+// typed itself. That reads as a cap on how many categories are allowed, which
+// is what it was reported as.
+//
+// Deliberately after the products are inserted and deliberately unable to fail
+// the import: by this point the shop's catalogue is in. A missing chip is a
+// cosmetic loss the backfill migration or the next import will repair, whereas
+// throwing here would report a completed import as a failure and invite a
+// re-upload that rejects every row as a duplicate.
+async function registerNames(shopId: string, created: NewProductInput[]): Promise<void> {
+  if (created.length === 0) return;
+  // Case-insensitively distinct, first spelling wins: `onConflict shop_id,name`
+  // is case-SENSITIVE, so sending both "Serum" and "serum" would make two rows
+  // and two chips for what the shop means as one category.
+  const distinct = (values: (string | null | undefined)[]): string[] => {
+    const byKey = new Map<string, string>();
+    for (const value of values) {
+      const name = value?.trim();
+      if (name && !byKey.has(name.toLowerCase())) byKey.set(name.toLowerCase(), name);
+    }
+    return [...byKey.values()];
+  };
+
+  await Promise.all([
+    ...distinct(created.map((p) => p.category)).map((name) => createCategory(shopId, name)),
+    ...distinct(created.map((p) => p.brand)).map((name) => createBrand(shopId, name)),
+    ...distinct(created.flatMap((p) => p.tags)).map((name) => createTag(shopId, name)),
+  ]).catch(() => {});
 }
