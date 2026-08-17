@@ -177,16 +177,44 @@ git commit -m "feat(db): a sale knows when it was settled, and what is still owe
 **Files:**
 - Create: `supabase/migrations/20260831000100_complete_sale_allows_credit.sql`
 
+> **DONE** — shipped as `962f11a`
+> (`supabase/migrations/20260831000100_complete_sale_allows_credit.sql`), proved by
+> checks 8–17 of `supabase/tests/verify-balances.sql` on a database rebuilt from
+> the whole chain. Three things the plan did not cover:
+>
+> 1. **`edit_sale` had to stop deleting settlement payments.** It wipes a sale's
+>    `sale_payments` and re-inserts whatever the client sent — lossless while
+>    every payment arrived at the till in one go, destructive the moment money can
+>    arrive days later. Measured by reverting the one `where` clause: **the
+>    settlement row disappears**, and a customer who had paid 800 is back to owing
+>    2000 with no record they ever paid. `sale_payments.is_settlement` (added by
+>    this migration) marks them — flagged rather than inferred from timestamps,
+>    because `complete_sale` takes `p_created_at` and a sale can be backdated.
+> 2. **Both functions are `drop`ped first.** `create or replace` with an extra
+>    defaulted parameter does not replace anything — it adds an overload, and
+>    every existing 13-argument call then resolves to two candidates and fails as
+>    ambiguous. 0005 set this precedent.
+> 3. **`settle_sale_balance` gates on `pos.access`/`sales.edit`, not
+>    `is_shop_member`**, and validates the register session the way `complete_sale`
+>    does. Reading a balance is not permission to take money, and a settlement
+>    filed into a closed drawer is the failure Phase 1 built a recovery path for,
+>    arriving by a new road.
+>
+> Left deliberately alone: **an unpaid sale still earns loyalty points.** Goods on
+> credit currently earn immediately and only claw back on refund, so credit plus
+> redemption is a way to take value without paying. It is a business-rule
+> decision, not an arithmetic bug, so it is flagged rather than quietly changed.
+
 **Interfaces:**
 - Produces:
   - `complete_sale(..., p_allow_balance boolean default false)` — same signature as today plus one trailing argument, so existing callers are unaffected.
   - `settle_sale_balance(p_sale_id uuid, p_payments jsonb, p_register_session_id uuid default null) returns integer` — returns the cents still owed after the payments land.
 
-- [ ] **Step 1: Copy the current definitions forward**
+- [x] **Step 1: Copy the current definitions forward**
 
 Copy `complete_sale` and `edit_sale` verbatim from `supabase/migrations/20260826000100_sale_promotion_attribution.sql` into the new migration. Do not retype them.
 
-- [ ] **Step 2: Change exactly three things in `complete_sale`**
+- [x] **Step 2: Change exactly three things in `complete_sale`**
 
 1. Add the trailing parameter `p_allow_balance boolean default false`.
 2. Replace the guard:
@@ -226,7 +254,7 @@ with:
 
 Apply the same three changes to `edit_sale`, whose guard is the same sentence — an edit that raises a sale's total above what was paid leaves a balance rather than failing.
 
-- [ ] **Step 3: State the refund rule in the settle path**
+- [x] **Step 3: State the refund rule in the settle path**
 
 A refund on a sale that was never fully paid cannot hand back money that was never
 taken. `settle_sale_balance` therefore reads what is owed through the same
@@ -235,7 +263,7 @@ already covers it: `v_owed <= 0` refuses, and `v_taking > v_owed` refuses. Compu
 `v_owed` with refunds subtracted, or a refunded sale will happily accept a
 settlement for money the shop no longer expects.
 
-- [ ] **Step 4: Add the settle RPC**
+- [x] **Step 4: Add the settle RPC**
 
 ```sql
 create or replace function public.settle_sale_balance(
@@ -311,7 +339,7 @@ grant execute on function public.settle_sale_balance(uuid, jsonb, uuid) to authe
 
 Confirm `public.is_shop_member` is the helper this schema uses (`grep -rn "function public.is_shop_member" supabase/migrations | head -1`); if it is named differently, use the existing name rather than adding one.
 
-- [ ] **Step 4: Prove all four rules by hand**
+- [x] **Step 4: Prove all four rules by hand**
 
 In `psql`, against a seeded sale:
 
