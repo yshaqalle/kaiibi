@@ -228,7 +228,17 @@ export function buildReceiptFromSale(
     // settled_at reads as settled for the same reason: the wrong direction here
     // is a receipt that invents money owed, not one that omits a line.
     balanceDueCents: sale.settledAt === null
-      ? Math.max(0, sale.totalCents - (sale.payments ?? []).reduce((sum, p) => sum + p.amountCents, 0))
+      ? Math.max(
+          0,
+          sale.totalCents
+            // Goods returned, not cash handed back: the same arithmetic
+            // customer_balances and settle_sale_balance use. Without this term a
+            // part-paid, part-refunded sale printed a debt the customer had
+            // already settled by handing the goods in -- and printed their name
+            // under it. No refund stamps settled_at, so nothing else caught it.
+            - (sale.refunds ?? []).reduce((sum, r) => sum + r.goodsCents, 0)
+            - (sale.payments ?? []).reduce((sum, p) => sum + p.amountCents, 0)
+        )
       : 0,
     createdAt: sale.createdAt,
   };

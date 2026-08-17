@@ -675,8 +675,13 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         promotionId: item.promotionId,
       }))
   );
+  // Settlements are excluded. edit_sale deletes and re-inserts only the till's own
+  // payment rows and preserves settlements itself, so seeding them here and
+  // sending them back would count the same money twice -- an over-payment
+  // refusal on a settled credit sale, and a Save button that never enables on a
+  // part-paid one.
   const [payments, setPayments] = useState<PaymentLine[]>(() =>
-    (sale.payments ?? []).map((p) => ({
+    (sale.payments ?? []).filter((p) => !p.isSettlement).map((p) => ({
       method: p.method,
       amountCents: p.amountCents,
       tenderedCents: p.tenderedCents,
@@ -725,7 +730,20 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
     : [];
 
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
-  const canSave = items.length > 0 && paidCents === total && !submitting;
+  // What settlements already collected -- neither shown nor re-sent by this
+  // editor, but still counting towards the sale being covered.
+  const settledCents = (sale.payments ?? [])
+    .filter((p) => p.isSettlement)
+    .reduce((sum, p) => sum + p.amountCents, 0);
+  // A sale on credit stays on credit through an edit: Save enables at a shortfall
+  // rather than demanding the cashier top it up to the total, which is not what
+  // editing a basket is for. An OVER-payment is still refused, as the server
+  // refuses it.
+  const carriesBalance = sale.settledAt === null && Boolean(selectedCustomer);
+  const coveredCents = paidCents + settledCents;
+  const canSave =
+    items.length > 0 && !submitting &&
+    (coveredCents === total || (carriesBalance && coveredCents < total));
 
   const save = async () => {
     if (!canSave) return;
@@ -737,7 +755,7 @@ function SaleEditor({ sale, products, shop, onCancel, onSaved }: { sale: Sale; p
         name: selectedCustomer?.name ?? null,
         phone: selectedCustomer?.phone ?? null,
         email: selectedCustomer?.email ?? null,
-      });
+      }, 0, carriesBalance && coveredCents < total);
       onSaved();
     } catch (err) {
       setError(extractErrorMessage(err));

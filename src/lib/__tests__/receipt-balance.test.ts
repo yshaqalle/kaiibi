@@ -89,6 +89,9 @@ const sale = (overrides: Partial<Sale> = {}): Sale =>
 const paid = (amountCents: number): SalePayment =>
   ({ method: 'cash', amountCents }) as unknown as SalePayment;
 
+const returned = (goodsCents: number, cashCents = goodsCents) =>
+  ({ id: 'r1', saleId: 's1', refundedBy: null, totalCents: cashCents, goodsCents, createdAt: '', items: [] });
+
 const shop = { name: 'Hodan Grocery', logoUrl: null, returnPolicy: null };
 
 describe('buildReceiptFromSale', () => {
@@ -123,5 +126,35 @@ describe('buildReceiptFromSale', () => {
   it('owes the whole sale when nothing was ever paid on it', () => {
     const built = buildReceiptFromSale(sale({ settledAt: null, payments: [] }), shop);
     expect(built.balanceDueCents).toBe(8474);
+  });
+
+  it('counts goods returned against the debt, not just money taken', () => {
+    // 8474 of goods, 5000 paid, 2000 of goods handed back: 1474 left. Without the
+    // refund term this printed 3474 -- a debt the customer had partly settled by
+    // returning the goods, with their name under it. No refund stamps settled_at,
+    // so nothing else would have caught it.
+    const built = buildReceiptFromSale(
+      sale({ settledAt: null, payments: [paid(5000)], refunds: [returned(2000)] }),
+      shop
+    );
+    expect(built.balanceDueCents).toBe(1474);
+  });
+
+  it('prints no balance once the returns and payments cover the sale', () => {
+    const built = buildReceiptFromSale(
+      sale({ settledAt: null, payments: [paid(5000)], refunds: [returned(3474)] }),
+      shop
+    );
+    expect(built.balanceDueCents).toBe(0);
+  });
+
+  it('measures the debt by goods returned, not by the cash that went back', () => {
+    // A credit return hands back less cash than the goods were worth. The debt
+    // falls by the goods; using the cash figure would keep chasing the difference.
+    const built = buildReceiptFromSale(
+      sale({ settledAt: null, payments: [paid(1000)], refunds: [returned(3000, 1000)] }),
+      shop
+    );
+    expect(built.balanceDueCents).toBe(8474 - 3000 - 1000);
   });
 });

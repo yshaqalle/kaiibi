@@ -90,10 +90,14 @@ export async function editSale(
   items: { productId: string; quantity: number; discountCents?: number; promotionId?: string | null }[],
   payments: PaymentLine[],
   customer?: SaleCustomer,
-  transactionDiscountCents = 0
+  transactionDiscountCents = 0,
+  // Same meaning as completeSale's: let the payments fall short and carry the
+  // difference. An edit that raises a part-paid sale's total leaves a bigger
+  // balance rather than being refused, and a wholly unpaid sale stays editable.
+  allowBalance = false
 ): Promise<void> {
   if (items.length === 0) throw new Error('A sale must have at least one item');
-  if (payments.length === 0) throw new Error('At least one payment is required');
+  if (payments.length === 0 && !allowBalance) throw new Error('At least one payment is required');
   const { error } = await supabase.rpc('edit_sale', {
     p_sale_id: saleId,
     p_items: items.map((item) => ({
@@ -108,6 +112,9 @@ export async function editSale(
     p_customer_email: customer?.email ?? null,
     p_discount_cents: transactionDiscountCents,
     p_customer_id: customer?.id ?? null,
+    // Sent only when asked for, like completeSale's -- so an ordinary edit's
+    // payload is unchanged and only the credit path needs the newer server.
+    ...(allowBalance ? { p_allow_balance: true } : {}),
   });
   if (error) throw error;
 }
@@ -207,6 +214,7 @@ function mapSaleRow(row: any): Sale {
         exchangeRate: payment.exchange_rate !== null && payment.exchange_rate !== undefined ? Number(payment.exchange_rate) : null,
         foreignAmountCents: payment.foreign_amount_cents,
         foreignChangeCents: payment.foreign_change_cents,
+        isSettlement: payment.is_settlement ?? false,
         createdAt: payment.created_at,
       })
     ),

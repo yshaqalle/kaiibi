@@ -487,6 +487,11 @@ export type SalePayment = PaymentLine & {
   id: string;
   saleId: string;
   createdAt: string;
+  // Money taken against this sale AFTER it was rung up, at whatever till was
+  // open (migration 20260831000100). The sale editor has to exclude these when
+  // it seeds itself: it re-sends what it is given, and edit_sale preserves
+  // settlements independently, so including them counts the same money twice.
+  isSettlement: boolean;
 };
 
 // A snapshotted line item inside a `SaleEdit.previousSnapshot` — same shape

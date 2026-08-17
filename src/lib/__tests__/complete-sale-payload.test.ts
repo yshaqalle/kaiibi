@@ -21,7 +21,7 @@ jest.mock('@/lib/supabase', () => {
   };
 });
 
-import { completeSale } from '@/lib/sales';
+import { completeSale, editSale } from '@/lib/sales';
 
 const { __state: fake } = jest.requireMock('@/lib/supabase') as { __state: FakeState };
 
@@ -59,6 +59,34 @@ describe('completeSale', () => {
 
   it('still refuses an empty payment list on an ordinary sale', async () => {
     await expect(completeSale('shop1', lines, [])).rejects.toThrow('At least one payment is required');
+    expect(fake.rpcCalls).toHaveLength(0);
+  });
+});
+
+// editSale had the same gap completeSale did: a part-paid sale could not be
+// edited at all, because the client refused an empty payment list and never sent
+// the flag that lets the server accept a shortfall.
+describe('editSale', () => {
+  const items = [{ productId: 'p1', quantity: 1 }];
+
+  it('sends p_allow_balance when the sale carries a balance', async () => {
+    await editSale('s1', items, [cash], { id: 'c1' }, 0, true);
+    expect(sent().p_allow_balance).toBe(true);
+  });
+
+  it('omits it on an ordinary edit', async () => {
+    await editSale('s1', items, [cash]);
+    expect(sent()).not.toHaveProperty('p_allow_balance');
+  });
+
+  it('edits a wholly unpaid sale, which used to be impossible', async () => {
+    await editSale('s1', items, [], { id: 'c1' }, 0, true);
+    expect(fake.rpcCalls).toHaveLength(1);
+    expect(sent().p_payments).toEqual([]);
+  });
+
+  it('still refuses an empty payment list on an ordinary edit', async () => {
+    await expect(editSale('s1', items, [])).rejects.toThrow('At least one payment is required');
     expect(fake.rpcCalls).toHaveLength(0);
   });
 });
