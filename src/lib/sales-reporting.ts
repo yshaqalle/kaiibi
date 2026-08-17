@@ -20,7 +20,13 @@ import type { PaymentMethod, Sale, SaleItem } from '@/types/models';
 export type PeriodRefund = {
   id: string;
   createdAt: string;
+  // CASH handed back. Capped at what was collected, so on a sale taken on credit
+  // it is less than the goods were worth -- see migration 20260831000200.
   totalCents: number;
+  // VALUE of the goods returned. This is what cancels revenue and tax: the sale
+  // was recognised when the goods left, so it un-recognises when they come back,
+  // whether or not the shop was able to hand any money over.
+  goodsCents: number;
   saleTotalCents: number;
   saleTaxCents: number;
   items: { quantity: number; unitCostCents: number | null }[];
@@ -56,7 +62,7 @@ export function refundedCents(refunds: PeriodRefund[]): number {
 // refunded sale at minus its own tax.
 //
 // Apportioned on the sale's own tax ratio rather than recomputed from a rate:
-// the refund is already a share of `sales.total_cents`, so the same share of
+// the goods figure is already a share of `sales.total_cents`, so the same share of
 // the tax inside that total is what went back with it, whatever rounding the
 // original sale did.
 //
@@ -72,7 +78,7 @@ export function refundedCents(refunds: PeriodRefund[]): number {
 // tax, and the two halves cancel against different things. This is the half
 // that cancels tax collected.
 export function refundedTaxCents(refunds: PeriodRefund[]): number {
-  return refunds.reduce((sum, refund) => sum + (refund.totalCents - refundPreTaxCents(refund)), 0);
+  return refunds.reduce((sum, refund) => sum + (refund.goodsCents - refundPreTaxCents(refund)), 0);
 }
 
 // What the shop actually owes the authority: collected on sales, less what
@@ -88,8 +94,8 @@ export function netTaxCollectedCents(sales: Sale[], refunds: PeriodRefund[] = []
 }
 
 export function refundPreTaxCents(refund: PeriodRefund): number {
-  if (refund.saleTotalCents <= 0 || refund.saleTaxCents <= 0) return refund.totalCents;
-  return Math.round((refund.totalCents * (refund.saleTotalCents - refund.saleTaxCents)) / refund.saleTotalCents);
+  if (refund.saleTotalCents <= 0 || refund.saleTaxCents <= 0) return refund.goodsCents;
+  return Math.round((refund.goodsCents * (refund.saleTotalCents - refund.saleTaxCents)) / refund.saleTotalCents);
 }
 
 // Revenue proper: what the shop actually earned. Excludes tax (not the shop's
@@ -191,13 +197,33 @@ export function refundPreviewCents(sale: Sale, selection: Record<string, number>
     }
   }
 
-  // Prior paid comes from what was actually handed back, never recomputed —
-  // refunds issued before that migration used the old gross figure, and the
-  // server deliberately doesn't restate them.
-  const priorPaidCents = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
-  const cumPaidCents = Math.round((sale.totalCents * (priorGrossCents + thisGrossCents)) / saleGrossCents);
+  // Both halves of what earlier refunds already did, from the stored rows and
+  // never recomputed — refunds issued before 20260820000200 used the old gross
+  // figure and the server deliberately doesn't restate them.
+  const priorGoodsCents = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.goodsCents, 0);
+  const priorCashCents = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
+  const cumGoodsCents = Math.round((sale.totalCents * (priorGrossCents + thisGrossCents)) / saleGrossCents);
+  const goodsCents = Math.max(cumGoodsCents - priorGoodsCents, 0);
 
-  return Math.max(cumPaidCents - priorPaidCents, 0);
+  // This quotes the cashier the CASH they are about to hand over, so it is capped
+  // at what was collected — mirroring refund_sale_items exactly. Without the cap
+  // the modal promised the customer the full value of a basket they had not paid
+  // for, and the server would then hand back less than the sentence said.
+  //
+  // Gated on settled_at, not on the payments array, for the reason
+  // buildReceiptFromSale gives: mapSaleRow coerces a missing sale_payments join
+  // to `[]`, which is indistinguishable from "nothing was ever paid". Summing
+  // that would quote 0 back to the cashier on a sale the customer paid in full.
+  //
+  // A non-null settled_at means paid in full, so there is nothing to cap. An
+  // absent one reads the same way -- the safe direction here is the figure this
+  // function has always returned, not a smaller one.
+  const collectedCents =
+    sale.settledAt === null
+      ? (sale.payments ?? []).reduce((sum, payment) => sum + payment.amountCents, 0)
+      : sale.totalCents;
+
+  return Math.min(goodsCents, Math.max(collectedCents - priorCashCents, 0));
 }
 
 export type SaleProfit = {

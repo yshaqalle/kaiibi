@@ -651,6 +651,114 @@ begin
   end if;
   raise notice 'OK: reads as zaad, and the points landed on payment';
 
+  ------------------------------------------------------------------
+  raise notice '=== 25. Returning goods nobody paid for hands back no cash ===';
+  ------------------------------------------------------------------
+  -- The cash-loss bug. refunds.total_cents is booked as money OUT of the drawer
+  -- (registers.ts) and quoted to the cashier as "$X will be refunded", and
+  -- refund_sale_items apportioned sales.total_cents -- so a fully returned sale
+  -- that nobody had paid a cent on handed over the whole of it.
+  select public.complete_sale(
+    v_shop_id, v_items3, '[]'::jsonb,
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select id into v_item_id from public.sale_items where sale_id = v_loyal_sale;
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 3)));
+
+  select coalesce(sum(total_cents), 0), coalesce(sum(goods_cents), 0)
+    into v_paid, v_refunded from public.refunds where sale_id = v_loyal_sale;
+  if v_paid <> 0 then
+    raise exception 'FAIL: % handed back on a sale nobody paid for', v_paid;
+  end if;
+  if v_refunded <> 3000 then
+    raise exception 'FAIL: 3000 of goods came back, recorded as %', v_refunded;
+  end if;
+
+  -- And the debt is gone, which is the half that must NOT be capped: the customer
+  -- gave the goods back, so they owe nothing.
+  select count(*) into v_rows from public.customer_balances where sale_id = v_loyal_sale;
+  if v_rows <> 0 then
+    raise exception 'FAIL: the customer is still being chased for goods they returned';
+  end if;
+  raise notice 'OK: 3000 of goods back, 0 cash out, nothing owed';
+
+  ------------------------------------------------------------------
+  raise notice '=== 26. A part-paid sale hands back only what came in ===';
+  ------------------------------------------------------------------
+  -- 3000 of goods, 1000 collected. Return the lot: the customer is owed the 1000
+  -- they actually paid, not the 3000 the goods were worth.
+  select public.complete_sale(
+    v_shop_id, v_items3,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select id into v_item_id from public.sale_items where sale_id = v_loyal_sale;
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 3)));
+
+  select coalesce(sum(total_cents), 0), coalesce(sum(goods_cents), 0)
+    into v_paid, v_refunded from public.refunds where sale_id = v_loyal_sale;
+  if v_paid <> 1000 then
+    raise exception 'FAIL: expected 1000 cash back, got %', v_paid;
+  end if;
+  if v_refunded <> 3000 then
+    raise exception 'FAIL: expected 3000 of goods recorded, got %', v_refunded;
+  end if;
+  raise notice 'OK: 1000 in, 1000 out, 3000 of goods recorded against the debt';
+
+  ------------------------------------------------------------------
+  raise notice '=== 27. Returning in pieces never over-pays in total ===';
+  ------------------------------------------------------------------
+  -- The drift case: three separate returns on a part-paid sale must sum to the
+  -- 1000 collected, not to 1000 three times.
+  select public.complete_sale(
+    v_shop_id, v_items3,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000, 'tendered_cents', 1000)),
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select id into v_item_id from public.sale_items where sale_id = v_loyal_sale;
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+  perform public.refund_sale_items(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_id, 'quantity', 1)));
+
+  select coalesce(sum(total_cents), 0), coalesce(sum(goods_cents), 0)
+    into v_paid, v_refunded from public.refunds where sale_id = v_loyal_sale;
+  if v_paid <> 1000 then
+    raise exception 'FAIL: three returns handed back % in total, not the 1000 collected', v_paid;
+  end if;
+  if v_refunded <> 3000 then
+    raise exception 'FAIL: three returns recorded % of goods, not 3000', v_refunded;
+  end if;
+  raise notice 'OK: 1000 out across three returns, 3000 of goods';
+
+  ------------------------------------------------------------------
+  raise notice '=== 28. An unpaid sale can still be edited ===';
+  ------------------------------------------------------------------
+  -- 20260831000100 claimed this and did not do it, leaving a wholly unpaid sale
+  -- permanently uneditable.
+  select public.complete_sale(
+    v_shop_id, v_items2, '[]'::jsonb,
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  perform public.edit_sale(
+    v_loyal_sale, v_items3, '[]'::jsonb,
+    'Bilan Warsame', null, null, 0, v_customer_id, true
+  );
+
+  select owed_cents into v_owed from public.customer_balances where sale_id = v_loyal_sale;
+  if v_owed <> 3000 then
+    raise exception 'FAIL: after editing 2 units up to 3, expected 3000 owed, got %', v_owed;
+  end if;
+  raise notice 'OK: edited from 2000 to 3000, still wholly owed';
+
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';
 

@@ -538,7 +538,11 @@ export type Refund = {
   id: string;
   saleId: string;
   refundedBy: string | null;
+  // Cash handed back, capped at what was collected. `goodsCents` is the value
+  // returned, which is what cancels the debt and the revenue -- the two differ
+  // only on a sale taken on credit (migration 20260831000200).
   totalCents: number;
+  goodsCents: number;
   createdAt: string;
   items: RefundItem[];
 };

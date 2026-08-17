@@ -252,6 +252,9 @@ function mapSaleRow(row: any): Sale {
         saleId: refund.sale_id,
         refundedBy: refund.refunded_by,
         totalCents: refund.total_cents,
+        // Historically equal to the cash figure, so that is the fallback rather
+        // than zero -- see migration 20260831000200.
+        goodsCents: refund.goods_cents ?? refund.total_cents,
         createdAt: refund.created_at,
         items: (refund.refund_items ?? []).map((ri: any): RefundItem => ({
           id: ri.id,
@@ -405,6 +408,7 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: string;
     created_at: string;
     total_cents: number;
+    goods_cents: number | null;
     // The parent sale was already joined to scope by shop; its total and tax
     // ride along so the refund's revenue share can be split out of what the
     // customer was handed. See PeriodRefund.
@@ -414,7 +418,7 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
   const rows = await fetchAllRows<RefundRow>((from, to) => {
     let query = supabase
       .from('refunds')
-      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
+      .select('id, created_at, total_cents, goods_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
       .eq('sales.shop_id', shopId)
       .gte('created_at', startOfDay(sinceDate).toISOString());
     if (locationId) query = query.eq('sales.location_id', locationId);
@@ -425,6 +429,10 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: row.id,
     createdAt: row.created_at,
     totalCents: row.total_cents,
+    // Falls back to the cash figure when the column was not selected. Every
+    // refund before 20260831000200 had the two equal, so that is the historically
+    // correct answer rather than a guess.
+    goodsCents: row.goods_cents ?? row.total_cents,
     // Zero when the parent somehow didn't come back: refundPreTaxCents then
     // treats the refund as wholly revenue, which is the pre-tax-shop answer
     // and the safe direction -- it never inflates revenue.
