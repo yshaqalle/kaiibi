@@ -126,7 +126,7 @@ export function BestSellersCard({ products, rangeLabel }: { products: ProductSal
       {leader ? (
         <BandFoot>
           {`${leader.name} led with ${leaderShare.toFixed(0)}% of the range's product revenue. ` +
-            'Figures are gross of refunds — a refund carries no product on it, so it cannot be taken off a line here.'}
+            'Returned goods are already taken off, and are counted against the day they sold rather than the day they came back.'}
         </BandFoot>
       ) : null}
     </BentoBand>

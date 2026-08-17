@@ -4,14 +4,18 @@ import {
   costOfGoodsSold,
   hourlyTakings,
   grossSalesCents,
+  keptSpendCents,
   netRevenueCents,
+  netTaxCollectedCents,
   paymentMethodMix,
   productDailyRevenue,
   productMovers,
   productPerformance,
   refundedCents,
+  refundedTaxCents,
   refundPreviewCents,
   saleProfit,
+  saleRefundState,
   taxCollectedCents,
   type PeriodRefund,
 } from '@/lib/sales-reporting';
@@ -70,6 +74,8 @@ function makeRefund(overrides: Partial<PeriodRefund> = {}): PeriodRefund {
     id: 'r1',
     createdAt: new Date(2026, 7, 3, 12, 0, 0).toISOString(),
     totalCents: 2200,
+    saleTotalCents: 2200,
+    saleTaxCents: 0,
     items: [{ quantity: 1, unitCostCents: 1200 }],
     ...overrides,
   };
@@ -115,6 +121,59 @@ describe('revenue is reported net of refunds', () => {
 
   it('sums multiple refunds', () => {
     expect(refundedCents([makeRefund({ id: 'a', totalCents: 1000 }), makeRefund({ id: 'b', totalCents: 500 })])).toBe(1500);
+  });
+
+  // Since migration 20260820000200 a refund hands back what the customer
+  // actually PAID, tax included. Revenue here is already net of tax, so
+  // subtracting the paid figure whole takes the tax out a second time and
+  // leaves a fully refunded sale sitting at minus its own tax.
+  it('subtracts only the pre-tax share of a refund, not the tax handed back with it', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(0);
+  });
+
+  it('subtracts the pre-tax share of a partial refund', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 1155, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(1100);
+  });
+});
+
+// Refunding a sale hands the tax back with it. That tax is no longer owed
+// onward, so a liability figure that ignores refunds overstates what the shop
+// has to remit -- a fully refunded sale would still claim its tax is being
+// held for the authority.
+describe('sales tax owed is net of what went back', () => {
+  it('reports the tax handed back with refunds', () => {
+    const refunds = [
+      makeRefund({ id: 'a', totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 }),
+      makeRefund({ id: 'b', totalCents: 1050, saleTotalCents: 1050, saleTaxCents: 50 }),
+    ];
+    expect(refundedTaxCents(refunds)).toBe(160);
+  });
+
+  it('reports no refunded tax for a shop that charges none', () => {
+    expect(refundedTaxCents([makeRefund({ totalCents: 2200, saleTotalCents: 2200, saleTaxCents: 0 })])).toBe(0);
+  });
+
+  it('nets a fully refunded sale to owing nothing', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(taxCollectedCents([sale])).toBe(110);
+    expect(netTaxCollectedCents([sale], [refund])).toBe(0);
+  });
+
+  it('leaves the owed figure at what was collected when nothing came back', () => {
+    expect(netTaxCollectedCents([makeSale({ totalCents: 2310, taxCents: 110 })], [])).toBe(110);
+  });
+
+  // Revenue must keep using the GROSS tax term. Netting refunded tax there too
+  // would add it back into revenue, undoing the fix this all started with.
+  it('does not let the netted tax figure leak into revenue', () => {
+    const sale = makeSale({ totalCents: 2310, taxCents: 110 });
+    const refund = makeRefund({ totalCents: 2310, saleTotalCents: 2310, saleTaxCents: 110 });
+    expect(netRevenueCents([sale], [refund])).toBe(0);
   });
 });
 
@@ -253,6 +312,55 @@ describe('saleProfit', () => {
     expect(result.marginPercent).toBeNull();
   });
 
+  // A refund hands back what the customer PAID -- tax included -- since
+  // migration 20260820000200. netRevenue is already net of tax, so subtracting
+  // the paid figure whole removes the tax twice and lands a fully refunded
+  // sale on minus its own tax. These are the real figures off a $12.60 line
+  // taxed to $12.92, which reported -$0.32 revenue and -$0.32 profit.
+  it('nets a fully refunded taxed sale to zero rather than to minus its tax', () => {
+    const sale = makeSale({
+      totalCents: 1292,
+      taxCents: 32,
+      items: [makeItem({ id: 'a', quantity: 1, unitPriceCents: 1260, lineTotalCents: 1260, unitCostCents: 500 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1292,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(0);
+    expect(result.costCents).toBe(0);
+    expect(result.profitCents).toBe(0);
+  });
+
+  it('nets only the pre-tax share of a partial refund on a taxed sale', () => {
+    const sale = makeSale({
+      totalCents: 2310,
+      taxCents: 110,
+      items: [makeItem({ id: 'a', quantity: 2, unitPriceCents: 1100, lineTotalCents: 2200, unitCostCents: 600 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1155,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1155 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.netRevenueCents).toBe(1100);
+    expect(result.costCents).toBe(600);
+    expect(result.profitCents).toBe(500);
+  });
+
   // The number has to admit what it doesn't know. Treating an unknown cost as
   // zero would show this sale as pure profit.
   it('flags lines with no cost on file instead of valuing them at zero', () => {
@@ -290,6 +398,177 @@ describe('saleProfit', () => {
   it('reports no margin for a sale that earned nothing', () => {
     const sale = makeSale({ totalCents: 0, items: [] });
     expect(saleProfit(sale).marginPercent).toBeNull();
+  });
+
+  // The three figures the detail pane's Refunded block reconciles with:
+  // paid, less what went back, leaves what the shop kept. Split out here
+  // rather than recomputed in the component so the screen cannot disagree
+  // with the profit line directly beneath it.
+  it('reports what went back, the tax inside it, and what was kept', () => {
+    const sale = makeSale({
+      totalCents: 1292,
+      taxCents: 32,
+      items: [makeItem({ id: 'a', quantity: 1, unitPriceCents: 1260, lineTotalCents: 1260, unitCostCents: 500 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 1292,
+          createdAt: new Date(2026, 7, 3).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 1292 }],
+        },
+      ],
+    });
+    const result = saleProfit(sale);
+    expect(result.refundedCents).toBe(1292);
+    expect(result.refundedTaxCents).toBe(32);
+    expect(result.keptCents).toBe(0);
+  });
+
+  it('leaves the kept figure at the total when nothing was refunded', () => {
+    const result = saleProfit(makeSale({ totalCents: 2310, taxCents: 110 }));
+    expect(result.refundedCents).toBe(0);
+    expect(result.refundedTaxCents).toBe(0);
+    expect(result.keptCents).toBe(2310);
+  });
+});
+
+// What the row badge says. A pure function rather than a branch inside the
+// row, because "how much of this came back" is the question the old `1↩`
+// glyph could not answer and the one worth pinning down in a test.
+describe('saleRefundState', () => {
+  const refundOf = (saleItemId: string, quantity: number, totalCents: number) => ({
+    id: `r-${saleItemId}-${quantity}`,
+    saleId: 's1',
+    refundedBy: null,
+    totalCents,
+    createdAt: new Date(2026, 7, 3).toISOString(),
+    items: [{ id: 'ri1', refundId: 'r1', saleItemId, productId: 'p1', quantity, amountCents: totalCents }],
+  });
+
+  it('reports nothing for a sale that was never refunded', () => {
+    expect(saleRefundState(makeSale())).toEqual({ kind: 'none' });
+  });
+
+  it('reports a whole basket going back as full', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 2, lineTotalCents: 4400 })],
+      refunds: [refundOf('a', 2, 4400)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+
+  // The distinction the old glyph lost: one unit back out of four and the
+  // whole basket back both rendered as `1↩`.
+  it('counts the units when only part of the basket went back', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 8800 })],
+      refunds: [refundOf('a', 1, 2200)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'partial', refundedQuantity: 1, totalQuantity: 4 });
+  });
+
+  it('adds up refunds taken across several visits', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 8800 })],
+      refunds: [refundOf('a', 1, 2200), refundOf('a', 2, 4400)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'partial', refundedQuantity: 3, totalQuantity: 4 });
+  });
+
+  it('reads a basket refunded line by line as full once nothing is left', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'a', quantity: 1, lineTotalCents: 2200 }), makeItem({ id: 'b', quantity: 1, lineTotalCents: 3000 })],
+      refunds: [refundOf('a', 1, 2200), refundOf('b', 1, 3000)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+
+  // A refund whose lines an edit later dropped. Money genuinely went back, so
+  // the row must not go silent -- there is nothing left to count against, and
+  // saying nothing came back is the one answer that is definitely wrong.
+  it('still reports a refund whose original lines were edited away', () => {
+    const sale = makeSale({
+      items: [makeItem({ id: 'b', quantity: 1, lineTotalCents: 2200 })],
+      refunds: [refundOf('gone', 1, 2200)],
+    });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+
+  it('still reports a refund on a sale whose items are all gone', () => {
+    const sale = makeSale({ items: [], refunds: [refundOf('gone', 1, 2200)] });
+    expect(saleRefundState(sale)).toEqual({ kind: 'full' });
+  });
+});
+
+describe('the row and the period agree to the cent', () => {
+  // saleProfit used to round the SUMMED refund total once while
+  // netRevenueCents rounded each refund and then added them, so a sale
+  // refunded in two visits could report a penny more revenue on its own row
+  // than it contributed to the period containing it.
+  it('nets the same revenue whether a sale is read alone or in a period', () => {
+    const refund = (id: string) => ({
+      id,
+      saleId: 's1',
+      refundedBy: null,
+      totalCents: 333,
+      createdAt: new Date(2026, 7, 3).toISOString(),
+      items: [{ id: `ri-${id}`, refundId: id, saleItemId: 'a', productId: 'p1', quantity: 1, amountCents: 333 }],
+    });
+    const sale = makeSale({
+      totalCents: 1000,
+      taxCents: 100,
+      items: [makeItem({ id: 'a', quantity: 4, lineTotalCents: 900, unitCostCents: 0 })],
+      refunds: [refund('r1'), refund('r2')],
+    });
+    const periodView = netRevenueCents(
+      [sale],
+      [
+        makeRefund({ id: 'r1', totalCents: 333, saleTotalCents: 1000, saleTaxCents: 100 }),
+        makeRefund({ id: 'r2', totalCents: 333, saleTotalCents: 1000, saleTaxCents: 100 }),
+      ]
+    );
+    expect(saleProfit(sale).netRevenueCents).toBe(periodView);
+    expect(periodView).toBe(300);
+  });
+});
+
+// What a customer actually spent, for their lifetime total and their ranking.
+//
+// Both sides are the PAID figure -- `sales.total_cents` and
+// `refunds.total_cents` are each tax-inclusive since migration
+// 20260820000200 -- so unlike the product and revenue figures these subtract
+// directly, with no basis to reconcile.
+describe('keptSpendCents', () => {
+  it('counts an unrefunded order in full', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 0 }])).toBe(2310);
+  });
+
+  it('takes a refund off the order it belongs to', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 1155 }])).toBe(1155);
+  });
+
+  it('drops a fully refunded order to nothing rather than counting it as spend', () => {
+    expect(keptSpendCents([{ totalCents: 2310, refundedCents: 2310 }])).toBe(0);
+  });
+
+  it('adds up across orders', () => {
+    expect(
+      keptSpendCents([
+        { totalCents: 5000, refundedCents: 0 },
+        { totalCents: 2310, refundedCents: 2310 },
+        { totalCents: 1000, refundedCents: 400 },
+      ])
+    ).toBe(5600);
+  });
+
+  // A sale over-refunded under the pre-migration maths would otherwise make a
+  // customer's lifetime spend go DOWN past zero and rank them below someone
+  // who never bought anything.
+  it('never lets an over-refunded order push lifetime spend negative', () => {
+    expect(keptSpendCents([{ totalCents: 1000, refundedCents: 1200 }])).toBe(0);
+    expect(keptSpendCents([{ totalCents: 5000, refundedCents: 0 }, { totalCents: 1000, refundedCents: 1200 }])).toBe(5000);
   });
 });
 
@@ -371,6 +650,60 @@ describe('bucketDailyTotals', () => {
     expect(buckets[0].netRevenueCents).toBe(2200);
     expect(buckets[2].netRevenueCents).toBe(-2200);
     expect(buckets[2].refundCents).toBe(2200);
+  });
+
+  // Same double-subtraction the period total had: refundCents is what the
+  // customer was handed (tax included), so the chart has to net the tax out of
+  // it before it meets a revenue line that already excludes tax.
+  it('nets only the pre-tax share of a refund against a taxed sale', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 3, 9, 0).toISOString(),
+        totalCents: 2310,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const buckets = bucketDailyTotals(sales, refunds, since, until);
+    expect(buckets[0].netRevenueCents).toBe(2200);
+    expect(buckets[2].netRevenueCents).toBe(-2200);
+  });
+
+  // The Overview CSV prints these columns per day, and an accountant reads
+  // across the row. Gross − Refunds − Sales tax owed has to land on Revenue,
+  // or the export is four numbers that quietly disagree.
+  it('gives a day whose columns reconcile across the row', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 1, 10, 0).toISOString(),
+        totalCents: 1155,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const [day] = bucketDailyTotals(sales, refunds, since, until);
+    expect(day.grossCents - day.refundCents - (day.taxCents - day.refundTaxCents)).toBe(day.netRevenueCents);
+  });
+
+  // A refund landing on a day with no sales of its own drives the owed-tax
+  // column negative, which is the correct reading: that tax was remitted-in-
+  // waiting last period and has now gone back out.
+  it('reconciles a day that holds only a refund', () => {
+    const sales = [makeSale({ createdAt: new Date(2026, 7, 1, 9, 0).toISOString(), totalCents: 2310, taxCents: 110 })];
+    const refunds = [
+      makeRefund({
+        createdAt: new Date(2026, 7, 3, 9, 0).toISOString(),
+        totalCents: 2310,
+        saleTotalCents: 2310,
+        saleTaxCents: 110,
+      }),
+    ];
+    const day = bucketDailyTotals(sales, refunds, since, until)[2];
+    expect(day.refundTaxCents).toBe(110);
+    expect(day.grossCents - day.refundCents - (day.taxCents - day.refundTaxCents)).toBe(day.netRevenueCents);
+    expect(day.netRevenueCents).toBe(-2200);
   });
 
   it('counts orders and rolls up line-level discounts', () => {
@@ -457,6 +790,39 @@ describe('refundPreviewCents', () => {
 describe('productPerformance', () => {
   const rice = () => makeItem({ id: 'i-rice', productId: 'p-rice', productName: 'Basmati Rice 5kg', quantity: 2, lineTotalCents: 2300 });
   const oil = () => makeItem({ id: 'i-oil', productId: 'p-oil', productName: 'Cooking Oil 3L', quantity: 1, lineTotalCents: 1450 });
+
+  // Goods that came back were not sold, so a heavily returned product must not
+  // rank as a top seller. Netted from the sale's own lines and kept in
+  // `lineTotalCents` throughout: `refund_items.amount_cents` is a share of
+  // `sales.total_cents` and carries tax, so subtracting it from a line total
+  // would mix two bases -- the same error that put -$0.32 on a sale detail.
+  const refundOfLine = (saleItemId: string, productId: string, quantity: number) => ({
+    id: `r-${saleItemId}`,
+    saleId: 's1',
+    refundedBy: null,
+    totalCents: 0,
+    createdAt: new Date(2026, 7, 3).toISOString(),
+    items: [{ id: 'ri1', refundId: `r-${saleItemId}`, saleItemId, productId, quantity, amountCents: 0 }],
+  });
+
+  it('nets returned units out of the ranking', () => {
+    const sale = makeSale({ items: [rice(), oil()], refunds: [refundOfLine('i-rice', 'p-rice', 1)] });
+    const rows = productPerformance([sale]);
+    const riceRow = rows.find((r) => r.productId === 'p-rice');
+    expect(riceRow?.unitsSold).toBe(1);
+    expect(riceRow?.revenueCents).toBe(1150);
+  });
+
+  it('drops a product returned in full rather than ranking it at zero', () => {
+    const sale = makeSale({ items: [rice(), oil()], refunds: [refundOfLine('i-rice', 'p-rice', 2)] });
+    const rows = productPerformance([sale]);
+    expect(rows.map((r) => r.productId)).toEqual(['p-oil']);
+  });
+
+  it('leaves an unrefunded line at its full take', () => {
+    const sale = makeSale({ items: [rice()], refunds: [] });
+    expect(productPerformance([sale])[0].revenueCents).toBe(2300);
+  });
 
   it('sums units and money per product across sales', () => {
     const rows = productPerformance([
@@ -582,6 +948,27 @@ describe('productDailyRevenue', () => {
       createdAt: new Date(2026, 7, day, 11, 0).toISOString(),
       items: [makeItem({ productId: 'p-rice', productName: 'Rice', lineTotalCents, quantity: 1 })],
     });
+
+  // The sparkline sits under the mover card's figure, so it has to net the
+  // same way productPerformance does or the line contradicts the number over it.
+  it('nets a returned line out of its day', () => {
+    const sale = makeSale({
+      createdAt: new Date(2026, 7, 1, 11, 0).toISOString(),
+      items: [makeItem({ id: 'i1', productId: 'p-rice', productName: 'Rice', lineTotalCents: 2000, quantity: 2 })],
+      refunds: [
+        {
+          id: 'r1',
+          saleId: 's1',
+          refundedBy: null,
+          totalCents: 0,
+          createdAt: new Date(2026, 7, 1).toISOString(),
+          items: [{ id: 'ri1', refundId: 'r1', saleItemId: 'i1', productId: 'p-rice', quantity: 1, amountCents: 0 }],
+        },
+      ],
+    });
+    const series = productDailyRevenue([sale], { productId: 'p-rice', name: 'Rice' }, new Date(2026, 7, 1), new Date(2026, 7, 2));
+    expect(series[0]).toBe(1000);
+  });
 
   it('gives one figure per day in the range, zeros included', () => {
     const series = productDailyRevenue(

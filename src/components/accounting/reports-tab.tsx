@@ -32,6 +32,8 @@ import {
   grossSalesCents,
   netRevenueCents,
   refundedCents,
+  netTaxCollectedCents,
+  refundedTaxCents,
   taxCollectedCents,
 } from '@/lib/sales-reporting';
 import { listStaff } from '@/lib/staff';
@@ -56,6 +58,8 @@ const theme = Colors.light;
 type SalesPerformance = {
   grossSalesCents: number;
   taxCollectedCents: number;
+  refundedTaxCents: number;
+  netTaxCollectedCents: number;
   refundedCents: number;
   netRevenueCents: number;
   cogsCents: number;
@@ -121,6 +125,8 @@ export function ReportsTab({
       setPerformance({
         grossSalesCents: grossSalesCents(sales),
         taxCollectedCents: taxCollectedCents(sales),
+        refundedTaxCents: refundedTaxCents(refunds),
+        netTaxCollectedCents: netTaxCollectedCents(sales, refunds),
         refundedCents: refundedCents(refunds),
         netRevenueCents: netRevenueCents(sales, refunds),
         ...costOfGoodsSold(sales, refunds),
@@ -261,9 +267,15 @@ export function ReportsTab({
             { header: 'Amount', value: (r: { amount: string }) => r.amount },
           ],
           rows: [
+            // Same order as the card on screen, so the printed statement and
+            // the screen cannot be read as two different accounts.
             { label: 'Gross takings', amount: formatAccountingCents(performance.grossSalesCents) },
+            { label: 'Refunds issued', amount: `-${formatAccountingCents(performance.refundedCents)}` },
             { label: 'Sales tax collected', amount: formatAccountingCents(performance.taxCollectedCents) },
-            { label: 'Refunds issued', amount: formatAccountingCents(performance.refundedCents) },
+            ...(performance.refundedTaxCents > 0
+              ? [{ label: 'Tax handed back with refunds', amount: `-${formatAccountingCents(performance.refundedTaxCents)}` }]
+              : []),
+            { label: 'Sales tax owed', amount: formatAccountingCents(performance.netTaxCollectedCents) },
           ],
         },
         {
@@ -417,15 +429,42 @@ export function ReportsTab({
       )}
 
       <BentoCell span={canSeeLabor && totalLaborCents > 0 ? 3 : 7}>
-        <BentoCard title="Sales tax collected" scope={rangeLabel}>
+        {/* Titled for what the card SETTLES, not for its first line. It ends on
+            what is owed, and calling the whole thing "collected" made the last
+            row look like it belonged to a different question. */}
+        <BentoCard title="Sales tax" scope={rangeLabel}>
           <StatementRow label="Gross takings" amountCents={performance.grossSalesCents} />
+          {/* Refunds sit up here with gross takings, which is the other figure
+              they qualify. Below the tax lines they dangled after the total. */}
+          {performance.refundedCents > 0 && (
+            <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} />
+          )}
           <StatementRow
             label="Sales tax collected"
-            hint="held for the tax authority"
+            hint={performance.refundedTaxCents > 0 ? undefined : 'held for the tax authority'}
             amountCents={performance.taxCollectedCents}
-            last={performance.refundedCents === 0}
+            last={performance.refundedTaxCents === 0}
           />
-          {performance.refundedCents > 0 && <StatementRow label="Refunds issued" amountCents={-performance.refundedCents} last />}
+          {/* A refund hands the tax back with it, so that much is no longer
+              owed onward. Without this the card claimed a fully refunded
+              sale's tax was still being held for the authority.
+
+              `emphasis`, deliberately not `total`: a total auto-tints green
+              when positive, on the reasoning that the bottom line is money the
+              shop made. This is a LIABILITY -- green here reads as "you made
+              $2.76" when it means "you owe $2.76". */}
+          {performance.refundedTaxCents > 0 && (
+            <>
+              <StatementRow label="Tax handed back with refunds" amountCents={-performance.refundedTaxCents} />
+              <StatementRow
+                label="Sales tax owed"
+                hint="held for the tax authority"
+                amountCents={performance.netTaxCollectedCents}
+                variant="emphasis"
+                last
+              />
+            </>
+          )}
           {salesTaxNote.dismissed ? null : (
             <Caveat tone="context" onDismiss={salesTaxNote.dismiss}>
               {`Tax collected is money you owe onward, not income — it is excluded from revenue and profit above.${

@@ -1,5 +1,5 @@
 import { dayKeyFor, startOfDay } from '@/lib/period';
-import type { PaymentMethod, Sale } from '@/types/models';
+import type { PaymentMethod, Sale, SaleItem } from '@/types/models';
 
 // Pure arithmetic behind every revenue and profit figure. Separate from
 // sales.ts for the same reason expense-reporting.ts is separate from
@@ -8,13 +8,21 @@ import type { PaymentMethod, Sale } from '@/types/models';
 // testing, so they live where they can be.
 
 // A refund attributed to the period it happened in, carrying enough of the
-// original line to reverse its cost. `refunds.total_cents` is built from
-// `sale_items.line_total_cents` (see refund_sale_items), so it is a *pre-tax*
-// figure and nets directly against pre-tax revenue.
+// original line to reverse its cost.
+//
+// `refunds.total_cents` is what the customer was actually HANDED BACK: since
+// migration 20260820000200 it is apportioned out of `sales.total_cents`, so it
+// carries the sale's tax and is already net of its order discount and points.
+// It is therefore *not* a pre-tax figure and does not net directly against
+// pre-tax revenue -- see `refundPreTaxCents`. The originating sale's total and
+// tax ride along so that split can be done here, where it is tested, rather
+// than in the query layer.
 export type PeriodRefund = {
   id: string;
   createdAt: string;
   totalCents: number;
+  saleTotalCents: number;
+  saleTaxCents: number;
   items: { quantity: number; unitCostCents: number | null }[];
 };
 
@@ -31,19 +39,72 @@ export function taxCollectedCents(sales: Sale[]): number {
   return sales.reduce((sum, sale) => sum + sale.taxCents, 0);
 }
 
+// What was handed back across the counter, tax included -- the figure a shop
+// reconciles against the till, and what a "Refunds" line on a report means.
 export function refundedCents(refunds: PeriodRefund[]): number {
   return refunds.reduce((sum, refund) => sum + refund.totalCents, 0);
 }
 
+// The part of a refund that comes out of REVENUE, as opposed to out of the tax
+// the shop was only holding.
+//
+// A refund hands back a share of what the customer paid, and that payment was
+// part revenue and part tax. Reversing it has to split the same way: the tax
+// portion cancels tax collected, and only the rest is revenue the shop no
+// longer has. Subtracting the whole paid figure from a revenue line that
+// already excludes tax removes the tax twice, which is what put a fully
+// refunded sale at minus its own tax.
+//
+// Apportioned on the sale's own tax ratio rather than recomputed from a rate:
+// the refund is already a share of `sales.total_cents`, so the same share of
+// the tax inside that total is what went back with it, whatever rounding the
+// original sale did.
+//
+// One honest limit: refunds issued before migration 20260820000200 stored the
+// old gross-of-line-totals figure, which was already pre-tax. Those are scaled
+// here too, which understates them slightly. They are not singled out because
+// nothing on the row distinguishes them -- the migration deliberately left
+// them unrestated -- and inferring it from the amount would be guesswork in a
+// money path.
+// The tax handed back with a period's refunds, and so no longer owed onward.
+//
+// The counterpart to `refundPreTaxCents`: a refund is part revenue and part
+// tax, and the two halves cancel against different things. This is the half
+// that cancels tax collected.
+export function refundedTaxCents(refunds: PeriodRefund[]): number {
+  return refunds.reduce((sum, refund) => sum + (refund.totalCents - refundPreTaxCents(refund)), 0);
+}
+
+// What the shop actually owes the authority: collected on sales, less what
+// went back out with refunds.
+//
+// Deliberately NOT what `netRevenueCents` subtracts. Revenue takes the GROSS
+// tax term, because the refund's own revenue share is already coming off
+// separately -- netting the tax in both places would put the refunded tax back
+// into revenue and reinstate the bug this module was fixed for. There is a
+// test pinning exactly that.
+export function netTaxCollectedCents(sales: Sale[], refunds: PeriodRefund[] = []): number {
+  return taxCollectedCents(sales) - refundedTaxCents(refunds);
+}
+
+export function refundPreTaxCents(refund: PeriodRefund): number {
+  if (refund.saleTotalCents <= 0 || refund.saleTaxCents <= 0) return refund.totalCents;
+  return Math.round((refund.totalCents * (refund.saleTotalCents - refund.saleTaxCents)) / refund.saleTotalCents);
+}
+
 // Revenue proper: what the shop actually earned. Excludes tax (not the shop's
 // money) and refunds (money handed back).
+//
+// Refunds come off pre-tax -- see `refundPreTaxCents` -- because the tax that
+// went back with them is already excluded by the `taxCollectedCents` term.
 //
 // Refunds are subtracted in the period they *happened*, not the period of the
 // original sale -- so a closed month's revenue never changes retroactively.
 // The trade-off is that a refund can push a quiet period negative, which is
 // accurate rather than a bug.
 export function netRevenueCents(sales: Sale[], refunds: PeriodRefund[] = []): number {
-  return grossSalesCents(sales) - taxCollectedCents(sales) - refundedCents(refunds);
+  const refundedRevenue = refunds.reduce((sum, refund) => sum + refundPreTaxCents(refund), 0);
+  return grossSalesCents(sales) - taxCollectedCents(sales) - refundedRevenue;
 }
 
 export type CogsResult = {
@@ -152,16 +213,41 @@ export type SaleProfit = {
   // lines have no cost on file, so the profit shown is an upper bound.
   uncostedItemCount: number;
   uncostedRevenueCents: number;
+  // The three figures the Refunded block reconciles: what was handed back
+  // (tax included, the counter figure), the tax sitting inside it, and what
+  // the shop was left holding. Derived here rather than in the row so the
+  // block cannot disagree with the profit line under it.
+  refundedCents: number;
+  refundedTaxCents: number;
+  keptCents: number;
 };
 
 // Per-transaction profit, on the same terms as the period figures above:
 // revenue excludes tax, cost comes from the snapshot frozen on each line, and
 // refunded quantities reverse out of both sides.
 export function saleProfit(sale: Sale): SaleProfit {
-  const refundedCentsOnSale = (sale.refunds ?? []).reduce((sum, refund) => sum + refund.totalCents, 0);
+  const refunds = sale.refunds ?? [];
+  const refundedCentsOnSale = refunds.reduce((sum, refund) => sum + refund.totalCents, 0);
   // totalCents is already after any sale-level discount, so the discount needs
   // no separate subtraction here.
-  const netRevenueCents = sale.totalCents - sale.taxCents - refundedCentsOnSale;
+  //
+  // The refund total is what the customer was handed, tax included, so only
+  // its revenue share comes off -- the tax that went back with it is already
+  // out via the taxCents term. Subtracting it whole left a fully refunded
+  // taxed sale reporting minus its own tax as both revenue and profit.
+  //
+  // Rounded PER REFUND and then summed, not summed and rounded once, so this
+  // matches `refundPreTaxCents` term for term. Rounding the sum instead let a
+  // sale refunded over two visits report a penny more revenue on its own row
+  // than it contributed to the period containing it.
+  const refundedRevenueCents =
+    sale.totalCents > 0 && sale.taxCents > 0
+      ? refunds.reduce(
+          (sum, refund) => sum + Math.round((refund.totalCents * (sale.totalCents - sale.taxCents)) / sale.totalCents),
+          0
+        )
+      : refundedCentsOnSale;
+  const netRevenueCents = sale.totalCents - sale.taxCents - refundedRevenueCents;
 
   let costCents = 0;
   let uncostedItemCount = 0;
@@ -186,7 +272,60 @@ export function saleProfit(sale: Sale): SaleProfit {
     marginPercent: netRevenueCents > 0 ? (profitCents / netRevenueCents) * 100 : null,
     uncostedItemCount,
     uncostedRevenueCents,
+    refundedCents: refundedCentsOnSale,
+    refundedTaxCents: refundedCentsOnSale - refundedRevenueCents,
+    keptCents: sale.totalCents - refundedCentsOnSale,
   };
+}
+
+// How much of a sale came back, for the badge on its row.
+//
+// `full` is measured in units rather than money: a basket returned line by
+// line over two visits is fully refunded even though no single refund covers
+// the sale, and a sale whose lines were all discounted to nothing would read
+// as full on money alone while the goods are still with the customer.
+export type SaleRefundState =
+  | { kind: 'none' }
+  | { kind: 'full' }
+  | { kind: 'partial'; refundedQuantity: number; totalQuantity: number };
+
+export function saleRefundState(sale: Sale): SaleRefundState {
+  if (!sale.refunds || sale.refunds.length === 0) return { kind: 'none' };
+
+  let totalQuantity = 0;
+  let refundedQuantity = 0;
+  for (const item of sale.items ?? []) {
+    totalQuantity += item.quantity;
+    refundedQuantity += Math.min(item.quantity, refundedQuantityFor(sale, item.id));
+  }
+
+  // Past here a refund exists, so `none` is never the answer -- money went back
+  // whatever the lines now say, and a silent row is the one reading that is
+  // definitely wrong.
+  //
+  // A `refundedQuantity` of zero means the lines the refund pointed at are
+  // gone, dropped by a later edit. Nothing is left to count against, so any
+  // proportion would be invented; full is the honest reading.
+  if (totalQuantity <= 0 || refundedQuantity <= 0 || refundedQuantity >= totalQuantity) return { kind: 'full' };
+  return { kind: 'partial', refundedQuantity, totalQuantity };
+}
+
+// What a customer actually spent: what they handed over, less what was handed
+// back to them.
+//
+// Both sides are already the PAID figure -- `sales.total_cents` is what was
+// tendered and `refunds.total_cents` has been a share of it since migration
+// 20260820000200 -- so these subtract directly. No tax to strip and no basis
+// to reconcile, unlike revenue (where the refund carries tax the revenue line
+// has already excluded) or product ranking (where a line total and a refund
+// share are quoted in different money entirely).
+//
+// Clamped per order, not on the sum. A sale over-refunded under the old maths
+// keeps its old refund rows -- refund_sale_items deliberately never claws that
+// back -- and letting one such order run negative would drag a customer's
+// lifetime spend below someone who never bought anything.
+export function keptSpendCents(orders: { totalCents: number; refundedCents: number }[]): number {
+  return orders.reduce((sum, order) => sum + Math.max(0, order.totalCents - order.refundedCents), 0);
 }
 
 // Takings per cashier. Gross rather than net: this ranks who rang up the most,
@@ -205,6 +344,32 @@ export function cashierPerformance(sales: Sale[], limit = 5): { name: string; re
     .slice(0, limit);
 }
 
+// What of one line actually stayed sold, in the line's OWN money.
+//
+// The basis matters more than it looks. `refund_items.amount_cents` is a share
+// of `sales.total_cents` since migration 20260820000200, so it carries the
+// sale's tax and is net of its order discount, while `lineTotalCents` is the
+// line's own price and carries neither. Subtracting one from the other is the
+// same mixing of bases that put -$0.32 on a refunded sale's detail pane. So the
+// share going back is rebuilt from QUANTITY against the line total, which keeps
+// both sides in one currency of meaning.
+//
+// The trade-off, stated: this books a return against the period of the SALE,
+// not the period of the refund -- the opposite of what the money figures do.
+// For a ranking that is the useful reading ("what stayed sold"), and unlike
+// revenue it restates no liability; last month's best-seller list can change if
+// last month's goods come back, which is the honest answer to "what sold".
+function soldAfterRefunds(sale: Sale, item: SaleItem): { unitsSold: number; revenueCents: number } {
+  const refunded = Math.min(item.quantity, refundedQuantityFor(sale, item.id));
+  if (refunded <= 0) return { unitsSold: item.quantity, revenueCents: item.lineTotalCents };
+
+  const unitsSold = item.quantity - refunded;
+  if (unitsSold <= 0 || item.quantity <= 0) return { unitsSold: 0, revenueCents: 0 };
+  // Rounded on the kept share rather than the returned one, so a line sold in
+  // full lands on its own total to the cent.
+  return { unitsSold, revenueCents: Math.round((item.lineTotalCents * unitsSold) / item.quantity) };
+}
+
 export type ProductSales = {
   // Null once the product itself is deleted. Kept in the key rather than
   // discarded: two deleted products can share a name, and folding those into
@@ -218,25 +383,34 @@ export type ProductSales = {
 // What sold, from the frozen line snapshots on each sale — so a product
 // renamed or repriced later doesn't rewrite what last week sold for.
 //
-// Gross of refunds, deliberately. A `PeriodRefund` carries only
-// `{ quantity, unitCostCents }` (see refund_sale_items), with no product
-// identity on it, so a refund cannot be attributed to a line here. Any screen
-// showing these figures beside net revenue has to say which it is showing.
+// Net of returns -- see `soldAfterRefunds` for the basis and for which period
+// a return is booked against.
+//
+// This was gross of refunds for a long time, on the reasoning that a
+// `PeriodRefund`'s items carry no product identity so a refund could not be
+// attributed to a line. True of that projection, but beside the point: every
+// sale already carries its own `refunds`, whose items point at the sale item
+// they reverse, which is a firmer link than a product id anyway. The cost of
+// the old reading was a product returned in bulk still ranking as a best
+// seller.
 export function productPerformance(sales: Sale[], limit = 5): ProductSales[] {
   const totals = new Map<string, ProductSales>();
   for (const sale of sales) {
     for (const item of sale.items ?? []) {
+      const { unitsSold, revenueCents } = soldAfterRefunds(sale, item);
+      if (unitsSold <= 0) continue;
+
       const key = item.productId ?? `name:${item.productName}`;
       const row = totals.get(key);
       if (row) {
-        row.unitsSold += item.quantity;
-        row.revenueCents += item.lineTotalCents;
+        row.unitsSold += unitsSold;
+        row.revenueCents += revenueCents;
       } else {
         totals.set(key, {
           productId: item.productId,
           name: item.productName,
-          unitsSold: item.quantity,
-          revenueCents: item.lineTotalCents,
+          unitsSold,
+          revenueCents,
         });
       }
     }
@@ -373,7 +547,17 @@ export type DailyBucket = {
   // Kept alongside net revenue so a caller can show either without refetching.
   grossCents: number;
   taxCents: number;
+  // What was handed back, tax included -- the till figure. Deliberately not
+  // what gets subtracted below; see `refundRevenueCents`.
   refundCents: number;
+  // The revenue share of the same refunds, which is what nets against a
+  // revenue line that already excludes tax. Split out rather than folded away
+  // so a chart can label the two without either being a mystery.
+  refundRevenueCents: number;
+  // The other half: tax handed back, which cancels `taxCents` rather than
+  // revenue. Carried so the CSV export's row reconciles --
+  // gross − refunds − (tax − refundTax) lands on netRevenue.
+  refundTaxCents: number;
   netRevenueCents: number;
   orderCount: number;
   discountCents: number;
@@ -395,6 +579,8 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
       grossCents: 0,
       taxCents: 0,
       refundCents: 0,
+      refundRevenueCents: 0,
+      refundTaxCents: 0,
       netRevenueCents: 0,
       orderCount: 0,
       discountCents: 0,
@@ -414,11 +600,14 @@ export function bucketDailyTotals(sales: Sale[], refunds: PeriodRefund[], sinceD
   for (const refund of refunds) {
     const bucket = buckets.get(dayKeyFor(refund.createdAt));
     if (!bucket) continue;
+    const revenueShare = refundPreTaxCents(refund);
     bucket.refundCents += refund.totalCents;
+    bucket.refundRevenueCents += revenueShare;
+    bucket.refundTaxCents += refund.totalCents - revenueShare;
   }
 
   for (const bucket of buckets.values()) {
-    bucket.netRevenueCents = bucket.grossCents - bucket.taxCents - bucket.refundCents;
+    bucket.netRevenueCents = bucket.grossCents - bucket.taxCents - bucket.refundRevenueCents;
   }
 
   return Array.from(buckets.values());
@@ -453,7 +642,9 @@ export function productDailyRevenue(
     if (!byDay.has(key)) continue;
     for (const item of sale.items ?? []) {
       if ((item.productId ?? `name:${item.productName}`) !== wanted) continue;
-      byDay.set(key, (byDay.get(key) ?? 0) + item.lineTotalCents);
+      // Netted the same way `productPerformance` nets, or this line would
+      // contradict the figure printed directly above it on the mover card.
+      byDay.set(key, (byDay.get(key) ?? 0) + soldAfterRefunds(sale, item).revenueCents);
     }
   }
   return Array.from(byDay.values());

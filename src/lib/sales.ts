@@ -1,7 +1,7 @@
 import { buildSalePayload, cartTotalCents } from '@/lib/cart';
 import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { endOfDay, startOfDay } from '@/lib/period';
-import { bucketDailyTotals, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
+import { bucketDailyTotals, netRevenueCents, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
 import type { CartLine, PaymentLine, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
@@ -386,12 +386,16 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: string;
     created_at: string;
     total_cents: number;
+    // The parent sale was already joined to scope by shop; its total and tax
+    // ride along so the refund's revenue share can be split out of what the
+    // customer was handed. See PeriodRefund.
+    sales: { total_cents: number; tax_cents: number } | null;
     refund_items: { quantity: number; sale_items: { unit_cost_cents: number | null } | null }[] | null;
   };
   const rows = await fetchAllRows<RefundRow>((from, to) => {
     let query = supabase
       .from('refunds')
-      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id)')
+      .select('id, created_at, total_cents, refund_items(quantity, sale_items(unit_cost_cents)), sales!inner(shop_id, total_cents, tax_cents)')
       .eq('sales.shop_id', shopId)
       .gte('created_at', startOfDay(sinceDate).toISOString());
     if (locationId) query = query.eq('sales.location_id', locationId);
@@ -402,6 +406,11 @@ async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: D
     id: row.id,
     createdAt: row.created_at,
     totalCents: row.total_cents,
+    // Zero when the parent somehow didn't come back: refundPreTaxCents then
+    // treats the refund as wholly revenue, which is the pre-tax-shop answer
+    // and the safe direction -- it never inflates revenue.
+    saleTotalCents: row.sales?.total_cents ?? 0,
+    saleTaxCents: row.sales?.tax_cents ?? 0,
     items: (row.refund_items ?? []).map((item) => ({
       quantity: item.quantity,
       unitCostCents: item.sale_items?.unit_cost_cents ?? null,
@@ -550,10 +559,25 @@ export async function getCategoryRevenueByMonth(shopId: string, sinceDate: Date,
 // `locationId` scopes this to one store, which the goal meter needs: the goal
 // belongs to a store (migration 20260813000000), so measuring it against every
 // store's combined takings would report a kiosk as hitting a flagship's target.
+// Revenue proper, on the same terms as every other figure with that name:
+// excluding tax, net of refunds.
+//
+// It used to sum `totalCents` raw -- tax included, refunds ignored entirely --
+// which put two different "month to date" figures on one Dashboard. The goal
+// ring and the pace card read this one; `open-hours-card` computes its own
+// from `netRevenueCents` over the month's buckets. Same words, same screen,
+// numbers that could not agree.
+//
+// Consequence worth stating: goal progress drops for a tax-charging shop, by
+// the tax, and by any refunds. That is the shop's actual revenue against its
+// goal, which is what the ring claims to show.
 export async function getMonthToDateRevenueCents(shopId: string, locationId?: string | null): Promise<number> {
   const since = new Date();
   since.setDate(1);
   since.setHours(0, 0, 0, 0);
-  const sales = await listAllSalesInRange(shopId, since, undefined, locationId);
-  return sales.reduce((sum, sale) => sum + sale.totalCents, 0);
+  const [sales, refunds] = await Promise.all([
+    listAllSalesInRange(shopId, since, undefined, locationId),
+    listRefundsInRange(shopId, since, undefined, locationId),
+  ]);
+  return netRevenueCents(sales, refunds);
 }

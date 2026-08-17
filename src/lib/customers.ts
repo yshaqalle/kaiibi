@@ -1,3 +1,4 @@
+import { keptSpendCents } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
 import type { Customer, CustomerPointsEntry, CustomerPurchase, NewCustomerInput } from '@/types/models';
 
@@ -175,11 +176,22 @@ export async function getCustomerStats(customerId: string): Promise<{
   visitCount: number;
   lastPurchaseAt: string | null;
 }> {
-  const { data, error } = await supabase.from('sales').select('total_cents, created_at').eq('customer_id', customerId);
+  // Refunds come along so spend is what the customer KEPT paying. A returned
+  // order still counts as a visit -- they came in, and every "haven't seen
+  // them" audience is built on that -- but it is no longer money they spent.
+  const { data, error } = await supabase
+    .from('sales')
+    .select('total_cents, created_at, refunds(total_cents)')
+    .eq('customer_id', customerId);
   if (error) throw error;
   const rows = data ?? [];
   return {
-    totalSpentCents: rows.reduce((sum, row) => sum + row.total_cents, 0),
+    totalSpentCents: keptSpendCents(
+      rows.map((row) => ({
+        totalCents: row.total_cents,
+        refundedCents: (row.refunds ?? []).reduce((sum: number, refund: { total_cents: number }) => sum + refund.total_cents, 0),
+      }))
+    ),
     visitCount: rows.length,
     lastPurchaseAt: rows.reduce<string | null>((latest, row) => (!latest || row.created_at > latest ? row.created_at : latest), null),
   };
@@ -244,10 +256,15 @@ export async function getCustomersStatsBatch(shopId: string): Promise<Map<string
   // guarantee that page 2 picks up where page 1 left off if the underlying
   // scan order isn't fixed -- a real risk for a query with no WHERE clause
   // selective enough to pin one index's scan order.
-  const rows = await fetchAllRows<{ customer_id: string; total_cents: number; created_at: string }>((from, to) =>
+  const rows = await fetchAllRows<{
+    customer_id: string;
+    total_cents: number;
+    created_at: string;
+    refunds: { total_cents: number }[] | null;
+  }>((from, to) =>
     supabase
       .from('sales')
-      .select('customer_id, total_cents, created_at')
+      .select('customer_id, total_cents, created_at, refunds(total_cents)')
       .eq('shop_id', shopId)
       .not('customer_id', 'is', null)
       .order('id', { ascending: true })
@@ -257,8 +274,11 @@ export async function getCustomersStatsBatch(shopId: string): Promise<Map<string
   for (const row of rows) {
     const id = row.customer_id as string;
     const current = stats.get(id) ?? { totalSpentCents: 0, visitCount: 0, lastOrderAt: null };
+    // Spend is what they kept paying; the visit still counts either way. See
+    // `keptSpendCents` for why these two figures subtract without conversion.
+    const refundedCents = (row.refunds ?? []).reduce((sum, refund) => sum + refund.total_cents, 0);
     stats.set(id, {
-      totalSpentCents: current.totalSpentCents + row.total_cents,
+      totalSpentCents: current.totalSpentCents + keptSpendCents([{ totalCents: row.total_cents, refundedCents }]),
       visitCount: current.visitCount + 1,
       lastOrderAt:
         current.lastOrderAt === null || row.created_at > current.lastOrderAt ? (row.created_at as string) : current.lastOrderAt,

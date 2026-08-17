@@ -38,6 +38,7 @@ export function TakingsHeroCard({
   revenueCents,
   expenseCents,
   taxCents,
+  refundedCents = 0,
   canSeeExpenses,
   onSeeProfitAndLoss,
 }: {
@@ -47,6 +48,12 @@ export function TakingsHeroCard({
   expenseCents: number;
   /** Collected on the authority's behalf. The gap between takings and revenue. */
   taxCents: number;
+  /**
+   * Refunds in the range. Part of the gap between takings and revenue, and
+   * usually the bigger part — a note naming only the tax leaves a reader's
+   * subtraction not working.
+   */
+  refundedCents?: number;
   canSeeExpenses: boolean;
   onSeeProfitAndLoss: () => void;
 }) {
@@ -155,7 +162,9 @@ export function TakingsHeroCard({
           ? 'Money out is operating expenses, which carry no payment method — so the methods filter is off and the takings above are all methods.'
           : isFiltered
             ? `Showing ${filtered.length} of ${methods.length} methods. Both figures above are filtered.`
-            : `${formatAccountingCents(taxCents)} of this is sales tax you are holding for the authority, which is why takings exceed revenue.`}
+            : refundedCents > 0
+              ? `Takings run ahead of revenue by ${formatAccountingCents(taxCents)} of sales tax you are holding for the authority and ${formatAccountingCents(refundedCents)} refunded to customers.`
+              : `${formatAccountingCents(taxCents)} of this is sales tax you are holding for the authority, which is why takings exceed revenue.`}
       </Text>
     </View>
   );

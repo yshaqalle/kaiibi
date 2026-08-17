@@ -192,6 +192,8 @@ describe('OpenHoursCard', () => {
     grossCents: netRevenueCents,
     taxCents: 0,
     refundCents: 0,
+    refundRevenueCents: 0,
+    refundTaxCents: 0,
     netRevenueCents,
     orderCount: 1,
     discountCents: 0,
@@ -269,6 +271,30 @@ describe('TakingsHeroCard', () => {
     // 226,100 + 135,390 + 43,190 = 404,680
     expect(texts().some((t) => t.includes('4,046.80'))).toBe(true);
     expect(texts().some((t) => t.includes('sales tax you are holding'))).toBe(true);
+  });
+
+  // Caught on a real shop's Dashboard: takings $162.93 against revenue $110.37
+  // is a $52.56 gap, of which tax was $2.76 and refunds the other $49.80. The
+  // note named only the tax, so a reader checking the subtraction found it did
+  // not work -- and the word "exactly" invited exactly that check.
+  it('names refunds too when they are part of the gap', () => {
+    const { texts } = render(
+      <TakingsHeroCard
+        methods={methods}
+        revenueCents={384_720}
+        expenseCents={89_000}
+        taxCents={25_560}
+        refundedCents={49_800}
+        canSeeExpenses
+        onSeeProfitAndLoss={() => {}}
+      />
+    );
+    expect(texts().some((t) => t.includes('498.00') && t.includes('refund'))).toBe(true);
+  });
+
+  it('still names tax alone when nothing was refunded', () => {
+    const { texts } = render_();
+    expect(texts().some((t) => t.includes('refunded'))).toBe(false);
   });
 
   it('scopes BOTH figures when a method filter is on', () => {

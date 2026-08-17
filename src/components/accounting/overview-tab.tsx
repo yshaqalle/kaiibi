@@ -33,11 +33,19 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
 
+// Columns an accountant can read ACROSS: gross, less refunds, less the tax
+// actually owed, lands on revenue.
+//
+// "Sales tax owed" is net of tax handed back with refunds, which is why it is
+// not labelled "collected" -- and why it can go negative on a day holding only
+// a refund of an earlier day's sale. Printing collected tax beside a revenue
+// column that nets only the refund's revenue share left every refunded day
+// failing to reconcile by exactly the refunded tax.
 const OVERVIEW_EXPORT_COLUMNS = [
   { header: 'Day', value: (d: DailyBucket) => d.day },
   { header: 'Gross', value: (d: DailyBucket) => (d.grossCents / 100).toFixed(2) },
-  { header: 'Sales tax', value: (d: DailyBucket) => (d.taxCents / 100).toFixed(2) },
   { header: 'Refunds', value: (d: DailyBucket) => (d.refundCents / 100).toFixed(2) },
+  { header: 'Sales tax owed', value: (d: DailyBucket) => ((d.taxCents - d.refundTaxCents) / 100).toFixed(2) },
   { header: 'Revenue', value: (d: DailyBucket) => (d.netRevenueCents / 100).toFixed(2) },
   { header: 'Discounts', value: (d: DailyBucket) => (d.discountCents / 100).toFixed(2) },
   { header: 'Orders', value: (d: DailyBucket) => String(d.orderCount) },
@@ -119,8 +127,18 @@ export function OverviewTab({
   useTabRefresh(setRefresh, reload);
 
   const revenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.netRevenueCents, 0), [daily]);
-  const refundCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);
-  const taxCents = useMemo(() => daily.reduce((sum, d) => sum + d.taxCents, 0), [daily]);
+  // What the refunds actually took out of revenue, which is less than what was
+  // handed back (`DailyBucket.refundCents`): the tax portion of a refund
+  // cancels tax collected, not income. The caveat below quotes this so the
+  // number it claims is deducted is the number that was deducted.
+  const refundRevenueCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundRevenueCents, 0), [daily]);
+  // Net of tax handed back, so the tile says what is actually owed. Gross tax
+  // would claim a fully refunded sale's tax is still being held for the
+  // authority when it went back over the counter with the refund.
+  const taxCents = useMemo(
+    () => daily.reduce((sum, d) => sum + d.taxCents - d.refundTaxCents, 0),
+    [daily]
+  );
 
   // Revenue less what the goods cost. NOT net profit: operating expenses and
   // labour come off on Reports.
@@ -233,7 +251,7 @@ export function OverviewTab({
               }
               tone={noCostsRecorded ? 'default' : 'positive'}
             />
-            <StatTile variant="bento" value={formatCompactCents(taxCents)} label="Sales tax collected" hint="held for the tax authority" />
+            <StatTile variant="bento" value={formatCompactCents(taxCents)} label="Sales tax owed" hint="held for the tax authority" />
           </View>
         </BentoCard>
       </BentoCell>
@@ -250,7 +268,7 @@ export function OverviewTab({
           {revenueNote.dismissed ? null : (
             <Caveat tone="context" onDismiss={revenueNote.dismiss}>
               {`Revenue is what you earned — sales tax collected is held for the tax authority and is not counted as income.${
-                refundCents > 0 ? ` ${formatAccountingCents(refundCents)} of refunds is already deducted.` : ''
+                refundRevenueCents > 0 ? ` ${formatAccountingCents(refundRevenueCents)} of refunds is already deducted.` : ''
               }`}
             </Caveat>
           )}

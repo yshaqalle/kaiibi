@@ -1,0 +1,82 @@
+- generic [ref=f1e12]:
+  - generic [ref=f1e13]:
+    - generic [ref=f1e14]:
+      - generic [ref=f1e15] [cursor=pointer]
+      - generic [ref=f1e18]: yusefshop
+    - generic [ref=f1e20]:
+      - link "Dashboard" [ref=f1e21] [cursor=pointer]:
+        - /url: /dashboard
+      - link "POS" [ref=f1e26] [cursor=pointer]:
+        - /url: /pos
+      - link "Inventory" [ref=f1e31] [cursor=pointer]:
+        - /url: /inventory
+      - link "People" [active] [ref=f1e36] [cursor=pointer]:
+        - /url: /people
+      - link "Accounting" [ref=f1e41] [cursor=pointer]:
+        - /url: /accounting
+    - generic [ref=f1e46]: Powered by Ka Iibi
+  - generic [ref=f1e48]:
+    - generic [ref=f1e49]: ☰
+    - generic [ref=f1e54]:
+      - generic [ref=f1e55]:
+        - generic [ref=f1e56]:
+          - generic [ref=f1e57]: PEOPLE
+          - generic [ref=f1e58]: Customers
+          - generic [ref=f1e59]: Who shops with you, and what they are worth.
+        - generic [ref=f1e60]:
+          - generic [ref=f1e61]:
+            - generic [ref=f1e62] [cursor=pointer]: Export CSV
+            - generic [ref=f1e64] [cursor=pointer]: Export PDF
+          - generic [ref=f1e66] [cursor=pointer]: Import
+          - generic [ref=f1e68] [cursor=pointer]: + New
+      - tablist [ref=f1e71]:
+        - generic [ref=f1e72]:
+          - tab "Customers" [selected] [ref=f1e73] [cursor=pointer]
+          - tab "Team" [ref=f1e75] [cursor=pointer]
+          - tab "Schedule" [ref=f1e77] [cursor=pointer]
+          - tab "Marketing" [ref=f1e79] [cursor=pointer]
+          - tab "Me (self-service)" [ref=f1e81] [cursor=pointer]
+      - generic [ref=f1e83]:
+        - generic [ref=f1e85]:
+          - generic [ref=f1e86]:
+            - generic [ref=f1e87]: CUSTOMERS
+            - generic [ref=f1e88]: "3"
+            - generic [ref=f1e90]: 3 joined in the last 30 days
+          - generic [ref=f1e91]:
+            - generic [ref=f1e92]: VIPS
+            - generic [ref=f1e93]: "0"
+            - generic [ref=f1e95]: tagged vip
+          - generic [ref=f1e96]:
+            - generic [ref=f1e97]: AT RISK
+            - generic [ref=f1e98]: "0"
+            - generic [ref=f1e100]: tagged at risk
+          - generic [ref=f1e101]:
+            - generic [ref=f1e102]: LIFETIME SPEND
+            - generic [ref=f1e103]: $14
+            - generic [ref=f1e105]: across every store
+        - generic [ref=f1e106]:
+          - textbox "Search by name, phone, or tag" [ref=f1e108]
+          - generic [ref=f1e110]:
+            - button "All · 3" [pressed] [ref=f1e111] [cursor=pointer]
+            - button "VIP · 0" [ref=f1e113] [cursor=pointer]
+            - button "Regular · 0" [ref=f1e115] [cursor=pointer]
+            - button "New · 3" [ref=f1e117] [cursor=pointer]
+            - button "At risk · 0" [ref=f1e119] [cursor=pointer]
+        - generic [ref=f1e121]:
+          - generic [ref=f1e126]:
+            - generic [ref=f1e127] [cursor=pointer]:
+              - generic [ref=f1e128]:
+                - generic [ref=f1e129]: Ali Warfa
+                - generic [ref=f1e130]: 1 order · $13.78
+              - generic [ref=f1e131]: New
+            - generic [ref=f1e134] [cursor=pointer]:
+              - generic [ref=f1e135]:
+                - generic [ref=f1e136]: Farah Ali
+                - generic [ref=f1e137]: No orders yet
+              - generic [ref=f1e138]: New
+            - generic [ref=f1e141] [cursor=pointer]:
+              - generic [ref=f1e142]:
+                - generic [ref=f1e143]: pagpg e
+                - generic [ref=f1e144]: No orders yet
+              - generic [ref=f1e145]: New
+          - generic [ref=f1e148]: Select a customer to see their details.

@@ -64,7 +64,6 @@ import {
   productMovers,
   netRevenueCents,
   productPerformance,
-  taxCollectedCents,
   type CogsResult,
   type DailyBucket,
   type ProductSales,
@@ -686,7 +685,18 @@ export default function DashboardScreen() {
       })),
     [paymentMix]
   );
-  const salesTaxCents = useMemo(() => taxCollectedCents(rangeSales), [rangeSales]);
+  // Net of tax handed back with refunds: a refunded sale's tax went back over
+  // the counter, so it is not "held" and not owed onward. Read off `daily`
+  // rather than `rangeSales` so this and `revenueCents` above come from the
+  // same buckets -- mixing the two sources is how they drift.
+  const salesTaxCents = useMemo(
+    () => daily.reduce((sum, d) => sum + d.taxCents - d.refundTaxCents, 0),
+    [daily]
+  );
+  // What was handed back over the counter. Together with the tax above this is
+  // the whole of the gap between takings and revenue, which two notes on this
+  // screen claim to explain -- and could not, naming only the tax.
+  const refundedCents = useMemo(() => daily.reduce((sum, d) => sum + d.refundCents, 0), [daily]);
 
   // Pace reads the recorded buckets rather than scaling a total: the last
   // bucket IS today, and the last seven ARE this week, whatever range the
@@ -855,6 +865,7 @@ export default function DashboardScreen() {
               revenueCents={revenueCents}
               expenseCents={pnl.operatingCents}
               taxCents={salesTaxCents}
+              refundedCents={refundedCents}
               canSeeExpenses={canSeeExpenses}
               onSeeProfitAndLoss={scrollToProfitAndLoss}
             />
@@ -967,9 +978,13 @@ export default function DashboardScreen() {
                   <StatTile variant="bento" value={`${hr.activeToday}/${hr.teamTotal}`} label="Team on today" />
                 )}
               </View>
+              {/* "by exactly this much" was a checkable claim, and on a range
+                  with refunds it did not check out: takings ran ahead of
+                  revenue by the tax AND the refunds. Says both, or neither. */}
               <Text style={styles.cardFoot}>
-                Sales tax is collected for the authority and is not yours to spend — which is why
-                takings above exceed revenue by exactly this much.
+                {refundedCents > 0
+                  ? `Sales tax is collected for the authority and is not yours to spend. Takings above run ahead of revenue by this and by the ${formatAccountingCents(refundedCents)} refunded in the range.`
+                  : 'Sales tax is collected for the authority and is not yours to spend — which is why takings above exceed revenue by exactly this much.'}
               </Text>
             </Card>
           </BentoCell>
@@ -1191,7 +1206,11 @@ export default function DashboardScreen() {
                 scope={rangeLabel}
                 entries={cashiers}
                 emptyLabel="No sales are attributed to a cashier in this range."
-                foot="Attribution is the cashier name frozen on each sale, so it survives someone leaving. Gross of tax, like a till reading."
+                // Says refunds too, not just tax. `cashierPerformance` ranks
+                // what was rung up -- deliberately, since this is a staff
+                // question -- but a range where a third of the takings came
+                // back makes "gross of tax" alone a half-answer.
+                foot="Attribution is the cashier name frozen on each sale, so it survives someone leaving. Gross of tax and of refunds, like a till reading."
               />
             </BentoCell>
           ) : null}
@@ -1206,7 +1225,7 @@ export default function DashboardScreen() {
                 scope="All time"
                 entries={topCustomers}
                 emptyLabel="No sales have been linked to a customer yet."
-                foot="Lifetime spend, so this one does not follow the date range."
+                foot="Lifetime spend, net of anything returned, so this one does not follow the date range."
               />
             </BentoCell>
           ) : null}
