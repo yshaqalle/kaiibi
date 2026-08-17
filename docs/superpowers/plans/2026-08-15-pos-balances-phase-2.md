@@ -605,31 +605,52 @@ git commit -m "feat(accounting): who owes the shop, and since when"
 
 ### Task 8: Verify it on the three platforms
 
-- [ ] **Step 1: Suite and linter**
+**Automated verification — done.**
 
-Run: `npm test && npx eslint src --max-warnings=0`
+| Gate | Result |
+|---|---|
+| `npm test` | 118 suites / 1732 tests pass |
+| `npm run test:db` | 10 checks pass, 3 named as not exercised (all pre-existing) |
+| `verify-balances.sql` | 24 checks, on a database rebuilt from the whole migration chain |
+| `npx tsc --noEmit` | clean |
+| `pos.tsx` react-compiler errors | **9 — unchanged from before this branch**, rule sets diffed and identical |
+| Migrations on the remote project | `20260831000000` and `20260831000100` applied; nothing pending |
 
-- [ ] **Step 2: Drive the app** with `/testing-kaiibi` on web, iOS and Android:
+**Interactive verification — NOT done, and not to be read as done.**
 
-1. a sale with no customer cannot be left unpaid — the button says so;
-2. $50 of an $84.74 basket, marked Pay later, completes and prints `BALANCE DUE $34.74`;
-3. that customer, attached to a new sale, shows `Owes $34.74`;
-4. **Collect it** with an empty basket takes the money and prints a settlement receipt;
-5. a second till cannot settle the same balance twice — the RPC refuses with "already paid in full";
-6. Accounting's receivables total matches the sum of the outstanding rows;
-7. **refunding a part-paid sale drops what is owed by the refund**, and refunding the
-   rest clears the customer's balance entirely rather than leaving a debt behind.
+The Playwright profile is held by a Chrome the user has open, so the browser
+could not be driven from here. iOS taps are unavailable on this machine at all
+(`references/drivers.md`). Nothing below has been exercised against a running
+app by me:
 
-- [ ] **Step 3: Commit any fixes**
+| Platform | State |
+|---|---|
+| Web | **not exercised.** The user drove it manually and surfaced three real defects (see below) |
+| iPhone / iPad | **not exercised** |
+| Android phone / tablet | **not exercised** |
 
----
+What the user's own passes found, all fixed and all invisible to the suite:
 
-## Self-review
+1. **`Collect it now` was a tile that meant do nothing different.** Redesigned to
+   one opt-in control (`e518d62`).
+2. **`Pay later` greyed out with no way forward.** Now live, and its action opens
+   the customer picker (`e518d62`).
+3. **`p_allow_balance` never left the client** (`40269b9`). Threaded from the
+   control, added to `completeSale`'s signature, and never put in the RPC payload
+   — so the server refused every credit sale, correctly, about a request that was
+   never made. **1,686 tests passed throughout.** There is now one that reads the
+   wire.
 
-**Spec coverage.** Every deferred item from Phase 1's "Explicitly out of scope" table has a task: part payment (2, 4, 5), Pay later (2, 4, 5), settling an older balance (2, 3, 5), receivables (7), and the receipt's balance line (6).
+That third one is the argument for finishing this task properly before the branch
+is trusted on a counter. Phase 1 had the same shape (`heldUnits`, four of its
+thirteen bugs), and this phase has now repeated it.
 
-**Known gaps, deliberately left.** Refunds and negative balances are out of scope and refused by the same checks. Partial settlement across more than one sale is handled by `allocate` (Task 3) but only surfaced as one figure in the UI — a per-sale breakdown is a follow-up, not a blocker. There is no reminder or messaging flow; that belongs with the marketing/campaign work, not here.
+**What is still owed:**
 
-**Verify like Phase 1 did.** Every layout claim in Phase 1 that was proven only by tests turned out to have a bug in it; thirteen were found by driving the running app, four of which passed the whole suite. Use `/testing-kaiibi`, and read the result off the screen — a balance that "saved" is only real if it shows on the customer, on the receipt, and in Accounting.
-
-**Type consistency.** `CustomerBalance` (Task 3) is consumed by Tasks 5 and 7. `CheckoutIntentInput`'s new fields (Task 4) are set by Task 5's controls. `settle_sale_balance`'s return (cents still owed) is what `settleBalance` returns and what Task 5 shows in its toast.
+- [ ] Web: sell on account, confirm the balance row, settle it, confirm the
+      receipt's `BALANCE DUE` and the Accounting receivables row.
+- [ ] Web: the register-closed recovery path still works through the credit branch.
+- [ ] Android phone + both tablets: the same flow via `scripts/droid.sh`.
+- [ ] iPhone + iPad: layout and rendering by screenshot — the pay-later card, the
+      balance row, and the receipt's boxed line at both widths.
+- [ ] Phase 1's own outstanding native pass, which this branch inherits.

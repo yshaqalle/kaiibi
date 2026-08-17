@@ -561,6 +561,19 @@ export default function PosScreen() {
   // press event, which would arrive here as a register session id and be sent
   // to the server -- Supabase then fails on the circular structure rather than
   // on anything to do with the sale.
+  // One sentence, shared by the panel and the sheet, so the two surfaces can
+  // never disagree about what the next tap does.
+  const intent = checkoutIntent({
+    cartEmpty: cart.length === 0,
+    totalCents: total,
+    payments,
+    customerName: selectedCustomer?.name ?? null,
+    submitting,
+    secondaryTotal: secondaryAmount(total, secondCurrency),
+    restOwed: canOfferCredit && payLater,
+    settlingCents,
+  });
+
   // Taking money off an older sale. Its own path, not a variant of the sale
   // one: nothing is being sold, no stock moves, and the money lands on sales
   // that were rung up days ago.
@@ -1030,18 +1043,6 @@ export default function PosScreen() {
     onCustomerPickerOpenChange: setCustomerPickerOpen,
   } : null;
 
-  // One sentence, shared by the panel and the sheet, so the two surfaces can
-  // never disagree about what the next tap does.
-  const intent = checkoutIntent({
-    cartEmpty: cart.length === 0,
-    totalCents: total,
-    payments,
-    customerName: selectedCustomer?.name ?? null,
-    submitting,
-    secondaryTotal: secondaryAmount(total, secondCurrency),
-    restOwed: canOfferCredit && payLater,
-    settlingCents,
-  });
 
   const cartPaneEl = (
     <View style={[styles.cartPane, compact && styles.cartPaneCompact]}>
