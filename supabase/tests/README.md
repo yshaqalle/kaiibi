@@ -207,6 +207,31 @@ cents.
    no error, on the exact screen used to ring that customer up.
 7. Another shop reads nothing.
 
+Then the credit rules themselves, once `complete_sale` can accept a shortfall:
+
+8. **A shortfall nobody asked for is still refused.** The guard is not removed,
+   only made conditional — the call that failed before this migration fails the
+   same way after it.
+9. Over-payment is refused however it is asked for. `p_allow_balance` does not
+   become a way past it: change is `tendered_cents`, not a larger payment.
+10. Credit needs a name, refused by the server rather than discouraged by the UI.
+11. Asked for, against a name: the sale stands, owes the shortfall, and is not
+    stamped settled.
+12. Paying in full stamps `settled_at` even when credit was offered, or the sale
+    stays on the receivables list forever.
+13. Settling in two instalments — the RPC's return and the view agree at each
+    step, and the last payment stamps the sale and clears the row.
+14. A settlement cannot overshoot what is owed, or repeat on a paid sale.
+15. **Editing a sale does not erase a settlement.** `edit_sale` deletes a sale's
+    payments and re-inserts what the client sent — lossless while every payment
+    arrived at the till in one go, destructive the moment money can arrive days
+    later. Reverting that one `where` clause drops the settlement row entirely
+    and puts the customer back in debt for cash they had already handed over.
+16. A settlement will not go into a closed drawer — the same refusal
+    `complete_sale` makes, arriving by a new road.
+17. Reading a balance is not permission to take money: the `customers.view` role
+    from check 6 can see what is owed and cannot record a payment.
+
 ## What `verify-owner-membership.sql` covers
 
 The owner of a shop had no `shop_members` row — adminship was `shops.owner_id`
