@@ -616,41 +616,49 @@ git commit -m "feat(accounting): who owes the shop, and since when"
 | `pos.tsx` react-compiler errors | **9 — unchanged from before this branch**, rule sets diffed and identical |
 | Migrations on the remote project | `20260831000000` and `20260831000100` applied; nothing pending |
 
-**Interactive verification — NOT done, and not to be read as done.**
+**Interactive verification — web: DONE.**
 
-The Playwright profile is held by a Chrome the user has open, so the browser
-could not be driven from here. iOS taps are unavailable on this machine at all
-(`references/drivers.md`). Nothing below has been exercised against a running
-app by me:
+Driven with Playwright against `yusefshop` on the real (migrated) database, on
+2026-08-17. The whole flow, both halves:
+
+| Step | Result |
+|---|---|
+| Attach a customer, balance row appears | `Owes $20.50 · since Aug 17 · Collect it` |
+| "Collect it" on an empty till | `PAYMENT METHOD` renders, all four methods, cash prefilled to `20.50` |
+| The row while collecting | `Take the payment below` + **Cancel** |
+| Settle | balance row gone, no error |
+| Receivables tab | `$0 · Nobody owes the shop anything` |
+| Zero-down credit sale | `Carry $2.05 on Ali Warfa's account` → `Save as unpaid · $2.05 owed` → completed |
+| Receipt | boxed `BALANCE DUE $2.05` / `Owed by Ali Warfa`, under an unchanged `TOTAL $2.05` |
+| Receivables tab, with data | `Ali Warfa · $2.05 · Aug 17 · today`, `from 1 customer` |
+| Transactions ledger | reads `Unpaid`, no `undefined` anywhere |
+| Ledger search for "unpaid" | filters to that sale — the line that would have crashed before `paymentLabel` |
+| Second settlement | clean; register went `3 sales · $20.50` → `4 sales · $43.05`, i.e. both settlements counted |
+| Console | no errors; only the repo's pre-existing `shadow*` deprecation warning |
+
+Every one of the eleven review findings was exercised through the UI rather than
+only through a test.
+
+**Two defects the pass found, both fixed:**
+
+1. **The pinned total read `$0.00` while collecting $20.50.** The most prominent
+   figure on the panel, disagreeing with the only one that mattered. `SalePanel`
+   now takes `dueCents`.
+2. **The register header did not refresh after a settlement.** It caught up on the
+   next focus, so a cashier reconciling a drawer read a figure short by whatever
+   they had just collected. `settleOlderBalance` now calls `reloadRegister()`.
+
+**Still not exercised:**
 
 | Platform | State |
 |---|---|
-| Web | **not exercised.** The user drove it manually and surfaced three real defects (see below) |
-| iPhone / iPad | **not exercised** |
-| Android phone / tablet | **not exercised** |
+| iPhone / iPad | **not exercised.** iOS taps are unavailable on this machine (`references/drivers.md`); layout and the receipt's boxed line still want a screenshot pass |
+| Android phone / tablet | **not exercised.** `scripts/droid.sh` can drive it and would also cover the breakpoint work Phase 1 never verified |
 
-What the user's own passes found, all fixed and all invisible to the suite:
+Phase 1's own outstanding native pass is inherited by this branch and is the same
+piece of work.
 
-1. **`Collect it now` was a tile that meant do nothing different.** Redesigned to
-   one opt-in control (`e518d62`).
-2. **`Pay later` greyed out with no way forward.** Now live, and its action opens
-   the customer picker (`e518d62`).
-3. **`p_allow_balance` never left the client** (`40269b9`). Threaded from the
-   control, added to `completeSale`'s signature, and never put in the RPC payload
-   — so the server refused every credit sale, correctly, about a request that was
-   never made. **1,686 tests passed throughout.** There is now one that reads the
-   wire.
-
-That third one is the argument for finishing this task properly before the branch
-is trusted on a counter. Phase 1 had the same shape (`heldUnits`, four of its
-thirteen bugs), and this phase has now repeated it.
-
-**What is still owed:**
-
-- [ ] Web: sell on account, confirm the balance row, settle it, confirm the
-      receipt's `BALANCE DUE` and the Accounting receivables row.
-- [ ] Web: the register-closed recovery path still works through the credit branch.
-- [ ] Android phone + both tablets: the same flow via `scripts/droid.sh`.
-- [ ] iPhone + iPad: layout and rendering by screenshot — the pay-later card, the
-      balance row, and the receipt's boxed line at both widths.
-- [ ] Phase 1's own outstanding native pass, which this branch inherits.
+**Test artefacts left on `yusefshop`:** one $2.05 sale against Ali Warfa
+("another item"), taken on credit and then settled in cash, plus a $20.50
+settlement of a balance that already existed. Both accounts are clear; nothing is
+outstanding.

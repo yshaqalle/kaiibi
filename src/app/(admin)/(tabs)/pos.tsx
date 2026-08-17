@@ -638,6 +638,12 @@ export default function PosScreen() {
         setFetchedBalance({ customerId, data: next });
       }
       await reload();
+      // The register header counts settlement cash as takings now (migration
+      // 20260831000300), so it has to be re-read here too -- otherwise the till's
+      // own "taken" figure sits stale until the screen is refocused, and a
+      // cashier reconciling a drawer reads a number that is short by whatever
+      // they just collected.
+      await reloadRegister();
       setSubmitting(false);
     }
   };
@@ -1115,7 +1121,11 @@ export default function PosScreen() {
             <Text style={styles.scanCartButtonText}>⛶ Scan</Text>
           </Pressable>
         ) : null}
-        totalCents={total}
+        // dueCents, not the basket: while an account is being settled the basket
+        // is empty, and a pinned "Total $0.00" above a button reading "Take
+        // $20.50 off the balance" is the most prominent figure on the panel
+        // disagreeing with the only one that matters.
+        totalCents={dueCents}
         currency={secondCurrency}
         intent={intent}
         onPrimary={compact ? () => setCheckoutOpen(true) : () => checkout()}
