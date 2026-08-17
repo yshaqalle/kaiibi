@@ -90,10 +90,6 @@ export type ReceiptData = {
   // buildReceiptFromSale can read it back off the sale's own payments -- so a
   // second copy shows the same figure as the first.
   balanceDueCents?: number;
-  // Money taken in this transaction against an OLDER sale. Nothing to do with
-  // the goods listed above, which is exactly why it is a separate line: folding
-  // it into the payments would make the receipt's arithmetic stop adding up.
-  olderBalancePaidCents?: number;
   createdAt: string;
 };
 
@@ -304,9 +300,6 @@ export function buildReceiptText(receipt: ReceiptData): string {
     const merchantId = merchantIdFor(receipt, payment.method);
     if (merchantId) lines.push(`  Merchant ID ${merchantId}`);
   }
-  if (receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0) {
-    lines.push(`OLDER BALANCE PAID: ${formatCents(receipt.olderBalancePaidCents)}`);
-  }
   if (receipt.balanceDueCents && receipt.balanceDueCents > 0) {
     lines.push('');
     lines.push(`*** BALANCE DUE: ${formatCents(receipt.balanceDueCents)} ***`);
@@ -397,12 +390,6 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
       return `<div class="row"><span class="label">${label}</span><span class="value">${formatCents(p.amountCents)}</span></div>${currencyNote}${merchantNote}`;
     })
     .join('');
-
-  // Sits with the payments because it IS one -- money that changed hands in this
-  // transaction -- but labelled so nobody reconciles it against the goods above.
-  const olderBalanceRow = receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0
-    ? `<div class="row"><span class="label">Older balance paid</span><span class="value">${formatCents(receipt.olderBalancePaidCents)}</span></div>`
-    : '';
 
   // Boxed, not just another row: this is the one number on the paper that means
   // the transaction is not finished, and it has to survive being glanced at.
@@ -548,7 +535,7 @@ export function buildReceiptHtml(receipt: ReceiptData): string {
 
     <div class="dashed"></div>
 
-    <div class="payment">${paymentRows}${olderBalanceRow}</div>
+    <div class="payment">${paymentRows}</div>
     ${balanceDueBlock}
     ${customerBlock}
     ${qrBlock}

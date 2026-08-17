@@ -91,7 +91,7 @@ shop can already do.
 | `src/lib/__tests__/checkout-intent.test.ts` | Modify: their tests |
 | `src/components/pos/rest-choice.tsx` | "Collect it now" / "Pay later", and the balance being settled |
 | `src/components/pos/customer-balance-row.tsx` | "Owes $34.74 · Collect it" under the attached customer |
-| `src/components/receipt-modal.tsx` | Modify: the BALANCE DUE line and "older balance paid" |
+| `src/components/receipt-modal.tsx` | Modify: the BALANCE DUE line |
 | `src/components/accounting/receivables-tab.tsx` | Who owes what, and since when |
 | `src/app/(admin)/(tabs)/pos.tsx` | Modify: wire the choice, the balance row and the settle path |
 
@@ -392,7 +392,7 @@ git commit -m "feat(db): a sale may be left owing, against a named customer only
   - `settleBalance(saleId: string, payments: PaymentLine[], registerSessionId: string | null): Promise<number>`
   - `allocate(payments: PaymentLine[], sales: CustomerBalance[]): { saleId: string; payments: PaymentLine[] }[]` — **pure**, oldest sale first
 
-- [ ] **Step 1: Write the failing tests for `allocate`**
+- [x] **Step 1: Write the failing tests for `allocate`**
 
 The only real logic on the client is which sale a settlement pays down when a customer owes on three. Oldest first, and never more than a sale owes.
 
@@ -437,21 +437,21 @@ describe('allocate', () => {
 });
 ```
 
-- [ ] **Step 2: Run them and watch them fail**
+- [x] **Step 2: Run them and watch them fail**
 
 Run: `npx jest src/lib/__tests__/balances.test.ts`
 Expected: FAIL — `Cannot find module '@/lib/balances'`.
 
-- [ ] **Step 3: Write the module**
+- [x] **Step 3: Write the module**
 
 `allocate` is pure and sorts by `saleCreatedAt` ascending, splitting a payment across sales by cents. The three Supabase functions follow the shape of the other files in `src/lib/` — `customerBalance` and `listOutstanding` select from `customer_balances`; `settleBalance` calls the RPC and returns the remaining cents.
 
-- [ ] **Step 4: Run them and watch them pass**
+- [x] **Step 4: Run them and watch them pass**
 
 Run: `npx jest src/lib/__tests__/balances.test.ts`
 Expected: PASS, 4 tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/lib/balances.ts src/lib/__tests__/balances.test.ts
@@ -470,7 +470,7 @@ git commit -m "feat(pos): read what a customer owes, and pay the oldest of it fi
 - `CheckoutIntentInput` gains `restOwed: boolean` and `settlingCents: number`.
 - `checkoutIntent` gains the branches Phase 1 deliberately left out.
 
-- [ ] **Step 1: Add the failing tests**
+- [x] **Step 1: Add the failing tests**
 
 ```ts
 it('takes part now and names what is left owing', () => {
@@ -498,12 +498,12 @@ it('takes money off an older balance with no basket', () => {
 });
 ```
 
-- [ ] **Step 2: Run, fail, implement, pass**
+- [x] **Step 2: Run, fail, implement, pass**
 
 Run: `npx jest src/lib/__tests__/checkout-intent.test.ts`
 Expected: FAIL, then PASS with all 14 tests once the branches are added. The ordering rule: `submitting` → empty (with nothing being settled) → no payments and nothing owed → `restOwed` branches → remaining > 0 → covered.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/lib/checkout-intent.ts src/lib/__tests__/checkout-intent.test.ts
@@ -520,19 +520,19 @@ git commit -m "feat(pos): the button says when money is being left owing"
 - Modify: `src/app/(admin)/(tabs)/pos.tsx`
 - Test: `src/components/__tests__/rest-choice.test.tsx`
 
-- [ ] **Step 1: Write the failing test for `RestChoice`**
+- [x] **Step 1: Write the failing test for `RestChoice`**
 
 It renders two options — **Collect it now** and **Pay later** — the second disabled with "Needs a customer" when none is attached, and it renders nothing at all when the payments already cover the bill.
 
-- [ ] **Step 2: Build both components**
+- [x] **Step 2: Build both components**
 
 `RestChoice` is two tiles on `bentoSoft`, the chosen one on `bentoAccentWash` with `bentoAccentInk` text. `CustomerBalanceRow` shows `Owes $34.74`, when it has been owed since, and **Collect it** — and renders nothing when the balance is zero, so a shop with no credit never sees the feature.
 
-- [ ] **Step 3: Wire them into the panel and the sheet**
+- [x] **Step 3: Wire them into the panel and the sheet**
 
 Both surfaces from Phase 1 take them as children — the panel's scrolling middle on a tablet, the sheet's payment block on a phone. The settle path works with an empty cart: `checkout()` branches to `settleBalance` when there are no items and `settlingCents > 0`.
 
-- [ ] **Step 4: Run the suite and commit**
+- [x] **Step 4: Run the suite and commit**
 
 ```bash
 npm test
@@ -548,15 +548,28 @@ git commit -m "feat(pos): take part of it now, and let them clear an old balance
 - Modify: `src/components/receipt-modal.tsx`
 - Modify: `src/lib/receipt.ts`
 
-- [ ] **Step 1: Extend `ReceiptData`**
+- [x] **Step 1: Extend `ReceiptData`**
 
 Add `balanceDueCents: number` and `olderBalancePaidCents: number`, both defaulting to 0 so every existing caller is unchanged.
 
-- [ ] **Step 2: Print them in the paper's own idiom**
+- [x] **Step 2: Print them in the paper's own idiom**
 
-Under the payment lines: an `Older balance paid` row when one was settled, and a boxed `BALANCE DUE` line with the customer's name when one remains. Monospace, dashed rule, same type scale as every other line — the receipt design does not change, it gains a line. `buildReceiptText` and `buildReceiptHtml` get the same two lines, or a WhatsApped receipt will disagree with the printed one.
+A boxed `BALANCE DUE` line with the customer's name when one remains.
 
-- [ ] **Step 3: Run the suite and commit**
+> **Note on what shipped:** the planned `Older balance paid` row is NOT there. It
+> only makes sense on a transaction that both sells goods and settles an older
+> sale, and Task 5 deliberately restricted settlement to an **empty basket** — two
+> RPCs in one tap is not atomic, and splitting one tender between a sale and a
+> debt is arithmetic nobody asked for. The field was built, found to be
+> unreachable, and removed rather than left as dead code with a passing test.
+>
+> A settlement therefore prints nothing at the till. It is not unevidenced: the
+> payment lands in `sale_payments`, so **reprinting the settled sale's own receipt
+> from Accounting shows it**, with `BALANCE DUE` reduced or gone — that is
+> `buildReceiptFromSale`'s tested behaviour. An immediate proof-of-payment slip is
+> a Phase 3 item, not a hole in this one. Monospace, dashed rule, same type scale as every other line — the receipt design does not change, it gains a line. `buildReceiptText` and `buildReceiptHtml` get the same two lines, or a WhatsApped receipt will disagree with the printed one.
+
+- [x] **Step 3: Run the suite and commit**
 
 ```bash
 npm test

@@ -306,15 +306,6 @@ export function ReceiptModal({
                 );
               })}
 
-              {/* Sits with the payments because it IS one -- money that changed
-                  hands in this transaction -- but labelled so nobody tries to
-                  reconcile it against the goods above. */}
-              {Boolean(receipt.olderBalancePaidCents && receipt.olderBalancePaidCents > 0) && (
-                <View style={styles.row}>
-                  <Text style={styles.rowLabel}>Older balance paid</Text>
-                  <Text style={styles.rowValue}>{formatCents(receipt.olderBalancePaidCents as number)}</Text>
-                </View>
-              )}
 
               {/* Boxed, not just another row: this is the one number on the
                   paper that says the transaction is not finished, and it has to

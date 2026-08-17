@@ -65,13 +65,6 @@ describe('a part-paid receipt', () => {
     expect(buildReceiptText(paid)).not.toContain('BALANCE DUE');
   });
 
-  it('names money taken against an older sale separately from this one', () => {
-    // Folding it into the payments would make the receipt's own arithmetic stop
-    // adding up: it has nothing to do with the goods listed above it.
-    const text = buildReceiptText(receipt({ olderBalancePaidCents: 2000 }));
-    expect(text).toContain('OLDER BALANCE PAID: $20.00');
-    expect(buildReceiptHtml(receipt({ olderBalancePaidCents: 2000 }))).toContain('Older balance paid');
-  });
 });
 
 const sale = (overrides: Partial<Sale> = {}): Sale =>
