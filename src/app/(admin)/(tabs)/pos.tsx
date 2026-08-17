@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -115,6 +116,13 @@ export default function PosScreen() {
   // is always today's owed figure, so it cannot go stale against a balance
   // another till just moved.
   const [settlingFor, setSettlingFor] = useState<string | null>(null);
+  // The phone's route to an account. On a counter the customer row sits on the
+  // panel, so an idle till can attach someone and see what they owe; on a phone
+  // the customer lives in the sheet and the sheet opens from the primary button,
+  // which is disabled on an empty till -- so settling was unreachable there
+  // entirely. This is set by the empty till's own offer to settle, and it is what
+  // keeps the sheet from dismissing itself before a customer is even chosen.
+  const [settleIntent, setSettleIntent] = useState(false);
   const settlingCents = settlingFor && settlingFor === selectedCustomer?.id ? balance.owedCents : 0;
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   // A completed sale hands off from the checkout sheet's modal to the receipt's,
@@ -615,6 +623,7 @@ export default function PosScreen() {
       }
       setPayments([]);
       setSettlingFor(null);
+      setSettleIntent(false);
     } catch (err) {
       // Drop only what succeeded. Whatever is left is what still has to be
       // collected, so the cashier can retry with the till showing the truth.
@@ -751,6 +760,7 @@ export default function PosScreen() {
       // from the safe choice even if the same customer is picked straight back.
       setPayLater(false);
       setSettlingFor(null);
+      setSettleIntent(false);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
@@ -1092,6 +1102,8 @@ export default function PosScreen() {
     // the phone rendering them in two different places.
     balanceRow: balanceRowEl,
     restChoice: restChoiceEl,
+    // The same condition the counter gates its inline PaymentBlock on.
+    showPayment: cart.length > 0 || settlingCents > 0,
     customerPickerOpen,
     onCustomerPickerOpenChange: setCustomerPickerOpen,
   } : null;
@@ -1144,6 +1156,17 @@ export default function PosScreen() {
           <View style={styles.emptyWrap}>
             <Text style={styles.emptyTitle}>Nothing in this sale yet</Text>
             <Text style={styles.empty}>Tap a product, or scan one.</Text>
+            {/* Only on a phone. A counter already has the customer row on the
+                panel, so this would be a second door to the same place. */}
+            {compact && (
+              <Pressable
+                onPress={() => { setSettleIntent(true); setCheckoutOpen(true); }}
+                style={styles.settleLink}
+              >
+                <Ionicons name="time-outline" size={14} color={theme.bentoMuted} />
+                <Text style={styles.settleLinkText}>Or settle a customer&apos;s account</Text>
+              </Pressable>
+            )}
           </View>
         ) : (
           cart.map((line) => {
@@ -1260,8 +1283,8 @@ export default function PosScreen() {
       {compact && shop && checkoutBlockProps && (
         <CheckoutPanel
           visible={checkoutOpen}
-          onClose={() => setCheckoutOpen(false)}
-          cartEmpty={cart.length === 0 && settlingCents === 0}
+          onClose={() => { setCheckoutOpen(false); setSettleIntent(false); }}
+          cartEmpty={cart.length === 0 && settlingCents === 0 && !settleIntent}
           intent={intent}
           {...checkoutBlockProps}
           fullyPaid={fullyPaid}
@@ -1590,6 +1613,8 @@ const styles = StyleSheet.create({
   orderDiscountPreset: { backgroundColor: theme.bentoSoft, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 13 },
   orderDiscountPresetText: { color: theme.bentoInk2, fontSize: 12, fontWeight: '700' },
   orderDiscountEditor: { width: '100%' },
+  settleLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingVertical: 4 },
+  settleLinkText: { fontSize: 13, fontWeight: '700', color: theme.bentoMuted },
   emptyWrap: { alignItems: 'center', paddingVertical: 38, gap: 4 },
   emptyTitle: { color: theme.bentoInk2, fontSize: 13.5, fontWeight: '700' },
   empty: { color: theme.bentoMuted, fontSize: 13, textAlign: 'center', lineHeight: 20 },

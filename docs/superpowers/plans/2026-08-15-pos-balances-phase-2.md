@@ -648,12 +648,59 @@ only through a test.
    next focus, so a cashier reconciling a drawer read a figure short by whatever
    they had just collected. `settleOlderBalance` now calls `reloadRegister()`.
 
+**Interactive verification — iPhone and Android: DONE.**
+
+Driven 2026-08-17 against the same migrated database. iOS via Maestro on an
+iPhone 16 Pro (iOS 18.3); Android via `scripts/droid.sh` on the Pixel 8, which
+gives a real element tree.
+
+| Step | iPhone | Android |
+|---|---|---|
+| "Or settle a customer's account" on an idle till | renders, taps | renders, `clickable=true` |
+| Sheet opens and STAYS open | ✓ | ✓ |
+| No dangling `PAYMENT METHOD` header | ✓ (`assertNotVisible`) | ✓ |
+| Customer picker opens, searches, attaches | ✓ | ✓ |
+| Balance row | `Owes $14.35 · since Aug 17 · Collect it` | `Owes $6.15` |
+| "Collect it" reveals the methods, row offers **Cancel** | ✓ | ✓ (`Button 'Cancel'`) |
+| `Take $X off the balance` | ✓ | ✓ |
+| Settlement completes, balance clears, no error | ✓ | ✓ |
+| Pay-later card with no customer opens the picker | — | ✓ |
+| Zero-down credit sale | — | ✓ |
+| Receipt's boxed `BALANCE DUE` / `Owed by` | — | ✓, identical to web |
+| Accessibility role on the pay-later control | — | exposed as `Switch` |
+
+**The register's takings reconcile across all three platforms:** $43.05 after the
+web pass, + $14.35 settled on iPhone, + $6.15 settled on Android = **$63.55**,
+which is what the till reads. That is migration 20260831000300 working on real
+data on every surface.
+
+**Two defects this pass found, both fixed:**
+
+1. **Settling was completely unreachable on a phone.** The counter's fix did not
+   carry: on compact there is no customer row on the panel, and the only route to
+   the picker is the checkout sheet — whose button is disabled on an empty till.
+   So a phone could take credit and never collect it. An idle phone till now
+   offers "Or settle a customer's account", and `settleIntent` keeps the sheet
+   from dismissing itself before a customer has even been chosen.
+2. **A dangling `PAYMENT METHOD` header.** The picker draws its heading
+   unconditionally and its buttons only while something is owed, so the sheet
+   opened on a section header above blank space. `showPayment` gates the whole
+   block on the same condition the counter uses.
+
+Both were invisible to every test and to the web pass, because the web pass ran
+at counter width.
+
 **Still not exercised:**
 
 | Platform | State |
 |---|---|
-| iPhone / iPad | **not exercised.** iOS taps are unavailable on this machine (`references/drivers.md`); layout and the receipt's boxed line still want a screenshot pass |
-| Android phone / tablet | **not exercised.** `scripts/droid.sh` can drive it and would also cover the breakpoint work Phase 1 never verified |
+| iPad | **not exercised.** A tablet renders the counter layout, which the web pass covers at the same width — but the sidebar shell and the sheet-vs-inline switch are its own thing |
+| Android tablets (11", 14") | **not exercised.** Same reason, and `scripts/droid.sh -t 11` can drive them |
+
+Correction to an earlier note in this plan: iOS taps ARE available here. Maestro
+has been installed since 2026-08-09 and drove the whole flow above; the
+"unavailable" line came from the skill's older summary rather than
+`references/drivers.md`.
 
 Phase 1's own outstanding native pass is inherited by this branch and is the same
 piece of work.

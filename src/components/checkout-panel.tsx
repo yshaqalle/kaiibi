@@ -52,6 +52,7 @@ export function CheckoutPanel({
   restChoice,
   customerPickerOpen,
   onCustomerPickerOpenChange,
+  showPayment,
   onDismiss,
 }: {
   // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
@@ -96,6 +97,7 @@ export function CheckoutPanel({
   restChoice?: ReactNode;
   customerPickerOpen?: boolean;
   onCustomerPickerOpenChange?: (open: boolean) => void;
+  showPayment?: boolean;
   // Fired once the sheet has FINISHED dismissing (iOS only -- RN's `onDismiss`
   // is iOS-only). This is the safe moment for the caller to present a modal of
   // its own, which is what pos.tsx does with the receipt.
@@ -165,6 +167,7 @@ export function CheckoutPanel({
                 restChoice={restChoice}
                 customerPickerOpen={customerPickerOpen}
                 onCustomerPickerOpenChange={onCustomerPickerOpenChange}
+                showPayment={showPayment}
               />
             </ScrollView>
 
@@ -265,7 +268,13 @@ export function PaymentBlock({
   allowSplit,
   error,
   restChoice,
+  showPayment = true,
 }: CheckoutBlocksProps) {
+  // Nothing to collect yet -- an empty till whose customer has not been chosen.
+  // The picker draws its PAYMENT METHOD heading unconditionally and its method
+  // buttons only while something is owed, so without this the sheet opens on a
+  // section header with a blank space under it, which reads as broken.
+  if (!showPayment) return error ? <Text style={styles.error}>{error}</Text> : null;
   return (
     <>
       <PaymentMethodPicker
@@ -328,6 +337,9 @@ export type CheckoutBlocksProps = {
   // it. Both or neither -- see CustomerPicker.
   customerPickerOpen?: boolean;
   onCustomerPickerOpenChange?: (open: boolean) => void;
+  // False while there is nothing to take money for. Defaulted true so callers
+  // that always have something keep their current behaviour.
+  showPayment?: boolean;
 };
 
 // Rendered only when loyalty is on AND a customer is attached, so there is
