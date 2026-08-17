@@ -759,6 +759,54 @@ begin
   end if;
   raise notice 'OK: edited from 2000 to 3000, still wholly owed';
 
+  ------------------------------------------------------------------
+  raise notice '=== 29. Settlement cash counts at the till that took it ===';
+  ------------------------------------------------------------------
+  -- register_session_expected attributed every payment through the SALE's
+  -- session, which was the only one a payment could have while all of a sale's
+  -- money arrived at once. A settlement arrives days later at another till, so
+  -- that till closed with a surplus it could not explain.
+  declare
+    v_reg2 uuid;
+    v_sess2 uuid;
+    v_expected integer;
+    v_credit_sale uuid;
+  begin
+    insert into public.registers (shop_id, location_id, name)
+      values (v_shop_id, v_location_id, 'Settlement Till') returning id into v_reg2;
+    -- With a USD float row, so register_session_expected has a bucket to report:
+    -- it returns one row per register_session_cash row, and a session opened with
+    -- no floats has none.
+    select public.open_register_session(v_reg2, v_owner_member,
+      jsonb_build_array(jsonb_build_object('currency_code', 'USD', 'amount_minor', 0, 'rate_to_usd', 1)),
+      null) into v_sess2;
+
+    -- A credit sale rung up with NO session at all, so nothing can be attributed
+    -- to it by the old path.
+    select public.complete_sale(
+      v_shop_id, v_items2, '[]'::jsonb,
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+    ) into v_credit_sale;
+
+    select expected_minor into v_expected
+      from public.register_session_expected(v_sess2) where currency_code = 'USD';
+    if coalesce(v_expected, 0) <> 0 then
+      raise exception 'FAIL: a fresh till expected % before taking anything', v_expected;
+    end if;
+
+    -- Settle it in cash at THIS till.
+    perform public.settle_sale_balance(v_credit_sale,
+      jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000, 'tendered_cents', 2000)),
+      v_sess2);
+
+    select expected_minor into v_expected
+      from public.register_session_expected(v_sess2) where currency_code = 'USD';
+    if coalesce(v_expected, 0) <> 2000 then
+      raise exception 'FAIL: the till took 2000 in cash and expects %', coalesce(v_expected, 0);
+    end if;
+  end;
+  raise notice 'OK: 2000 settled in cash, and the till expects 2000';
+
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';
 

@@ -58,6 +58,8 @@ export function CheckoutPanel({
   // button, the "Served by" row and a completed sale all open or close it.
   visible: boolean;
   onClose: () => void;
+  // "Nothing left to do here", not literally an empty basket -- an empty till
+  // that is settling an account has plenty to do. See the effect below.
   cartEmpty: boolean;
   // The same sentence the sale panel puts on its own button, so the two can
   // never disagree about what completing this sale will do.
@@ -105,9 +107,10 @@ export function CheckoutPanel({
   const open = visible;
   const setOpen = (next: boolean) => { if (!next) onClose(); };
 
-  // Covers both a completed sale (pos.tsx clears the cart on success) and
-  // the cart being emptied manually mid-flow -- either way there's nothing
-  // left to check out, so the sheet shouldn't stay open.
+  // Covers a completed sale (pos.tsx clears the cart on success) and the cart
+  // being emptied manually mid-flow. `cartEmpty` is really "nothing to do":
+  // settling an older balance happens on an EMPTY till, and closing the sheet
+  // out from under that was what made the whole flow unreachable on a phone.
   useEffect(() => {
     if (cartEmpty) onClose();
   }, [cartEmpty, onClose]);

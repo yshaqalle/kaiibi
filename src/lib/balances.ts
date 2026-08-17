@@ -162,3 +162,40 @@ export async function settleBalance(
   if (error) throw error;
   return (data as number | null) ?? 0;
 }
+
+/**
+ * Take `takenCents` off the front of a set of payment lines.
+ *
+ * For the half-finished settlement: some sales went through, a later one failed,
+ * and the money that already changed hands must not be handed over twice on the
+ * retry. Lines are consumed in order and a partly-consumed line is reduced rather
+ * than dropped, so the remainder is exactly what is still to collect.
+ *
+ * Pure, because "what is left to take after a failure" is the kind of arithmetic
+ * that must not be worked out for the first time while a cashier is waiting.
+ */
+export function trimPayments(payments: PaymentLine[], takenCents: number): PaymentLine[] {
+  let left = Math.max(0, takenCents);
+  const remaining: PaymentLine[] = [];
+  for (const payment of payments) {
+    if (left <= 0) {
+      remaining.push(payment);
+      continue;
+    }
+    if (payment.amountCents <= left) {
+      left -= payment.amountCents;
+      continue;
+    }
+    remaining.push({
+      ...payment,
+      amountCents: payment.amountCents - left,
+      // The tender described the original line, not this remainder -- keeping it
+      // would claim change that was never given.
+      tenderedCents: null,
+      foreignAmountCents: null,
+      foreignChangeCents: null,
+    });
+    left = 0;
+  }
+  return remaining;
+}

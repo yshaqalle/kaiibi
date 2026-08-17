@@ -21,14 +21,21 @@ export function CustomerBalanceRow({
   saleCount,
   currency,
   collecting,
+  canCollect,
   onCollect,
+  onCancel,
 }: {
   owedCents: number;
   since: string | null;
   saleCount: number;
   currency: Currency | null;
   collecting: boolean;
+  // Settling is its own transaction, so it is only offered on an empty till.
+  // The debt itself is still shown while a basket is open -- it is what tells a
+  // cashier whether to offer this customer credit again.
+  canCollect: boolean;
   onCollect: () => void;
+  onCancel: () => void;
 }) {
   if (owedCents <= 0) return null;
 
@@ -41,7 +48,11 @@ export function CustomerBalanceRow({
   // "across 1 sale" is noise on the common case, so the count only appears once
   // it is telling the cashier something they could not have assumed.
   const spread = saleCount > 1 ? `across ${saleCount} sales` : null;
-  const detail = [sinceLabel ? `since ${sinceLabel}` : null, spread].filter(Boolean).join(' · ');
+  const detail = collecting
+    ? 'Take the payment below'
+    : !canCollect
+      ? 'Finish or clear this sale to collect it'
+      : [sinceLabel ? `since ${sinceLabel}` : null, spread].filter(Boolean).join(' · ');
 
   return (
     <View style={styles.row}>
@@ -51,14 +62,20 @@ export function CustomerBalanceRow({
         {detail.length > 0 && <Text style={styles.detail}>{detail}</Text>}
       </View>
 
-      <Pressable
-        onPress={collecting ? undefined : onCollect}
-        disabled={collecting}
-        accessibilityRole="button"
-        style={[styles.action, collecting && styles.actionBusy]}
-      >
-        <Text style={styles.actionText}>{collecting ? 'Collecting…' : 'Collect it'}</Text>
-      </Pressable>
+      {/* Cancel while collecting, rather than a disabled "Collecting…" -- a
+          mis-tap used to wedge the checkout button with no way back, because
+          nothing cleared the request except a successful settlement. */}
+      {(canCollect || collecting) && (
+        <Pressable
+          onPress={collecting ? onCancel : onCollect}
+          accessibilityRole="button"
+          style={[styles.action, collecting && styles.actionCancel]}
+        >
+          <Text style={[styles.actionText, collecting && styles.actionCancelText]}>
+            {collecting ? 'Cancel' : 'Collect it'}
+          </Text>
+        </Pressable>
+      )}
     </View>
   );
 }
@@ -87,6 +104,8 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     backgroundColor: theme.bentoInk,
   },
-  actionBusy: { opacity: 0.6 },
+  // Outlined rather than filled: cancelling is the quieter of the two.
+  actionCancel: { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: theme.bentoAccentInk },
+  actionCancelText: { color: theme.bentoAccentInk },
   actionText: { fontSize: 12.5, fontWeight: '800', color: '#ffffff' },
 });

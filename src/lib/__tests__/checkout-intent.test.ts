@@ -156,27 +156,18 @@ describe('checkoutIntent', () => {
   });
 
   it('counts an older balance into what is still to collect', () => {
-    // $84.74 of goods plus $34.74 off the account: $50 does not cover it, and
-    // the shortfall named has to be the whole of it.
+    // A settlement is its own transaction, so this is an empty till taking
+    // $34.74 off an account with only $20 handed over.
     const intent = checkoutIntent({
       ...base,
+      cartEmpty: true,
+      totalCents: 0,
       settlingCents: 3474,
-      payments: [payment('cash', 5000)],
+      payments: [payment('cash', 2000)],
       customerName: 'Farah Hassan',
     });
-    expect(intent.label).toBe('Collect the remaining $69.48');
+    expect(intent.label).toBe('Collect the remaining $14.74');
     expect(intent.enabled).toBe(false);
-  });
-
-  it('says both halves when a sale settles an older balance too', () => {
-    const intent = checkoutIntent({
-      ...base,
-      settlingCents: 3474,
-      payments: [payment('cash', 11948)],
-      customerName: 'Farah Hassan',
-    });
-    expect(intent.label).toBe('Charge $84.74 + $34.74 off the balance');
-    expect(intent.enabled).toBe(true);
   });
 
   it('still refuses an empty till with nothing being settled', () => {

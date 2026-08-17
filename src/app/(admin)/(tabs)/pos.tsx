@@ -43,7 +43,7 @@ import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { checkoutErrorMessage, extractErrorMessage, isClosedRegisterError } from '@/lib/checkout-errors';
-import { allocate, customerBalance, settleBalance, type CustomerBalance } from '@/lib/balances';
+import { allocate, customerBalance, settleBalance, trimPayments, type CustomerBalance } from '@/lib/balances';
 import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
 import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/lib/held-orders';
@@ -583,25 +583,61 @@ export default function PosScreen() {
   // allowed the same shortfall.
   const settleOlderBalance = async () => {
     if (!shop || balance.sales.length === 0) return;
+    const plan = allocate(payments, balance.sales);
+
+    // What the cashier entered, against what the debts can actually absorb.
+    // allocate truncates rather than over-applying, so without this the excess
+    // would be recorded nowhere and nobody told -- and `balance` can be stale by
+    // exactly that much if another till settled part of this account first.
+    const entered = payments.reduce((sum, payment) => sum + payment.amountCents, 0);
+    const allocated = plan.reduce(
+      (sum, step) => sum + step.payments.reduce((inner, payment) => inner + payment.amountCents, 0),
+      0
+    );
+    if (allocated < entered) {
+      setError(
+        `Only ${formatCents(allocated)} of the ${formatCents(entered)} entered is still owed — someone may have already taken part of this. Adjust the payment and try again.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    // Sales that went through before a later one failed. Their money IS taken, so
+    // the payment lines that paid them must not be re-sent on a retry -- doing so
+    // is what turned one failure into "this sale is already paid in full" and a
+    // dead end.
+    const settled: string[] = [];
     try {
-      for (const step of allocate(payments, balance.sales)) {
+      for (const step of plan) {
         await settleBalance(step.saleId, step.payments, registerSession?.id ?? null);
+        settled.push(step.saleId);
       }
       setPayments([]);
       setSettlingFor(null);
-      // Re-read rather than subtract locally: a refund or another till may have
-      // moved this account while the cashier was counting the cash.
+    } catch (err) {
+      // Drop only what succeeded. Whatever is left is what still has to be
+      // collected, so the cashier can retry with the till showing the truth.
+      const done = new Set(settled);
+      const paidAlready = plan
+        .filter((step) => done.has(step.saleId))
+        .flatMap((step) => step.payments)
+        .reduce((sum, payment) => sum + payment.amountCents, 0);
+      setPayments(paidAlready > 0 ? trimPayments(payments, paidAlready) : payments);
+      setError(
+        settled.length > 0
+          ? `${formatCents(paidAlready)} went through before this failed, and has been taken off the payment. ${extractErrorMessage(err)}`
+          : extractErrorMessage(err)
+      );
+    } finally {
+      // Always re-read, success or not: after a partial settlement the local
+      // figure is wrong in a way that makes every retry refuse.
       if (selectedCustomer?.id) {
         const customerId = selectedCustomer.id;
         const next = await customerBalance(shop.id, customerId).catch(() => NO_BALANCE);
         setFetchedBalance({ customerId, data: next });
       }
       await reload();
-    } catch (err) {
-      setError(extractErrorMessage(err));
-    } finally {
       setSubmitting(false);
     }
   };
@@ -993,7 +1029,15 @@ export default function PosScreen() {
       saleCount={balance.sales.length}
       currency={secondCurrency}
       collecting={settlingCents > 0}
-      onCollect={() => setSettlingFor(selectedCustomer?.id ?? null)}
+      canCollect={cart.length === 0}
+      onCollect={() => {
+        setSettlingFor(selectedCustomer?.id ?? null);
+        // On a phone the payment methods live in the sheet, so asking to collect
+        // has to open it -- otherwise the request is made and there is nowhere
+        // to hand the money over.
+        if (compact) setCheckoutOpen(true);
+      }}
+      onCancel={() => { setSettlingFor(null); setPayments([]); }}
     />
   );
   const restChoiceEl = canOfferCredit ? (
@@ -1018,7 +1062,10 @@ export default function PosScreen() {
     // the customer has to drop it rather than carry it over.
     onSelectCustomer: (customer: SelectedCustomer) => { setSelectedCustomer(customer); setPointsRedeemed(0); },
     onClearCustomer: () => { setSelectedCustomer(null); setPointsRedeemed(0); },
-    totalCents: total,
+    // dueCents, not the basket: PaymentMethodPicker derives "remaining" from
+    // this, so on an empty till settling an account it would otherwise show
+    // nothing to collect and hide every method button.
+    totalCents: dueCents,
     payments,
     currencies,
     onChangePayments: setPayments,
@@ -1166,7 +1213,10 @@ export default function PosScreen() {
           is waiting for, not a row of dead payment methods. Above the
           arithmetic, because taking the money is the decision and the
           subtotal is only the explanation of it. */}
-      {!compact && checkoutBlockProps && cart.length > 0 && (
+      {/* Also when the basket is empty and an account is being settled -- gating
+          this on the cart alone is what left the whole settle-at-the-till flow
+          with no way to enter a payment. */}
+      {!compact && checkoutBlockProps && (cart.length > 0 || settlingCents > 0) && (
         <View style={styles.inlineBlocks}>
           <PaymentBlock {...checkoutBlockProps} />
         </View>
@@ -1201,7 +1251,7 @@ export default function PosScreen() {
         <CheckoutPanel
           visible={checkoutOpen}
           onClose={() => setCheckoutOpen(false)}
-          cartEmpty={cart.length === 0}
+          cartEmpty={cart.length === 0 && settlingCents === 0}
           intent={intent}
           {...checkoutBlockProps}
           fullyPaid={fullyPaid}

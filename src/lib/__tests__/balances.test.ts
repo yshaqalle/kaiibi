@@ -3,7 +3,7 @@
 // getting it wrong means the oldest debt sits there forever while newer ones
 // clear -- so `allocate` carries most of these tests.
 
-import { allocate, customerBalance, listOutstanding, settleBalance, type CustomerBalance } from '@/lib/balances';
+import { allocate, customerBalance, listOutstanding, settleBalance, trimPayments, type CustomerBalance } from '@/lib/balances';
 import type { PaymentLine } from '@/types/models';
 
 type FakeState = {
@@ -256,5 +256,48 @@ describe('listOutstanding', () => {
       },
     ]);
     expect(fake.eqs).toEqual([['customer_balances', 'shop_id', 'shop1']]);
+  });
+});
+
+// A settlement can span three sales, and the RPC is called once per sale. If the
+// second call fails the first sale's money IS taken -- re-sending it on the retry
+// is what turned one failure into "this sale is already paid in full" and a dead
+// end the cashier could not get out of.
+describe('trimPayments', () => {
+  it('drops a line the successful sales consumed entirely', () => {
+    expect(trimPayments([cash(1000), cash(2000)], 1000)).toEqual([cash(2000)]);
+  });
+
+  it('reduces a line that was only partly consumed', () => {
+    const left = trimPayments([cash(3000)], 1000);
+    expect(left).toHaveLength(1);
+    expect(left[0].amountCents).toBe(2000);
+  });
+
+  it('returns nothing when everything went through', () => {
+    expect(trimPayments([cash(1000), cash(2000)], 3000)).toEqual([]);
+  });
+
+  it('returns the payments untouched when nothing went through', () => {
+    expect(trimPayments([cash(1000)], 0)).toEqual([cash(1000)]);
+  });
+
+  it('drops the tender off a reduced line', () => {
+    // The tender described the original $30 handed over. Keeping it against a
+    // $20 remainder claims $10 of change nobody was given.
+    const forty: PaymentLine = { ...cash(3000), tenderedCents: 3000, foreignAmountCents: 345000 };
+    const left = trimPayments([forty], 1000);
+    expect(left[0].tenderedCents).toBeNull();
+    expect(left[0].foreignAmountCents).toBeNull();
+  });
+
+  it('keeps the tender on a line nothing was taken from', () => {
+    const withTender: PaymentLine = { ...cash(2000), tenderedCents: 2000 };
+    const left = trimPayments([cash(1000), withTender], 1000);
+    expect(left).toEqual([withTender]);
+  });
+
+  it('never returns a negative line when asked for more than exists', () => {
+    expect(trimPayments([cash(1000)], 9999)).toEqual([]);
   });
 });

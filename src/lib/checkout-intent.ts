@@ -21,7 +21,10 @@ export type CheckoutIntentInput = {
   // as a balance. Optional so Phase 1's callers keep compiling unchanged.
   restOwed?: boolean;
   // Money in this transaction that is paying off an OLDER sale rather than this
-  // basket. Adds to what has to be collected before anything can be charged.
+  // basket. Only ever set with an EMPTY basket: settling is its own transaction,
+  // because splitting one tender between a sale and a debt is ambiguous and
+  // completing both takes two RPCs that cannot be made atomic. The till enforces
+  // that by only offering "Collect it" on an empty till.
   settlingCents?: number;
 };
 
@@ -92,16 +95,6 @@ export function checkoutIntent(input: CheckoutIntentInput): CheckoutIntent {
   }
 
   const how = payments.length === 1 ? methodLabel(payments[0].method) : `split ${payments.length} ways`;
-
-  // Both halves, kept separate: one figure is what the customer is buying, the
-  // other is what they already owed, and adding them together would hide both.
-  if (settlingCents > 0) {
-    return {
-      label: `Charge ${formatCents(totalCents)} + ${formatCents(settlingCents)} off the balance`,
-      hint,
-      enabled: true,
-    };
-  }
 
   return {
     label: `Charge ${formatCents(totalCents)} · ${how}`,

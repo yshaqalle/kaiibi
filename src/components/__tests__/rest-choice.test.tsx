@@ -133,7 +133,9 @@ const balanceProps: React.ComponentProps<typeof CustomerBalanceRow> = {
   saleCount: 1,
   currency: null,
   collecting: false,
+  canCollect: true,
   onCollect: () => {},
+  onCancel: () => {},
 };
 
 describe('CustomerBalanceRow', () => {
@@ -159,6 +161,34 @@ describe('CustomerBalanceRow', () => {
     // "across 1 sale" is noise on the common case.
     const text = render(<CustomerBalanceRow {...balanceProps} />);
     expect(text).not.toContain('1 sale');
+  });
+
+  it('offers a way out of collecting, so a mis-tap is not a wedge', () => {
+    // settlingFor used to clear only on a successful settlement, and the button
+    // disabled itself while set -- so tapping Collect it by accident left the
+    // checkout button stuck with nothing to undo it.
+    const cancelled: number[] = [];
+    let tree: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <CustomerBalanceRow {...balanceProps} collecting onCancel={() => cancelled.push(1)} />
+      );
+    });
+    const press = tree!.root.findAll(
+      (node) => typeof node.type !== 'string' && typeof node.props.onPress === 'function'
+    )[0];
+    act(() => { press.props.onPress(); });
+    expect(cancelled).toHaveLength(1);
+    expect(render(<CustomerBalanceRow {...balanceProps} collecting />)).toContain('Cancel');
+  });
+
+  it('does not offer to collect while a sale is open', () => {
+    // Settling is its own transaction. Offering it mid-basket promised something
+    // checkout() would not do.
+    const text = render(<CustomerBalanceRow {...balanceProps} canCollect={false} />);
+    expect(text).toContain('Owes $34.74');
+    expect(text).not.toContain('Collect it');
+    expect(text).toContain('Finish or clear this sale');
   });
 
   it('renders nothing for a customer who owes nothing, so most shops never see it', () => {
