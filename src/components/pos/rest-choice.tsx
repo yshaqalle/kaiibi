@@ -8,110 +8,106 @@ import type { Currency } from '@/types/models';
 // Pinned to the light palette for now -- no dark-mode switching yet.
 const theme = Colors.light;
 
-export type RestChoiceValue = 'now' | 'later';
-
 /**
- * What happens to the part of the bill the payments do not cover.
+ * Let what the payments do not cover be carried on the customer's account.
  *
- * Renders nothing at all when there is nothing left over, which is every
- * ordinary sale -- a shop that never gives credit never meets this control. It
- * appears because money is missing, and disappears the moment it isn't.
+ * ONE control, not a choice between two. The first attempt offered "Collect it
+ * now" beside "Pay later", which read as two behaviours when only one of them
+ * was a behaviour -- collecting is the payment methods above this, and a tile
+ * meaning "do nothing different" invites a cashier to look for a difference that
+ * isn't there.
+ *
+ * It is also how "some now, the rest later" works, with no third option:
+ * whatever has been entered above is what they are paying now, and this carries
+ * the difference -- so the amount here moves as payments are entered.
+ *
+ * Nothing here is ever disabled. With no customer attached it becomes the way to
+ * attach one, because "you cannot do this yet" with no way forward is the dead
+ * end that made an earlier version of this look broken.
+ *
+ * Renders nothing when the payments already cover the bill, which is every
+ * ordinary sale.
  */
 export function RestChoice({
   remainingCents,
-  choice,
-  hasCustomer,
+  collectedCents,
+  chosen,
+  customerName,
   currency,
   onChange,
+  onNeedCustomer,
 }: {
   remainingCents: number;
-  choice: RestChoiceValue;
-  hasCustomer: boolean;
+  collectedCents: number;
+  chosen: boolean;
+  customerName: string | null;
   currency: Currency | null;
-  onChange: (choice: RestChoiceValue) => void;
+  onChange: (chosen: boolean) => void;
+  onNeedCustomer: () => void;
 }) {
   if (remainingCents <= 0) return null;
 
+  const amount = formatCents(remainingCents);
   const secondary = secondaryAmount(remainingCents, currency);
+  // "the remaining" only once something has actually been taken. On an untouched
+  // bill there is nothing remaining -- it is all of it.
+  const what = collectedCents > 0 ? `the remaining ${amount}` : amount;
 
-  return (
-    <View>
-      <Text style={styles.heading}>THE REMAINING {formatCents(remainingCents)}</Text>
-      {secondary !== null && <Text style={styles.headingEcho}>{secondary}</Text>}
+  // No customer yet. Live, in full ink, and its action opens the picker -- the
+  // server refuses a nameless debt, so this is that rule turned into the next
+  // step rather than into a locked door.
+  if (!customerName) {
+    return (
+      <Pressable onPress={onNeedCustomer} accessibilityRole="button" style={styles.card}>
+        <View style={styles.head}>
+          <Text style={styles.title}>Pay later</Text>
+          <Text style={styles.action}>Attach a customer</Text>
+        </View>
+        <Text style={styles.detail}>Carry {what} on a customer&apos;s account</Text>
+      </Pressable>
+    );
+  }
 
-      <View style={styles.row}>
-        <Tile
-          label="Collect it now"
-          detail="Take the rest before they go"
-          active={choice === 'now'}
-          onPress={() => onChange('now')}
-        />
-        <Tile
-          label="Pay later"
-          // The server refuses a nameless debt outright, so this is not a
-          // nudge -- it is the same rule, said before the customer is waiting.
-          detail={hasCustomer ? 'Carried on their account' : 'Needs a customer'}
-          active={choice === 'later'}
-          disabled={!hasCustomer}
-          onPress={() => onChange('later')}
-        />
-      </View>
-    </View>
-  );
-}
-
-function Tile({
-  label,
-  detail,
-  active,
-  disabled = false,
-  onPress,
-}: {
-  label: string;
-  detail: string;
-  active: boolean;
-  disabled?: boolean;
-  onPress: () => void;
-}) {
   return (
     <Pressable
-      onPress={disabled ? undefined : onPress}
-      disabled={disabled}
-      accessibilityRole="button"
-      accessibilityState={{ selected: active, disabled }}
-      style={[styles.tile, active && styles.tileActive, disabled && styles.tileDisabled]}
+      onPress={() => onChange(!chosen)}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: chosen }}
+      style={[styles.card, chosen && styles.cardOn]}
     >
-      <Text style={[styles.tileLabel, active && styles.tileLabelActive, disabled && styles.tileLabelDisabled]}>
-        {label}
+      <View style={styles.head}>
+        <Text style={[styles.title, chosen && styles.titleOn]}>
+          {chosen ? 'Paying later' : 'Pay later'}
+        </Text>
+        <Text style={[styles.action, chosen && styles.actionOn]}>{chosen ? 'Undo' : 'Choose'}</Text>
+      </View>
+      <Text style={[styles.detail, chosen && styles.detailOn]}>
+        {chosen
+          ? `${what} carried on ${customerName}'s account`
+          : `Carry ${what} on ${customerName}'s account`}
       </Text>
-      <Text style={[styles.tileDetail, active && styles.tileDetailActive, disabled && styles.tileLabelDisabled]}>
-        {detail}
-      </Text>
+      {/* The figure the customer will be told, in the words they hear it in. */}
+      {chosen && secondary !== null && <Text style={styles.echo}>{secondary}</Text>}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  heading: { fontSize: 12, fontWeight: '700', color: theme.bentoMuted, letterSpacing: 0.4, marginTop: 22 },
-  headingEcho: { fontSize: 10, fontWeight: '600', color: theme.bentoMuted2, marginTop: 2 },
-  row: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  tile: {
-    flexGrow: 1,
-    flexBasis: '47%',
-    // Yoga defaults minWidth to auto, so without this the longer label widens
-    // the pair instead of wrapping inside it.
-    minWidth: 0,
+  card: {
+    marginTop: 12,
     padding: 14,
     borderRadius: BENTO_RADIUS_TILE,
     backgroundColor: theme.bentoSoft,
   },
-  // The accent wash is the "this is chosen" signal everywhere else in bento; it
-  // is not a status colour, so it carries no good/bad meaning here.
-  tileActive: { backgroundColor: theme.bentoAccentWash },
-  tileDisabled: { opacity: 0.55 },
-  tileLabel: { fontSize: 14, fontWeight: '800', color: theme.bentoInk },
-  tileLabelActive: { color: theme.bentoAccentInk },
-  tileLabelDisabled: { color: theme.bentoMuted2 },
-  tileDetail: { fontSize: 11, fontWeight: '600', color: theme.bentoMuted, marginTop: 3, lineHeight: 15 },
-  tileDetailActive: { color: theme.bentoAccentInk },
+  // The accent wash is bento's "this is chosen" signal. Not a status colour, so
+  // it says selected without saying good or bad.
+  cardOn: { backgroundColor: theme.bentoAccentWash },
+  head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  title: { fontSize: 14, fontWeight: '800', color: theme.bentoInk },
+  titleOn: { color: theme.bentoAccentInk },
+  action: { flexShrink: 0, fontSize: 11.5, fontWeight: '800', color: theme.bentoMuted, letterSpacing: 0.3 },
+  actionOn: { color: theme.bentoAccentInk },
+  detail: { fontSize: 11.5, fontWeight: '600', color: theme.bentoMuted, marginTop: 3, lineHeight: 16 },
+  detailOn: { color: theme.bentoAccentInk },
+  echo: { fontSize: 10, fontWeight: '600', color: theme.bentoAccentInk, marginTop: 2, opacity: 0.85 },
 });

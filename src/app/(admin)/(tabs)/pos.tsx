@@ -14,7 +14,7 @@ import { DualAmount } from '@/components/pos/dual-amount';
 import { HeldOrdersMenu } from '@/components/pos/held-orders-menu';
 import { SaleLine } from '@/components/pos/sale-line';
 import { CustomerBalanceRow } from '@/components/pos/customer-balance-row';
-import { RestChoice, type RestChoiceValue } from '@/components/pos/rest-choice';
+import { RestChoice } from '@/components/pos/rest-choice';
 import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
@@ -96,10 +96,14 @@ export default function PosScreen() {
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [selectedCustomer, setSelectedCustomer] = usePosSessionField('selectedCustomer');
-  // What happens to the part of the bill the payments do not cover. 'now' is the
-  // default and the only option most tills ever use -- 'later' is a decision
-  // someone has to make, every time, against a named customer.
-  const [restChoice, setRestChoice] = useState<RestChoiceValue>('now');
+  // Whether the uncovered part of the bill is being carried on the customer's
+  // account. Off by default and off again on every basket change: taking the
+  // money is the ordinary path, and this is the deliberate departure from it.
+  const [payLater, setPayLater] = useState(false);
+  // The customer picker's open state, held here so the pay-later control can
+  // open it. Without that, "attach a customer" was an instruction with nowhere
+  // to follow it to.
+  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
   // What the attached customer already owed before this basket, stored WITH the
   // customer it was read for. Keyed rather than cleared on change: a balance
   // shown against the wrong name is worse than none, and deriving it means
@@ -513,7 +517,7 @@ export default function PosScreen() {
   // an old account is not itself a thing you can half-do on credit.
   const restCents = Math.max(0, dueCents - paidCents);
   const canOfferCredit = cart.length > 0 && restCents > 0;
-  const leavingBalance = canOfferCredit && restChoice === 'later' && Boolean(selectedCustomer);
+  const leavingBalance = canOfferCredit && payLater && Boolean(selectedCustomer);
 
   // Any cart change invalidates whatever's already been entered in the
   // payment picker (the amounts no longer sum to the new total), so clear
@@ -530,7 +534,7 @@ export default function PosScreen() {
   const [choiceSetForTotal, setChoiceSetForTotal] = useState(total);
   if (choiceSetForTotal !== total) {
     setChoiceSetForTotal(total);
-    setRestChoice('now');
+    setPayLater(false);
   }
 
   // What this customer already owed. Fetch only -- nothing is cleared here,
@@ -686,7 +690,7 @@ export default function PosScreen() {
       // Clearing the customer above empties the balance through the effect that
       // watches them; these two are reset here as well so the next sale starts
       // from the safe choice even if the same customer is picked straight back.
-      setRestChoice('now');
+      setPayLater(false);
       setSettlingFor(null);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
@@ -978,10 +982,12 @@ export default function PosScreen() {
   const restChoiceEl = canOfferCredit ? (
     <RestChoice
       remainingCents={restCents}
-      choice={restChoice}
-      hasCustomer={Boolean(selectedCustomer)}
+      collectedCents={paidCents}
+      chosen={payLater}
+      customerName={selectedCustomer?.name ?? null}
       currency={secondCurrency}
-      onChange={setRestChoice}
+      onChange={setPayLater}
+      onNeedCustomer={() => setCustomerPickerOpen(true)}
     />
   ) : null;
 
@@ -1016,6 +1022,8 @@ export default function PosScreen() {
     // the phone rendering them in two different places.
     balanceRow: balanceRowEl,
     restChoice: restChoiceEl,
+    customerPickerOpen,
+    onCustomerPickerOpenChange: setCustomerPickerOpen,
   } : null;
 
   // One sentence, shared by the panel and the sheet, so the two surfaces can
@@ -1027,7 +1035,7 @@ export default function PosScreen() {
     customerName: selectedCustomer?.name ?? null,
     submitting,
     secondaryTotal: secondaryAmount(total, secondCurrency),
-    restOwed: canOfferCredit && restChoice === 'later',
+    restOwed: canOfferCredit && payLater,
     settlingCents,
   });
 

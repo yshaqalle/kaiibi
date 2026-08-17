@@ -22,29 +22,79 @@ function render(element: React.ReactElement) {
 
 const choiceProps: React.ComponentProps<typeof RestChoice> = {
   remainingCents: 3474,
-  choice: 'now',
-  hasCustomer: true,
+  collectedCents: 0,
+  chosen: false,
+  customerName: 'Farah Hassan',
   currency: null,
   onChange: () => {},
+  onNeedCustomer: () => {},
 };
 
 describe('RestChoice', () => {
-  it('offers both ways to deal with what is left', () => {
+  it('offers one decision, not a choice between doing something and doing nothing', () => {
+    // "Collect it now" was a tile that meant do nothing different -- taking the
+    // money is the payment methods above this control.
     const text = render(<RestChoice {...choiceProps} />);
-    expect(text).toContain('Collect it now');
     expect(text).toContain('Pay later');
+    expect(text).not.toContain('Collect it now');
   });
 
-  it('names the amount still to deal with, so the choice is not abstract', () => {
+  it('names the amount and whose account carries it', () => {
     const text = render(<RestChoice {...choiceProps} />);
     expect(text).toContain('$34.74');
+    expect(text).toContain("Farah Hassan's account");
   });
 
-  it('says what is missing rather than going grey and silent', () => {
-    // A disabled control with no reason on it is a dead end -- the same rule
-    // Phase 1's button follows.
-    const text = render(<RestChoice {...choiceProps} hasCustomer={false} />);
-    expect(text).toContain('Needs a customer');
+  it('does not call an untouched bill "remaining"', () => {
+    const text = render(<RestChoice {...choiceProps} />);
+    expect(text).toContain('Carry $34.74');
+    expect(text).not.toContain('remaining');
+  });
+
+  it('says "the remaining" once part of it has been taken', () => {
+    // Some now, the rest later -- the same control, with the amount moving as
+    // payments are entered above it.
+    const text = render(<RestChoice {...choiceProps} collectedCents={5000} />);
+    expect(text).toContain('the remaining $34.74');
+  });
+
+  it('reads back what it is doing once chosen', () => {
+    const text = render(<RestChoice {...choiceProps} chosen />);
+    expect(text).toContain('Paying later');
+    expect(text).toContain("$34.74 carried on Farah Hassan's account");
+  });
+
+  it('offers a way back out, so it is not a one-way door', () => {
+    expect(render(<RestChoice {...choiceProps} chosen />)).toContain('Undo');
+  });
+
+  it('offers to attach a customer rather than going grey and silent', () => {
+    const text = render(<RestChoice {...choiceProps} customerName={null} />);
+    expect(text).toContain('Attach a customer');
+  });
+
+  it('with no customer, pressing it opens the picker instead of choosing', () => {
+    // "You cannot do this yet" with no way forward is a dead end, and it reads
+    // as broken. The control becomes the way to fix what it is missing.
+    const picked: boolean[] = [];
+    const asked: number[] = [];
+    let tree: ReturnType<typeof create>;
+    act(() => {
+      tree = create(
+        <RestChoice
+          {...choiceProps}
+          customerName={null}
+          onChange={(next) => picked.push(next)}
+          onNeedCustomer={() => asked.push(1)}
+        />
+      );
+    });
+    const press = tree!.root.findAll(
+      (node) => typeof node.type !== 'string' && typeof node.props.onPress === 'function'
+    )[0];
+    act(() => { press.props.onPress(); });
+    expect(asked).toHaveLength(1);
+    expect(picked).toEqual([]);
   });
 
   it('renders nothing at all once the payments cover the bill', () => {
@@ -63,36 +113,17 @@ describe('RestChoice', () => {
     expect(tree!.toJSON()).toBeNull();
   });
 
-  it('reports which way is chosen back to the caller', () => {
-    const picked: string[] = [];
-    let tree: ReturnType<typeof create>;
-    act(() => {
-      tree = create(<RestChoice {...choiceProps} onChange={(next) => picked.push(next)} />);
-    });
-    const pressables = tree!.root.findAll(
-      (node) => typeof node.type !== 'string' && typeof node.props.onPress === 'function'
-    );
-    act(() => {
-      pressables[pressables.length - 1].props.onPress();
-    });
-    expect(picked).toEqual(['later']);
-  });
-
-  it('will not let a balance be chosen with nobody to carry it', () => {
-    let tree: ReturnType<typeof create>;
-    act(() => {
-      tree = create(<RestChoice {...choiceProps} hasCustomer={false} onChange={() => {}} />);
-    });
-    // Asserted as "there is no handler to fire", not as "pressing it did
-    // nothing": a disabled Pressable that still carries an onPress is one
-    // `disabled` prop away from firing again.
-    const blocked = tree!.root.findAll(
-      (node) => typeof node.type !== 'string' && node.props.accessibilityState?.disabled === true
-    );
-    // Pressable passes the state down a layer, so more than one node carries
-    // it. Every one of them has to be inert.
-    expect(blocked.length).toBeGreaterThan(0);
-    for (const node of blocked) expect(node.props.onPress).toBeUndefined();
+  it('toggles both ways', () => {
+    const picked: boolean[] = [];
+    let off: ReturnType<typeof create>;
+    let on: ReturnType<typeof create>;
+    act(() => { off = create(<RestChoice {...choiceProps} onChange={(next) => picked.push(next)} />); });
+    act(() => { on = create(<RestChoice {...choiceProps} chosen onChange={(next) => picked.push(next)} />); });
+    const press = (tree: ReturnType<typeof create>) =>
+      tree.root.findAll((node) => typeof node.type !== 'string' && typeof node.props.onPress === 'function')[0];
+    act(() => { press(off!).props.onPress(); });
+    act(() => { press(on!).props.onPress(); });
+    expect(picked).toEqual([true, false]);
   });
 });
 

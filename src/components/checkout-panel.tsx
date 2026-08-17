@@ -50,6 +50,8 @@ export function CheckoutPanel({
   availableKnown,
   balanceRow,
   restChoice,
+  customerPickerOpen,
+  onCustomerPickerOpenChange,
   onDismiss,
 }: {
   // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
@@ -90,6 +92,8 @@ export function CheckoutPanel({
   // Handed straight through to the blocks below -- see CheckoutBlocksProps.
   balanceRow?: ReactNode;
   restChoice?: ReactNode;
+  customerPickerOpen?: boolean;
+  onCustomerPickerOpenChange?: (open: boolean) => void;
   // Fired once the sheet has FINISHED dismissing (iOS only -- RN's `onDismiss`
   // is iOS-only). This is the safe moment for the caller to present a modal of
   // its own, which is what pos.tsx does with the receipt.
@@ -156,6 +160,8 @@ export function CheckoutPanel({
                 onChangePointsRedeemed={onChangePointsRedeemed}
                 balanceRow={balanceRow}
                 restChoice={restChoice}
+                customerPickerOpen={customerPickerOpen}
+                onCustomerPickerOpenChange={onCustomerPickerOpenChange}
               />
             </ScrollView>
 
@@ -205,6 +211,8 @@ export function CustomerBlock({
   pointsEarned,
   onChangePointsRedeemed,
   balanceRow,
+  customerPickerOpen,
+  onCustomerPickerOpenChange,
 }: CheckoutBlocksProps) {
   return (
     <>
@@ -216,6 +224,8 @@ export function CustomerBlock({
         onClear={onClearCustomer}
         showPoints={loyaltyEnabled}
         centsPerPoint={centsPerPoint}
+        open={customerPickerOpen}
+        onOpenChange={onCustomerPickerOpenChange}
       />
 
       {/* Points sit with the customer they belong to, and before the money:
@@ -311,6 +321,10 @@ export type CheckoutBlocksProps = {
   // Both are absent on a shop that has never given credit.
   balanceRow?: ReactNode;
   restChoice?: ReactNode;
+  // The customer picker, driven from pos.tsx so the pay-later control can open
+  // it. Both or neither -- see CustomerPicker.
+  customerPickerOpen?: boolean;
+  onCustomerPickerOpenChange?: (open: boolean) => void;
 };
 
 // Rendered only when loyalty is on AND a customer is attached, so there is
