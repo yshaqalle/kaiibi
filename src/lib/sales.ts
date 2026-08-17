@@ -120,7 +120,10 @@ export async function refundSaleItems(saleId: string, items: { saleItemId: strin
   return data as string;
 }
 
-function buildPaymentPayload(payments: PaymentLine[]) {
+// Exported for balances.ts, which sends the same payment shape to
+// settle_sale_balance. Duplicating the mapping would let the two drift, and a
+// key this side renames silently arrives at the server as null.
+export function buildPaymentPayload(payments: PaymentLine[]) {
   return payments.map((p) => ({
     method: p.method,
     amount_cents: p.amountCents,
