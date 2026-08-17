@@ -132,6 +132,27 @@ export function StockTransferModal({
       .catch(() => {});
   }, [visible, shopId]);
 
+  // Closing has to put everything back, because this component is never
+  // unmounted -- the screen renders it with `visible={false}` and it returns
+  // null, keeping all of its state. Without this, reopening after a completed
+  // move showed that move still sitting in the basket, with the button stuck
+  // reading "Moving…" because `busy` was never lowered on the success path.
+  // The stuck flag was the only thing stopping the same units being moved
+  // twice, which is not a safety mechanism anyone should rely on.
+  const closeAndReset = useCallback(() => {
+    setBusy(false);
+    setLines([]);
+    setNote('');
+    setSearch('');
+    setCategory(null);
+    setError(null);
+    setPlan(null);
+    setSheetFile(null);
+    setSheetNotice(null);
+    setTab('hand');
+    onClose();
+  }, [onClose]);
+
   // Changing the source clears the basket: the quantities were chosen against
   // the old store's availability and mean nothing against the new one's. Done
   // in the handler rather than an effect on `fromId` — an effect would be a
@@ -212,7 +233,7 @@ export function StockTransferModal({
         note.trim() || null
       );
       await onDone();
-      onClose();
+      closeAndReset();
     } catch (err) {
       setError(extractErrorMessage(err));
       setBusy(false);
@@ -338,10 +359,14 @@ export function StockTransferModal({
     await onDone();
     setBusy(false);
     if (failures.length > 0) {
+      // The plan is deliberately left on screen: the pairs that DID go through
+      // have already moved, so re-pressing must not repeat them. The shop reads
+      // which pair failed and fixes that section of the sheet.
       setError(`Some moves did not go through.\n${failures.join('\n')}`);
+      setPlan({ ...plan, pairs: [] });
       return;
     }
-    onClose();
+    closeAndReset();
   };
 
   const downloadRejected = async () => {
@@ -355,12 +380,12 @@ export function StockTransferModal({
   const sourceName = selectable.find((l) => l.id === fromId)?.name ?? '';
 
   return (
-    <AppModal visible animationType="fade" transparent onRequestClose={onClose}>
+    <AppModal visible animationType="fade" transparent onRequestClose={closeAndReset}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>Move stock</Text>
-            <Pressable onPress={onClose} style={styles.close}>
+            <Pressable onPress={closeAndReset} style={styles.close}>
               <Text style={styles.closeText}>Close</Text>
             </Pressable>
           </View>

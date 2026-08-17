@@ -41,11 +41,16 @@ export type ImportEntityConfig<T> = {
 
 type Step = 'idle' | 'parsed' | 'importing' | 'done';
 
-export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
+export function CsvImportModal<T>({ visible, onClose, config, onImported, onDismissed }: {
   visible: boolean;
   onClose: () => void;
   config: ImportEntityConfig<T>;
   onImported: () => void;
+  // Fires once this sheet is actually off the screen (iOS only -- RN's
+  // `onDismiss`). `config.elsewhere` hands over to another sheet, and iOS
+  // silently drops a modal presented while this one is still up, so the handover
+  // has to wait for this. See use-staged-sheet.ts.
+  onDismissed?: () => void;
 }) {
   const [step, setStep] = useState<Step>('idle');
   const [fileName, setFileName] = useState('');
@@ -108,7 +113,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   if (!visible) return null;
 
   return (
-    <AppModal visible transparent animationType="fade" onRequestClose={close}>
+    <AppModal visible transparent animationType="fade" onRequestClose={close} onDismiss={onDismissed}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
