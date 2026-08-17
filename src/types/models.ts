@@ -3,6 +3,13 @@ import type { OpeningHours } from '@/lib/store-hours';
 
 export type PaymentMethod = 'cash' | 'zaad' | 'edahab' | 'other';
 
+// What a SALE's summary column can say, which is one more thing than a payment
+// picker can offer: 'unpaid' is not a way to pay, it is the absence of one, on a
+// sale taken on credit against a customer (migration 20260831000100). Kept out
+// of PaymentMethod deliberately -- expenses and recurring bills use that list
+// and money going out is never unpaid.
+export type SalePaymentMethod = PaymentMethod | 'unpaid';
+
 export type Profile = {
   id: string;
   role: 'admin' | 'customer' | 'staff';
@@ -505,7 +512,7 @@ export type SaleEdit = {
   previousSnapshot: {
     totalCents: number;
     itemCount: number;
-    paymentMethod: PaymentMethod;
+    paymentMethod: SalePaymentMethod;
     customerName: string | null;
     customerPhone: string | null;
     customerEmail: string | null;
@@ -544,7 +551,7 @@ export type Sale = {
   // location), so per-location reporting can never have an unattributed row.
   locationId: string;
   createdBy: string | null;
-  paymentMethod: PaymentMethod;
+  paymentMethod: SalePaymentMethod;
   paymentNote: string | null;
   // Who the sale was for, independent of payment method — unlike
   // `SalePayment.customerName/customerPhone` (only meaningful for

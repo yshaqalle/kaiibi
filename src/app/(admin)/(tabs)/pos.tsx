@@ -13,6 +13,8 @@ import { CloseRegisterSheet } from '@/components/pos/close-register-sheet';
 import { DualAmount } from '@/components/pos/dual-amount';
 import { HeldOrdersMenu } from '@/components/pos/held-orders-menu';
 import { SaleLine } from '@/components/pos/sale-line';
+import { CustomerBalanceRow } from '@/components/pos/customer-balance-row';
+import { RestChoice, type RestChoiceValue } from '@/components/pos/rest-choice';
 import { SalePanel } from '@/components/pos/sale-panel';
 import { OpenRegisterSheet } from '@/components/pos/open-register-sheet';
 import { RegisterBar, RegisterGate } from '@/components/pos/register-bar';
@@ -41,6 +43,7 @@ import { listStaff } from '@/lib/staff';
 import { listCategories } from '@/lib/categories';
 import { cartTotalCents } from '@/lib/cart';
 import { checkoutErrorMessage, extractErrorMessage, isClosedRegisterError } from '@/lib/checkout-errors';
+import { allocate, customerBalance, settleBalance, type CustomerBalance } from '@/lib/balances';
 import { checkoutIntent } from '@/lib/checkout-intent';
 import { confirmDestructive } from '@/lib/confirm';
 import { holdOrder, readHeldOrders, resumeHeldOrder, type HeldOrder } from '@/lib/held-orders';
@@ -61,6 +64,12 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
 const theme = Colors.light;
+
+type CustomerBalanceState = { owedCents: number; oldest: CustomerBalance | null; sales: CustomerBalance[] };
+
+// A customer who owes nothing. A stable module-level constant rather than a
+// fresh object each render, so nothing downstream re-runs on identity alone.
+const NO_BALANCE: CustomerBalanceState = { owedCents: 0, oldest: null, sales: [] };
 
 export default function PosScreen() {
   const { shop, can, locations, activeLocation, limitFor, usageOf, hasModule, myMembership, profile, refreshShop } = useAuth();
@@ -87,6 +96,22 @@ export default function PosScreen() {
   const [categories, setCategories] = useState<string[]>([]);
   const [categoryColors, setCategoryColors] = useState<Map<string, string | null>>(new Map());
   const [selectedCustomer, setSelectedCustomer] = usePosSessionField('selectedCustomer');
+  // What happens to the part of the bill the payments do not cover. 'now' is the
+  // default and the only option most tills ever use -- 'later' is a decision
+  // someone has to make, every time, against a named customer.
+  const [restChoice, setRestChoice] = useState<RestChoiceValue>('now');
+  // What the attached customer already owed before this basket, stored WITH the
+  // customer it was read for. Keyed rather than cleared on change: a balance
+  // shown against the wrong name is worse than none, and deriving it means
+  // there is no window in which the previous customer's debt is on screen.
+  const [fetchedBalance, setFetchedBalance] = useState<{ customerId: string; data: CustomerBalanceState } | null>(null);
+  const balance: CustomerBalanceState =
+    fetchedBalance && fetchedBalance.customerId === selectedCustomer?.id ? fetchedBalance.data : NO_BALANCE;
+  // Which customer the cashier asked to collect from, not an amount. The amount
+  // is always today's owed figure, so it cannot go stale against a balance
+  // another till just moved.
+  const [settlingFor, setSettlingFor] = useState<string | null>(null);
+  const settlingCents = settlingFor && settlingFor === selectedCustomer?.id ? balance.owedCents : 0;
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   // A completed sale hands off from the checkout sheet's modal to the receipt's,
   // and iOS will not present a modal while another is still mid-dismiss -- it
@@ -479,12 +504,51 @@ export default function PosScreen() {
   const hasAnyDiscount = grossCents !== preRedemptionCents;
   const pointsEarned = loyalty.enabled && selectedCustomer ? pointsEarnedFor(preTaxTotalCents, loyalty.pointsPerUsd) : 0;
   const paidCents = payments.reduce((sum, p) => sum + p.amountCents, 0);
-  const fullyPaid = payments.length > 0 && paidCents === total;
+  // Goods plus whatever of an older account is being cleared in the same
+  // breath. `fullyPaid` is against this, not the basket, or a cashier taking
+  // $34.74 off an account with an empty till is told the payment is short.
+  const dueCents = total + settlingCents;
+  const fullyPaid = payments.length > 0 && paidCents === dueCents;
+  // Only offered while there is a shortfall AND a basket to carry it: settling
+  // an old account is not itself a thing you can half-do on credit.
+  const restCents = Math.max(0, dueCents - paidCents);
+  const canOfferCredit = cart.length > 0 && restCents > 0;
+  const leavingBalance = canOfferCredit && restChoice === 'later' && Boolean(selectedCustomer);
 
   // Any cart change invalidates whatever's already been entered in the
   // payment picker (the amounts no longer sum to the new total), so clear
   // it rather than let a stale split silently under/over-cover the sale.
   useEffect(() => { setPayments([]); }, [total, setPayments]);
+
+  // "Pay later" is a decision about one specific shortfall. Change the basket
+  // and that shortfall is a different number, so the choice goes back to the
+  // safe one rather than silently carrying over onto a bill nobody agreed to.
+  //
+  // Adjusted during render rather than in an effect, which is what react-compiler
+  // asks for and what search-row.tsx's keypad state already does: an effect here
+  // would paint one frame with the old choice against the new total.
+  const [choiceSetForTotal, setChoiceSetForTotal] = useState(total);
+  if (choiceSetForTotal !== total) {
+    setChoiceSetForTotal(total);
+    setRestChoice('now');
+  }
+
+  // What this customer already owed. Fetch only -- nothing is cleared here,
+  // because `balance` above is derived from whether the stored read still
+  // belongs to the attached customer.
+  useEffect(() => {
+    const shopId = shop?.id;
+    const customerId = selectedCustomer?.id;
+    if (!shopId || !customerId) return;
+    let cancelled = false;
+    customerBalance(shopId, customerId)
+      .then((next) => { if (!cancelled) setFetchedBalance({ customerId, data: next }); })
+      // Failing soft: a till that cannot read an old balance must still be able
+      // to sell. The server refuses an overshoot anyway, so the worst case is
+      // the cashier not being offered a settlement they could have taken.
+      .catch(() => { if (!cancelled) setFetchedBalance({ customerId, data: NO_BALANCE }); });
+    return () => { cancelled = true; };
+  }, [shop?.id, selectedCustomer?.id]);
 
   // `retryOnSession` is set only by the closed-register recovery below, which
   // is also what stops it recursing: a second refusal is reported, not retried.
@@ -493,8 +557,47 @@ export default function PosScreen() {
   // press event, which would arrive here as a register session id and be sent
   // to the server -- Supabase then fails on the circular structure rather than
   // on anything to do with the sale.
+  // Taking money off an older sale. Its own path, not a variant of the sale
+  // one: nothing is being sold, no stock moves, and the money lands on sales
+  // that were rung up days ago.
+  //
+  // Sequentially, never in parallel: each call takes a row lock and re-reads
+  // what is owed, so two at once against the same customer would both be
+  // allowed the same shortfall.
+  const settleOlderBalance = async () => {
+    if (!shop || balance.sales.length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      for (const step of allocate(payments, balance.sales)) {
+        await settleBalance(step.saleId, step.payments, registerSession?.id ?? null);
+      }
+      setPayments([]);
+      setSettlingFor(null);
+      // Re-read rather than subtract locally: a refund or another till may have
+      // moved this account while the cashier was counting the cash.
+      if (selectedCustomer?.id) {
+        const customerId = selectedCustomer.id;
+        const next = await customerBalance(shop.id, customerId).catch(() => NO_BALANCE);
+        setFetchedBalance({ customerId, data: next });
+      }
+      await reload();
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const checkout = async (retryOnSession?: string) => {
-    if (!shop || cart.length === 0 || !fullyPaid) return;
+    if (!shop) return;
+    // Nothing in the basket means this tap is about an older account, not a
+    // sale. `intent` has already decided whether it is allowed to fire.
+    if (cart.length === 0) {
+      if (settlingCents > 0 && intent.enabled) await settleOlderBalance();
+      return;
+    }
+    if (!fullyPaid && !leavingBalance) return;
     // Refuse rather than let complete_sale fall back to the primary location.
     // The fallback exists for callers that never had a location (CSV import, an
     // older client); here the register genuinely has one and simply hasn't
@@ -527,7 +630,8 @@ export default function PosScreen() {
         activeLocation.id,
         redemption.points,
         retryOnSession ?? registerSession?.id ?? null,
-        pricingNow
+        pricingNow,
+        leavingBalance
       );
       const completed: ReceiptData = {
         saleId,
@@ -579,6 +683,11 @@ export default function PosScreen() {
       setSelectedCustomer(null);
       setTransactionDiscount(null);
       setPointsRedeemed(0);
+      // Clearing the customer above empties the balance through the effect that
+      // watches them; these two are reset here as well so the next sale starts
+      // from the safe choice even if the same customer is picked straight back.
+      setRestChoice('now');
+      setSettlingFor(null);
       setEditingTransactionDiscount(false);
       setEditingLineDiscount(null);
       await reload();
@@ -853,6 +962,29 @@ export default function PosScreen() {
   // supervisor walks over with the float.
   const registerBlocks = (activeLocation?.requireOpenRegister ?? false) && !registerSession;
 
+  // The two credit controls, built once so the counter and the phone can never
+  // show different ones. Each renders nothing when it has nothing to say, which
+  // is every sale in a shop that does not give credit.
+  const balanceRowEl = (
+    <CustomerBalanceRow
+      owedCents={balance.owedCents}
+      since={balance.oldest?.saleCreatedAt ?? null}
+      saleCount={balance.sales.length}
+      currency={secondCurrency}
+      collecting={settlingCents > 0}
+      onCollect={() => setSettlingFor(selectedCustomer?.id ?? null)}
+    />
+  );
+  const restChoiceEl = canOfferCredit ? (
+    <RestChoice
+      remainingCents={restCents}
+      choice={restChoice}
+      hasCustomer={Boolean(selectedCustomer)}
+      currency={secondCurrency}
+      onChange={setRestChoice}
+    />
+  ) : null;
+
   // The three decisions between a basket and a completed sale, built once and
   // handed to whichever surface is showing them -- the panel on a counter, the
   // sheet on a phone.
@@ -879,6 +1011,11 @@ export default function PosScreen() {
     redemptionCents: redemption.cents,
     pointsEarned,
     onChangePointsRedeemed: setPointsRedeemed,
+    // Slots rather than components built inside the blocks: pos.tsx owns the
+    // credit state, and passing them through here is what stops the counter and
+    // the phone rendering them in two different places.
+    balanceRow: balanceRowEl,
+    restChoice: restChoiceEl,
   } : null;
 
   // One sentence, shared by the panel and the sheet, so the two surfaces can
@@ -890,6 +1027,8 @@ export default function PosScreen() {
     customerName: selectedCustomer?.name ?? null,
     submitting,
     secondaryTotal: secondaryAmount(total, secondCurrency),
+    restOwed: canOfferCredit && restChoice === 'later',
+    settlingCents,
   });
 
   const cartPaneEl = (

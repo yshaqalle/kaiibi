@@ -33,7 +33,14 @@ import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 // with Overview/Expenses/Reports) rather than this screen owning its own
 // preset chips -- so switching tabs keeps the same window.
 
-const paymentLabels: Record<Sale['paymentMethod'], string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other' };
+const paymentLabels: Record<string, string> = { cash: 'Cash', zaad: 'ZAAD', edahab: 'e-Dahab', other: 'Other', unpaid: 'Unpaid' };
+
+// Read through a function rather than indexed directly. A sale taken on credit
+// carries 'unpaid' until money arrives (migration 20260831000100), and any
+// method this map has not met would otherwise render as the literal "undefined"
+// in three columns and crash the search and the sort outright. The fallback
+// shows the raw value, which is at least true and findable.
+const paymentLabel = (method: string): string => paymentLabels[method] ?? method;
 
 const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Date', value: (s) => new Date(s.createdAt).toLocaleString() },
@@ -41,7 +48,7 @@ const SALE_EXPORT_COLUMNS: CsvColumn<Sale>[] = [
   { header: 'Customer Name', value: (s) => s.customerName ?? '' },
   { header: 'Customer Phone', value: (s) => s.customerPhone ?? '' },
   { header: 'Customer Email', value: (s) => s.customerEmail ?? '' },
-  { header: 'Payment Method', value: (s) => paymentLabels[s.paymentMethod] },
+  { header: 'Payment Method', value: (s) => paymentLabel(s.paymentMethod) },
   { header: 'Cashier', value: (s) => s.cashierName ?? '' },
   { header: 'Discount', value: (s) => (s.discountCents / 100).toFixed(2) },
   { header: 'Tax', value: (s) => (s.taxCents / 100).toFixed(2) },
@@ -186,14 +193,14 @@ export function TransactionsTab({
           (sale.customerPhone ?? '').toLowerCase().includes(q) ||
           (sale.customerEmail ?? '').toLowerCase().includes(q) ||
           (sale.cashierName ?? '').toLowerCase().includes(q) ||
-          paymentLabels[sale.paymentMethod].toLowerCase().includes(q)
+          paymentLabel(sale.paymentMethod).toLowerCase().includes(q)
         );
     const dir = sortDirection === 'asc' ? 1 : -1;
     return [...matches].sort((a, b) => {
       switch (sortField) {
         case 'date': return (new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()) * dir;
         case 'customer': return (a.customerName ?? '').localeCompare(b.customerName ?? '') * dir;
-        case 'payment': return paymentLabels[a.paymentMethod].localeCompare(paymentLabels[b.paymentMethod]) * dir;
+        case 'payment': return paymentLabel(a.paymentMethod).localeCompare(paymentLabel(b.paymentMethod)) * dir;
         case 'total': return (a.totalCents - b.totalCents) * dir;
       }
     });
@@ -433,7 +440,7 @@ function SaleRow({
             <Text style={styles.saleItems} numberOfLines={1}>{itemsSummary}</Text>
             <View style={styles.saleMetaRow}>
               <Text style={[styles.saleMeta, styles.saleMetaText]} numberOfLines={1}>
-                {new Date(sale.createdAt).toLocaleString()} · {paymentLabels[sale.paymentMethod]}
+                {new Date(sale.createdAt).toLocaleString()} · {paymentLabel(sale.paymentMethod)}
                 {sale.customerName ? ` · ${sale.customerName}` : ''}
               </Text>
               <RefundBadge state={refundState} />
@@ -454,7 +461,7 @@ function SaleRow({
               <EditBadge count={editCount} />
             </View>
             <Text style={[styles.cellText, styles.muted, colCustomer]} numberOfLines={1}>{sale.customerName || '—'}</Text>
-            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabels[sale.paymentMethod]}</Text>
+            <Text style={[styles.cellText, colPayment]} numberOfLines={1}>{paymentLabel(sale.paymentMethod)}</Text>
             <Text style={[styles.cellText, styles.muted, colCashier]} numberOfLines={1}>{sale.cashierName || '—'}</Text>
             <Text style={[styles.cellText, styles.price, colTotal]} numberOfLines={1}>{formatCents(sale.totalCents)}</Text>
           </View>
@@ -493,7 +500,7 @@ function SaleRow({
           {sale.payments?.map((payment) => (
             <View key={payment.id} style={styles.detailRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.detailItemName}>{paymentLabels[payment.method]}{payment.customerName ? ` · ${payment.customerName}` : ''}</Text>
+                <Text style={styles.detailItemName}>{paymentLabel(payment.method)}{payment.customerName ? ` · ${payment.customerName}` : ''}</Text>
                 {payment.customerPhone && <Text style={styles.saleMeta}>{payment.customerPhone}</Text>}
                 {payment.tenderedCents !== null && (
                   <Text style={styles.saleMeta}>Tendered {formatCents(payment.tenderedCents)} · Change {formatCents(payment.tenderedCents - payment.amountCents)}</Text>
@@ -584,7 +591,7 @@ function SaleRow({
                       {edit.previousSnapshot.items.map((item: SaleItemSnapshot, index: number) => (
                         <Text key={index} style={styles.historyItem}>{item.quantity}× {item.productName} — {formatCents(item.lineTotalCents)}</Text>
                       ))}
-                      <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabels[edit.previousSnapshot.paymentMethod]}</Text>
+                      <Text style={styles.historyTotal}>Total: {formatCents(edit.previousSnapshot.totalCents)} · {paymentLabel(edit.previousSnapshot.paymentMethod)}</Text>
                     </View>
                   ))}
                 </View>

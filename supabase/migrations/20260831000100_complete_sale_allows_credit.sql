@@ -21,11 +21,14 @@
 --      under-payment (refused unless asked for, against a customer)
 --   3. `settled_at` stamped in the closing `update public.sales set ...`
 --   4. points zeroed when the sale is not paid in full
+--   5. no payments at all is allowed, as credit against a named customer, and
+--      payment_method then reads 'unpaid' rather than naming a method that
+--      never took anything
 --
--- edit_sale, the same four, plus:
---   5. it no longer deletes settlement payments -- see the comment at the
+-- edit_sale, the same five, plus:
+--   6. it no longer deletes settlement payments -- see the comment at the
 --      delete for why that one matters more than the rest;
---   6. loyalty_points_per_usd is kept whenever loyalty is on rather than only
+--   7. loyalty_points_per_usd is kept whenever loyalty is on rather than only
 --      when points were earned, so a credit sale remembers the rate it will
 --      earn at once it is paid.
 --
@@ -41,6 +44,17 @@
 -- sale" is not a fact about how the money arrived.
 alter table public.sale_payments
   add column if not exists is_settlement boolean not null default false;
+
+-- ── a sale nobody has paid anything on ────────────────────────────────────
+-- sales.payment_method is NOT NULL and summarises how the money came in (0005:
+-- "a quick summary column ... so existing listings that read it don't break").
+-- On a sale taken entirely on credit no money has come in, and every existing
+-- value would read in the transactions ledger as though it had. 'unpaid' says
+-- the true thing; settle_sale_balance replaces it with the real method the
+-- moment money arrives.
+alter table public.sales drop constraint if exists sales_payment_method_check;
+alter table public.sales add constraint sales_payment_method_check
+  check (payment_method in ('cash','zaad','edahab','other','unpaid'));
 
 drop function if exists public.complete_sale(uuid, jsonb, jsonb, text, text, text, text, integer, uuid, timestamptz, uuid, integer, uuid);
 drop function if exists public.edit_sale(uuid, jsonb, jsonb, text, text, text, integer, uuid);
@@ -115,8 +129,15 @@ begin
      and not public.has_shop_permission(p_shop_id, 'discounts.manual') then
     raise exception 'not authorized to enter a manual discount';
   end if;
+  -- A sale with nothing paid on it is legitimate only as credit, against a
+  -- named customer. Everything else still has to bring money to the counter.
   if p_payments is null or jsonb_array_length(p_payments) = 0 then
-    raise exception 'at least one payment is required';
+    if not coalesce(p_allow_balance, false) then
+      raise exception 'at least one payment is required';
+    end if;
+    if p_customer_id is null then
+      raise exception 'a sale can only be left unpaid against a customer';
+    end if;
   end if;
 
   if p_location_id is null then
@@ -167,8 +188,12 @@ begin
     raise exception 'this store requires an open register before a sale can be rung up';
   end if;
 
-  v_primary_method := p_payments->0->>'method';
-  if v_primary_method not in ('cash','zaad','edahab','other') then
+  -- 'unpaid', not a real method. sales.payment_method summarises how the money
+  -- came in, and on a sale where none has, every other value is a lie that
+  -- reads as collected in the transactions ledger. settle_sale_balance replaces
+  -- it with the real method once money actually arrives.
+  v_primary_method := coalesce(p_payments->0->>'method', 'unpaid');
+  if v_primary_method not in ('cash','zaad','edahab','other','unpaid') then
     raise exception 'invalid payment method %', v_primary_method;
   end if;
 
@@ -807,7 +832,7 @@ begin
   update public.sales set
     total_cents = v_total_cents,
     item_count = v_item_count,
-    payment_method = p_payments->0->>'method',
+    payment_method = coalesce(p_payments->0->>'method', 'unpaid'),
     customer_name = nullif(p_customer_name, ''),
     customer_phone = nullif(p_customer_phone, ''),
     customer_email = nullif(p_customer_email, ''),
@@ -967,6 +992,14 @@ begin
        (v_payment->>'exchange_rate')::numeric, (v_payment->>'foreign_amount_cents')::integer,
        (v_payment->>'foreign_change_cents')::integer, p_register_session_id, true);
   end loop;
+
+  -- The sale said 'unpaid' because nothing had been taken. Something has now,
+  -- so the summary column stops claiming otherwise -- the transactions ledger
+  -- reads this, and a sale that was paid off last week should not still be
+  -- listed as unpaid.
+  if v_sale.payment_method = 'unpaid' then
+    update public.sales set payment_method = p_payments->0->>'method' where id = p_sale_id;
+  end if;
 
   if v_taking = v_owed then
     update public.sales set settled_at = now() where id = p_sale_id;

@@ -37,10 +37,17 @@ export async function completeSale(
   // the payments -- which the server refuses, at the payment screen, in front
   // of the customer. Defaulted so callers that never showed a total (imports,
   // tests) keep working.
-  now: number = Date.now()
+  now: number = Date.now(),
+  // Let the payments fall short of the total and carry the difference as a
+  // balance against the customer. Off by default, so the server keeps refusing
+  // every caller that has not explicitly asked -- which is the whole point of
+  // the guard: an under-charge nobody chose is a bug, not a credit. The server
+  // also refuses it with no customer attached, so this is a request rather
+  // than an instruction.
+  allowBalance = false
 ): Promise<string> {
   if (lines.length === 0) throw new Error('Cart is empty');
-  if (payments.length === 0) throw new Error('At least one payment is required');
+  if (payments.length === 0 && !allowBalance) throw new Error('At least one payment is required');
   const { data, error } = await supabase.rpc('complete_sale', {
     p_shop_id: shopId,
     p_items: buildSalePayload(lines, promotions, now),

@@ -532,9 +532,14 @@ export function paymentMethodMix(sales: Sale[]): PaymentMixEntry[] {
       for (const payment of sale.payments) {
         totals.set(payment.method, (totals.get(payment.method) ?? 0) + payment.amountCents);
       }
-    } else {
+    } else if (sale.paymentMethod !== 'unpaid') {
       totals.set(sale.paymentMethod, (totals.get(sale.paymentMethod) ?? 0) + sale.totalCents);
     }
+    // A sale taken entirely on credit is skipped. This chart divides up money
+    // that came in, and nothing came in -- attributing its total to a method
+    // would inflate every other slice's denominator with cash nobody handed
+    // over. It reappears here as soon as it is settled, because settling gives
+    // the sale a real payment row and it takes the branch above.
   }
   const grandTotal = Array.from(totals.values()).reduce((sum, cents) => sum + cents, 0);
   return Array.from(totals.entries())

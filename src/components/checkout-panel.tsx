@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { CustomerPicker, type SelectedCustomer } from '@/components/customer-picker';
@@ -48,6 +48,8 @@ export function CheckoutPanel({
   onChangePointsRedeemed,
   pointsMaturing,
   availableKnown,
+  balanceRow,
+  restChoice,
   onDismiss,
 }: {
   // Whether the sheet is up. Owned by pos.tsx, because the panel's primary
@@ -85,6 +87,9 @@ export function CheckoutPanel({
   // window. Shown so a cashier can answer "why can't I use all of them".
   pointsMaturing: number;
   availableKnown: boolean;
+  // Handed straight through to the blocks below -- see CheckoutBlocksProps.
+  balanceRow?: ReactNode;
+  restChoice?: ReactNode;
   // Fired once the sheet has FINISHED dismissing (iOS only -- RN's `onDismiss`
   // is iOS-only). This is the safe moment for the caller to present a modal of
   // its own, which is what pos.tsx does with the receipt.
@@ -149,6 +154,8 @@ export function CheckoutPanel({
                 redemptionCents={redemptionCents}
                 pointsEarned={pointsEarned}
                 onChangePointsRedeemed={onChangePointsRedeemed}
+                balanceRow={balanceRow}
+                restChoice={restChoice}
               />
             </ScrollView>
 
@@ -197,6 +204,7 @@ export function CustomerBlock({
   redemptionCents,
   pointsEarned,
   onChangePointsRedeemed,
+  balanceRow,
 }: CheckoutBlocksProps) {
   return (
     <>
@@ -226,6 +234,11 @@ export function CustomerBlock({
           onChange={onChangePointsRedeemed}
         />
       )}
+
+      {/* What they already owed, with the customer it belongs to rather than
+          down beside the money -- it is a fact about the person, and it is the
+          thing that decides whether "Pay later" is even offered. */}
+      {balanceRow}
     </>
   );
 }
@@ -238,6 +251,7 @@ export function PaymentBlock({
   enabledPaymentMethods,
   allowSplit,
   error,
+  restChoice,
 }: CheckoutBlocksProps) {
   return (
     <>
@@ -249,6 +263,10 @@ export function PaymentBlock({
         enabledMethods={enabledPaymentMethods}
         allowSplit={allowSplit}
       />
+
+      {/* Under the methods, because it is a question about the money just
+          entered rather than another way to enter it. */}
+      {restChoice}
 
       {error && <Text style={styles.error}>{error}</Text>}
     </>
@@ -287,6 +305,12 @@ export type CheckoutBlocksProps = {
   redemptionCents: number;
   pointsEarned: number;
   onChangePointsRedeemed: (points: number) => void;
+  // The two credit controls, passed in rather than built here. pos.tsx owns the
+  // state behind them, and threading them through the shared props is what
+  // stops the counter and the phone rendering them in two different places.
+  // Both are absent on a shop that has never given credit.
+  balanceRow?: ReactNode;
+  restChoice?: ReactNode;
 };
 
 // Rendered only when loyalty is on AND a customer is attached, so there is

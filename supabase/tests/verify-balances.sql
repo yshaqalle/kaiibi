@@ -580,6 +580,77 @@ begin
   end if;
   raise notice 'OK: brought back before paying earns nothing, and nothing drifted';
 
+  ------------------------------------------------------------------
+  raise notice '=== 22. Goods taken with nothing paid at all ===';
+  ------------------------------------------------------------------
+  -- The regular customer who takes the goods today and pays on Friday. Refused
+  -- outright before this migration: complete_sale demanded at least one payment,
+  -- and sales.payment_method is NOT NULL with no honest value for a sale where
+  -- no money has come in.
+  select public.complete_sale(
+    v_shop_id, v_items2, '[]'::jsonb,
+    'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true
+  ) into v_loyal_sale;
+
+  select owed_cents into v_owed from public.customer_balances where sale_id = v_loyal_sale;
+  if v_owed <> 2000 then raise exception 'FAIL: expected the whole 2000 owed, got %', v_owed; end if;
+
+  select payment_method into v_detail from public.sales where id = v_loyal_sale;
+  if v_detail <> 'unpaid' then
+    raise exception 'FAIL: a sale nobody paid reads as % in the ledger, not unpaid', v_detail;
+  end if;
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 0 then raise exception 'FAIL: goods taken on credit earned % points', v_points; end if;
+  raise notice 'OK: 2000 of goods, nothing paid, reads as unpaid and earns nothing';
+
+  ------------------------------------------------------------------
+  raise notice '=== 23. Still refused with no name, and with no intent ===';
+  ------------------------------------------------------------------
+  v_raised := false;
+  begin
+    perform public.complete_sale(
+      v_shop_id, v_items2, '[]'::jsonb,
+      null, null, null, null, 0, null, null, v_location_id, 0, null, true
+    );
+  exception when others then v_raised := true; v_detail := sqlerrm;
+  end;
+  if not v_raised then raise exception 'FAIL: an anonymous walk-in walked out with the goods'; end if;
+  raise notice 'OK: no name, no goods (%)', v_detail;
+
+  v_raised := false;
+  begin
+    perform public.complete_sale(
+      v_shop_id, v_items2, '[]'::jsonb,
+      'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, false
+    );
+  exception when others then v_raised := true; v_detail := sqlerrm;
+  end;
+  if not v_raised then raise exception 'FAIL: an empty payment list was accepted without asking'; end if;
+  if v_detail not like '%at least one payment is required%' then
+    raise exception 'FAIL: refused, but for the wrong reason: %', v_detail;
+  end if;
+  raise notice 'OK: the old guard still guards (%)', v_detail;
+
+  ------------------------------------------------------------------
+  raise notice '=== 24. Settling replaces "unpaid" with the real method ===';
+  ------------------------------------------------------------------
+  -- Otherwise a sale paid off last week is still listed as unpaid in the
+  -- transactions ledger forever.
+  perform public.settle_sale_balance(v_loyal_sale,
+    jsonb_build_array(jsonb_build_object('method', 'zaad', 'amount_cents', 2000)));
+
+  select payment_method into v_detail from public.sales where id = v_loyal_sale;
+  if v_detail <> 'zaad' then
+    raise exception 'FAIL: settled by zaad, still reads as %', v_detail;
+  end if;
+
+  select points_earned into v_points from public.sales where id = v_loyal_sale;
+  if v_points <> 100 then
+    raise exception 'FAIL: 2000 of goods paid off should earn 100 points, earned %', v_points;
+  end if;
+  raise notice 'OK: reads as zaad, and the points landed on payment';
+
   raise notice '';
   raise notice '################  ALL CHECKS PASSED  ################';
 
