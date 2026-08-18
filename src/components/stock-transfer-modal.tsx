@@ -489,7 +489,12 @@ export function StockTransferModal({
                   style={styles.input}
                 />
                 {categories.length > 0 && (
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.chipScroll}
+                    contentContainerStyle={styles.chips}
+                  >
                     <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
                     {categories.map((item) => (
                       <CategoryChip key={item} label={item} active={category === item} onPress={() => setCategory(item)} />
@@ -767,6 +772,13 @@ const styles = StyleSheet.create({
   body: { flexGrow: 0 },
   label: { color: '#999999', fontSize: 10, fontWeight: '800', letterSpacing: 0.6, marginBottom: 6 },
   labelSpaced: { marginTop: 16 },
+  // The same three properties pos.tsx needs on its category row, for the same
+  // reason: without them Yoga sizes this container to the WHOLE chip list
+  // rather than letting the row scroll, so a shop with a dozen categories
+  // stretches the sheet instead of getting a sideways scroll. Five categories
+  // hide it; the shops this feature was built for have many more, and the
+  // category backfill hands them more still.
+  chipScroll: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   chips: { flexDirection: 'row', gap: 6, paddingRight: 8, paddingTop: 10 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   help: { fontSize: 13, color: '#5E5D65', marginBottom: 10, lineHeight: 19 },
