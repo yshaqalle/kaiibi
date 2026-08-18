@@ -491,14 +491,19 @@ export default function InventoryScreen() {
                 <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
                 {/* Only with somewhere to move stock TO — a one-store shop has no
                     transfer to make, and the button would be a dead end. */}
+                {/* Solid, like every other action in this row. The store
+                    dropdown and the export menu paint themselves #111, and
+                    `+ Add product` is `pillButtonSolid` -- so an outline here
+                    read as a different KIND of control rather than as a
+                    quieter one, when all five do the same sort of thing. */}
                 {canEdit && showLocationFilter && (
-                  <Pressable onPress={() => setShowTransfer(true)} style={styles.pillButton}>
-                    <Text style={styles.pillButtonText}>Move stock</Text>
+                  <Pressable onPress={() => setShowTransfer(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Move stock</Text>
                   </Pressable>
                 )}
                 {canEdit && (
-                  <Pressable onPress={() => setShowImportModal(true)} style={styles.pillButton}>
-                    <Text style={styles.pillButtonText}>Import</Text>
+                  <Pressable onPress={() => setShowImportModal(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Import</Text>
                   </Pressable>
                 )}
                 {canEdit && (
