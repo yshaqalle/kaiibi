@@ -530,7 +530,8 @@
 
         <div class="d-lbl">ADD MORE</div>
         <div class="d-input filled">cleans<span style="color:#c2c2c8;">&nbsp;|</span></div>
-        <div class="d-bar" style="margin-top:8px;"><span class="d-scan">&#9635; Scan to add</span></div>
+        <!-- Drawn, then built, then removed. See "Scan to add" below. -->
+        <div class="d-bar" style="margin-top:8px;"><span class="d-scan" style="opacity:.4;text-decoration:line-through;">&#9635; Scan to add</span></div>
         <div class="d-fade" style="margin-top:10px;">
           <div class="d-scrollchips">
             <span class="d-chip on">All</span>
@@ -610,7 +611,7 @@
   <tr><td><b>Both counts on every row</b><br><span style="color:var(--mut);font-size:12.5px;">&ldquo;8 at Jaalala Skincare &middot; 0 at Jaalala 2&rdquo;</span></td><td>You can't decide how much to send without knowing what's already there. Today the destination count is invisible, so the decision is made blind or in another screen.</td></tr>
   <tr><td><b>A pinned MOVING block with a running total</b></td><td>Nothing today tells you what you've committed to. The footer repeats it next to the button, so the last thing you read before moving is what you're moving.</td></tr>
   <tr><td><b>Category chips to narrow the list</b></td><td>&ldquo;Send Jaalala 2 some of every toner&rdquo; is a real instruction. Horizontal scroll, one line &mdash; same rule as section 1.</td></tr>
-  <tr><td><b>Scan to add</b></td><td>The shop is physically packing a box. Scanning each item as it goes in is the most accurate count there is, and the wedge-scanner path already exists in the app (<code>barcode-wedge.ts</code>). A scan adds the row and bumps its quantity by one.</td></tr>
+  <tr><td><b><s>Scan to add</s></b><br><span style="color:var(--mut);font-size:12.5px;">built, then removed &mdash; see below</span></td><td><s>The shop is physically packing a box. Scanning each item as it goes in is the most accurate count there is, and the wedge-scanner path already exists in the app.</s> <b>It does not reach inside a sheet.</b> <code>HardwareKeyboardModule.startCapture</code> wraps <code>currentActivity.window</code>, and a React Native Modal on Android is a Dialog with a window of its own, so keys typed while this sheet is up never arrive &mdash; they are neither reported nor swallowed. On a device the trailing Enter closed the sheet and discarded the basket. Removed; the search box no longer offers it.</td></tr>
   <tr><td><b>Zero-at-source rows say &ldquo;none here&rdquo;</b></td><td>Rather than vanish. A product you searched for and can't find is confusing; a product that tells you it's all at the other store is an answer.</td></tr>
   <tr><td><b>FROM and TO are <code>StoreDropdown</code>s</b></td><td>Chips stop working at four or five stores &mdash; which is the exact reason the component exists.</td></tr>
 </table>
@@ -795,9 +796,11 @@
   <p>The mockup gives a product held in two stores <b>two rows</b>, one per store, each with its own count. It's longer, but it's the only shape where "move 5 out of Jaalala Skincare" is unambiguous. The alternative &mdash; one row with a From column you fill yourself &mdash; is shorter and more error-prone. I recommend the two-row shape shown.</p>
 </div>
 
-<div class="q">
-  <b>b2 &mdash; Does the by-hand tab need "Scan to add"?</b>
-  <p>It's the one item on the by-hand list that's extra scope rather than a fix to something broken. It's also the most accurate way to build a move &mdash; you scan each item as it goes into the box, and the count can't be wrong. The wedge-scanner path already exists. I'd <b>include it</b>, but it's the first thing I'd cut if the tab is getting big.</p>
+<div class="vx bad">
+  <b>b2 &mdash; "Scan to add": answered by the device, not by us.</b>
+  <p>It was built, and taken back out. The wedge-scanner path does exist, but it cannot reach inside a sheet: <code>HardwareKeyboardModule.startCapture</code> wraps <code>currentActivity.window</code>, and a React Native Modal on Android is a <b>Dialog with its own window</b>. Keys typed while this sheet is up are neither reported to JS nor swallowed &mdash; which is why POS and Inventory both stand their scanner down while a sheet is open. Scanning inside a modal has never worked in this app.</p>
+  <p>Shipping it anyway would have been worse than leaving it out: with nothing swallowing the scan, the trailing Enter presses whichever control holds focus. On the Pixel it closed the sheet and threw away the basket. The search box says "Search a product" again.</p>
+  <p><b>What it would take:</b> teaching the module about the Dialog's window &mdash; a native change, in the code that has already cost this app three keyboard bugs, and one to make deliberately rather than in passing.</p>
 </div>
 
 <div class="q">
