@@ -1,25 +1,16 @@
-import * as DocumentPicker from 'expo-document-picker';
-import { File } from 'expo-file-system';
 import { useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { read as readWorkbook, utils as xlsxUtils } from 'xlsx';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { parseCsvText, type ParsedCsv } from '@/lib/csv';
+import { type ParsedCsv } from '@/lib/csv';
 import { shareCsv } from '@/lib/export-file';
 import {
   downloadRejectedRowsCsv,
-  missingRequiredColumns,
   templateCsvText,
   type ImportReport,
   type TemplateColumn,
 } from '@/lib/import-shared';
+import { pickCsvFile } from '@/lib/pick-csv-file';
 import { AppModal } from '@/components/ui/app-modal';
-
-const EXCEL_MIME_TYPES = [
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
-  'application/vnd.ms-excel', // legacy .xls (also sometimes used for CSV -- extension wins if both match)
-];
-const PICKER_MIME_TYPES = ['text/csv', 'text/comma-separated-values', ...EXCEL_MIME_TYPES];
 
 // Each entity (products/customers/sales) supplies its own column legend,
 // example rows for the downloadable template, and a `run` function that's
@@ -37,45 +28,29 @@ export type ImportEntityConfig<T> = {
   // sale. Rejections are always reported per-row regardless, since that's
   // what the "download rejected rows" file needs to match the original.
   unitLabel?: string;
+  // A line under the title saying what this import is FOR. Products need it:
+  // shops were using it to stock a second store, which re-imports the same
+  // units and inflates the count. Saying so up front is cheaper than a
+  // rejection they read afterwards.
+  purpose?: string;
+  // An escape hatch to whatever the right tool is, offered both up front and
+  // again on the rejection list, since that is where someone actually meets the
+  // problem. Products point at Move stock.
+  elsewhere?: { label: string; onPress: () => void };
 };
-
-// expo-file-system's `File` is a web no-op (see src/lib/storage.ts), so
-// reading the picked file's text/bytes goes through fetch() on web instead,
-// same split used there.
-async function readPickedFileText(uri: string): Promise<string> {
-  if (Platform.OS === 'web') return (await fetch(uri)).text();
-  return new File(uri).text();
-}
-
-async function readPickedFileBytes(uri: string): Promise<Uint8Array> {
-  if (Platform.OS === 'web') return new Uint8Array(await (await fetch(uri)).arrayBuffer());
-  return new File(uri).bytes();
-}
-
-function isExcelFile(name: string, mimeType: string | undefined): boolean {
-  return /\.xlsx?$/i.test(name) || (mimeType != null && EXCEL_MIME_TYPES.includes(mimeType));
-}
-
-// A user who edits the downloaded template in Excel often ends up re-saving
-// it as .xlsx instead of .csv -- rather than reject that, read the workbook
-// and convert its first sheet to CSV text, then feed it through the exact
-// same parseCsvText/validation path a real .csv file would take.
-async function readPickedFileAsCsvText(uri: string, name: string, mimeType: string | undefined): Promise<string> {
-  if (!isExcelFile(name, mimeType)) return readPickedFileText(uri);
-  const bytes = await readPickedFileBytes(uri);
-  const workbook = readWorkbook(bytes, { type: 'array' });
-  const firstSheetName = workbook.SheetNames[0];
-  if (!firstSheetName) throw new Error('That workbook has no sheets.');
-  return xlsxUtils.sheet_to_csv(workbook.Sheets[firstSheetName]);
-}
 
 type Step = 'idle' | 'parsed' | 'importing' | 'done';
 
-export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
+export function CsvImportModal<T>({ visible, onClose, config, onImported, onDismissed }: {
   visible: boolean;
   onClose: () => void;
   config: ImportEntityConfig<T>;
   onImported: () => void;
+  // Fires once this sheet is actually off the screen (iOS only -- RN's
+  // `onDismiss`). `config.elsewhere` hands over to another sheet, and iOS
+  // silently drops a modal presented while this one is still up, so the handover
+  // has to wait for this. See use-staged-sheet.ts.
+  onDismissed?: () => void;
 }) {
   const [step, setStep] = useState<Step>('idle');
   const [fileName, setFileName] = useState('');
@@ -100,27 +75,15 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   const pickFile = async () => {
     setError(null);
     setReport(null);
-    const result = await DocumentPicker.getDocumentAsync({ type: PICKER_MIME_TYPES });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
-    try {
-      const text = await readPickedFileAsCsvText(asset.uri, asset.name, asset.mimeType);
-      const csv = parseCsvText(text);
-      const missing = missingRequiredColumns(config.templateColumns, csv.headers);
-      if (missing.length > 0) {
-        setError(`Missing required column${missing.length > 1 ? 's' : ''}: ${missing.map((c) => c.header).join(', ')}.`);
-        return;
-      }
-      if (csv.rows.length === 0) {
-        setError('No rows found in that file.');
-        return;
-      }
-      setFileName(asset.name);
-      setParsed(csv);
-      setStep('parsed');
-    } catch (err) {
-      setError(err instanceof Error && isExcelFile(asset.name, asset.mimeType) ? err.message : 'Could not read that file — make sure it is a .csv, .xlsx, or .xls file.');
+    const picked = await pickCsvFile(config.templateColumns);
+    if (picked.status === 'cancelled') return;
+    if (picked.status === 'error') {
+      setError(picked.message);
+      return;
     }
+    setFileName(picked.fileName);
+    setParsed(picked.parsed);
+    setStep('parsed');
   };
 
   const runImport = async () => {
@@ -150,7 +113,7 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
   if (!visible) return null;
 
   return (
-    <AppModal visible transparent animationType="fade" onRequestClose={close}>
+    <AppModal visible transparent animationType="fade" onRequestClose={close} onDismiss={onDismissed}>
       <View style={styles.overlay}>
         <View style={styles.card}>
           <View style={styles.header}>
@@ -161,6 +124,19 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
           </View>
 
           <ScrollView style={styles.scroll}>
+            {config.purpose ? <Text style={styles.purpose}>{config.purpose}</Text> : null}
+            {config.elsewhere ? (
+              <Pressable
+                onPress={() => {
+                  close();
+                  config.elsewhere!.onPress();
+                }}
+                style={styles.elsewhere}
+              >
+                <Text style={styles.elsewhereText}>{config.elsewhere.label} →</Text>
+              </Pressable>
+            ) : null}
+
             <Text style={styles.sectionLabel}>COLUMNS</Text>
             <View style={styles.legend}>
               {config.templateColumns.map((c) => (
@@ -217,6 +193,21 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported }: {
                         </View>
                       ))}
                     </View>
+                    {/* Offered again here, because this is where someone
+                        actually meets the problem -- reading the reason on
+                        every row is the moment the right tool is worth
+                        naming, not the screen they skimmed on the way in. */}
+                    {config.elsewhere ? (
+                      <Pressable
+                        onPress={() => {
+                          close();
+                          config.elsewhere!.onPress();
+                        }}
+                        style={styles.primaryButton}
+                      >
+                        <Text style={styles.primaryButtonText}>{config.elsewhere.label} →</Text>
+                      </Pressable>
+                    ) : null}
                     <Pressable onPress={downloadRejected} style={styles.linkButton}>
                       <Text style={styles.linkButtonText}>Download rejected rows</Text>
                     </Pressable>
@@ -245,6 +236,9 @@ const styles = StyleSheet.create({
   closeButtonText: { fontSize: 13, fontWeight: '700', color: '#111111' },
 
   scroll: { flex: 1 },
+  purpose: { fontSize: 13, color: '#5E5D65', lineHeight: 19, marginBottom: 10 },
+  elsewhere: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: '#DCDCE4', alignSelf: 'flex-start', marginBottom: 16 },
+  elsewhereText: { color: '#111111', fontWeight: '800', fontSize: 12.5 },
   sectionLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 8 },
   legend: { backgroundColor: '#F7F7F5', borderRadius: 10, padding: 12, gap: 6 },
   legendRow: { flexDirection: 'row', justifyContent: 'space-between' },

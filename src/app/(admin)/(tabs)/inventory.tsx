@@ -17,6 +17,7 @@ import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
+import { useStagedSheet } from '@/components/use-staged-sheet';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
 import { WedgeSink } from '@/components/wedge-sink';
 import { ProductTableHeader, ProductTableRow, type SortDirection, type SortField } from '@/components/product-table-row';
@@ -103,6 +104,15 @@ export default function InventoryScreen() {
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
+  // The import sheet's "Move stock instead" hands over to the transfer sheet.
+  // Held by useStagedSheet rather than plain state because that is a sheet
+  // opened from inside a sheet, which iOS drops without a word.
+  const moveFromImport = useStagedSheet<true>();
+  // Where a newly imported product's opening stock actually lands: the
+  // opening-stock trigger picks `order by is_primary desc, created_at asc`
+  // (migration 20260810000000), so this mirrors that rather than guessing.
+  const primaryLocationName =
+    locations.find((location) => location.isPrimary)?.name ?? locations[0]?.name ?? 'your main store';
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
   // Phone only. The store filter, Export, Import and Move stock live behind one
@@ -264,7 +274,18 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    enabled: scanner.hardware && !showAddModal && editingProduct === null && !showImportModal && !scannerOpen,
+    // The transfer sheet included for the same reason as the others: Move stock
+    // runs its own wedge to build a transfer, and a scan must not also be read
+    // here as an adjustment to the product behind it. Written as the same
+    // condition that sheet's `visible` uses -- it also opens from the import
+    // hand-over, when `showTransfer` alone is still false.
+    enabled:
+      scanner.hardware &&
+      !showAddModal &&
+      editingProduct === null &&
+      !showImportModal &&
+      !scannerOpen &&
+      !(showTransfer || moveFromImport.value !== null),
     onScan: handleScannedCode,
   });
 
@@ -339,11 +360,30 @@ export default function InventoryScreen() {
         filenamePrefix: 'products',
         templateColumns: PRODUCTS_TEMPLATE_COLUMNS,
         exampleRows: PRODUCTS_EXAMPLE_ROWS,
+        // Says what this import is for, because it was being used for something
+        // else: stocking a second store by re-importing the catalogue, which
+        // counts the same units twice. New stock lands at the primary store
+        // either way -- that is the opening-stock trigger (migration
+        // 20260810000000), not a choice this screen makes -- so naming the
+        // store here is the honest thing rather than offering a picker that
+        // could not be honoured.
+        purpose: showLocationFilter
+          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already stock an item and want it at another store? That's a move, not an import — importing it again would double the count.`
+          : "For adding products you don't sell yet.",
+        // Staged rather than a plain setShowTransfer(true): this button lives
+        // INSIDE the import sheet, and iOS drops a modal presented while
+        // another is still up -- so on a phone it would have done nothing at
+        // all, silently. `fromModal` is true because the import always is one.
+        elsewhere:
+          canEdit && showLocationFilter
+            ? { label: 'Move stock instead', onPress: () => moveFromImport.open(true, true) }
+            : undefined,
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>
           runProductsImport(shop.id, parsed, {
             headroom: productLimit == null ? null : Math.max(0, productLimit - usageOf('products')),
+            hasStores: showLocationFilter,
           }),
       }
     : null;
@@ -451,14 +491,19 @@ export default function InventoryScreen() {
                 <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
                 {/* Only with somewhere to move stock TO — a one-store shop has no
                     transfer to make, and the button would be a dead end. */}
+                {/* Solid, like every other action in this row. The store
+                    dropdown and the export menu paint themselves #111, and
+                    `+ Add product` is `pillButtonSolid` -- so an outline here
+                    read as a different KIND of control rather than as a
+                    quieter one, when all five do the same sort of thing. */}
                 {canEdit && showLocationFilter && (
-                  <Pressable onPress={() => setShowTransfer(true)} style={styles.pillButton}>
-                    <Text style={styles.pillButtonText}>Move stock</Text>
+                  <Pressable onPress={() => setShowTransfer(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Move stock</Text>
                   </Pressable>
                 )}
                 {canEdit && (
-                  <Pressable onPress={() => setShowImportModal(true)} style={styles.pillButton}>
-                    <Text style={styles.pillButtonText}>Import</Text>
+                  <Pressable onPress={() => setShowImportModal(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Import</Text>
                   </Pressable>
                 )}
                 {canEdit && (
@@ -802,7 +847,15 @@ export default function InventoryScreen() {
         />
       )}
       {importConfig && (
-        <CsvImportModal visible={showImportModal} onClose={() => setShowImportModal(false)} config={importConfig} onImported={reload} />
+        <CsvImportModal
+          // Suppressed while the move sheet is being handed over to, so iOS is
+          // never asked to present one modal over another -- see useStagedSheet.
+          visible={showImportModal && !moveFromImport.presenterSuppressed}
+          onClose={() => setShowImportModal(false)}
+          onDismissed={moveFromImport.onPresenterDismissed}
+          config={importConfig}
+          onImported={reload}
+        />
       )}
       {breakdownProduct && (
         <StockByStoreModal
@@ -815,9 +868,12 @@ export default function InventoryScreen() {
       )}
       {shop && canEdit && (
         <StockTransferModal
-          visible={showTransfer}
+          visible={showTransfer || moveFromImport.value !== null}
           shopId={shop.id}
-          onClose={() => setShowTransfer(false)}
+          onClose={() => {
+            setShowTransfer(false);
+            moveFromImport.close();
+          }}
           onDone={reload}
         />
       )}

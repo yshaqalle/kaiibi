@@ -71,7 +71,13 @@ class FakeQuery implements PromiseLike<{ data: any; error: any; count?: number }
   constructor(
     private readonly db: Record<string, Row[]>,
     private readonly table: string,
-    private readonly operation: { kind: 'select' } | { kind: 'insert'; rows: Row[] } | { kind: 'update'; patch: Row } | { kind: 'delete' }
+    private readonly operation:
+      | { kind: 'select' }
+      | { kind: 'insert'; rows: Row[] }
+      | { kind: 'upsert'; rows: Row[]; conflict: string[]; ignoreDuplicates: boolean }
+      | { kind: 'update'; patch: Row }
+      | { kind: 'delete' },
+    private readonly failing: Set<string> = new Set()
   ) {}
 
   select(clause = '*') {
@@ -134,6 +140,34 @@ class FakeQuery implements PromiseLike<{ data: any; error: any; count?: number }
   private run(): { data: any; error: any; count?: number } {
     const rows = this.table_();
 
+    // Standing in for anything the server can refuse -- RLS, a constraint, a
+    // dropped connection. The shape is PostgREST's: a {message} object on
+    // `error`, never a thrown exception, which is what callers have to handle.
+    if (this.failing.has(this.table)) {
+      return { data: null, error: { message: `fake-supabase: "${this.table}" is set to fail` } };
+    }
+
+    // `onConflict` names the columns of a unique index, so a row matching an
+    // existing one on ALL of them is the conflict. `ignoreDuplicates` is the
+    // `do nothing` half of the statement; without it the existing row is
+    // overwritten, which is what every non-ignoring caller means by upsert.
+    if (this.operation.kind === 'upsert') {
+      const { conflict, ignoreDuplicates } = this.operation;
+      const inserted: Row[] = [];
+      for (const row of this.operation.rows) {
+        const existing = conflict.length > 0 ? rows.find((r) => conflict.every((column) => r[column] === row[column])) : undefined;
+        if (existing) {
+          if (!ignoreDuplicates) Object.assign(existing, row);
+          continue;
+        }
+        const fresh = { id: nextId(this.table), created_at: nextTimestamp(), ...row };
+        rows.push(fresh);
+        inserted.push(fresh);
+      }
+      const data = this.selectClause ? this.withEmbeds(inserted) : null;
+      return { data: this.singleMode ? (data?.[0] ?? null) : data, error: null };
+    }
+
     if (this.operation.kind === 'insert') {
       const inserted = this.operation.rows.map((row) => ({ id: nextId(this.table), created_at: nextTimestamp(), ...row }));
       rows.push(...inserted);
@@ -176,11 +210,15 @@ export type FakeSupabase = {
   db: Record<string, Row[]>;
   seedProduct: (product: Partial<Row> & { shop_id: string; name: string; price_cents: number }) => Row;
   seedRole: (role: { id: string; shop_id: string; name: string }) => Row;
+  // Makes every write and read of one table come back with an error, for the
+  // tests that care what a caller does when a secondary write fails.
+  failTable: (name: string) => void;
   reset: () => void;
 };
 
 export function createFakeSupabase(): FakeSupabase {
   const db: Record<string, Row[]> = {};
+  const failing = new Set<string>();
   const tableOf = (name: string) => (db[name] ??= []);
 
   // --- Server-side behaviour, reimplemented ------------------------------
@@ -314,10 +352,23 @@ export function createFakeSupabase(): FakeSupabase {
 
   const client = {
     from: (table: string) => ({
-      select: (clause = '*') => new FakeQuery(db, table, { kind: 'select' }).select(clause),
-      insert: (rows: Row | Row[]) => new FakeQuery(db, table, { kind: 'insert', rows: Array.isArray(rows) ? rows : [rows] }),
-      update: (patch: Row) => new FakeQuery(db, table, { kind: 'update', patch }),
-      delete: () => new FakeQuery(db, table, { kind: 'delete' }),
+      select: (clause = '*') => new FakeQuery(db, table, { kind: 'select' }, failing).select(clause),
+      insert: (rows: Row | Row[]) =>
+        new FakeQuery(db, table, { kind: 'insert', rows: Array.isArray(rows) ? rows : [rows] }, failing),
+      upsert: (rows: Row | Row[], options?: { onConflict?: string; ignoreDuplicates?: boolean }) =>
+        new FakeQuery(
+          db,
+          table,
+          {
+            kind: 'upsert',
+            rows: Array.isArray(rows) ? rows : [rows],
+            conflict: (options?.onConflict ?? '').split(',').map((c) => c.trim()).filter(Boolean),
+            ignoreDuplicates: options?.ignoreDuplicates === true,
+          },
+          failing
+        ),
+      update: (patch: Row) => new FakeQuery(db, table, { kind: 'update', patch }, failing),
+      delete: () => new FakeQuery(db, table, { kind: 'delete' }, failing),
     }),
     rpc: async (name: string, params: Row = {}) => {
       const handler = rpcHandlers[name];
@@ -358,8 +409,12 @@ export function createFakeSupabase(): FakeSupabase {
       tableOf('roles').push(row);
       return row;
     },
+    failTable: (name) => {
+      failing.add(name);
+    },
     reset: () => {
       for (const key of Object.keys(db)) delete db[key];
+      failing.clear();
     },
   };
 }

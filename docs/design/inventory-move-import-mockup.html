@@ -1,0 +1,828 @@
+<title>Kaiibi Inventory &mdash; missing categories, a second store's import, and moving stock by spreadsheet</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-s1:#2f6bff; --d-profit:#008340; --d-loss:#d72b3e; --d-warn:#b07206;
+    --d-upwash:#d9efe4; --d-upink:#007a38; --d-accwash:#e6edff; --d-accink:#1b47b8;
+    --d-warnwash:#fdf1da; --d-warnink:#8a5806; --d-losswash:#fdeaec;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  button{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 6px;}
+  section{margin-top:56px;padding-top:8px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td b{font-weight:700;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w560{width:560px;max-width:100%;} .frame.w980{width:980px;} .frame.w420{width:420px;max-width:100%;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:1000px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.now{background:var(--d-losswash);color:#a3202f;}
+  .stamp.next{background:var(--d-upwash);color:var(--d-upink);}
+
+  /* ---- app chrome, drawn from the real style objects ---- */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:20px;}
+  .d-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);}
+  .d-actions{display:flex;align-items:center;gap:8px;}
+  .d-btn{background:#111111;color:#fff;border-radius:10px;padding:11px 17px;font-size:13px;font-weight:800;
+    border:0;display:inline-block;}
+  .d-btn.ghost{background:transparent;color:var(--d-ink);border:1px solid var(--d-rule);}
+  .d-btn.off{background:#cccccc;}
+  .d-btn.sm{padding:8px 13px;font-size:12px;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:16px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-input{background:#f2f2f2;border-radius:10px;height:42px;display:flex;align-items:center;
+    padding:0 12px;color:#999999;font-size:13.5px;}
+  .d-input.filled{color:var(--d-ink);}
+  .d-chips{display:flex;gap:6px;flex-wrap:wrap;}
+  /* The real rows are ScrollView horizontal (pos.tsx:973, product-form.tsx:473
+     and :521): one line, scrolled sideways, never taller as the list grows.
+     The fade on the right edge is the mockup saying "there is more that way". */
+  .d-scrollchips{display:flex;gap:6px;flex-wrap:nowrap;overflow-x:auto;padding-bottom:8px;
+    scrollbar-width:thin;-webkit-overflow-scrolling:touch;}
+  .d-scrollchips::-webkit-scrollbar{height:6px;}
+  .d-scrollchips::-webkit-scrollbar-thumb{background:#dcdce4;border-radius:99px;}
+  .d-fade{position:relative;}
+  .d-fade::after{content:"";position:absolute;top:0;right:0;bottom:8px;width:36px;pointer-events:none;
+    background:linear-gradient(to right,rgba(255,255,255,0),#fff 82%);}
+  .d-chip{border:1px solid var(--d-rule);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:700;
+    color:var(--d-ink);background:#fff;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+  .d-chip.on{background:#111;color:#fff;border-color:#111;}
+  .d-chip .dot{width:7px;height:7px;border-radius:99px;background:#bbb;}
+  .d-chip.new{border-style:dashed;border-color:#0f9d58;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:12px;color:#9ca3af;margin-top:2px;}
+  .d-mt.bad{color:#c0392b;font-weight:700;}
+  .d-step{display:flex;align-items:center;gap:2px;background:#f2f2f2;border-radius:999px;padding:4px;}
+  .d-step .pm{width:30px;height:30px;border-radius:99px;background:#fff;display:grid;place-items:center;
+    font-size:15px;font-weight:800;color:var(--d-ink);}
+  .d-step .qty{min-width:34px;text-align:center;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .d-step .qty.edit{background:#fff;border:2px solid #111;border-radius:8px;padding:2px 6px;min-width:52px;}
+  .d-max{font-size:11px;font-weight:800;color:var(--d-s1);padding:0 4px;}
+  .d-empty{font-size:13px;color:#9ca3af;margin-top:12px;}
+  .d-err{color:#c0392b;font-size:13px;font-weight:700;margin-top:12px;}
+  .d-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .d-pill{border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;}
+  .d-pill.ok{background:var(--d-upwash);color:var(--d-upink);}
+  .d-pill.warn{background:var(--d-warnwash);color:var(--d-warnink);}
+  .d-pill.bad{background:var(--d-losswash);color:#a3202f;}
+  .d-pill.acc{background:var(--d-accwash);color:var(--d-accink);}
+  .d-seg{display:flex;background:#f2f2f2;border-radius:12px;padding:4px;gap:4px;}
+  .d-seg span{flex:1;text-align:center;padding:9px 12px;border-radius:9px;font-size:13px;font-weight:700;color:#6b6b73;}
+  .d-seg span.on{background:#fff;color:var(--d-ink);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .d-tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+  .d-tbl th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#999;font-weight:800;
+    padding:7px 8px;border-bottom:1px solid var(--d-rule);text-align:left;}
+  .d-tbl td{padding:8px;border-bottom:1px solid #f2f2f2;color:var(--d-ink2);}
+  .d-tbl td.num,.d-tbl th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .d-tbl tr.bad td{background:var(--d-losswash);}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:10px;}
+  /* by-hand tab: a row you fill, rather than a stepper you tap */
+  .d-qtyin{width:64px;height:36px;border-radius:9px;border:1.5px solid var(--d-rule);background:#fff;
+    display:grid;place-items:center;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:#c2c2c8;}
+  .d-qtyin.on{border-color:#111;color:var(--d-ink);}
+  .d-qtyin.bad{border-color:#c0392b;color:#c0392b;}
+  .d-basket{background:var(--d-soft);border-radius:14px;padding:12px 14px;margin-top:8px;}
+  .d-basket .cap{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px;}
+  .d-basket .cap b{font-size:11px;font-weight:800;letter-spacing:.6px;color:#6b6b73;}
+  .d-basket .cap i{font-style:normal;font-size:12.5px;font-weight:800;color:var(--d-ink);
+    font-variant-numeric:tabular-nums;}
+  .d-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;
+    padding-top:14px;border-top:1px solid var(--d-rule);}
+  .d-foot .tot{font-size:13px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .d-foot .tot span{display:block;font-size:11.5px;font-weight:600;color:#9ca3af;}
+  .d-scan{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--d-accink);
+    background:var(--d-accwash);border-radius:999px;padding:6px 11px;}
+  /* StoreDropdown, variant="field" — the exact style object at
+     store-dropdown.tsx:130: #F2F2F2, height 42, radius 10, 13/600 label. */
+  .d-drop{background:#f2f2f2;border-radius:10px;height:42px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 12px;font-size:13px;font-weight:600;color:var(--d-ink);}
+  .d-drop .chev{font-size:10px;color:var(--d-ink);}
+  .d-drop.ph{color:#999999;}
+  .d-opts{background:#fff;border-radius:18px;padding:16px;border:1px solid var(--d-rule);}
+  .d-opts .t{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:10px;}
+  .d-opt{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:11px 12px;border-radius:10px;}
+  .d-opt.sel{background:#f2f2f2;}
+  .d-opt .l{font-size:14px;font-weight:700;color:var(--d-ink);}
+  .d-opt .h{font-size:12px;color:#9ca3af;margin-top:2px;}
+  .d-opt .ck{font-size:14px;font-weight:800;}
+  .d-opt.gone{opacity:.42;}
+  .d-opt.gone .l{font-weight:600;}
+  .sheet{border:1px solid var(--d-rule);border-radius:10px;overflow:hidden;margin-top:10px;background:#fff;}
+  .sheet .hdr{background:var(--d-soft);font-weight:800;}
+  .sheet table{margin:0;font-size:12px;}
+  .sheet th,.sheet td{border-bottom:1px solid #f0f0f3;border-right:1px solid #f0f0f3;padding:7px 9px;
+    white-space:nowrap;color:var(--d-ink2);}
+  .sheet th{font-size:10.5px;color:#6b6b73;text-transform:uppercase;letter-spacing:.05em;}
+  .sheet td.fill{background:#fffbe8;color:var(--d-ink);font-weight:700;}
+  .sheet td.given{color:#8a8a92;}
+
+  .flow{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-top:16px;}
+  .flow .st{flex:1;min-width:150px;border:1px solid var(--ln);border-radius:12px;padding:12px 14px;background:var(--sf);}
+  .flow .st b{display:block;font-size:12.5px;font-weight:800;margin-bottom:3px;}
+  .flow .st span{font-size:12.5px;color:var(--ink2);}
+  .flow .ar{align-self:center;color:var(--mut);font-weight:800;}
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:14px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Inventory &middot; design mockup</p>
+<h1>Missing categories, a second store's import, and moving stock by spreadsheet</h1>
+<p class="lede">Three reported bugs and one new job. The bugs are not what they look like from the outside &mdash; each traces to a specific line, and the diagnosis changes what the fix should be. The new job, moving stock by spreadsheet, is the one that needs a design decision from you.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#cat">Categories stop at ten</a> &mdash; <em>they aren't capped; the importer never registers them</em></li>
+    <li><a href="#store">An import for the second store</a> &mdash; <em>import stays as it is; the rejection points at Move stock</em></li>
+    <li><a href="#qty">Typing a quantity when moving stock</a> &mdash; <em>the stepper is +1 forty times</em></li>
+    <li><a href="#move">Move stock &mdash; by hand, or by sheet</a> &mdash; <em>two tabs, one job: search-and-fill in the app, or export/fill/import</em></li>
+    <li><a href="#decide">What I need from you</a></li>
+  </ol>
+</div>
+
+<!-- ============================================================ -->
+<section id="cat">
+<h2>1 &middot; Categories stop at ten</h2>
+
+<div class="verdict">
+  <div class="vx bad">
+    <b>It isn't a cap. There is no limit anywhere in the code.</b>
+    <p><code>listCategories()</code> reads the whole <code>categories</code> table with no <code>.limit()</code>, and the POS row renders every name it gets. The nine chips in your screenshot are simply <em>all nine rows that exist</em>.</p>
+    <p>The <code>categories</code> table is only ever written from two places: the Add button in Settings, and the product form when someone types a new category by hand. <b>The CSV importer writes <code>products.category</code> as free text and never registers the name.</b> So every category that arrived by import is real on the products, filters correctly in Inventory search &mdash; and has no chip in POS, because no row was ever created for it.</p>
+  </div>
+  <div class="vx good">
+    <b>Two halves to the fix.</b>
+    <p><b>Going forward:</b> <code>runProductsImport</code> upserts each distinct accepted category (and brand &mdash; <code>brands.ts</code> has the identical gap) through the existing <code>createCategory</code>, which is already an ignore-duplicates upsert and safe to call redundantly.</p>
+    <p><b>For the shops already affected:</b> a migration that inserts, per shop, every distinct non-empty <code>products.category</code> with no matching <code>categories</code> row. Your imported categories reappear as chips without anyone re-typing them.</p>
+  </div>
+</div>
+
+<div class="pair two">
+  <div>
+    <p class="stamp now">Today</p>
+    <div class="frameHead"><b>POS category row</b><i>pos.tsx:973</i></div>
+    <div class="frame w560">
+      <div class="d-card">
+        <div class="d-input">Search or scan a product</div>
+        <div class="d-fade" style="margin-top:14px;">
+          <div class="d-scrollchips">
+            <span class="d-chip on">All</span>
+            <span class="d-chip"><i class="dot" style="background:#7cc7e8"></i>Cleanser</span>
+            <span class="d-chip"><i class="dot" style="background:#e8536f"></i>Cream</span>
+            <span class="d-chip"><i class="dot" style="background:#4a8fe8"></i>Esssence</span>
+            <span class="d-chip"><i class="dot" style="background:#e8536f"></i>Lotion</span>
+            <span class="d-chip">Mask</span>
+            <span class="d-chip"><i class="dot" style="background:#4a8fe8"></i>Serum</span>
+            <span class="d-chip"><i class="dot" style="background:#5fcf8f"></i>Starter Kit</span>
+            <span class="d-chip"><i class="dot" style="background:#f0a030"></i>Sunscreen</span>
+            <span class="d-chip"><i class="dot" style="background:#d9b23a"></i>Toner</span>
+          </div>
+        </div>
+        <p class="d-note">Nine chips &mdash; the nine rows in <code>categories</code>. The products carry more category names than this; none of them are here.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="stamp next">After</p>
+    <div class="frameHead"><b>POS category row</b><i>same component, fuller table</i></div>
+    <div class="frame w560">
+      <div class="d-card">
+        <div class="d-input">Search or scan a product</div>
+        <div class="d-fade" style="margin-top:14px;">
+          <div class="d-scrollchips">
+            <span class="d-chip on">All</span>
+            <span class="d-chip"><i class="dot" style="background:#7cc7e8"></i>Cleanser</span>
+            <span class="d-chip"><i class="dot" style="background:#e8536f"></i>Cream</span>
+            <span class="d-chip"><i class="dot" style="background:#4a8fe8"></i>Esssence</span>
+            <span class="d-chip new">Exfoliator</span>
+            <span class="d-chip new">Eye Care</span>
+            <span class="d-chip"><i class="dot" style="background:#e8536f"></i>Lotion</span>
+            <span class="d-chip">Mask</span>
+            <span class="d-chip new">Mist</span>
+            <span class="d-chip"><i class="dot" style="background:#4a8fe8"></i>Serum</span>
+            <span class="d-chip new">Sheet Mask</span>
+            <span class="d-chip"><i class="dot" style="background:#5fcf8f"></i>Starter Kit</span>
+            <span class="d-chip"><i class="dot" style="background:#f0a030"></i>Sunscreen</span>
+            <span class="d-chip"><i class="dot" style="background:#d9b23a"></i>Toner</span>
+            <span class="d-chip new">Treatment</span>
+          </div>
+        </div>
+        <p class="d-note"><b>Drag the row sideways &mdash; it stays one line.</b> Dashed = recovered by the backfill. They arrive colourless, which is honest &mdash; nobody has picked a colour for them. Settings &rarr; Categories is where that happens, unchanged.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>The row stays one line, however many chips there are</h3>
+<p class="note">Recovering the missing categories makes the list longer, and a longer list must not make the screen taller. Every chip row in the app is already a horizontal <code>ScrollView</code> and stays that way &mdash; it scrolls sideways, it never wraps onto a second line, and its height is fixed no matter how many names exist:</p>
+<div class="tableWrap">
+<table>
+  <tr><th>Row</th><th>Where</th><th>Today</th><th>After</th></tr>
+  <tr><td><b>POS categories</b></td><td><code>pos.tsx:973</code></td><td>horizontal scroll, one line</td><td>unchanged &mdash; just more chips in it</td></tr>
+  <tr><td><b>Product form &rarr; Category</b></td><td><code>product-form.tsx:473</code></td><td>horizontal scroll, one line</td><td>unchanged</td></tr>
+  <tr><td><b>Product form &rarr; Tags</b></td><td><code>product-form.tsx:521</code></td><td>horizontal scroll, one line</td><td>unchanged</td></tr>
+</table>
+</div>
+<p class="note" style="margin-top:14px;">So nothing needs building here &mdash; but it does mean the fix in this section can't push the grid down or shrink the products area, on a phone or a tablet, and that's what I'll check on device rather than assume. The one thing I'm <b>not</b> proposing is a "More" overflow button or a wrapping second line: both make the row grow, which is exactly what you don't want.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="store">
+<h2>2 &middot; An import for the second store &mdash; <span style="color:var(--mut);font-weight:700;">send it to Move stock instead</span></h2>
+
+<div class="verdict">
+  <div class="vx bad">
+    <b>The rejection is deliberate. The advice it gives is the bug.</b>
+    <p><code>runProductsImport(shop.id, …)</code> takes a shop and no store, loads every product in the shop, and rejects any row whose name or SKU already exists &mdash; <em>"already exists &mdash; edit it in Inventory instead of importing."</em> The rule is right: an import must never silently overwrite product data. The <b>advice</b> is what fails &mdash; it sends someone stocking a second store to open 214 products by hand, when the operation they want isn't an edit at all.</p>
+  </div>
+  <div class="vx good">
+    <b>Product import doesn't change. It says what it's for, and points at the right tool.</b>
+    <p>Importing that catalogue a second time was never the right operation anyway: 214 rows of <em>"Torriden Balanceful Serum, stock 40"</em> imported as products means <b>40 more units now exist</b> &mdash; when really they're the same units, at a different store. It would have inflated the shop's stock and its stock value. A move is the honest operation, and it leaves a <code>stock_transfers</code> record saying what went where.</p>
+    <p>So: no store picker, no new "stocked" outcome, no change to the import rules. The modal states its job in one line, and the duplicate rejection routes to <b>Move stock</b>.</p>
+  </div>
+  <div class="vx mid">
+    <b>Why no store picker is also the <em>correct</em> answer, not just the cheap one.</b>
+    <p>The opening-stock trigger (<code>20260810000000_stock_by_location.sql:137</code>) already places a newly created product's stock at the <b>primary location</b>, chosen by <code>order by is_primary desc, created_at asc</code>. Stock entering the shop lands at the primary store; moves distribute it from there. That is the database's model, and a store picker on import would have been a second, competing answer to the same question.</p>
+    <p><b>The cost, stated plainly:</b> a delivery that arrives physically at Jaalala 2 is imported to Jaalala Skincare and then moved &mdash; recording a movement that didn't happen on a van. That's an accuracy cost in the transfer history, and it's the price of this scope. It's worth paying now; if it bites, the fix is a store on the <em>opening stock</em>, not on the importer.</p>
+  </div>
+</div>
+
+<div class="pair two">
+  <div>
+    <p class="stamp now">Today</p>
+    <div class="frameHead"><b>Import products</b><i>csv-import-modal.tsx</i></div>
+    <div class="frame w560">
+      <div class="d-modal">
+        <div class="d-head">
+          <div class="d-title">Import products</div>
+          <div class="d-actions"><span class="d-btn ghost sm">Close</span></div>
+        </div>
+        <div class="d-lbl">FILE</div>
+        <div class="d-input filled">jaalala-2-opening-stock.csv &middot; 214 rows</div>
+        <div style="margin-top:14px;">
+          <div class="d-bar">
+            <span class="d-pill ok">0 added</span>
+            <span class="d-pill bad">214 rejected</span>
+          </div>
+        </div>
+        <table class="d-tbl">
+          <tr><th>Row</th><th>Name</th><th>Reason</th></tr>
+          <tr class="bad"><td class="num">2</td><td>Torriden Balanceful Serum</td><td>A product named "Torriden Balanceful Serum" already exists &mdash; edit it in Inventory instead of importing.</td></tr>
+          <tr class="bad"><td class="num">3</td><td>Skinfood Black Sugar Perfect</td><td>A product named "Skinfood Black Sugar Perfect" already exists &mdash; edit it in Inventory instead of importing.</td></tr>
+          <tr class="bad"><td class="num">4</td><td>SKIN1004 Madagascar Centella</td><td>A product named "SKIN1004 Madagascar Centella" already exists &mdash; edit it in Inventory instead of importing.</td></tr>
+        </table>
+        <p class="d-note">214 identical rejections. The advice &mdash; edit each one in Inventory &mdash; means opening 214 products by hand.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="stamp next">After</p>
+    <div class="frameHead"><b>Import products</b><i>same rules, honest label, a way out</i></div>
+    <div class="frame w560">
+      <div class="d-modal">
+        <div class="d-head">
+          <div class="d-title">Import products</div>
+          <div class="d-actions"><span class="d-btn ghost sm">Close</span></div>
+        </div>
+        <p style="font-size:13px;color:#5e5d65;margin:0 0 4px;">
+          <b>For adding products you don't sell yet.</b> Stock on a new product starts at
+          <b>Jaalala Skincare</b>, your main store.
+        </p>
+        <p style="font-size:13px;color:#5e5d65;margin:0 0 14px;">
+          Already stock an item and want it at another store? That's a
+          <b>move</b>, not an import &mdash; importing it again would double the count.
+        </p>
+        <div class="d-actions" style="margin-bottom:4px;">
+          <span class="d-btn ghost sm">Download example CSV</span>
+          <span class="d-btn ghost sm">Move stock instead &rarr;</span>
+        </div>
+
+        <div class="d-lbl">FILE</div>
+        <div class="d-input filled">jaalala-2-opening-stock.csv &middot; 214 rows</div>
+        <div style="margin-top:14px;">
+          <div class="d-bar">
+            <span class="d-pill ok">9 added</span>
+            <span class="d-pill bad">205 rejected</span>
+          </div>
+        </div>
+        <table class="d-tbl">
+          <tr><th>Row</th><th>Name</th><th>Reason</th></tr>
+          <tr class="bad"><td class="num">2</td><td>Torriden Balanceful Serum</td><td>You already stock this. To put it in another store, use <b>Move stock</b> &mdash; importing it again would add units you don't have.</td></tr>
+          <tr class="bad"><td class="num">3</td><td>Skinfood Black Sugar Perfect</td><td>You already stock this. To put it in another store, use <b>Move stock</b> &mdash; importing it again would add units you don't have.</td></tr>
+        </table>
+        <div class="d-actions" style="margin-top:12px;">
+          <span class="d-btn sm">Move these 203 to another store &rarr;</span>
+          <span class="d-btn ghost sm">Download rejected rows</span>
+        </div>
+        <p class="d-note"><b>9 added, 205 rejected</b> &mdash; the same numbers the code produces today. Nothing about the rules changed; the row now says what to do, and the button does it.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>The button is the whole feature</h3>
+<p class="note"><b>Move these 203 to another store</b> closes the import modal, opens <b>Move stock</b> on its sheet tab, and hands over the products it just recognised &mdash; pre-filling the move sheet with those 203 rows so the shop only types a <b>To store</b> and a <b>quantity</b>. It doesn't move anything; it carries the work across so the file they already prepared isn't wasted.</p>
+<p class="note">If that hand-off turns out to be fiddly to build, the fallback is a plain <b>Move stock instead &rarr;</b> that opens the modal empty and lets them download a fresh sheet. The rejection message alone &mdash; naming the right tool instead of sending them to edit 214 products &mdash; is most of the fix.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="qty">
+<h2>3 &middot; Typing a quantity when moving stock</h2>
+
+<p class="note">The stepper is already there &mdash; the complaint is that it's the <em>only</em> way in. Moving 40 of something is forty taps, and there's no way to say "move all of it", which is what a redistribution usually is.</p>
+
+<div class="pair two">
+  <div>
+    <p class="stamp now">Today</p>
+    <div class="frameHead"><b>Move stock &mdash; a line</b><i>stock-transfer-modal.tsx:184</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-lbl">ITEMS</div>
+        <div class="d-input">Search a product to add</div>
+        <div class="d-row" style="margin-top:8px;">
+          <div><div class="d-nm">Torriden Balanceful Serum</div><div class="d-mt">8 available</div></div>
+          <div class="d-step"><span class="pm">&minus;</span><span class="qty">1</span><span class="pm">+</span></div>
+        </div>
+        <p class="d-note">The number is display-only. Seven more taps to reach 8.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="stamp next">After</p>
+    <div class="frameHead"><b>Move stock &mdash; a line</b><i>tap the number; All fills it</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-lbl">ITEMS</div>
+        <div class="d-input">Search a product to add</div>
+        <div class="d-row" style="margin-top:8px;">
+          <div><div class="d-nm">Torriden Balanceful Serum</div><div class="d-mt">8 available</div></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="d-max">All</span>
+            <div class="d-step"><span class="pm">&minus;</span><span class="qty edit">8</span><span class="pm">+</span></div>
+          </div>
+        </div>
+        <div class="d-row">
+          <div><div class="d-nm">SKIN1004 Madagascar Centella</div><div class="d-mt bad">Only 3 at this store</div></div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="d-max">All</span>
+            <div class="d-step"><span class="pm">&minus;</span><span class="qty edit" style="border-color:#c0392b;color:#c0392b;">12</span><span class="pm">+</span></div>
+          </div>
+        </div>
+        <p class="d-note">The number is a numeric field. Over-committing still shows the existing red line and still blocks the Move button &mdash; typing doesn't get to bypass the check the steppers had.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:16px;">This is a change to <code>QuantityStepper</code>, or a variant of it, so the same typed entry can later serve anywhere else a large count is entered. Clearing the field to empty is treated as 0, which is how the line is already removed.</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="move">
+<h2>4 &middot; Move stock &mdash; by hand, or by sheet</h2>
+
+<p class="note">Shops are already using Import to shuffle stock between stores, because it's the only bulk tool on the screen. So Move stock becomes the bulk tool, with <b>two tabs doing one job</b>: fill it in the app, or fill it in a spreadsheet. Same columns, same checks, same result. Someone who learns one already understands the other.</p>
+
+<div class="frame w560" style="margin-top:16px;">
+  <div class="d-modal" style="padding:14px 16px;">
+    <div class="d-seg"><span class="on">By hand</span><span>From a sheet</span></div>
+    <p class="d-note" style="margin-top:10px;"><b>By hand</b> for a handful of items, or when you're packing the box and want to scan them in. <b>From a sheet</b> for a whole store's worth. Neither is the "advanced" one.</p>
+  </div>
+</div>
+
+<h3>4a &middot; By hand &mdash; search and fill</h3>
+<p class="note">Today the by-hand modal makes you search, tap a suggestion, watch the search clear, then tap <code>+</code> until the number is right &mdash; then start over for the next item. For three items that's tolerable; for fifteen it's why people reached for Import. The rebuild keeps the search but stops clearing it, and turns every result into a row you type a number into.</p>
+
+<div class="pair two">
+  <div>
+    <p class="stamp now">Today</p>
+    <div class="frameHead"><b>Move stock</b><i>stock-transfer-modal.tsx</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-head">
+          <div class="d-title">Move stock</div>
+          <div class="d-actions"><span class="d-btn sm">Move stock</span><span class="d-btn ghost sm">Close</span></div>
+        </div>
+        <div class="d-lbl">FROM</div>
+        <div class="d-chips"><span class="d-chip on">Jaalala Skincare</span><span class="d-chip">Jaalala 2</span></div>
+        <div class="d-lbl">TO</div>
+        <div class="d-chips"><span class="d-chip on">Jaalala 2</span></div>
+        <div class="d-lbl">ITEMS</div>
+        <div class="d-input">Search a product to add</div>
+        <div class="d-row" style="margin-top:8px;">
+          <div><div class="d-nm">Torriden Balanceful Serum</div><div class="d-mt">8 available</div></div>
+          <div class="d-step"><span class="pm">&minus;</span><span class="qty">1</span><span class="pm">+</span></div>
+        </div>
+        <p class="d-empty">No items yet &mdash; search above to add what you&apos;re moving.</p>
+        <div class="d-lbl">NOTE</div>
+        <div class="d-input">Why this is moving, if it helps</div>
+        <p class="d-note">One item at a time. The search box empties after every pick, so item fifteen means typing fifteen searches. No running total &mdash; nothing tells you how much you&apos;ve committed to moving.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <p class="stamp next">After</p>
+    <div class="frameHead"><b>Move stock &mdash; By hand</b><i>a filled list, not a queue of picks</i></div>
+    <div class="frame w560">
+      <div class="d-modal">
+        <div class="d-head">
+          <div class="d-title">Move stock</div>
+          <div class="d-actions"><span class="d-btn ghost sm">Close</span></div>
+        </div>
+        <div class="d-seg"><span class="on">By hand</span><span>From a sheet</span></div>
+
+        <div class="d-lbl">FROM</div>
+        <div class="d-drop">Jaalala Skincare<span class="chev">&#9662;</span></div>
+        <div class="d-lbl">TO</div>
+        <div class="d-drop">Jaalala 2<span class="chev">&#9662;</span></div>
+
+        <div class="d-basket">
+          <div class="cap"><b>MOVING</b><i>3 products &middot; 21 units</i></div>
+          <div class="d-row">
+            <div><div class="d-nm">Torriden Balanceful Serum</div><div class="d-mt">8 at Jaalala Skincare &middot; 0 at Jaalala 2</div></div>
+            <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin on">5</span></div>
+          </div>
+          <div class="d-row">
+            <div><div class="d-nm">SKIN1004 Madagascar Centella</div><div class="d-mt">24 at Jaalala Skincare &middot; 2 at Jaalala 2</div></div>
+            <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin on">10</span></div>
+          </div>
+          <div class="d-row">
+            <div><div class="d-nm">Anua Heartleaf Toner</div><div class="d-mt">12 at Jaalala Skincare &middot; 0 at Jaalala 2</div></div>
+            <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin on">6</span></div>
+          </div>
+        </div>
+
+        <div class="d-lbl">ADD MORE</div>
+        <div class="d-input filled">cleans<span style="color:#c2c2c8;">&nbsp;|</span></div>
+        <!-- Drawn, then built, then removed. See "Scan to add" below. -->
+        <div class="d-bar" style="margin-top:8px;"><span class="d-scan" style="opacity:.4;text-decoration:line-through;">&#9635; Scan to add</span></div>
+        <div class="d-fade" style="margin-top:10px;">
+          <div class="d-scrollchips">
+            <span class="d-chip on">All</span>
+            <span class="d-chip">Cleanser</span><span class="d-chip">Cream</span><span class="d-chip">Esssence</span>
+            <span class="d-chip">Lotion</span><span class="d-chip">Mask</span><span class="d-chip">Serum</span>
+            <span class="d-chip">Sunscreen</span><span class="d-chip">Toner</span>
+          </div>
+        </div>
+        <div class="d-row">
+          <div><div class="d-nm">Round Lab Dokdo Cleanser</div><div class="d-mt">4 at Jaalala Skincare &middot; 1 at Jaalala 2</div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin">0</span></div>
+        </div>
+        <div class="d-row">
+          <div><div class="d-nm">Banila Clean It Zero Cleanser</div><div class="d-mt">0 at Jaalala Skincare &middot; 7 at Jaalala 2</div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span style="font-size:11.5px;color:#9ca3af;font-weight:700;">none here</span></div>
+        </div>
+
+        <div class="d-lbl">NOTE</div>
+        <div class="d-input">Why this is moving, if it helps</div>
+
+        <div class="d-foot">
+          <div class="tot">3 products &middot; 21 units<span>Jaalala Skincare &rarr; Jaalala 2</span></div>
+          <span class="d-btn">Move stock</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>FROM and TO are dropdowns, not chips &mdash; and the component exists</h3>
+<p class="note">Chips were fine for two stores and stop being fine at five: the row wraps or scrolls, and the two most important choices on the screen become the fiddliest. <b><code>StoreDropdown</code></b> is already the app's answer to exactly this, and its own comment says why &mdash; <em>"a row of chips would push the actions off a narrow screen once a business has four or five stores."</em> It's used by the inventory header, the product form, and the POS open-register sheet. Move stock should not invent a third pattern.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Closed</b><i>variant="field", allowAll={false}</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-lbl">FROM</div>
+        <div class="d-drop">Jaalala Skincare<span class="chev">&#9662;</span></div>
+        <div class="d-lbl">TO</div>
+        <div class="d-drop ph">Choose a store<span class="chev">&#9662;</span></div>
+        <p class="d-note"><code>variant="field"</code> gives the grey 42px input that matches the fields around it, rather than the black header button. <code>allowAll={false}</code> because "All stores" is not a thing you can move to.</p>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead"><b>Open &mdash; the TO list</b><i>title="Move stock to"</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-opts">
+          <div class="t">Move stock to</div>
+          <div class="d-opt gone"><div><div class="l">Jaalala Skincare</div><div class="h">where it&apos;s moving from</div></div></div>
+          <div class="d-opt sel"><div><div class="l">Jaalala 2</div><div class="h">#JL2</div></div><span class="ck">&#10003;</span></div>
+          <div class="d-opt"><div><div class="l">Jaalala Bole</div><div class="h">#JLB</div></div></div>
+          <div class="d-opt"><div><div class="l">Jaalala Kiosk</div><div class="h">#JLK</div></div></div>
+        </div>
+        <p class="d-note">The source is shown but not selectable, rather than removed from the list &mdash; a store that silently vanishes reads as a missing store. The <code>#code</code> hint is already rendered by the component.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx mid">
+    <b>Two things to settle before reusing it</b>
+    <p><b>1. It needs an <code>exclude</code> prop.</b> <code>StoreDropdown</code> lists every active location with no way to omit one, and TO must not offer the source &mdash; <code>transfer_stock</code> refuses a move to itself. Small addition, and it belongs on the component rather than in a copy of it.</p>
+    <p><b>2. It opens an <code>AppModal</code> from inside an <code>AppModal</code>.</b> That's the stacked-sheet shape that has bitten this app on iOS before. It already ships in the POS open-register sheet (<code>open-register-sheet.tsx:164</code> renders it at <code>:180</code>), so there is precedent &mdash; but precedent is not proof, and this one gets checked on a device rather than reasoned about.</p>
+  </div>
+</div>
+
+<h3>What changed, and why each bit earns its place</h3>
+<div class="tableWrap">
+<table>
+  <tr><th>Change</th><th>Why</th></tr>
+  <tr><td><b>Search doesn't clear after a pick</b></td><td>The single biggest cost today. Typing a quantity into a result and carrying on searching is the whole flow; clearing resets you to the start every time.</td></tr>
+  <tr><td><b>Type the number, with <i>All</i> beside it</b></td><td>The same control as section 3, in the same place. Moving everything you hold is one tap, which is what a redistribution usually is.</td></tr>
+  <tr><td><b>Both counts on every row</b><br><span style="color:var(--mut);font-size:12.5px;">&ldquo;8 at Jaalala Skincare &middot; 0 at Jaalala 2&rdquo;</span></td><td>You can't decide how much to send without knowing what's already there. Today the destination count is invisible, so the decision is made blind or in another screen.</td></tr>
+  <tr><td><b>A pinned MOVING block with a running total</b></td><td>Nothing today tells you what you've committed to. The footer repeats it next to the button, so the last thing you read before moving is what you're moving.</td></tr>
+  <tr><td><b>Category chips to narrow the list</b></td><td>&ldquo;Send Jaalala 2 some of every toner&rdquo; is a real instruction. Horizontal scroll, one line &mdash; same rule as section 1.</td></tr>
+  <tr><td><b><s>Scan to add</s></b><br><span style="color:var(--mut);font-size:12.5px;">built, then removed &mdash; see below</span></td><td><s>The shop is physically packing a box. Scanning each item as it goes in is the most accurate count there is, and the wedge-scanner path already exists in the app.</s> <b>It does not reach inside a sheet.</b> <code>HardwareKeyboardModule.startCapture</code> wraps <code>currentActivity.window</code>, and a React Native Modal on Android is a Dialog with a window of its own, so keys typed while this sheet is up never arrive &mdash; they are neither reported nor swallowed. On a device the trailing Enter closed the sheet and discarded the basket. Removed; the search box no longer offers it.</td></tr>
+  <tr><td><b>Zero-at-source rows say &ldquo;none here&rdquo;</b></td><td>Rather than vanish. A product you searched for and can't find is confusing; a product that tells you it's all at the other store is an answer.</td></tr>
+  <tr><td><b>FROM and TO are <code>StoreDropdown</code>s</b></td><td>Chips stop working at four or five stores &mdash; which is the exact reason the component exists.</td></tr>
+</table>
+</div>
+
+<h3 id="over">Moving more than the app says is there</h3>
+<p class="note">Worth its own answer, because the honest one is "no, and here's the thing you actually want".</p>
+
+<div class="verdict">
+  <div class="vx bad">
+    <b>The database forbids it, and not by accident.</b>
+    <p><code>product_location_stock.stock</code> is declared <code>integer not null default 0 <b>check (stock &gt;= 0)</b></code> (<code>20260810000000_stock_by_location.sql:50</code>). Moving 10 out of a store holding 4 needs that store to reach &minus;6, and the row won't accept it. Allowing over-moves means <b>dropping that constraint</b> &mdash; and it isn't scoped to transfers: the same column backs POS, so negative stock would become sellable, low-stock alerts would go strange, and stock value in Accounting could go below zero. That's a shop-wide change to buy a transfer-screen convenience.</p>
+  </div>
+  <div class="vx good">
+    <b>But the situation behind the question is real, and it has a better answer.</b>
+    <p>Nobody wants negative stock. What they want is: <em>"I'm holding 10 of these in my hand. The app says 4. Let me get on with it."</em> The app's number is wrong &mdash; an unrecorded delivery, a return that never got keyed, a miscount. Blocking the move is correct; <b>making them leave the screen to fix the count is not</b>.</p>
+    <p>So the over-quantity row stops being a dead end and becomes a two-option question, right where it happens.</p>
+  </div>
+</div>
+
+<div class="pair two">
+  <div>
+    <p class="stamp now">Today</p>
+    <div class="frameHead"><b>Over-committed row</b><i>stock-transfer-modal.tsx:181</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-row">
+          <div><div class="d-nm">Round Lab Dokdo Cleanser</div><div class="d-mt bad">Only 4 at this store</div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin bad">10</span></div>
+        </div>
+        <div class="d-foot"><div class="tot">1 product &middot; 10 units<span>blocked</span></div><span class="d-btn off">Move stock</span></div>
+        <p class="d-note">The button is dead and stays dead. The only way forward is to close this, go to the product, fix the count, come back, and start the move again.</p>
+      </div>
+    </div>
+  </div>
+  <div>
+    <p class="stamp next">After</p>
+    <div class="frameHead"><b>Over-committed row</b><i>the count is the thing to fix</i></div>
+    <div class="frame w420">
+      <div class="d-modal">
+        <div class="d-row" style="border-bottom:0;padding-bottom:4px;">
+          <div><div class="d-nm">Round Lab Dokdo Cleanser</div><div class="d-mt bad">Only 4 at Jaalala Skincare</div></div>
+          <div style="display:flex;align-items:center;gap:6px;"><span class="d-max">All</span><span class="d-qtyin bad">10</span></div>
+        </div>
+        <div style="background:var(--d-warnwash);border-radius:12px;padding:11px 13px;margin-bottom:8px;">
+          <div style="font-size:12.5px;font-weight:800;color:var(--d-warnink);margin-bottom:7px;">
+            You can&apos;t move 10 out of 4. If you really have 10 here, the count is wrong &mdash; fix it and the move goes through.
+          </div>
+          <div class="d-actions">
+            <span class="d-btn sm">Set the count here to 10</span>
+            <span class="d-btn ghost sm">Move 4 instead</span>
+          </div>
+        </div>
+        <div class="d-foot"><div class="tot">1 product &middot; 4 units<span>Jaalala Skincare &rarr; Jaalala 2</span></div><span class="d-btn">Move stock</span></div>
+        <p class="d-note"><b>Set the count here to 10</b> writes a stock adjustment at the source through <code>setLocationStock</code> &mdash; a real, recorded correction &mdash; and the move then proceeds normally. Stock never goes negative and the history says what happened: a count was corrected, then units moved.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:16px;">The sheet tab gets the same treatment without the buttons: an over-quantity row rejects with <em>&ldquo;Only 4 at Jaalala Skincare &mdash; the sheet asks for 9. If you really have 9, correct the count first.&rdquo;</em> A sheet is a bulk instruction and shouldn't silently rewrite counts as a side effect &mdash; a stock-take belongs in its own file, not smuggled into a move.</p>
+
+<div class="q">
+  <b>Only if you want it: an explicit stock-take import</b>
+  <p>If &ldquo;our counts are wrong across the board&rdquo; is the real problem &mdash; not just on a row here and there &mdash; then the answer isn't loosening the move, it's a <b>separate Set stock sheet</b>: product, store, counted quantity. Same file mechanics, honest name, and it's the one place where overwriting a count is the stated purpose rather than a side effect. I'd <b>hold it back</b> until you tell me the counts are drifting, rather than build it on spec.</p>
+</div>
+
+<h3>4b &middot; From a sheet</h3>
+<p class="note">Same job, when the answer is two hundred rows rather than three. Export what you have, fill in where it's going and how much, import it back.</p>
+
+<div class="flow">
+  <div class="st"><b>1 &middot; Download</b><span>Inventory &rarr; Move stock &rarr; <i>Download move sheet</i>. One row per product that has stock somewhere, with the counts already filled in.</span></div>
+  <div class="ar">&rarr;</div>
+  <div class="st"><b>2 &middot; Fill</b><span>In Excel or Sheets: type a <b>To store</b> and a <b>Quantity</b> on the rows you're moving. Leave the rest blank.</span></div>
+  <div class="ar">&rarr;</div>
+  <div class="st"><b>3 &middot; Check</b><span>Upload. Every row is validated before anything moves; you see what will happen and what won't.</span></div>
+  <div class="ar">&rarr;</div>
+  <div class="st"><b>4 &middot; Move</b><span>Confirmed rows go through <code>transfer_stock</code>, grouped by store pair &mdash; the same atomic RPC and the same <code>stock_transfers</code> record the modal writes.</span></div>
+</div>
+
+<h3>The sheet you download</h3>
+<p class="note">Blank cells are yours to fill; grey cells are what the app already knows and are there so you can find the row. <b>From store</b> and <b>Quantity now</b> come pre-filled per store the product is actually held at, so a product in two stores gets two rows &mdash; you pick which one you're moving out of by filling that row.</p>
+
+<div class="frame w980 scroller" style="margin-top:12px;">
+  <div class="sheet">
+    <table>
+      <tr class="hdr"><th>Product</th><th>SKU</th><th>Barcode</th><th>From store</th><th>Quantity now</th><th>To store</th><th>Quantity to move</th><th>Note</th></tr>
+      <tr><td class="given">Torriden Balanceful Serum</td><td class="given">TOR-BAL-50</td><td class="given">8809611860018</td><td class="given">Jaalala Skincare</td><td class="given">8</td><td class="fill">Jaalala 2</td><td class="fill">5</td><td class="fill">restock</td></tr>
+      <tr><td class="given">SKIN1004 Madagascar Centella</td><td class="given">SK1-MAD-100</td><td class="given">8809576261134</td><td class="given">Jaalala Skincare</td><td class="given">24</td><td class="fill">Jaalala 2</td><td class="fill">10</td><td class="fill">restock</td></tr>
+      <tr><td class="given">Anua Heartleaf Toner</td><td class="given">ANU-HRT-250</td><td class="given">8809640740671</td><td class="given">Jaalala Skincare</td><td class="given">12</td><td></td><td></td><td></td></tr>
+      <tr><td class="given">Beauty of Joseon Relief Sun</td><td class="given">BOJ-SUN-50</td><td class="given">8809738017050</td><td class="given">Jaalala 2</td><td class="given">6</td><td class="fill">Jaalala Skincare</td><td class="fill">6</td><td class="fill">slow seller</td></tr>
+      <tr><td class="given">Skinfood Black Sugar Perfect</td><td class="given">SKF-BSP-120</td><td class="given">8809153101891</td><td class="given">Jaalala Skincare</td><td class="given">3</td><td></td><td></td><td></td></tr>
+    </table>
+  </div>
+  <p class="d-note"><b>Product</b>, <b>To store</b> and <b>Quantity to move</b> are the required columns. <b>SKU</b> and <b>Barcode</b> are there for matching &mdash; a SKU wins over a name, so renaming a product in the sheet doesn't break the match. <b>From store</b> may be left as downloaded, or retyped. Rows with a blank <b>To store</b> or blank <b>Quantity to move</b> are skipped silently &mdash; not rejected &mdash; because most of the sheet is meant to stay blank.</p>
+</div>
+
+<h3>What you see before anything moves</h3>
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Move stock &mdash; Import tab, checked</b><i>new</i></div>
+    <div class="frame w560">
+      <div class="d-modal">
+        <div class="d-head">
+          <div class="d-title">Move stock</div>
+          <div class="d-actions"><span class="d-btn">Move 3 items</span><span class="d-btn ghost sm">Close</span></div>
+        </div>
+        <div class="d-seg"><span>By hand</span><span class="on">From a sheet</span></div>
+
+        <div class="d-lbl">FILE</div>
+        <div class="d-input filled">move-sheet.csv &middot; 214 rows</div>
+
+        <div class="d-bar" style="margin-top:14px;">
+          <span class="d-pill ok">3 moves ready</span>
+          <span class="d-pill acc">2 store pairs</span>
+          <span class="d-pill bad">1 rejected</span>
+          <span class="d-pill warn">210 blank &mdash; skipped</span>
+        </div>
+
+        <div class="d-lbl">WHAT WILL MOVE</div>
+        <table class="d-tbl">
+          <tr><th>From &rarr; To</th><th>Items</th><th class="num">Units</th></tr>
+          <tr><td><b>Jaalala Skincare &rarr; Jaalala 2</b></td><td>2 products</td><td class="num">15</td></tr>
+          <tr><td><b>Jaalala 2 &rarr; Jaalala Skincare</b></td><td>1 product</td><td class="num">6</td></tr>
+        </table>
+
+        <div class="d-lbl">WHAT WON'T</div>
+        <table class="d-tbl">
+          <tr><th>Row</th><th>Product</th><th>Reason</th></tr>
+          <tr class="bad"><td class="num">57</td><td>Round Lab Dokdo Cleanser</td><td>Only 4 at Jaalala Skincare &mdash; the sheet asks for 9.</td></tr>
+        </table>
+        <p class="d-note">Nothing has moved yet. <b>Move 3 items</b> is the commit.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>Every way a row is refused</b><i>checked before the commit</i></div>
+    <div class="frame w560">
+      <div class="d-modal">
+        <table class="d-tbl">
+          <tr><th>What's wrong</th><th>What the row says</th></tr>
+          <tr><td>No product matches</td><td>No product matches "Torriden Blanceful Serum" &mdash; check the spelling, or use the SKU column.</td></tr>
+          <tr><td>Name matches two products</td><td>Two products are named "Serum" &mdash; fill in the SKU column to say which.</td></tr>
+          <tr><td>Store name unknown</td><td>No store called "Jaalala 3". Your stores are Jaalala Skincare and Jaalala 2.</td></tr>
+          <tr><td>Same store both sides</td><td>From and To are both Jaalala 2 &mdash; nothing would move.</td></tr>
+          <tr><td>Quantity not a whole number</td><td>Quantity to move must be a whole number above zero.</td></tr>
+          <tr><td>Not enough there</td><td>Only 4 at Jaalala Skincare &mdash; the sheet asks for 9. If you really have 9, correct the count first.</td></tr>
+          <tr><td>Two rows, same product and pair</td><td>Row 57 already moves this product from Jaalala Skincare to Jaalala 2 &mdash; combine them into one row.</td></tr>
+          <tr><td>Store closed / inactive</td><td>Jaalala 3 is not an active store.</td></tr>
+        </table>
+        <p class="d-note">Rejected rows download as a CSV with a trailing <b>Reason</b> column, exactly like the products import already does &mdash; fix and re-upload without retyping.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<h3>How it commits</h3>
+<p class="note">Rows are grouped by <b>(From, To)</b> pair, and each pair goes through one <code>transfer_stock</code> call. That is the existing RPC: both sides in one transaction, one <code>stock_transfers</code> record, the same movement history the by-hand modal produces. A sheet moving stock in two directions produces two transfer records, which is correct &mdash; they are two different movements and a shop reading its history should see them as such.</p>
+<p class="note">If a pair fails at commit time &mdash; someone sold the last unit between the check and the button &mdash; <b>that pair fails whole and is reported by name</b>; the other pair still goes through. The alternative, rolling back everything because one pair raced, throws away good work for a problem the user can fix by re-uploading the one sheet section. The result screen names exactly which pair didn't land.</p>
+
+<h3>Where it lives, and how the two tabs meet</h3>
+<p class="note">Both tabs live inside the existing <b>Move stock</b> modal &mdash; the sheet is <em>not</em> an entry in the Import menu. Import means "bring products in", and moving stock is not that; a shop that finds moving under Import will keep expecting product import to move things, which is the confusion this whole document is fixing.</p>
+<p class="note">The tabs share one selection. Switching from <b>By hand</b> to <b>From a sheet</b> keeps what you filled in, and <b>Download move sheet</b> hands you a file with those rows already filled &mdash; so a shop that starts by hand, realises it's a bigger job than they thought, and finishes in Excel doesn't retype anything. The reverse holds too: a checked sheet lands in the by-hand list where you can adjust a number before committing.</p>
+<div class="q">
+  <b>The one rule that keeps them honest</b>
+  <p><b>Neither tab ever moves anything until the same button is pressed.</b> The sheet tab doesn't commit on upload, and the by-hand tab doesn't commit as you type. Both end at <b>Move stock</b>, both run the same validation, and both produce the same <code>transfer_stock</code> call and the same movement record.</p>
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="decide">
+<h2>5 &middot; What I need from you</h2>
+
+<div class="vx good" style="margin-bottom:18px;">
+  <b>Settled: product import doesn't change.</b>
+  <p>No store picker, no "stocked" outcome, no new import rules. The modal says what it's for, and the duplicate rejection routes to Move stock &mdash; which means <b>the move sheet is now the only way to stock a second store in bulk</b>, and has to be good enough to carry that on its own. The questions below are all about the sheet.</p>
+</div>
+
+<div class="q">
+  <b>b &mdash; One sheet per download, or one row per store?</b>
+  <p>The mockup gives a product held in two stores <b>two rows</b>, one per store, each with its own count. It's longer, but it's the only shape where "move 5 out of Jaalala Skincare" is unambiguous. The alternative &mdash; one row with a From column you fill yourself &mdash; is shorter and more error-prone. I recommend the two-row shape shown.</p>
+</div>
+
+<div class="vx bad">
+  <b>b2 &mdash; "Scan to add": answered by the device, not by us.</b>
+  <p>It was built, and taken back out. The wedge-scanner path does exist, but it cannot reach inside a sheet: <code>HardwareKeyboardModule.startCapture</code> wraps <code>currentActivity.window</code>, and a React Native Modal on Android is a <b>Dialog with its own window</b>. Keys typed while this sheet is up are neither reported to JS nor swallowed &mdash; which is why POS and Inventory both stand their scanner down while a sheet is open. Scanning inside a modal has never worked in this app.</p>
+  <p>Shipping it anyway would have been worse than leaving it out: with nothing swallowing the scan, the trailing Enter presses whichever control holds focus. On the Pixel it closed the sheet and threw away the basket. The search box says "Search a product" again.</p>
+  <p><b>What it would take:</b> teaching the module about the Dialog's window &mdash; a native change, in the code that has already cost this app three keyboard bugs, and one to make deliberately rather than in passing.</p>
+</div>
+
+<div class="q">
+  <b>c &mdash; Should the move sheet include products with zero stock?</b>
+  <p>The mockup includes only products that have stock somewhere, since you can't move what isn't there. Including everything makes the sheet a full catalogue you could also use as a picking list. I recommend <b>stock-holding only</b>, and keeping Export CSV as the full-catalogue route.</p>
+</div>
+
+<div class="q">
+  <b>d &mdash; Does the category backfill run for every shop, or only on request?</b>
+  <p>A migration that recovers missing categories shop-wide is the fix that doesn't need anyone to do anything. It's also a write to every affected shop's data at once. It only ever <em>inserts</em> names already present on that shop's own products, so I think it's safe to run for everyone &mdash; but it's your call.</p>
+</div>
+
+<h3>Order I'd build in</h3>
+<div class="tableWrap">
+<table>
+  <tr><th>#</th><th>What</th><th>Why here</th></tr>
+  <tr><td class="num">1</td><td><b>Categories registered on import, plus the backfill</b></td><td>Smallest change, and it puts your missing chips back in POS immediately. Independent of everything else.</td></tr>
+  <tr><td class="num">2</td><td><b>Move stock &mdash; By hand, rebuilt</b><br><span style="color:var(--mut);font-size:12.5px;">includes the typed quantity from section 3</span></td><td>Ships value on its own before any file handling exists, and it's where the typed quantity, the <i>All</i> button and the both-stores counts get built &mdash; the sheet tab then reuses all three.</td></tr>
+  <tr><td class="num">3</td><td><b>Move stock &mdash; From a sheet</b></td><td>The bulk route, and now the only one to a second store. Lands in the list the by-hand tab already renders, so it's file parsing and validation rather than a second screen.</td></tr>
+  <tr><td class="num">4</td><td><b>Import modal wording + the route to Move stock</b></td><td>Last, because the button it offers has to have somewhere to land. On its own the reworded rejection is already most of the fix.</td></tr>
+</table>
+</div>
+</section>
+
+</div>
