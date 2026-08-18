@@ -22,11 +22,17 @@ export function QuantityField({
   onChange,
   max,
   label,
+  // What the fill-to-max button says. Defaults to "All", but a screen that
+  // already shows an "All" somewhere else should say what the button DOES --
+  // Move stock renders a category filter whose first chip is "All", and two
+  // controls a few pixels apart reading the same word is a coin toss.
+  fillLabel = 'All',
 }: {
   quantity: number;
   onChange: (next: number) => void;
   max?: number;
   label?: string;
+  fillLabel?: string;
 }) {
   const over = max !== undefined && quantity > max;
   const canFill = max !== undefined && max > 0 && quantity !== max;
@@ -34,8 +40,8 @@ export function QuantityField({
   return (
     <View style={styles.wrap}>
       {canFill ? (
-        <Pressable onPress={() => onChange(max)} hitSlop={6} accessibilityLabel={`Move all ${max}`}>
-          <Text style={styles.all}>All</Text>
+        <Pressable onPress={() => onChange(max)} hitSlop={6} accessibilityLabel={`${fillLabel} ${max}`}>
+          <Text style={styles.all}>{fillLabel}</Text>
         </Pressable>
       ) : null}
       <View style={styles.row}>

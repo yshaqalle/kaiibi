@@ -274,7 +274,18 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    enabled: scanner.hardware && !showAddModal && editingProduct === null && !showImportModal && !scannerOpen,
+    // The transfer sheet included for the same reason as the others: Move stock
+    // runs its own wedge to build a transfer, and a scan must not also be read
+    // here as an adjustment to the product behind it. Written as the same
+    // condition that sheet's `visible` uses -- it also opens from the import
+    // hand-over, when `showTransfer` alone is still false.
+    enabled:
+      scanner.hardware &&
+      !showAddModal &&
+      editingProduct === null &&
+      !showImportModal &&
+      !scannerOpen &&
+      !(showTransfer || moveFromImport.value !== null),
     onScan: handleScannedCode,
   });
 

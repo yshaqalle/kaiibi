@@ -6,6 +6,9 @@ import { QuantityField } from '@/components/quantity-field';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge, useWedgeSinkFallback } from '@/hooks/use-barcode-wedge';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { listCategories } from '@/lib/categories';
 import { rowsToCsv } from '@/lib/csv';
 import { describePlanError } from '@/lib/entitlements';
@@ -78,6 +81,25 @@ export function StockTransferModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [repairing, setRepairing] = useState<string | null>(null);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+  const scanner = useScannerSettings();
+  // Whether this build needs the focus-stealing WedgeSink to hear a scanner.
+  //
+  // Where it does, this sheet does NOT offer scanning -- see `canScan` below.
+  // A sink inside a modal is the one arrangement the whole wedge design
+  // avoids: it holds the caret in a one-pixel field and reclaims it every
+  // 700ms, and this sheet has a search box, a note box and the till keypad all
+  // wanting the same caret. That fight is what previously froze the keyboard,
+  // and it is why POS and Inventory both UNMOUNT their sink while any sheet is
+  // open (inventory.tsx renders it only when every modal, this one included,
+  // is closed).
+  //
+  // So on those binaries the placeholder never says "or scan one", and nothing
+  // silently fails to happen. Everywhere else -- web, and any native build
+  // carrying the HardwareKeyboard module -- keys arrive from the window with
+  // nothing focused, no caret is taken, and scanning here costs nothing.
+  const sinkFallback = useWedgeSinkFallback();
+  const canScan = scanner.hardware && !sinkFallback;
 
   // Sheet tab
   const [sheetFile, setSheetFile] = useState<string | null>(null);
@@ -182,6 +204,47 @@ export function StockTransferModal({
     });
   };
   const quantityOf = (productId: string) => lines.find((l) => l.product.id === productId)?.quantity ?? 0;
+
+  // Scanning items into the move as they go into the box.
+  //
+  // This is the most accurate way to build a transfer -- the count is taken off
+  // the physical goods rather than typed from memory -- and it is why the search
+  // field says "or scan one".
+  //
+  // Each scan adds ONE, deliberately without clamping to what the source is
+  // recorded as holding: scanning is a physical count, so a tenth scan of an
+  // item the app thinks it has nine of is the shop telling us the count is
+  // wrong. That surfaces the repair box, which is the right conversation. A
+  // silent clamp would hide it.
+  //
+  // Not wrapped in useCallback: useBarcodeWedge keeps it in a ref, so its
+  // identity is irrelevant -- same reasoning as inventory.tsx's handler.
+  const handleScannedCode = (raw: string) => {
+    const resolution = resolveBarcode(sourceStock, raw);
+    if (resolution.status === 'not-found') {
+      return setScanFeedback({ tone: 'error', message: `No product at ${sourceName || 'this store'} matches ${resolution.code}.` });
+    }
+    if (resolution.status === 'ambiguous') {
+      return setScanFeedback({ tone: 'warn', message: `More than one product matches that code — add it by name instead.` });
+    }
+    const next = quantityOf(resolution.product.id) + 1;
+    setQuantity(resolution.product, next);
+    setScanFeedback({ tone: 'ok', message: `${resolution.product.name} — ${next}` });
+  };
+
+  // Only while this sheet is up and showing the list a scan can act on. The
+  // Inventory screen behind it runs its own wedge, which adjusts stock rather
+  // than building a move; without this both would answer the same scan.
+  useBarcodeWedge({
+    enabled: visible && tab === 'hand' && canScan,
+    onScan: handleScannedCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
 
   // The count is what's wrong, not the move. Writing it here rather than making
   // the shop leave for the product screen and start the move again -- stock
@@ -463,10 +526,16 @@ export function StockTransferModal({
                 <TextInput
                   value={search}
                   onChangeText={setSearch}
-                  placeholder="Search a product, or scan one"
+                  placeholder={canScan ? 'Search a product, or scan one' : 'Search a product'}
                   placeholderTextColor="#999999"
                   style={styles.input}
                 />
+                {/* What the last scan did. Without it a scan is a number
+                    changing somewhere up the list, which is invisible when the
+                    item is already in the basket and scrolled out of view. */}
+                {scanFeedback && (
+                  <Text style={[styles.scanFeedback, styles[`scan_${scanFeedback.tone}`]]}>{scanFeedback.message}</Text>
+                )}
                 {categories.length > 0 && (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
                     <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
@@ -598,7 +667,13 @@ function ProductRow({
         {available === 0 && quantity === 0 ? (
           <Text style={styles.noneHere}>none here</Text>
         ) : (
-          <QuantityField quantity={quantity} onChange={onChange} max={available} label={`Quantity of ${product.name}`} />
+          <QuantityField
+            quantity={quantity}
+            onChange={onChange}
+            max={available}
+            label={`Quantity of ${product.name}`}
+            fillLabel="Move all"
+          />
         )}
       </View>
 
@@ -758,6 +833,10 @@ const styles = StyleSheet.create({
   lineMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
   noneHere: { fontSize: 11.5, fontWeight: '700', color: '#9CA3AF' },
   empty: { fontSize: 13, color: '#9CA3AF', marginTop: 12 },
+  scanFeedback: { fontSize: 12.5, fontWeight: '700', marginTop: 8, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, overflow: 'hidden' },
+  scan_ok: { color: '#007A38', backgroundColor: '#D9EFE4' },
+  scan_warn: { color: '#8A5806', backgroundColor: '#FDF1DA' },
+  scan_error: { color: '#A3202F', backgroundColor: '#FBEAEC' },
 
   repair: { backgroundColor: '#FDF1DA', borderRadius: 12, padding: 11, marginBottom: 10 },
   repairText: { fontSize: 12.5, fontWeight: '700', color: '#8A5806', marginBottom: 8, lineHeight: 18 },
