@@ -17,8 +17,11 @@
 --      hand the same thing to shops that do not exist yet or old and new shops
 --      disagree about what "Manager" means.
 --   4. has_shop_permission resolves the new strings for a member, and the shop
---      OWNER holds them implicitly without any row being written -- which is
---      why the backfill deliberately does not touch owners.
+--      OWNER holds them implicitly regardless of what their own Owner role
+--      says -- the owner_id short-circuit in user_has_shop_permission, not
+--      membership. (Since 20260823000000 the owner does have a shop_members
+--      row, so this is no longer "no row is written for them"; it is that the
+--      row is not what grants the permission.)
 --   5. stock_loss is accepted by every table that stores a category, and a
 --      bogus category is still refused. The four are widened together because
 --      EXPENSE_CATEGORIES is one list shared by the expense editor, the
@@ -51,10 +54,16 @@ begin
   -- -- otherwise the replay would grant the verbs itself and this would pass
   -- against a default_shop_roles() that never learned about them.
   select permissions into v_perms from public.roles where shop_id = v_shop_id and name = 'Manager';
+  if v_perms is null then
+    raise exception 'FAIL: no seeded Manager role found for the fixture shop';
+  end if;
   if not v_perms @> array['inventory.count', 'inventory.transfer'] then
     raise exception 'FAIL: a newly seeded Manager should hold both verbs, as the backfill gives every existing Manager, got %', v_perms;
   end if;
   select permissions into v_perms from public.roles where shop_id = v_shop_id and name = 'Cashier';
+  if v_perms is null then
+    raise exception 'FAIL: no seeded Cashier role found for the fixture shop';
+  end if;
   if v_perms && array['inventory.count', 'inventory.transfer'] then
     raise exception 'FAIL: the seeded Cashier must hold neither verb, got %', v_perms;
   end if;
@@ -88,6 +97,24 @@ begin
     raise exception 'FAIL: a role without inventory.edit must gain nothing, got %', v_perms;
   end if;
 
+  -- Idempotency is a binding constraint on this backfill, not a nicety -- a
+  -- migration can be re-applied (a rolled-back deploy retried, a fresh
+  -- environment rebuilt from the chain twice), and re-running it must not
+  -- re-append or otherwise disturb permissions a shop already has. Replayed
+  -- here a second time, against the same row check 1 already confirmed
+  -- gained both verbs, and the array must come back byte-for-byte identical --
+  -- proof that belongs in the repo, not only in a throwaway fixture in a
+  -- report.
+  select permissions into v_perms from public.roles where id = v_editor_role;
+  update public.roles
+    set permissions = permissions || array['inventory.count', 'inventory.transfer']
+    where shop_id = v_shop_id
+      and permissions @> array['inventory.edit']
+      and not permissions && array['inventory.count', 'inventory.transfer'];
+  if (select permissions from public.roles where id = v_editor_role) is distinct from v_perms then
+    raise exception 'FAIL: replaying the backfill must be a no-op, got %', (select permissions from public.roles where id = v_editor_role);
+  end if;
+
   -- 4. The resolver reads them, for a member and for the owner.
   insert into public.shop_members (shop_id, user_id, role_id, active)
     values (v_shop_id, v_staff_id, v_editor_role, true);
@@ -95,11 +122,19 @@ begin
   if not public.user_has_shop_permission(v_staff_id, v_shop_id, 'inventory.count') then
     raise exception 'FAIL: the stockroom member should resolve inventory.count';
   end if;
-  -- The owner has no shop_members row at all (0017), and user_has_shop_permission
-  -- short-circuits on shops.owner_id -- so an owner holds a permission that has
-  -- existed for five minutes without anything being written for them.
+  -- Since 20260823000000 the owner DOES have a shop_members row, pointing at
+  -- the Owner role -- and this migration's own backfill grants that role both
+  -- new verbs, so simply calling user_has_shop_permission for the owner would
+  -- pass through the MEMBERSHIP branch too and prove nothing about the
+  -- owner_id short-circuit (0024_permission_gates.sql:20-26) this check claims
+  -- to test. Isolated by first pointing the owner's own membership at a role
+  -- that holds neither verb -- protect_owner_membership allows changing the
+  -- owner's role ("it is a label; nothing reads it to decide what they may
+  -- do"), so a pass below can only come from the owner_id branch.
+  update public.shop_members set role_id = v_cashier_role
+    where shop_id = v_shop_id and user_id = v_owner_id;
   if not public.user_has_shop_permission(v_owner_id, v_shop_id, 'inventory.count') then
-    raise exception 'FAIL: the owner should hold inventory.count implicitly';
+    raise exception 'FAIL: the owner should hold inventory.count implicitly, via shops.owner_id, regardless of their own membership role';
   end if;
 
   -- 5. stock_loss is storable everywhere a category is stored.
@@ -112,12 +147,14 @@ begin
   insert into public.invoices (shop_id, invoice_number, category, due_on, amount_cents)
     values (v_shop_id, 'SL-1', 'stock_loss', current_date, 1000);
 
-  -- And the constraint is still a constraint.
+  -- And the constraint is still a constraint. Narrowed to check_violation --
+  -- `when others` would count a NOT NULL violation or a typo'd column name as
+  -- the category check firing, which is not what this line is meant to prove.
   v_raised := false;
   begin
     insert into public.expenses (shop_id, occurred_on, amount_cents, category)
       values (v_shop_id, current_date, 100, 'shrinkage');
-  exception when others then v_raised := true;
+  exception when check_violation then v_raised := true;
   end;
   if not v_raised then
     raise exception 'FAIL: widening the category list must not have removed the check';

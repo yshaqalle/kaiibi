@@ -40,9 +40,10 @@ export const PERMISSIONS: {
   label: string;
   description: string;
   // Which permission this one sits UNDER in the role editor. Presentation and
-  // cascade only -- the stored array is always explicit, and the database reads
-  // the child string on its own (save_stock_count checks 'inventory.count', not
-  // 'inventory.edit'). Set on a child, absent on everything else.
+  // cascade only -- the stored array is always explicit, and the database is
+  // meant to read the child string on its own (the planned save_stock_count
+  // RPC is to check 'inventory.count', not 'inventory.edit'). Set on a child,
+  // absent on everything else.
   parent?: Permission;
 }[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },

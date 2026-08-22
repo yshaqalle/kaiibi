@@ -25,10 +25,16 @@
 -- feature away from a shop that did nothing. The narrowing is offered, not
 -- imposed: the role editor is where an owner decides to turn the child off.
 --
--- Shop owners are deliberately untouched. user_has_shop_permission
--- (0024_permission_gates.sql) short-circuits on shops.owner_id, so an owner
--- holds every permission the moment it exists, with no row written for them --
--- the same reason 0017 gives them no shop_members row at all.
+-- "Shop owners are deliberately untouched" means the two statements below
+-- carry no owner-specific exception, not that an owner's data goes unwritten.
+-- An owner's Owner role already holds inventory.edit for every shop that has
+-- one, so the `update public.roles` below and default_shop_roles() grant it
+-- both new verbs exactly as they would any other role -- and since
+-- 20260823000000 the owner has a shop_members row pointing at that role, so it
+-- is that row's role whose permissions this migration writes to. That grant is
+-- redundant, not load-bearing: user_has_shop_permission (0024_permission_gates.sql)
+-- short-circuits on shops.owner_id, so an owner already holds every permission
+-- that exists, whatever their Owner role's array says.
 
 -- Guarded so re-running is a no-op and a customised role is not overwritten --
 -- the same shape 20260804000500 used for budgets.manage and 20260822000000
