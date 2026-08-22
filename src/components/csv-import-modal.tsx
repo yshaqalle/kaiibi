@@ -35,7 +35,7 @@ export type ImportEntityConfig<T> = {
   purpose?: string;
   // An escape hatch to whatever the right tool is, offered both up front and
   // again on the rejection list, since that is where someone actually meets the
-  // problem. Products point at Move stock.
+  // problem. Products point at Restock.
   elsewhere?: { label: string; onPress: () => void };
 };
 

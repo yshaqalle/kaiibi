@@ -105,12 +105,17 @@ export default function InventoryScreen() {
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
-  // The import sheet's escape hatch hands over to another sheet -- "Restock
-  // instead" to the restock sheet, and "Move stock instead" (reachable from
-  // the Stock door, not from Import -- see importConfig's `elsewhere`) to the
-  // transfer sheet. Held by useStagedSheet rather than plain state because
-  // that is a sheet opened from inside a sheet, which iOS drops without a
-  // word.
+  // The import sheet's escape hatch hands over to another sheet: `elsewhere`
+  // opens `restockFromImport` below, whose sheet is the restock sheet. This
+  // one, `moveFromImport`, has no opener anywhere in this file -- Import
+  // offers only "Restock instead" now, and the Stock door's own Move goes
+  // through `actionFromStock`, not this hook. It stays wired into
+  // `transferOpen`, `CsvImportModal`'s suppression/dismissal, and
+  // `StockTransferModal`'s close handler per the plan, so a future Import
+  // escape hatch to Move can be turned on by adding one `.open()` call --
+  // whether it should be is an open product question, not settled here.
+  // Held by useStagedSheet rather than plain state because that is a sheet
+  // opened from inside a sheet, which iOS drops without a word.
   const moveFromImport = useStagedSheet<true>();
   const restockFromImport = useStagedSheet<true>();
   // Where a newly imported product's opening stock actually lands: the

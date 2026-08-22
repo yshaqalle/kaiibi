@@ -156,8 +156,18 @@ export async function runProductsImport(
     // products by hand is also not a thing anyone does. Unlike the old
     // wording, this holds regardless of `hasStores` -- Restock doesn't need a
     // second store, only Move does.
-    if (existingNames.has(nameKey) || (skuKey && existingSkus.has(skuKey))) {
+    //
+    // Two branches, not one collapsed condition: a SKU-only collision means
+    // this row's NAME is not one the shop carries -- naming it here (as the
+    // collapsed version once did) tells the shop they carry a product they
+    // don't, and sends them into Restock's product search to look for a name
+    // that isn't there. The SKU is what actually collided, so the SKU is what
+    // has to be named.
+    if (existingNames.has(nameKey)) {
       return reject(`You already carry ${name}. Adding more units is a Restock — importing it again would count the same units twice.`);
+    }
+    if (skuKey && existingSkus.has(skuKey)) {
+      return reject(`You already carry a product with SKU "${sku}". Adding more units is a Restock — importing it again would count the same units twice.`);
     }
     // Separate from the name/SKU message above because the fix is different: a
     // barcode is unique by constraint, so the only way forward is to correct

@@ -168,7 +168,33 @@ describe('products import', () => {
     const second = await runProductsImport(SHOP_ID, downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS));
     expect(second.accepted).toEqual([]);
     expect(second.rejected).toHaveLength(2);
-    expect(second.rejected[0].reason).toMatch(/Restock/);
+    expect(second.rejected[0].reason).toBe(
+      'You already carry Blue Cotton T-Shirt. Adding more units is a Restock — importing it again would count the same units twice.'
+    );
+    expect(await listProducts(SHOP_ID)).toHaveLength(2);
+  });
+
+  // A SKU-only collision is a different product under a different name -- the
+  // shop does not carry "New Name For This SKU", it carries whatever product
+  // already owns TSHIRT-BLU-M. Naming the row's name here (as a collapsed
+  // name-or-SKU condition once did) would claim the shop carries a product it
+  // doesn't and send Restock's product search after a name that isn't there.
+  it('names the colliding SKU, not the row\'s name, when only the SKU matches', async () => {
+    await runProductsImport(SHOP_ID, downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS));
+
+    const parsed = parseCsvText(
+      templateCsvText(PRODUCTS_TEMPLATE_COLUMNS, [
+        { ...PRODUCTS_EXAMPLE_ROWS[0], Name: 'New Name For This SKU' },
+      ])
+    );
+    const report = await runProductsImport(SHOP_ID, parsed);
+
+    expect(report.accepted).toEqual([]);
+    expect(report.rejected).toHaveLength(1);
+    expect(report.rejected[0].reason).toBe(
+      'You already carry a product with SKU "TSHIRT-BLU-M". Adding more units is a Restock — importing it again would count the same units twice.'
+    );
+    expect(report.rejected[0].reason).not.toContain('New Name For This SKU');
     expect(await listProducts(SHOP_ID)).toHaveLength(2);
   });
 });
