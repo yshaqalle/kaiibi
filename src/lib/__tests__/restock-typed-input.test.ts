@@ -129,6 +129,38 @@ describe('readTypedCost', () => {
     expect(readTypedCost('   ')).toEqual({ kind: 'blank' });
   });
 
+  // The third silent 100x bug in this family, and the one that survived the
+  // other two being fixed: the reading stripped everything outside [0-9.,]
+  // FIRST and then read whatever digits were left, so any cell with a digit
+  // anywhere in it produced a cost. Each of these silently overwrote
+  // products.cost_cents, which is what stock at cost and gross profit are made
+  // of, and nothing on any screen said it had happened.
+  it('refuses a cell whose digits are wrapped in words, instead of reading the digits', () => {
+    expect(cents('2 for 5.00')).toBe('unreadable:not-an-amount'); // was $25.00
+    expect(cents('2 cases')).toBe('unreadable:not-an-amount'); // was $2.00
+    expect(cents('12 x 4.80')).toBe('unreadable:not-an-amount'); // was $124.80
+    expect(cents('TBD 2026')).toBe('unreadable:not-an-amount'); // was $2,026.00
+    expect(cents('4.80 each')).toBe('unreadable:not-an-amount');
+  });
+
+  // The over-correction that would be just as bad, stated as its own case: a
+  // letter is the discriminator, and a currency symbol or a space is not one.
+  it('still reads everything a real amount is actually written with', () => {
+    expect(cents('1,200.50')).toBe(120050);
+    expect(cents('$4.80')).toBe(480);
+    expect(cents('£1,200.50')).toBe(120050);
+    expect(cents('€ 4,80')).toBe(480);
+    expect(cents('4.80 ')).toBe(480);
+    // Space as the thousands separator, which is what a French-locale
+    // spreadsheet writes -- as an ordinary space or as a non-breaking one.
+    expect(cents('1 200,50')).toBe(120050);
+    expect(cents('1 200,50')).toBe(120050);
+    expect(cents('1.234.567,89')).toBe(123456789);
+    expect(cents('4.')).toBe(400);
+    expect(cents('.5')).toBe(50);
+    expect(cents('0')).toBe(0);
+  });
+
   it('refuses to guess at something that is not an amount', () => {
     // Blocked, not dropped to null: null means "the delivery did not say", and
     // this delivery did say -- it said something unreadable.

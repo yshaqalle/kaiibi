@@ -92,6 +92,17 @@ jest.mock('@/lib/products', () => ({
   setLocationStock: jest.fn(async () => {}),
 }));
 
+const { receiveStock } = jest.requireMock('@/lib/products') as { receiveStock: jest.Mock };
+
+// Everything on screen, for the banners a wrong reading produces.
+function screenText(tree: ReactTestRenderer): string {
+  return tree.root
+    .findAllByType(Text)
+    .flatMap((t) => [t.props.children].flat(Infinity))
+    .filter((child) => typeof child === 'string' || typeof child === 'number')
+    .join('');
+}
+
 // Imported after the Platform override and the mocks above.
 // eslint-disable-next-line import/first
 import { StockRestockModal } from '@/components/stock-restock-modal';
@@ -103,6 +114,7 @@ import { StockTransferModal } from '@/components/stock-transfer-modal';
 // Date.now() with them, which is the only clock the burst machine reads.
 beforeEach(() => {
   jest.useFakeTimers();
+  receiveStock.mockClear();
 });
 afterEach(() => {
   jest.useRealTimers();
@@ -289,5 +301,73 @@ describe('scanning an item while the cursor is in that same item’s quantity bo
 
     // 13. Before the fix this read 8809611860019-shaped: the barcode plus one.
     expect(shown(tree, MOVING)).toBe('13');
+  });
+});
+
+// A PASTE is not a scan, and the difference is not something either field
+// wrapper can see -- it is `stepFieldBurst`'s, which now requires a burst to
+// grow exactly one character per change.
+//
+// A paste arrives as ONE `onChangeText` carrying the whole string. Counted by
+// characters rather than by changes it reached code length instantly, so
+// `ScanSafeField` armed the terminator wait, withheld the text from the screen,
+// and a second later put the box silently back to what it held before --
+// blurring did the same at once. On web this is Restock's Received and Unit
+// cost boxes, its search box, and Move's quantity box: pasting 1500 into
+// Received left 1, and since clicking Receive blurs first, 1 is what committed.
+describe('a number pasted into a box a scanner can also type into', () => {
+  it('survives the blur that pressing Receive performs', async () => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'Add');
+
+    // Cleared, then the whole string in ONE change. Clearing first is what a
+    // person does and it is also what makes the paste four characters long
+    // rather than three: `minLength` is 4, so pasting 1500 over the row's
+    // seeded "1" happened to survive while pasting it into an empty box did
+    // not -- which is exactly the kind of near-miss that kept this hidden.
+    act(() => field(tree, RECEIVED).props.onChangeText(''));
+    act(() => jest.advanceTimersByTime(200));
+    act(() => field(tree, RECEIVED).props.onChangeText('1500'));
+    act(() => field(tree, RECEIVED).props.onBlur?.({}));
+
+    expect(shown(tree, RECEIVED)).toBe('1500');
+    await press(tree, 'Receive 1500 units');
+    expect(receiveStock.mock.calls[0][2]).toEqual([{ productId: 'p-1', quantity: 1500, unitCostCents: null }]);
+  });
+
+  it('is not handed to the basket as a scanned code when Enter follows it', async () => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'Add');
+
+    act(() => field(tree, RECEIVED).props.onChangeText(''));
+    act(() => jest.advanceTimersByTime(200));
+    act(() => field(tree, RECEIVED).props.onChangeText('1500'));
+    act(() => field(tree, RECEIVED).props.onSubmitEditing());
+
+    // Before the fix: the four digits were read as a barcode, looked up
+    // against the catalogue, and the box was restored to "1" -- so the shop
+    // got "No product matches 1500" and a delivery of one unit.
+    expect(shown(tree, RECEIVED)).toBe('1500');
+    expect(screenText(tree)).not.toContain('No product matches');
+  });
+
+  it('still lets a real scanner through, one character at a time', async () => {
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'Add');
+    act(() => field(tree, RECEIVED).props.onChangeText(''));
+    act(() => jest.advanceTimersByTime(200));
+    typeInto(tree, RECEIVED, '24');
+
+    scanInto(tree, RECEIVED, BARCODE);
+    expect(shown(tree, RECEIVED)).toBe('25');
   });
 });

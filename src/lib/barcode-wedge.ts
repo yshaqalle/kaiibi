@@ -223,12 +223,26 @@ export function stepFieldBurst(
   at: number,
   config: WedgeConfig = DEFAULT_WEDGE_CONFIG
 ): FieldBurstState {
-  // Anything that is not a pure extension -- a backspace, a selection typed
-  // over, a value the screen set itself -- is not a scan in progress, and
-  // leaving a burst standing through it would let a later Enter replace the
-  // field with a fragment of something the user was editing by hand.
+  // Anything that is not a pure extension by exactly ONE character -- a
+  // backspace, a selection typed over, a value the screen set itself, a PASTE --
+  // is not a scan in progress, and leaving a burst standing through it would let
+  // a later Enter replace the field with a fragment of something the user was
+  // editing by hand.
+  //
+  // The one-character rule is what tells a paste from a scan, and it has to live
+  // here rather than in either field wrapper. A paste arrives as a SINGLE
+  // `onChangeText` carrying the whole string -- there is no second event and no
+  // gap to measure -- so a burst counted by characters rather than by changes
+  // read `1500` pasted into a Received box as a thirteen-character-class code:
+  // ScanSafeField waited for a terminator, gave up, and put the box silently
+  // back to what it held before, so the delivery committed as `1`. Paste-then-
+  // Enter was worse: the pasted digits were handed to the basket as a scanned
+  // barcode. A hardware scanner is a keyboard and arrives one character per
+  // change, so nothing real is given up. (The native sink -- `stepSink` above --
+  // is a different machine and genuinely does read whole-field payloads; it is
+  // not affected by this rule.)
   const appended = next.startsWith(before) ? next.slice(before.length) : '';
-  if (!appended) return { burst: '', lastChangeAt: at };
+  if (appended.length !== 1) return { burst: '', lastChangeAt: at };
 
   const continuing = state.burst.length > 0 && at - state.lastChangeAt <= config.maxInterKeyMs;
   return { burst: continuing ? state.burst + appended : appended, lastChangeAt: at };

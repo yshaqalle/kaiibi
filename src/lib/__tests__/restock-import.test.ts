@@ -6,6 +6,7 @@
 import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
 import { missingRequiredColumns } from '@/lib/import-shared';
 import {
+  costChanges,
   costUpdates,
   planRestock,
   receivedUnits,
@@ -13,7 +14,7 @@ import {
   RESTOCK_TEMPLATE_COLUMNS,
   restockSheetRows,
 } from '@/lib/restock-import';
-import { readTypedCost } from '@/lib/restock-typed-input';
+import { readTypedCost, readTypedQuantity } from '@/lib/restock-typed-input';
 import type { Product, ShopLocation } from '@/types/models';
 
 const MAIN = { id: 'loc-main', name: 'Jaalala Skincare', code: 'JL1', active: true } as ShopLocation;
@@ -137,18 +138,24 @@ describe('planning what arrived', () => {
     expect(plan.rejected[0].row).toBe(2);
   });
 
-  it('names Count when the sheet asks to take stock away', () => {
+  // Named a door that WORKS, which Count does not: the Stock sheet renders it
+  // disabled with a "Coming next" badge, so this was the one rejection in the
+  // file with nowhere to send anybody. Until Count ships, reducing a count is
+  // done in the product's own stock-by-store editor.
+  it('names a working destination when the sheet asks to take stock away', () => {
     const plan = planRestock(sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '-3' }]), CONTEXT);
-    expect(plan.rejected[0].reason).toContain('Count');
+    expect(plan.rejected[0].reason).toContain('Restock only adds');
+    expect(plan.rejected[0].reason).toContain('edit its stock, store by store');
+    expect(plan.rejected[0].reason).not.toContain('use Count');
   });
 
   it('rejects zero, which changes nothing and is always a mistake', () => {
     const plan = planRestock(sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '0' }]), CONTEXT);
     expect(plan.rejected).toHaveLength(1);
     expect(plan.skipped).toBe(0);
-    // Both the zero and the negative rejection mention "Count", so asserting
-    // only that would pass even with the two messages swapped. Pin the words
-    // only the zero message says.
+    // Both the zero and the negative rejection point at the same stock-by-store
+    // editor, so asserting only that would pass even with the two messages
+    // swapped. Pin the words only the zero message says.
     expect(plan.rejected[0].reason).toMatch(/which would change nothing/);
   });
 
@@ -366,6 +373,122 @@ describe('a cost read the same way by both routes', () => {
   it('pins the widened reading of a mixed-separator mess the dots-only case does not cover', () => {
     expect(bySheet('12,3.4.5')).toBe(123450);
     expect(byHand('12,3.4.5')).toBe(123450);
+  });
+});
+
+// One reader for the quantity, exactly as there is one reader for the cost.
+//
+// This module used to carry its own `parseWholeNumber`, and it was UNBOUNDED
+// while the by-hand field was capped at a Postgres integer. So "9999999999"
+// planned cleanly, previewed cleanly, and then raised
+// `value "9999999999" is out of range for type integer` inside receive_stock --
+// after the stores earlier in commitPlan's loop had already committed their
+// units. The failure was as late as a failure can be and still be preventable.
+describe('a quantity read by the same reader as the by-hand field', () => {
+  const bySheetQuantity = (cell: string): number | string => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': cell }]),
+      CONTEXT
+    );
+    if (plan.rejected.length > 0) return `rejected: ${plan.rejected[0].reason}`;
+    return plan.receipts[0].items[0].quantity;
+  };
+
+  it('refuses a quantity larger than the column can hold, before anything commits', () => {
+    expect(readTypedQuantity('9999999999')).toBeNull();
+    expect(bySheetQuantity('9999999999')).toMatch(/larger than a delivery can be/);
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '9999999999' }]),
+      CONTEXT
+    );
+    expect(plan.receipts).toEqual([]);
+  });
+
+  it('keeps the largest quantity that DOES fit', () => {
+    expect(bySheetQuantity('2147483647')).toBe(2147483647);
+    expect(bySheetQuantity('2147483648')).toMatch(/larger than a delivery can be/);
+  });
+
+  it('no longer reads a cell Number() happens to understand as a count', () => {
+    // The old bare `Number()` turned these into 1000 and 16 units. Neither is
+    // something a person types into a Quantity column, and both reached the
+    // preview looking like a number the sheet had said.
+    expect(bySheetQuantity('1e3')).toMatch(/must be a whole number/);
+    expect(bySheetQuantity('0x10')).toMatch(/must be a whole number/);
+    expect(bySheetQuantity('5.0')).toMatch(/must be a whole number/);
+    expect(readTypedQuantity('1e3')).toBeNull();
+  });
+
+  it('still tells the four refusals apart, because they ask for different fixes', () => {
+    expect(bySheetQuantity('-3')).toMatch(/Restock only adds/);
+    expect(bySheetQuantity('0')).toMatch(/which would change nothing/);
+    expect(bySheetQuantity('6 units')).toMatch(/must be a whole number/);
+    expect(bySheetQuantity('9999999999')).toMatch(/larger than a delivery can be/);
+  });
+});
+
+// What the preview SHOWS about the costs it is about to overwrite.
+//
+// products.cost_cents has no history and no store dimension: a delivery
+// rewrites it for good, and stock at cost and gross profit are built out of it.
+// `previousCostCents` has been carried on every planned item since the plan was
+// first written, "so the preview can say 4.50 → 4.80 before anything is
+// written" -- and for nine tasks the only thing rendered was a pill counting
+// them.
+describe('the cost changes a plan would make', () => {
+  it('names each one, from what to what and where', () => {
+    const plan = planRestock(
+      sheet([
+        { Product: 'Torriden Balanceful Serum', 'Quantity received': '6', 'Unit cost': '4.80' },
+        { Product: 'SKIN1004 Madagascar Centella', 'Quantity received': '2', 'Unit cost': '3.00' },
+      ]),
+      CONTEXT
+    );
+    expect(costChanges(plan)).toEqual([
+      {
+        productId: 'p-serum',
+        productName: 'Torriden Balanceful Serum',
+        locationName: 'Jaalala Skincare',
+        previousCostCents: 450,
+        costCents: 480,
+        conflicting: false,
+      },
+      {
+        productId: 'p-centella',
+        productName: 'SKIN1004 Madagascar Centella',
+        locationName: 'Jaalala Skincare',
+        // Null, not 0: the app holds no cost for this one, so this is the
+        // first rather than a change.
+        previousCostCents: null,
+        costCents: 300,
+        conflicting: false,
+      },
+    ]);
+  });
+
+  it('marks a product this sheet prices two ways, because only one cost survives', () => {
+    const plan = planRestock(
+      sheet([
+        { Product: 'Torriden Balanceful Serum', Store: 'JL1', 'Quantity received': '6', 'Unit cost': '4.80' },
+        { Product: 'Torriden Balanceful Serum', Store: 'JL2', 'Quantity received': '4', 'Unit cost': '5.20' },
+      ]),
+      CONTEXT
+    );
+    expect(costChanges(plan).map((c) => [c.locationName, c.costCents, c.conflicting])).toEqual([
+      ['Jaalala Skincare', 480, true],
+      ['Jaalala 2', 520, true],
+    ]);
+  });
+
+  it('does not cry conflict when the same cost is given at both stores', () => {
+    const plan = planRestock(
+      sheet([
+        { Product: 'Torriden Balanceful Serum', Store: 'JL1', 'Quantity received': '6', 'Unit cost': '4.80' },
+        { Product: 'Torriden Balanceful Serum', Store: 'JL2', 'Quantity received': '4', 'Unit cost': '4.80' },
+      ]),
+      CONTEXT
+    );
+    expect(costChanges(plan).every((c) => c.conflicting)).toBe(false);
   });
 });
 

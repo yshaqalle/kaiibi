@@ -44,6 +44,15 @@ export type TypedCost =
 // string on a screen that was otherwise explaining itself in sentences.
 const PG_INTEGER_MAX = 2_147_483_647;
 
+// Everything a cost cell is allowed to carry that is not a digit, a dot or a
+// comma: whitespace (including the non-breaking space Excel writes into grouped
+// numbers) and a currency symbol. Written out rather than as `\p{Sc}` because
+// Hermes is not a place to rely on unicode property escapes, and the list is
+// short enough to read. Deliberately no letters: a letter is what tells "2
+// cases" and "TBD 2026" from "$4.80", and it is the whole discriminator.
+// `\s` covers the non-breaking space and the narrow no-break space on its own.
+const CURRENCY_OR_SPACE = /^[\s$¢£¤¥៛₡₦₨₩₪₫€₭₮₱₲₴₵₸₹₺₼₽₾﷼]*$/;
+
 // Which separators mean what, decided from the finished string:
 //
 //  * A dot and a comma both present: the LAST of the two is the decimal point
@@ -61,7 +70,10 @@ const PG_INTEGER_MAX = 2_147_483_647;
 //    arrive already garbled -- a bad paste, a formula gone wrong -- with no
 //    keystrokes for anyone to watch. There, this branch is the difference
 //    between a rejected row and a silently wrong cost landing in
-//    products.cost_cents, pinned in restock-import.test.ts.
+//    products.cost_cents, pinned in restock-import.test.ts. (What actually
+//    stops a garbled cell is the residue check below, not this branch: for a
+//    long time this comment claimed protection the code did not give, and
+//    "2 for 5.00" read as $25.00.)
 //  * A comma alone is a decimal point when one or two digits follow the LAST
 //    comma, and thousands grouping otherwise -- however many commas there are.
 //    "1,50" is one-fifty, which is what an iOS decimal-pad renders on a
@@ -104,10 +116,29 @@ export function readTypedCost(text: string): TypedCost {
   // negative that fails the column's own check on the server.
   if (/[-−]/.test(text)) return { kind: 'unreadable', reason: 'not-an-amount' };
 
-  // Everything else goes -- "$4.80", a space, a stray letter on web where there
-  // is no decimal-pad to constrain the keyboard. A character filter is safe
-  // here in a way it is not in onChangeText, because this output is never fed
-  // back into the field.
+  // What is left once the digits and separators are taken out has to be
+  // something that can decorate money and nothing else -- and this is checked
+  // BEFORE anything is stripped.
+  //
+  // Stripping first accepts any cell with a digit somewhere in it, and then
+  // reads whatever digits survive as an amount. That is not a theoretical
+  // leniency: "2 for 5.00" became $25.00, "2 cases" became $2.00, "12 x 4.80"
+  // became $124.80 and "TBD 2026" became $2,026.00 -- each of them silently
+  // overwriting products.cost_cents, which is the number stock-at-cost and
+  // gross profit are built out of. A letter in the cell is the cheap
+  // discriminator and it is the one this uses: prose is a note somebody put in
+  // the wrong column, not a price.
+  //
+  // A currency symbol and whitespace stay welcome, because they are what a
+  // spreadsheet and a person both really do put around an amount: "$4.80",
+  // "€ 4,80", and the non-breaking space Excel writes as a thousands separator
+  // all still read. So does a bare "1,200.50", "4.", ".5" and "0".
+  if (!CURRENCY_OR_SPACE.test(text.replace(/[0-9.,]/g, ''))) {
+    return { kind: 'unreadable', reason: 'not-an-amount' };
+  }
+
+  // Now the decoration goes. A character filter is safe here in a way it is not
+  // in onChangeText, because this output is never fed back into the field.
   const stripped = text.replace(/[^0-9.,]/g, '');
   const lastDot = stripped.lastIndexOf('.');
   const lastComma = stripped.lastIndexOf(',');

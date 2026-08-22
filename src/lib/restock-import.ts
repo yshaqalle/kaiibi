@@ -1,7 +1,7 @@
 import { normalizeBarcode } from '@/lib/barcode';
 import type { CsvColumn, ParsedCsv } from '@/lib/csv';
 import type { RejectedRow, TemplateColumn } from '@/lib/import-shared';
-import { readTypedCost } from '@/lib/restock-typed-input';
+import { readTypedCost, readTypedQuantity } from '@/lib/restock-typed-input';
 import type { Product, ShopLocation } from '@/types/models';
 
 // Taking in a delivery by spreadsheet.
@@ -122,11 +122,32 @@ export type RestockPlan = {
 // trips it and low enough to catch a decimal slip.
 const OVERSIZED_MULTIPLE = 10;
 
-function parseWholeNumber(value: string | undefined): number | null {
-  const text = value?.trim();
-  if (!text) return null;
-  const n = Number(text);
-  return Number.isFinite(n) && Number.isInteger(n) ? n : null;
+// Why `readTypedQuantity` refused a cell, in the shop's words.
+//
+// This chooses a SENTENCE and nothing else -- what is accepted is decided by
+// readTypedQuantity alone, so the sheet and the by-hand field cannot drift
+// apart again. (They had: this module's own `parseWholeNumber` was unbounded,
+// so "9999999999" planned and previewed cleanly and then failed inside the RPC
+// with a raw `value "9999999999" is out of range for type integer` -- after the
+// stores earlier in commitPlan's loop had already committed.)
+function quantityRejection(text: string): string {
+  const trimmed = text.trim();
+  // "To reduce a count, use Count" was the old wording for both of these, and
+  // Count is the one door in this sheet with nothing behind it -- the Stock
+  // sheet renders it disabled with a "Coming next" badge. Until it ships, the
+  // working destination is the product's own stock-by-store editor.
+  if (/^-[0-9]+$/.test(trimmed)) {
+    return 'Restock only adds. To reduce a count, open the product and edit its stock, store by store.';
+  }
+  if (/^0+$/.test(trimmed)) {
+    return 'Quantity received is 0, which would change nothing. Leave the cell empty to skip the row, or open the product and edit its stock, store by store, to set a total.';
+  }
+  // Digits only, so the cell was a number -- just not one the column can hold.
+  // Told apart from gibberish because the two ask for different corrections.
+  if (/^[0-9]+$/.test(trimmed)) {
+    return 'Quantity received is larger than a delivery can be — check for a stray digit or a pasted cell.';
+  }
+  return 'Quantity received must be a whole number — just the digits, with no units.';
 }
 
 function findLocation(locations: ShopLocation[], text: string): ShopLocation | undefined {
@@ -218,17 +239,15 @@ export function planRestock(
       );
     }
 
-    const quantity = parseWholeNumber(quantityText);
-    if (quantity === null) {
-      return reject('Quantity received must be a whole number — just the digits, with no units.');
-    }
-    if (quantity <= 0) {
-      return reject(
-        quantity < 0
-          ? 'Restock only adds. To reduce a count, use Count.'
-          : 'Quantity received is 0, which would change nothing. Leave the cell empty to skip the row, or use Count to set a total.'
-      );
-    }
+    // Read by readTypedQuantity, the SAME function the by-hand tab's Received
+    // field uses -- for the same reason the Unit cost column is read by
+    // readTypedCost below. One reader means one answer, and in particular one
+    // ceiling: stock_receipt_items.quantity is a Postgres `integer`
+    // (20260902000000_stock_receipts.sql:45), and a cell past it has to be
+    // caught here, while nothing has been written, rather than inside the RPC
+    // halfway through a multi-store commit.
+    const quantity = readTypedQuantity(quantityText);
+    if (quantity === null) return reject(quantityRejection(quantityText));
 
     const claim = `${product.id}|${store.id}`;
     const earlier = claimed.get(claim);
@@ -316,9 +335,49 @@ export function receivedUnits(receipt: PlannedReceipt): number {
 
 // Every line whose cost the commit would actually change. Restating the cost
 // the app already holds is not a change, and listing it would bury the ones
-// that are -- which is what makes this list safe to show as a plain count.
+// that are.
 export function costUpdates(plan: RestockPlan): PlannedReceiptItem[] {
   return plan.receipts.flatMap((receipt) =>
     receipt.items.filter((item) => item.unitCostCents !== null && item.unitCostCents !== item.previousCostCents)
   );
+}
+
+// The same list, ready to read: which product, at which store, from what to
+// what -- and whether this one sheet gives that product two different costs.
+export type CostChange = {
+  productId: string;
+  productName: string;
+  locationName: string;
+  /** What the app holds today. Null means it holds none, so this is the first. */
+  previousCostCents: number | null;
+  costCents: number;
+  /**
+   * True when the same product is given a DIFFERENT cost somewhere else in this
+   * plan. products.cost_cents is one column per product with no store dimension,
+   * so both writes land on it and the last store through the commit loop is the
+   * one that sticks -- silently, and in a store order the shop never chose. A
+   * neutral pair of rows would show that as two ordinary updates.
+   */
+  conflicting: boolean;
+};
+
+export function costChanges(plan: RestockPlan): CostChange[] {
+  const rows = plan.receipts.flatMap((receipt) =>
+    receipt.items
+      .filter((item) => item.unitCostCents !== null && item.unitCostCents !== item.previousCostCents)
+      .map((item) => ({
+        productId: item.productId,
+        productName: item.productName,
+        locationName: receipt.locationName,
+        previousCostCents: item.previousCostCents,
+        costCents: item.unitCostCents!,
+      }))
+  );
+  const costsPerProduct = new Map<string, Set<number>>();
+  for (const row of rows) {
+    const seen = costsPerProduct.get(row.productId) ?? new Set<number>();
+    seen.add(row.costCents);
+    costsPerProduct.set(row.productId, seen);
+  }
+  return rows.map((row) => ({ ...row, conflicting: (costsPerProduct.get(row.productId)?.size ?? 0) > 1 }));
 }
