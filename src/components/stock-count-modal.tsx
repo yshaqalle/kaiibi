@@ -464,6 +464,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // sheet counted rather than whichever store the dropdown was showing.
       const byId = new Map((byStore.get(count.locationId) ?? []).map((p) => [p.id, p]));
       setLocationId(count.locationId);
+      // Told apart from a user picking a different store in the dropdown: THIS
+      // change is the handover moving the plan's own store into the basket, not
+      // someone stepping away from a shelf they were mid-typing. Without this,
+      // the store-transition guard above (`lastLocationRef`) reads the
+      // programmatic `setLocationId` as exactly that kind of transition and
+      // empties the basket the handover just filled -- on the very next
+      // render, before anyone sees it. This makes `storeChanged` read false
+      // for the render the handover causes, while a genuine dropdown pick
+      // still lands on the effect's own assignment and clears as before.
+      lastLocationRef.current = count.locationId;
       updateLines(() =>
         count.lines.flatMap((line) =>
           byId.has(line.productId)
@@ -892,9 +902,14 @@ function SheetTab({
   onDownloadRejected: () => void;
 }) {
   const varianceUnitsText = varianceText(planSummary.varianceUnits);
+  // `varianceMoneyText`, not `formatCents` directly -- `formatCents` puts an
+  // ASCII hyphen inside the currency (`$-13.83`) beside the typographic minus
+  // `varianceUnitsText` already uses, which read as a typo in the same pill.
+  // See `varianceMoneyText`'s own comment for why the by-hand footer already
+  // takes this route.
   const varianceValueText =
     planSummary.varianceCents !== null
-      ? formatCents(planSummary.varianceCents)
+      ? varianceMoneyText(planSummary.varianceCents)
       : 'value withheld — some counted products have no cost';
 
   return (
@@ -1068,7 +1083,7 @@ const styles = StyleSheet.create({
   lineText: { flex: 1 },
   lineName: { fontSize: 13, fontWeight: '700', color: '#111111' },
   lineMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
-  lineMetaLow: { color: '#8A5806', fontWeight: '700' },
+  lineMetaLow: { color: '#8A5806', fontWeight: '700', fontSize: 12 },
   lineMetaMissing: { fontSize: 12, color: '#A3202F', fontWeight: '700', marginTop: 2, lineHeight: 17 },
   add: { fontSize: 12, fontWeight: '800', color: '#111111' },
   remove: { alignSelf: 'flex-start', marginTop: 6 },

@@ -419,10 +419,63 @@ describe('a count that arrives as a sheet', () => {
     expect(allText(tree)).toContain('No sheet yet');
   });
 
-  it('never counts a product the sheet left blank', async () => {
-    listProducts.mockResolvedValue([product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })]);
+  // Two correct fixes colliding: Task 5's store-transition guard
+  // (`lastLocationRef`) clears the basket on a genuine store change, and this
+  // handover moves a single-store plan into the basket by calling
+  // `setLocationId` to follow it. Without pinning the ref, the guard reads
+  // that programmatic call as a user changing stores and empties the basket
+  // the same handover just filled -- dead on arrival whenever the sheet names
+  // a store other than the one the dropdown is showing, which is the
+  // ordinary case for a shop counting a second branch. The dropdown opens on
+  // Main (the mocked `activeLocation`); the sheet names Branch.
+  it('hands over a single-store sheet naming a different store than the one selected, without losing the line', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ stock: 3 })];
+      if (locationId === 'loc-1') return [product({ stock: 11 })];
+      return [product({ stock: 11 })];
+    });
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA widget', Store: 'Branch', Counted: '8' }]));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // Without the fix this field does not exist at all: the reload effect
+    // clears the basket the same render the handover filled it.
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+    expect(allText(tree)).toContain('Save 1 count');
+  });
+
+  // Finding 2: the brief's own second test never reached `commitPlan` -- both
+  // its rows sat at Main with no rejections, so the plan handed over to the
+  // by-hand tab and the assertion ran against `submit` instead. A second
+  // store in the plan is what forces the handover to swallow nothing: with
+  // two stores in `next.counts`, `handedOver` (`next.counts.length === 1`) is
+  // false and the plan stays on the sheet tab, to be committed by
+  // `commitPlan` -- the one place a SET can quietly become an ADD. A third,
+  // blank row is kept alongside them so the sheet's "leave it out, don't zero
+  // it" rule is still proven at the component boundary, not only in
+  // count-import.test.ts's pure-function tests.
+  it('sends the counted total per store through commitPlan, and never counts a product the sheet left blank', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+      if (locationId === 'loc-1') {
+        return [product({}), product({ id: 'p-3', name: 'QA extra', sku: 'QA-3', stock: 4 })];
+      }
+      return [
+        product({}),
+        product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+        product({ id: 'p-3', name: 'QA extra', sku: 'QA-3', stock: 4 }),
+      ];
+    });
     pickCsvFile.mockResolvedValue(
-      uploaded([{ Product: 'QA widget', Counted: '8' }, { Product: 'QA other', Counted: '' }])
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '9' },
+        { Product: 'QA extra', Store: 'Main', Counted: '' },
+      ])
     );
     let tree!: ReactTestRenderer;
     await act(async () => {
@@ -430,12 +483,63 @@ describe('a count that arrives as a sheet', () => {
     });
     await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
     await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // Two stores, so the plan stayed on the sheet tab -- if this ever reads
+    // "No sheet yet" again, the handover swallowed it and the assertions below
+    // are exercising `submit`, not `commitPlan`.
+    expect(allText(tree)).toContain('2 counted');
+    // The skipped pill, pinned: deleting it changed nothing in the mutation
+    // review, because nothing here asserted it existed.
+    expect(allText(tree)).toContain('1 rows left blank — skipped');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
 
-    expect(saveStockCount).toHaveBeenCalledTimes(1);
-    expect(saveStockCount.mock.calls[0][2]).toEqual([
-      { productId: 'p-1', countedQuantity: 8, reason: null },
-    ]);
+    // One call per store, and neither carries the blank third row.
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+    // App said 11, the shop counted 8 -- the SET this whole feature exists to
+    // guarantee. `countedQuantity + previousQuantity` (11 + 8 = 19) is the
+    // exact ADD bug this feature exists to prevent, and it must never reach
+    // the RPC.
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-1',
+      [{ productId: 'p-1', countedQuantity: 8, reason: null }],
+      { note: null }
+    );
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-2',
+      [{ productId: 'p-2', countedQuantity: 9, reason: null }],
+      { note: null }
+    );
+  });
+
+  // Finding 3: a mutation deleting the whole rejected block -- the pill, the
+  // "WHAT WON'T" list and the download button -- left all 19 tests green. A
+  // shop that cannot see WHY a row was refused does not know what it failed
+  // to count, so the reason text is what has to reach the screen, not merely
+  // a count of how many rows were rejected.
+  it('shows what each rejected row failed for, not merely how many', async () => {
+    listProducts.mockResolvedValue([product({})]);
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'Nonexistent widget', Store: 'Main', Counted: '5' },
+      ])
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // A rejection keeps `handedOver` false regardless of store count, so this
+    // stays on the sheet tab where the rejected block actually renders.
+    expect(allText(tree)).toContain('1 rejected');
+    expect(allText(tree)).toContain("WHAT WON'T");
+    expect(allText(tree)).toContain('Row 3');
+    expect(allText(tree)).toContain('No product matches "Nonexistent widget"');
+    expect(allText(tree)).toContain('Download the 1 rejected row');
   });
 });
 
@@ -473,6 +577,7 @@ describe('closing the sheet tab', () => {
     // The plan is live: two counted lines across two stores, and the button
     // that would commit them is enabled.
     expect(allText(tree)).toContain('2 counted');
+    expect(allText(tree)).toContain('count-sheet.csv');
     expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(false);
 
     await act(async () => pressableWithText(tree, 'Close').props.onPress());
@@ -485,6 +590,11 @@ describe('closing the sheet tab', () => {
     // the button that used to commit the two-store plan is disabled again
     // rather than sitting there live with the old numbers still visible.
     expect(allText(tree)).toContain('No sheet yet');
+    // Pins `setSheetFile(null)` / `setSheetHeaders([])`: an existing test that
+    // asserted only plan-derived text passed even with both left out, because
+    // neither ever reached a Text node it was checking. The filename is the
+    // one thing on this screen that only `sheetFile` renders.
+    expect(allText(tree)).not.toContain('count-sheet.csv');
     expect(allText(tree)).not.toContain('2 counted');
     expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
   });
