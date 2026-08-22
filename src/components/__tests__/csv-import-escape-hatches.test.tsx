@@ -1,4 +1,4 @@
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 
 import { CsvImportModal, type ImportEntityConfig } from '@/components/csv-import-modal';
@@ -140,6 +140,44 @@ describe("Import's escape hatches", () => {
     // would mean the second placement had been dropped.
     expect(controlsFor(tree, RESTOCK)).toHaveLength(2);
     expect(controlsFor(tree, MOVE)).toHaveLength(2);
+  });
+
+  // The order assertions above pass just as well if both ternaries in
+  // csv-import-modal.tsx get flipped -- position alone was never checked
+  // against which entry actually reads as louder. This is the assertion that
+  // was missing: entry zero must carry the loud styling, and everything after
+  // it the quiet one, in both places the hatches render.
+  it('gives the first hatch louder styling than a later one, in both placements', async () => {
+    const tree = renderSheet(
+      configWith([
+        { label: RESTOCK, onPress: () => {} },
+        { label: MOVE, onPress: () => {} },
+      ])
+    );
+
+    // Up front: ink and weight carry the hierarchy, not just position -- see
+    // `elsewhereText` vs `elsewhereQuietText` in csv-import-modal.tsx.
+    const textStyleFor = (label: string) =>
+      StyleSheet.flatten(
+        tree.root
+          .findAllByType(Text)
+          .find((node) => stringsIn(node.props.children).join('').startsWith(label))?.props.style
+      );
+
+    expect(textStyleFor(RESTOCK)).toMatchObject({ color: '#111111', fontWeight: '800' });
+    expect(textStyleFor(MOVE)).toMatchObject({ color: '#5E5D65', fontWeight: '700' });
+
+    // On the rejection list, the same weighting is carried by fill instead of
+    // ink: the first hatch is a solid button, every later one outlined.
+    // `[1]` is the rejection-list control -- `controlsFor` returns the top
+    // placement first, matching the "2 of each" assertion above.
+    await importUntilRejected(tree);
+    const buttonStyleFor = (label: string) =>
+      StyleSheet.flatten(controlsFor(tree, label)[1]?.props.style);
+
+    expect(buttonStyleFor(RESTOCK)).toMatchObject({ backgroundColor: '#111111' });
+    expect(buttonStyleFor(MOVE)?.backgroundColor).toBeUndefined();
+    expect(buttonStyleFor(MOVE)).toMatchObject({ borderWidth: 1 });
   });
 
   it('hands over to the right sheet, closing itself first', () => {

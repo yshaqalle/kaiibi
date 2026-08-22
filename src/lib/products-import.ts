@@ -122,6 +122,16 @@ function parseWholeNumber(value: string | undefined): number | null {
 // the screen it lives on cannot be rendered without auth, Supabase and a
 // router, and this gate silently costing a shop its Move button is exactly the
 // regression nothing else would catch.
+//
+// The requirement this stands in for is worded against the screen's own
+// `showLocationFilter` (inventory.tsx), which today is exactly
+// `hasMultipleLocations(locations)` too -- but that is inventory.tsx calling
+// the same function a second time, not this one delegating to it. If
+// `showLocationFilter` is ever narrowed (a permission check, an
+// active-location rule beyond "closed doesn't count"), this call will not
+// follow it, and a shop will silently gain or lose the Move button here while
+// the header's own filter changes correctly. Narrowing `showLocationFilter`
+// means narrowing this call too.
 export function productImportHatches({ locations, onRestock, onMove }: {
   locations: readonly ShopLocation[];
   onRestock: () => void;
