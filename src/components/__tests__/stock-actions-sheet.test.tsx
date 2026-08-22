@@ -70,13 +70,16 @@ describe('the Stock door', () => {
     expect(texts).toEqual(expect.arrayContaining(['Restock', 'Count', 'Move', 'Import products']));
   });
 
-  // A one-store shop has nowhere to move stock TO, so the row would be a dead
-  // end -- the same reason the header's Move pill hides itself today. The
-  // positive assertion matters as much as the negative one: without it,
-  // `not.toContain` would pass just as well against a component that rendered
-  // nothing at all -- the exact false-pass mode `render` used to have before
-  // it was wrapped in `act`.
-  it('hides Move for a shop with one store', () => {
+  // `showMove: false` covers two different reasons at the call site -- a
+  // one-store shop has nowhere to move stock TO, and a role without
+  // `inventory.transfer` must not be offered a button the RPC will refuse --
+  // but the component itself cannot tell which, and does not need to: it only
+  // ever sees the one boolean the caller already resolved both into. So there
+  // is exactly one test here, not two. The positive assertion matters as much
+  // as the negative one: without it, `not.toContain` would pass just as well
+  // against a component that rendered nothing at all -- the exact false-pass
+  // mode `render` used to have before it was wrapped in `act`.
+  it('hides Move when the caller says no, one store or no permission alike', () => {
     const texts = render({ showMove: false });
     expect(texts).toContain('Restock');
     expect(texts).not.toContain('Move');
@@ -92,7 +95,11 @@ describe('the Count door', () => {
   // teach the difference between adding and replacing with the replacing half
   // missing. The badge going away is the feature.
   it('no longer says it is coming', () => {
-    expect(render().join(' ')).not.toContain('Coming next');
+    const texts = render().join(' ');
+    expect(texts).not.toContain('Coming next');
+    // Positive companion: without this, the assertion above would pass just
+    // as well against a render that produced nothing at all.
+    expect(texts).toContain('Count');
   });
 
   it('hands Count to onPick like any other door', () => {
@@ -117,9 +124,5 @@ describe('the Count door', () => {
     // And the door does not become an empty room: Restock is the base meaning
     // of inventory.edit and is still there.
     expect(texts).toContain('Restock');
-  });
-
-  it('hides Move for someone without the transfer permission, one-store or not', () => {
-    expect(render({ showMove: false })).not.toContain('Move');
   });
 });

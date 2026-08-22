@@ -31,13 +31,13 @@ export function StockActionsSheet({
   showMove: boolean;
   // Fires once this sheet is actually off the screen (iOS only). Forwarded
   // straight to AppModal's `onDismiss`, exactly as CsvImportModal does -- this
-  // is the hook the staged handover to the Restock modal hangs on, and without
-  // it the phone path opens nothing.
+  // is the hook the staged handover to Restock, Count and Move all hang on,
+  // and without it the phone path opens nothing.
   onDismissed?: () => void;
 }) {
   if (!visible) return null;
 
-  // Shared by the three live rows so hover, keyboard focus and press all read
+  // Shared by the four live rows so hover, keyboard focus and press all read
   // as "this is a door", the same combination data-table.tsx and
   // attention-list.tsx already use for a selectable row. `hovered` and
   // `focused` are pointer/keyboard-only -- react-native-web sets them from

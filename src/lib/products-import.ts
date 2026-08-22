@@ -123,22 +123,28 @@ function parseWholeNumber(value: string | undefined): number | null {
 // router, and this gate silently costing a shop its Move button is exactly the
 // regression nothing else would catch.
 //
-// The requirement this stands in for is worded against the screen's own
-// `showLocationFilter` (inventory.tsx), which today is exactly
-// `hasMultipleLocations(locations)` too -- but that is inventory.tsx calling
-// the same function a second time, not this one delegating to it. If
-// `showLocationFilter` is ever narrowed (a permission check, an
-// active-location rule beyond "closed doesn't count"), this call will not
-// follow it, and a shop will silently gain or lose the Move button here while
-// the header's own filter changes correctly. Narrowing `showLocationFilter`
-// means narrowing this call too.
-export function productImportHatches({ locations, onRestock, onMove }: {
+// The requirement this stands in for is worded against the door's own Move
+// gate (inventory.tsx's `showLocationFilter && canTransfer`). The location
+// half is `hasMultipleLocations(locations)` here too -- inventory.tsx calling
+// the same function a second time, not this one delegating to it -- and the
+// permission half is threaded through explicitly as `canTransfer` below. That
+// threading is the fix for a bug this comment used to only warn about: Task 7
+// narrowed the door's Move gate to require `inventory.transfer` and, for one
+// review cycle, this call did not follow -- a role holding `inventory.edit`
+// but not `inventory.transfer` could reach the Move sheet from the import
+// rejection list and have the RPC refuse a transfer the person had already
+// built. If `showLocationFilter`'s own notion of "counts as multi-store" ever
+// narrows past `hasMultipleLocations` (an active-location rule beyond "closed
+// doesn't count"), this call still will not follow that on its own --
+// narrowing the door's gate always means narrowing this call too.
+export function productImportHatches({ locations, canTransfer, onRestock, onMove }: {
   locations: readonly ShopLocation[];
+  canTransfer: boolean;
   onRestock: () => void;
   onMove: () => void;
 }): { label: string; onPress: () => void }[] {
   const hatches = [{ label: 'More of something you already sell? Restock', onPress: onRestock }];
-  if (hasMultipleLocations(locations)) {
+  if (hasMultipleLocations(locations) && canTransfer) {
     hatches.push({ label: 'Already sell it, want it at another store? Move', onPress: onMove });
   }
   return hatches;

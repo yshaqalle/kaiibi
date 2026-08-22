@@ -229,7 +229,12 @@ describe('which hatches product import offers', () => {
   it('gives a single-store shop the Restock control and nothing else', () => {
     const onRestock = jest.fn();
     const onMove = jest.fn();
-    const hatches = productImportHatches({ locations: [store('main')], onRestock, onMove });
+    const hatches = productImportHatches({
+      locations: [store('main')],
+      canTransfer: true,
+      onRestock,
+      onMove,
+    });
 
     expect(hatches.map((h) => h.label)).toEqual([RESTOCK]);
     hatches[0].onPress();
@@ -243,6 +248,7 @@ describe('which hatches product import offers', () => {
   it('treats a shop whose only other store is closed as a single-store shop', () => {
     const hatches = productImportHatches({
       locations: [store('main'), store('kiosk', false)],
+      canTransfer: true,
       onRestock: () => {},
       onMove: () => {},
     });
@@ -258,6 +264,7 @@ describe('which hatches product import offers', () => {
     const onMove = jest.fn();
     const hatches = productImportHatches({
       locations: [store('main'), store('second')],
+      canTransfer: true,
       onRestock,
       onMove,
     });
@@ -266,5 +273,26 @@ describe('which hatches product import offers', () => {
     hatches[1].onPress();
     expect(onMove).toHaveBeenCalledTimes(1);
     expect(onRestock).not.toHaveBeenCalled();
+  });
+
+  // The gate this task's review found leaking: a multi-store shop whose role
+  // holds `inventory.edit` but not `inventory.transfer` gets the same single
+  // control a one-store shop gets, for the same reason -- Move would be a
+  // button that opens a sheet the RPC then refuses. Without this, a shop
+  // could build a whole transfer here and meet the refusal only at the end.
+  it('withholds Move from a multi-store shop without the transfer permission', () => {
+    const onRestock = jest.fn();
+    const onMove = jest.fn();
+    const hatches = productImportHatches({
+      locations: [store('main'), store('second')],
+      canTransfer: false,
+      onRestock,
+      onMove,
+    });
+
+    expect(hatches.map((h) => h.label)).toEqual([RESTOCK]);
+    hatches[0].onPress();
+    expect(onRestock).toHaveBeenCalledTimes(1);
+    expect(onMove).not.toHaveBeenCalled();
   });
 });

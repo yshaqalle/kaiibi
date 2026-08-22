@@ -457,6 +457,7 @@ export default function InventoryScreen() {
         // all, silently. `fromModal` is true because the import always is one.
         elsewhere: productImportHatches({
           locations,
+          canTransfer,
           onRestock: () => restockFromImport.open(true, true),
           onMove: () => moveFromImport.open(true, true),
         }),
@@ -1036,7 +1037,7 @@ export default function InventoryScreen() {
           onDone={reload}
         />
       )}
-      {shop && canEdit && (
+      {shop && canTransfer && (
         <StockTransferModal
           visible={transferOpen}
           shopId={shop.id}
