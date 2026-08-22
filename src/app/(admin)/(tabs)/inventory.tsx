@@ -101,7 +101,6 @@ export default function InventoryScreen() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [showImportModal, setShowImportModal] = useState(false);
   // null = the shop-wide rollup, which is what this screen has always shown.
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
@@ -116,7 +115,6 @@ export default function InventoryScreen() {
   const primaryLocationName =
     locations.find((location) => location.isPrimary)?.name ?? locations[0]?.name ?? 'your main store';
   const [stockError, setStockError] = useState<string | null>(null);
-  const [showTransfer, setShowTransfer] = useState(false);
   const [showStockActions, setShowStockActions] = useState(false);
   // Two staged handovers, not one. On a phone the chain is More → Stock →
   // Restock, which is three sheets deep, and iOS silently drops the third --
@@ -136,9 +134,18 @@ export default function InventoryScreen() {
   // what happens when a stand-down and a `visible` drift apart: the sheet is up
   // and the screen behind it is still adjusting stock on every scan.
   const showRestock = actionFromStock.value === 'restock';
-  const stockDoorOpen = showStockActions || stockFromMore.value !== null;
-  const transferOpen = showTransfer || moveFromImport.value !== null || actionFromStock.value === 'move';
-  const importOpen = showImportModal || actionFromStock.value === 'import';
+  // `|| actionFromStock.presenterSuppressed` closes a gap, not a typo: between
+  // `onPick` and the promotion, `pending` holds the next action but `value` is
+  // still null, so `showRestock`/`transferOpen`/`importOpen` all read false and
+  // the door itself is already closed -- the wedge below would read every one
+  // of those as false and switch back on while a modal is mid-animation.
+  // `presenterSuppressed` stays true for that whole gap, and the door's own
+  // `visible` (below) already ANDs its negation in, so folding it into
+  // `stockDoorOpen` cannot re-present the door -- it only keeps the wedge (and
+  // the sink fallback) standing down through the handover.
+  const stockDoorOpen = showStockActions || stockFromMore.value !== null || actionFromStock.presenterSuppressed;
+  const transferOpen = moveFromImport.value !== null || actionFromStock.value === 'move';
+  const importOpen = actionFromStock.value === 'import';
   // Phone only. The store filter, Export and Stock live behind one pill on the
   // title row rather than wrapping to a second and third row.
   const [showMore, setShowMore] = useState(false);
@@ -298,11 +305,15 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    // The transfer and restock sheets are included for the same reason as the
-    // others: each runs its own wedge to build a basket, and a scan must not
-    // also be read here as an adjustment to the product behind it. Written as
-    // the same conditions those sheets' `visible` uses -- both open from a
-    // hand-over too, when `showTransfer` and the door alone are still false.
+    // The transfer and restock sheets are included because POS and Inventory
+    // stand their own scanners down while any sheet is open rather than
+    // scanning through one -- neither sheet runs a wedge of its own (see
+    // stock-transfer-modal.tsx and stock-restock-modal.tsx) -- and a scan must
+    // not also be read here as an adjustment to the product behind it. Written
+    // as the same conditions those sheets' `visible` uses -- `transferOpen` and
+    // `importOpen` are derived from `moveFromImport.value` and
+    // `actionFromStock.value`, which already cover a hand-over into either
+    // sheet, not only each sheet opened directly from its own door.
     enabled:
       scanner.hardware &&
       !showAddModal &&
@@ -492,9 +503,9 @@ export default function InventoryScreen() {
                 : `${filtered.length} of ${products.length} products`}
             </Text>
           </View>
-          {/* Four controls fit at desktop width and are two full rows of pills
-              on a phone. Compact keeps the one primary action and folds the rest
-              into a sheet — same split the Schedule tab landed on. */}
+          {/* Four controls fit at desktop width. Compact keeps two -- More and
+              + Add -- and folds the rest into a sheet — same split the
+              Schedule tab landed on. */}
           <View style={styles.headerActions}>
             {compact ? (
               <>
@@ -878,7 +889,7 @@ export default function InventoryScreen() {
           // Suppressed while the move sheet is being handed over to, so iOS is
           // never asked to present one modal over another -- see useStagedSheet.
           visible={importOpen && !moveFromImport.presenterSuppressed}
-          onClose={() => { setShowImportModal(false); actionFromStock.close(); }}
+          onClose={actionFromStock.close}
           onDismissed={moveFromImport.onPresenterDismissed}
           config={importConfig}
           onImported={reload}
@@ -928,7 +939,6 @@ export default function InventoryScreen() {
           visible={transferOpen}
           shopId={shop.id}
           onClose={() => {
-            setShowTransfer(false);
             moveFromImport.close();
             actionFromStock.close();
           }}
