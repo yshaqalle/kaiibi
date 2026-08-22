@@ -15,7 +15,9 @@ import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useInventorySessionField } from '@/hooks/use-inventory-session';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
+import { StockActionsSheet, type StockAction } from '@/components/stock-actions-sheet';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
+import { StockRestockModal } from '@/components/stock-restock-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { useStagedSheet } from '@/components/use-staged-sheet';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
@@ -115,8 +117,30 @@ export default function InventoryScreen() {
     locations.find((location) => location.isPrimary)?.name ?? locations[0]?.name ?? 'your main store';
   const [stockError, setStockError] = useState<string | null>(null);
   const [showTransfer, setShowTransfer] = useState(false);
-  // Phone only. The store filter, Export, Import and Move stock live behind one
-  // pill on the title row rather than wrapping to a second and third row.
+  const [showStockActions, setShowStockActions] = useState(false);
+  // Two staged handovers, not one. On a phone the chain is More → Stock →
+  // Restock, which is three sheets deep, and iOS silently drops the third --
+  // the exact bug use-staged-sheet was written for. Each hop stages its own.
+  const stockFromMore = useStagedSheet<true>();
+  const actionFromStock = useStagedSheet<StockAction>();
+  // Derived, not state promoted by an effect. Which sheet the door handed over
+  // to IS `actionFromStock.value` -- copying it into a second `useState` inside
+  // a `useEffect` would be a second copy of the same fact that can disagree
+  // with the first, and the linter rejects the setState-in-effect that copying
+  // needs. Read straight, exactly as StockTransferModal already reads
+  // `moveFromImport.value` below.
+  //
+  // Each of these is named once because two or three places need the same
+  // answer -- the sheet's own `visible`, and the wedge-scanner stand-downs
+  // below and at the foot of the file. The transfer sheet's comment records
+  // what happens when a stand-down and a `visible` drift apart: the sheet is up
+  // and the screen behind it is still adjusting stock on every scan.
+  const showRestock = actionFromStock.value === 'restock';
+  const stockDoorOpen = showStockActions || stockFromMore.value !== null;
+  const transferOpen = showTransfer || moveFromImport.value !== null || actionFromStock.value === 'move';
+  const importOpen = showImportModal || actionFromStock.value === 'import';
+  // Phone only. The store filter, Export and Stock live behind one pill on the
+  // title row rather than wrapping to a second and third row.
   const [showMore, setShowMore] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
   // Set by a link that already knows what it wants -- the Dashboard's
@@ -274,18 +298,20 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    // The transfer sheet included for the same reason as the others: Move stock
-    // runs its own wedge to build a transfer, and a scan must not also be read
-    // here as an adjustment to the product behind it. Written as the same
-    // condition that sheet's `visible` uses -- it also opens from the import
-    // hand-over, when `showTransfer` alone is still false.
+    // The transfer and restock sheets are included for the same reason as the
+    // others: each runs its own wedge to build a basket, and a scan must not
+    // also be read here as an adjustment to the product behind it. Written as
+    // the same conditions those sheets' `visible` uses -- both open from a
+    // hand-over too, when `showTransfer` and the door alone are still false.
     enabled:
       scanner.hardware &&
       !showAddModal &&
       editingProduct === null &&
-      !showImportModal &&
+      !importOpen &&
       !scannerOpen &&
-      !(showTransfer || moveFromImport.value !== null),
+      !showRestock &&
+      !stockDoorOpen &&
+      !transferOpen,
     onScan: handleScannedCode,
   });
 
@@ -466,8 +492,8 @@ export default function InventoryScreen() {
                 : `${filtered.length} of ${products.length} products`}
             </Text>
           </View>
-          {/* Six controls fit at desktop width and are two full rows of pills on
-              a phone. Compact keeps the one primary action and folds the rest
+          {/* Four controls fit at desktop width and are two full rows of pills
+              on a phone. Compact keeps the one primary action and folds the rest
               into a sheet — same split the Schedule tab landed on. */}
           <View style={styles.headerActions}>
             {compact ? (
@@ -489,21 +515,14 @@ export default function InventoryScreen() {
               <>
                 <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
                 <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
-                {/* Only with somewhere to move stock TO — a one-store shop has no
-                    transfer to make, and the button would be a dead end. */}
-                {/* Solid, like every other action in this row. The store
-                    dropdown and the export menu paint themselves #111, and
-                    `+ Add product` is `pillButtonSolid` -- so an outline here
-                    read as a different KIND of control rather than as a
-                    quieter one, when all five do the same sort of thing. */}
-                {canEdit && showLocationFilter && (
-                  <Pressable onPress={() => setShowTransfer(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
-                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Move stock</Text>
-                  </Pressable>
-                )}
+                {/* One pill, four jobs. Move stock and Import used to sit here
+                    as peers of + Add product, which put three different verbs
+                    in one uniform -- and is how a shop with a delivery to
+                    receive ended up in Import, counting its units twice. The
+                    sheet behind this button is what tells them apart. */}
                 {canEdit && (
-                  <Pressable onPress={() => setShowImportModal(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
-                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Import</Text>
+                  <Pressable onPress={() => setShowStockActions(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Stock</Text>
                   </Pressable>
                 )}
                 {canEdit && (
@@ -698,7 +717,10 @@ export default function InventoryScreen() {
                       // empty list here is a real answer, not a missing filter. It
                       // also has to say how to change that, since the routes in are
                       // all somewhere else.
-                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+                      // "Stock → Move" rather than "Move stock": the pill by
+                      // that name is gone, and a route named after a button
+                      // that no longer exists is worse than no route at all.
+                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Stock → Move to send some here, or open a product from All stores and set its count for this store.`
                     : 'No products yet. Add your first one above.'}
             </Text>
           </BentoCard>
@@ -753,8 +775,20 @@ export default function InventoryScreen() {
       ) : null}
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
-          wherever the app opens one. */}
-      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+          wherever the app opens one.
+
+          `onDismiss` is the first hop of More → Stock → Restock: this sheet is
+          the presenter the Stock door waits on. Without it the door would open
+          only on useStagedSheet's 700ms safety net, which is meant to be the
+          net and not the mechanism -- a visible pause between the tap and the
+          sheet, on the one platform where the pause is the symptom. */}
+      <AppModal
+        visible={showMore}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMore(false)}
+        onDismiss={stockFromMore.onPresenterDismissed}
+      >
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -775,17 +809,10 @@ export default function InventoryScreen() {
               </View>
             )}
 
-            {canEdit && showLocationFilter && (
-              <Pressable onPress={() => { setShowMore(false); setShowTransfer(true); }} style={styles.sheetRow}>
-                <Text style={styles.sheetRowLabel}>Move stock</Text>
-                <Text style={styles.sheetRowHint}>Send units from one store to another</Text>
-              </Pressable>
-            )}
-
             {canEdit && (
-              <Pressable onPress={() => { setShowMore(false); setShowImportModal(true); }} style={styles.sheetRow}>
-                <Text style={styles.sheetRowLabel}>Import products</Text>
-                <Text style={styles.sheetRowHint}>From a CSV file</Text>
+              <Pressable onPress={() => { setShowMore(false); stockFromMore.open(true, compact); }} style={styles.sheetRow}>
+                <Text style={styles.sheetRowLabel}>Stock</Text>
+                <Text style={styles.sheetRowHint}>Restock, count, move, or import</Text>
               </Pressable>
             )}
 
@@ -850,8 +877,8 @@ export default function InventoryScreen() {
         <CsvImportModal
           // Suppressed while the move sheet is being handed over to, so iOS is
           // never asked to present one modal over another -- see useStagedSheet.
-          visible={showImportModal && !moveFromImport.presenterSuppressed}
-          onClose={() => setShowImportModal(false)}
+          visible={importOpen && !moveFromImport.presenterSuppressed}
+          onClose={() => { setShowImportModal(false); actionFromStock.close(); }}
           onDismissed={moveFromImport.onPresenterDismissed}
           config={importConfig}
           onImported={reload}
@@ -866,13 +893,44 @@ export default function InventoryScreen() {
           canEdit={canEdit}
         />
       )}
+      {/* The door. Suppressed while it is handing over to one of the four, so
+          iOS is never asked to present a sheet over a sheet -- see
+          useStagedSheet, and the same suppression on CsvImportModal above. */}
+      {canEdit && (
+        <StockActionsSheet
+          visible={stockDoorOpen && !actionFromStock.presenterSuppressed}
+          showMove={showLocationFilter}
+          onClose={() => { setShowStockActions(false); stockFromMore.close(); }}
+          onDismissed={actionFromStock.onPresenterDismissed}
+          onPick={(action) => {
+            setShowStockActions(false);
+            stockFromMore.close();
+            // `true`, not `compact`: the thing being opened FROM is this sheet,
+            // and it is a modal at every width -- an iPad wide enough for the
+            // desktop header still presents the door as one. Passing `compact`
+            // here would say "not from a modal" on that iPad and hand iOS the
+            // second modal to drop, which is a dead Restock button on the one
+            // device where nothing is logged when it happens.
+            actionFromStock.open(action, true);
+          }}
+        />
+      )}
+      {shop && canEdit && (
+        <StockRestockModal
+          visible={showRestock}
+          shopId={shop.id}
+          onClose={actionFromStock.close}
+          onDone={reload}
+        />
+      )}
       {shop && canEdit && (
         <StockTransferModal
-          visible={showTransfer || moveFromImport.value !== null}
+          visible={transferOpen}
           shopId={shop.id}
           onClose={() => {
             setShowTransfer(false);
             moveFromImport.close();
+            actionFromStock.close();
           }}
           onDone={reload}
         />
@@ -886,7 +944,7 @@ export default function InventoryScreen() {
           open keypad's field asks for focus, and the sink takes it back every
           700ms. Standing down costs no scanning -- a code scanned into the
           focused field is caught by the row's own burst rules. */}
-      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !showImportModal && !showTransfer && (
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !importOpen && !transferOpen && !showRestock && !stockDoorOpen && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Single, unlike POS: a scan here answers one question — "which product
