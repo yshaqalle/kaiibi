@@ -4,6 +4,7 @@ import { StyleSheet, Text } from 'react-native';
 import { StockCountModal } from '@/components/stock-count-modal';
 import { parseCsvText, rowsToCsv } from '@/lib/csv';
 import { COUNT_TEMPLATE_COLUMNS } from '@/lib/count-import';
+import { toDateColumn } from '@/lib/period';
 
 // The half of the count screen that a pure test cannot reach.
 //
@@ -681,10 +682,18 @@ describe('logging the shortfall', () => {
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
 
     expect(createExpense).toHaveBeenCalledTimes(1);
-    expect(createExpense.mock.calls[0][1]).toMatchObject({
+    // The whole payload, not just the three fields a `toMatchObject` used to
+    // pin -- `occurredOn` most of all, since `toISOString().slice(0, 10)`
+    // would put an evening stock-take into tomorrow's P&L and regressing
+    // exactly that used to fail nothing here.
+    expect(createExpense.mock.calls[0][1]).toEqual({
       locationId: 'loc-1',
+      occurredOn: toDateColumn(new Date()),
       amountCents: 1383,
       category: 'stock_loss',
+      vendorId: null,
+      paymentMethod: 'cash',
+      note: 'Stock-take',
     });
   });
 
@@ -744,5 +753,156 @@ describe('logging the shortfall', () => {
     await type(tree, COUNTED, '11');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(createExpense).not.toHaveBeenCalled();
+  });
+
+  // Finding 3: neutering `if (expenseProblem)` in `submit` closes the sheet as
+  // though the write succeeded, silently losing the shrinkage cost -- exactly
+  // the failure mode the sibling restock screen already guards and asserts.
+  // The count itself must stand (one `saveStockCount` call) while the sheet
+  // stays open naming what did not land, rather than calling `closeAndReset`.
+  it('reports a failed expense instead of closing over it, with the count already standing', async () => {
+    createExpense.mockRejectedValueOnce(new Error('expenses are read-only'));
+    listProducts.mockResolvedValue([product({})]);
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={onClose} onDone={async () => {}} />);
+    });
+    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
+    expect(allText(tree)).toContain('The count was saved, but the stock loss was not logged: expenses are read-only');
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('logging the shortfall from a sheet', () => {
+  beforeEach(() => createExpense.mockClear());
+
+  // Finding 1: `commitPlan` used to trust `logExpense` alone rather than
+  // re-reading the aggregate actually on screen for the sheet tab.
+  // `uncostedShortfallLines` is computed across every store, so the moment
+  // ANY store has an uncosted short line, `planSummary.shortfallCents` goes
+  // null and the checkbox is replaced entirely by the "no cost recorded"
+  // sentence -- while a `logExpense` ticked earlier (on the by-hand tab, then
+  // carried across a tab switch) is still `true`. This reproduces the
+  // reviewer's exact scenario: a two-store sheet where Branch's product has
+  // no cost, ticked on the by-hand tab first.
+  it('does not write when the sheet tab never offered the checkbox at all', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 24, costCents: null })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 24, costCents: null })];
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    // Tick the checkbox on the by-hand tab, against Main's own costed
+    // shortfall -- this is the stale `true` the fix must not trust later.
+    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+
+    // Switch to the sheet tab and upload a two-store plan where Branch's
+    // product has no cost -- the aggregate goes null, so the checkbox is
+    // replaced by the withheld-cost sentence and nothing offers a tick here.
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '20' },
+      ])
+    );
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    expect(allText(tree)).toContain('no cost recorded');
+    expect(allText(tree)).not.toContain('as stock loss');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    // Both stores' counts still go through -- only the expense must be
+    // withheld.
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+    expect(createExpense).not.toHaveBeenCalled();
+  });
+
+  // Finding 2: deleting the whole `if (offered) { ... }` block left every
+  // existing test green, because nothing asserted per-store attribution --
+  // "the point of the whole feature" per the brief's own Step 6. Two costed
+  // shortfalls at two different stores, with two different amounts, so a
+  // mutation swapping `count.locationId` for `plan.counts[0].locationId`
+  // (attributing the whole loss to whichever store went first) is also
+  // caught, not just a missing call.
+  it('writes one stock_loss expense per store, each for its own shortfall and its own store', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 10, costCents: 200 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 10, costCents: 200 })];
+    });
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '4' },
+      ])
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+    expect(createExpense).toHaveBeenCalledTimes(2);
+    // Main: 11 - 8 = 3 short × 461c = 1383c. Branch: 10 - 4 = 6 short × 200c
+    // = 1200c -- deliberately different amounts and stores, so a lump-sum or
+    // first-store attribution bug shows up as a wrong number, not merely a
+    // wrong count of calls.
+    expect(createExpense.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ locationId: 'loc-1', amountCents: 1383, category: 'stock_loss' }),
+      expect.objectContaining({ locationId: 'loc-2', amountCents: 1200, category: 'stock_loss' }),
+    ]);
+  });
+
+  // Finding 2, second half: one store's expense failing must not roll back or
+  // hide the other store's count, and the error must name the store whose
+  // expense failed -- kept apart from "Some of the count did not go through",
+  // which would falsely say the stock-take itself failed.
+  it('names the one store whose expense failed while the count at both stores still stands', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 10, costCents: 200 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 10, costCents: 200 })];
+    });
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '4' },
+      ])
+    );
+    createExpense.mockRejectedValueOnce(new Error('expenses are read-only'));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    // Both stores' counts went through -- the failure is in bookkeeping only.
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+    expect(createExpense).toHaveBeenCalledTimes(2);
+    expect(allText(tree)).toContain('The count was saved, but the stock loss was not logged:');
+    expect(allText(tree)).toContain('Main: expenses are read-only');
+    expect(allText(tree)).not.toContain('Some of the count did not go through');
   });
 });

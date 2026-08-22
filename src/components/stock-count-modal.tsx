@@ -543,6 +543,14 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     }
   };
 
+  // The plan's own summary, computed by the same function the basket's is --
+  // so "2 differ" and a shortfall value mean one thing on both tabs. Declared
+  // here, above `commitPlan`, rather than beside `canCommitPlan` below it:
+  // `commitPlan` reads it (see `offered`, in the loop below) and a function
+  // reading a `useMemo` declared after it in source order is what broke React
+  // Compiler's manual-memoization check the first time this was written.
+  const planSummary = useMemo(() => summariseCount(plan ? planLines(plan) : []), [plan]);
+
   // One save_stock_count call per store. A store that fails fails whole and is
   // named; the others still go through, because rolling back good work for a
   // problem the shop can fix by re-uploading one section helps nobody.
@@ -557,6 +565,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     // two together would tell a shop its stock-take failed when it did not.
     const expenseProblems: string[] = [];
     const succeeded: PlannedCount[] = [];
+    // Read once, from what was actually ON SCREEN for this plan -- exactly
+    // `submit`'s idiom, applied to the sheet's own aggregate rather than the
+    // basket's. `uncostedShortfallLines` is computed across every store, so
+    // `planSummary.shortfallCents` goes null (and the checkbox itself
+    // disappears, replaced by the "no cost recorded" sentence) the moment ANY
+    // store has an uncosted short line -- while `logExpense` alone would still
+    // read true from before that line was uploaded or a tab switch happened.
+    // Trusting `logExpense` alone here would write an expense for a store that
+    // never had a checkbox offering it.
+    const offered = logExpense && planSummary.shortfallCents !== null && planSummary.shortfallCents > 0;
     for (const count of plan.counts) {
       try {
         await saveStockCount(
@@ -576,7 +594,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
         // `logStockLoss` cannot throw, which matters here: an expense failure
         // reaching the catch below would name this store as one whose count did
         // not go through, when it did.
-        if (logExpense) {
+        if (offered) {
           const storeShortfall = summariseCount(count.lines).shortfallCents;
           if (storeShortfall !== null && storeShortfall > 0) {
             const problem = await logStockLoss(count.locationId, storeShortfall);
@@ -628,9 +646,6 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     await downloadRejectedRowsCsv(plan.rejected, sheetHeaders, 'count-rejected.csv');
   };
 
-  // The plan's own summary, computed by the same function the basket's is --
-  // so "2 differ" and a shortfall value mean one thing on both tabs.
-  const planSummary = useMemo(() => summariseCount(plan ? planLines(plan) : []), [plan]);
   const canCommitPlan = Boolean(plan) && (plan?.counts.length ?? 0) > 0 && !busy;
 
   if (!visible) return null;
