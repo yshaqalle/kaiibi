@@ -76,9 +76,16 @@
   .d-btn.sm{padding:8px 13px;font-size:12px;}
   .d-purpose{font-size:12.5px;color:#6b6b73;line-height:1.55;margin-bottom:12px;}
   /* the real `elsewhere` control: styles.elsewhere in csv-import-modal.tsx */
+  /* CORRECTED after implementation: the real `elsewhere` control has never had a
+     backgroundColor -- it is an outline pill on a white card (csv-import-modal.tsx's
+     `elsewhere` style). This mockup originally drew it accent-filled while calling it
+     "the real control", which was wrong. The weighting between two hatches carries on
+     INK and WEIGHT (#111/800 vs #5E5D65/700), not on a fill; the border shift alone
+     would be near-invisible. The rejection-list treatment (filled vs outlined) is as
+     drawn. */
   .d-else{border:1px solid var(--d-rule);border-radius:10px;padding:11px 13px;font-size:13px;
-    font-weight:800;color:var(--d-accink);background:var(--d-accwash);display:block;margin-bottom:8px;}
-  .d-else.quiet{background:#fff;color:var(--d-ink);}
+    font-weight:800;color:#111111;background:#fff;display:block;margin-bottom:8px;}
+  .d-else.quiet{border-color:#EDEDED;color:var(--d-mut);font-weight:700;}
   .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
   .d-rule{height:1px;background:var(--d-rule);margin:14px 0;}
   .d-tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}

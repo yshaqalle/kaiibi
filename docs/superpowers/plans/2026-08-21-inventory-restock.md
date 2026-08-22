@@ -2114,4 +2114,4 @@ git commit -m "feat(inventory): scan into the restock and move sheets, on web"
   - A single-store shop with no `multi_location` module can still restock
   - **Web:** a scan into the Restock and Move sheets adds a row, does not close the sheet, and never lands in a quantity box
   - **Android and iOS:** no `Scan` pill in either sheet, and a scanner's Enter with a sheet open leaves it alone
-- [ ] Update the mockup's status: add a line to `docs/design/inventory-restock-mockup.html` noting which decisions shipped and which (Count) did not
+- [x] Update the mockup's status: done in the STATUS block at the head of `docs/design/inventory-restock-mockup.html` (shipped / not built / superseded)
