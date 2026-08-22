@@ -1,6 +1,7 @@
 import { normalizeBarcode } from '@/lib/barcode';
 import type { CsvColumn, ParsedCsv } from '@/lib/csv';
 import type { RejectedRow, TemplateColumn } from '@/lib/import-shared';
+import { readTypedCost } from '@/lib/restock-typed-input';
 import type { Product, ShopLocation } from '@/types/models';
 
 // Taking in a delivery by spreadsheet.
@@ -128,21 +129,6 @@ function parseWholeNumber(value: string | undefined): number | null {
   return Number.isFinite(n) && Number.isInteger(n) ? n : null;
 }
 
-// Dollars in the sheet, cents in the database -- the same conversion products
-// import does, so a shop never has to think in cents. One difference from
-// products import's version: this one requires at least one digit before
-// stripping punctuation. Without that check, a cell with no digits at all
-// (`n/a`, `TBD`, an em dash) strips down to '', and Number('') is 0 -- a
-// finite number indistinguishable from a genuine zero. That would read a
-// shop's "I don't know" as "this cost nothing" and silently overwrite the
-// product's real cost, which is exactly what null exists to prevent.
-function parseDollarsToCents(value: string | undefined): number | null {
-  const text = value?.trim();
-  if (!text || !/\d/.test(text)) return null;
-  const n = Number(text.replace(/[^0-9.-]/g, ''));
-  return Number.isFinite(n) ? Math.round(n * 100) : null;
-}
-
 function findLocation(locations: ShopLocation[], text: string): ShopLocation | undefined {
   const key = text.trim().toLowerCase();
   return locations.find((l) => l.name.trim().toLowerCase() === key || (l.code ?? '').trim().toLowerCase() === key);
@@ -250,12 +236,36 @@ export function planRestock(
       return reject(`Row ${earlier} already receives ${product.name} into ${store.name} — combine them into one row.`);
     }
 
+    // Read by readTypedCost, the SAME function the by-hand tab's cost field
+    // uses. Both routes end at products.cost_cents, so a shop that types 1,50
+    // by hand and 1,50 in a sheet must get one answer -- and until this line
+    // they got two, $1.50 and $150.00, with nothing on either screen to say
+    // which one it had taken.
+    //
+    // Nothing is given up by sharing it. The two properties this module's own
+    // parser was kept separate for are both in readTypedCost already: it
+    // strips stray currency symbols before reading (so "$4.80" is still 480),
+    // and a cell with no digits at all ("n/a", "TBD", an em dash) reads as
+    // unreadable rather than as a genuine zero. What it adds is the whole
+    // reason it exists -- the separator question. "1.234,56" was NaN here and
+    // is now 123456c; "1,50" was 15000c and is now 150c.
+    //
+    // It also closes two cells that used to reach the server raw: a minus sign
+    // is refused by name rather than filtered into a negative that trips the
+    // unit_cost_cents >= 0 check, and an amount past a Postgres integer is
+    // told apart from an unreadable one instead of failing with "integer out
+    // of range" on a screen that had been explaining itself in sentences.
     let unitCostCents: number | null = null;
     if (costText) {
-      unitCostCents = parseDollarsToCents(costText);
-      if (unitCostCents === null || unitCostCents < 0) {
-        return reject('Unit cost must be an amount of money, like 4.80 — or leave it empty to keep the cost you have.');
+      const cost = readTypedCost(costText);
+      if (cost.kind !== 'cents') {
+        return reject(
+          cost.kind === 'unreadable' && cost.reason === 'too-large'
+            ? 'Unit cost is larger than a cost can be — check the decimal point.'
+            : 'Unit cost must be an amount of money, like 4.80 — or leave it empty to keep the cost you have.'
+        );
       }
+      unitCostCents = cost.cents;
     }
 
     const held = context.stockAt(product.id, store.id);

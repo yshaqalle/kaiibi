@@ -13,6 +13,7 @@ import {
   RESTOCK_TEMPLATE_COLUMNS,
   restockSheetRows,
 } from '@/lib/restock-import';
+import { readTypedCost } from '@/lib/restock-typed-input';
 import type { Product, ShopLocation } from '@/types/models';
 
 const MAIN = { id: 'loc-main', name: 'Jaalala Skincare', code: 'JL1', active: true } as ShopLocation;
@@ -249,11 +250,11 @@ describe('cost', () => {
     expect(costUpdates(plan)).toEqual([]);
   });
 
-  // parseDollarsToCents strips everything outside [0-9.-] before parsing, and
-  // Number('') is 0 -- so a cell with no digits at all must not fall through
-  // to the free-sample value. null means "the shop didn't say"; a cell that
-  // says nothing sayable must produce null, not a silent $0.00 that overwrites
-  // whatever cost the product already has.
+  // The cost reader strips everything outside the digits and separators before
+  // parsing, and Number('') is 0 -- so a cell with no digits at all must not
+  // fall through to the free-sample value. null means "the shop didn't say"; a
+  // cell that says nothing sayable must produce null, not a silent $0.00 that
+  // overwrites whatever cost the product already has.
   it('rejects a unit cost cell with no digits at all, rather than reading it as zero', () => {
     const plan = planRestock(
       sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '6', 'Unit cost': 'n/a' }]),
@@ -272,6 +273,84 @@ describe('cost', () => {
     );
     expect(plan.rejected).toEqual([]);
     expect(plan.receipts[0].items[0].unitCostCents).toBe(0);
+  });
+});
+
+// One string, one reading, whichever door it came in by.
+//
+// Both routes write products.cost_cents, and until the sheet started reading
+// its Unit cost column with readTypedCost they disagreed: "1,50" was $1.50 by
+// hand and $150.00 by sheet, and "1.234,56" was $1,234.56 by hand and rejected
+// outright by sheet. Nothing on either screen said which reading it had taken.
+//
+// The by-hand reading is asserted alongside each case rather than left implied,
+// so a change to one route that quietly parts from the other goes red here
+// rather than in a shop's cost of goods.
+describe('a cost read the same way by both routes', () => {
+  // The whole cell, as the plan reads it: cents, or the rejection it produced.
+  const bySheet = (cell: string): number | null | string => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '6', 'Unit cost': cell }]),
+      CONTEXT
+    );
+    if (plan.rejected.length > 0) return `rejected: ${plan.rejected[0].reason}`;
+    return plan.receipts[0].items[0].unitCostCents;
+  };
+  const byHand = (cell: string): number | string => {
+    const reading = readTypedCost(cell);
+    return reading.kind === 'cents' ? reading.cents : `${reading.kind}:${reading.kind === 'unreadable' ? reading.reason : ''}`;
+  };
+
+  it('reads a comma-locale decimal point the same way the by-hand field does', () => {
+    // A comma-locale Excel writes this into the cell exactly as a comma-locale
+    // phone keyboard writes it into the field. It was a hundred times too much.
+    expect(bySheet('1,50')).toBe(150);
+    expect(byHand('1,50')).toBe(150);
+    expect(bySheet('1,5')).toBe(150);
+    expect(byHand('1,5')).toBe(150);
+  });
+
+  it('still reads a comma-grouped thousand as a thousand', () => {
+    expect(bySheet('1,500')).toBe(150000);
+    expect(byHand('1,500')).toBe(150000);
+    expect(bySheet('1,234,567')).toBe(123456700);
+    expect(byHand('1,234,567')).toBe(123456700);
+  });
+
+  it('reads both groupings of the same money as the same money', () => {
+    // "1.234,56" used to strip to "1.23456" and read as NaN, which the plan
+    // then rejected as "not an amount of money" -- against a cell holding a
+    // perfectly ordinary European price.
+    expect(bySheet('1.234,56')).toBe(123456);
+    expect(byHand('1.234,56')).toBe(123456);
+    expect(bySheet('1,234.56')).toBe(123456);
+    expect(byHand('1,234.56')).toBe(123456);
+  });
+
+  it('is still lenient about a currency symbol a spreadsheet formatted in', () => {
+    expect(bySheet('$4.80')).toBe(480);
+    expect(byHand('$4.80')).toBe(480);
+  });
+
+  // A credit note typed into a cost box. Stripping the minus turned it into a
+  // positive 450c, which then failed the column's own `unit_cost_cents >= 0`
+  // check on the server -- a raw Postgres string on a screen that had been
+  // explaining itself in sentences.
+  it('refuses a negative cost by name rather than letting the server refuse it', () => {
+    expect(bySheet('-4.50')).toMatch(/rejected: Unit cost must be an amount of money/);
+    expect(byHand('-4.50')).toBe('unreadable:not-an-amount');
+  });
+
+  // Finite, and far past what a Postgres integer holds. This used to travel
+  // all the way to the RPC and come back as "integer out of range".
+  it('tells an amount too large for the column apart from an unreadable one', () => {
+    expect(bySheet('999999999999,99')).toMatch(/rejected: Unit cost is larger than a cost can be/);
+    expect(byHand('999999999999,99')).toBe('unreadable:too-large');
+  });
+
+  it('still has no reading at all for a string of dots', () => {
+    expect(bySheet('12.3.4.5')).toMatch(/rejected: Unit cost must be an amount of money/);
+    expect(byHand('12.3.4.5')).toBe('unreadable:not-an-amount');
   });
 });
 

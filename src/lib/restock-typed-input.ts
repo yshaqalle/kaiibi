@@ -13,12 +13,15 @@
 // where the whole string is visible: at submit, and for the delivery value the
 // footer shows. Both are pure and neither one throws.
 //
-// Not shared with restock-import.ts's parseDollarsToCents, deliberately. That
-// one reads a spreadsheet cell, which is finished text from an unknown
-// producer, and it is right to be lenient about stray currency symbols and
-// strict about "no digits at all". This one reads a field mid-edit on a phone
-// whose keyboard may only offer a comma, and the separator question is the
-// whole job.
+// readTypedCost is shared with restock-import.ts, which reads the sheet's Unit
+// cost column with it. An earlier version of this comment argued the two should
+// stay apart -- a spreadsheet cell being finished text from an unknown producer,
+// wanting leniency about stray currency symbols and strictness about "no digits
+// at all". Both of those are what this function already does, and the thing it
+// adds is the separator question, which a spreadsheet cell has just as much as a
+// phone keyboard does: a comma-locale Excel writes "1,50" into the cell too.
+// Two readings of one string, both ending at products.cost_cents, was the real
+// cost of keeping them apart.
 
 export type TypedCost =
   // Nothing typed. The delivery does not state a cost, and products.cost_cents
@@ -88,11 +91,9 @@ export function readTypedCost(text: string): TypedCost {
   // column will not hold a negative anyway (cost_cents >= 0), so there is no
   // reading to give; saying so is the honest answer. The unicode minus is
   // included because a phone keyboard and a paste from a spreadsheet both
-  // produce it.
-  //
-  // Note the divergence: restock-import.ts's parseDollarsToCents keeps '-' in
-  // its filter, so the same "-4.50" in a spreadsheet cell still lands as -450c
-  // on the sheet path. Recorded for Task 5 rather than changed from here.
+  // produce it. The sheet path reads costs through here too, so a "-4.50" typed
+  // into a spreadsheet cell is refused by name rather than filtered into a
+  // negative that fails the column's own check on the server.
   if (/[-−]/.test(text)) return { kind: 'unreadable', reason: 'not-an-amount' };
 
   // Everything else goes -- "$4.80", a space, a stray letter on web where there
