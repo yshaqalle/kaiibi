@@ -9,7 +9,9 @@ import { listCategories } from '@/lib/categories';
 import { extractErrorMessage } from '@/lib/checkout-errors';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
+import { isUncosted } from '@/lib/product-costing';
 import { listProducts, receiveStock } from '@/lib/products';
+import { readTypedCost, readTypedQuantity, type TypedCost } from '@/lib/restock-typed-input';
 import type { Product } from '@/types/models';
 
 // Taking in a delivery, by hand or by spreadsheet.
@@ -38,7 +40,11 @@ import type { Product } from '@/types/models';
 // focus. The web-only camera button is a later job, deliberately separate.
 
 type Tab = 'hand' | 'sheet';
-type Line = { product: Product; quantity: number; cost: string };
+// Both typed fields are held as the RAW string the person typed, never as a
+// parsed number and never rewritten on the way in -- see restock-typed-input.ts
+// for why that is the whole design of this screen's input handling.
+type Line = { product: Product; quantity: string; cost: string };
+type LineReading = { line: Line; quantity: number | null; cost: TypedCost };
 
 export function StockRestockModal({
   visible,
@@ -98,12 +104,29 @@ export function StockRestockModal({
     });
   }, [shopId, locationId]);
 
+  // The basket is re-pointed at the reloaded rows as well as the picker.
+  //
+  // A line keeps a whole `Product` snapshot taken when it was added (addLine
+  // below), and RowMeta reads its figures off that snapshot -- so without this
+  // second setLines, changing store with a full basket would leave every basket
+  // row still showing the OLD store's "Has n here" and its "below reorder
+  // level n", on the one screen where those two numbers are what decide whether
+  // the quantity on the invoice is the quantity to type. Only `product` is
+  // replaced; the typed quantity and cost are the person's, not the server's.
   useEffect(() => {
     if (!visible) return;
     let active = true;
     load()
       .then((rows) => {
-        if (active) setCatalogue(rows);
+        if (!active) return;
+        setCatalogue(rows);
+        const byId = new Map(rows.map((product) => [product.id, product]));
+        setLines((current) =>
+          current.map((line) => {
+            const fresh = byId.get(line.product.id);
+            return fresh ? { ...line, product: fresh } : line;
+          })
+        );
       })
       .catch(() => {});
     return () => {
@@ -140,8 +163,9 @@ export function StockRestockModal({
 
   // Unlike Move, changing the store does NOT clear the basket: what arrived is
   // what arrived, and the quantities were read off an invoice rather than off
-  // this store's availability. Only the "Has n here" figures change, and the
-  // reload below refreshes those.
+  // this store's availability. What changes is the per-store figures each row
+  // shows -- "Has n here" and "below reorder level n" -- and the reload effect
+  // above re-points the basket's rows at the new store's numbers.
 
   // Starts empty rather than pre-filled from `costCents`. The recorded cost is
   // shown on the row beside it, so it can be copied when it is still right --
@@ -149,62 +173,32 @@ export function StockRestockModal({
   // cost by pressing one button, which is the thing this column exists to fix.
   const addLine = (product: Product) => {
     setLines((current) =>
-      current.some((l) => l.product.id === product.id) ? current : [...current, { product, quantity: 1, cost: '' }]
+      current.some((l) => l.product.id === product.id) ? current : [...current, { product, quantity: '1', cost: '' }]
     );
   };
 
-  // Mirrors the sibling (stock-transfer-modal.tsx:177): a quantity cleared to
-  // nothing removes the line, rather than leaving a row behind whose commit
-  // button goes dead with nothing on screen explaining why. That is the
-  // problem chosen over the alternative: a typed leading zero (e.g. the "0" of
-  // "07") reads as quantity 0 too, so it drops the row before a second digit
-  // can land. There is no way to tell "more digits are coming" from "the
-  // field was cleared" without waiting to see what comes next, and the
-  // sibling accepts the same trade for the same reason -- clearing a
-  // quantity to retype it is rare next to typing it once.
+  // Both setters store the keystrokes and nothing else.
+  //
+  // Deliberately unlike the sibling's QuantityField, and unlike this file's own
+  // two previous attempts. Rewriting text inside onChangeText on a controlled
+  // input cannot work: the rewritten string is what the NEXT keystroke is
+  // appended to, so a number is reinterpreted before it has finished being
+  // typed. Dropping the row at quantity 0 was the same mistake wearing a
+  // different hat -- one backspace on the seeded "1" unmounted the focused
+  // input, closed the keyboard, put the product back in the results list and
+  // took the unit cost already typed beside it with it, on the first edit of
+  // every line. An empty field is just an empty field here; readTypedQuantity
+  // returns null for it, the commit is blocked, and the footer says why.
+  //
+  // (The sibling's justification does not carry over: its rows start at 0 with
+  // an empty field and selectTextOnFocus, it has +/- steppers, and it has no
+  // second field whose contents a vanishing row would destroy.)
   const setQuantity = (productId: string, text: string) => {
-    const digits = text.replace(/[^0-9]/g, '');
-    const quantity = digits === '' ? 0 : Number(digits);
-    setLines((current) =>
-      quantity <= 0
-        ? current.filter((l) => l.product.id !== productId)
-        : current.map((l) => (l.product.id === productId ? { ...l, quantity } : l))
-    );
+    setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, quantity: text } : l)));
   };
 
-  // Held as the typed STRING, not a number: a half-typed "4." parsed and
-  // reformatted on every keystroke loses its trailing dot and the next digit
-  // lands in the wrong column. Converted once, at submit.
-  //
-  // Cleaning does not guarantee a numeric result -- "." alone survives it
-  // unchanged and `Number('.')` is NaN, same for "12.3.4.5" collapsing to
-  // "12.3.45". That is fine: `Number.isFinite` gates `deliveryCents` below,
-  // and `submit`'s JSON.stringify turns a NaN payload into `null`, so a NaN
-  // cost never reaches `cost_cents`. What this function actually guards
-  // against is a comma.
-  //
-  // iOS's decimal-pad renders the DEVICE LOCALE's separator, so on a
-  // comma-decimal phone typing "1,50" for one-fifty is not a mistake, it is
-  // what the keyboard offers -- and simply deleting the comma (as this used
-  // to) turns it into "150", fifteen thousand cents. But a comma is also used
-  // for thousands ("1,500" for fifteen hundred), and that reading has to keep
-  // working too. The two are told apart by what follows the LAST comma: 1-2
-  // trailing digits reads as a decimal fraction (cents), so only that comma
-  // becomes a dot; 3+ trailing digits reads as a thousands grouping and is
-  // dropped like any other punctuation. Any comma before the last one is
-  // always a grouping separator and is dropped outright. This is re-decided
-  // on every keystroke, so a number typed toward "1,500" briefly reads as a
-  // decimal ("1." then "1.5" then "1.50") before the third digit flips it
-  // back to a thousands grouping ("1500") -- a visible hiccup, but the two
-  // finished readings this file is required to produce are correct either way.
   const setCost = (productId: string, text: string) => {
-    const lastComma = text.lastIndexOf(',');
-    const isDecimalComma = lastComma !== -1 && /^[0-9]{0,2}$/.test(text.slice(lastComma + 1));
-    const withDot = isDecimalComma
-      ? `${text.slice(0, lastComma).replace(/,/g, '')}.${text.slice(lastComma + 1)}`
-      : text.replace(/,/g, '');
-    const cleaned = withDot.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-    setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, cost: cleaned } : l)));
+    setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, cost: text } : l)));
   };
 
   const removeLine = (productId: string) => {
@@ -225,36 +219,63 @@ export function StockRestockModal({
       .slice(0, 12);
   }, [catalogue, search, category, lines]);
 
-  const totalUnits = lines.reduce((sum, line) => sum + line.quantity, 0);
-  // Only when there is at least one line AND every one of them is priced.
+  // Every typed field read once, here, from the whole string -- the only place
+  // in this component that turns text into numbers.
+  const readings: LineReading[] = useMemo(
+    () => lines.map((line) => ({ line, quantity: readTypedQuantity(line.quantity), cost: readTypedCost(line.cost) })),
+    [lines]
+  );
+  const totalUnits = readings.reduce((sum, reading) => sum + (reading.quantity ?? 0), 0);
+  const everyQuantityReads = readings.every((reading) => reading.quantity !== null);
+  const noCostIsGibberish = readings.every((reading) => reading.cost.kind !== 'unreadable');
+
+  // Only when there is at least one line, every one of them is priced, and
+  // every quantity and price is readable.
   //
   // A part-priced delivery has no honest total, and showing the sum of the
   // priced half would be a smaller number presented as the whole thing. The
   // `lines.length > 0` guard is not redundant: `every` on an empty array is
   // true, so without it an empty basket reports a delivery worth 0.00 rather
   // than no delivery -- which is what Task 8's checkbox would then offer to
-  // log as an expense.
+  // log as an expense. Nothing NaN can reach this sum: a cost only reads as
+  // `cents` when it parsed to a finite number, and a quantity only reads as a
+  // number when it is a positive whole one.
   const deliveryCents =
-    lines.length > 0 && lines.every((line) => line.cost.trim() !== '')
-      ? lines.reduce((sum, line) => sum + Math.round(Number(line.cost) * 100) * line.quantity, 0)
+    readings.length > 0 && everyQuantityReads && readings.every((reading) => reading.cost.kind === 'cents')
+      ? readings.reduce(
+          (sum, reading) => sum + (reading.cost.kind === 'cents' ? reading.cost.cents * (reading.quantity ?? 0) : 0),
+          0
+        )
       : null;
-  const canSubmit = Boolean(locationId) && lines.length > 0 && lines.every((l) => l.quantity > 0) && !busy;
+  // An unreadable cost blocks the commit rather than being sent as null. null
+  // means "the delivery did not say", which leaves products.cost_cents alone;
+  // silently turning "12.3.4.5" into that would throw away a cost the shop
+  // took the trouble to type, on the screen whose whole point is capturing it.
+  const canSubmit =
+    Boolean(locationId) && readings.length > 0 && everyQuantityReads && noCostIsGibberish && !busy;
 
   const submit = async () => {
     if (!canSubmit || !locationId) return;
+    const items: { productId: string; quantity: number; unitCostCents: number | null }[] = [];
+    for (const reading of readings) {
+      // canSubmit already stopped this; the loop is what proves it to the
+      // types, and it runs before `busy` is raised so an impossible line
+      // cannot strand the button.
+      if (reading.quantity === null || reading.cost.kind === 'unreadable') return;
+      items.push({
+        productId: reading.line.product.id,
+        quantity: reading.quantity,
+        unitCostCents: reading.cost.kind === 'cents' ? reading.cost.cents : null,
+      });
+    }
     setBusy(true);
     setError(null);
     try {
-      await receiveStock(
-        shopId,
-        locationId,
-        lines.map((line) => ({
-          productId: line.product.id,
-          quantity: line.quantity,
-          unitCostCents: line.cost.trim() === '' ? null : Math.round(Number(line.cost) * 100),
-        })),
-        { supplierName: supplier.trim() || null, reference: reference.trim() || null, note: note.trim() || null }
-      );
+      await receiveStock(shopId, locationId, items, {
+        supplierName: supplier.trim() || null,
+        reference: reference.trim() || null,
+        note: note.trim() || null,
+      });
       await onDone();
       closeAndReset();
     } catch (err) {
@@ -271,12 +292,7 @@ export function StockRestockModal({
   if (!visible) return null;
 
   const storeName = selectable.find((l) => l.id === locationId)?.name ?? '';
-  const valueHint =
-    deliveryCents !== null && Number.isFinite(deliveryCents)
-      ? `Delivery value ${formatCents(deliveryCents)}`
-      : lines.length === 0
-        ? 'Nothing added yet'
-        : 'Add a unit cost to every line for a delivery value';
+  const valueHint = deliveryHint(readings, deliveryCents);
 
   return (
     <AppModal visible animationType="fade" transparent onRequestClose={closeAndReset}>
@@ -450,6 +466,19 @@ export function StockRestockModal({
   );
 }
 
+// The line under the unit count, which is also the only place a blocked commit
+// is explained. Ordered by what the person has to do next: a figure when there
+// is one, then the two things that hold the button down, then the one that
+// merely withholds the total.
+function deliveryHint(readings: LineReading[], deliveryCents: number | null): string {
+  if (readings.length === 0) return 'Nothing added yet';
+  if (deliveryCents !== null) return `Delivery value ${formatCents(deliveryCents)}`;
+  if (readings.some((reading) => reading.quantity === null)) return 'Type how many arrived on every line';
+  if (readings.some((reading) => reading.cost.kind === 'unreadable'))
+    return 'One unit cost is not an amount of money — fix it or clear it';
+  return 'Add a unit cost to every line for a delivery value';
+}
+
 // What the receiving store already holds, and what it costs -- the two numbers
 // that decide whether the quantity on the invoice is the quantity to type.
 //
@@ -457,15 +486,19 @@ export function StockRestockModal({
 // none of is nothing to offer; here it is the likeliest thing in the van.
 function RowMeta({ product }: { product: Product }) {
   const low = product.reorderLevel != null && product.stock <= product.reorderLevel;
+  // isUncosted, not `costCents === null` written out twice: whether a product
+  // counts as missing a cost is one app-wide rule (a recorded zero is a free
+  // sample, not an unanswered question), and it lives in one place.
+  const recorded = isUncosted(product) ? null : product.costCents;
   return (
     <>
       <Text style={styles.lineMeta}>
         Has {product.stock} here
-        {product.costCents !== null ? ` · cost ${formatCents(product.costCents)}` : ''}
+        {recorded !== null ? ` · cost ${formatCents(recorded)}` : ''}
         {low ? ' · ' : ''}
         {low ? <Text style={styles.lineMetaLow}>below reorder level {product.reorderLevel}</Text> : ''}
       </Text>
-      {product.costCents === null && (
+      {recorded === null && (
         <Text style={styles.lineMetaMissing}>
           No cost recorded — add one here and stock at cost stops understating
         </Text>
@@ -515,14 +548,19 @@ function LineRow({
           <View>
             <Text style={styles.cap}>RECEIVED</Text>
             <TextInput
-              // setQuantity drops a line the moment its quantity reaches 0, so
-              // a row that still exists here always has quantity >= 1 --
-              // there is no live 0 state left to render blank for.
-              value={String(line.quantity)}
+              // The typed text itself. Emptying it leaves an empty field and a
+              // row that stays put with its unit cost intact; the footer says
+              // what is missing and the commit waits.
+              value={line.quantity}
               onChangeText={onQuantity}
               placeholder="0"
               placeholderTextColor="#999999"
               keyboardType="number-pad"
+              inputMode="numeric"
+              // Seeded at "1", so the usual next action is replacing it rather
+              // than appending to it -- without this, tapping the field and
+              // typing 24 gives 124 or 241.
+              selectTextOnFocus
               aria-label={`Units of ${line.product.name} received`}
               style={styles.qtyInput}
             />
@@ -532,7 +570,7 @@ function LineRow({
             <TextInput
               value={line.cost}
               onChangeText={onCost}
-              placeholder={line.product.costCents !== null ? (line.product.costCents / 100).toFixed(2) : '0.00'}
+              placeholder={isUncosted(line.product) ? '0.00' : ((line.product.costCents ?? 0) / 100).toFixed(2)}
               placeholderTextColor="#999999"
               keyboardType="decimal-pad"
               aria-label={`Unit cost of ${line.product.name}`}
