@@ -1,7 +1,7 @@
 import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
+import type { NewProductInput, Product, ProductLocationStock, StockCountReason } from '@/types/models';
 
 // `products_shop_barcode_key` (migration 20260819000000) makes a barcode unique
 // per shop. Raw, that reads as "duplicate key value violates unique constraint
@@ -199,6 +199,42 @@ export async function receiveStock(
     })),
     p_supplier_name: options?.supplierName ?? null,
     p_reference: options?.reference ?? null,
+    p_note: options?.note ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+// Records a stock-take: SETS each line's count at one store to what was found,
+// writes the variance and why, and leaves every product not in `lines` exactly
+// as it was.
+//
+// The counterpart to receiveStock, and the one line of difference between them
+// is the whole reason both exist. receiveStock ADDS to what a store holds --
+// eleven becomes seventeen. This one REPLACES it -- eleven becomes eight, and
+// the app records the −3. A shop walking a shelf knows how many are on it, not
+// how many have gone missing since Tuesday.
+//
+// `reason` null means the shop did not say, and it is stored as not said. It is
+// never defaulted: the count preview reports how many lines have no reason,
+// because unexplained shrinkage is the finding.
+//
+// Gated on `inventory.count` inside the RPC, not on `inventory.edit` -- someone
+// who can receive a delivery cannot necessarily write stock off.
+export async function saveStockCount(
+  shopId: string,
+  locationId: string,
+  lines: { productId: string; countedQuantity: number; reason: StockCountReason | null }[],
+  options?: { note?: string | null }
+): Promise<string> {
+  const { data, error } = await supabase.rpc('save_stock_count', {
+    p_shop_id: shopId,
+    p_location_id: locationId,
+    p_items: lines.map((line) => ({
+      product_id: line.productId,
+      counted_quantity: line.countedQuantity,
+      reason: line.reason,
+    })),
     p_note: options?.note ?? null,
   });
   if (error) throw error;
