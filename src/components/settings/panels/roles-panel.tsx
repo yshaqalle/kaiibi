@@ -8,6 +8,11 @@ import { createRole, deleteRole, updateRole } from '@/lib/staff';
 import type { Role } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 
+// Computed once at module load, not per render: groupedPermissions() is pure
+// over PERMISSIONS/PERMISSION_GROUPS, both module constants, so there is
+// nothing about a particular modal open that could change its answer.
+const GROUPED_PERMISSIONS = groupedPermissions();
+
 // Role *definitions* only (what a role can do) -- roster management
 // (adding/removing staff, assigning a role to someone) moved to the Team
 // tab inside People (src/app/(admin)/(tabs)/people.tsx, see
@@ -104,14 +109,30 @@ function RoleEditorModal({
   onDelete?: () => Promise<void>;
 }) {
   const [name, setName] = useState(role?.name ?? '');
-  const [permissions, setPermissions] = useState<string[]>(role?.permissions ?? []);
+  // Seeded through expandPermissions rather than the raw stored array, so a
+  // role holding only a child (e.g. ['inventory.count']) resolves its parent
+  // and grandparent into state too -- the on-screen switches start coherent
+  // (parent checked, child checked-and-enabled) instead of showing a child
+  // checked under a parent that reads off.
+  const [permissions, setPermissions] = useState<string[]>(() => expandPermissions(role?.permissions ?? []));
+  // Stored permission strings this client's catalogue doesn't recognize -- a
+  // role saved by a client running a newer PERMISSIONS list than this one.
+  // expandPermissions (used to seed `permissions` above, and again on save)
+  // drops exactly these, by design, everywhere else it's used -- so they're
+  // captured here, before that drop, and never touched by togglePermission.
+  // Folded back into the payload only in save(), which is what stops an
+  // admin who opens and saves this role untouched from silently demoting it.
+  const [unknownPermissions, setUnknownPermissions] = useState<string[]>(() =>
+    (role?.permissions ?? []).filter((p) => !(ALL_PERMISSIONS as string[]).includes(p))
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setName(role?.name ?? '');
-      setPermissions(role?.permissions ?? []);
+      setPermissions(expandPermissions(role?.permissions ?? []));
+      setUnknownPermissions((role?.permissions ?? []).filter((p) => !(ALL_PERMISSIONS as string[]).includes(p)));
       setError(null);
     }
   }, [visible, role]);
@@ -130,7 +151,10 @@ function RoleEditorModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave({ name: trimmed, permissions: expandPermissions(permissions) });
+      // unknownPermissions never entered `permissions`, so it can't collide
+      // with anything expandPermissions resolves -- a plain concat carries
+      // it through rather than expandPermissions silently dropping it again.
+      await onSave({ name: trimmed, permissions: [...expandPermissions(permissions), ...unknownPermissions] });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this role.');
     } finally {
@@ -179,7 +203,7 @@ function RoleEditorModal({
             <Text style={modalStyles.fieldLabel}>ROLE NAME</Text>
             <TextInput value={name} onChangeText={setName} placeholder="e.g. Cashier" placeholderTextColor="#999999" style={modalStyles.input} />
             <Text style={[modalStyles.fieldLabel, { marginTop: 16 }]}>PERMISSIONS</Text>
-            {groupedPermissions().map((group) => (
+            {GROUPED_PERMISSIONS.map((group) => (
               <View key={group.label}>
                 <Text style={[modalStyles.fieldLabel, { marginTop: 16 }]}>{group.label.toUpperCase()}</Text>
                 {group.rows.map(({ permission, children }) => (
@@ -263,6 +287,10 @@ function PermissionRow({
         if (disabled) return;
         onToggle();
       }}
+      // Native, in addition to the JS guard above: without this the row stays
+      // in the tab/focus order and keeps receiving real taps that just no-op,
+      // rather than reading as genuinely inert.
+      disabled={disabled}
       style={[modalStyles.permissionRow, nested && modalStyles.permissionRowNested, disabled && modalStyles.permissionRowOff]}
     >
       <Switch value={checked} disabled={disabled} pointerEvents="none" onValueChange={() => {}} />

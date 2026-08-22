@@ -1,4 +1,4 @@
-import { PERMISSIONS, type Permission } from '@/lib/permissions';
+import { ALL_PERMISSIONS, PERMISSIONS, type Permission } from '@/lib/permissions';
 
 type PermissionEntry = (typeof PERMISSIONS)[number];
 
@@ -59,7 +59,29 @@ export function groupedPermissions(): {
   }));
   const filed = new Set(PERMISSION_GROUPS.flatMap((g) => g.permissions));
   const orphans = PERMISSIONS.filter((p) => !filed.has(p.key) && p.parent === undefined);
-  return orphans.length > 0
+  const result = orphans.length > 0
     ? [...grouped, { label: 'Other', rows: orphans.map((permission) => ({ permission, children: childrenOf(permission.key) })) }]
     : grouped;
+
+  // A permission the editor cannot draw is a permission nobody can grant --
+  // the exact silent hole the comment above exists to prevent. `childrenOf`
+  // only walks one level, so a permission whose `parent` names a CHILD (a
+  // grandchild) is invisible to every row above: not a top-level row (it has
+  // a parent) and not nested under anything either (nothing looks for
+  // children of a child). Cheap to check on every call, and a config mistake
+  // in PERMISSIONS/PERMISSION_GROUPS is a bug for the developer who wrote it,
+  // not something a shop should ever see silently swallowed into a stripped
+  // role -- so this throws instead of returning a catalogue short (or long,
+  // if a permission was drawn twice) a row.
+  const drawn = result.flatMap((g) => g.rows.flatMap((r) => [r.permission.key, ...r.children.map((c) => c.key)]));
+  const sortedDrawn = [...drawn].sort();
+  const sortedAll = [...ALL_PERMISSIONS].sort();
+  const matches = sortedDrawn.length === sortedAll.length && sortedDrawn.every((key, i) => key === sortedAll[i]);
+  if (!matches) {
+    throw new Error(
+      `groupedPermissions() drew ${drawn.length} row(s) for a ${ALL_PERMISSIONS.length}-permission catalogue -- check PERMISSIONS parent links and PERMISSION_GROUPS filing.`
+    );
+  }
+
+  return result;
 }
