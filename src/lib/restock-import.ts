@@ -152,6 +152,11 @@ function quantityRejection(text: string): string {
 
 function findLocation(locations: ShopLocation[], text: string): ShopLocation | undefined {
   const key = text.trim().toLowerCase();
+  // A blank cell must never match. Codeless stores are the norm (a code is
+  // optional, saved as null rather than ''), so an empty key would otherwise
+  // find the first active store with no code at all and receive the delivery
+  // into it -- exactly the store the shop never named.
+  if (!key) return undefined;
   return locations.find((l) => l.name.trim().toLowerCase() === key || (l.code ?? '').trim().toLowerCase() === key);
 }
 
