@@ -2,6 +2,8 @@ import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'rea
 import { StyleSheet, Text } from 'react-native';
 
 import { StockCountModal } from '@/components/stock-count-modal';
+import { parseCsvText, rowsToCsv } from '@/lib/csv';
+import { COUNT_TEMPLATE_COLUMNS } from '@/lib/count-import';
 
 // The half of the count screen that a pure test cannot reach.
 //
@@ -381,5 +383,162 @@ describe('closing the sheet', () => {
     // the field itself is what proves the basket, not the surrounding text.
     expect(tree.root.findAll((n) => n.props['aria-label'] === COUNTED)).toHaveLength(0);
     expect(allText(tree)).toContain('Save 0 count');
+  });
+});
+
+const { pickCsvFile } = jest.requireMock('@/lib/pick-csv-file') as { pickCsvFile: jest.Mock };
+
+function uploaded(rows: Record<string, string>[]) {
+  const csv = rowsToCsv(
+    rows.map((row) => ({ Product: '', SKU: '', Barcode: '', Store: 'Main', Shelf: '', 'App says': '', Counted: '', Reason: '', ...row })),
+    COUNT_TEMPLATE_COLUMNS.map((c) => ({ header: c.header, value: (r: Record<string, string>) => r[c.header] ?? '' }))
+  );
+  return { status: 'ok' as const, fileName: 'count-sheet.csv', parsed: parseCsvText(csv) };
+}
+
+describe('a count that arrives as a sheet', () => {
+  // A one-store sheet is the same thing the basket holds, so it lands there --
+  // where a number can still be corrected before anything is written.
+  it('hands a single-store sheet to the by-hand tab and drops the plan behind it', async () => {
+    listProducts.mockResolvedValue([product({})]);
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA widget', Counted: '8', Reason: 'Damaged' }]));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+    expect(allText(tree)).toContain('Damaged');
+    // Corrected on the hand tab, then the sheet tab is looked at again: it must
+    // show no live plan, because the basket is now the only copy of this count.
+    await backspace(tree, COUNTED, 1);
+    await type(tree, COUNTED, '12');
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    expect(allText(tree)).toContain('No sheet yet');
+  });
+
+  it('never counts a product the sheet left blank', async () => {
+    listProducts.mockResolvedValue([product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })]);
+    pickCsvFile.mockResolvedValue(
+      uploaded([{ Product: 'QA widget', Counted: '8' }, { Product: 'QA other', Counted: '' }])
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
+    expect(saveStockCount.mock.calls[0][2]).toEqual([
+      { productId: 'p-1', countedQuantity: 8, reason: null },
+    ]);
+  });
+});
+
+describe('closing the sheet tab', () => {
+  // The five pieces of sheet-tab state (sheetFile, sheetHeaders, plan,
+  // sheetNotice, partialCount) did not exist before this component grew a
+  // sheet tab, so closeAndReset could not have reset them. Adding the tab
+  // without adding these resets is exactly the shape of bug that shipped on
+  // the restock screen: this component is never unmounted (the screen renders
+  // it with `visible={false}`), so a plan left standing behind a closed sheet
+  // sits there under a still-live Save button, ready to commit the same
+  // stock-take again the next time the sheet is opened.
+  it('drops a live plan on close, so re-opening the sheet cannot commit it twice', async () => {
+    // Two stores, so the sheet plan is NOT handed over to the by-hand tab
+    // (handover only happens for a single-store, rejection-free plan) and
+    // stays a live, committable plan on the sheet tab itself.
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+    });
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '9' },
+      ])
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // The plan is live: two counted lines across two stores, and the button
+    // that would commit them is enabled.
+    expect(allText(tree)).toContain('2 counted');
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(false);
+
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    // closeAndReset also sends the tab back to 'hand' -- switch back to see
+    // what the sheet tab is left holding.
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+
+    // `plan` is null, not merely emptied: the footer reads the same "nothing
+    // uploaded yet" sentence a sheet tab that was never touched would, and
+    // the button that used to commit the two-store plan is disabled again
+    // rather than sitting there live with the old numbers still visible.
+    expect(allText(tree)).toContain('No sheet yet');
+    expect(allText(tree)).not.toContain('2 counted');
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+  });
+
+  it('drops the upload notice on close, so the by-hand tab does not show a stale banner', async () => {
+    listProducts.mockResolvedValue([product({})]);
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA widget', Counted: '8' }]));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    expect(allText(tree)).toContain('ready. Change anything before saving.');
+
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    expect(allText(tree)).not.toContain('ready. Change anything before saving.');
+  });
+
+  it('drops what a partial failure counted, so the next sheet does not read as a continuation of it', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+    });
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '9' },
+      ])
+    );
+    // Main succeeds, Branch fails -- a partial failure, which is the one case
+    // that leaves `plan` non-null (`{ ...plan, counts: [] }`) after commitPlan
+    // returns without reaching closeAndReset.
+    saveStockCount.mockResolvedValueOnce('count-1').mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(allText(tree)).toContain('1 line already counted');
+    expect(allText(tree)).toContain('before the failure above');
+
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+
+    // Without the reset, `plan` would still be the emptied-but-non-null object
+    // commitPlan left behind, and the footer would read "0 counted" -- a
+    // sheet tab that looks touched rather than one that was never opened.
+    expect(allText(tree)).toContain('No sheet yet');
+    expect(allText(tree)).not.toContain('already counted');
+    expect(allText(tree)).not.toContain('before the failure above');
   });
 });

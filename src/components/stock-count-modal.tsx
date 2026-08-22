@@ -7,15 +7,27 @@ import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
 import { listCategories } from '@/lib/categories';
 import { extractErrorMessage } from '@/lib/checkout-errors';
+import { rowsToCsv } from '@/lib/csv';
 import {
   COUNT_REASONS,
+  COUNT_SHEET_COLUMNS,
+  COUNT_TEMPLATE_COLUMNS,
+  countSheetRows,
+  planCount,
+  planLines,
   reasonLabel,
   summariseCount,
+  type CountPlan,
+  type CountSheetRow,
   type CountSummary,
+  type PlannedCount,
   type PlannedCountLine,
 } from '@/lib/count-import';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
+import { shareCsv } from '@/lib/export-file';
+import { downloadRejectedRowsCsv, type RejectedRow } from '@/lib/import-shared';
+import { pickCsvFile } from '@/lib/pick-csv-file';
 import { isUncosted } from '@/lib/product-costing';
 import { listProducts, saveStockCount } from '@/lib/products';
 import { readCountedQuantity } from '@/lib/restock-typed-input';
@@ -96,6 +108,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // avoid the whole class, and a reason is a five-way choice, not a screen.
   const [reasonOpenFor, setReasonOpenFor] = useState<string | null>(null);
   const [logExpense, setLogExpense] = useState(false);
+
+  // Sheet tab
+  const [sheetFile, setSheetFile] = useState<string | null>(null);
+  const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
+  const [plan, setPlan] = useState<CountPlan | null>(null);
+  const [sheetNotice, setSheetNotice] = useState<string | null>(null);
+  // Set only by a commitPlan that partially failed, and read only by the
+  // footer. commitPlan empties plan.counts on ANY failure so a re-press cannot
+  // repeat a store that already went through -- but that same clearing is what
+  // let the restock footer claim "nothing has changed yet" directly under an
+  // error naming the store that just changed.
+  const [partialCount, setPartialCount] = useState<{ lines: number; stores: number } | null>(null);
 
   // Scoped to the store being counted, because "App says 11" is the number the
   // whole screen is about. Unlike Restock, the shop-wide list is NOT merged in:
@@ -178,6 +202,11 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setError(null);
     setReasonOpenFor(null);
     setLogExpense(false);
+    setPlan(null);
+    setSheetFile(null);
+    setSheetHeaders([]);
+    setSheetNotice(null);
+    setPartialCount(null);
     setTab('hand');
     onClose();
   }, [onClose, updateLines]);
@@ -320,6 +349,199 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     closeAndReset();
   };
 
+  // --- the sheet tab ------------------------------------------------------
+
+  // Everything every store carries, once. Three things need it: the download
+  // states each count and each shelf, the sort walks the shelves, and the
+  // preview compares each counted total against what the store holds now.
+  //
+  // `listProducts(shopId, locationId)` already resolves the store's own
+  // shelf_number override (products.ts:112) as well as its stock, so the shelf
+  // on the sheet is the shelf in THAT branch -- which is the whole reason the
+  // column is per store rather than per product.
+  const loadHoldings = useCallback(async (): Promise<{ byStore: Map<string, Product[]>; stockAt: Map<string, number> }> => {
+    const byStore = new Map<string, Product[]>();
+    const stockAt = new Map<string, number>();
+    await Promise.all(
+      selectable.map(async (location) => {
+        const held = await listProducts(shopId, location.id);
+        byStore.set(location.id, held);
+        for (const product of held) stockAt.set(`${product.id}|${location.id}`, product.stock);
+      })
+    );
+    return { byStore, stockAt };
+  }, [shopId, selectable]);
+
+  // Every store's own holdings, sorted for the walk. Rows already in the basket
+  // come back pre-filled, so a shop that starts by hand and realises it is a
+  // bigger job than it thought does not retype them.
+  const downloadSheet = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const { byStore } = await loadHoldings();
+      const rows = countSheetRows(
+        selectable,
+        selectable.flatMap((location) =>
+          (byStore.get(location.id) ?? []).map((product) => ({
+            product,
+            location,
+            stock: product.stock,
+            shelfNumber: product.shelfNumber,
+          }))
+        )
+      );
+      const columns = COUNT_SHEET_COLUMNS.map((column) =>
+        column.header === 'Counted' || column.header === 'Reason'
+          ? {
+              header: column.header,
+              value: (row: CountSheetRow) => {
+                // Only the row for the store the basket is counting -- the same
+                // product's row at another branch was not what was counted, and
+                // pre-filling it would set that branch's shelf to a number
+                // nobody walked to.
+                const chosen =
+                  row.location.id === locationId
+                    ? lines.find((l) => l.product.id === row.product.id)
+                    : undefined;
+                if (!chosen) return '';
+                // `counted` is already the raw string the person typed -- see
+                // the Line type. It needs no converting on the way out.
+                return column.header === 'Counted' ? chosen.counted : chosen.reason ? reasonLabel(chosen.reason) : '';
+              },
+            }
+          : column
+      );
+      await shareCsv(rowsToCsv(rows, columns), 'count-sheet.csv', 'Count sheet');
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadSheet = async () => {
+    setError(null);
+    setSheetNotice(null);
+    const picked = await pickCsvFile(COUNT_TEMPLATE_COLUMNS);
+    if (picked.status === 'cancelled') return;
+    if (picked.status === 'error') {
+      setError(picked.message);
+      return;
+    }
+    const products = await listProducts(shopId);
+    const { byStore, stockAt } = await loadHoldings();
+
+    const next = planCount(picked.parsed, {
+      products,
+      locations: selectable,
+      // The LIVE figure, not the sheet's own "App says" column, which was true
+      // when the file was downloaded. The RPC reads it a third time under a row
+      // lock at commit, and that reading is the one recorded.
+      stockAt: (productId, locId) => stockAt.get(`${productId}|${locId}`) ?? 0,
+    });
+    // A fresh upload is a fresh attempt -- without this, re-uploading to retry
+    // the rest after a partial failure would leave the previous attempt's
+    // "N lines already counted" banner sitting under a brand new preview.
+    setPartialCount(null);
+
+    // A sheet that turns out to be one store is the same thing the by-hand tab
+    // holds, so it lands there -- where a number can still be changed before
+    // anything is written.
+    const handedOver = next.counts.length === 1 && next.rejected.length === 0;
+    // The plan is DROPPED when it is handed over, not merely stepped away
+    // from. Left standing on the restock sheet it sat behind the `By sheet`
+    // tab as a live preview of the ORIGINAL file with the button still
+    // enabled, so a shop that corrected 8 to 12 on the by-hand tab and glanced
+    // back could commit the 8 the file said.
+    setSheetFile(handedOver ? null : picked.fileName);
+    setSheetHeaders(handedOver ? [] : picked.parsed.headers);
+    setPlan(handedOver ? null : next);
+
+    if (handedOver) {
+      const count = next.counts[0];
+      // Scoped to THAT store, so each basket row's "App says" is the branch the
+      // sheet counted rather than whichever store the dropdown was showing.
+      const byId = new Map((byStore.get(count.locationId) ?? []).map((p) => [p.id, p]));
+      setLocationId(count.locationId);
+      updateLines(() =>
+        count.lines.flatMap((line) =>
+          byId.has(line.productId)
+            ? [{
+                product: byId.get(line.productId)!,
+                // The basket field holds the RAW string a person typed, so a
+                // planned number is turned back into text on the way in.
+                counted: String(line.countedQuantity),
+                reason: line.reason,
+              }]
+            : []
+        )
+      );
+      setSheetNotice(
+        `${picked.fileName} — ${count.lines.length} line${count.lines.length === 1 ? '' : 's'} ready. Change anything before saving.`
+      );
+      setTab('hand');
+    }
+  };
+
+  // One save_stock_count call per store. A store that fails fails whole and is
+  // named; the others still go through, because rolling back good work for a
+  // problem the shop can fix by re-uploading one section helps nobody.
+  const commitPlan = async () => {
+    if (!plan || plan.counts.length === 0) return;
+    setBusy(true);
+    setError(null);
+    const failures: string[] = [];
+    const succeeded: PlannedCount[] = [];
+    for (const count of plan.counts) {
+      try {
+        await saveStockCount(
+          shopId,
+          count.locationId,
+          count.lines.map((line) => ({
+            productId: line.productId,
+            countedQuantity: line.countedQuantity,
+            reason: line.reason,
+          })),
+          { note: note.trim() || null }
+        );
+        succeeded.push(count);
+      } catch (err) {
+        // Same RPC and same gates as the by-hand submit, so a plan-gated shop
+        // and a member without inventory.count both read the same sentence
+        // here that they would read there.
+        failures.push(`${count.locationName}: ${describePlanError(err) ?? extractErrorMessage(err)}`);
+      }
+    }
+    // The loop is over, so this list is SPENT -- every store in it either
+    // counted or failed whole, and a store that failed is fixed by editing that
+    // section of the sheet and uploading it again, never by pressing this
+    // button a second time. Emptied here, before anything that can throw.
+    setPlan({ ...plan, counts: [] });
+    setPartialCount(
+      succeeded.length > 0
+        ? { lines: succeeded.reduce((sum, count) => sum + count.lines.length, 0), stores: succeeded.length }
+        : null
+    );
+    await onDone().catch(() => {});
+    setBusy(false);
+    if (failures.length > 0) {
+      setError(`Some of the count did not go through.\n${failures.join('\n')}`);
+      return;
+    }
+    closeAndReset();
+  };
+
+  const downloadRejected = async () => {
+    if (!plan || plan.rejected.length === 0) return;
+    await downloadRejectedRowsCsv(plan.rejected, sheetHeaders, 'count-rejected.csv');
+  };
+
+  // The plan's own summary, computed by the same function the basket's is --
+  // so "2 differ" and a shortfall value mean one thing on both tabs.
+  const planSummary = useMemo(() => summariseCount(plan ? planLines(plan) : []), [plan]);
+  const canCommitPlan = Boolean(plan) && (plan?.counts.length ?? 0) > 0 && !busy;
+
   if (!visible) return null;
 
   return (
@@ -359,115 +581,165 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
               placeholder="Choose a store"
             />
 
-            <Text style={[styles.label, styles.labelSpaced]}>ADD PRODUCTS</Text>
-            {/* Deliberately not ScanSafeField -- no scan path is offered here,
-                and wrapping a field in a scan guard that can never fire is a
-                component pretending to do something. */}
-            <TextInput
-              value={search}
-              onChangeText={setSearch}
-              placeholder="Search by name, SKU or barcode…"
-              placeholderTextColor="#999999"
-              style={styles.input}
-            />
-            {categories.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipScroll}
-                contentContainerStyle={styles.chips}
-              >
-                <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
-                {categories.map((item) => (
-                  <CategoryChip
-                    key={item}
-                    label={item}
-                    active={category === item}
-                    onPress={() => setCategory(item)}
-                  />
+            {tab === 'hand' ? (
+              <>
+                {/* Set by an upload that turned out to be one store, which
+                    lands here rather than staying on the sheet tab. Without it
+                    the basket would fill from nowhere with no explanation. */}
+                {sheetNotice ? <Text style={styles.notice}>{sheetNotice}</Text> : null}
+
+                <Text style={[styles.label, styles.labelSpaced]}>ADD PRODUCTS</Text>
+                {/* Deliberately not ScanSafeField -- no scan path is offered here,
+                    and wrapping a field in a scan guard that can never fire is a
+                    component pretending to do something. */}
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search by name, SKU or barcode…"
+                  placeholderTextColor="#999999"
+                  style={styles.input}
+                />
+                {categories.length > 0 && (
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.chipScroll}
+                    contentContainerStyle={styles.chips}
+                  >
+                    <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
+                    {categories.map((item) => (
+                      <CategoryChip
+                        key={item}
+                        label={item}
+                        active={category === item}
+                        onPress={() => setCategory(item)}
+                      />
+                    ))}
+                  </ScrollView>
+                )}
+
+                {matches.map((product) => (
+                  <MatchRow key={product.id} product={product} onAdd={() => addLine(product)} />
                 ))}
-              </ScrollView>
-            )}
+                {lines.length === 0 && matches.length === 0 && (
+                  <Text style={styles.empty}>
+                    {search.trim() ? 'Nothing here matches that.' : 'Search above to add what you are counting.'}
+                  </Text>
+                )}
 
-            {matches.map((product) => (
-              <MatchRow key={product.id} product={product} onAdd={() => addLine(product)} />
-            ))}
-            {lines.length === 0 && matches.length === 0 && (
-              <Text style={styles.empty}>
-                {search.trim() ? 'Nothing here matches that.' : 'Search above to add what you are counting.'}
-              </Text>
-            )}
+                {lines.length > 0 && (
+                  <View style={styles.basket}>
+                    {readings.map((reading) => (
+                      <LineRow
+                        key={reading.line.product.id}
+                        line={reading.line}
+                        variance={reading.variance}
+                        reasonOpen={reasonOpenFor === reading.line.product.id}
+                        onToggleReason={() =>
+                          setReasonOpenFor((current) =>
+                            current === reading.line.product.id ? null : reading.line.product.id
+                          )
+                        }
+                        onCounted={(text) => setCounted(reading.line.product.id, text)}
+                        onReason={(reason) => setReason(reading.line.product.id, reason)}
+                        onRemove={() => removeLine(reading.line.product.id)}
+                      />
+                    ))}
+                  </View>
+                )}
 
-            {lines.length > 0 && (
-              <View style={styles.basket}>
-                {readings.map((reading) => (
-                  <LineRow
-                    key={reading.line.product.id}
-                    line={reading.line}
-                    variance={reading.variance}
-                    reasonOpen={reasonOpenFor === reading.line.product.id}
-                    onToggleReason={() =>
-                      setReasonOpenFor((current) =>
-                        current === reading.line.product.id ? null : reading.line.product.id
-                      )
-                    }
-                    onCounted={(text) => setCounted(reading.line.product.id, text)}
-                    onReason={(reason) => setReason(reading.line.product.id, reason)}
-                    onRemove={() => removeLine(reading.line.product.id)}
-                  />
-                ))}
-              </View>
+                <Text style={[styles.label, styles.labelSpaced]}>NOTE</Text>
+                <TextInput
+                  value={note}
+                  onChangeText={setNote}
+                  placeholder="Anything worth recording about this stock-take"
+                  placeholderTextColor="#999999"
+                  style={styles.input}
+                />
+              </>
+            ) : (
+              <SheetTab
+                fileName={sheetFile}
+                plan={plan}
+                planSummary={planSummary}
+                busy={busy}
+                onDownload={downloadSheet}
+                onUpload={uploadSheet}
+                onDownloadRejected={downloadRejected}
+              />
             )}
-
-            <Text style={[styles.label, styles.labelSpaced]}>NOTE</Text>
-            <TextInput
-              value={note}
-              onChangeText={setNote}
-              placeholder="Anything worth recording about this stock-take"
-              placeholderTextColor="#999999"
-              style={styles.input}
-            />
 
             {error && <Text style={styles.error}>{error}</Text>}
           </ScrollView>
 
           <View style={styles.footerWrap}>
-            {/* Gated on `everyCountReads` as well as a non-empty basket: with
-                one line counted and one blank, `handLines` is `[]` (see the
-                comment above it) and every figure here would read as zero
-                sitting directly under a live per-line variance -- a
-                contradiction, not an honest partial total. The empty-basket
-                case (`lines.length === 0`) is still allowed through as
-                zeroes, which is the honest reading of nothing counted yet. */}
-            {lines.length > 0 && everyCountReads && (
-              <View style={styles.basket}>
-                <View style={styles.basketCap}>
-                  <Text style={styles.basketCapLabel}>VARIANCE</Text>
-                  <Text style={styles.basketCapTotal}>
-                    {`${varianceText(handSummary.varianceUnits)} · ${varianceMoneyText(handSummary.varianceCents)}`}
+            {tab === 'hand' ? (
+              <>
+                {/* Gated on `everyCountReads` as well as a non-empty basket: with
+                    one line counted and one blank, `handLines` is `[]` (see the
+                    comment above it) and every figure here would read as zero
+                    sitting directly under a live per-line variance -- a
+                    contradiction, not an honest partial total. The empty-basket
+                    case (`lines.length === 0`) is still allowed through as
+                    zeroes, which is the honest reading of nothing counted yet. */}
+                {lines.length > 0 && everyCountReads && (
+                  <View style={styles.basket}>
+                    <View style={styles.basketCap}>
+                      <Text style={styles.basketCapLabel}>VARIANCE</Text>
+                      <Text style={styles.basketCapTotal}>
+                        {`${varianceText(handSummary.varianceUnits)} · ${varianceMoneyText(handSummary.varianceCents)}`}
+                      </Text>
+                    </View>
+                    <Text style={styles.lineMeta}>
+                      {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ. Nothing changes until you press Save.`}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.footerRow}>
+                  <View style={styles.footerTotal}>
+                    <Text style={styles.footerTotalText}>
+                      {`Save ${readings.length} count${readings.length === 1 ? '' : 's'}`}
+                    </Text>
+                    <Text style={styles.footerTotalHint}>{countHint(readings, handSummary)}</Text>
+                  </View>
+                  <Pressable
+                    onPress={submit}
+                    disabled={!canSubmit}
+                    style={[styles.primary, !canSubmit && styles.disabled]}
+                    accessibilityLabel="Save counts"
+                  >
+                    <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <View style={styles.footerRow}>
+                <View style={styles.footerTotal}>
+                  <Text style={styles.footerTotalText}>
+                    {partialCount
+                      ? `${partialCount.lines} line${partialCount.lines === 1 ? '' : 's'} already counted`
+                      : plan
+                        ? `${planSummary.counted} counted`
+                        : 'No sheet yet'}
+                  </Text>
+                  <Text style={styles.footerTotalHint}>
+                    {partialCount
+                      ? `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} before the failure above`
+                      : plan
+                        ? `across ${plan.counts.length} store${plan.counts.length === 1 ? '' : 's'} · nothing has changed yet`
+                        : 'Download, fill it in, upload it back'}
                   </Text>
                 </View>
-                <Text style={styles.lineMeta}>
-                  {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ. Nothing changes until you press Save.`}
-                </Text>
+                <Pressable
+                  onPress={commitPlan}
+                  disabled={!canCommitPlan}
+                  style={[styles.primary, !canCommitPlan && styles.disabled]}
+                  accessibilityLabel="Save counts"
+                >
+                  <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
+                </Pressable>
               </View>
             )}
-            <View style={styles.footerRow}>
-              <View style={styles.footerTotal}>
-                <Text style={styles.footerTotalText}>
-                  {`Save ${readings.length} count${readings.length === 1 ? '' : 's'}`}
-                </Text>
-                <Text style={styles.footerTotalHint}>{countHint(readings, handSummary)}</Text>
-              </View>
-              <Pressable
-                onPress={submit}
-                disabled={!canSubmit}
-                style={[styles.primary, !canSubmit && styles.disabled]}
-                accessibilityLabel="Save counts"
-              >
-                <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
-              </Pressable>
-            </View>
           </View>
         </View>
       </View>
@@ -599,6 +871,160 @@ function LineRow({
   );
 }
 
+// The whole sheet route on one screen: get the file, fill it, bring it back,
+// read what it says, press the button. Nothing above the footer writes -- the
+// plan is planCount's pure reading of the upload, held in state and shown.
+function SheetTab({
+  fileName,
+  plan,
+  planSummary,
+  busy,
+  onDownload,
+  onUpload,
+  onDownloadRejected,
+}: {
+  fileName: string | null;
+  plan: CountPlan | null;
+  planSummary: CountSummary;
+  busy: boolean;
+  onDownload: () => void;
+  onUpload: () => void;
+  onDownloadRejected: () => void;
+}) {
+  const varianceUnitsText = varianceText(planSummary.varianceUnits);
+  const varianceValueText =
+    planSummary.varianceCents !== null
+      ? formatCents(planSummary.varianceCents)
+      : 'value withheld — some counted products have no cost';
+
+  return (
+    <>
+      <Text style={[styles.label, styles.labelSpaced]}>THE SHEET YOU GET BACK</Text>
+      <Text style={styles.help}>
+        Everything each store carries, with what the app says it has. Fill in{' '}
+        <Text style={styles.helpStrong}>Counted</Text> — and <Text style={styles.helpStrong}>Reason</Text>, where you
+        can.
+      </Text>
+      <View style={styles.sheetActions}>
+        <Pressable onPress={onDownload} disabled={busy} style={styles.ghost}>
+          <Text style={styles.ghostText}>Download the sheet</Text>
+        </Pressable>
+        <Pressable onPress={onUpload} disabled={busy} style={styles.ghost}>
+          <Text style={styles.ghostText}>Upload a filled sheet</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.help}>
+        Sorted by shelf, not by name. A stock-take is walked, and a sheet in the order of the room is the difference
+        between an hour and an afternoon.
+      </Text>
+      {fileName ? <Text style={styles.fileName}>{fileName}</Text> : null}
+
+      {plan && (
+        <>
+          {/* Each pill only when it has something to say. A "0 rejected" pill
+              is a red-adjacent nothing, and `skipped` gets the plain wording
+              it deserves: the sheet is a download of everything the store
+              carries, so most of it is MEANT to come back untouched. */}
+          <View style={styles.pills}>
+            {planSummary.counted > 0 && <Pill tone="ok" text={`${planSummary.counted} counted`} />}
+            {planSummary.matched > 0 && <Pill tone="ok" text={`${planSummary.matched} matched`} />}
+            {planSummary.differ > 0 && (
+              <Pill tone="bad" text={`${planSummary.differ} differ · ${varianceUnitsText} units · ${varianceValueText}`} />
+            )}
+            {planSummary.reasonlessLines > 0 && (
+              <Pill tone="warn" text={`${planSummary.reasonlessLines} with no reason`} />
+            )}
+            {plan.skipped > 0 && <Pill tone="warn" text={`${plan.skipped} rows left blank — skipped`} />}
+            {plan.rejected.length > 0 && <Pill tone="bad" text={`${plan.rejected.length} rejected`} />}
+          </View>
+
+          {planSummary.differ > 0 && (
+            <>
+              <Text style={[styles.label, styles.labelSpaced]}>WHAT WILL CHANGE</Text>
+              {plan.counts.map((count) => {
+                const differing = count.lines.filter((line) => line.variance !== 0);
+                if (differing.length === 0) return null;
+                return (
+                  <View key={count.locationId} style={styles.receipt}>
+                    <View style={styles.receiptCap}>
+                      <Text style={styles.receiptName}>{count.locationName}</Text>
+                      <Text style={styles.receiptMeta}>
+                        {differing.length} line{differing.length === 1 ? '' : 's'}
+                      </Text>
+                    </View>
+                    <View style={styles.changeHeaderRow}>
+                      <Text style={[styles.changeHeaderCell, styles.changeCellName]}>Product</Text>
+                      <Text style={[styles.changeHeaderCell, styles.changeCellNum]}>App</Text>
+                      <Text style={[styles.changeHeaderCell, styles.changeCellNum]}>Counted</Text>
+                      <Text style={[styles.changeHeaderCell, styles.changeCellNum]}>Variance</Text>
+                      <Text style={[styles.changeHeaderCell, styles.changeCellReason]}>Reason</Text>
+                    </View>
+                    {differing.map((line) => (
+                      <View key={line.productId} style={styles.changeRow}>
+                        <Text style={[styles.changeCellName, styles.changeName]} numberOfLines={2}>
+                          {line.productName}
+                        </Text>
+                        <Text style={[styles.changeCellNum, styles.changeValue]}>{line.previousQuantity}</Text>
+                        <Text style={[styles.changeCellNum, styles.changeValue]}>{line.countedQuantity}</Text>
+                        <Text
+                          style={[
+                            styles.changeCellNum,
+                            styles.changeVariance,
+                            line.variance > 0 ? styles.varianceUp : styles.varianceDown,
+                          ]}
+                        >
+                          {varianceText(line.variance)}
+                        </Text>
+                        <Text
+                          style={[styles.changeCellReason, line.reason ? styles.changeReason : styles.lineMetaLow]}
+                        >
+                          {line.reason ? reasonLabel(line.reason) : '— no reason given'}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                );
+              })}
+              <Text style={styles.help}>
+                Rows that matched are counted and not listed. Printing every &quot;no change&quot; row would bury the
+                ones that need reading.
+              </Text>
+            </>
+          )}
+
+          {plan.rejected.length > 0 && (
+            <>
+              <Text style={[styles.label, styles.labelSpaced]}>WHAT WON&apos;T</Text>
+              {plan.rejected.slice(0, 8).map((row: RejectedRow) => (
+                <View key={row.row} style={styles.rejectRow}>
+                  <Text style={styles.rejectNumber}>Row {row.row}</Text>
+                  <Text style={styles.rejectReason}>{row.reason}</Text>
+                </View>
+              ))}
+              {plan.rejected.length > 8 && (
+                <Text style={styles.empty}>…and {plan.rejected.length - 8} more, in the file below.</Text>
+              )}
+              <Pressable onPress={onDownloadRejected} style={styles.ghost}>
+                <Text style={styles.ghostText}>
+                  Download the {plan.rejected.length} rejected row{plan.rejected.length === 1 ? '' : 's'}
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function Pill({ tone, text }: { tone: 'ok' | 'bad' | 'warn'; text: string }) {
+  return (
+    <View style={[styles.pill, styles[`pill_${tone}`]]}>
+      <Text style={[styles.pillText, styles[`pillText_${tone}`]]}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, maxHeight: '88%' },
@@ -702,6 +1128,20 @@ const styles = StyleSheet.create({
   rejectRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
   rejectNumber: { fontSize: 11, fontWeight: '800', color: '#A3202F', letterSpacing: 0.4 },
   rejectReason: { fontSize: 12.5, color: '#5E5D65', marginTop: 2, lineHeight: 18 },
+
+  // WHAT WILL CHANGE's table: Product / App / Counted / Variance / Reason,
+  // one row per differing line. Column widths are shared between the header
+  // row and the data rows so the two stay lined up.
+  changeHeaderRow: { flexDirection: 'row', gap: 6, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: '#DCDCE4' },
+  changeHeaderCell: { fontSize: 10, fontWeight: '800', color: '#9CA3AF', letterSpacing: 0.4 },
+  changeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
+  changeCellName: { flex: 1.5 },
+  changeCellNum: { width: 46, textAlign: 'right' },
+  changeCellReason: { flex: 1.3 },
+  changeName: { fontSize: 12.5, color: '#111111', fontWeight: '700' },
+  changeValue: { fontSize: 12.5, color: '#111111', fontVariant: ['tabular-nums'] },
+  changeVariance: { fontSize: 12.5, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  changeReason: { fontSize: 12, color: '#5E5D65' },
 
   footerWrap: { marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#DCDCE4', gap: 12 },
   footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
