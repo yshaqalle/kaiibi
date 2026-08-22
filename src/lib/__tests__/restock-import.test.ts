@@ -280,8 +280,8 @@ describe('cost', () => {
 //
 // Both routes write products.cost_cents, and until the sheet started reading
 // its Unit cost column with readTypedCost they disagreed: "1,50" was $1.50 by
-// hand and $150.00 by sheet, and "1.234,56" was $1,234.56 by hand and rejected
-// outright by sheet. Nothing on either screen said which reading it had taken.
+// hand and $150.00 by sheet, and "1.234,56" was $1,234.56 by hand and silently
+// $1.23 by sheet. Nothing on either screen said which reading it had taken.
 //
 // The by-hand reading is asserted alongside each case rather than left implied,
 // so a change to one route that quietly parts from the other goes red here

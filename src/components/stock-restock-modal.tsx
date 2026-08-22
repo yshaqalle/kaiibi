@@ -383,10 +383,6 @@ export function StockRestockModal({
   const uploadSheet = async () => {
     setError(null);
     setSheetNotice(null);
-    // A fresh upload is a fresh attempt -- without this, re-uploading after a
-    // partial failure to retry the rest would leave the previous attempt's
-    // "N units already in" banner sitting under a brand new preview.
-    setPartialReceipt(null);
     const picked = await pickCsvFile(RESTOCK_TEMPLATE_COLUMNS);
     if (picked.status === 'cancelled') return;
     if (picked.status === 'error') {
@@ -401,6 +397,10 @@ export function StockRestockModal({
       locations: selectable,
       stockAt: (productId, locId) => stockByLocation.get(`${productId}|${locId}`) ?? 0,
     });
+    // A fresh upload is a fresh attempt -- without this, re-uploading after a
+    // partial failure to retry the rest would leave the previous attempt's
+    // "N units already in" banner sitting under a brand new preview.
+    setPartialReceipt(null);
     setSheetFile(picked.fileName);
     setSheetHeaders(picked.parsed.headers);
     setPlan(next);
