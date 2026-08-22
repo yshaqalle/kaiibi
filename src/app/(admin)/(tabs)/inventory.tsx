@@ -435,7 +435,6 @@ export default function InventoryScreen() {
         run: (parsed) =>
           runProductsImport(shop.id, parsed, {
             headroom: productLimit == null ? null : Math.max(0, productLimit - usageOf('products')),
-            hasStores: showLocationFilter,
           }),
       }
     : null;

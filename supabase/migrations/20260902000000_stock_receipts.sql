@@ -16,9 +16,13 @@
 create table public.stock_receipts (
   id uuid primary key default gen_random_uuid(),
   shop_id uuid not null references public.shops(id) on delete cascade,
-  -- Restricted, not cascade, for the same reason stock_transfers restricts:
-  -- deleting a location must not erase the history of stock that came through
-  -- it. A branch is deactivated, never deleted, once it has traded.
+  -- NO ACTION, not cascade -- the default, and inherited deliberately from
+  -- stock_transfers, which does the same. (It is not RESTRICT, whatever the
+  -- wording carried over from that table used to say: the difference is only
+  -- that NO ACTION defers to the end of the statement. Neither one lets the
+  -- delete through.) Deleting a location must not erase the history of stock
+  -- that came through it; a branch is deactivated, never deleted, once it has
+  -- traded.
   location_id uuid not null references public.shop_locations(id),
   -- Free text, not a vendors FK. A delivery is often logged by whoever opened
   -- the box, and requiring them to create a vendor record first is how a
@@ -175,6 +179,11 @@ begin
     v_received := v_received + v_qty;
   end loop;
 
+  -- Unreachable, and kept anyway: the loop above rejects every quantity below 1
+  -- by raising, so reaching here with nothing received would need an EMPTY
+  -- p_items -- which the `jsonb_array_length(p_items) = 0` guard at the top has
+  -- already refused. Mirrors transfer_stock line for line so the two RPCs can be
+  -- read side by side, and it is the backstop if either guard is ever loosened.
   if v_received = 0 then
     raise exception 'cannot record a receipt that receives nothing';
   end if;

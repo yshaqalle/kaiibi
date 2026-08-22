@@ -1,7 +1,7 @@
 import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { NewProductInput, Product, ProductLocationStock, StockReceipt, StockReceiptItem } from '@/types/models';
+import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
 
 // `products_shop_barcode_key` (migration 20260819000000) makes a barcode unique
 // per shop. Raw, that reads as "duplicate key value violates unique constraint

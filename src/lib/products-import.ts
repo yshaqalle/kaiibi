@@ -105,7 +105,7 @@ function parseWholeNumber(value: string | undefined): number | null {
 export async function runProductsImport(
   shopId: string,
   parsed: ParsedCsv,
-  options?: { headroom?: number | null; hasStores?: boolean }
+  options?: { headroom?: number | null }
 ): Promise<ImportReport<Product>> {
   const existing = await listProducts(shopId);
   const existingNames = new Set(existing.map((p) => p.name.trim().toLowerCase()));
@@ -154,8 +154,9 @@ export async function runProductsImport(
     // just arrived, and doing that by re-importing the catalogue counts the
     // same units twice and inflates the shop's stock. Sending them to edit 214
     // products by hand is also not a thing anyone does. Unlike the old
-    // wording, this holds regardless of `hasStores` -- Restock doesn't need a
-    // second store, only Move does.
+    // wording, this holds for every shop -- Restock doesn't need a second
+    // store, only Move does, which is why the `hasStores` option this function
+    // used to take stopped being read at all and has now gone.
     //
     // Two branches, not one collapsed condition: a SKU-only collision means
     // this row's NAME is not one the shop carries -- naming it here (as the

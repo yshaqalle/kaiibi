@@ -1,18 +1,23 @@
 -- Receiving a delivery: what the count becomes, what the cost becomes, and
 -- what the RPC refuses.
 --
--- The three things asserted here cannot be checked in the TypeScript suite,
--- because all three are enforced by the database itself:
+-- Six groups of checks, none of which can be made in the TypeScript suite,
+-- because every one of them is enforced by the database itself. Checks 1 and 2
+-- carry the rules the whole feature turns on; 3 to 6 are what it refuses:
 --
---   * the count is INCREMENTED, not replaced. A restock that overwrote would be
---     a Count, and the two are the whole reason the Stock door exists.
---   * a filled unit cost overwrites products.cost_cents and a blank one leaves
---     it alone -- the "latest wins" rule. Getting this backwards silently
---     rewrites the shop's stock-at-cost and gross profit.
---   * receiving is gated on the `inventory` module, NOT on `multi_location`.
---     stock_transfers IS gated on multi_location, and copying that trigger
---     across would lock every single-store shop out of receiving deliveries --
---     which is the most common shop on the platform.
+--   1. the count is INCREMENTED, not replaced. A restock that overwrote would
+--      be a Count, and the two are the whole reason the Stock door exists.
+--   2. a filled unit cost overwrites products.cost_cents and a blank one leaves
+--      it alone -- the "latest wins" rule. Getting this backwards silently
+--      rewrites the shop's stock-at-cost and gross profit. (2b pins which of
+--      two lines for one product is the latest.)
+--   3. a zero or negative quantity is refused with a sentence, not skipped.
+--   4. a receiving location belonging to another shop is refused.
+--   5. a product belonging to another shop is refused, by its own guard.
+--   6. receiving is gated on the `inventory` module, NOT on `multi_location`.
+--      stock_transfers IS gated on multi_location, and copying that trigger
+--      across would lock every single-store shop out of receiving deliveries --
+--      which is the most common shop on the platform.
 --
 -- Everything runs inside one DO block whose EXCEPTION clause rolls it all back.
 
@@ -193,7 +198,8 @@ begin
 
   -- 5. A product belonging to another shop cannot be received into this one,
   --    even into one of THIS shop's own locations -- the guard at
-  --    receive_stock's product lookup (:140-142), distinct from check 4's
+  --    receive_stock's product lookup
+  --    (20260902000000_stock_receipts.sql:149-151), distinct from check 4's
   --    location guard. Asserted on the message text, not a bare `others`
   --    catch, so this proves it is that guard that fired and not check 4's.
   v_raised := false;
@@ -283,10 +289,9 @@ begin
     raise exception 'FAIL: expected module_not_included, got %', v_message;
   end if;
 
-  perform set_config('role', 'postgres', true);
-  update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop_id;
-  perform set_config('role', 'authenticated', true);
-
+  -- (No restoring the subscription here. Nothing below reads it, and the
+  -- `raise exception` two lines down rolls the whole fixture away -- including
+  -- the shop the row belongs to.)
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
