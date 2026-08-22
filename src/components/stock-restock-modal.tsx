@@ -10,8 +10,10 @@ import { extractErrorMessage } from '@/lib/checkout-errors';
 import { rowsToCsv } from '@/lib/csv';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
+import { createExpense } from '@/lib/expenses';
 import { shareCsv } from '@/lib/export-file';
 import { downloadRejectedRowsCsv, type RejectedRow } from '@/lib/import-shared';
+import { toDateColumn } from '@/lib/period';
 import { pickCsvFile } from '@/lib/pick-csv-file';
 import { isUncosted } from '@/lib/product-costing';
 import { listProducts, receiveStock } from '@/lib/products';
@@ -28,7 +30,7 @@ import {
   type RestockSheetRow,
 } from '@/lib/restock-import';
 import { readTypedCost, readTypedQuantity, type TypedCost } from '@/lib/restock-typed-input';
-import type { Product } from '@/types/models';
+import type { NewExpenseInput, Product } from '@/types/models';
 
 // Taking in a delivery, by hand or by spreadsheet.
 //
@@ -95,6 +97,15 @@ export function StockRestockModal({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Unticked, and it starts unticked again on every open (closeAndReset below).
+  //
+  // A shop that types its supplier invoices into Accounting separately would
+  // otherwise double-count its spending, silently and forever -- and a
+  // remembered tick is the same thing one open later. Opt-in is recoverable;
+  // opt-out is not. Shared by both tabs because it is one question about this
+  // delivery, but each tab decides for itself whether the question can even be
+  // asked (see `handExpenseCents` and `planExpenseCents`).
+  const [logExpense, setLogExpense] = useState(false);
 
   // Sheet tab
   const [sheetFile, setSheetFile] = useState<string | null>(null);
@@ -192,6 +203,7 @@ export function StockRestockModal({
     setSheetHeaders([]);
     setSheetNotice(null);
     setPartialReceipt(null);
+    setLogExpense(false);
     setTab('hand');
     onClose();
   }, [onClose]);
@@ -289,6 +301,47 @@ export function StockRestockModal({
   const canSubmit =
     Boolean(locationId) && readings.length > 0 && everyQuantityReads && noCostIsGibberish && !busy;
 
+  // What this basket may be logged as an inventory purchase, or null for "do
+  // not offer it". Two conditions, and both are about not putting a wrong
+  // number in the P&L:
+  //
+  //  * Fully priced. `deliveryCents` is already null unless every line has a
+  //    readable cost and a readable quantity (see above), because a part-priced
+  //    delivery has no honest total -- logging the priced half as though it
+  //    were the whole delivery is a wrong number wearing a right one's clothes.
+  //  * Worth something. A zero total is either an empty basket or a delivery of
+  //    free samples; "Also log 0.00 as an inventory purchase" is an offer to
+  //    write a row that says nothing, and a 0.00 expense in Accounting is
+  //    clutter a shop then has to explain to itself.
+  const handExpenseCents = deliveryCents !== null && deliveryCents > 0 ? deliveryCents : null;
+
+  // After the units, never before: an expense for a delivery that failed to
+  // land is a number in the P&L with no stock behind it. This never throws and
+  // never closes anything -- it returns what went wrong so the caller can say
+  // so while KEEPING the receipt, because the units really did arrive and
+  // rolling them back to punish a failed expense loses the more important of
+  // the two. (Returning rather than calling setError is what makes that
+  // possible: both callers finish by resetting, which would wipe the message.)
+  const logInventoryPurchase = async (locId: string, amountCents: number): Promise<string | null> => {
+    try {
+      await createExpense(shopId, {
+        locationId: locId,
+        // Local date, not `toISOString().slice(0, 10)` -- see toDateColumn.
+        // An evening delivery west of Greenwich would otherwise land in
+        // tomorrow's P&L.
+        occurredOn: toDateColumn(new Date()),
+        amountCents,
+        category: 'inventory_purchase',
+        vendorId: null,
+        paymentMethod: 'cash',
+        note: [supplier.trim(), reference.trim()].filter(Boolean).join(' · ') || null,
+      } satisfies NewExpenseInput);
+      return null;
+    } catch (err) {
+      return extractErrorMessage(err);
+    }
+  };
+
   const submit = async () => {
     if (!canSubmit || !locationId) return;
     const items: { productId: string; quantity: number; unitCostCents: number | null }[] = [];
@@ -311,7 +364,25 @@ export function StockRestockModal({
         reference: reference.trim() || null,
         note: note.trim() || null,
       });
+      // Only after the units are in, and only if the offer was actually on
+      // screen -- `handExpenseCents` is re-read here rather than trusting
+      // `logExpense` alone, because the tick survives an edit that unprices a
+      // line and the checkbox merely disappearing must not leave a stale yes.
+      const expenseProblem =
+        logExpense && handExpenseCents !== null ? await logInventoryPurchase(locationId, handExpenseCents) : null;
       await onDone();
+      if (expenseProblem) {
+        // The delivery is IN. So the basket is emptied -- pressing Receive
+        // again would receive the same units a second time, and the button is
+        // still sitting there -- but the sheet stays open carrying the one
+        // sentence that says what happened and what is left to do by hand.
+        // Closing here would show the message for no time at all.
+        setLines([]);
+        setNote('');
+        setError(`The stock was received, but the expense was not logged: ${expenseProblem}`);
+        setBusy(false);
+        return;
+      }
       closeAndReset();
     } catch (err) {
       // receive_stock is gated by enforce_shop_module('inventory'), which
@@ -433,6 +504,24 @@ export function StockRestockModal({
     }
   };
 
+  // The sheet tab's own answer to the question `handExpenseCents` answers for
+  // the basket. It has to be asked separately -- the plan is not the basket,
+  // and a committed plan can be several stores -- but the rule is the same one,
+  // because a checkbox that meant "every line priced" on one tab and "some
+  // lines priced" on the other would mean nothing on either.
+  //
+  // `receipts.length > 0` and `items.length > 0` are not redundant: `every` on
+  // an empty array is true, so without them an empty plan reports itself fully
+  // priced and worth 0.00 -- the same trap `deliveryCents` guards against above.
+  const planFullyPriced =
+    plan !== null &&
+    plan.receipts.length > 0 &&
+    plan.receipts.every((r) => r.items.length > 0 && r.items.every((item) => item.unitCostCents !== null));
+  const receiptCents = (receipt: PlannedReceipt) =>
+    receipt.items.reduce((sum, item) => sum + (item.unitCostCents ?? 0) * item.quantity, 0);
+  const planCents = plan ? plan.receipts.reduce((sum, receipt) => sum + receiptCents(receipt), 0) : 0;
+  const planExpenseCents = planFullyPriced && planCents > 0 ? planCents : null;
+
   // One receive_stock call per store. A store that fails fails whole and is
   // named; the others still go through, because rolling back good work for a
   // problem the shop can fix by re-uploading one section helps nobody.
@@ -441,6 +530,12 @@ export function StockRestockModal({
     setBusy(true);
     setError(null);
     const failures: string[] = [];
+    // Kept apart from `failures`, which heads its error with "Some of the
+    // delivery did not go through". A logged-expense failure is the opposite
+    // case -- all of the delivery went through and a bookkeeping row did not --
+    // and folding the two together would tell a shop its stock is missing when
+    // it is on the shelf.
+    const expenseProblems: string[] = [];
     const succeeded: PlannedReceipt[] = [];
     for (const receipt of plan.receipts) {
       try {
@@ -455,6 +550,20 @@ export function StockRestockModal({
           { supplierName: supplier.trim() || null, reference: reference.trim() || null, note: receipt.note }
         );
         succeeded.push(receipt);
+        // Per store, inside the loop, right after that store's units land --
+        // not one lump after it. Each store's delivery is its own receipt, and
+        // per-store reporting (migration 20260816000000) would otherwise
+        // attribute the whole delivery to whichever store happened to be
+        // first. `logInventoryPurchase` cannot throw, which matters here: an
+        // expense failure reaching the catch below would name this store as a
+        // store whose stock did not arrive, when it did.
+        if (logExpense && planExpenseCents !== null) {
+          const cents = receiptCents(receipt);
+          if (cents > 0) {
+            const problem = await logInventoryPurchase(receipt.locationId, cents);
+            if (problem) expenseProblems.push(`${receipt.locationName}: ${problem}`);
+          }
+        }
       } catch (err) {
         // Same RPC, same enforce_shop_module('inventory') gate, as the by-hand
         // submit's `describePlanError(err) ?? extractErrorMessage(err)` right
@@ -466,11 +575,24 @@ export function StockRestockModal({
     }
     await onDone();
     setBusy(false);
-    if (failures.length > 0) {
+    if (failures.length > 0 || expenseProblems.length > 0) {
       // The plan stays on screen: the stores that DID go through have already
       // received, so re-pressing must not repeat them. The shop reads which
       // store failed and fixes that section of the sheet.
-      setError(`Some of the delivery did not go through.\n${failures.join('\n')}`);
+      //
+      // An expense problem alone lands here for the same reason and gets the
+      // same treatment -- the stock is in, so the spent plan is cleared and
+      // the sentence says which store's expense is left to add by hand.
+      setError(
+        [
+          failures.length > 0 ? `Some of the delivery did not go through.\n${failures.join('\n')}` : null,
+          expenseProblems.length > 0
+            ? `The stock was received, but the expense was not logged:\n${expenseProblems.join('\n')}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+      );
       setPlan({ ...plan, receipts: [] });
       // Remembered for the footer, which otherwise has nothing left to read
       // "nothing has changed yet" against -- receipts is now empty on
@@ -655,64 +777,94 @@ export function StockRestockModal({
             {error && <Text style={styles.error}>{error}</Text>}
           </ScrollView>
 
-          <View style={styles.footer}>
-            {tab === 'hand' ? (
-              <>
-                <View style={styles.footerTotal}>
-                  <Text style={styles.footerTotalText}>
-                    {totalUnits} unit{totalUnits === 1 ? '' : 's'} in
-                  </Text>
-                  <Text style={styles.footerTotalHint}>{locationId ? valueHint : 'Choose a store'}</Text>
-                </View>
-                <Pressable onPress={submit} disabled={!canSubmit} style={[styles.primary, !canSubmit && styles.disabled]}>
-                  <Text style={styles.primaryText}>
-                    {busy ? 'Receiving…' : `Receive ${totalUnits} unit${totalUnits === 1 ? '' : 's'}`}
-                  </Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <View style={styles.footerTotal}>
-                  <Text style={styles.footerTotalText}>
-                    {partialReceipt
-                      ? `${partialReceipt.units} unit${partialReceipt.units === 1 ? '' : 's'} already in`
-                      : plan
-                        ? `${planUnits} unit${planUnits === 1 ? '' : 's'} in`
-                        : 'No sheet yet'}
-                  </Text>
-                  {/* "nothing has changed yet" is the whole promise of this
-                      tab before a commit: the preview above is a reading of
-                      the file, not a record of anything received. But
-                      commitPlan can fail PARTIALLY -- some stores go through,
-                      one is named in the error above, and plan.receipts is
-                      then emptied so a re-press cannot repeat what already
-                      landed. That empty plan is not "nothing happened"; it is
-                      "some of it happened and this list is spent". partialReceipt
-                      carries what actually went through so this line says so,
-                      right beneath the error naming what did not. */}
-                  <Text style={styles.footerTotalHint}>
-                    {partialReceipt
-                      ? `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} before the failure above`
-                      : plan
-                        ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
-                        : 'Download, fill it in, upload it back'}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={commitPlan}
-                  disabled={!canCommitPlan}
-                  style={[styles.primary, !canCommitPlan && styles.disabled]}
-                >
-                  <Text style={styles.primaryText}>
-                    {busy ? 'Receiving…' : `Receive ${planUnits} unit${planUnits === 1 ? '' : 's'}`}
-                  </Text>
-                </Pressable>
-              </>
-            )}
+          <View style={styles.footerWrap}>
+            {/* Above the buttons rather than beside them: it is a question
+                about the delivery, and a shop should read it on the way to the
+                button whose meaning it changes. Only ever rendered when THIS
+                tab has an honest, non-zero total to name -- see
+                `handExpenseCents` and `planExpenseCents`. */}
+            <ExpenseCheck
+              cents={tab === 'hand' ? handExpenseCents : planExpenseCents}
+              on={logExpense}
+              onToggle={() => setLogExpense((ticked) => !ticked)}
+            />
+            <View style={styles.footerRow}>
+              {tab === 'hand' ? (
+                <>
+                  <View style={styles.footerTotal}>
+                    <Text style={styles.footerTotalText}>
+                      {totalUnits} unit{totalUnits === 1 ? '' : 's'} in
+                    </Text>
+                    <Text style={styles.footerTotalHint}>{locationId ? valueHint : 'Choose a store'}</Text>
+                  </View>
+                  <Pressable onPress={submit} disabled={!canSubmit} style={[styles.primary, !canSubmit && styles.disabled]}>
+                    <Text style={styles.primaryText}>
+                      {busy ? 'Receiving…' : `Receive ${totalUnits} unit${totalUnits === 1 ? '' : 's'}`}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <View style={styles.footerTotal}>
+                    <Text style={styles.footerTotalText}>
+                      {partialReceipt
+                        ? `${partialReceipt.units} unit${partialReceipt.units === 1 ? '' : 's'} already in`
+                        : plan
+                          ? `${planUnits} unit${planUnits === 1 ? '' : 's'} in`
+                          : 'No sheet yet'}
+                    </Text>
+                    {/* "nothing has changed yet" is the whole promise of this
+                        tab before a commit: the preview above is a reading of
+                        the file, not a record of anything received. But
+                        commitPlan can fail PARTIALLY -- some stores go through,
+                        one is named in the error above, and plan.receipts is
+                        then emptied so a re-press cannot repeat what already
+                        landed. That empty plan is not "nothing happened"; it is
+                        "some of it happened and this list is spent". partialReceipt
+                        carries what actually went through so this line says so,
+                        right beneath the error naming what did not. */}
+                    <Text style={styles.footerTotalHint}>
+                      {partialReceipt
+                        ? `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} before the failure above`
+                        : plan
+                          ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
+                          : 'Download, fill it in, upload it back'}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={commitPlan}
+                    disabled={!canCommitPlan}
+                    style={[styles.primary, !canCommitPlan && styles.disabled]}
+                  >
+                    <Text style={styles.primaryText}>
+                      {busy ? 'Receiving…' : `Receive ${planUnits} unit${planUnits === 1 ? '' : 's'}`}
+                    </Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
           </View>
         </View>
       </View>
     </AppModal>
+  );
+}
+
+// The offer to write this delivery into Accounting as well as into stock.
+//
+// `cents === null` is the whole gate and it renders nothing: a delivery whose
+// lines are not all priced has no honest total, so there is no number to put in
+// the sentence and no offer worth making. It is never disabled-but-visible,
+// because a greyed checkbox invites a shop to work out what would un-grey it,
+// and the answer ("price every line") belongs to the footer hint that already
+// says it.
+function ExpenseCheck({ cents, on, onToggle }: { cents: number | null; on: boolean; onToggle: () => void }) {
+  if (cents === null) return null;
+  return (
+    <Pressable onPress={onToggle} accessibilityRole="checkbox" accessibilityState={{ checked: on }} style={styles.checkRow}>
+      <View style={[styles.checkBox, on && styles.checkBoxOn]}>{on && <Text style={styles.checkMark}>✓</Text>}</View>
+      <Text style={styles.checkLabel}>Also log {formatCents(cents)} as an inventory purchase</Text>
+    </Pressable>
   );
 }
 
@@ -1067,7 +1219,16 @@ const styles = StyleSheet.create({
   rejectNumber: { fontSize: 11, fontWeight: '800', color: '#A3202F', letterSpacing: 0.4 },
   rejectReason: { fontSize: 12.5, color: '#5E5D65', marginTop: 2, lineHeight: 18 },
 
-  footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#DCDCE4' },
+  // The rule and the spacing moved up from the button row into this wrapper so
+  // the inventory-purchase checkbox can sit inside the footer region, above the
+  // buttons, rather than being squeezed into a row laid out for two things.
+  footerWrap: { marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#DCDCE4', gap: 12 },
+  footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  checkRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  checkBox: { width: 18, height: 18, borderRadius: 5, borderWidth: 1.5, borderColor: '#DCDCE4', alignItems: 'center', justifyContent: 'center' },
+  checkBoxOn: { backgroundColor: '#111111', borderColor: '#111111' },
+  checkMark: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', lineHeight: 13 },
+  checkLabel: { fontSize: 12.5, fontWeight: '700', color: '#5E5D65', flexShrink: 1 },
   footerTotal: { flex: 1 },
   footerTotalText: { fontSize: 13, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
   footerTotalHint: { fontSize: 11.5, fontWeight: '600', color: '#9CA3AF', marginTop: 1 },

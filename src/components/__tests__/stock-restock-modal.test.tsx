@@ -70,6 +70,11 @@ const { receiveStock } = jest.requireMock('@/lib/products') as { receiveStock: j
 jest.mock('@/lib/pick-csv-file', () => ({ pickCsvFile: jest.fn() }));
 const { pickCsvFile } = jest.requireMock('@/lib/pick-csv-file') as { pickCsvFile: jest.Mock };
 
+// Mocked for the same reason as @/lib/products: the real module builds the
+// Supabase client at import time, which needs env this suite does not have.
+jest.mock('@/lib/expenses', () => ({ createExpense: jest.fn(async () => ({})) }));
+const { createExpense } = jest.requireMock('@/lib/expenses') as { createExpense: jest.Mock };
+
 const COST = 'Unit cost of QA widget';
 const QUANTITY = 'Units of QA widget received';
 
@@ -143,7 +148,11 @@ async function openWithALine(): Promise<ReactTestRenderer> {
   return tree;
 }
 
-beforeEach(() => receiveStock.mockClear());
+beforeEach(() => {
+  receiveStock.mockClear();
+  createExpense.mockClear();
+  createExpense.mockImplementation(async () => ({}));
+});
 
 describe('StockRestockModal typed input', () => {
   it('holds every keystroke of a grouped cost exactly as typed', async () => {
@@ -234,6 +243,139 @@ describe('StockRestockModal typed input', () => {
     // value that keeps the button down.
     clear(tree, QUANTITY);
     expect(field(tree, QUANTITY).props.placeholder).not.toBe('0');
+  });
+});
+
+// The optional inventory-purchase expense.
+//
+// Three things decide whether this feature is safe, and all three are here:
+// the offer never appears against a number that is not the whole delivery, it
+// is never taken unless the shop ticked it, and the expense is written per
+// store AFTER the units -- never instead of them.
+describe('StockRestockModal inventory-purchase expense', () => {
+  it('offers nothing until every line is priced, and nothing for a basket worth zero', async () => {
+    const tree = await openWithALine();
+    // Priced on no line: a total of "the priced half" would be a smaller
+    // number presented as the whole delivery.
+    expect(screenText(tree)).not.toContain('as an inventory purchase');
+    typeInto(tree, COST, '0');
+    // Priced, readable, and worth nothing -- an offer to write a 0.00 row.
+    expect(screenText(tree)).not.toContain('as an inventory purchase');
+    clear(tree, COST);
+    typeInto(tree, COST, '2.50');
+    expect(screenText(tree)).toContain(`Also log ${formatCents(250)} as an inventory purchase`);
+  });
+
+  it('writes nothing when the box is left unticked', async () => {
+    const tree = await openWithALine();
+    typeInto(tree, COST, '2.50');
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '4');
+    await press(tree, 'Receive 4 units');
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+    expect(createExpense).not.toHaveBeenCalled();
+  });
+
+  it('writes one expense for the delivery total, at the receiving store, once ticked', async () => {
+    const tree = await openWithALine();
+    typeInto(tree, COST, '2.50');
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '4');
+    await press(tree, 'as an inventory purchase');
+    await press(tree, 'Receive 4 units');
+    expect(createExpense).toHaveBeenCalledTimes(1);
+    expect(createExpense.mock.calls[0][0]).toBe('shop-1');
+    expect(createExpense.mock.calls[0][1]).toMatchObject({
+      locationId: 'loc-1',
+      amountCents: 1000,
+      category: 'inventory_purchase',
+    });
+    // After the units, never before.
+    expect(receiveStock.mock.invocationCallOrder[0]).toBeLessThan(createExpense.mock.invocationCallOrder[0]);
+  });
+
+  it('keeps the stock when the expense fails, and says so instead of closing over it', async () => {
+    createExpense.mockRejectedValueOnce(new Error('expenses are read-only'));
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={onClose} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'Add');
+    typeInto(tree, COST, '2.50');
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '4');
+    await press(tree, 'as an inventory purchase');
+    await press(tree, 'Receive 4 units');
+
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+    expect(screenText(tree)).toContain('The stock was received, but the expense was not logged: expenses are read-only');
+    // The sheet stays open so the sentence can be read -- and the basket is
+    // spent, so the button that is still on screen cannot receive the same
+    // units a second time.
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screenText(tree)).toContain('0 units in');
+    await press(tree, 'Receive');
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes one expense per store from a sheet, each for its own total', async () => {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '3', 'Unit cost': '2.00', Note: '' },
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Second', 'Quantity now': '10', 'Quantity received': '5', 'Unit cost': '3.00', Note: '' },
+        ],
+      },
+    });
+
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+
+    // 3 × 2.00 + 5 × 3.00 -- the plan's own total, not the basket's.
+    expect(screenText(tree)).toContain(`Also log ${formatCents(2100)} as an inventory purchase`);
+    await press(tree, 'as an inventory purchase');
+    await press(tree, 'Receive 8 units');
+
+    // Two rows, not one lump: per-store reporting would otherwise attribute
+    // the whole delivery to whichever store committed first.
+    expect(createExpense).toHaveBeenCalledTimes(2);
+    expect(createExpense.mock.calls.map((call) => call[1])).toEqual([
+      expect.objectContaining({ locationId: 'loc-1', amountCents: 600, category: 'inventory_purchase' }),
+      expect.objectContaining({ locationId: 'loc-2', amountCents: 1500, category: 'inventory_purchase' }),
+    ]);
+  });
+
+  it('does not offer the sheet a total when only some of its rows are priced', async () => {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '3', 'Unit cost': '2.00', Note: '' },
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Second', 'Quantity now': '10', 'Quantity received': '5', 'Unit cost': '', Note: '' },
+        ],
+      },
+    });
+
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+    expect(screenText(tree)).not.toContain('as an inventory purchase');
+    await press(tree, 'Receive 8 units');
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+    expect(createExpense).not.toHaveBeenCalled();
   });
 });
 
