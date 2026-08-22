@@ -125,8 +125,17 @@ begin
 
   -- Ordered by product id so two concurrent receipts touching the same products
   -- take their row locks in the same order and cannot deadlock -- the same
-  -- reason transfer_stock and refund_sale_items order their loops.
-  for v_item in select value from jsonb_array_elements(p_items) as t(value) order by (value->>'product_id') loop
+  -- reason transfer_stock and refund_sale_items order their loops. Ordinality
+  -- is the tiebreaker: product id alone is not a total order when a sheet
+  -- lists the same product twice, and without one, two lines for the same
+  -- product with different unit_cost_cents would leave products.cost_cents at
+  -- whichever line happened to sort second -- "latest wins" silently becoming
+  -- "either wins". Breaking the tie by array position keeps it "the last line
+  -- in the sheet wins", which is what "latest" is supposed to mean.
+  for v_item in
+    select value from jsonb_array_elements(p_items) with ordinality as t(value, ord)
+      order by (value->>'product_id'), ord
+  loop
     v_qty := (v_item->>'quantity')::integer;
     -- Zero is refused as well as negative. A line that changes nothing is a
     -- mistake in the sheet, not a no-op, and skipping it silently would report

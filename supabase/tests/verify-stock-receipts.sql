@@ -28,11 +28,14 @@ declare
   v_other_loc   uuid;
   v_serum       uuid;
   v_balm        uuid;
+  v_other_product uuid;
+  v_standard_id uuid;
   v_receipt_id  uuid;
   v_stock       integer;
   v_cost        integer;
   v_rows        integer;
   v_raised      boolean;
+  v_message     text;
 begin
   -- shops.owner_id and stock_receipts.created_by both reference auth.users(id),
   -- so both fixture "people" need a real row there before anything else.
@@ -104,7 +107,25 @@ begin
     raise exception 'FAIL: a second receipt should take 17 to 20, got %', v_stock;
   end if;
 
-  -- 3. Zero and negative quantities are refused, not silently skipped.
+  -- 2b. Two lines for the same product in one delivery: ordering by product id
+  --     alone is not a total order, so which line's cost "wins" would be
+  --     arbitrary without a tiebreaker. The later line -- higher position in
+  --     the array -- is "latest" and must win, every time this runs.
+  perform public.receive_stock(
+    v_shop_id, v_location_id,
+    jsonb_build_array(
+      jsonb_build_object('product_id', v_balm, 'quantity', 1, 'unit_cost_cents', 111),
+      jsonb_build_object('product_id', v_balm, 'quantity', 1, 'unit_cost_cents', 222)
+    ),
+    null, null, null
+  );
+  select cost_cents into v_cost from public.products where id = v_balm;
+  if v_cost <> 222 then
+    raise exception 'FAIL: two lines for one product should leave the later line''s cost, got %', v_cost;
+  end if;
+
+  -- 3. Zero and negative quantities are refused, not silently skipped, and a
+  --    negative unit cost is refused too.
   v_raised := false;
   begin
     perform public.receive_stock(v_shop_id, v_location_id,
@@ -116,7 +137,30 @@ begin
     raise exception 'FAIL: receiving zero units should raise';
   end if;
 
-  -- 4. A product from another shop cannot be received into this one.
+  v_raised := false;
+  begin
+    perform public.receive_stock(v_shop_id, v_location_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_serum, 'quantity', -3, 'unit_cost_cents', null)),
+      null, null, null);
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: receiving a negative quantity should raise';
+  end if;
+
+  v_raised := false;
+  begin
+    perform public.receive_stock(v_shop_id, v_location_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_serum, 'quantity', 1, 'unit_cost_cents', -50)),
+      null, null, null);
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a negative unit cost should raise';
+  end if;
+
+  -- 4. A receiving location belonging to another shop is refused (the guard
+  --    at receive_stock's location check, 20260902000000_stock_receipts.sql:115-117).
   -- Built as postgres, not the authenticated v_user_id: "own shops insert"
   -- requires owner_id = auth.uid(), so v_user_id could never create a shop
   -- owned by someone else -- the same reason the accounting suite's
@@ -126,20 +170,56 @@ begin
     returning id into v_other_shop;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_other_shop, 'Theirs', true)
     returning id into v_other_loc;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_other_shop, 'Their Product', 500, null, 0) returning id into v_other_product;
   perform set_config('role', 'authenticated', true);
+
   v_raised := false;
+  v_message := null;
   begin
     perform public.receive_stock(v_shop_id, v_other_loc,
       jsonb_build_array(jsonb_build_object('product_id', v_serum, 'quantity', 1, 'unit_cost_cents', null)),
       null, null, null);
-  exception when others then v_raised := true;
+  exception when others then
+    v_raised := true;
+    get stacked diagnostics v_message = message_text;
   end;
   if not v_raised then
     raise exception 'FAIL: receiving into another shop''s location should raise';
   end if;
+  if v_message !~ '^the receiving location must belong to shop' then
+    raise exception 'FAIL: expected the location guard to fire, got %', v_message;
+  end if;
 
-  -- 5. Receiving is gated on `inventory`, never on `multi_location`. A
-  --    single-store shop without the multi-location module must still receive.
+  -- 5. A product belonging to another shop cannot be received into this one,
+  --    even into one of THIS shop's own locations -- the guard at
+  --    receive_stock's product lookup (:140-142), distinct from check 4's
+  --    location guard. Asserted on the message text, not a bare `others`
+  --    catch, so this proves it is that guard that fired and not check 4's.
+  v_raised := false;
+  v_message := null;
+  begin
+    perform public.receive_stock(v_shop_id, v_location_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_other_product, 'quantity', 1, 'unit_cost_cents', null)),
+      null, null, null);
+  exception when others then
+    v_raised := true;
+    get stacked diagnostics v_message = message_text;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: receiving another shop''s product should raise';
+  end if;
+  if v_message !~ '^product .* not found in this shop' then
+    raise exception 'FAIL: expected the product guard to fire, got %', v_message;
+  end if;
+
+  -- 6. Receiving is gated on `inventory`, never on `multi_location`.
+
+  -- 6a. Structural sanity: the trigger on stock_receipts does not name
+  --     multi_location. Necessary but not sufficient on its own -- this alone
+  --     would still pass if someone moved the gate inside receive_stock()
+  --     itself, or removed the inventory gate entirely. 6b and 6c below are
+  --     the behavioural proof.
   if exists (
     select 1 from pg_trigger t
       join pg_class c on c.oid = t.tgrelid
@@ -148,6 +228,64 @@ begin
   ) then
     raise exception 'FAIL: stock_receipts must not be gated on multi_location';
   end if;
+
+  -- 6b. A shop on a plan that carries `inventory` but not `multi_location`
+  --     (the Standard tier) must still be able to receive -- the exact
+  --     scenario the whole trigger exists for. The fixture shop is on a
+  --     fresh trial, which grants every module including multi_location, so
+  --     that scenario has to be forced deliberately rather than assumed.
+  select id into v_standard_id from public.plans where key = 'standard';
+  perform set_config('role', 'postgres', true);
+  update public.shop_subscriptions set plan_id = v_standard_id where shop_id = v_shop_id;
+  perform set_config('role', 'authenticated', true);
+
+  if public.shop_has_module(v_shop_id, 'multi_location') then
+    raise exception 'FIXTURE: the standard plan unexpectedly grants multi_location';
+  end if;
+  if not public.shop_has_module(v_shop_id, 'inventory') then
+    raise exception 'FIXTURE: the standard plan unexpectedly lacks inventory';
+  end if;
+
+  perform public.receive_stock(v_shop_id, v_location_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_serum, 'quantity', 1, 'unit_cost_cents', null)),
+    null, null, null);
+  select stock into v_stock from public.product_location_stock
+    where product_id = v_serum and location_id = v_location_id;
+  if v_stock <> 21 then
+    raise exception 'FAIL: a shop without multi_location should still receive, got %', v_stock;
+  end if;
+
+  -- 6c. The inventory gate genuinely bites: a shop that has lost every module
+  --     (the operator's suspend switch, same mechanism as
+  --     verify-entitlements.sql's kill-switch check) is refused, naming the
+  --     missing module. Without this, 6a/6b only prove multi_location is
+  --     absent, never that inventory is required at all -- strip the
+  --     `inventory` gate from stock_receipts_module entirely and 6a/6b would
+  --     both still pass.
+  perform set_config('role', 'postgres', true);
+  update public.shop_subscriptions set manual_status = 'suspended' where shop_id = v_shop_id;
+  perform set_config('role', 'authenticated', true);
+
+  v_raised := false;
+  v_message := null;
+  begin
+    perform public.receive_stock(v_shop_id, v_location_id,
+      jsonb_build_array(jsonb_build_object('product_id', v_serum, 'quantity', 1, 'unit_cost_cents', null)),
+      null, null, null);
+  exception when others then
+    v_raised := true;
+    get stacked diagnostics v_message = message_text;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a shop lacking the inventory module should be refused';
+  end if;
+  if v_message <> 'module_not_included' then
+    raise exception 'FAIL: expected module_not_included, got %', v_message;
+  end if;
+
+  perform set_config('role', 'postgres', true);
+  update public.shop_subscriptions set manual_status = 'active' where shop_id = v_shop_id;
+  perform set_config('role', 'authenticated', true);
 
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
