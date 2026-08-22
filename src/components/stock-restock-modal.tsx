@@ -234,7 +234,7 @@ export function StockRestockModal({
   //
   // A part-priced delivery has no honest total, and showing the sum of the
   // priced half would be a smaller number presented as the whole thing. The
-  // `lines.length > 0` guard is not redundant: `every` on an empty array is
+  // `readings.length > 0` guard is not redundant: `every` on an empty array is
   // true, so without it an empty basket reports a delivery worth 0.00 rather
   // than no delivery -- which is what Task 8's checkbox would then offer to
   // log as an expense. Nothing NaN can reach this sum: a cost only reads as
@@ -474,6 +474,12 @@ function deliveryHint(readings: LineReading[], deliveryCents: number | null): st
   if (readings.length === 0) return 'Nothing added yet';
   if (deliveryCents !== null) return `Delivery value ${formatCents(deliveryCents)}`;
   if (readings.some((reading) => reading.quantity === null)) return 'Type how many arrived on every line';
+  // Told apart from the sentence below it because they ask for different
+  // things. A number too big for the column is usually a decimal point in the
+  // wrong place or a pasted cell, and "that is not an amount of money" reads as
+  // a lie against a field holding digits and nothing else.
+  if (readings.some((reading) => reading.cost.kind === 'unreadable' && reading.cost.reason === 'too-large'))
+    return 'One unit cost is larger than a cost can be — check the decimal point';
   if (readings.some((reading) => reading.cost.kind === 'unreadable'))
     return 'One unit cost is not an amount of money — fix it or clear it';
   return 'Add a unit cost to every line for a delivery value';
@@ -553,7 +559,11 @@ function LineRow({
               // what is missing and the commit waits.
               value={line.quantity}
               onChangeText={onQuantity}
-              placeholder="0"
+              // Not "0": readTypedQuantity rejects a typed zero (nothing
+              // arrived is not a delivery line), so a greyed 0 would be the
+              // field advertising the one value that keeps the button down.
+              // "1" is the seeded value, and typing it changes nothing.
+              placeholder="1"
               placeholderTextColor="#999999"
               keyboardType="number-pad"
               inputMode="numeric"

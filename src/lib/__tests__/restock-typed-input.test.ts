@@ -1,67 +1,127 @@
 import { readTypedCost, readTypedQuantity } from '@/lib/restock-typed-input';
 
-// Every case is driven over the REAL keystroke chain, not fed in as one
-// finished string. A controlled TextInput hands its own value back as the base
-// for the next keystroke, so a test that only ever passes the whole string
-// cannot see the bug this module exists to prevent -- both times a wrong cost
-// shipped from the restock sheet, the finished string was right and it was the
-// half-typed one that got rewritten underneath the person typing it.
-function type(typed: string, from = ''): string {
-  let state = from;
-  for (const character of typed) {
-    // The component's setters, exactly: whatever the input hands over IS the
-    // new state.
-    state = state + character;
-  }
-  return state;
-}
-
-function centsAfterTyping(typed: string): number | string {
-  const reading = readTypedCost(type(typed));
-  return reading.kind === 'cents' ? reading.cents : reading.kind;
-}
+// This module is pure and only ever sees a finished string, so that is how it
+// is tested here -- an earlier version of this file passed each case through a
+// `type()` helper that appended one character at a time to its own output,
+// which is the identity function wearing a costume. It proved nothing, and it
+// read as if it proved the thing that actually matters.
+//
+// What it cannot prove is the half that has now shipped a wrong cost twice:
+// both regressions lived in the COMPONENT's setters, where a normalising
+// .replace() rewrote the text between keystrokes. Nothing in this file would
+// have gone red for either of them. That half is held down by
+// src/components/__tests__/stock-restock-modal.test.tsx, which types into the
+// real TextInput one character at a time and asserts what the field holds after
+// each one. Keep the two in step: a separator case added here belongs there too
+// whenever its intermediate states are what a person would see.
+// The reading as one comparable value: the number, or "unreadable:<reason>" --
+// so a case that stops being readable for the wrong reason cannot pass.
+const cents = (text: string): number | string => {
+  const reading = readTypedCost(text);
+  if (reading.kind === 'cents') return reading.cents;
+  if (reading.kind === 'unreadable') return `unreadable:${reading.reason}`;
+  return reading.kind;
+};
 
 describe('readTypedCost', () => {
   it('reads a comma with one or two digits after it as a decimal point', () => {
     // What an iOS decimal-pad renders on a comma-locale phone.
-    expect(centsAfterTyping('1,50')).toBe(150);
-    expect(centsAfterTyping('1,5')).toBe(150);
-    expect(centsAfterTyping(',50')).toBe(50);
+    expect(cents('1,50')).toBe(150);
+    expect(cents('1,5')).toBe(150);
+    expect(cents(',50')).toBe(50);
   });
 
   it('reads a comma with three digits after it as a thousands grouping', () => {
     // The regression this module was written for: typing toward 1,500 used to
     // land on $1.50, because the comma became a dot the instant it was typed
     // and the digits that would have settled the reading arrived too late.
-    expect(centsAfterTyping('1,500')).toBe(150000);
-    expect(centsAfterTyping('10,000')).toBe(1000000);
-    expect(centsAfterTyping('1,234,567')).toBe(123456700);
+    expect(cents('1,500')).toBe(150000);
+    expect(cents('10,000')).toBe(1000000);
+    expect(cents('1,234,567')).toBe(123456700);
+  });
+
+  it('lets the FINAL group decide, not the number of commas', () => {
+    // "1,500,00" is what a shop that groups out of habit types for fifteen
+    // hundred and no cents. Disqualifying the last comma merely because a
+    // second one existed read it as fifteen million -- a 100x error with
+    // nothing on screen to show for it, on the field that overwrites
+    // products.cost_cents.
+    expect(cents('1,500,00')).toBe(150000);
+    expect(cents('1,500,0')).toBe(150000);
+    expect(cents('1,500,')).toBe(150000);
+    // And the grouped readings that were already right stay right.
+    expect(cents('1,234,567')).toBe(123456700);
+    expect(cents('12,345,678')).toBe(1234567800);
   });
 
   it('does not change what is in the field while a thousands number is being typed', () => {
     // The intermediate READINGS move, which is a footer total changing under a
-    // half-typed number. The text does not, which is the part that matters.
-    expect(type('1,500')).toBe('1,500');
+    // half-typed number. The text does not, which is the part that matters --
+    // and that part is asserted in the component test.
     expect(readTypedCost('1,')).toEqual({ kind: 'cents', cents: 100 });
     expect(readTypedCost('1,5')).toEqual({ kind: 'cents', cents: 150 });
     expect(readTypedCost('1,50')).toEqual({ kind: 'cents', cents: 150 });
     expect(readTypedCost('1,500')).toEqual({ kind: 'cents', cents: 150000 });
+    expect(readTypedCost('1,500,')).toEqual({ kind: 'cents', cents: 150000 });
+    expect(readTypedCost('1,500,0')).toEqual({ kind: 'cents', cents: 150000 });
+    expect(readTypedCost('1,500,00')).toEqual({ kind: 'cents', cents: 150000 });
   });
 
   it('takes the last separator as the decimal point when both appear', () => {
-    expect(centsAfterTyping('1,234.56')).toBe(123456);
-    expect(centsAfterTyping('1.234,56')).toBe(123456);
+    expect(cents('1,234.56')).toBe(123456);
+    expect(cents('1.234,56')).toBe(123456);
+    // Repeated grouping separators are accepted once both characters are
+    // present -- this is the case that leniency exists for.
+    expect(cents('1.234.567,89')).toBe(123456789);
+    expect(cents('1,234,567.89')).toBe(123456789);
+    // And the same leniency tolerates a mess. Documented rather than defended:
+    // the last separator settles it, and refusing repeats would refuse
+    // "1.234.567,89" too.
+    expect(cents('12,3.4.5')).toBe(123450);
+  });
+
+  it('treats a lone dot as the decimal point however many digits follow', () => {
+    // Deliberately NOT the mirror of the comma rule: a comma-locale
+    // decimal-pad has no dot key, so a lone dot comes from a keyboard whose dot
+    // IS the decimal point. A dot-grouping shop typing fifteen hundred as
+    // "1.500" does get $1.50, and this is the test that says so out loud.
+    expect(cents('1.500')).toBe(150);
+    expect(cents('1.5')).toBe(150);
+    expect(cents('1.50')).toBe(150);
+  });
+
+  it('refuses a minus sign rather than stripping it', () => {
+    // A credit note typed into a cost box. Filtering the sign away recorded
+    // "-4.50" as a positive 450c -- the opposite of what was meant, written
+    // over the product's stored cost. The column will not hold a negative
+    // anyway. (restock-import.ts's sheet path still keeps the '-'; the
+    // divergence is recorded, not fixed from here.)
+    expect(cents('-4.50')).toBe('unreadable:not-an-amount');
+    expect(cents('-1')).toBe('unreadable:not-an-amount');
+    expect(cents('−4,50')).toBe('unreadable:not-an-amount');
+  });
+
+  it('refuses a cost too large for the column instead of letting Postgres refuse it', () => {
+    // products.cost_cents is `integer`. Number.isFinite needs ~309 digits to
+    // fire, so everything between the column's ceiling and that was a finite
+    // number that travelled to the RPC and came back as a raw
+    // "integer out of range".
+    expect(cents('999999999999,99')).toBe('unreadable:too-large');
+    expect(cents('99999999999999999999')).toBe('unreadable:too-large');
+    expect(cents('21474836.48')).toBe('unreadable:too-large');
+    // The last cost that still fits, which must not be caught by the cap.
+    expect(cents('21474836.47')).toBe(2147483647);
   });
 
   it('keeps every plain reading working', () => {
-    expect(centsAfterTyping('1.50')).toBe(150);
-    expect(centsAfterTyping('4.')).toBe(400);
-    expect(centsAfterTyping('.5')).toBe(50);
-    expect(centsAfterTyping('$4.80')).toBe(480);
+    expect(cents('1.50')).toBe(150);
+    expect(cents('4.')).toBe(400);
+    expect(cents('.5')).toBe(50);
+    expect(cents('$4.80')).toBe(480);
   });
 
   it('accepts a genuine zero, because a free sample really does cost nothing', () => {
-    expect(centsAfterTyping('0')).toBe(0);
+    expect(cents('0')).toBe(0);
   });
 
   it('reads an empty field as blank, which leaves the recorded cost alone', () => {
@@ -72,29 +132,26 @@ describe('readTypedCost', () => {
   it('refuses to guess at something that is not an amount', () => {
     // Blocked, not dropped to null: null means "the delivery did not say", and
     // this delivery did say -- it said something unreadable.
-    expect(centsAfterTyping('.')).toBe('unreadable');
-    expect(centsAfterTyping('12.3.4.5')).toBe('unreadable');
-    expect(centsAfterTyping('abc')).toBe('unreadable');
+    expect(cents('.')).toBe('unreadable:not-an-amount');
+    expect(cents('12.3.4.5')).toBe('unreadable:not-an-amount');
+    expect(cents('abc')).toBe('unreadable:not-an-amount');
   });
 });
 
 describe('readTypedQuantity', () => {
   it('reads a typed whole number', () => {
-    expect(readTypedQuantity(type('24'))).toBe(24);
-    expect(readTypedQuantity(type('07'))).toBe(7);
+    expect(readTypedQuantity('24')).toBe(24);
+    expect(readTypedQuantity('07')).toBe(7);
   });
 
   it('survives a backspace to empty and a retype, with the row still there', () => {
     // The seeded "1" of a freshly added line, cleared and typed again. Empty
     // reads as "no quantity yet" -- it does not read as zero, and nothing above
     // is allowed to take the row away over it.
-    let state = '1';
-    expect(readTypedQuantity(state)).toBe(1);
-    state = '';
-    expect(readTypedQuantity(state)).toBeNull();
-    state = type('24', state);
-    expect(state).toBe('24');
-    expect(readTypedQuantity(state)).toBe(24);
+    expect(readTypedQuantity('1')).toBe(1);
+    expect(readTypedQuantity('')).toBeNull();
+    expect(readTypedQuantity('2')).toBe(2);
+    expect(readTypedQuantity('24')).toBe(24);
   });
 
   it('blocks on nothing, on zero and on anything that is not a whole count', () => {
@@ -103,5 +160,13 @@ describe('readTypedQuantity', () => {
     expect(readTypedQuantity('1.5')).toBeNull();
     expect(readTypedQuantity('2a')).toBeNull();
     expect(readTypedQuantity('-3')).toBeNull();
+  });
+
+  it('blocks a quantity the column cannot hold', () => {
+    // Same Postgres `integer` ceiling as the cost, for the same reason: a
+    // mis-pasted number should stop here rather than at the server.
+    expect(readTypedQuantity('2147483647')).toBe(2147483647);
+    expect(readTypedQuantity('2147483648')).toBeNull();
+    expect(readTypedQuantity('999999999999')).toBeNull();
   });
 });
