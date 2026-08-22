@@ -40,8 +40,13 @@ export function reasonLabel(key: StockCountReason): string {
   return REASON_LABELS.get(key) ?? key;
 }
 
-// The five, as a sentence, for the rejection that has to name them.
-const REASON_LIST = 'Damaged, Expired, Theft or loss, Miscount or Other';
+// The five, as a sentence, for the rejection that has to name them. Derived
+// from COUNT_REASONS rather than typed out again, so a sixth reason added
+// there cannot go missing from this sentence while still being accepted by
+// readReason below.
+const REASON_LIST = `${COUNT_REASONS.slice(0, -1)
+  .map((r) => r.label)
+  .join(', ')} or ${COUNT_REASONS[COUNT_REASONS.length - 1].label}`;
 
 // Accepts the label a shop reads off the screen, however they capitalise it,
 // and the stored key too -- a sheet that has been round-tripped through an
@@ -137,7 +142,6 @@ export function countSheetRows(locations: ShopLocation[], entries: CountSheetRow
   const rank = new Map(stores.map((location, index) => [location.id, index]));
   return entries
     .filter((entry) => rank.has(entry.location.id))
-    .slice()
     .sort(
       (a, b) =>
         rank.get(a.location.id)! - rank.get(b.location.id)! ||
@@ -215,6 +219,11 @@ function quantityRejection(text: string): string {
 
 function findLocation(locations: ShopLocation[], text: string): ShopLocation | undefined {
   const key = text.trim().toLowerCase();
+  // A blank cell must never match. Codeless stores are the norm (a code is
+  // optional, saved as null rather than ''), so an empty key would otherwise
+  // find the first active store with no code at all and count against it --
+  // exactly the store the shop never named.
+  if (!key) return undefined;
   return locations.find((l) => l.name.trim().toLowerCase() === key || (l.code ?? '').trim().toLowerCase() === key);
 }
 

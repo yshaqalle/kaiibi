@@ -5,11 +5,13 @@
 
 import { parseCsvText, rowsToCsv, type ParsedCsv } from '@/lib/csv';
 import {
+  COUNT_REASONS,
   COUNT_SHEET_COLUMNS,
   COUNT_TEMPLATE_COLUMNS,
   countSheetRows,
   planCount,
   planLines,
+  reasonLabel,
   summariseCount,
   type CountSheetRow,
 } from '@/lib/count-import';
@@ -18,8 +20,11 @@ import type { Product, ShopLocation } from '@/types/models';
 
 const MAIN = { id: 'loc-main', name: 'Jaalala Skincare', code: 'JL1', active: true } as ShopLocation;
 const SECOND = { id: 'loc-2', name: 'Jaalala 2', code: 'JL2', active: true } as ShopLocation;
+// Codeless, deliberately: the norm for a store, per locations-panel.tsx:205,
+// which saves `code.trim() || null` rather than an empty string.
+const WAREHOUSE = { id: 'loc-warehouse', name: 'Warehouse', code: null, active: true } as ShopLocation;
 const CLOSED = { id: 'loc-closed', name: 'Jaalala Kiosk', code: 'JLK', active: false } as ShopLocation;
-const LOCATIONS = [MAIN, SECOND, CLOSED];
+const LOCATIONS = [MAIN, SECOND, WAREHOUSE, CLOSED];
 
 const serum = {
   id: 'p-serum', name: 'Torriden Balanceful Serum', sku: 'TOR-BAL-100',
@@ -110,14 +115,22 @@ describe('the sheet the shop downloads', () => {
   // Last, not first: an unshelved product is the one hunted for at the end of
   // the walk, and putting it at the top would start every stock-take with the
   // items nobody can find.
+  //
+  // The shelved product (serum, "T...") is deliberately named LATER in the
+  // alphabet than the unshelved one (centella, "S..."), so a null-first
+  // ordering and a plain alphabetical one disagree. Give the shelved product
+  // the earlier name instead and this assertion would stay green even with
+  // the shelf comparison deleted outright -- alphabetical order alone would
+  // reproduce the same sequence, and the test would not be testing the rule
+  // it claims to.
   it('puts products with no shelf at the end', () => {
     const rows = countSheetRows(LOCATIONS, [
-      entry(serum, MAIN, 1, null),
-      entry(centella, MAIN, 1, 'B1'),
+      entry(centella, MAIN, 1, null),
+      entry(serum, MAIN, 1, 'B1'),
     ]);
     expect(rows.map((r) => r.product.name)).toEqual([
-      'SKIN1004 Madagascar Centella',
       'Torriden Balanceful Serum',
+      'SKIN1004 Madagascar Centella',
     ]);
   });
 
@@ -153,6 +166,24 @@ describe('the sheet the shop downloads', () => {
       Counted: '',
       Reason: '',
     });
+  });
+});
+
+// Tasks 5 and 6 read COUNT_REASONS and reasonLabel to build the reason
+// picker; nothing else pins the key -> label mapping they render.
+describe('the reasons a count can differ for', () => {
+  it('pins the five reason keys to their labels, in the order the picker shows them', () => {
+    expect(COUNT_REASONS).toEqual([
+      { key: 'damaged', label: 'Damaged' },
+      { key: 'expired', label: 'Expired' },
+      { key: 'theft_or_loss', label: 'Theft or loss' },
+      { key: 'miscount', label: 'Miscount' },
+      { key: 'other', label: 'Other' },
+    ]);
+  });
+
+  it('reads a label back for every key COUNT_REASONS lists', () => {
+    expect(COUNT_REASONS.map((r) => reasonLabel(r.key))).toEqual(COUNT_REASONS.map((r) => r.label));
   });
 });
 
@@ -271,6 +302,20 @@ describe('what a count sheet refuses', () => {
       CONTEXT
     );
     expect(plan.rejected[0].reason).toContain('Jaalala Skincare, Jaalala 2');
+  });
+
+  // The bug this guards against: a blank Store cell lowercases and trims to
+  // '', and a naive `(l.code ?? '').trim().toLowerCase() === key` comparison
+  // then matches the first active store with no code at all -- Warehouse
+  // here -- rather than being refused. Codeless stores are the norm, not the
+  // exception, so this has to be refused by name, not guessed by omission.
+  it('refuses a blank store rather than guessing the first store with no code', () => {
+    const plan = planCount(
+      sheet([{ Product: 'Torriden Balanceful Serum', Store: '', Counted: '0' }]),
+      CONTEXT
+    );
+    expect(plan.rejected[0].reason).toBe('Store is empty — say which store you counted.');
+    expect(planLines(plan)).toEqual([]);
   });
 
   it('rejects two rows counting the same product at the same store', () => {
