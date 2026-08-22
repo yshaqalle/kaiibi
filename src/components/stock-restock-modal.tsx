@@ -24,7 +24,7 @@ import { pickCsvFile } from '@/lib/pick-csv-file';
 import { isUncosted } from '@/lib/product-costing';
 import { listProducts, receiveStock } from '@/lib/products';
 import {
-  costUpdates,
+  costChanges,
   planRestock,
   receivedUnits,
   RESTOCK_SHEET_COLUMNS,
@@ -477,41 +477,67 @@ export function StockRestockModal({
     }
     setBusy(true);
     setError(null);
+    // ONLY the write is inside the try, and the try ends the moment it resolves.
+    //
+    // Everything after this point runs against a delivery that has already
+    // committed, so nothing after it may reach a catch that leaves the basket
+    // standing. It did: `await onDone()` sat here, `onDone` is the Inventory
+    // screen's reload, and a reload that throws on a network blip landed in this
+    // catch -- an error message beside a full basket and a live Receive button.
+    // Pressing it received the same units a second time, rewrote
+    // products.cost_cents again, and (because `logExpense` was still ticked)
+    // logged the inventory purchase twice.
     try {
       await receiveStock(shopId, locationId, items, {
         supplierName: supplier.trim() || null,
         reference: reference.trim() || null,
         note: note.trim() || null,
       });
-      // Only after the units are in, and only if the offer was actually on
-      // screen -- `handExpenseCents` is re-read here rather than trusting
-      // `logExpense` alone, because the tick survives an edit that unprices a
-      // line and the checkbox merely disappearing must not leave a stale yes.
-      const expenseProblem =
-        logExpense && handExpenseCents !== null ? await logInventoryPurchase(locationId, handExpenseCents) : null;
-      await onDone();
-      if (expenseProblem) {
-        // The delivery is IN. So the basket is emptied -- pressing Receive
-        // again would receive the same units a second time, and the button is
-        // still sitting there -- but the sheet stays open carrying the one
-        // sentence that says what happened and what is left to do by hand.
-        // Closing here would show the message for no time at all.
-        updateLines(() => []);
-        setNote('');
-        setError(`The stock was received, but the expense was not logged: ${expenseProblem}`);
-        setBusy(false);
-        return;
-      }
-      closeAndReset();
     } catch (err) {
       // receive_stock is gated by enforce_shop_module('inventory'), which
       // raises the literal string "module_not_included" -- describePlanError
       // turns that (and a limit-reached error) into a sentence before the
       // generic fallback ever sees it. Same precedent as the sibling
       // (stock-transfer-modal.tsx's local extractErrorMessage).
+      //
+      // Nothing was received, so the basket is deliberately left exactly as it
+      // is: this is the one failure a shop fixes by pressing the button again.
       setError(describePlanError(err) ?? extractErrorMessage(err));
       setBusy(false);
+      return;
     }
+
+    // The units are IN. The basket is spent from here on, and it is emptied
+    // before anything that can fail, so no later failure can leave a full
+    // basket under a live Receive button. `logExpense` goes with it: it is the
+    // yes to a question about a delivery that is now over.
+    updateLines(() => []);
+    setNote('');
+    setLogExpense(false);
+
+    // Only after the units are in, and only if the offer was actually on
+    // screen -- `handExpenseCents` is re-read here rather than trusting
+    // `logExpense` alone, because the tick survives an edit that unprices a
+    // line and the checkbox merely disappearing must not leave a stale yes.
+    // (Both are read from this render's closure, so emptying the basket above
+    // does not change either.)
+    const expenseProblem =
+      logExpense && handExpenseCents !== null ? await logInventoryPurchase(locationId, handExpenseCents) : null;
+    // Swallowed on purpose. This is the caller's list refresh, not part of the
+    // delivery -- a stale Inventory list is a pull-to-refresh away, while
+    // treating its failure as this screen's failure is what produced the
+    // double-receive above.
+    await onDone().catch(() => {});
+    if (expenseProblem) {
+      // The sheet stays open carrying the one sentence that says what happened
+      // and what is left to do by hand; closing here would show the message for
+      // no time at all. The basket is already empty, so the button still on
+      // screen cannot receive the same units again.
+      setError(`The stock was received, but the expense was not logged: ${expenseProblem}`);
+      setBusy(false);
+      return;
+    }
+    closeAndReset();
   };
 
   // --- the sheet tab ------------------------------------------------------
@@ -557,7 +583,9 @@ export function StockRestockModal({
                   ? lines.find((l) => l.product.id === row.product.id)
                   : undefined;
                 if (!chosen) return '';
-                return column.header === 'Quantity received' ? String(chosen.quantity) : chosen.cost;
+                // Both are already the raw strings the person typed -- see the
+                // Line type. Neither needs converting on the way out.
+                return column.header === 'Quantity received' ? chosen.quantity : chosen.cost;
               },
             }
           : column
@@ -591,15 +619,24 @@ export function StockRestockModal({
     // partial failure to retry the rest would leave the previous attempt's
     // "N units already in" banner sitting under a brand new preview.
     setPartialReceipt(null);
-    setSheetFile(picked.fileName);
-    setSheetHeaders(picked.parsed.headers);
-    setPlan(next);
 
     // A sheet that turns out to be one store is the same thing the by-hand tab
     // holds, so it lands there -- where a number can still be changed before
     // anything is received. More than one store has no single destination to
     // show, so it stays here as a summary.
-    if (next.receipts.length === 1 && next.rejected.length === 0) {
+    const handedOver = next.receipts.length === 1 && next.rejected.length === 0;
+    // The plan is DROPPED when it is handed over, not merely stepped away from.
+    //
+    // Left standing, it sat behind the `By sheet` tab as a live preview of the
+    // ORIGINAL file with `Receive N units` still enabled -- so a shop that
+    // corrected 24 to 12 on the by-hand tab and glanced back at the sheet could
+    // receive the 24 the file said. The basket is now the only copy of this
+    // delivery, which is the whole point of handing it over.
+    setSheetFile(handedOver ? null : picked.fileName);
+    setSheetHeaders(handedOver ? [] : picked.parsed.headers);
+    setPlan(handedOver ? null : next);
+
+    if (handedOver) {
       const receipt = next.receipts[0];
       const byId = new Map(products.map((p) => [p.id, p]));
       setLocationId(receipt.locationId);
@@ -692,16 +729,32 @@ export function StockRestockModal({
         failures.push(`${receipt.locationName}: ${describePlanError(err) ?? extractErrorMessage(err)}`);
       }
     }
-    await onDone();
+    // The loop is over, so this list is SPENT -- every store in it either
+    // received or failed whole, and a store that failed is fixed by editing that
+    // section of the sheet and uploading it again, never by pressing this button
+    // a second time. Emptied here, before anything that can throw, rather than
+    // inside the failure branch below: `await onDone()` used to sit above that
+    // branch and reach nothing when the caller's reload rejected, leaving the
+    // whole plan on screen with a live Receive button that would have repeated
+    // every store that already went through.
+    setPlan({ ...plan, receipts: [] });
+    // What actually went through, for the footer -- which otherwise has nothing
+    // left to read "nothing has changed yet" against, receipts being empty on
+    // purpose. Cleared again by closeAndReset on the all-succeeded path.
+    setPartialReceipt(
+      succeeded.length > 0
+        ? { units: succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0), stores: succeeded.length }
+        : null
+    );
+    // Swallowed on purpose, exactly as in `submit` above: the caller's list
+    // refresh is not part of the delivery, and its failure must not be reported
+    // as one.
+    await onDone().catch(() => {});
     setBusy(false);
     if (failures.length > 0 || expenseProblems.length > 0) {
-      // The plan stays on screen: the stores that DID go through have already
-      // received, so re-pressing must not repeat them. The shop reads which
-      // store failed and fixes that section of the sheet.
-      //
-      // An expense problem alone lands here for the same reason and gets the
-      // same treatment -- the stock is in, so the spent plan is cleared and
-      // the sentence says which store's expense is left to add by hand.
+      // An expense problem alone lands here too -- the stock is in, so the plan
+      // is spent either way and the sentence says which store's expense is left
+      // to add by hand.
       setError(
         [
           failures.length > 0 ? `Some of the delivery did not go through.\n${failures.join('\n')}` : null,
@@ -711,15 +764,6 @@ export function StockRestockModal({
         ]
           .filter(Boolean)
           .join('\n\n')
-      );
-      setPlan({ ...plan, receipts: [] });
-      // Remembered for the footer, which otherwise has nothing left to read
-      // "nothing has changed yet" against -- receipts is now empty on
-      // purpose (see above), but the stores in `succeeded` already changed.
-      setPartialReceipt(
-        succeeded.length > 0
-          ? { units: succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0), stores: succeeded.length }
-          : null
       );
       return;
     }
@@ -1188,7 +1232,11 @@ function SheetTab({
   onUpload: () => void;
   onDownloadRejected: () => void;
 }) {
-  const costChanges = plan ? costUpdates(plan) : [];
+  const changes = plan ? costChanges(plan) : [];
+  // One sentence per product this sheet prices two ways, not one per row: the
+  // clash belongs to the product, and naming it twice would read as two
+  // separate problems.
+  const clashes = [...new Map(changes.filter((c) => c.conflicting).map((c) => [c.productId, c])).values()];
 
   return (
     <>
@@ -1226,8 +1274,8 @@ function SheetTab({
             )}
             {plan.skipped > 0 && <Pill tone="warn" text={`${plan.skipped} rows left blank — skipped`} />}
             {plan.rejected.length > 0 && <Pill tone="bad" text={`${plan.rejected.length} rejected`} />}
-            {costChanges.length > 0 && (
-              <Pill tone="acc" text={`${costChanges.length} cost${costChanges.length === 1 ? '' : 's'} updated`} />
+            {changes.length > 0 && (
+              <Pill tone="acc" text={`${changes.length} cost${changes.length === 1 ? '' : 's'} updated`} />
             )}
           </View>
 
@@ -1252,6 +1300,51 @@ function SheetTab({
                   ))}
                 </View>
               ))}
+
+              {/* The costs, itemised -- the one write on this screen that used
+                  to be summarised and never shown.
+                  `previousCostCents` has existed since the plan was first
+                  written, precisely "so the preview can say 4.50 → 4.80 before
+                  anything is written", and nothing rendered it: the whole
+                  change arrived as a pill reading "2 costs updated". This is
+                  the highest-risk write the sheet makes -- products.cost_cents
+                  is what stock at cost and gross profit are built from, it has
+                  no history, and a delivery overwrites it for good. */}
+              {changes.length > 0 && (
+                <>
+                  <Text style={[styles.label, styles.labelSpaced]}>COSTS THAT WILL CHANGE</Text>
+                  <View style={styles.receipt}>
+                    {changes.map((change) => (
+                      <View key={`${change.productId}|${change.locationName}`} style={styles.receiptItem}>
+                        <Text style={styles.receiptItemName} numberOfLines={2}>
+                          {change.productName}
+                          {plan.receipts.length > 1 ? ` · ${change.locationName}` : ''}
+                        </Text>
+                        <Text style={[styles.costChange, change.conflicting && styles.costChangeClash]}>
+                          {change.previousCostCents === null ? 'no cost' : formatCents(change.previousCostCents)} →{' '}
+                          {formatCents(change.costCents)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  {/* Said in words as well as coloured, because the rows on
+                      their own look like two ordinary updates. There is one
+                      cost column per product and no store dimension in it, so
+                      both figures are written and whichever store commits last
+                      is the one the shop is left with. */}
+                  {clashes.map((clash) => (
+                    <Text key={clash.productId} style={styles.oversized}>
+                      {clash.productName} is priced two ways in this sheet:{' '}
+                      {changes
+                        .filter((c) => c.productId === clash.productId)
+                        .map((c) => `${formatCents(c.costCents)} at ${c.locationName}`)
+                        .join(', ')}
+                      . Only one cost is kept per product, so the last store to go through is the one that sticks — fix
+                      the sheet if that isn&apos;t what you meant.
+                    </Text>
+                  ))}
+                </>
+              )}
             </>
           )}
 
@@ -1395,6 +1488,12 @@ const styles = StyleSheet.create({
   receiptItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 5 },
   receiptItemName: { fontSize: 12.5, color: '#5E5D65', flexShrink: 1 },
   receiptItemQty: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
+  // Same weight and figures as the quantity beside it -- a cost change is a
+  // number the shop has to read at the same glance, not a footnote.
+  costChange: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
+  // The same amber the oversized warning uses, so "look at this one" means one
+  // thing on this screen.
+  costChangeClash: { color: '#8A5806' },
   oversized: { fontSize: 12.5, fontWeight: '700', color: '#8A5806', backgroundColor: '#FDF1DA', borderRadius: 10, padding: 10, marginTop: 8, lineHeight: 18 },
   rejectRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
   rejectNumber: { fontSize: 11, fontWeight: '800', color: '#A3202F', letterSpacing: 0.4 },

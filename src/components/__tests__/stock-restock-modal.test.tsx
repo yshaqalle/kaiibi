@@ -387,6 +387,144 @@ describe('StockRestockModal inventory-purchase expense', () => {
   });
 });
 
+// A delivery that has already committed can never be committed a second time.
+//
+// `onDone` is the Inventory screen's `reload`, which wraps `listProducts` in a
+// try/finally with no catch -- so a network blip rethrows into this component.
+// It used to be awaited INSIDE the try that wrapped `receiveStock`, and the
+// catch there sets an error, lowers `busy` and leaves the basket standing. What
+// the shop saw was a network error beside a full basket and a live Receive
+// button; pressing it received the same units again, overwrote
+// products.cost_cents again, and logged the inventory purchase twice.
+describe('StockRestockModal after the units are in', () => {
+  it('cannot receive the same delivery twice when the caller’s reload throws', async () => {
+    const onDone = jest.fn(async () => {
+      throw new Error('Failed to fetch');
+    });
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={onClose} onDone={onDone} />);
+    });
+    await press(tree, 'Add');
+    typeInto(tree, COST, '2.50');
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '24');
+    await press(tree, 'as an inventory purchase');
+
+    await press(tree, 'Receive 24 units');
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+    expect(createExpense).toHaveBeenCalledTimes(1);
+    expect(onDone).toHaveBeenCalledTimes(1);
+
+    // The basket is spent the moment receiveStock resolved, whatever happened
+    // afterwards -- and the tick with it, so a second press cannot repeat the
+    // expense either.
+    expect(screenText(tree)).toContain('0 units in');
+    expect(screenText(tree)).not.toContain('as an inventory purchase');
+
+    await press(tree, 'Receive');
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+    expect(createExpense).toHaveBeenCalledTimes(1);
+  });
+
+  it('still leaves the basket alone when it is the DELIVERY that failed', async () => {
+    // The other half, and the reason the reset cannot simply move to the top:
+    // nothing was received here, so pressing the button again is exactly the
+    // right thing to do and the basket has to survive for it.
+    receiveStock.mockRejectedValueOnce(new Error('the network is down'));
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'Add');
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '24');
+
+    await press(tree, 'Receive 24 units');
+    expect(screenText(tree)).toContain('the network is down');
+    expect(screenText(tree)).toContain('24 units in');
+    await press(tree, 'Receive 24 units');
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+  });
+
+  it('cannot re-commit a spent sheet plan when the reload throws', async () => {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '3', 'Unit cost': '', Note: '' },
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Second', 'Quantity now': '10', 'Quantity received': '5', 'Unit cost': '', Note: '' },
+        ],
+      },
+    });
+    const onDone = jest.fn(async () => {
+      throw new Error('Failed to fetch');
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={onDone} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+    await press(tree, 'Receive 8 units');
+
+    // Both stores received. The list is spent, and a throwing reload must not
+    // leave it standing behind a live button that would repeat both.
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+    await press(tree, 'Receive');
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// A sheet that turns out to be one store is HANDED to the by-hand tab, and the
+// plan behind it is dropped rather than merely stepped away from.
+describe('StockRestockModal one-store handover', () => {
+  it('leaves no stale plan behind the sheet tab to commit the unedited numbers', async () => {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '24', 'Unit cost': '4.80', Note: '' },
+        ],
+      },
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+
+    // It landed on the by-hand tab, carrying the file's numbers.
+    expect(screenText(tree)).toContain('restock.csv — 1 product ready');
+    expect(field(tree, QUANTITY).props.value).toBe('24');
+
+    // The shop corrects it: the invoice said 24, only 12 turned up.
+    clear(tree, QUANTITY);
+    typeInto(tree, QUANTITY, '12');
+
+    // Glancing back at the sheet tab must show no preview and no live button.
+    // It used to show the ORIGINAL plan with `Receive 24 units` enabled.
+    await press(tree, 'By sheet');
+    expect(screenText(tree)).toContain('No sheet yet');
+    expect(screenText(tree)).not.toContain('WHAT WILL BE RECEIVED');
+    expect(screenText(tree)).not.toContain('restock.csv');
+    await press(tree, 'Receive 0 units');
+    expect(receiveStock).not.toHaveBeenCalled();
+
+    // And the basket -- the only copy of this delivery now -- commits the 12.
+    await press(tree, 'By hand');
+    await press(tree, 'Receive 12 units');
+    expect(receiveStock).toHaveBeenCalledTimes(1);
+    expect(receiveStock.mock.calls[0][2]).toEqual([{ productId: 'p-1', quantity: 12, unitCostCents: 480 }]);
+  });
+});
+
 // The sheet tab's footer promises "nothing has changed yet" -- the whole
 // design of this screen is that nothing writes before the commit button. That
 // promise has to hold, and stop holding honestly, across the one commit that

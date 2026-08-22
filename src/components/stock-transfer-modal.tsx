@@ -351,6 +351,13 @@ export function StockTransferModal({
     if (!canSubmit || !fromId || !toId) return;
     setBusy(true);
     setError(null);
+    // ONLY the write is inside the try, and the try ends the moment it resolves.
+    //
+    // `await onDone()` used to sit in here, after the move had committed --
+    // and `onDone` is the Inventory screen's reload, which rethrows a failed
+    // fetch. A network blip therefore landed in this catch: an error message
+    // beside a basket that was still full, under a live Move button that would
+    // have moved the same units a second time.
     try {
       await transferStock(
         shopId,
@@ -359,12 +366,22 @@ export function StockTransferModal({
         lines.map((line) => ({ productId: line.product.id, quantity: line.quantity })),
         note.trim() || null
       );
-      await onDone();
-      closeAndReset();
     } catch (err) {
+      // Nothing moved, so the basket is deliberately left as it is: this is the
+      // one failure a shop fixes by pressing the button again.
       setError(extractErrorMessage(err));
       setBusy(false);
+      return;
     }
+    // The units have MOVED. The basket is spent, so it is emptied before
+    // anything else runs.
+    updateLines(() => []);
+    setNote('');
+    // Swallowed on purpose: the caller's list refresh is not part of the move,
+    // and treating its failure as the move's failure is what produced the
+    // double-move above.
+    await onDone().catch(() => {});
+    closeAndReset();
   };
 
   // --- the sheet tab ------------------------------------------------------
@@ -441,15 +458,22 @@ export function StockTransferModal({
       locations: selectable,
       stockAt: (productId, locationId) => stockByLocation.get(`${productId}|${locationId}`) ?? 0,
     });
-    setSheetFile(picked.fileName);
-    setSheetHeaders(picked.parsed.headers);
-    setPlan(next);
-
     // A sheet that turns out to be one store pair is the same thing the by-hand
     // tab holds, so it lands there -- where a number can still be changed before
     // anything moves. More than one pair has no single From/To to show, so it
     // stays here as a summary.
-    if (next.pairs.length === 1 && next.rejected.length === 0) {
+    const handedOver = next.pairs.length === 1 && next.rejected.length === 0;
+    // The plan is DROPPED when it is handed over, not merely stepped away from.
+    //
+    // Left standing, it sat behind the `By sheet` tab as a live preview of the
+    // ORIGINAL file with its Move button still enabled -- so a shop that
+    // corrected 24 to 12 on the by-hand tab and glanced back at the sheet could
+    // move the 24 the file said. The basket is now the only copy of this move.
+    setSheetFile(handedOver ? null : picked.fileName);
+    setSheetHeaders(handedOver ? [] : picked.parsed.headers);
+    setPlan(handedOver ? null : next);
+
+    if (handedOver) {
       const pair = next.pairs[0];
       const byId = new Map(products.map((p) => [p.id, p]));
       setFromIdState(pair.fromLocationId);
@@ -483,14 +507,21 @@ export function StockTransferModal({
         failures.push(`${pair.fromName} → ${pair.toName}: ${extractErrorMessage(err)}`);
       }
     }
-    await onDone();
+    // The loop is over, so this list is SPENT -- every pair in it either moved
+    // or failed whole, and a pair that failed is fixed by editing that section
+    // of the sheet and uploading it again, never by pressing this button a
+    // second time. Emptied here, before anything that can throw, rather than
+    // inside the failure branch below: `await onDone()` used to sit above that
+    // branch and reach nothing when the caller's reload rejected, leaving the
+    // whole plan on screen with a live Move button that would have repeated
+    // every pair that already went through.
+    setPlan({ ...plan, pairs: [] });
+    // Swallowed on purpose, exactly as in `submit` above.
+    await onDone().catch(() => {});
     setBusy(false);
     if (failures.length > 0) {
-      // The plan is deliberately left on screen: the pairs that DID go through
-      // have already moved, so re-pressing must not repeat them. The shop reads
-      // which pair failed and fixes that section of the sheet.
+      // The shop reads which pair failed and fixes that section of the sheet.
       setError(`Some moves did not go through.\n${failures.join('\n')}`);
-      setPlan({ ...plan, pairs: [] });
       return;
     }
     closeAndReset();
