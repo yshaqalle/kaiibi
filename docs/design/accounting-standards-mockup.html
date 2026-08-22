@@ -1,0 +1,2179 @@
+<meta charset="utf-8" />
+<title>Kaiibi Accounting — a real general ledger</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app is light-only (theme.ts). */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#8b8b93; --d-mut2:#a8a8b0; --d-ln:#ececf0; --d-soft:#f6f6f7;
+    --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e;
+    --profit:#0f9d58; --loss:#d92d3f;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3.sub{font-size:15px;font-weight:800;margin:28px 0 8px;letter-spacing:-.01em;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:56px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  .note code,.lede code,td code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  /* verdict list */
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:7px;}
+
+  /* doc-level tables */
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;white-space:nowrap;}
+  .dtbl tr:last-child td{border-bottom:none;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;white-space:nowrap;}
+  .tag.new{background:rgba(47,107,255,.13);color:#2f6bff;}
+  .tag.chg{background:rgba(200,121,26,.15);color:#a3620f;}
+  .tag.keep{background:rgba(15,157,88,.13);color:#0b7a44;}
+  .tag.gone{background:rgba(217,45,63,.12);color:#c02234;}
+
+  /* mockup tab switcher */
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;
+    background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;
+    padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .switch .grp{font-size:10.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--mut);align-self:center;margin:0 2px 0 8px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;}
+  .pair > div{min-width:0;}
+
+  /* ---- app chrome ---- */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 2px;color:var(--d-mut);}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .headActs{display:flex;gap:8px;}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;
+    font-size:12.5px;font-weight:700;color:var(--d-ink2);font-family:inherit;cursor:pointer;}
+  .btn.solid{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;
+    font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .crumb{font-size:12px;color:var(--d-mut);margin:0 0 10px;font-weight:600;}
+  .crumb b{color:var(--d-ink2);font-weight:700;}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+  .filters span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:6px 13px;
+    font-size:12px;font-weight:700;color:var(--d-ink2);}
+  .filters span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+
+  /* ---- bento ---- */
+  .grid{display:grid;gap:14px;}
+  .grid.wide{grid-template-columns:repeat(12,1fr);}
+  .grid.narrow{grid-template-columns:1fr;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx.tight{padding:18px 10px;}
+  .cardx.tight .crow,.cardx.tight .ctitle,.cardx.tight .foot,.cardx.tight .cav{margin-left:8px;margin-right:8px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;
+    color:var(--d-ink2);white-space:nowrap;}
+  .num{font-variant-numeric:tabular-nums;}
+  .foot{font-size:11.5px;color:var(--d-mut);margin-top:10px;line-height:1.45;}
+
+  .kpis{display:grid;gap:10px;}
+  .w1280 .kpis{grid-template-columns:repeat(4,1fr);}
+  .w1280 .kpis.k3{grid-template-columns:repeat(3,1fr);}
+  .w1280 .kpis.k2{grid-template-columns:repeat(2,1fr);}
+  .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* launcher tiles */
+  .tiles{display:grid;gap:10px;}
+  .w1280 .tiles{grid-template-columns:repeat(4,1fr);}
+  .w380 .tiles{grid-template-columns:1fr;}
+  .tile{background:var(--d-soft);border-radius:18px;padding:14px 15px;display:flex;flex-direction:column;}
+  .tile b{display:block;font-size:13.5px;font-weight:800;line-height:1.3;}
+  .tile span.d{display:block;font-size:11.5px;color:var(--d-mut);margin-top:4px;line-height:1.45;flex:1;}
+  .tile .ic{width:28px;height:28px;border-radius:9px;background:#eaf0ff;color:#2b4f9e;
+    display:flex;align-items:center;justify-content:center;font-size:13px;margin-bottom:9px;}
+  .tile .act{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:12px;}
+  .tile .when{font-size:11px;color:var(--d-mut2);white-space:nowrap;}
+  .tile .go{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:999px;
+    background:#eaf0ff;color:#2b4f9e;white-space:nowrap;}
+  .tile .go.solid{background:#2f6bff;color:#fff;}
+  .tile.gap{outline:1px dashed #d9a24a;outline-offset:-1px;}
+  .grpttl{font-size:12.5px;font-weight:800;margin:0 0 10px;letter-spacing:-.005em;}
+  .grpttl + .tiles{margin-bottom:20px;}
+  .grpttl .sub2{font-weight:500;color:var(--d-mut);font-size:11.5px;}
+
+  /* caveats */
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav + .cav{margin-top:8px;}
+  .cav.wrong{background:#fff8e6;border:1px solid #f0d99a;color:#7a6320;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#31507f;}
+  .cav.partial{background:var(--d-soft);border:1px solid var(--d-ln);color:var(--d-mut);}
+  .cav b{color:inherit;}
+  .cav a{color:inherit;font-weight:700;}
+
+  /* statement rows */
+  .pl{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid var(--d-ln);}
+  .pl:last-child{border-bottom:none;}
+  .pl .nm{font-size:13.5px;font-weight:600;}
+  .pl .hint{display:block;font-size:11px;color:var(--d-mut);font-weight:400;margin-top:2px;}
+  .pl .amt{font-size:15px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .pl.emph{border-top:1px solid var(--d-ln);} .pl.emph .nm{font-weight:800;}
+  .pl.sub{padding-left:16px;} .pl.sub .nm{color:var(--d-mut);font-weight:500;}
+  .pl.tot{background:var(--d-soft);border-radius:14px;border-bottom:none;margin-top:8px;padding:13px 16px;}
+  .pl.tot .nm{font-size:14.5px;font-weight:800;} .pl.tot .amt{font-size:19px;}
+  .pl.head2{border-bottom:1px solid var(--d-ln);padding-bottom:6px;}
+  .pl.head2 .nm{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--d-mut);}
+  .loss{color:var(--loss);} .profit{color:var(--profit);}
+
+  /* generic rows */
+  .rw{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--d-ln);}
+  .rw:last-child{border-bottom:none;}
+  .rw .ic{width:32px;height:32px;border-radius:10px;background:var(--d-soft);display:flex;
+    align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+  .rw .bd{flex:1;min-width:0;}
+  .rw .t1{font-size:13.5px;font-weight:700;}
+  .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .bar{height:6px;border-radius:3px;background:var(--d-ln);margin-top:6px;overflow:hidden;}
+  .bar i{display:block;height:100%;border-radius:3px;}
+  .chip{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--d-soft);
+    color:var(--d-ink2);white-space:nowrap;letter-spacing:.03em;text-transform:uppercase;}
+  .chip.hot{background:var(--loss);color:#fff;} .chip.ok{background:#e7f5ed;color:#0b6b3c;}
+  .chip.warn{background:#fdf0e0;color:#8a530f;}
+  .chip.info{background:#eaf0ff;color:#2b4f9e;}
+  .chip.lock{background:#efeef7;color:#4a4670;}
+
+  /* tables */
+  .tbl{overflow-x:auto;}
+  table.t{width:100%;border-collapse:collapse;min-width:520px;}
+  table.t th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);
+    text-align:left;padding:0 10px 9px 0;border-bottom:1px solid var(--d-ln);white-space:nowrap;}
+  table.t th.r,table.t td.r{text-align:right;padding-right:0;}
+  table.t td{padding:11px 10px 11px 0;border-bottom:1px solid var(--d-ln);font-size:13px;vertical-align:top;}
+  table.t tr:last-child td{border-bottom:none;}
+  table.t tr.totalrow td{border-top:2px solid var(--d-ink);border-bottom:none;font-weight:800;padding-top:12px;}
+  table.t tr.grp td{background:var(--d-soft);font-size:10.5px;font-weight:800;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--d-mut);padding:8px 10px 8px 0;border-bottom:none;}
+  table.t tr.grp td:first-child{padding-left:10px;border-radius:10px 0 0 10px;}
+  table.t tr.grp td:last-child{border-radius:0 10px 10px 0;}
+  td .p{font-weight:700;} td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  td.r .p{font-variant-numeric:tabular-nums;}
+  .muted{color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;}
+
+  /* entry form */
+  .fld{margin-bottom:11px;}
+  .fld label{display:block;font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+    color:var(--d-mut);margin-bottom:5px;}
+  .inp{border:1px solid var(--d-ln);border-radius:12px;padding:10px 13px;font-size:13.5px;
+    background:var(--d-sf);color:var(--d-ink);}
+  .inp.ph{color:var(--d-mut2);}
+  .fldrow{display:flex;gap:10px;} .fldrow > *{flex:1;min-width:0;}
+  .balbar{display:flex;align-items:center;justify-content:space-between;gap:12px;background:var(--d-soft);
+    border-radius:16px;padding:13px 16px;margin-top:12px;}
+  .balbar .lbl{font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .balbar .v{font-size:17px;font-weight:800;font-variant-numeric:tabular-nums;}
+
+  .legend{display:flex;gap:14px;margin-top:10px;font-size:11.5px;color:var(--d-mut);flex-wrap:wrap;}
+  .dot{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:-1px;}
+
+  a{color:var(--blue);}
+  a:focus-visible,button:focus-visible{outline:2px solid var(--blue);outline-offset:2px;}
+</style>
+
+<div class="wrap doc">
+
+  <p class="eyebrow">Design mockup · Accounting</p>
+  <h1>A real general ledger under kaiibi</h1>
+  <p class="lede">Every item on the request list below the line — trial balance, balance sheet,
+  cash flow, journals, fixed assets, audit log — is impossible to produce correctly from the
+  tables kaiibi has today. They all need one thing that does not exist yet: a
+  <b>double-entry general ledger</b>. This document proposes it, shows the screens it makes
+  possible, and lists exactly what changes.</p>
+
+<section>
+  <h2>What's wrong today</h2>
+  <p class="h2sub">Not bugs — structural gaps. Each one is a place the current model gives an answer an accountant would reject.</p>
+
+  <div class="verdict">
+    <div class="vx bad">
+      <b>There is no ledger, so nothing has to balance</b>
+      <p>Money facts live in seven unrelated tables — <code>sales</code>, <code>expenses</code>,
+      <code>invoices</code>, <code>payroll_runs</code>, <code>cash_accounts</code>,
+      <code>stock_receipts</code>, <code>refunds</code>. Reports are assembled by summing them.
+      Nothing forces the sums to agree, and nothing can detect it when they don't.</p>
+    </div>
+    <div class="vx bad">
+      <b>Cash is typed in by hand, not derived</b>
+      <p><code>cash_accounts.balance_cents</code> is a manual snapshot — the migration says so
+      outright. So the shop's cash position and the shop's transaction history are two
+      independent claims that are never reconciled. A balance sheet built on a typed number is
+      a guess with a total on it.</p>
+    </div>
+    <div class="vx bad">
+      <b>Stock purchases and owner draws are filed as "expenses"</b>
+      <p>The <code>expenses.category</code> enum includes <code>inventory_purchase</code> and
+      <code>owner_draw</code>. Neither is an expense: one buys an <i>asset</i>, the other reduces
+      <i>equity</i>. The Reports tab papers over this by filtering them out of net profit — the
+      right answer arrived at the wrong way. A chart of accounts fixes it structurally.</p>
+    </div>
+    <div class="vx bad">
+      <b>Posted records are silently editable</b>
+      <p><code>expenses</code> and <code>invoices</code> both carry <code>updated_at</code> /
+      <code>updated_by</code> and can be changed in place. Under any recognised standard, a
+      posted entry is corrected by a <i>reversing entry</i>, never overwritten. Today there is no
+      shop-level audit trail at all — <code>platform_audit_log</code> is operator-side only.</p>
+    </div>
+    <div class="vx mid">
+      <b>Accrual is half-applied</b>
+      <p>Credit sales do reach revenue (via <code>sale_balances</code>), and sales tax is
+      correctly treated as owed rather than earned. But a credit bill only reaches the P&amp;L
+      through a <code>sync_invoice_expense</code> trigger, and accrued wages are computed on the
+      fly in the report rather than posted. Two of the three cases work; none of them is enforced.</p>
+    </div>
+    <div class="vx good">
+      <b>What's already right, and worth keeping</b>
+      <p>Cost of goods sold is captured per line at sale time
+      (<code>backfill_sale_item_costs</code>) — that is the matching principle, already done.
+      Sales tax is already a liability, not income. Refunds return goods rather than
+      cash-by-default. Everything money-moving already goes through an RPC rather than a raw
+      insert, which is exactly the seam a posting layer needs.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The principles, and how the design meets each</h2>
+  <p class="h2sub">"Common accounting principles" is not one rule. These are the ones that actually bind a retail ledger.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Principle</th><th>What it demands</th><th>How this design satisfies it</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Double entry</td>
+        <td>Every transaction touches at least two accounts; debits equal credits.</td>
+        <td>A <code>journal_lines</code> table with a deferred constraint that each entry sums to zero. It is impossible to write an unbalanced entry, including through a bug.</td>
+      </tr>
+      <tr>
+        <td>Accrual basis</td>
+        <td>Revenue when earned, expense when incurred — not when cash moves.</td>
+        <td>Credit sales debit Accounts Receivable at sale time. Credit bills credit Accounts Payable at issue date. Payment is a second, separate entry that only moves cash against the receivable/payable.</td>
+      </tr>
+      <tr>
+        <td>Matching</td>
+        <td>Cost of a sale lands in the same period as the sale.</td>
+        <td>Already true — <code>sale_items.cost_cents</code> is frozen at sale time. The sale's journal entry carries the COGS/Inventory pair in the same entry, not a separate month-end job.</td>
+      </tr>
+      <tr>
+        <td>Revenue recognition</td>
+        <td>Money collected on someone else's behalf is not revenue.</td>
+        <td>Sales tax credits <code>2100 Sales Tax Payable</code>. Loyalty points earned credit <code>2300 Loyalty Liability</code> and only become revenue (or a discount) when redeemed.</td>
+      </tr>
+      <tr>
+        <td>Historical cost</td>
+        <td>Assets carried at what was paid, reduced systematically over their life.</td>
+        <td>The Fixed Asset register holds acquisition cost and a depreciation method. Depreciation posts monthly to <code>6800 Depreciation</code> against <code>1590 Accumulated Depreciation</code>, a contra-asset — the cost figure is never edited down.</td>
+      </tr>
+      <tr>
+        <td>Consistency</td>
+        <td>The same account means the same thing every period.</td>
+        <td>One chart of accounts per shop, seeded from a fixed default. An account with postings can be renamed or archived but never re-typed or deleted.</td>
+      </tr>
+      <tr>
+        <td>Audit trail &amp; immutability</td>
+        <td>A posted entry is never altered; corrections are visible as corrections.</td>
+        <td>Journals are append-only. "Void" writes a mirror-image reversing entry linked to the original. Every posting, reversal, period lock and chart change writes to <code>accounting_audit_log</code> with actor, timestamp and before/after.</td>
+      </tr>
+      <tr>
+        <td>Periodicity &amp; closing</td>
+        <td>Results are cut into periods, and a closed period stops moving.</td>
+        <td>Months close <b>automatically, 10 days after they end</b> — long enough for late bills to arrive. kaiibi posts the four adjusting entries it can compute itself (depreciation, accrued wages, loyalty liability, the roll to <code>3900 Retained Earnings</code>) and shows a checklist for the three only a human can answer. Posting into a closed period is refused at the database, not the UI.</td>
+      </tr>
+      <tr>
+        <td>Entity separation</td>
+        <td>The owner's money is not the business's money.</td>
+        <td><code>owner_draw</code> stops being an expense category and becomes <code>3100 Owner's Draw</code>, a contra-equity account. It leaves the P&amp;L and appears on the balance sheet, which is where it belongs.</td>
+      </tr>
+      <tr>
+        <td>Prudence</td>
+        <td>Don't carry an asset at more than it will realise.</td>
+        <td>Inventory shrinkage and write-offs post to <code>5100</code> rather than quietly adjusting a quantity. Receivables aging (below) is the input a shop needs before writing a debt off.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;"><b>On the scope of the claim.</b> This design produces
+  statements that are internally consistent, balanced and auditable — what an accountant means by
+  "proper books". It is not a certification against a named framework. If the target is IFRS for
+  SMEs or a specific tax authority's filing format, the statement <i>layouts</i> and a handful of
+  disclosures would need pinning to that framework; the ledger underneath is the same either way.</p>
+</section>
+
+<section>
+  <h2>The chart of accounts</h2>
+  <p class="h2sub">Seeded per shop by <code>seed_shop_defaults</code>. Every existing kaiibi concept maps to exactly one account — nothing is left without a home.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Code</th><th>Account</th><th>Type</th><th>What feeds it today</th></tr></thead>
+    <tbody>
+      <tr><td>1000</td><td>Cash on Hand</td><td>Asset</td><td>One sub-account per <code>cash_accounts</code> row + per register drawer</td></tr>
+      <tr><td>1010</td><td>Bank</td><td>Asset</td><td><code>cash_accounts</code> where <code>account_type='bank'</code></td></tr>
+      <tr><td>1020 / 1021</td><td>Mobile Money — Zaad / eDahab</td><td>Asset</td><td><code>sale_payments.method</code>, <code>expenses.payment_method</code></td></tr>
+      <tr><td>1100</td><td>Accounts Receivable</td><td>Asset</td><td><code>sale_balances</code> — what customers owe</td></tr>
+      <tr><td>1200</td><td>Inventory</td><td>Asset</td><td><code>stock_receipts</code>, <code>product_location_stock</code> × cost</td></tr>
+      <tr><td>1500 / 1510</td><td>Equipment / Furniture &amp; Fittings</td><td>Asset</td><td><span class="tag new">new</span> <code>fixed_assets</code></td></tr>
+      <tr><td>1590</td><td>Accumulated Depreciation</td><td>Contra-asset</td><td><span class="tag new">new</span> monthly depreciation run</td></tr>
+      <tr><td>2000</td><td>Accounts Payable</td><td>Liability</td><td><code>invoices</code> minus <code>invoice_payments</code></td></tr>
+      <tr><td>2100</td><td>Sales Tax Payable</td><td>Liability</td><td><code>sales.tax_cents</code>, net of refunded tax</td></tr>
+      <tr><td>2200</td><td>Wages Payable</td><td>Liability</td><td><code>time_entries</code> earned but not in a posted <code>payroll_run</code></td></tr>
+      <tr><td>2300</td><td>Loyalty Points Liability</td><td>Liability</td><td><code>customer_points_ledger</code> outstanding balance</td></tr>
+      <tr><td>3000</td><td>Owner's Capital</td><td>Equity</td><td>Opening balance + injections</td></tr>
+      <tr><td>3100</td><td>Owner's Draw</td><td>Contra-equity</td><td><span class="tag chg">moved</span> was <code>expenses.category='owner_draw'</code></td></tr>
+      <tr><td>3900</td><td>Retained Earnings</td><td>Equity</td><td><span class="tag new">new</span> written by the period close</td></tr>
+      <tr><td>4000</td><td>Sales Revenue</td><td>Revenue</td><td><code>sale_items</code> net of tax</td></tr>
+      <tr><td>4100</td><td>Sales Returns</td><td>Contra-revenue</td><td><code>refunds</code> / <code>refund_items</code></td></tr>
+      <tr><td>4200</td><td>Discounts Given</td><td>Contra-revenue</td><td><code>promotions</code> attribution on a sale</td></tr>
+      <tr><td>5000</td><td>Cost of Goods Sold</td><td>Cost of sales</td><td><code>sale_items.cost_cents</code></td></tr>
+      <tr><td>5100</td><td>Inventory Shrinkage</td><td>Cost of sales</td><td><span class="tag new">new</span> stock adjustments &amp; write-offs</td></tr>
+      <tr><td>6000–6900</td><td>Rent · Utilities · Wages · Marketing · Supplies · Transport · Repairs · Fees · Depreciation · Other</td><td>Expense</td><td>The nine remaining <code>expenses.category</code> values, one account each</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;">The eleven-value category enum becomes nine expense
+  accounts plus two accounts that were never expenses. That single move is what makes a balance
+  sheet possible: stock purchases stop vanishing from the books and start sitting in
+  <code>1200 Inventory</code> until they sell.</p>
+</section>
+
+<section>
+  <h2>What posts what</h2>
+  <p class="h2sub">Each existing RPC gains a posting side. The RPC boundary is already there — this bolts the ledger onto it rather than rewriting call sites.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Event</th><th>RPC</th><th>Debit</th><th>Credit</th></tr></thead>
+    <tbody>
+      <tr><td>Cash sale</td><td><code>complete_sale</code></td><td>1000/1010/1020 Cash<br>5000 COGS</td><td>4000 Revenue<br>2100 Tax Payable<br>1200 Inventory</td></tr>
+      <tr><td>Credit sale</td><td><code>complete_sale</code></td><td>1100 Receivable<br>5000 COGS</td><td>4000 Revenue<br>2100 Tax Payable<br>1200 Inventory</td></tr>
+      <tr><td>Customer pays a balance</td><td><code>settle_sale_balance</code></td><td>1000 Cash</td><td>1100 Receivable</td></tr>
+      <tr><td>Refund (goods returned)</td><td><code>refund_sale_items</code></td><td>4100 Returns<br>2100 Tax Payable<br>1200 Inventory</td><td>1000 Cash <i>or</i> 1100 Receivable<br>5000 COGS</td></tr>
+      <tr><td>Stock received on credit</td><td><code>receive_stock</code></td><td>1200 Inventory</td><td>2000 Payable</td></tr>
+      <tr><td>Bill entered — credit</td><td><span class="tag new">new</span> <code>create_bill</code></td><td>6xxx Expense <i>or</i> 1200 Inventory</td><td>2000 Payable</td></tr>
+      <tr><td>Bill entered — cash</td><td><span class="tag new">new</span> <code>create_bill</code></td><td>6xxx Expense <i>or</i> 1200 Inventory</td><td>1000/1010/1020 Cash</td></tr>
+      <tr><td>Supplier paid</td><td><code>record_invoice_payment</code></td><td>2000 Payable</td><td>1000 Cash</td></tr>
+      <tr><td>Pay run posted</td><td><code>post_payroll_run</code></td><td>6200 Salaries &amp; Wages</td><td>1000 Cash / 2200 Wages Payable</td></tr>
+      <tr><td>Cash → bank transfer</td><td><span class="tag new">new</span> <code>transfer_funds</code></td><td>1010 Bank</td><td>1000 Cash</td></tr>
+      <tr><td>Fixed asset bought</td><td><span class="tag new">new</span> <code>create_fixed_asset</code></td><td>1500 Equipment</td><td>1000 Cash / 2000 Payable</td></tr>
+      <tr><td>Monthly depreciation</td><td><span class="tag new">new</span> <code>run_depreciation</code></td><td>6800 Depreciation</td><td>1590 Accum. Depreciation</td></tr>
+      <tr><td>Owner takes money out</td><td><span class="tag new">new</span> <code>create_bill</code> (equity)</td><td>3100 Owner's Draw</td><td>1000 Cash</td></tr>
+      <tr><td>Anything else</td><td><span class="tag new">new</span> <code>post_journal_entry</code></td><td colspan="2">Any accounts, entered by hand, must balance</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Navigation</h2>
+  <p class="h2sub">Seventeen new destinations cannot become seventeen more pills. Two of the existing tabs become <i>index</i> screens instead.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Today — 8 flat pills</th><th></th><th>Proposed — 8 pills, two of them hubs</th></tr></thead>
+    <tbody>
+      <tr><td>Overview</td><td>→</td><td><b>Overview</b> — plus cash position, now derived from the ledger</td></tr>
+      <tr><td>Transactions</td><td>→</td><td><b>Transactions</b> — unchanged</td></tr>
+      <tr><td>Bills</td><td>→</td><td><b>Bills</b> — the list of what's owed; entry moves to Create Bill</td></tr>
+      <tr><td>Expenses</td><td>→</td><td><b>Expenses</b> — stays as its own list, but every row now carries an account</td></tr>
+      <tr><td>Payroll</td><td>→</td><td><b>Payroll</b> — unchanged</td></tr>
+      <tr><td>Cash &amp; Budgets</td><td>→</td><td><b>Cash &amp; Budgets</b> — unchanged; transfers move to the Accounting hub</td></tr>
+      <tr><td>Owed to you</td><td>→</td><td><span class="tag gone">folded in</span> Becomes <b>Customer Balance Summary</b> and <b>Aging Receivables</b> under Reports, where the rest of the receivables picture already lives</td></tr>
+      <tr><td>—</td><td>+</td><td><b>Accounting</b> <span class="tag new">new hub</span> — the books themselves, in four groups</td></tr>
+      <tr><td>Reports</td><td>→</td><td><b>Reports</b> <span class="tag chg">now a hub</span> — 23 reports in six groups</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;">A hub is a grid of launcher cards, not a second pill row.
+  Each card states <b>what period it defaults to</b> — "7 days", "As of today", "This month",
+  "Updated live" — because a balance sheet as of a date range is meaningless and a sales report as
+  of one instant is useless. Tapping a card pushes a screen with a breadcrumb back to the hub, so
+  the phone shows one thing at a time and the shell keeps owning the range and store filter exactly
+  as it does now.</p>
+
+  <p class="note"><b>Why "Owed to you" disappears.</b> It answered one question — who owes us — with
+  a table that Aging Receivables answers better, and it sat in the pill row competing with seven
+  other tabs. Nothing is lost; the receivables group in Reports is strictly more than the tab was.</p>
+</section>
+
+<section>
+  <h2>The screens</h2>
+  <p class="h2sub">Every destination on the list, at desktop and phone width. Bento surfaces throughout: grey page, borderless 26px cards, tables full-width and out of the grid.</p>
+
+  <div class="switch" id="switch">
+    <span class="grp">Accounting hub</span>
+    <button type="button" data-go="hub" aria-selected="true">Hub</button>
+    <button type="button" data-go="coa">Chart of Accounts</button>
+    <button type="button" data-go="entry">General Journal Entry</button>
+    <button type="button" data-go="journals">Journals List</button>
+    <button type="button" data-go="trial">Trial Balance</button>
+    <button type="button" data-go="transfer">Cash &amp; Bank Transfers</button>
+    <button type="button" data-go="bill">Create Bill</button>
+    <button type="button" data-go="assets">Fixed Asset List</button>
+    <button type="button" data-go="cf">Cash Flow</button>
+    <button type="button" data-go="audit">Audit Log</button>
+    <button type="button" data-go="close">Close a Period</button>
+    <button type="button" data-go="basis">Valuation Basis</button>
+    <span class="grp">Reports hub</span>
+    <button type="button" data-go="rhub">Hub</button>
+    <button type="button" data-go="pl">Profit &amp; Loss</button>
+    <button type="button" data-go="inc">Income Statement</button>
+    <button type="button" data-go="bs">Balance Sheet</button>
+    <button type="button" data-go="budget">Budget vs Actual</button>
+    <button type="button" data-go="sales">Sales Report</button>
+    <button type="button" data-go="item">Item Performance</button>
+    <button type="button" data-go="emp">Sales by Employee</button>
+    <button type="button" data-go="disc">Discounts &amp; Refunds</button>
+    <button type="button" data-go="cust">Customer Balances</button>
+    <button type="button" data-go="aging">Aging Receivables</button>
+    <button type="button" data-go="loyalty">Loyalty Points</button>
+    <button type="button" data-go="inv">Inventory Balance</button>
+    <button type="button" data-go="val">Inventory Valuation</button>
+    <button type="button" data-go="move">Stock Movement</button>
+    <button type="button" data-go="vend">Vendor Balances</button>
+    <button type="button" data-go="agingp">Aging Payables</button>
+    <button type="button" data-go="labor">Labor vs Sales</button>
+  </div>
+
+  <div class="pair">
+    <div>
+      <div class="frameHead"><b>Desktop</b><i>1280px · 12 columns</i></div>
+      <div class="scroller"><div class="frame w1280" id="fWide"></div></div>
+    </div>
+    <div>
+      <div class="frameHead"><b>Phone</b><i>380px · single column</i></div>
+      <div class="frame w380" id="fNarrow"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ═════════════════════ LEDGER HUB ═════════════════════ -->
+<template data-tab="hub" data-tabname="Accounting" data-label="Accounting" data-blurb="The books themselves — accounts, entries and the trail behind them.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">This period</h4><span class="pill">Aug 2026 · open</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Entries posted</div><div class="n num">1,284</div><div class="h">1,271 automatic · 13 manual</div></div>
+      <div class="kpi"><div class="l">Trial balance</div><div class="n num profit">Balanced</div><div class="h">debits = credits = $184,220.15</div></div>
+      <div class="kpi"><div class="l">Unposted</div><div class="n num">0</div><div class="h">nothing waiting to reach the books</div></div>
+      <div class="kpi"><div class="l">Last close</div><div class="n num">Jul 2026</div><div class="h">locked 3 Aug by Yusef</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <p class="grpttl">Ledger &amp; journals</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">▤</div><b>Chart of Accounts</b><span class="d">Assets, liabilities, equity, income, and expense accounts.</span>
+        <div class="act"><span class="when">34 accounts</span><span class="go solid">+ New account</span></div></div>
+      <div class="tile"><div class="ic">✎</div><b>General Journal Entry</b><span class="d">Post a manual debit/credit entry to the ledger.</span>
+        <div class="act"><span class="when">Manual entry</span><span class="go solid">+ New entry</span></div></div>
+      <div class="tile"><div class="ic">≡</div><b>Journals List</b><span class="d">Every journal entry recorded, in order.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">View list</span></div></div>
+      <div class="tile"><div class="ic">⚖</div><b>Trial Balance</b><span class="d">Every account's debit and credit balance, side by side.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Banking &amp; bills</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">⇄</div><b>Cash and Bank Transfers</b><span class="d">Move money between drawers, banks, and mobile wallets.</span>
+        <div class="act"><span class="when">7 days</span><span class="go solid">+ New transfer</span></div></div>
+      <div class="tile"><div class="ic">▭</div><b>Create Bill</b><span class="d">Credit Bill (pay later) or Cash Bill (paid now).</span>
+        <div class="act"><span class="when">Credit · Cash</span><span class="go solid">+ New bill</span></div></div>
+    </div>
+
+    <p class="grpttl">Assets</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">▣</div><b>Fixed Asset List</b><span class="d">Equipment and property, cost and depreciation.</span>
+        <div class="act"><span class="when">As of today</span><span class="go solid">+ Add asset</span></div></div>
+    </div>
+
+    <p class="grpttl">Oversight</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">◈</div><b>Cash Flow</b><span class="d">Cash in and out, and where it went.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">◷</div><b>Audit Log</b><span class="d">Who changed what, and when.</span>
+        <div class="act"><span class="when">All time</span><span class="go">View log</span></div></div>
+      <div class="tile"><div class="ic">🔒</div><b>Close a Period</b><span class="d">Lock a month so its numbers stop moving. Runs itself unless you turn that off.</span>
+        <div class="act"><span class="when">Auto · 10 Sep</span><span class="go">Review</span></div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Everything here is generated for you.</b>
+      Sales, refunds, bills, payments, stock and pay runs post themselves. You only come here to
+      record something unusual — or to check the app's arithmetic.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ CHART OF ACCOUNTS ═════════════════════ -->
+<template data-tab="coa" data-tabname="Accounting" data-label="Chart of Accounts" data-crumb="Accounting" data-blurb="Every account the books can post to, and what's in each right now.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Assets</div><div class="n num">$96,480.22</div><div class="h">9 accounts</div></div>
+      <div class="kpi"><div class="l">Liabilities</div><div class="n num">$31,905.40</div><div class="h">5 accounts</div></div>
+      <div class="kpi"><div class="l">Equity</div><div class="n num">$64,574.82</div><div class="h">3 accounts</div></div>
+      <div class="kpi"><div class="l">Check</div><div class="n num profit">A = L + E ✓</div><div class="h">difference $0.00</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Accounts</h4>
+      <div class="headActs"><button class="btn" type="button">Show archived</button><button class="btn solid" type="button">Add account</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Code</th><th>Account</th><th>Type</th><th>Posts from</th><th class="r">Balance</th></tr></thead>
+      <tbody>
+        <tr class="grp"><td colspan="5">Assets</td></tr>
+        <tr><td class="mono">1000</td><td><span class="p">Cash on Hand</span><span class="m">3 sub-accounts · one per drawer</span></td><td class="muted">Asset</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$4,182.60</span></td></tr>
+        <tr><td class="mono">1010</td><td><span class="p">Bank — Salaam</span></td><td class="muted">Asset</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$38,904.00</span></td></tr>
+        <tr><td class="mono">1020</td><td><span class="p">Mobile Money — Zaad</span></td><td class="muted">Asset</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$6,331.45</span></td></tr>
+        <tr><td class="mono">1100</td><td><span class="p">Accounts Receivable</span><span class="m">14 customers owing</span></td><td class="muted">Asset</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$7,240.90</span></td></tr>
+        <tr><td class="mono">1200</td><td><span class="p">Inventory</span><span class="m">at weighted average cost</span></td><td class="muted">Asset</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$28,411.27</span></td></tr>
+        <tr><td class="mono">1500</td><td><span class="p">Equipment</span></td><td class="muted">Asset</td><td><span class="chip">Manual</span></td><td class="r"><span class="p">$14,200.00</span></td></tr>
+        <tr><td class="mono">1590</td><td><span class="p">Accumulated Depreciation</span><span class="m">contra-asset — reduces Equipment</span></td><td class="muted">Contra</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p loss">−$2,790.00</span></td></tr>
+        <tr class="grp"><td colspan="5">Liabilities</td></tr>
+        <tr><td class="mono">2000</td><td><span class="p">Accounts Payable</span><span class="m">9 unpaid supplier bills</span></td><td class="muted">Liability</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$24,118.00</span></td></tr>
+        <tr><td class="mono">2100</td><td><span class="p">Sales Tax Payable</span></td><td class="muted">Liability</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$5,204.15</span></td></tr>
+        <tr><td class="mono">2200</td><td><span class="p">Wages Payable</span><span class="m">earned, next pay run</span></td><td class="muted">Liability</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$2,140.00</span></td></tr>
+        <tr><td class="mono">2300</td><td><span class="p">Loyalty Points Liability</span></td><td class="muted">Liability</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p">$443.25</span></td></tr>
+        <tr class="grp"><td colspan="5">Equity</td></tr>
+        <tr><td class="mono">3000</td><td><span class="p">Owner's Capital</span></td><td class="muted">Equity</td><td><span class="chip">Manual</span></td><td class="r"><span class="p">$40,000.00</span></td></tr>
+        <tr><td class="mono">3100</td><td><span class="p">Owner's Draw</span><span class="m">contra-equity — was an expense category</span></td><td class="muted">Contra</td><td><span class="chip info">Automatic</span></td><td class="r"><span class="p loss">−$6,800.00</span></td></tr>
+        <tr><td class="mono">3900</td><td><span class="p">Retained Earnings</span></td><td class="muted">Equity</td><td><span class="chip lock">Close only</span></td><td class="r"><span class="p">$31,374.82</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">Revenue (4000–4299), cost of sales (5000–5199) and expenses (6000–6999) continue below — collapsed here for space.</p>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>An account with entries can't be deleted or re-typed.</b>
+      It can be renamed, or archived so it stops appearing in pickers. Deleting it would silently
+      change every past statement it appears in.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ JOURNAL ENTRY ═════════════════════ -->
+<template data-tab="entry" data-tabname="Accounting" data-label="New Journal Entry" data-crumb="Accounting" data-blurb="Record something the app can't post for you. It has to balance before it saves.">
+  <div class="cardx" data-w="7">
+    <h4 class="ctitle">The entry</h4>
+    <div class="fldrow">
+      <div class="fld"><label>Date</label><div class="inp num">21 Aug 2026</div></div>
+      <div class="fld"><label>Reference</label><div class="inp mono">JE-2026-0014</div></div>
+    </div>
+    <div class="fld"><label>Description</label><div class="inp">Write off damaged stock — flood in back store</div></div>
+    <div class="fld"><label>Store</label><div class="inp">Hodan Store</div></div>
+
+    <h4 class="ctitle" style="margin-top:18px;">Lines</h4>
+    <div class="tbl"><table class="t" style="min-width:0;">
+      <thead><tr><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">5100 · Inventory Shrinkage</span></td><td class="r"><span class="p">840.00</span></td><td class="r muted">—</td></tr>
+        <tr><td><span class="p">1200 · Inventory</span></td><td class="r muted">—</td><td class="r"><span class="p">840.00</span></td></tr>
+        <tr><td><span class="inp ph" style="display:block;padding:8px 11px;">Pick an account…</span></td><td class="r muted">—</td><td class="r muted">—</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="balbar">
+      <div><div class="lbl">Debits</div><div class="v num">$840.00</div></div>
+      <div><div class="lbl">Credits</div><div class="v num">$840.00</div></div>
+      <div><div class="lbl">Difference</div><div class="v num profit">$0.00 ✓</div></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn solid" type="button">Post entry</button>
+      <button class="btn" type="button">Save as draft</button>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">Before you post</h4>
+    <div class="cav wrong"><span>⚠</span><div><b>Posting is final.</b> A posted entry can't be edited
+      or deleted. If it's wrong, you reverse it — which leaves both the mistake and the correction
+      on the record. <a href="#">What reversing means</a></div></div>
+    <div class="cav context"><span>ℹ</span><div>August 2026 is open, so this entry will land in
+      August. July is locked and can no longer be posted into.</div></div>
+    <h4 class="ctitle" style="margin-top:18px;">Common entries</h4>
+    <div class="rw"><div class="ic">▣</div><div class="bd"><div class="t1">Stock write-off</div><div class="t2">Shrinkage ← Inventory</div></div></div>
+    <div class="rw"><div class="ic">◔</div><div class="bd"><div class="t1">Accrue an unbilled cost</div><div class="t2">Expense ← Accrued Liabilities</div></div></div>
+    <div class="rw"><div class="ic">↺</div><div class="bd"><div class="t1">Correct a mis-coded bill</div><div class="t2">Move between expense accounts</div></div></div>
+    <div class="rw"><div class="ic">＄</div><div class="bd"><div class="t1">Owner puts money in</div><div class="t2">Cash ← Owner's Capital</div></div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ JOURNALS LIST ═════════════════════ -->
+<template data-tab="journals" data-tabname="Accounting" data-label="Journals" data-crumb="Accounting" data-blurb="Every entry that reached the books, newest first.">
+  <div class="cardx" data-w="12">
+    <div class="filters">
+      <span class="on">All</span><span>Automatic</span><span>Manual</span><span>Reversals</span><span>Drafts</span>
+      <span>All accounts ⌄</span><span>All stores ⌄</span>
+    </div>
+    <div class="kpis k3">
+      <div class="kpi"><div class="l">Entries in range</div><div class="n num">1,284</div><div class="h">7 days</div></div>
+      <div class="kpi"><div class="l">Manual</div><div class="n num">13</div><div class="h">1% — the rest post themselves</div></div>
+      <div class="kpi"><div class="l">Reversed</div><div class="n num">2</div><div class="h">both linked to their original</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Journal entries</h4><span class="pill">21 Aug — 15 Aug 2026</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Ref</th><th>Date</th><th>Description</th><th>Source</th><th>Accounts</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">JE-0014</td><td class="muted">21 Aug</td><td><span class="p">Write off damaged stock</span><span class="m">Yusef S · Hodan Store</span></td><td><span class="chip">Manual</span></td><td class="muted">5100 → 1200</td><td class="r"><span class="p">$840.00</span></td></tr>
+        <tr><td class="mono">SA-8841</td><td class="muted">21 Aug</td><td><span class="p">Sale #8841 — cash</span><span class="m">Amina H · Hodan Store</span></td><td><span class="chip info">Sale</span></td><td class="muted">1000, 5000 → 4000, 2100, 1200</td><td class="r"><span class="p">$126.40</span></td></tr>
+        <tr><td class="mono">SA-8840</td><td class="muted">21 Aug</td><td><span class="p">Sale #8840 — on credit</span><span class="m">Bakaal Wholesale</span></td><td><span class="chip info">Sale</span></td><td class="muted">1100, 5000 → 4000, 2100, 1200</td><td class="r"><span class="p">$1,904.00</span></td></tr>
+        <tr><td class="mono">BI-0219</td><td class="muted">20 Aug</td><td><span class="p">Bill — Somtel, August internet</span><span class="m">on credit · due 5 Sep</span></td><td><span class="chip info">Bill</span></td><td class="muted">6100 → 2000</td><td class="r"><span class="p">$310.00</span></td></tr>
+        <tr><td class="mono">RC-0087</td><td class="muted">20 Aug</td><td><span class="p">Stock received — Juba Traders</span><span class="m">142 units · GRN-0087</span></td><td><span class="chip info">Stock</span></td><td class="muted">1200 → 2000</td><td class="r"><span class="p">$4,338.00</span></td></tr>
+        <tr><td class="mono">JE-0013R</td><td class="muted">19 Aug</td><td><span class="p">Reversal of JE-0013</span><span class="m">Yusef S · "wrong expense account"</span></td><td><span class="chip warn">Reversal</span></td><td class="muted">2000 → 6400</td><td class="r"><span class="p">$95.00</span></td></tr>
+        <tr><td class="mono">JE-0013</td><td class="muted">19 Aug</td><td><span class="p">Bill — cleaning supplies</span><span class="m">superseded by JE-0013R</span></td><td><span class="chip">Manual</span></td><td class="muted">6400 → 2000</td><td class="r"><span class="p muted">$95.00</span></td></tr>
+        <tr><td class="mono">PY-0031</td><td class="muted">18 Aug</td><td><span class="p">Pay run — 1–15 Aug</span><span class="m">9 staff</span></td><td><span class="chip info">Payroll</span></td><td class="muted">6200 → 1010, 2200</td><td class="r"><span class="p">$5,840.00</span></td></tr>
+        <tr><td class="mono">TR-0009</td><td class="muted">17 Aug</td><td><span class="p">Cash to bank — evening deposit</span></td><td><span class="chip info">Transfer</span></td><td class="muted">1010 → 1000</td><td class="r"><span class="p">$3,200.00</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ TRIAL BALANCE ═════════════════════ -->
+<template data-tab="trial" data-tabname="Accounting" data-label="Trial Balance" data-crumb="Accounting" data-blurb="Proof the books balance. Every account, its debit and its credit side.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">As at 21 August 2026</h4>
+      <div class="headActs"><button class="btn" type="button">Export PDF</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="kpis k3">
+      <div class="kpi"><div class="l">Total debits</div><div class="n num">$184,220.15</div></div>
+      <div class="kpi"><div class="l">Total credits</div><div class="n num">$184,220.15</div></div>
+      <div class="kpi"><div class="l">Difference</div><div class="n num profit">$0.00 ✓</div><div class="h">the books balance</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Code</th><th>Account</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">1000</td><td>Cash on Hand</td><td class="r"><span class="p">4,182.60</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1010</td><td>Bank — Salaam</td><td class="r"><span class="p">38,904.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1020</td><td>Mobile Money — Zaad</td><td class="r"><span class="p">6,331.45</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1100</td><td>Accounts Receivable</td><td class="r"><span class="p">7,240.90</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1200</td><td>Inventory</td><td class="r"><span class="p">28,411.27</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1500</td><td>Equipment</td><td class="r"><span class="p">14,200.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">1590</td><td>Accumulated Depreciation</td><td class="r muted">—</td><td class="r"><span class="p">2,790.00</span></td></tr>
+        <tr><td class="mono">2000</td><td>Accounts Payable</td><td class="r muted">—</td><td class="r"><span class="p">24,118.00</span></td></tr>
+        <tr><td class="mono">2100</td><td>Sales Tax Payable</td><td class="r muted">—</td><td class="r"><span class="p">5,204.15</span></td></tr>
+        <tr><td class="mono">2200</td><td>Wages Payable</td><td class="r muted">—</td><td class="r"><span class="p">2,140.00</span></td></tr>
+        <tr><td class="mono">2300</td><td>Loyalty Points Liability</td><td class="r muted">—</td><td class="r"><span class="p">443.25</span></td></tr>
+        <tr><td class="mono">3000</td><td>Owner's Capital</td><td class="r muted">—</td><td class="r"><span class="p">40,000.00</span></td></tr>
+        <tr><td class="mono">3100</td><td>Owner's Draw</td><td class="r"><span class="p">6,800.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">3900</td><td>Retained Earnings</td><td class="r muted">—</td><td class="r"><span class="p">31,374.82</span></td></tr>
+        <tr><td class="mono">4000</td><td>Sales Revenue</td><td class="r muted">—</td><td class="r"><span class="p">78,149.93</span></td></tr>
+        <tr><td class="mono">4100</td><td>Sales Returns</td><td class="r"><span class="p">1,882.40</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">4200</td><td>Discounts Given</td><td class="r"><span class="p">2,410.20</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">5000</td><td>Cost of Goods Sold</td><td class="r"><span class="p">47,220.08</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">5100</td><td>Inventory Shrinkage</td><td class="r"><span class="p">840.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6000</td><td>Rent</td><td class="r"><span class="p">9,000.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6100</td><td>Utilities</td><td class="r"><span class="p">1,842.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6200</td><td>Salaries &amp; Wages</td><td class="r"><span class="p">11,680.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6300</td><td>Marketing</td><td class="r"><span class="p">1,240.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6800</td><td>Depreciation</td><td class="r"><span class="p">930.00</span></td><td class="r muted">—</td></tr>
+        <tr><td class="mono">6900</td><td>Other</td><td class="r"><span class="p">1,105.25</span></td><td class="r muted">—</td></tr>
+        <tr class="totalrow"><td></td><td>Total</td><td class="r num">184,220.15</td><td class="r num">184,220.15</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>This can't fail to balance.</b> The database
+      refuses an entry whose debits and credits differ, so a non-zero difference here would mean a
+      corrupted row rather than a bookkeeping mistake. It's shown anyway because a trial balance
+      that doesn't show its own proof isn't one.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ FIXED ASSETS ═════════════════════ -->
+<template data-tab="assets" data-tabname="Accounting" data-label="Fixed Assets" data-crumb="Accounting" data-blurb="What the shop owns, what it cost, and what it's worth now.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Assets at cost</div><div class="n num">$14,200.00</div><div class="h">6 items</div></div>
+      <div class="kpi"><div class="l">Depreciated so far</div><div class="n num loss">−$2,790.00</div><div class="h">since first purchase</div></div>
+      <div class="kpi"><div class="l">Book value</div><div class="n num">$11,410.00</div><div class="h">on the balance sheet</div></div>
+      <div class="kpi"><div class="l">This month's charge</div><div class="n num">$310.00</div><div class="h">posts to 6800 on the 1st</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Asset register</h4>
+      <div class="headActs"><button class="btn" type="button">Run depreciation</button><button class="btn solid" type="button">Add asset</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Asset</th><th>Bought</th><th>Method</th><th class="r">Cost</th><th class="r">Depreciated</th><th class="r">Book value</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Chest freezer — Haier 500L</span><span class="m">Equipment · Hodan Store</span></td><td class="muted">12 Jan 2025</td><td class="muted">Straight line · 8 yr</td><td class="r"><span class="p">5,400.00</span></td><td class="r"><span class="p loss">1,102.50</span></td><td class="r"><span class="p">4,297.50</span></td></tr>
+        <tr><td><span class="p">Shop fit-out — shelving</span><span class="m">Furniture · Hodan Store</span></td><td class="muted">3 Mar 2025</td><td class="muted">Straight line · 10 yr</td><td class="r"><span class="p">3,800.00</span></td><td class="r"><span class="p loss">538.33</span></td><td class="r"><span class="p">3,261.67</span></td></tr>
+        <tr><td><span class="p">Generator — 15kVA</span><span class="m">Equipment · Hodan Store</span></td><td class="muted">18 Jun 2025</td><td class="muted">Straight line · 6 yr</td><td class="r"><span class="p">2,900.00</span></td><td class="r"><span class="p loss">563.89</span></td><td class="r"><span class="p">2,336.11</span></td></tr>
+        <tr><td><span class="p">POS terminals ×3</span><span class="m">Equipment · Bakaara Branch</span></td><td class="muted">2 Feb 2026</td><td class="muted">Straight line · 4 yr</td><td class="r"><span class="p">1,350.00</span></td><td class="r"><span class="p loss">196.88</span></td><td class="r"><span class="p">1,153.12</span></td></tr>
+        <tr><td><span class="p">Delivery motorbike</span><span class="m">Vehicles · shared</span></td><td class="muted">9 Apr 2026</td><td class="muted">Straight line · 5 yr</td><td class="r"><span class="p">750.00</span></td><td class="r"><span class="p loss">55.00</span></td><td class="r"><span class="p">695.00</span></td></tr>
+        <tr><td><span class="p">Air conditioner</span><span class="m">Equipment · disposed 2 Aug 2026</span></td><td class="muted">4 Sep 2024</td><td class="muted"><span class="chip">Disposed</span></td><td class="r muted">—</td><td class="r muted">—</td><td class="r muted">—</td></tr>
+        <tr class="totalrow"><td>Total</td><td></td><td></td><td class="r num">14,200.00</td><td class="r num">2,790.00</td><td class="r num">11,410.00</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Cost is never edited down.</b> The asset keeps its
+      purchase price forever; depreciation accumulates in a separate account that offsets it. That's
+      what lets a statement show both what you paid and what it's worth.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ AUDIT LOG ═════════════════════ -->
+<template data-tab="audit" data-tabname="Accounting" data-label="Audit Log" data-crumb="Accounting" data-blurb="Who changed what, when — and what it looked like before.">
+  <div class="cardx" data-w="12">
+    <div class="filters">
+      <span class="on">All activity</span><span>Journals</span><span>Chart of accounts</span><span>Period locks</span><span>Voids &amp; reversals</span>
+      <span>Anyone ⌄</span><span>30 days ⌄</span>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Activity</h4><span class="pill">Append-only · cannot be edited</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>When</th><th>Who</th><th>What</th><th>Before → after</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">21 Aug 14:22</td><td><span class="p">Yusef S</span><span class="m">Owner</span></td><td><span class="p">Posted journal JE-0014</span><span class="m">Write off damaged stock · $840.00</span></td><td class="muted">— → posted</td></tr>
+        <tr><td class="muted">20 Aug 09:41</td><td><span class="p">Amina H</span><span class="m">Manager</span></td><td><span class="p">Renamed account 6900</span></td><td class="muted">"Other" → "Other &amp; sundry"</td></tr>
+        <tr><td class="muted">19 Aug 16:08</td><td><span class="p">Yusef S</span><span class="m">Owner</span></td><td><span class="p">Reversed journal JE-0013</span><span class="m">Reason: "wrong expense account"</span></td><td class="muted">posted → reversed by JE-0013R</td></tr>
+        <tr><td class="muted">18 Aug 11:55</td><td><span class="p">Amina H</span><span class="m">Manager</span></td><td><span class="p">Edited bill BI-0212 before posting</span><span class="m">draft — never reached the books</span></td><td class="muted">$118.00 → $181.00</td></tr>
+        <tr><td class="muted">12 Aug 08:30</td><td><span class="p">Yusef S</span><span class="m">Owner</span></td><td><span class="p">Added account 1510</span><span class="m">Furniture &amp; Fittings · Asset</span></td><td class="muted">— → created</td></tr>
+        <tr><td class="muted">3 Aug 19:02</td><td><span class="p">Yusef S</span><span class="m">Owner</span></td><td><span class="p">Locked July 2026</span><span class="m">Retained earnings +$8,204.11</span></td><td class="muted">open → locked</td></tr>
+        <tr><td class="muted">3 Aug 18:47</td><td><span class="p">System</span><span class="m">Automatic</span></td><td><span class="p">Depreciation run — August</span><span class="m">6 assets · $310.00</span></td><td class="muted">— → posted</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>This log is written by the database, not the app.</b>
+      Triggers on the ledger tables record it, so a change made through any route — the app, a
+      script, direct SQL — still lands here. Nobody, including the shop owner, can delete a row.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ VALUATION SETTING ═════════════════════ -->
+<template data-tab="basis" data-tabname="Accounting" data-label="Inventory Valuation Basis" data-crumb="Settings · Accounting" data-blurb="How the shop values its stock. Pick once — changing it is an accounting decision, not a preference.">
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">How stock is valued</h4><span class="pill">Owner only</span></div>
+
+    <div class="tile" style="border-radius:18px;margin-bottom:10px;outline:2px solid #2f6bff;outline-offset:-2px;">
+      <div class="crow" style="margin-bottom:4px;"><b style="font-size:14px;">Weighted average</b><span class="chip info">In use</span></div>
+      <span class="d">Every unit of a product costs the same — a running average of what you've paid.
+      Simple to explain, and the figure most shop owners already have in their head.</span>
+      <div class="act"><span class="when">Lower reported profit while costs rise · lower tax</span></div>
+    </div>
+
+    <div class="tile" style="border-radius:18px;">
+      <div class="crow" style="margin-bottom:4px;"><b style="font-size:14px;">FIFO — first in, first out</b><span class="chip">Available</span></div>
+      <span class="d">Costs are taken from the oldest delivery still on hand. Stock on the balance
+      sheet is valued at recent prices, so it reflects what replacing it would cost.</span>
+      <div class="act"><span class="when">Higher reported profit while costs rise · higher tax</span><span class="go">Switch to FIFO</span></div>
+    </div>
+
+    <div class="cav wrong" style="margin-top:14px;"><span>⚠</span><div><b>Switching is not retroactive
+      and not casual.</b> A new basis applies from the <b>start of the next open month</b> — never
+      part-way through one, because a month valued two ways reconciles to nothing. Everything before
+      the switch keeps the basis it was recorded under, and every statement says which.</div></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">What switching would do</h4>
+    <div class="pl head2"><span class="nm">If you switched on 1 Sep</span><span class="amt"></span></div>
+    <div class="pl"><span class="nm">Stock value<span class="hint">1200 on the balance sheet</span></span><span class="amt num profit">+$506.67</span></div>
+    <div class="pl"><span class="nm">One-off adjustment<span class="hint">posts to 5100, dated 1 Sep</span></span><span class="amt num">$506.67</span></div>
+    <div class="pl"><span class="nm">August and earlier</span><span class="amt">Unchanged</span></div>
+    <div class="pl tot"><span class="nm">Estimated tax effect<span class="hint">on this period's profit</span></span><span class="amt num loss">+$126.67</span></div>
+    <p class="foot">Shown before you confirm, computed from your actual layers — not a worked example.
+    The switch itself is one journal entry, visible in the Journals List like any other.</p>
+
+    <h4 class="ctitle" style="margin-top:20px;">Rules that hold either way</h4>
+    <div class="rw"><div class="ic">▣</div><div class="bd"><div class="t1">Cost layers are kept regardless</div><div class="t2">both figures are always computable</div></div></div>
+    <div class="rw"><div class="ic">⌂</div><div class="bd"><div class="t1">One basis per shop</div><div class="t2">not per location — a consolidated balance sheet can't mix two</div></div></div>
+    <div class="rw"><div class="ic">◷</div><div class="bd"><div class="t1">Every switch is in the Audit Log</div><div class="t2">who, when, and the reason they gave</div></div></div>
+    <div class="rw"><div class="ic">⚖</div><div class="bd"><div class="t1">Both are accepted under IFRS</div><div class="t2">LIFO is not, and isn't offered</div></div></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Why weighted average is the default.</b> A default
+      should be right for the shop that never opens this screen. Weighted average is simpler to
+      explain, taxes less while costs rise, and is what every existing kaiibi shop already has — so
+      nobody's numbers move on migration day. FIFO is fully built and one tap away for the shops
+      whose accountant asks for it.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ CLOSE A PERIOD ═════════════════════ -->
+<template data-tab="close" data-tabname="Accounting" data-label="Close a Period" data-crumb="Accounting" data-blurb="Lock a month so its numbers stop moving. This runs itself — you're here to check it, not to do it.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">August 2026</h4>
+      <div class="headActs"><span class="pill">Open · closes automatically 10 Sep</span></div></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Status</div><div class="n num">Open</div><div class="h">everything still posts</div></div>
+      <div class="kpi"><div class="l">Auto-close on</div><div class="n num">10 Sep</div><div class="h">10 days after month end</div></div>
+      <div class="kpi"><div class="l">Ready</div><div class="n num loss">3 to check</div><div class="h">4 done automatically</div></div>
+      <div class="kpi"><div class="l">Profit to roll</div><div class="n num profit">+$4,292.60</div><div class="h">into 3900 Retained Earnings</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Month-end checklist</h4><span class="pill">Updates live</span></div>
+
+    <div class="pl head2"><span class="nm">kaiibi does these — nothing for you to do</span><span class="amt"></span></div>
+    <div class="rw"><div class="ic">✓</div><div class="bd"><div class="t1">Depreciation for August</div><div class="t2">6 assets · straight line · posts to 6800</div></div><div class="amt">$310.00</div></div>
+    <div class="rw"><div class="ic">✓</div><div class="bd"><div class="t1">Wages earned but not yet paid</div><div class="t2">from time entries · posts to 2200</div></div><div class="amt">$2,140.00</div></div>
+    <div class="rw"><div class="ic">✓</div><div class="bd"><div class="t1">Loyalty points liability</div><div class="t2">revalued to 44,325 outstanding</div></div><div class="amt">$443.25</div></div>
+    <div class="rw"><div class="ic">✓</div><div class="bd"><div class="t1">Roll profit to retained earnings</div><div class="t2">4000–6999 → 3900</div></div><div class="amt">$4,292.60</div></div>
+
+    <div class="pl head2" style="margin-top:14px;"><span class="nm">Only you can answer these</span><span class="amt"></span></div>
+    <div class="rw"><div class="ic">⚠</div><div class="bd"><div class="t1">3 bills still in draft</div><div class="t2">$1,482.00 — post or delete them before the 10th</div></div><span class="chip warn">Review</span></div>
+    <div class="rw"><div class="ic">⚠</div><div class="bd"><div class="t1">No stock count since 12 July</div><div class="t2">shrinkage can't be measured without one</div></div><span class="chip warn">Count</span></div>
+    <div class="rw"><div class="ic">⚠</div><div class="bd"><div class="t1">Bank balance not confirmed</div><div class="t2">ledger says $38,904.00 — does the statement?</div></div><span class="chip warn">Confirm</span></div>
+    <div class="rw"><div class="ic">✓</div><div class="bd"><div class="t1">Registers reconciled</div><div class="t2">all 3 sessions closed, no unexplained variance</div></div><span class="chip ok">Done</span></div>
+
+    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn solid" type="button">Close August now</button>
+      <button class="btn" type="button">Wait for 10 Sep</button>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">How closing works here</h4>
+    <div class="fld"><label>When to close a month</label>
+      <div class="filters" style="margin:0;flex-direction:column;align-items:stretch;">
+        <span class="on">Automatically, after a grace period</span>
+        <span>Ask me, then wait for a tap</span>
+        <span>Never — I'll close it myself</span>
+      </div></div>
+    <div class="fld" style="margin-top:12px;"><label>Grace period after month end</label>
+      <div class="filters" style="margin:0;"><span>5 days</span><span class="on">10 days</span><span>15 days</span></div></div>
+    <p class="foot">The grace period exists because August's electricity bill arrives in September. Close
+    on the 31st and it has nowhere to go.</p>
+
+    <h4 class="ctitle" style="margin-top:20px;">Closed is not frozen</h4>
+    <div class="pl"><span class="nm">Closed<span class="hint">sales, bills and payments can't post</span></span><span class="amt"><span class="chip warn">Reversible</span></span></div>
+    <div class="pl"><span class="nm">…but the owner can still post<span class="hint">a correcting entry dated into the month</span></span><span class="amt"><span class="chip info">Adjusting</span></span></div>
+    <div class="pl"><span class="nm">Locked<span class="hint">nothing posts, ever. Manual, and final</span></span><span class="amt"><span class="chip lock">Final</span></span></div>
+    <p class="foot">Every close, re-open and adjusting entry lands in the Audit Log with who did it
+    and why. A month closed with items still unchecked is marked <b>closed with exceptions</b>, and
+    says which ones.</p>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Closed periods</h4>
+      <div class="headActs"><button class="btn" type="button">Lock all of 2025</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Period</th><th>Status</th><th>Closed</th><th>By</th><th>Exceptions</th><th class="r">Profit rolled</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">August 2026</span></td><td><span class="chip ok">Open</span></td><td class="muted">auto · 10 Sep</td><td class="muted">—</td><td class="muted">3 to check</td><td class="r muted">—</td></tr>
+        <tr><td><span class="p">July 2026</span></td><td><span class="chip warn">Closed</span></td><td class="muted">3 Aug</td><td class="muted">Automatic</td><td><span class="chip warn">No stock count</span></td><td class="r"><span class="p">8,204.11</span></td></tr>
+        <tr><td><span class="p">June 2026</span></td><td><span class="chip warn">Closed</span></td><td class="muted">4 Jul</td><td class="muted">Automatic</td><td class="muted">None</td><td class="r"><span class="p">6,882.40</span></td></tr>
+        <tr><td><span class="p">May 2026</span></td><td><span class="chip warn">Closed</span></td><td class="muted">2 Jun</td><td class="muted">Yusef S</td><td class="muted">None</td><td class="r"><span class="p">7,104.00</span></td></tr>
+        <tr><td><span class="p">2025 · full year</span><span class="m">12 months</span></td><td><span class="chip lock">Locked</span></td><td class="muted">18 Feb 2026</td><td class="muted">Yusef S</td><td class="muted">None</td><td class="r"><span class="p">64,208.31</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Why automatic is the default.</b> A shop owner
+      will not remember to close a month, and a book that is never closed lets anyone edit any month
+      forever — which is the thing closing exists to prevent. Automatic-with-a-checklist gets the
+      protection without the discipline. The three manual settings are there because an accountant
+      running the books will want the tap.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ CREATE BILL ═════════════════════ -->
+<template data-tab="bill" data-tabname="Accounting" data-label="Create Bill" data-crumb="Accounting" data-blurb="One form for both kinds — paid now, or owed to the supplier.">
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Bill details</h4></div>
+    <div class="fld"><label>How was it paid?</label>
+      <div class="filters" style="margin:0;"><span class="on">On credit — we owe them</span><span>Cash bill — paid now</span></div></div>
+    <div class="fldrow">
+      <div class="fld"><label>Supplier</label><div class="inp">Somtel</div></div>
+      <div class="fld"><label>Their invoice no.</label><div class="inp mono">SOM-88214</div></div>
+    </div>
+    <div class="fldrow">
+      <div class="fld"><label>Issued</label><div class="inp num">20 Aug 2026</div></div>
+      <div class="fld"><label>Due</label><div class="inp num">5 Sep 2026</div></div>
+    </div>
+    <div class="fldrow">
+      <div class="fld"><label>Account</label><div class="inp">6100 · Utilities</div></div>
+      <div class="fld"><label>Amount</label><div class="inp num">$310.00</div></div>
+    </div>
+    <div class="fld"><label>Description</label><div class="inp">August internet — shop line</div></div>
+    <div class="fld"><label>Store</label><div class="inp">Hodan Store</div></div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn solid" type="button">Post bill</button>
+      <button class="btn" type="button">Save as draft</button>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">What this will post</h4>
+    <div class="pl head2"><span class="nm">Account</span><span class="amt">Debit / Credit</span></div>
+    <div class="pl"><span class="nm">6100 · Utilities<span class="hint">the cost, in August</span></span><span class="amt">Dr $310.00</span></div>
+    <div class="pl"><span class="nm">2000 · Accounts Payable<span class="hint">what you now owe Somtel</span></span><span class="amt">Cr $310.00</span></div>
+    <div class="pl tot"><span class="nm">Balanced</span><span class="amt profit">✓</span></div>
+    <p class="foot">Switch to <b>Cash bill</b> and the credit side becomes your cash or mobile-money
+    account instead — the cost still lands in August either way.</p>
+
+    <h4 class="ctitle" style="margin-top:20px;">Buying stock?</h4>
+    <div class="cav context"><span>ℹ</span><div>Pick <b>1200 · Inventory</b> as the account, or record
+      it through <b>Receive stock</b> in Inventory so the quantities move too. Stock is not an
+      expense until it sells.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ TRANSFERS ═════════════════════ -->
+<template data-tab="transfer" data-tabname="Accounting" data-label="Cash and Bank Transfers" data-crumb="Accounting" data-blurb="Moving money between your own accounts. Never a profit or a cost.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Where the money is</h4><span class="pill">Right now — not the date range</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Cash drawers</div><div class="n num">$4,182.60</div><div class="h">3 registers</div></div>
+      <div class="kpi"><div class="l">Bank — Salaam</div><div class="n num">$38,904.00</div><div class="h">last deposit 17 Aug</div></div>
+      <div class="kpi"><div class="l">Zaad</div><div class="n num">$6,331.45</div></div>
+      <div class="kpi"><div class="l">Total</div><div class="n num">$49,418.05</div><div class="h">derived from the ledger</div></div>
+    </div>
+    <div class="cav context" style="margin-top:12px;"><span>ℹ</span><div><b>These figures are now
+      calculated, not typed.</b> They come from every posting that touched a cash account. If a
+      drawer count disagrees, that's a real difference worth finding — record it as a
+      <a href="#">cash-over/short entry</a>, don't overwrite the balance.</div></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">New transfer</h4>
+    <div class="fld"><label>From</label><div class="inp">Cash on Hand — Register 1</div></div>
+    <div class="fld"><label>To</label><div class="inp">Bank — Salaam</div></div>
+    <div class="fldrow">
+      <div class="fld"><label>Amount</label><div class="inp num">$3,200.00</div></div>
+      <div class="fld"><label>Date</label><div class="inp num">21 Aug 2026</div></div>
+    </div>
+    <div class="fld"><label>Note</label><div class="inp ph">Evening deposit — slip no.…</div></div>
+    <div class="balbar">
+      <div><div class="lbl">Posts as</div><div class="v" style="font-size:13px;">Dr 1010 Bank · Cr 1000 Cash</div></div>
+      <div><div class="lbl">P&amp;L effect</div><div class="v" style="font-size:14px;">None</div></div>
+    </div>
+    <button class="btn solid" type="button" style="margin-top:12px;">Record transfer</button>
+  </div>
+
+  <div class="cardx tight" data-w="7">
+    <h4 class="ctitle" style="margin-left:8px;">Recent transfers</h4>
+    <div class="tbl"><table class="t" style="min-width:0;">
+      <thead><tr><th>Date</th><th>From → to</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">17 Aug</td><td><span class="p">Register 1 → Bank</span><span class="m">Evening deposit</span></td><td class="r"><span class="p">3,200.00</span></td></tr>
+        <tr><td class="muted">14 Aug</td><td><span class="p">Zaad → Bank</span><span class="m">Weekly sweep</span></td><td class="r"><span class="p">2,880.00</span></td></tr>
+        <tr><td class="muted">11 Aug</td><td><span class="p">Bank → Register 2</span><span class="m">Float for Bakaara opening</span></td><td class="r"><span class="p">500.00</span></td></tr>
+        <tr><td class="muted">10 Aug</td><td><span class="p">Register 1 → Bank</span></td><td class="r"><span class="p">4,140.00</span></td></tr>
+        <tr><td class="muted">3 Aug</td><td><span class="p">Zaad → Bank</span><span class="m">Weekly sweep</span></td><td class="r"><span class="p">3,015.20</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ REPORTS HUB ═════════════════════ -->
+<template data-tab="rhub" data-tabname="Reports" data-label="Reports" data-blurb="The statements, and the breakdowns behind them.">
+  <div class="cardx" data-w="12">
+    <p class="grpttl">Sales</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">◔</div><b>Sales Reports</b><span class="d">Revenue by day, payment method, and store.</span>
+        <div class="act"><span class="when">Updated live</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">▦</div><b>Item Performance</b><span class="d">Top and bottom sellers by units and margin.</span>
+        <div class="act"><span class="when">Updated live</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">☺</div><b>Sales by Employee</b><span class="d">Revenue and orders rung up per cashier or staff member.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">◕</div><b>Sales by Category</b><span class="d">Revenue and margin broken out by product category.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile gap"><div class="ic">🏷</div><b>Discounts &amp; Refunds</b><span class="d">Value given away and returned, broken down by reason.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Financial statements</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">＄</div><b>Profit and Loss Statement</b><span class="d">Revenue, COGS, and expenses to net profit.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">▤</div><b>Income Statement</b><span class="d">A fuller view across all revenue and cost lines.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">⌂</div><b>Balance Sheet</b><span class="d">Assets, liabilities, and equity as of today.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile gap"><div class="ic">%</div><b>Sales Tax Liability</b><span class="d">Tax collected versus remitted, by filing period.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">▥</div><b>Budget vs Actual</b><span class="d">Spend and revenue measured against the targets you set.</span>
+        <div class="act"><span class="when">This month</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Customers &amp; receivables</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">☺</div><b>Customer Balance Summary</b><span class="d">Outstanding balance owed by each customer.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">◷</div><b>Aging Receivables</b><span class="d">Current, 30, 60, and 90+ day buckets.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">≡</div><b>Customer Purchase History</b><span class="d">Order history and lifetime value per customer.</span>
+        <div class="act"><span class="when">All time</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">★</div><b>Loyalty Points Summary</b><span class="d">Points earned, redeemed, and still outstanding.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Inventory</p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">▣</div><b>Inventory Balance Summary</b><span class="d">Stock on hand, value at cost and retail.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">⚖</div><b>Inventory Valuation</b><span class="d">Cost basis by valuation method — FIFO or weighted average.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">⚠</div><b>Low Stock &amp; Reorder</b><span class="d">Items at or below their reorder point, ranked by urgency.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">⇄</div><b>Stock Movement Log</b><span class="d">Transfers, adjustments, and shrinkage between locations.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Vendors &amp; payables <span class="sub2">— what you owe suppliers, and the purchase orders behind it.</span></p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">▭</div><b>Vendor Balance Summary</b><span class="d">What's owed to each supplier, across all open bills.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">◷</div><b>Aging Payables</b><span class="d">Unpaid bills grouped into current, 30, 60, and 90+ buckets.</span>
+        <div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="tile gap"><div class="ic">▤</div><b>Purchase Order Report</b><span class="d">Open and received purchase orders, by vendor.</span>
+        <div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Payroll &amp; labor <span class="sub2">— what the team costs, and how that tracks against sales.</span></p>
+    <div class="tiles">
+      <div class="tile"><div class="ic">☺</div><b>Payroll Summary</b><span class="d">Pay run totals by period and employee.</span>
+        <div class="act"><span class="when">This month</span><span class="go">Run report</span></div></div>
+      <div class="tile"><div class="ic">◔</div><b>Labor Cost vs Sales</b><span class="d">Wage cost as a percentage of revenue, by period.</span>
+        <div class="act"><span class="when">This month</span><span class="go">Run report</span></div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav wrong"><span>⚠</span><div><b>Three cards are outlined because nothing in the
+      database can answer them yet</b> — Discounts &amp; Refunds by reason, Sales Tax Liability's
+      "remitted" half, and Purchase Orders. Each needs a schema addition before the screen can be
+      honest. <b>Inventory Valuation is no longer among them:</b> FIFO is in scope, and its cost
+      layers land in phase 2a. See <a href="#gaps">the gap table below</a>.</div></div>
+    <div class="cav context"><span>ℹ</span><div>Every other report reads the same ledger, so the
+      profit on the P&amp;L, the retained earnings on the balance sheet and the operating line on
+      the cash flow are guaranteed to agree. That is the whole point of the change.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ P&L ═════════════════════ -->
+<template data-tab="pl" data-tabname="Reports" data-label="Profit &amp; Loss" data-crumb="Reports" data-blurb="Also called the income statement. What you earned, what it cost, what's left.">
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Profit &amp; loss</h4><span class="pill">1 — 21 Aug 2026</span></div>
+    <div class="pl"><span class="nm">Gross sales</span><span class="amt num">$82,442.53</span></div>
+    <div class="pl sub"><span class="nm">Less discounts given</span><span class="amt num loss">−2,410.20</span></div>
+    <div class="pl sub"><span class="nm">Less returns</span><span class="amt num loss">−1,882.40</span></div>
+    <div class="pl emph"><span class="nm">Net revenue<span class="hint">excludes sales tax — that's owed, not earned</span></span><span class="amt num">$78,149.93</span></div>
+    <div class="pl"><span class="nm">Cost of goods sold</span><span class="amt num loss">−47,220.08</span></div>
+    <div class="pl sub"><span class="nm">Inventory shrinkage</span><span class="amt num loss">−840.00</span></div>
+    <div class="pl emph"><span class="nm">Gross profit<span class="hint">38.7% margin</span></span><span class="amt num">$30,089.85</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Operating expenses</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Rent</span><span class="amt num">9,000.00</span></div>
+    <div class="pl sub"><span class="nm">Salaries &amp; wages</span><span class="amt num">11,680.00</span></div>
+    <div class="pl sub"><span class="nm">Utilities</span><span class="amt num">1,842.00</span></div>
+    <div class="pl sub"><span class="nm">Marketing</span><span class="amt num">1,240.00</span></div>
+    <div class="pl sub"><span class="nm">Depreciation</span><span class="amt num">930.00</span></div>
+    <div class="pl sub"><span class="nm">Other</span><span class="amt num">1,105.25</span></div>
+    <div class="pl emph"><span class="nm">Total operating expenses</span><span class="amt num loss">−25,797.25</span></div>
+    <div class="pl tot"><span class="nm">Net profit</span><span class="amt num profit">+$4,292.60</span></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">What changed here</h4>
+    <div class="cav context"><span>ℹ</span><div><b>Stock purchases and owner draws are gone from this
+      statement</b> — and not because they're filtered out. Stock now sits in Inventory until it
+      sells; owner draws sit in equity. Both appear on the balance sheet instead.</div></div>
+    <div class="cav context"><span>ℹ</span><div><b>Depreciation is new.</b> Equipment wearing out is a
+      real cost of trading, and leaving it out overstated profit every month.</div></div>
+    <h4 class="ctitle" style="margin-top:18px;">Reconciles to</h4>
+    <div class="rw"><div class="ic">⚖</div><div class="bd"><div class="t1">Balance Sheet</div><div class="t2">Net profit → retained earnings</div></div><div class="amt">$4,292.60</div></div>
+    <div class="rw"><div class="ic">💧</div><div class="bd"><div class="t1">Cash Flow</div><div class="t2">Opening line of the operating section</div></div><div class="amt">$4,292.60</div></div>
+    <div class="rw"><div class="ic">⚖</div><div class="bd"><div class="t1">Trial Balance</div><div class="t2">4000–6999 accounts, netted</div></div><div class="amt">$4,292.60</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ BALANCE SHEET ═════════════════════ -->
+<template data-tab="bs" data-tabname="Reports" data-label="Balance Sheet" data-crumb="Reports" data-blurb="What the shop owns, what it owes, and what's left over — on one date.">
+  <div class="cardx" data-w="6">
+    <div class="crow"><h4 class="ctitle">Assets</h4><span class="pill">as at 21 Aug 2026</span></div>
+    <div class="pl head2"><span class="nm">Current assets</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Cash on hand</span><span class="amt num">4,182.60</span></div>
+    <div class="pl sub"><span class="nm">Bank</span><span class="amt num">38,904.00</span></div>
+    <div class="pl sub"><span class="nm">Mobile money</span><span class="amt num">6,331.45</span></div>
+    <div class="pl sub"><span class="nm">Accounts receivable</span><span class="amt num">7,240.90</span></div>
+    <div class="pl sub"><span class="nm">Inventory</span><span class="amt num">28,411.27</span></div>
+    <div class="pl emph"><span class="nm">Total current assets</span><span class="amt num">$85,070.22</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Fixed assets</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Equipment &amp; fittings, at cost</span><span class="amt num">14,200.00</span></div>
+    <div class="pl sub"><span class="nm">Less accumulated depreciation</span><span class="amt num loss">−2,790.00</span></div>
+    <div class="pl emph"><span class="nm">Net fixed assets</span><span class="amt num">$11,410.00</span></div>
+    <div class="pl tot"><span class="nm">Total assets</span><span class="amt num">$96,480.22</span></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <div class="crow"><h4 class="ctitle">Liabilities &amp; equity</h4><span class="pill">as at 21 Aug 2026</span></div>
+    <div class="pl head2"><span class="nm">Current liabilities</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Accounts payable</span><span class="amt num">24,118.00</span></div>
+    <div class="pl sub"><span class="nm">Sales tax payable</span><span class="amt num">5,204.15</span></div>
+    <div class="pl sub"><span class="nm">Wages payable</span><span class="amt num">2,140.00</span></div>
+    <div class="pl sub"><span class="nm">Loyalty points liability</span><span class="amt num">443.25</span></div>
+    <div class="pl emph"><span class="nm">Total liabilities</span><span class="amt num">$31,905.40</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Equity</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Owner's capital</span><span class="amt num">40,000.00</span></div>
+    <div class="pl sub"><span class="nm">Owner's draw</span><span class="amt num loss">−6,800.00</span></div>
+    <div class="pl sub"><span class="nm">Retained earnings — prior periods</span><span class="amt num">27,082.22</span></div>
+    <div class="pl sub"><span class="nm">Profit this period</span><span class="amt num profit">+4,292.60</span></div>
+    <div class="pl emph"><span class="nm">Total equity</span><span class="amt num">$64,574.82</span></div>
+    <div class="pl tot"><span class="nm">Total liabilities &amp; equity</span><span class="amt num">$96,480.22</span></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>$96,480.22 on both sides.</b> That equality isn't
+      checked after the fact — it's a consequence of every entry balancing. It's the first thing an
+      accountant looks for, and kaiibi has never been able to show it before.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ CASH FLOW ═════════════════════ -->
+<template data-tab="cf" data-tabname="Accounting" data-label="Cash Flow" data-crumb="Accounting" data-blurb="Where cash actually came from and went. Profit and cash are not the same thing.">
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Cash flow — indirect method</h4><span class="pill">1 — 21 Aug 2026</span></div>
+    <div class="pl head2"><span class="nm">Operating</span><span class="amt"></span></div>
+    <div class="pl"><span class="nm">Net profit</span><span class="amt num">$4,292.60</span></div>
+    <div class="pl sub"><span class="nm">Add back depreciation<span class="hint">a cost, but no cash left</span></span><span class="amt num">+930.00</span></div>
+    <div class="pl sub"><span class="nm">Increase in receivables</span><span class="amt num loss">−1,842.00</span></div>
+    <div class="pl sub"><span class="nm">Increase in inventory</span><span class="amt num loss">−6,410.00</span></div>
+    <div class="pl sub"><span class="nm">Increase in payables</span><span class="amt num profit">+5,118.00</span></div>
+    <div class="pl sub"><span class="nm">Increase in tax &amp; wages payable</span><span class="amt num profit">+1,204.15</span></div>
+    <div class="pl emph"><span class="nm">Cash from operations</span><span class="amt num">$3,292.75</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Investing</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Bought equipment</span><span class="amt num loss">−750.00</span></div>
+    <div class="pl emph"><span class="nm">Cash used in investing</span><span class="amt num loss">−$750.00</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Financing</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">Owner drawings</span><span class="amt num loss">−1,600.00</span></div>
+    <div class="pl emph"><span class="nm">Cash used in financing</span><span class="amt num loss">−$1,600.00</span></div>
+    <div class="pl tot"><span class="nm">Net change in cash</span><span class="amt num profit">+$942.75</span></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">Proof</h4>
+    <div class="pl"><span class="nm">Cash at 1 August</span><span class="amt num">$48,475.30</span></div>
+    <div class="pl"><span class="nm">Net change above</span><span class="amt num profit">+942.75</span></div>
+    <div class="pl tot"><span class="nm">Cash at 21 August</span><span class="amt num">$49,418.05</span></div>
+    <p class="foot">Ties exactly to the cash, bank and mobile-money lines on the balance sheet.</p>
+
+    <h4 class="ctitle" style="margin-top:20px;">Why this matters here</h4>
+    <div class="cav context"><span>ℹ</span><div>The shop made <b>$4,292.60</b> profit but only
+      <b>$942.75</b> more cash. The gap is stock: $6,410 went into inventory that hasn't sold yet.
+      This is the single most common way a profitable shop runs out of money, and until now kaiibi
+      couldn't show it.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ SALES REPORT ═════════════════════ -->
+<template data-tab="sales" data-tabname="Reports" data-label="Sales Report" data-crumb="Reports" data-blurb="Takings broken down every way you'd want to slice them.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Net revenue</div><div class="n num">$78,149.93</div><div class="h">+12.4% vs prior 21 days</div></div>
+      <div class="kpi"><div class="l">Transactions</div><div class="n num">1,842</div><div class="h">avg basket $42.43</div></div>
+      <div class="kpi"><div class="l">Gross margin</div><div class="n num">38.7%</div><div class="h">−1.2 pts</div></div>
+      <div class="kpi"><div class="l">Refunds</div><div class="n num">$1,882.40</div><div class="h">2.3% of gross</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">By payment method</h4>
+    <div class="rw"><div class="bd"><div class="t1">Cash</div><div class="bar"><i style="width:44%;background:var(--c1);"></i></div></div><div class="amt">$34,386</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Zaad</div><div class="bar"><i style="width:31%;background:var(--c2);"></i></div></div><div class="amt">$24,226</div></div>
+    <div class="rw"><div class="bd"><div class="t1">eDahab</div><div class="bar"><i style="width:16%;background:var(--c3);"></i></div></div><div class="amt">$12,504</div></div>
+    <div class="rw"><div class="bd"><div class="t1">On credit</div><div class="bar"><i style="width:9%;background:var(--c4);"></i></div></div><div class="amt">$7,034</div></div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">By store</h4>
+    <div class="rw"><div class="bd"><div class="t1">Hodan Store</div><div class="t2">1,204 sales · 39.1% margin</div></div><div class="amt">$51,882</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Bakaara Branch</div><div class="t2">638 sales · 37.9% margin</div></div><div class="amt">$26,268</div></div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By day</h4>
+      <div class="headActs"><button class="btn" type="button">By cashier</button><button class="btn" type="button">By category</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Date</th><th class="r">Sales</th><th class="r">Gross</th><th class="r">Refunds</th><th class="r">Net revenue</th><th class="r">COGS</th><th class="r">Margin</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">Thu 21 Aug</td><td class="r muted">96</td><td class="r"><span class="p">4,204.10</span></td><td class="r muted">88.00</td><td class="r"><span class="p">3,918.22</span></td><td class="r muted">2,388.11</td><td class="r"><span class="p">39.1%</span></td></tr>
+        <tr><td class="muted">Wed 20 Aug</td><td class="r muted">104</td><td class="r"><span class="p">4,551.80</span></td><td class="r muted">0.00</td><td class="r"><span class="p">4,331.24</span></td><td class="r muted">2,690.44</td><td class="r"><span class="p">37.9%</span></td></tr>
+        <tr><td class="muted">Tue 19 Aug</td><td class="r muted">88</td><td class="r"><span class="p">3,802.40</span></td><td class="r muted">142.00</td><td class="r"><span class="p">3,481.90</span></td><td class="r muted">2,118.60</td><td class="r"><span class="p">39.2%</span></td></tr>
+        <tr><td class="muted">Mon 18 Aug</td><td class="r muted">91</td><td class="r"><span class="p">3,944.00</span></td><td class="r muted">0.00</td><td class="r"><span class="p">3,751.11</span></td><td class="r muted">2,340.29</td><td class="r"><span class="p">37.6%</span></td></tr>
+        <tr><td class="muted">Sun 17 Aug</td><td class="r muted">112</td><td class="r"><span class="p">4,880.25</span></td><td class="r muted">204.50</td><td class="r"><span class="p">4,448.02</span></td><td class="r muted">2,668.81</td><td class="r"><span class="p">40.0%</span></td></tr>
+        <tr class="totalrow"><td>21 days</td><td class="r num">1,842</td><td class="r num">82,442.53</td><td class="r num">1,882.40</td><td class="r num">78,149.93</td><td class="r num">47,220.08</td><td class="r num">38.7%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ ITEM PERFORMANCE ═════════════════════ -->
+<template data-tab="item" data-tabname="Reports" data-label="Item Performance" data-crumb="Reports" data-blurb="Which products earn their shelf space — units, revenue and margin.">
+  <div class="cardx" data-w="12">
+    <div class="filters">
+      <span class="on">All products</span><span>Best sellers</span><span>Worst margin</span><span>No cost set</span><span>Not sold in 30 days</span>
+      <span>All categories ⌄</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products sold</div><div class="n num">418</div><div class="h">of 612 in catalogue</div></div>
+      <div class="kpi"><div class="l">Never sold</div><div class="n num">194</div><div class="h">$8,204 of stock value</div></div>
+      <div class="kpi"><div class="l">Top 20 share</div><div class="n num">41%</div><div class="h">of net revenue</div></div>
+      <div class="kpi"><div class="l">Below 15% margin</div><div class="n num">37</div><div class="h">worth repricing</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Products</h4>
+      <div class="headActs"><button class="btn" type="button">Sort: revenue ⌄</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Product</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">COGS</th><th class="r">Gross profit</th><th class="r">Margin</th><th class="r">On hand</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Basmati rice 5kg</span><span class="m">Staples · SKU 10024</span></td><td class="r muted">412</td><td class="r"><span class="p">8,240.00</span></td><td class="r muted">5,974.00</td><td class="r"><span class="p">2,266.00</span></td><td class="r"><span class="p">27.5%</span></td><td class="r muted">86</td></tr>
+        <tr><td><span class="p">Cooking oil 3L</span><span class="m">Staples · SKU 10041</span></td><td class="r muted">388</td><td class="r"><span class="p">6,984.00</span></td><td class="r muted">4,850.00</td><td class="r"><span class="p">2,134.00</span></td><td class="r"><span class="p">30.6%</span></td><td class="r muted">142</td></tr>
+        <tr><td><span class="p">Powdered milk 900g</span><span class="m">Dairy · SKU 10188</span></td><td class="r muted">241</td><td class="r"><span class="p">5,302.00</span></td><td class="r muted">3,133.00</td><td class="r"><span class="p">2,169.00</span></td><td class="r"><span class="p profit">40.9%</span></td><td class="r muted">54</td></tr>
+        <tr><td><span class="p">Soft drink 1.5L</span><span class="m">Drinks · SKU 10302</span></td><td class="r muted">904</td><td class="r"><span class="p">4,520.00</span></td><td class="r muted">3,842.00</td><td class="r"><span class="p">678.00</span></td><td class="r"><span class="p loss">15.0%</span></td><td class="r muted">311</td></tr>
+        <tr><td><span class="p">Detergent 2kg</span><span class="m">Household · SKU 10455</span></td><td class="r muted">176</td><td class="r"><span class="p">3,168.00</span></td><td class="r muted">1,760.00</td><td class="r"><span class="p">1,408.00</span></td><td class="r"><span class="p profit">44.4%</span></td><td class="r muted">92</td></tr>
+        <tr><td><span class="p">Phone charger — generic</span><span class="m">Electronics · SKU 10711</span></td><td class="r muted">58</td><td class="r"><span class="p">1,160.00</span></td><td class="r"><span class="p muted">— no cost set</span></td><td class="r muted">—</td><td class="r muted">—</td><td class="r muted">24</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav wrong"><span>⚠</span><div><b>14 products have no cost recorded</b>, so their margin
+      is blank and $2,204 of revenue is excluded from the gross-profit figures above.
+      <a href="#">Set costs in Inventory</a></div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ CUSTOMER BALANCES ═════════════════════ -->
+<template data-tab="cust" data-tabname="Reports" data-label="Customer Balance Summary" data-crumb="Reports" data-blurb="What each customer owes right now, and what they've paid.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Total owed</div><div class="n num">$7,240.90</div><div class="h">ties to 1100 Receivable</div></div>
+      <div class="kpi"><div class="l">Customers owing</div><div class="n num">14</div><div class="h">of 486 with an account</div></div>
+      <div class="kpi"><div class="l">Largest debt</div><div class="n num">$1,904.00</div><div class="h">Bakaal Wholesale</div></div>
+      <div class="kpi"><div class="l">Over 60 days</div><div class="n num loss">$1,482.00</div><div class="h">20% of the book</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Customer balances</h4>
+      <div class="headActs"><button class="btn" type="button">Only overdue</button><button class="btn" type="button">Send reminders</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Customer</th><th class="r">Opening</th><th class="r">Charged</th><th class="r">Paid</th><th class="r">Balance</th><th>Oldest debt</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Bakaal Wholesale</span><span class="m">0615 xxx xxx · 4 open sales</span></td><td class="r muted">1,240.00</td><td class="r muted">3,808.00</td><td class="r muted">3,144.00</td><td class="r"><span class="p">1,904.00</span></td><td><span class="chip warn">42 days</span></td></tr>
+        <tr><td><span class="p">Hodan Catering</span><span class="m">0617 xxx xxx · 2 open sales</span></td><td class="r muted">0.00</td><td class="r muted">1,482.00</td><td class="r muted">0.00</td><td class="r"><span class="p">1,482.00</span></td><td><span class="chip hot">88 days</span></td></tr>
+        <tr><td><span class="p">Ahmed Nur</span><span class="m">0612 xxx xxx</span></td><td class="r muted">0.00</td><td class="r muted">960.00</td><td class="r muted">180.00</td><td class="r"><span class="p">780.00</span></td><td><span class="chip warn">35 days</span></td></tr>
+        <tr><td><span class="p">Marwo Restaurant</span><span class="m">0618 xxx xxx · 3 open sales</span></td><td class="r muted">420.00</td><td class="r muted">1,102.00</td><td class="r muted">880.00</td><td class="r"><span class="p">642.00</span></td><td><span class="chip ok">11 days</span></td></tr>
+        <tr><td><span class="p">Sagal Ismail</span><span class="m">0619 xxx xxx</span></td><td class="r muted">0.00</td><td class="r muted">508.00</td><td class="r muted">100.00</td><td class="r"><span class="p">408.00</span></td><td><span class="chip ok">6 days</span></td></tr>
+        <tr class="totalrow"><td>14 customers</td><td class="r num">2,102.00</td><td class="r num">11,388.90</td><td class="r num">6,250.00</td><td class="r num">7,240.90</td><td></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ AGING ═════════════════════ -->
+<template data-tab="aging" data-tabname="Reports" data-label="Aging Receivables" data-crumb="Reports" data-blurb="How old each debt is. The older the column, the less likely you collect it.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">The whole book</h4><span class="pill">as at 21 Aug 2026</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Current</div><div class="n num">$3,246.90</div><div class="h">45% · not yet due</div></div>
+      <div class="kpi"><div class="l">1–30 days</div><div class="n num">$1,632.00</div><div class="h">23%</div></div>
+      <div class="kpi"><div class="l">31–60 days</div><div class="n num">$880.00</div><div class="h">12%</div></div>
+      <div class="kpi"><div class="l">61+ days</div><div class="n num loss">$1,482.00</div><div class="h">20% · chase these</div></div>
+    </div>
+    <div class="bar" style="height:12px;margin-top:14px;display:flex;">
+      <i style="width:45%;background:var(--c2);"></i><i style="width:23%;background:var(--c1);"></i>
+      <i style="width:12%;background:var(--c3);"></i><i style="width:20%;background:var(--loss);"></i>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--c2);"></i>Current</span>
+      <span><i class="dot" style="background:var(--c1);"></i>1–30</span>
+      <span><i class="dot" style="background:var(--c3);"></i>31–60</span>
+      <span><i class="dot" style="background:var(--loss);"></i>61+</span>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By customer</h4>
+      <div class="headActs"><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Customer</th><th class="r">Current</th><th class="r">1–30</th><th class="r">31–60</th><th class="r">61–90</th><th class="r">90+</th><th class="r">Total</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Bakaal Wholesale</span></td><td class="r muted">1,024.00</td><td class="r muted">0.00</td><td class="r"><span class="p">880.00</span></td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">1,904.00</span></td></tr>
+        <tr><td><span class="p">Hodan Catering</span></td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p loss">1,482.00</span></td><td class="r muted">0.00</td><td class="r"><span class="p">1,482.00</span></td></tr>
+        <tr><td><span class="p">Ahmed Nur</span></td><td class="r muted">0.00</td><td class="r"><span class="p">780.00</span></td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">780.00</span></td></tr>
+        <tr><td><span class="p">Marwo Restaurant</span></td><td class="r muted">642.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">642.00</span></td></tr>
+        <tr><td><span class="p">Sagal Ismail</span></td><td class="r muted">408.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">408.00</span></td></tr>
+        <tr><td><span class="p">9 others</span></td><td class="r muted">1,172.90</td><td class="r muted">852.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">2,024.90</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">3,246.90</td><td class="r num">1,632.00</td><td class="r num">880.00</td><td class="r num">1,482.00</td><td class="r num">0.00</td><td class="r num">7,240.90</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div>Total ties exactly to <b>1100 Accounts Receivable</b>
+      on the trial balance and the balance sheet. An aging report that doesn't tie to the ledger is
+      the classic sign the two were built separately.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ INVENTORY BALANCE ═════════════════════ -->
+<template data-tab="inv" data-tabname="Reports" data-label="Inventory Balance Summary" data-crumb="Reports" data-blurb="Quantity and value on hand, and what it ties to in the books.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Stock value</div><div class="n num">$28,411.27</div><div class="h">ties to 1200 Inventory</div></div>
+      <div class="kpi"><div class="l">Units on hand</div><div class="n num">14,882</div><div class="h">612 products</div></div>
+      <div class="kpi"><div class="l">Out of stock</div><div class="n num">28</div><div class="h">products at zero</div></div>
+      <div class="kpi"><div class="l">Slow-moving</div><div class="n num">$8,204</div><div class="h">no sale in 60 days</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Movement this period</h4>
+    <div class="pl"><span class="nm">Opening stock — 1 Aug</span><span class="amt num">$22,001.27</span></div>
+    <div class="pl"><span class="nm">Stock received<span class="hint">from GRNs and cash purchases</span></span><span class="amt num profit">+54,470.08</span></div>
+    <div class="pl"><span class="nm">Cost of goods sold</span><span class="amt num loss">−47,220.08</span></div>
+    <div class="pl"><span class="nm">Returned by customers</span><span class="amt num profit">+1,102.00</span></div>
+    <div class="pl"><span class="nm">Written off / shrinkage</span><span class="amt num loss">−840.00</span></div>
+    <div class="pl"><span class="nm">Transferred between stores</span><span class="amt num">0.00</span></div>
+    <div class="pl tot"><span class="nm">Closing stock — 21 Aug</span><span class="amt num">$28,411.27</span></div>
+  </div>
+
+  <div class="cardx tight" data-w="6">
+    <h4 class="ctitle" style="margin-left:8px;">By store</h4>
+    <div class="tbl"><table class="t" style="min-width:0;">
+      <thead><tr><th>Store</th><th class="r">Units</th><th class="r">Value</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Hodan Store</span><span class="m">488 products</span></td><td class="r muted">9,844</td><td class="r"><span class="p">18,902.14</span></td></tr>
+        <tr><td><span class="p">Bakaara Branch</span><span class="m">341 products</span></td><td class="r muted">4,608</td><td class="r"><span class="p">8,844.13</span></td></tr>
+        <tr><td><span class="p">In transit</span><span class="m">1 open transfer</span></td><td class="r muted">430</td><td class="r"><span class="p">665.00</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">14,882</td><td class="r num">28,411.27</td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot" style="margin-left:8px;">Valued at weighted average cost — the same figure that
+    became COGS when each unit sold, so the P&amp;L and this report can't drift apart.</p>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav wrong"><span>⚠</span><div><b>14 products have no cost recorded</b> and are valued
+      at zero here, so stock value is understated by roughly the cost of 312 units.
+      <a href="#">Set costs in Inventory</a></div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ INCOME STATEMENT ═════════════════════ -->
+<template data-tab="inc" data-tabname="Reports" data-label="Income Statement" data-crumb="Reports" data-blurb="Every revenue and cost line, at full detail. The P&amp;L is this, summarised.">
+  <div class="cardx" data-w="7">
+    <div class="crow"><h4 class="ctitle">Income statement — detailed</h4><span class="pill">1 — 21 Aug 2026</span></div>
+    <div class="pl head2"><span class="nm">Revenue</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">4000 · Sales revenue</span><span class="amt num">82,442.53</span></div>
+    <div class="pl sub"><span class="nm">4100 · Sales returns</span><span class="amt num loss">−1,882.40</span></div>
+    <div class="pl sub"><span class="nm">4200 · Discounts given</span><span class="amt num loss">−2,410.20</span></div>
+    <div class="pl emph"><span class="nm">Net revenue</span><span class="amt num">$78,149.93</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Cost of sales</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">5000 · Cost of goods sold</span><span class="amt num loss">−47,220.08</span></div>
+    <div class="pl sub"><span class="nm">5100 · Inventory shrinkage</span><span class="amt num loss">−840.00</span></div>
+    <div class="pl emph"><span class="nm">Gross profit</span><span class="amt num">$30,089.85</span></div>
+    <div class="pl head2" style="margin-top:8px;"><span class="nm">Operating expenses</span><span class="amt"></span></div>
+    <div class="pl sub"><span class="nm">6000 · Rent</span><span class="amt num">9,000.00</span></div>
+    <div class="pl sub"><span class="nm">6100 · Utilities</span><span class="amt num">1,842.00</span></div>
+    <div class="pl sub"><span class="nm">6200 · Salaries &amp; wages</span><span class="amt num">11,680.00</span></div>
+    <div class="pl sub"><span class="nm">6300 · Marketing</span><span class="amt num">1,240.00</span></div>
+    <div class="pl sub"><span class="nm">6400 · Supplies</span><span class="amt num">402.00</span></div>
+    <div class="pl sub"><span class="nm">6500 · Transport &amp; delivery</span><span class="amt num">318.25</span></div>
+    <div class="pl sub"><span class="nm">6600 · Maintenance &amp; repairs</span><span class="amt num">210.00</span></div>
+    <div class="pl sub"><span class="nm">6700 · Fees &amp; charges</span><span class="amt num">175.00</span></div>
+    <div class="pl sub"><span class="nm">6800 · Depreciation</span><span class="amt num">930.00</span></div>
+    <div class="pl emph"><span class="nm">Total operating expenses</span><span class="amt num loss">−25,797.25</span></div>
+    <div class="pl tot"><span class="nm">Net profit</span><span class="amt num profit">+$4,292.60</span></div>
+  </div>
+
+  <div class="cardx" data-w="5">
+    <h4 class="ctitle">The same statement, twice</h4>
+    <div class="cav context"><span>ℹ</span><div>"Profit and loss" and "income statement" are two names
+      for one statement. The hub lists both because both were asked for — so they're built as
+      <b>one report with two levels of detail</b>, not two calculations that could drift apart.</div></div>
+    <div class="pl" style="margin-top:12px;"><span class="nm">Profit &amp; Loss<span class="hint">7 grouped lines · the owner's view</span></span><span class="amt num">$4,292.60</span></div>
+    <div class="pl"><span class="nm">Income Statement<span class="hint">every account · the accountant's view</span></span><span class="amt num">$4,292.60</span></div>
+    <div class="pl tot"><span class="nm">Difference</span><span class="amt num profit">$0.00</span></div>
+    <p class="foot">One query, one <code>detail</code> flag. If the two ever disagreed it would be a
+    bug, and building them as separate reports is how that bug gets written.</p>
+
+    <h4 class="ctitle" style="margin-top:20px;">Comparison</h4>
+    <div class="rw"><div class="bd"><div class="t1">vs prior period</div><div class="t2">1–21 Jul 2026</div></div><div class="amt profit">+18.2%</div></div>
+    <div class="rw"><div class="bd"><div class="t1">vs same period last year</div><div class="t2">1–21 Aug 2025</div></div><div class="amt profit">+31.4%</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Year to date</div><div class="t2">1 Jan — 21 Aug 2026</div></div><div class="amt">$31,374.82</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ BUDGET VS ACTUAL ═════════════════════ -->
+<template data-tab="budget" data-tabname="Reports" data-label="Budget vs Actual" data-crumb="Reports" data-blurb="Spend and revenue measured against the targets you set.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Budgeted spend</div><div class="n num">$27,500.00</div><div class="h">August · 8 categories</div></div>
+      <div class="kpi"><div class="l">Actual spend</div><div class="n num">$25,797.25</div><div class="h">to 21 Aug</div></div>
+      <div class="kpi"><div class="l">Under budget</div><div class="n num profit">+$1,702.75</div><div class="h">6.2% headroom</div></div>
+      <div class="kpi"><div class="l">Over in</div><div class="n num loss">2 categories</div><div class="h">marketing, utilities</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By category</h4><span class="pill">August 2026 · 21 of 31 days</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Category</th><th class="r">Budget</th><th class="r">Actual</th><th class="r">Variance</th><th>Used</th><th class="r">Pace</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Rent</span></td><td class="r muted">9,000.00</td><td class="r"><span class="p">9,000.00</span></td><td class="r"><span class="p">0.00</span></td><td><div class="bar"><i style="width:100%;background:var(--c1);"></i></div></td><td class="r muted">fixed</td></tr>
+        <tr><td><span class="p">Salaries &amp; wages</span></td><td class="r muted">12,000.00</td><td class="r"><span class="p">11,680.00</span></td><td class="r"><span class="p profit">+320.00</span></td><td><div class="bar"><i style="width:97%;background:var(--c1);"></i></div></td><td class="r"><span class="chip warn">Ahead</span></td></tr>
+        <tr><td><span class="p">Marketing</span></td><td class="r muted">1,000.00</td><td class="r"><span class="p">1,240.00</span></td><td class="r"><span class="p loss">−240.00</span></td><td><div class="bar"><i style="width:100%;background:var(--loss);"></i></div></td><td class="r"><span class="chip hot">Over</span></td></tr>
+        <tr><td><span class="p">Utilities</span></td><td class="r muted">1,500.00</td><td class="r"><span class="p">1,842.00</span></td><td class="r"><span class="p loss">−342.00</span></td><td><div class="bar"><i style="width:100%;background:var(--loss);"></i></div></td><td class="r"><span class="chip hot">Over</span></td></tr>
+        <tr><td><span class="p">Supplies</span></td><td class="r muted">1,200.00</td><td class="r"><span class="p">402.00</span></td><td class="r"><span class="p profit">+798.00</span></td><td><div class="bar"><i style="width:34%;background:var(--c2);"></i></div></td><td class="r"><span class="chip ok">On track</span></td></tr>
+        <tr><td><span class="p">Transport &amp; delivery</span></td><td class="r muted">600.00</td><td class="r"><span class="p">318.25</span></td><td class="r"><span class="p profit">+281.75</span></td><td><div class="bar"><i style="width:53%;background:var(--c2);"></i></div></td><td class="r"><span class="chip ok">On track</span></td></tr>
+        <tr><td><span class="p">Maintenance &amp; repairs</span></td><td class="r muted">1,000.00</td><td class="r"><span class="p">210.00</span></td><td class="r"><span class="p profit">+790.00</span></td><td><div class="bar"><i style="width:21%;background:var(--c2);"></i></div></td><td class="r"><span class="chip ok">On track</span></td></tr>
+        <tr><td><span class="p">Fees &amp; charges</span></td><td class="r muted">200.00</td><td class="r"><span class="p">175.00</span></td><td class="r"><span class="p profit">+25.00</span></td><td><div class="bar"><i style="width:88%;background:var(--c3);"></i></div></td><td class="r"><span class="chip warn">Ahead</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">27,500.00</td><td class="r num">25,797.25</td><td class="r num">+1,702.75</td><td></td><td></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>"Pace" compares spend to how much of the month has
+      passed</b>, which is the number that actually warns you. 88% of a fees budget on day 21 of 31
+      is fine; 97% of wages is not, because payday hasn't happened yet. Depreciation is excluded —
+      it isn't a spending decision. <b>Rent</b> shows no pace because it's a single monthly charge.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ SALES BY EMPLOYEE ═════════════════════ -->
+<template data-tab="emp" data-tabname="Reports" data-label="Sales by Employee" data-crumb="Reports" data-blurb="Revenue and orders rung up per cashier or staff member.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Staff who sold</div><div class="n num">9</div><div class="h">of 12 active</div></div>
+      <div class="kpi"><div class="l">Best basket</div><div class="n num">$58.20</div><div class="h">Amina H</div></div>
+      <div class="kpi"><div class="l">Avg per hour on shift</div><div class="n num">$142.80</div><div class="h">across the team</div></div>
+      <div class="kpi"><div class="l">Refunds issued</div><div class="n num">$1,882.40</div><div class="h">by 4 staff</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By staff member</h4>
+      <div class="headActs"><button class="btn" type="button">Sort: revenue ⌄</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Staff</th><th class="r">Sales</th><th class="r">Net revenue</th><th class="r">Avg basket</th><th class="r">Refunds</th><th class="r">Hours</th><th class="r">Rev / hour</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Amina H</span><span class="m">Manager · Hodan Store</span></td><td class="r muted">312</td><td class="r"><span class="p">18,158.40</span></td><td class="r"><span class="p">58.20</span></td><td class="r muted">402.00</td><td class="r muted">96</td><td class="r"><span class="p profit">189.15</span></td></tr>
+        <tr><td><span class="p">Yusuf A</span><span class="m">Cashier · Hodan Store</span></td><td class="r muted">388</td><td class="r"><span class="p">16,238.40</span></td><td class="r"><span class="p">41.85</span></td><td class="r muted">614.40</td><td class="r muted">104</td><td class="r"><span class="p">156.14</span></td></tr>
+        <tr><td><span class="p">Fadumo M</span><span class="m">Cashier · Bakaara Branch</span></td><td class="r muted">294</td><td class="r"><span class="p">11,466.00</span></td><td class="r"><span class="p">39.00</span></td><td class="r muted">188.00</td><td class="r muted">88</td><td class="r"><span class="p">130.30</span></td></tr>
+        <tr><td><span class="p">Cabdi K</span><span class="m">Cashier · Hodan Store</span></td><td class="r muted">268</td><td class="r"><span class="p">10,586.00</span></td><td class="r"><span class="p">39.50</span></td><td class="r muted">678.00</td><td class="r muted">80</td><td class="r"><span class="p">132.33</span></td></tr>
+        <tr><td><span class="p">Hodan S</span><span class="m">Cashier · Bakaara Branch</span></td><td class="r muted">204</td><td class="r"><span class="p">7,752.00</span></td><td class="r"><span class="p">38.00</span></td><td class="r muted">0.00</td><td class="r muted">64</td><td class="r"><span class="p">121.13</span></td></tr>
+        <tr><td><span class="p">4 others</span></td><td class="r muted">376</td><td class="r"><span class="p">13,949.13</span></td><td class="r"><span class="p">37.10</span></td><td class="r muted">0.00</td><td class="r muted">115</td><td class="r"><span class="p">121.30</span></td></tr>
+        <tr class="totalrow"><td>Team</td><td class="r num">1,842</td><td class="r num">78,149.93</td><td class="r num">42.43</td><td class="r num">1,882.40</td><td class="r num">547</td><td class="r num">142.87</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Revenue per hour comes from <code>time_entries</code>,
+      not from headcount.</b> Ranking by total revenue alone just tells you who worked the most
+      shifts. It is deliberately not framed as a leaderboard — a cashier on the quiet morning shift
+      isn't underperforming.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ DISCOUNTS & REFUNDS ═════════════════════ -->
+<template data-tab="disc" data-tabname="Reports" data-label="Discounts &amp; Refunds" data-crumb="Reports" data-blurb="Value given away and returned, and what it did to margin.">
+  <div class="cardx" data-w="12">
+    <div class="cav wrong"><span>⚠</span><div><b>"By reason" needs a column that doesn't exist.</b>
+      <code>refunds</code> has no reason field today, so this report can show <i>what</i> was
+      refunded and by whom, but not <i>why</i>. Adding a required reason at refund time is a small
+      migration and a POS change — until then the breakdown below is by cause-we-can-infer, and
+      says so. <a href="#gaps">See the gap table</a></div></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Discounts given</div><div class="n num">$2,410.20</div><div class="h">2.9% of gross</div></div>
+      <div class="kpi"><div class="l">Refunds</div><div class="n num">$1,882.40</div><div class="h">2.3% of gross</div></div>
+      <div class="kpi"><div class="l">Total given back</div><div class="n num loss">$4,292.60</div><div class="h">5.2% of gross</div></div>
+      <div class="kpi"><div class="l">Margin cost</div><div class="n num loss">−2.1 pts</div><div class="h">38.7% vs 40.8% at list</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Discounts, by source</h4>
+    <div class="rw"><div class="bd"><div class="t1">Promotions</div><div class="t2">6 campaigns · attributed at sale time</div></div><div class="amt">$1,684.20</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Loyalty points redeemed</div><div class="t2">from customer_points_ledger</div></div><div class="amt">$482.00</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Manual price override</div><div class="t2">4 staff · 88 sales</div></div><div class="amt">$244.00</div></div>
+    <p class="foot">All three are already recorded — this is the half of the report that works today.</p>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Refunds, by reason</h4>
+    <div class="rw"><div class="bd"><div class="t1">Not recorded</div><div class="t2">every refund in the range</div></div><div class="amt">$1,882.40</div></div>
+    <div class="cav wrong" style="margin-top:10px;"><span>⚠</span><div>Once refund reasons ship, this
+      card breaks down into damaged, wrong item, customer changed mind, expired, and priced wrong —
+      the five that let an owner act on it. <a href="#">Add refund reasons</a></div></div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Refunds in range</h4><span class="pill">21 — 15 Aug 2026</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Date</th><th>Sale</th><th>Items</th><th>By</th><th>Reason</th><th class="r">Amount</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">21 Aug</td><td class="mono">#8836</td><td><span class="p">Cooking oil 3L ×2</span></td><td class="muted">Cabdi K</td><td><span class="chip">Not recorded</span></td><td class="r"><span class="p">88.00</span></td></tr>
+        <tr><td class="muted">19 Aug</td><td class="mono">#8802</td><td><span class="p">Powdered milk 900g ×4</span></td><td class="muted">Yusuf A</td><td><span class="chip">Not recorded</span></td><td class="r"><span class="p">142.00</span></td></tr>
+        <tr><td class="muted">17 Aug</td><td class="mono">#8744</td><td><span class="p">Detergent 2kg ×6, soft drink ×12</span></td><td class="muted">Amina H</td><td><span class="chip">Not recorded</span></td><td class="r"><span class="p">204.50</span></td></tr>
+        <tr><td class="muted">16 Aug</td><td class="mono">#8710</td><td><span class="p">Basmati rice 5kg ×20</span></td><td class="muted">Cabdi K</td><td><span class="chip">Not recorded</span></td><td class="r"><span class="p">590.00</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ LOYALTY ═════════════════════ -->
+<template data-tab="loyalty" data-tabname="Reports" data-label="Loyalty Points Summary" data-crumb="Reports" data-blurb="Points earned, redeemed, and still outstanding — and what they cost you.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Outstanding points</div><div class="n num">44,325</div><div class="h">worth $443.25</div></div>
+      <div class="kpi"><div class="l">On the balance sheet</div><div class="n num">$443.25</div><div class="h">2300 Loyalty Liability</div></div>
+      <div class="kpi"><div class="l">Earned this period</div><div class="n num profit">+18,204</div></div>
+      <div class="kpi"><div class="l">Redeemed this period</div><div class="n num loss">−48,200</div><div class="h">$482.00 of discounts</div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">Movement</h4>
+    <div class="pl"><span class="nm">Outstanding at 1 August</span><span class="amt num">74,321</span></div>
+    <div class="pl"><span class="nm">Earned on sales</span><span class="amt num profit">+18,204</span></div>
+    <div class="pl"><span class="nm">Redeemed</span><span class="amt num loss">−48,200</span></div>
+    <div class="pl"><span class="nm">Returned with refunds</span><span class="amt num profit">+1,204</span></div>
+    <div class="pl"><span class="nm">Expired</span><span class="amt num loss">−1,204</span></div>
+    <div class="pl tot"><span class="nm">Outstanding at 21 August</span><span class="amt num">44,325</span></div>
+    <p class="foot">Ties to <code>customer_points_ledger</code> and to account 2300 — the liability
+    moves with the points, entry for entry.</p>
+  </div>
+
+  <div class="cardx tight" data-w="6">
+    <h4 class="ctitle" style="margin-left:8px;">Biggest balances</h4>
+    <div class="tbl"><table class="t" style="min-width:0;">
+      <thead><tr><th>Customer</th><th class="r">Points</th><th class="r">Worth</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Marwo Restaurant</span></td><td class="r muted">8,420</td><td class="r"><span class="p">84.20</span></td></tr>
+        <tr><td><span class="p">Sagal Ismail</span></td><td class="r muted">5,180</td><td class="r"><span class="p">51.80</span></td></tr>
+        <tr><td><span class="p">Ahmed Nur</span></td><td class="r muted">3,904</td><td class="r"><span class="p">39.04</span></td></tr>
+        <tr><td><span class="p">481 others</span></td><td class="r muted">26,821</td><td class="r"><span class="p">268.21</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">44,325</td><td class="r num">443.25</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Points are a debt, not a marketing cost.</b> Under
+      the ledger, issuing them credits a liability at the moment of sale and reduces revenue —
+      rather than appearing free until someone spends them. That's the accounting-standards answer,
+      and it's why the balance sheet has a 2300 line.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ INVENTORY VALUATION ═════════════════════ -->
+<template data-tab="val" data-tabname="Reports" data-label="Inventory Valuation" data-crumb="Reports" data-blurb="What the stock on hand is worth, and on what basis.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">Basis</h4>
+      <div class="headActs"><span class="pill">Your books: weighted average</span>
+        <button class="btn" type="button">Change in Settings</button></div></div>
+    <div class="fld" style="margin-bottom:0;"><label>Showing</label>
+      <div class="filters" style="margin:0;"><span class="on">Weighted average — your basis</span><span>FIFO — compare only</span></div></div>
+    <p class="foot" style="margin-bottom:12px;">This switch changes what you're <b>looking at</b>, not
+    what the books use. Only the basis marked "your basis" reaches the balance sheet.</p>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Value at cost — your basis</div><div class="n num">$27,904.60</div><div class="h">weighted average · ties to 1200</div></div>
+      <div class="kpi"><div class="l">Same stock, FIFO</div><div class="n num">$28,411.27</div><div class="h">$506.67 higher</div></div>
+      <div class="kpi"><div class="l">Open cost layers</div><div class="n num">1,204</div><div class="h">kept either way</div></div>
+      <div class="kpi"><div class="l">Unvalued</div><div class="n num loss">14 products</div><div class="h">no cost recorded</div></div>
+    </div>
+    <div class="cav context" style="margin-top:12px;"><span>ℹ</span><div><b>FIFO would read $506.67
+      higher because costs have been rising.</b> Under FIFO the units still on the shelf are the
+      recent, dearer ones — the older, cheaper stock has already gone to COGS. That also means FIFO
+      would report more profit this period, and so more tax. Both figures come from the same cost
+      layers, which is why switching is a setting rather than a rebuild.</div></div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Cost layers — Basmati rice 5kg</h4><span class="pill">Hodan Store · 86 units on hand</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Received</th><th>Source</th><th class="r">Unit cost</th><th class="r">Received</th><th class="r">Sold</th><th class="r">Remaining</th><th class="r">Value</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">12 Jul</td><td class="mono">Opening balance</td><td class="r muted">13.80</td><td class="r muted">120</td><td class="r muted">120</td><td class="r muted">0</td><td class="r muted">—</td></tr>
+        <tr><td class="muted">28 Jul</td><td class="mono">GRN-0074 · Juba Traders</td><td class="r muted">14.10</td><td class="r muted">200</td><td class="r muted">200</td><td class="r muted">0</td><td class="r muted">—</td></tr>
+        <tr><td class="muted">14 Aug</td><td class="mono">GRN-0081 · Juba Traders</td><td class="r"><span class="p">14.50</span></td><td class="r muted">180</td><td class="r muted">158</td><td class="r"><span class="p">22</span></td><td class="r"><span class="p">319.00</span></td></tr>
+        <tr><td class="muted">20 Aug</td><td class="mono">GRN-0087 · Juba Traders</td><td class="r"><span class="p">14.90</span></td><td class="r muted">64</td><td class="r muted">0</td><td class="r"><span class="p">64</span></td><td class="r"><span class="p">953.60</span></td></tr>
+        <tr class="totalrow"><td>On hand</td><td></td><td class="r num">14.78 avg</td><td class="r num">564</td><td class="r num">478</td><td class="r num">86</td><td class="r num">1,272.60</td></tr>
+      </tbody>
+    </table></div>
+    <p class="foot">A sale drains the oldest open layer first, spilling into the next when it runs
+    dry — so one sale line can carry COGS at two different costs. Which layers it drew from is
+    recorded, which is what lets a refund put the units back at the price they left at.</p>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By category</h4>
+      <div class="headActs"><button class="btn" type="button">By product</button><button class="btn" type="button">By store</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Category</th><th class="r">Products</th><th class="r">Units</th><th class="r">Avg unit cost</th><th class="r">Value at cost</th><th class="r">Value at retail</th><th class="r">Margin</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Staples</span></td><td class="r muted">88</td><td class="r muted">5,204</td><td class="r muted">2.14</td><td class="r"><span class="p">11,136.56</span></td><td class="r muted">16,704.84</td><td class="r"><span class="p">33.3%</span></td></tr>
+        <tr><td><span class="p">Drinks</span></td><td class="r muted">142</td><td class="r muted">4,188</td><td class="r muted">1.02</td><td class="r"><span class="p">4,271.76</span></td><td class="r muted">6,282.00</td><td class="r"><span class="p loss">32.0%</span></td></tr>
+        <tr><td><span class="p">Household</span></td><td class="r muted">104</td><td class="r muted">2,044</td><td class="r muted">2.88</td><td class="r"><span class="p">5,886.72</span></td><td class="r muted">11,404.00</td><td class="r"><span class="p profit">48.4%</span></td></tr>
+        <tr><td><span class="p">Dairy</span></td><td class="r muted">61</td><td class="r muted">1,802</td><td class="r muted">1.94</td><td class="r"><span class="p">3,495.88</span></td><td class="r muted">6,308.00</td><td class="r"><span class="p profit">44.6%</span></td></tr>
+        <tr><td><span class="p">Electronics</span></td><td class="r muted">42</td><td class="r muted">418</td><td class="r muted">7.10</td><td class="r"><span class="p">2,967.80</span></td><td class="r muted">4,180.00</td><td class="r"><span class="p">29.0%</span></td></tr>
+        <tr><td><span class="p">Uncategorised</span></td><td class="r muted">175</td><td class="r muted">1,226</td><td class="r muted">0.53</td><td class="r"><span class="p">652.55</span></td><td class="r muted">1,509.16</td><td class="r"><span class="p">56.8%</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">612</td><td class="r num">14,882</td><td class="r num">1.91</td><td class="r num">28,411.27</td><td class="r num">46,388.00</td><td class="r num">38.8%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ STOCK MOVEMENT ═════════════════════ -->
+<template data-tab="move" data-tabname="Reports" data-label="Stock Movement Log" data-crumb="Reports" data-blurb="Transfers, adjustments and shrinkage — every reason stock changed hands.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Received</div><div class="n num profit">+8,204 units</div><div class="h">$54,470.08</div></div>
+      <div class="kpi"><div class="l">Sold</div><div class="n num loss">−7,118 units</div><div class="h">$47,220.08 to COGS</div></div>
+      <div class="kpi"><div class="l">Transferred</div><div class="n num">430 units</div><div class="h">1 open transfer</div></div>
+      <div class="kpi"><div class="l">Shrinkage</div><div class="n num loss">−284 units</div><div class="h">$840.00 written off</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Movements</h4>
+      <div class="headActs"><button class="btn" type="button">All types ⌄</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Date</th><th>Type</th><th>What moved</th><th>From → to</th><th>By</th><th class="r">Units</th><th class="r">Cost value</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">21 Aug</td><td><span class="chip hot">Shrinkage</span></td><td><span class="p">Flood damage — back store</span><span class="m">JE-0014</span></td><td class="muted">Hodan → written off</td><td class="muted">Yusef S</td><td class="r muted">284</td><td class="r"><span class="p loss">840.00</span></td></tr>
+        <tr><td class="muted">20 Aug</td><td><span class="chip ok">Received</span></td><td><span class="p">Juba Traders delivery</span><span class="m">GRN-0087</span></td><td class="muted">supplier → Hodan</td><td class="muted">Amina H</td><td class="r muted">142</td><td class="r"><span class="p">4,338.00</span></td></tr>
+        <tr><td class="muted">18 Aug</td><td><span class="chip info">Transfer</span></td><td><span class="p">Soft drinks, detergent</span><span class="m">TRF-0031 · in transit</span></td><td class="muted">Hodan → Bakaara</td><td class="muted">Yusuf A</td><td class="r muted">430</td><td class="r"><span class="p">665.00</span></td></tr>
+        <tr><td class="muted">17 Aug</td><td><span class="chip warn">Adjustment</span></td><td><span class="p">Stock count correction</span><span class="m">powdered milk</span></td><td class="muted">Bakaara</td><td class="muted">Fadumo M</td><td class="r muted">−12</td><td class="r"><span class="p loss">23.28</span></td></tr>
+        <tr><td class="muted">16 Aug</td><td><span class="chip ok">Received</span></td><td><span class="p">Hormuud Distributors</span><span class="m">GRN-0086</span></td><td class="muted">supplier → Bakaara</td><td class="muted">Fadumo M</td><td class="r muted">2,044</td><td class="r"><span class="p">6,204.00</span></td></tr>
+        <tr><td class="muted">15 Aug</td><td><span class="chip ok">Returned</span></td><td><span class="p">Customer refund #8710</span></td><td class="muted">customer → Hodan</td><td class="muted">Cabdi K</td><td class="r muted">20</td><td class="r"><span class="p">402.00</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Every row here has a journal entry behind it.</b>
+      That's what makes this report reconcile: the units column comes from inventory, the cost
+      column comes from the ledger, and if they ever disagreed the trial balance would say so.
+      <b>Adjustments</b> post to 5100 Shrinkage in both directions — a count that finds <i>more</i>
+      stock is a credit, not a silent quantity bump.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ VENDOR BALANCES ═════════════════════ -->
+<template data-tab="vend" data-tabname="Reports" data-label="Vendor Balance Summary" data-crumb="Reports" data-blurb="What's owed to each supplier, across all open bills.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Total owed</div><div class="n num">$24,118.00</div><div class="h">ties to 2000 Payable</div></div>
+      <div class="kpi"><div class="l">Suppliers owed</div><div class="n num">6</div><div class="h">9 open bills</div></div>
+      <div class="kpi"><div class="l">Due this week</div><div class="n num loss">$8,204.00</div><div class="h">3 bills</div></div>
+      <div class="kpi"><div class="l">Already overdue</div><div class="n num loss">$2,140.00</div><div class="h">1 bill · 12 days</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By supplier</h4>
+      <div class="headActs"><button class="btn" type="button">Only overdue</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Supplier</th><th class="r">Open bills</th><th class="r">Billed</th><th class="r">Paid</th><th class="r">Balance</th><th>Next due</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Juba Traders</span><span class="m">stock · 0615 xxx xxx</span></td><td class="r muted">4</td><td class="r muted">18,204.00</td><td class="r muted">6,000.00</td><td class="r"><span class="p">12,204.00</span></td><td><span class="chip warn">in 4 days</span></td></tr>
+        <tr><td><span class="p">Hormuud Distributors</span><span class="m">stock</span></td><td class="r muted">2</td><td class="r muted">8,204.00</td><td class="r muted">2,000.00</td><td class="r"><span class="p">6,204.00</span></td><td><span class="chip warn">in 6 days</span></td></tr>
+        <tr><td><span class="p">Mall management</span><span class="m">rent</span></td><td class="r muted">1</td><td class="r muted">3,000.00</td><td class="r muted">0.00</td><td class="r"><span class="p">3,000.00</span></td><td><span class="chip ok">in 11 days</span></td></tr>
+        <tr><td><span class="p">Al-Bushra Cleaning</span><span class="m">services</span></td><td class="r muted">1</td><td class="r muted">2,140.00</td><td class="r muted">0.00</td><td class="r"><span class="p loss">2,140.00</span></td><td><span class="chip hot">12 days late</span></td></tr>
+        <tr><td><span class="p">Somtel</span><span class="m">utilities</span></td><td class="r muted">1</td><td class="r muted">310.00</td><td class="r muted">0.00</td><td class="r"><span class="p">310.00</span></td><td><span class="chip ok">in 15 days</span></td></tr>
+        <tr><td><span class="p">2 others</span></td><td class="r muted">0</td><td class="r muted">1,620.00</td><td class="r muted">1,360.00</td><td class="r"><span class="p">260.00</span></td><td><span class="chip ok">in 22 days</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">9</td><td class="r num">33,478.00</td><td class="r num">9,360.00</td><td class="r num">24,118.00</td><td></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ AGING PAYABLES ═════════════════════ -->
+<template data-tab="agingp" data-tabname="Reports" data-label="Aging Payables" data-crumb="Reports" data-blurb="Unpaid bills grouped by how overdue they are. The mirror of Aging Receivables.">
+  <div class="cardx" data-w="12">
+    <div class="crow"><h4 class="ctitle">What you owe</h4><span class="pill">as at 21 Aug 2026</span></div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">Not yet due</div><div class="n num">$18,714.00</div><div class="h">78%</div></div>
+      <div class="kpi"><div class="l">1–30 days late</div><div class="n num loss">$2,140.00</div><div class="h">9%</div></div>
+      <div class="kpi"><div class="l">31–60 days late</div><div class="n num loss">$3,264.00</div><div class="h">13%</div></div>
+      <div class="kpi"><div class="l">61+ days late</div><div class="n num">$0.00</div><div class="h">nothing this old</div></div>
+    </div>
+    <div class="bar" style="height:12px;margin-top:14px;display:flex;">
+      <i style="width:78%;background:var(--c2);"></i><i style="width:9%;background:var(--c3);"></i>
+      <i style="width:13%;background:var(--loss);"></i>
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--c2);"></i>Not yet due</span>
+      <span><i class="dot" style="background:var(--c3);"></i>1–30 late</span>
+      <span><i class="dot" style="background:var(--loss);"></i>31–60 late</span>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By supplier</h4>
+      <div class="headActs"><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Supplier</th><th class="r">Not due</th><th class="r">1–30</th><th class="r">31–60</th><th class="r">61–90</th><th class="r">90+</th><th class="r">Total</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Juba Traders</span></td><td class="r muted">8,940.00</td><td class="r muted">0.00</td><td class="r"><span class="p loss">3,264.00</span></td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">12,204.00</span></td></tr>
+        <tr><td><span class="p">Hormuud Distributors</span></td><td class="r muted">6,204.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">6,204.00</span></td></tr>
+        <tr><td><span class="p">Mall management</span></td><td class="r muted">3,000.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">3,000.00</span></td></tr>
+        <tr><td><span class="p">Al-Bushra Cleaning</span></td><td class="r muted">0.00</td><td class="r"><span class="p loss">2,140.00</span></td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">2,140.00</span></td></tr>
+        <tr><td><span class="p">3 others</span></td><td class="r muted">570.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r muted">0.00</td><td class="r"><span class="p">570.00</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r num">18,714.00</td><td class="r num">2,140.00</td><td class="r num">3,264.00</td><td class="r num">0.00</td><td class="r num">0.00</td><td class="r num">24,118.00</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Buckets are measured from the due date, not the
+      issue date</b> — the opposite convention to Aging Receivables, where a sale on credit has no
+      formal due date and is aged from when it happened. Both are standard; showing them without
+      saying which is which is how the two reports get misread.</div></div>
+  </div>
+</template>
+
+<!-- ═════════════════════ LABOR VS SALES ═════════════════════ -->
+<template data-tab="labor" data-tabname="Reports" data-label="Labor Cost vs Sales" data-crumb="Reports" data-blurb="Wage cost as a share of revenue — the number that tells you if you're overstaffed.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Labour cost</div><div class="n num">$13,820.00</div><div class="h">incl. $2,140 accrued</div></div>
+      <div class="kpi"><div class="l">Net revenue</div><div class="n num">$78,149.93</div></div>
+      <div class="kpi"><div class="l">Labour as % of sales</div><div class="n num">17.7%</div><div class="h">target 16%</div></div>
+      <div class="kpi"><div class="l">As % of gross profit</div><div class="n num loss">45.9%</div><div class="h">what it really costs</div></div>
+    </div>
+  </div>
+
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By week</h4>
+      <div class="headActs"><button class="btn" type="button">By store</button><button class="btn" type="button">By day</button><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Week</th><th class="r">Hours</th><th class="r">Wage cost</th><th class="r">Net revenue</th><th class="r">Labour %</th><th>Against 16% target</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">18–21 Aug</td><td class="r muted">104</td><td class="r"><span class="p">2,620.00</span></td><td class="r muted">15,482.47</td><td class="r"><span class="p loss">16.9%</span></td><td><div class="bar"><i style="width:106%;background:var(--loss);"></i></div></td></tr>
+        <tr><td class="muted">11–17 Aug</td><td class="r muted">188</td><td class="r"><span class="p">4,740.00</span></td><td class="r muted">27,204.10</td><td class="r"><span class="p loss">17.4%</span></td><td><div class="bar"><i style="width:109%;background:var(--loss);"></i></div></td></tr>
+        <tr><td class="muted">4–10 Aug</td><td class="r muted">172</td><td class="r"><span class="p">4,340.00</span></td><td class="r muted">23,188.36</td><td class="r"><span class="p loss">18.7%</span></td><td><div class="bar"><i style="width:117%;background:var(--loss);"></i></div></td></tr>
+        <tr><td class="muted">1–3 Aug</td><td class="r muted">83</td><td class="r"><span class="p">2,120.00</span></td><td class="r muted">12,275.00</td><td class="r"><span class="p">17.3%</span></td><td><div class="bar"><i style="width:108%;background:var(--c3);"></i></div></td></tr>
+        <tr class="totalrow"><td>August to date</td><td class="r num">547</td><td class="r num">13,820.00</td><td class="r num">78,149.93</td><td class="r num">17.7%</td><td></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Labour cost here includes wages earned but not yet
+      paid</b> — the 2200 Wages Payable balance. Measuring only what a pay run has already
+      disbursed makes the weeks between paydays look cheap and the payday week look catastrophic.
+      This is the accrual principle doing something visibly useful.</div></div>
+  </div>
+</template>
+
+<section id="fifo">
+  <h2>FIFO — the decided approach</h2>
+  <p class="h2sub">Stock is valued first-in-first-out. This is the largest and riskiest piece of the project, and the only one that touches the POS's hottest transaction.</p>
+
+  <p class="note">Today kaiibi keeps one <code>cost_cents</code> per product, overwritten as stock
+  arrives — a weighted average. FIFO instead remembers <b>every delivery as its own layer</b>, and a
+  sale drains the oldest open layer first. The stock on the shelf is then valued at what was most
+  recently paid for it, and COGS reflects what was actually paid for the units that left.</p>
+
+  <h3 class="sub">Two new tables</h3>
+  <table class="dtbl">
+    <thead><tr><th>Table</th><th>Holds</th><th>Written by</th></tr></thead>
+    <tbody>
+      <tr><td><code>inventory_cost_layers</code></td><td>product, <b>location</b>, unit cost, quantity received, quantity remaining, source and its id, received_at</td><td><code>receive_stock</code>, opening-balance migration, positive stock adjustments, customer returns</td></tr>
+      <tr><td><code>inventory_cost_consumption</code></td><td>which layers a given <code>sale_item</code> drew from, and how many units at what cost</td><td><code>complete_sale</code> — and read by <code>refund_sale_items</code> to put units back at the price they left at</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:14px;"><b>Layers are per location, not per shop.</b> kaiibi
+  already tracks stock and reports profit per location, and a shop-wide layer pool would let a sale
+  in Bakaara consume a delivery that physically sits in Hodan. The cost of that choice is that a
+  stock transfer has to <i>move layer quantity between locations carrying its cost</i> — otherwise
+  moving stock silently reprices it.</p>
+
+  <h3 class="sub">The four risks, named</h3>
+  <div class="verdict">
+    <div class="vx bad">
+      <b>Concurrency is the real danger</b>
+      <p>Two registers selling the same product at the same moment both reach for the oldest layer.
+      Without row-level locking one of them over-consumes it; with careless locking they deadlock
+      and the POS stops taking money.</p>
+      <p>Layers must be selected <code>FOR UPDATE</code> in a <b>consistent order</b>
+      (<code>received_at</code>, then <code>id</code>) so two concurrent sales queue rather than
+      deadlock. This needs a concurrency test that runs real parallel sales, not a unit test.</p>
+    </div>
+    <div class="vx bad">
+      <b>Selling stock that has no layer</b>
+      <p>kaiibi lets a sale go through when stock is zero or unknown. Under FIFO there is then no
+      layer to consume and no cost to record. Silently using zero would overstate profit on exactly
+      the sales nobody is watching.</p>
+      <p>The fix: consume what layers exist, then create a <b>provisional layer at the product's
+      last known cost</b> for the shortfall, flagged. When stock next arrives, the provisional layer
+      is trued up and the difference posts to <code>5100</code>. The Inventory Valuation report
+      shows how much of the value is provisional.</p>
+    </div>
+    <div class="vx mid">
+      <b>It slows the hottest path</b>
+      <p>A 20-line sale might touch 40+ layer rows, all inside the transaction that already writes
+      the sale, its items, its payments and now its journal entry. Needs an index on
+      <code>(shop_id, product_id, location_id, received_at) where quantity_remaining &gt; 0</code>
+      and a measured before/after on a realistic basket.</p>
+    </div>
+    <div class="vx mid">
+      <b>FIFO starts at the switch date — history is not restated</b>
+      <p>Existing stock has no delivery history to draw layers from, so the migration writes <b>one
+      opening layer per product per location</b> at today's <code>cost_cents</code>. Everything
+      before that date keeps its weighted-average COGS.</p>
+      <p>This is correct and normal — a change in valuation method is disclosed, not backdated — but
+      it has to be stated on the report rather than discovered. Hence "FIFO since 1 Sep 2026" on
+      the Inventory Valuation screen.</p>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:18px;"><b>Sequencing consequence.</b> FIFO has to land
+  <i>before</i> <code>complete_sale</code> starts posting COGS to the ledger. Do it the other way
+  round and the ledger records weighted-average COGS for a few weeks and FIFO after, with a
+  discontinuity nothing explains. That moves FIFO from the tail of the project into phase 2, and it
+  is the reason phase 2 needs its own spec.</p>
+</section>
+
+<section id="gaps">
+  <h2>Three reports still have no data behind them</h2>
+  <p class="h2sub">Flagged on the Reports hub with a dashed outline. Each needs a schema change before its screen can be honest.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Report</th><th>What's missing</th><th>What it takes</th><th>Size</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Discounts &amp; Refunds<br><span class="tag chg">partial</span></td>
+        <td><code>refunds</code> has no <code>reason</code> column. Discounts work today — promotions, loyalty and manual overrides are all recorded. Refund reasons are not captured at all.</td>
+        <td>Add <code>reason</code> to <code>refunds</code> with a fixed enum, make it required in the POS refund flow, and backfill existing rows as <code>not_recorded</code>.</td>
+        <td>Small — one migration, one POS field</td>
+      </tr>
+      <tr>
+        <td>Sales Tax Liability<br><span class="tag chg">partial</span></td>
+        <td>Tax <b>collected</b> is already tracked. Tax <b>remitted</b> has nowhere to live — there is no record of a filing or a payment to the authority, so "collected versus remitted" can only ever show one column.</td>
+        <td>A <code>tax_filings</code> table: period, amount declared, amount paid, date, reference. Paying one posts Dr 2100 / Cr Cash, which is also what makes the liability go down.</td>
+        <td>Small — one table, one RPC</td>
+      </tr>
+      <tr>
+        <td>Inventory Valuation (FIFO)<br><span class="tag new">in scope</span></td>
+        <td>One <code>cost_cents</code> per product, updated on receipt — that is weighted average. FIFO needs to know which delivery each unit on hand came from.</td>
+        <td><b>Decided: build it.</b> Cost layers and consumption records — see <a href="#fifo">the FIFO section</a>. Moves early in the plan, because COGS has to be right <i>before</i> the ledger starts posting it.</td>
+        <td><b>Large</b> — the highest-risk piece in the project, and the one that touches the POS</td>
+      </tr>
+      <tr>
+        <td>Purchase Order Report<br><span class="tag gone">no data</span></td>
+        <td>There are no purchase orders. <code>stock_receipts</code> records stock <i>arriving</i>; nothing records stock having been <i>ordered</i>. "Open POs" has no source.</td>
+        <td>A <code>purchase_orders</code> / <code>purchase_order_items</code> pair, a create/approve/receive flow, and linking <code>stock_receipts</code> back to the PO it fulfils. A PO is a commitment, not a transaction — it posts nothing to the ledger until goods arrive.</td>
+        <td><b>Large</b> — this is a feature, not a report</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;"><b>Recommendation:</b> ship the two small ones with the
+  reports they unblock. Take Purchase Orders out of this project entirely and give it its own spec
+  — it is a procurement workflow that happens to produce a report, and burying it in an accounting
+  release will get it half-built.</p>
+</section>
+
+<section>
+  <h2>The full report catalogue</h2>
+  <p class="h2sub">All 23 on the Reports hub, plus Trial Balance and Cash Flow from the Accounting hub — 25 in total, with what each reads from.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Report</th><th>Default period</th><th>Reads from</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Sales Reports</td><td>Updated live</td><td><code>sales</code>, <code>sale_payments</code></td><td><span class="tag chg">extend</span> exists as part of the Reports tab</td></tr>
+      <tr><td>Item Performance</td><td>Updated live</td><td><code>sale_items</code>, <code>products</code></td><td><span class="tag new">new</span> category-level exists; product-level doesn't</td></tr>
+      <tr><td>Sales by Employee</td><td>7 days</td><td><code>sales</code>, <code>time_entries</code></td><td><span class="tag chg">extend</span> cashier performance exists; hours are new</td></tr>
+      <tr><td>Sales by Category</td><td>7 days</td><td><code>sale_items</code>, <code>categories</code></td><td><span class="tag keep">exists</span> lift out of the Reports tab</td></tr>
+      <tr><td>Discounts &amp; Refunds</td><td>7 days</td><td><code>refunds</code>, <code>promotions</code>, points ledger</td><td><span class="tag chg">needs reason column</span></td></tr>
+      <tr><td>Profit and Loss Statement</td><td>7 days</td><td><b>ledger</b> 4000–6999</td><td><span class="tag chg">rebuild</span> exists, computed from raw tables</td></tr>
+      <tr><td>Income Statement</td><td>7 days</td><td><b>ledger</b> 4000–6999</td><td><span class="tag new">new</span> same query, full detail</td></tr>
+      <tr><td>Balance Sheet</td><td>As of today</td><td><b>ledger</b> 1000–3999</td><td><span class="tag new">new</span> impossible without the ledger</td></tr>
+      <tr><td>Sales Tax Liability</td><td>7 days</td><td><b>ledger</b> 2100 + <code>tax_filings</code></td><td><span class="tag chg">needs filings table</span></td></tr>
+      <tr><td>Budget vs Actual</td><td>This month</td><td><code>budgets</code> + <b>ledger</b> 6xxx</td><td><span class="tag new">new</span> budgets exist; the comparison doesn't</td></tr>
+      <tr><td>Cash Flow</td><td>7 days</td><td><b>ledger</b> — all cash accounts</td><td><span class="tag new">new</span> impossible without the ledger</td></tr>
+      <tr><td>Trial Balance</td><td>As of today</td><td><b>ledger</b> — every account</td><td><span class="tag new">new</span> impossible without the ledger</td></tr>
+      <tr><td>Customer Balance Summary</td><td>As of today</td><td><code>sale_balances</code> ↔ <b>ledger</b> 1100</td><td><span class="tag chg">extend</span> the current Receivables tab</td></tr>
+      <tr><td>Aging Receivables</td><td>As of today</td><td><code>sale_balances</code> ↔ <b>ledger</b> 1100</td><td><span class="tag new">new</span> aging buckets don't exist</td></tr>
+      <tr><td>Customer Purchase History</td><td>All time</td><td><code>sales</code>, <code>customers</code></td><td><span class="tag new">new</span> no ledger needed</td></tr>
+      <tr><td>Loyalty Points Summary</td><td>As of today</td><td><code>customer_points_ledger</code> ↔ <b>ledger</b> 2300</td><td><span class="tag new">new</span> data exists, report doesn't</td></tr>
+      <tr><td>Inventory Balance Summary</td><td>As of today</td><td><code>product_location_stock</code> ↔ <b>ledger</b> 1200</td><td><span class="tag new">new</span></td></tr>
+      <tr><td>Inventory Valuation</td><td>As of today</td><td><code>inventory_cost_layers</code> ↔ <b>ledger</b> 1200</td><td><span class="tag new">new</span> FIFO — the cost layers land in phase 2a</td></tr>
+      <tr><td>Low Stock &amp; Reorder</td><td>As of today</td><td><code>product_location_stock.reorder_level</code></td><td><span class="tag new">new</span> column already exists</td></tr>
+      <tr><td>Stock Movement Log</td><td>7 days</td><td><code>stock_transfers</code>, <code>stock_receipts</code>, <b>ledger</b> 5100</td><td><span class="tag new">new</span> adjustments need a home</td></tr>
+      <tr><td>Vendor Balance Summary</td><td>As of today</td><td><code>invoices</code> ↔ <b>ledger</b> 2000</td><td><span class="tag new">new</span></td></tr>
+      <tr><td>Aging Payables</td><td>As of today</td><td><code>invoices.due_on</code> ↔ <b>ledger</b> 2000</td><td><span class="tag new">new</span></td></tr>
+      <tr><td>Purchase Order Report</td><td>7 days</td><td>—</td><td><span class="tag gone">no data at all</span></td></tr>
+      <tr><td>Payroll Summary</td><td>This month</td><td><code>payroll_runs</code>, <code>payroll_run_lines</code></td><td><span class="tag chg">extend</span> the Payroll tab has most of this</td></tr>
+      <tr><td>Labor Cost vs Sales</td><td>This month</td><td><code>time_entries</code>, <b>ledger</b> 6200 + 2200</td><td><span class="tag new">new</span></td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;"><b>Sixteen of the 25 read the ledger.</b> That is the
+  argument for building it first rather than as a phase-two nicety: without it, more than half this
+  hub is either impossible or approximated, and approximations that carry a total are the kind of
+  wrong that goes unnoticed for a year.</p>
+</section>
+
+<section>
+  <h2>What's changing, precisely</h2>
+  <p class="h2sub">Database first — the screens are the easy half.</p>
+
+  <h3 class="sub">New tables</h3>
+  <table class="dtbl">
+    <thead><tr><th>Table</th><th>Purpose</th><th>Key constraint</th></tr></thead>
+    <tbody>
+      <tr><td><code>accounts</code></td><td>Chart of accounts, per shop</td><td>Unique <code>(shop_id, code)</code>; <code>type</code> in asset/liability/equity/revenue/expense; can't delete once posted to</td></tr>
+      <tr><td><code>journal_entries</code></td><td>Entry header: date, reference, description, source, store, status</td><td><code>status</code> in draft/posted/reversed; posted rows immutable via trigger</td></tr>
+      <tr><td><code>journal_lines</code></td><td>Entry lines: account, debit, credit, optional store</td><td><b>Deferred constraint: each entry's lines sum to zero</b></td></tr>
+      <tr><td><code>accounting_periods</code></td><td>One row per month, open or locked</td><td>Posting into a locked period raises an exception</td></tr>
+      <tr><td><code>fixed_assets</code></td><td>Asset register with cost, method, life, disposal</td><td>Cost is write-once; disposal is an event, not a delete</td></tr>
+      <tr><td><code>accounting_audit_log</code></td><td>Actor, action, before/after JSON</td><td>Insert-only — no update or delete policy exists</td></tr>
+      <tr><td><code>inventory_cost_layers</code></td><td>One row per delivery per location: unit cost, quantity received, quantity remaining</td><td>Consumed oldest-first under <code>FOR UPDATE</code> in a fixed order, so concurrent sales queue instead of deadlocking</td></tr>
+      <tr><td><code>inventory_cost_consumption</code></td><td>Which layers each <code>sale_item</code> drew from, and at what cost</td><td>Immutable; a refund reads it to return units at the price they left at</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Changed RPCs</h3>
+  <table class="dtbl">
+    <thead><tr><th>Function</th><th>Change</th></tr></thead>
+    <tbody>
+      <tr><td><code>complete_sale</code></td><td><span class="tag chg">posts</span> Writes a journal entry: cash or receivable, revenue, tax payable, COGS and inventory</td></tr>
+      <tr><td><code>refund_sale_items</code></td><td><span class="tag chg">posts</span> Reverses the sale's revenue and COGS lines proportionally</td></tr>
+      <tr><td><code>settle_sale_balance</code></td><td><span class="tag chg">posts</span> Cash against receivable</td></tr>
+      <tr><td><code>receive_stock</code></td><td><span class="tag chg">posts</span> Inventory against payable or cash</td></tr>
+      <tr><td><code>record_invoice_payment</code></td><td><span class="tag chg">posts</span> Payable against cash</td></tr>
+      <tr><td><code>post_payroll_run</code></td><td><span class="tag chg">posts</span> Wages against cash or wages payable</td></tr>
+      <tr><td><code>seed_shop_defaults</code></td><td><span class="tag chg">extended</span> Seeds the default chart of accounts and opens the first period</td></tr>
+      <tr><td><code>sync_invoice_expense</code></td><td><span class="tag gone">removed</span> The trigger that mirrored invoices into expenses; the ledger does this properly now</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">New RPCs</h3>
+  <table class="dtbl">
+    <thead><tr><th>Function</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td><code>post_journal_entry</code></td><td>Validates balance and period, posts, audits</td></tr>
+      <tr><td><code>reverse_journal_entry</code></td><td>Writes the mirror entry, links both, records the stated reason</td></tr>
+      <tr><td><code>create_bill</code></td><td>Replaces the expense/invoice split; posts credit or cash on one path</td></tr>
+      <tr><td><code>transfer_funds</code></td><td>Moves money between the shop's own accounts</td></tr>
+      <tr><td><code>create_fixed_asset</code> · <code>dispose_fixed_asset</code> · <code>run_depreciation</code></td><td>The asset lifecycle, each posting its own entry</td></tr>
+      <tr><td><code>close_accounting_period</code></td><td>Locks the month and rolls the result into retained earnings</td></tr>
+      <tr><td><code>trial_balance</code> · <code>balance_sheet</code> · <code>cash_flow</code> · <code>aging_receivables</code></td><td>Report functions reading only <code>journal_lines</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Existing data</h3>
+  <table class="dtbl">
+    <thead><tr><th>Table</th><th>What happens to it</th></tr></thead>
+    <tbody>
+      <tr><td><code>expenses</code></td><td><span class="tag keep">kept</span> Becomes the source document behind a bill's journal entry — the ledger holds the accounting, the row holds the receipt, vendor and note. Gains <code>journal_entry_id</code>. Rows with category <code>inventory_purchase</code> or <code>owner_draw</code> post to Inventory and Owner's Draw, not to an expense account.</td></tr>
+      <tr><td><code>invoices</code></td><td><span class="tag keep">kept</span> Same — the supplier's paperwork. Gains <code>journal_entry_id</code>.</td></tr>
+      <tr><td><code>cash_accounts.balance_cents</code></td><td><span class="tag chg">derived</span> Stops being authoritative. The typed value is preserved as an <i>opening balance</i>, and the live figure is computed from the ledger. A counted-vs-ledger difference becomes a cash-over/short entry rather than an overwrite.</td></tr>
+      <tr><td><code>budgets</code> · <code>recurring_bills</code> · <code>vendors</code></td><td><span class="tag keep">unchanged</span> Forward-looking tools; they don't touch the ledger until a bill is actually logged.</td></tr>
+      <tr><td>All history</td><td><span class="tag new">backfilled</span> A one-off migration replays every existing sale, refund, bill, payment, pay run and stock receipt into journal entries, then posts one opening-balance entry per shop so the first trial balance ties.</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Permissions</h3>
+  <p class="note">Three new permissions, following the existing <code>has_shop_permission</code>
+  pattern: <code>ledger.view</code> (see the books and statements),
+  <code>ledger.post</code> (write manual journal entries and bills), and
+  <code>ledger.close</code> (lock a period — owner by default). Staff who can already record a sale
+  keep working exactly as before; the ledger posts underneath them and needs no new grant.</p>
+</section>
+
+<section>
+  <h2>How this gets built</h2>
+  <p class="h2sub">Four phases. Each one ships something usable and leaves the app working.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Phase</th><th>Ships</th><th>Visible outcome</th></tr></thead>
+    <tbody>
+      <tr><td>1 · Foundations</td><td>The five ledger tables, RLS, the balanced-entry constraint, the seeded chart of accounts, <code>post_journal_entry</code>, the audit log</td><td>Chart of Accounts, New Journal Entry, Journals List, Audit Log, Trial Balance — all working on manual entries only</td></tr>
+      <tr><td>2a · FIFO</td><td>Cost layers and consumption records, the opening-balance migration, and the concurrency work in <code>complete_sale</code> — <b>before</b> any COGS posting</td><td>Inventory Valuation on a FIFO basis. COGS becomes the number the ledger will later post, so there's no discontinuity</td></tr>
+      <tr><td>2b · Auto-posting</td><td>Every RPC in the table above gains its posting side, plus the historical backfill</td><td>The trial balance now reflects real trading. Cash becomes derived. Balance Sheet and Cash Flow become possible</td></tr>
+      <tr><td>3 · Statements</td><td>Balance sheet, cash flow, income statement, period close, retained earnings, plus Create Bill, transfers, fixed assets and depreciation</td><td>The Accounting hub complete, and the financial-statements group of the Reports hub tying to each other</td></tr>
+      <tr><td>4 · The reports</td><td>The remaining 16 reports, grouped as on the hub. Sales and inventory groups first — they need no ledger and unblock the most people</td><td>Every item on the list except the four flagged above</td></tr>
+      <tr><td>5 · The gaps</td><td>Refund reasons and <code>tax_filings</code>, both small. Purchase Orders gets its own spec, after this project</td><td>Two of the three dashed cards stop being dashed</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:18px;"><b>Phase 2 is the risky one</b> and deserves saying so
+  plainly. Adding a posting side to <code>complete_sale</code> means the POS's hottest path now
+  writes more rows inside the same transaction, and the backfill has to reproduce years of history
+  correctly enough that the first trial balance ties. It wants its own spec, its own tests, and a
+  verification script that replays a shop's history and asserts the ledger agrees with the existing
+  report totals to the cent.</p>
+</section>
+
+<section>
+  <h2>Four things I'd push back on</h2>
+  <div class="verdict">
+    <div class="vx mid">
+      <b>Purchase Orders is a feature wearing a report's clothes</b>
+      <p>"Open and received purchase orders, by vendor" implies a whole procurement flow that
+      doesn't exist: raising an order, approving it, sending it, receiving against it partially,
+      closing it. That is weeks of work with its own screens, and none of it is accounting — a PO
+      commits nothing to the ledger until goods arrive.</p>
+      <p>Putting it in this project means either shipping a stub that lists nothing, or letting
+      procurement quietly become the critical path for the balance sheet. It should be its own
+      spec, after this one.</p>
+    </div>
+    <div class="vx good">
+      <b>Build the layers, ship both, default to weighted average</b>
+      <p>The cost-layer table is the expensive, risky part — and it produces <i>both</i> figures.
+      Weighted average is just the layers averaged. So the method stops being an architecture
+      commitment and becomes a per-shop setting, switchable later without a rewrite.</p>
+      <p>Default to <b>weighted average</b>: nobody's numbers move on migration day, it taxes less
+      while costs rise, and it's the model a shop owner already holds. FIFO is one tap away for the
+      shops that want the more current balance sheet. <a href="#fifo">Design and risks here.</a></p>
+      <p><b>What doesn't change either way:</b> the switch is never retroactive. It takes effect at
+      a month boundary, history keeps the basis it was recorded under, and every statement says
+      which basis produced it.</p>
+    </div>
+    <div class="vx good">
+      <b>Keeping P&amp;L and Income Statement as separate cards is fine — building them separately isn't</b>
+      <p>They're two names for one statement, but the descriptions distinguish them usefully:
+      a summary for the owner, full account detail for the accountant. So both cards stay, and both
+      run <b>one query with a detail flag</b>. Built as two reports they would eventually disagree,
+      and the day they do, nobody will know which is right.</p>
+    </div>
+    <div class="vx mid">
+      <b>Manual journal entries are a foot-gun for a shop owner</b>
+      <p>A free-form debit/credit form is the one screen here that can put the books into a state
+      nobody can explain later. The design keeps it — an accountant will need it — but gates it
+      behind <code>ledger.post</code>, defaults that permission to the owner only, requires a
+      description, and leads with the four common entries as templates so the blank form is the
+      exception rather than the starting point.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch');
+  const wide = document.getElementById('fWide');
+  const narrow = document.getElementById('fNarrow');
+  const NAV = ['Overview','Transactions','Bills','Expenses','Payroll','Cash & Budgets','Accounting','Reports'];
+  let active = 'hub';
+
+  const shell = (tpl, compact) => {
+    const pills = NAV.map((n) =>
+      `<span class="${n === tpl.dataset.tabname ? 'on' : ''}">${n}${n === 'Accounting' ? ' •' : ''}</span>`).join('');
+    const crumb = tpl.dataset.crumb
+      ? `<p class="crumb">← <b>${tpl.dataset.crumb}</b></p>` : '';
+    return `
+      <div class="tabrow">${pills}</div>
+      ${crumb}
+      <div class="head">
+        <div>
+          <p class="eyebrow">Accounting</p>
+          <h3>${tpl.dataset.label}</h3>
+          <p>${tpl.dataset.blurb}</p>
+        </div>
+        ${compact ? '' : '<div class="headActs">' +
+          '<button class="btn" type="button">7 days ⌄</button>' +
+          '<button class="btn" type="button">Hodan Store ⌄</button></div>'}
+      </div>
+      ${compact ? '<div class="filters"><span class="on">7 days</span><span>Hodan Store</span></div>' : ''}`;
+  };
+
+  function render() {
+    const tpl = tabs.find((t) => t.dataset.tab === active);
+    [[wide, 'wide', false], [narrow, 'narrow', true]].forEach(([host, mode, compact]) => {
+      host.innerHTML = shell(tpl, compact);
+      const grid = document.createElement('div');
+      grid.className = 'grid ' + mode;
+      tpl.content.querySelectorAll('.cardx').forEach((card) => {
+        const el = card.cloneNode(true);
+        if (mode === 'wide') el.style.gridColumn = 'span ' + el.dataset.w;
+        grid.appendChild(el);
+      });
+      host.appendChild(grid);
+    });
+    sw.querySelectorAll('button').forEach((b) =>
+      b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  sw.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-go]');
+    if (!b) return;
+    active = b.dataset.go;
+    render();
+  });
+
+  render();
+</script>
