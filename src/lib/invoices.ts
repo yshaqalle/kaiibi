@@ -33,6 +33,9 @@ function mapInvoiceRow(row: any): Invoice {
     dueOn: row.due_on,
     amountCents: row.amount_cents,
     paidCents: row.paid_cents ?? 0,
+    // Defaulted rather than trusted: a bill written before migration
+    // 20260902000500 has no column, and every one of those was a credit bill.
+    paymentTerms: row.payment_terms ?? 'credit',
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -51,6 +54,7 @@ function toRow(input: Partial<NewInvoiceInput>) {
     ...(input.issuedOn !== undefined && { issued_on: input.issuedOn }),
     ...(input.dueOn !== undefined && { due_on: input.dueOn }),
     ...(input.amountCents !== undefined && { amount_cents: input.amountCents }),
+    ...(input.paymentTerms !== undefined && { payment_terms: input.paymentTerms }),
   };
 }
 
@@ -127,14 +131,36 @@ export async function getInvoiceWithPayments(id: string): Promise<Invoice> {
 
 // The linked expense row is created by a database trigger, not here -- see the
 // invoices migration for why that isn't done client-side.
+//
+// Goes through `record_bill` rather than inserting, and the reason is the cash
+// bill: it has to be raised AND settled together, or a half-succeeded pair of
+// calls leaves the shop looking as though it owes a supplier it has already
+// paid. A credit bill takes the same path so there is one way a bill is
+// created rather than two shapes of the same act.
 export async function createInvoice(shopId: string, input: NewInvoiceInput): Promise<Invoice> {
-  const { data: userData } = await supabase.auth.getUser();
-  const { data, error } = await supabase
-    .from('invoices')
-    .insert({ shop_id: shopId, ...toRow(input), created_by: userData.user?.id ?? null })
-    .select(SELECT_LIST)
-    .single();
+  const { data: invoiceId, error } = await supabase.rpc('record_bill', {
+    p_shop_id: shopId,
+    p_invoice_number: input.invoiceNumber,
+    p_amount_cents: input.amountCents,
+    p_category: input.category,
+    p_due_on: input.dueOn,
+    p_issued_on: input.issuedOn,
+    p_payment_terms: input.paymentTerms,
+    p_vendor_id: input.vendorId,
+    p_vendor_name: input.vendorName,
+    p_vendor_phone: input.vendorPhone,
+    p_description: input.description,
+    p_location_id: input.locationId,
+    p_payment_method: input.paymentMethod ?? 'cash',
+  });
   if (error) throw error;
+
+  const { data, error: readError } = await supabase
+    .from('invoices')
+    .select(SELECT_LIST)
+    .eq('id', invoiceId as string)
+    .single();
+  if (readError) throw readError;
   return mapInvoiceRow(data);
 }
 
@@ -151,6 +177,34 @@ export async function updateInvoice(id: string, patch: Partial<NewInvoiceInput>)
 export async function deleteInvoice(id: string): Promise<void> {
   const { error } = await supabase.from('invoices').delete().eq('id', id);
   if (error) throw error;
+}
+
+/**
+ * Every payment made against a bill in a window.
+ *
+ * The cash-flow statement's "paid on vendor bills" line. Like customer
+ * payments, it cannot be derived from the bills in the period: a bill raised
+ * in March is paid in April, and April is when the money left.
+ *
+ * `!inner` on the bill so the shop filter applies -- `invoice_payments` has no
+ * shop of its own.
+ */
+export async function billPaymentsInRange(
+  shopId: string,
+  since: Date,
+  until?: Date,
+  locationId?: string | null
+): Promise<{ amountCents: number; paidOn: string }[]> {
+  let query = supabase
+    .from('invoice_payments')
+    .select('amount_cents, paid_on, invoice:invoices!inner(shop_id, location_id)')
+    .eq('invoice.shop_id', shopId)
+    .gte('paid_on', toDateColumn(since));
+  if (until) query = query.lte('paid_on', toDateColumn(until));
+  if (locationId) query = query.eq('invoice.location_id', locationId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({ amountCents: row.amount_cents ?? 0, paidOn: row.paid_on }));
 }
 
 // Goes through the RPC rather than inserting directly: paid_cents has to move

@@ -3,7 +3,7 @@ import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { endOfDay, startOfDay } from '@/lib/period';
 import { bucketDailyTotals, netRevenueCents, type DailyBucket, type PeriodRefund } from '@/lib/sales-reporting';
 import { supabase } from '@/lib/supabase';
-import type { CartLine, PaymentLine, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
+import type { CartLine, PaymentLine, PaymentMethod, Promotion, Refund, RefundItem, Sale, SaleEdit, SaleItem, SaleItemSnapshot, SalePayment } from '@/types/models';
 
 export type SaleCustomer = { id?: string | null; name?: string | null; phone?: string | null; email?: string | null };
 
@@ -411,7 +411,11 @@ export async function getTopSellingProducts(shopId: string, sinceDate: Date, unt
 // already here. Deliberately NOT filtered in memory against the fetched sales:
 // a refund inside the range can belong to a sale from before it, and matching
 // on the fetched ids would silently drop exactly those.
-async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date, locationId?: string | null): Promise<PeriodRefund[]> {
+// Exported for the cash-flow statement, which needs what was handed back
+// WITHOUT the period's sales alongside it -- `getSalesAndRefundsInRange` pulls
+// every nested sale line in the range, and that is the heaviest query in
+// Accounting to run for one subtraction.
+export async function listRefundsInRange(shopId: string, sinceDate: Date, untilDate?: Date, locationId?: string | null): Promise<PeriodRefund[]> {
   type RefundRow = {
     id: string;
     created_at: string;
@@ -471,6 +475,41 @@ export async function getSalesAndRefundsInRange(
     listRefundsInRange(shopId, sinceDate, untilDate, locationId),
   ]);
   return { sales, refunds };
+}
+
+/**
+ * Every payment taken in a window, whichever sale it settles.
+ *
+ * The cash-flow statement's "collected from customers" line, and the one
+ * figure on it that CANNOT be derived from the sales in the period: a payment
+ * against a sale made in March arrives in April, and April is the month the
+ * money turned up. Filtering sales by date would miss it entirely and would
+ * count credit sales that nobody has paid for yet.
+ *
+ * Joined to `sales` with `!inner` so the shop filter applies -- `sale_payments`
+ * carries no shop of its own -- and scoped to the store the sale was rung up
+ * at, matching every other money figure on the screen.
+ */
+export async function paymentsCollectedInRange(
+  shopId: string,
+  sinceDate: Date,
+  untilDate?: Date,
+  locationId?: string | null
+): Promise<{ amountCents: number; method: PaymentMethod; createdAt: string }[]> {
+  let query = supabase
+    .from('sale_payments')
+    .select('amount_cents, method, created_at, sale:sales!inner(shop_id, location_id)')
+    .eq('sale.shop_id', shopId)
+    .gte('created_at', startOfDay(sinceDate).toISOString());
+  if (untilDate) query = query.lte('created_at', endOfDay(untilDate).toISOString());
+  if (locationId) query = query.eq('sale.location_id', locationId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    amountCents: row.amount_cents ?? 0,
+    method: row.method,
+    createdAt: row.created_at,
+  }));
 }
 
 // Per-day revenue for the trend chart and the period stat tiles.

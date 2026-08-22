@@ -385,7 +385,10 @@ export function cashierPerformance(sales: Sale[], limit = 5): { name: string; re
 // For a ranking that is the useful reading ("what stayed sold"), and unlike
 // revenue it restates no liability; last month's best-seller list can change if
 // last month's goods come back, which is the honest answer to "what sold".
-function soldAfterRefunds(sale: Sale, item: SaleItem): { unitsSold: number; revenueCents: number } {
+// Exported so item-performance.ts can rank on exactly this basis rather than
+// re-deriving it. Two definitions of "what stayed sold" is how the best-seller
+// list and the item report end up disagreeing about the same week.
+export function soldAfterRefunds(sale: Sale, item: SaleItem): { unitsSold: number; revenueCents: number } {
   const refunded = Math.min(item.quantity, refundedQuantityFor(sale, item.id));
   if (refunded <= 0) return { unitsSold: item.quantity, revenueCents: item.lineTotalCents };
 

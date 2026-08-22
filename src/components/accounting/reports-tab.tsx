@@ -2,9 +2,19 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { CashFlowReport } from '@/components/accounting/reports/cash-flow-report';
+import { InventoryBalanceReport } from '@/components/accounting/reports/inventory-balance-report';
+import { ItemPerformanceReport } from '@/components/accounting/reports/item-performance-report';
+import { BalanceSheetReport, IncomeStatementReport } from '@/components/accounting/reports/ledger-statement-reports';
+import {
+  AgingReceivablesReport,
+  CustomerBalanceSummaryReport,
+} from '@/components/accounting/reports/receivables-reports';
+import { TabPills } from '@/components/ui/tab-pills';
+
 import { formatRangeLabel } from '@/components/accounting/transactions-tab';
 import { useHeaderActions, type HeaderActionsSetter, useTabRefresh, type RefreshSetter } from '@/components/accounting/use-header-actions';
-import { BentoCell, BentoGrid } from '@/components/ui/bento';
+import { BentoCell, BentoFlow, BentoGrid } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
 import { Caveat } from '@/components/ui/caveat';
 import { StatementRow } from '@/components/ui/statement-row';
@@ -74,7 +84,135 @@ function extractErrorMessage(err: unknown): string {
   return 'Something went wrong.';
 }
 
+// The Reports tab: a report picker, and one report at a time.
+//
+// Nine reports, not nine tabs. Accounting's pill row already carries nine
+// destinations of its own, and a reader looking for "balance sheet" is looking
+// for a DOCUMENT, not a section of the app -- a picker that names the documents
+// is how they are found. It also means each report owns its own fetch and only
+// the one on screen runs it, which matters here more than anywhere: the
+// statements each pull the whole ledger.
+//
+// Two entries render the same component on purpose. "Profit and loss" and
+// "Income statement" are one document under two names, and both names are here
+// because both are what somebody went looking for. Giving them separate
+// reports would mean two profit figures for one period, which is exactly the
+// drift lib/pnl.ts exists to prevent.
+type ReportKey =
+  | 'sales'
+  | 'items'
+  | 'pnl'
+  | 'income'
+  | 'balance'
+  | 'cashflow'
+  | 'customers'
+  | 'aging'
+  | 'inventory';
+
+const REPORT_OPTIONS: { key: ReportKey; label: string }[] = [
+  { key: 'sales', label: 'Sales' },
+  { key: 'items', label: 'Item performance' },
+  { key: 'pnl', label: 'Profit & loss' },
+  { key: 'income', label: 'Income statement' },
+  { key: 'balance', label: 'Balance sheet' },
+  { key: 'cashflow', label: 'Cash flow' },
+  { key: 'customers', label: 'Customer balances' },
+  { key: 'aging', label: 'Aged receivables' },
+  { key: 'inventory', label: 'Inventory balance' },
+];
+
 export function ReportsTab({
+  dateRange,
+  locationFilter,
+  setHeaderActions,
+  setRefresh,
+}: {
+  dateRange: DateRange;
+  /** Owned by the Accounting shell so it survives a tab switch. null = every store. */
+  locationFilter: string | null;
+  setHeaderActions: HeaderActionsSetter;
+  setRefresh: RefreshSetter;
+}) {
+  const [report, setReport] = useState<ReportKey>('sales');
+  const rangeLabel = formatRangeLabel(dateRange);
+
+  // Only the Sales report publishes a refresh, because only it is mounted long
+  // enough for a pull to mean anything -- the others refetch on every mount,
+  // and switching reports is itself a remount. Cleared on the way in so the
+  // shell never pulls against a report that has gone.
+  useEffect(() => {
+    if (report !== 'sales') setRefresh(null);
+  }, [report, setRefresh]);
+
+  return (
+    <View style={styles.reportShell}>
+      <TabPills options={REPORT_OPTIONS} value={report} onChange={setReport} />
+
+      {report === 'sales' && (
+        <SalesReport
+          dateRange={dateRange}
+          locationFilter={locationFilter}
+          setHeaderActions={setHeaderActions}
+          setRefresh={setRefresh}
+        />
+      )}
+      {report === 'items' && (
+        <BentoFlow>
+          <ItemPerformanceReport
+            dateRange={dateRange}
+            locationFilter={locationFilter}
+            rangeLabel={rangeLabel}
+            setHeaderActions={setHeaderActions}
+          />
+        </BentoFlow>
+      )}
+      {(report === 'pnl' || report === 'income') && (
+        <BentoFlow>
+          <IncomeStatementReport
+            dateRange={dateRange}
+            locationFilter={locationFilter}
+            rangeLabel={rangeLabel}
+            title={report === 'pnl' ? 'Profit and loss statement' : 'Income statement'}
+          />
+        </BentoFlow>
+      )}
+      {report === 'balance' && (
+        <BentoFlow>
+          <BalanceSheetReport dateRange={dateRange} locationFilter={locationFilter} rangeLabel={rangeLabel} />
+        </BentoFlow>
+      )}
+      {report === 'cashflow' && (
+        <BentoFlow>
+          <CashFlowReport dateRange={dateRange} locationFilter={locationFilter} rangeLabel={rangeLabel} />
+        </BentoFlow>
+      )}
+      {report === 'customers' && (
+        <BentoFlow>
+          <CustomerBalanceSummaryReport setHeaderActions={setHeaderActions} />
+        </BentoFlow>
+      )}
+      {report === 'aging' && (
+        <BentoFlow>
+          <AgingReceivablesReport setHeaderActions={setHeaderActions} />
+        </BentoFlow>
+      )}
+      {report === 'inventory' && (
+        <BentoFlow>
+          <InventoryBalanceReport locationFilter={locationFilter} setHeaderActions={setHeaderActions} />
+        </BentoFlow>
+      )}
+    </View>
+  );
+}
+
+// The sales report: what the shop took, what it cost, and what was left.
+//
+// This was the whole of the Reports tab until the statements landed beside it.
+// It is unchanged apart from the name -- the profit figure here is the TRADING
+// view, built from money in and money out, and it is the one the Dashboard and
+// Overview show. The income statement adds depreciation to it, which is why
+// that report says so where the two differ.
+function SalesReport({
   dateRange,
   locationFilter,
   setHeaderActions,
@@ -544,6 +682,9 @@ function ReportsHeaderActions({
 }
 
 const styles = StyleSheet.create({
+  // The picker and the report it chose, with the grid's own gutter between
+  // them -- BentoFlow's gap does not reach outside itself.
+  reportShell: { gap: 16 },
   exportButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, minWidth: 96, alignItems: 'center' },
   exportButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: theme.text, marginTop: 10, marginBottom: 12 },

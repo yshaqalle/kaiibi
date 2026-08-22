@@ -6,12 +6,22 @@ import { StorePicker } from '@/components/store-picker';
 import { VendorPicker, type SelectedVendor } from '@/components/vendor-picker';
 import { toCents } from '@/lib/currency';
 import { EXPENSE_CATEGORIES } from '@/lib/expense-reporting';
+import { paymentMethods } from '@/lib/payment-methods';
 import { toDateColumn } from '@/lib/period';
-import type { ExpenseCategory, Invoice, NewInvoiceInput } from '@/types/models';
+import type { BillPaymentTerms, ExpenseCategory, Invoice, NewInvoiceInput, PaymentMethod } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 
 // One modal for raising and editing a vendor bill. Mounted only while editing
 // and keyed by id, so fields initialise from props without an effect.
+//
+// The first choice on the form is the kind of bill, because it changes what
+// the rest of the form asks for. A cash bill was paid on the spot, so it has
+// no due date to give -- it has a payment method instead -- and it is settled
+// in the same transaction that raises it (see migration 20260902000500). A
+// credit bill sits in accounts payable until somebody records a payment.
+//
+// Both hit profit identically, on the day they were issued. Only how long the
+// shop owed the money differs.
 export function InvoiceEditorModal({
   shopId,
   invoice,
@@ -33,6 +43,8 @@ export function InvoiceEditorModal({
   const [description, setDescription] = useState(invoice?.description ?? '');
   const [issuedOn, setIssuedOn] = useState(invoice?.issuedOn ?? toDateColumn(new Date()));
   const [dueOn, setDueOn] = useState(invoice?.dueOn ?? '');
+  const [paymentTerms, setPaymentTerms] = useState<BillPaymentTerms>(invoice?.paymentTerms ?? 'credit');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [amount, setAmount] = useState(invoice ? (invoice.amountCents / 100).toFixed(2) : '');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +53,14 @@ export function InvoiceEditorModal({
 
   const amountCents = toCents(amount);
   const issuedDate = parseDateInput(issuedOn);
-  const dueDate = parseDateInput(dueOn);
+  // A cash bill is due the day it is issued, by definition -- the database
+  // corrects it either way, and the form does not ask.
+  const isCash = paymentTerms === 'cash';
+  const effectiveDueOn = isCash ? issuedOn : dueOn;
+  const dueDate = parseDateInput(effectiveDueOn);
   // The DB has no constraint that due >= issued (a shop may legitimately be
   // handed a bill already past due), so this is guidance rather than a block.
-  const dueBeforeIssued = Boolean(issuedDate && dueDate && dueDate < issuedDate);
+  const dueBeforeIssued = !isCash && Boolean(issuedDate && dueDate && dueDate < issuedDate);
   // Reducing a bill below what's already been paid would violate the
   // not-overpaid constraint; catching it here explains why rather than
   // surfacing a raw Postgres error.
@@ -66,8 +82,10 @@ export function InvoiceEditorModal({
         category,
         description: description.trim() || null,
         issuedOn,
-        dueOn,
+        dueOn: effectiveDueOn,
         amountCents,
+        paymentTerms,
+        paymentMethod,
       });
     } catch (err) {
       setError(extractErrorMessage(err, 'Could not save this bill.'));
@@ -112,6 +130,24 @@ export function InvoiceEditorModal({
               label="Who the bill is from"
             />
 
+            {/* Only on a new bill. Switching an existing one between kinds
+                would mean either un-paying a cash bill or silently settling a
+                credit one, and neither is something a form should do behind
+                somebody's back -- delete it and raise it again. */}
+            {!invoice && (
+              <>
+                <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>KIND OF BILL</Text>
+                <View style={styles.chipRow}>
+                  <Pressable onPress={() => setPaymentTerms('credit')} style={[styles.chip, !isCash && styles.chipActive]}>
+                    <Text style={[styles.chipText, !isCash && styles.chipTextActive]}>Credit bill — pay later</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setPaymentTerms('cash')} style={[styles.chip, isCash && styles.chipActive]}>
+                    <Text style={[styles.chipText, isCash && styles.chipTextActive]}>Cash bill — paid now</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+
             <View style={styles.fieldRow}>
               <View style={styles.fieldHalf}>
                 <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>BILL NUMBER</Text>
@@ -141,10 +177,15 @@ export function InvoiceEditorModal({
                 <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>ISSUED</Text>
                 <DateInput value={issuedOn} onChangeText={setIssuedOn} />
               </View>
-              <View style={styles.fieldHalf}>
-                <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>DUE</Text>
-                <DateInput value={dueOn} onChangeText={setDueOn} />
-              </View>
+              {/* Absent rather than disabled for a cash bill: there is no date
+                  to choose, and a greyed-out box invites someone to work out
+                  how to un-grey it. */}
+              {!isCash && (
+                <View style={styles.fieldHalf}>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>DUE</Text>
+                  <DateInput value={dueOn} onChangeText={setDueOn} />
+                </View>
+              )}
             </View>
             {dueBeforeIssued && <Text style={styles.warning}>This bill is due before it was issued — it will show as overdue.</Text>}
             {belowPaid && invoice && (
@@ -178,9 +219,26 @@ export function InvoiceEditorModal({
               style={[styles.input, styles.multiline]}
             />
 
+            {isCash && !invoice && (
+              <>
+                <Text style={[styles.fieldLabel, styles.fieldLabelSpaced]}>PAID WITH</Text>
+                <View style={styles.chipRow}>
+                  {paymentMethods.map((option) => {
+                    const active = option.key === paymentMethod;
+                    return (
+                      <Pressable key={option.key} onPress={() => setPaymentMethod(option.key)} style={[styles.chip, active && styles.chipActive]}>
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>{option.label}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
             <Text style={styles.note}>
-              Recording a bill adds it to expenses straight away, so it counts against profit from the day it was issued.
-              Paying it later settles the balance without changing your profit again.
+              {isCash
+                ? 'A cash bill is recorded and settled together, so it never shows as outstanding. It still counts against profit from the day it was issued, exactly like a credit bill — the only difference is how long you owed it.'
+                : 'Recording a bill adds it to expenses straight away, so it counts against profit from the day it was issued. Paying it later settles the balance without changing your profit again.'}
             </Text>
 
             {error && <Text style={styles.error}>{error}</Text>}

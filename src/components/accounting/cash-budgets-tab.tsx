@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { CashTransferModal } from '@/components/accounting/cash-transfer-modal';
 import { RecurringBillModal } from '@/components/accounting/recurring-bill-modal';
 import { RegisterSessionDetail } from '@/components/register-session-detail';
 import { RegisterSessionsCard, type SessionRow } from '@/components/accounting/register-sessions-card';
@@ -37,6 +38,7 @@ import {
   createRecurringBill,
   updateRecurringBill,
 } from '@/lib/cash-budgets';
+import { listCashTransfers } from '@/lib/cash-transfers';
 import { formatAccountingCents, formatCompactCents, toCents } from '@/lib/currency';
 import { expenseCategoryLabel } from '@/lib/expense-reporting';
 import { listExpensesInRange } from '@/lib/expenses';
@@ -46,7 +48,7 @@ import { listCurrencies } from '@/lib/currencies';
 import { listRegisters, listRegisterSessions, registerSessionTotals } from '@/lib/registers';
 import { listStaff } from '@/lib/staff';
 import { listShopTimeEntries } from '@/lib/time-entries';
-import type { Budget, CashAccount, Currency, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
+import type { Budget, CashAccount, CashTransfer, Currency, Expense, NewRecurringBillInput, RecurringBill } from '@/types/models';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -107,6 +109,8 @@ export function CashBudgetsTab({
   // Which deep-linked session has already been dismissed, so closing the sheet
   // does not immediately reopen it. Derived rather than synced in an effect —
   // the param does not change while the screen is up.
+  const [transfers, setTransfers] = useState<CashTransfer[]>([]);
+  const [transferring, setTransferring] = useState(false);
   const [dismissedFocus, setDismissedFocus] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,16 +126,20 @@ export function CashBudgetsTab({
       return;
     }
     try {
-      const [accountRows, billRows, budgetRowsData, expenseRows] = await Promise.all([
+      const [accountRows, billRows, budgetRowsData, expenseRows, transferRows] = await Promise.all([
         listCashAccounts(shop.id),
         listRecurringBills(shop.id),
         listBudgets(shop.id),
         listExpensesInRange(shop.id, since, until),
+        // Date-scoped, unlike the balances above it: a balance is a fact about
+        // right now, while a transfer is something that happened on a day.
+        listCashTransfers(shop.id, { since, until }),
       ]);
       setAccounts(accountRows);
       setBills(billRows);
       setBudgets(budgetRowsData);
       setExpenses(expenseRows);
+      setTransfers(transferRows);
 
       if (accountRows.length > 0) {
         const oldest = accountRows.reduce(
@@ -218,6 +226,14 @@ export function CashBudgetsTab({
   // Budget-vs-actual has to compare like with like: a store's budget against
   // that store's spend, not against every store's.
   const expensesInScope = useMemo(() => scopeToLocation(expenses, locationFilter), [expenses, locationFilter]);
+  // A transfer belongs to a store if EITHER end of it does, because a movement
+  // out of this store's till is this store's movement whether or not the money
+  // landed in a business-wide bank account.
+  const transfersInScope = useMemo(() => {
+    if (locationFilter === null) return transfers;
+    const here = new Set(accounts.filter((a) => a.locationId === locationFilter).map((a) => a.id));
+    return transfers.filter((t) => here.has(t.fromAccountId) || here.has(t.toAccountId));
+  }, [transfers, accounts, locationFilter]);
 
   if (!allowed) {
     return (
@@ -296,9 +312,19 @@ export function CashBudgetsTab({
             title="Cash on hand"
             scope="As of today"
             actions={
-              <Pressable onPress={() => setAddingAccount(true)} style={styles.smallButton}>
-                <Text style={styles.smallButtonText}>+ Account</Text>
-              </Pressable>
+              <View style={styles.cardActions}>
+                {/* Only where there is somewhere to move money TO. A transfer
+                    button on a shop with one till opens a form that cannot be
+                    completed. */}
+                {accountsInScope.length > 1 && (
+                  <Pressable onPress={() => setTransferring(true)} style={styles.smallButton}>
+                    <Text style={styles.smallButtonText}>Move</Text>
+                  </Pressable>
+                )}
+                <Pressable onPress={() => setAddingAccount(true)} style={styles.smallButton}>
+                  <Text style={styles.smallButtonText}>+ Account</Text>
+                </Pressable>
+              </View>
             }
           >
             {accountsInScope.length === 0 && !addingAccount ? (
@@ -367,6 +393,36 @@ export function CashBudgetsTab({
             )}
           </BentoCard>
           </BentoCell>
+
+          {/* --- Transfers: the explanation for two balances moving at once ---
+
+              Deliberately NOT part of the cash totals above, and the card says
+              so. Banking the day's takings changes where the money is and not
+              how much there is, so a transfer moves no total on this screen --
+              it exists so that two balance changes on the same afternoon read
+              as one movement rather than as two unexplained edits. */}
+          {transfersInScope.length > 0 && (
+            <BentoCell span={12}>
+              <BentoCard title="Money moved between accounts" scope="Selected range">
+                {transfersInScope.map((transfer) => (
+                  <View key={transfer.id} style={styles.transferRow}>
+                    <View style={styles.transferMain}>
+                      <Text style={styles.transferRoute} numberOfLines={1}>
+                        {`${transfer.fromAccountName ?? 'An account'} → ${transfer.toAccountName ?? 'another account'}`}
+                      </Text>
+                      <Text style={styles.transferMeta} numberOfLines={1}>
+                        {[transfer.transferredOn, transfer.reference, transfer.note].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                    <Text style={styles.transferAmount}>{formatAccountingCents(transfer.amountCents)}</Text>
+                  </View>
+                ))}
+                <Text style={styles.transferFootnote}>
+                  These change nothing about how much cash the shop has, or about profit — only where the money sits.
+                </Text>
+              </BentoCard>
+            </BentoCell>
+          )}
 
           {/* --- Recurring bills: forward-looking, also range-independent --- */}
           <BentoCell span={7}>
@@ -478,6 +534,17 @@ export function CashBudgetsTab({
         </>
       )}
       </BentoGrid>
+
+      {transferring && (
+        <CashTransferModal
+          accounts={accountsInScope}
+          onClose={() => setTransferring(false)}
+          onTransferred={async () => {
+            setTransferring(false);
+            await reload();
+          }}
+        />
+      )}
 
       {editingBill !== null && shop && (
         <RecurringBillModal
@@ -744,7 +811,14 @@ const styles = StyleSheet.create({
 
   newButton: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   newButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 11 },
+  cardActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   smallButton: { paddingVertical: 7, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#F2F2F2' },
+  transferRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1, borderBottomColor: theme.bentoLine },
+  transferMain: { flex: 1, minWidth: 0 },
+  transferRoute: { fontSize: 13, fontWeight: '700', color: theme.bentoInk },
+  transferMeta: { fontSize: 11, color: theme.bentoMuted, marginTop: 2 },
+  transferAmount: { fontSize: 13.5, fontWeight: '800', color: theme.bentoInk, fontVariant: ['tabular-nums'] },
+  transferFootnote: { fontSize: 11, color: theme.bentoMuted, marginTop: 12, lineHeight: 16 },
   smallButtonText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
   smallButtonDark: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 8, backgroundColor: '#111111' },
   smallButtonDarkText: { fontSize: 11.5, fontWeight: '800', color: '#FFFFFF' },

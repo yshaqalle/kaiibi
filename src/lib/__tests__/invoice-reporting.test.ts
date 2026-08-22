@@ -18,6 +18,7 @@ function makeInvoice(overrides: Partial<Invoice> = {}): Invoice {
     dueOn: '2026-08-20',
     amountCents: 40000,
     paidCents: 0,
+    paymentTerms: 'credit',
     createdBy: null,
     createdAt: '2026-08-01T10:00:00.000Z',
     updatedAt: '2026-08-01T10:00:00.000Z',

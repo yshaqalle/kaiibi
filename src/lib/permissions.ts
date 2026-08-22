@@ -29,6 +29,8 @@ export type Permission =
   | 'invoices.view'
   | 'invoices.manage'
   | 'budgets.manage'
+  | 'ledger.view'
+  | 'ledger.manage'
   | 'registers.manage'
   | 'discounts.apply'
   | 'discounts.manual';
@@ -56,6 +58,8 @@ export const PERMISSIONS: { key: Permission; label: string; description: string 
   { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },
   { key: 'invoices.manage', label: 'Manage bills', description: 'Record vendor bills and mark payments against them.' },
   { key: 'budgets.manage', label: 'Manage budgets and cash', description: 'Set category budgets, recurring bills, and cash-on-hand balances.' },
+  { key: 'ledger.view', label: 'View the ledger', description: 'See the chart of accounts, the journal, the trial balance, the asset register and the audit log.' },
+  { key: 'ledger.manage', label: 'Keep the books', description: 'Change the chart of accounts, post and reverse journal entries, and record fixed assets. Independent of viewing — this is the one that can move the bottom line with no sale or receipt behind it.' },
   { key: 'registers.manage', label: 'Manage registers', description: "Open a register for someone else, close anyone's register, and sign off cash variance. Everyone with POS access can open and close their own." },
 ];
 
@@ -73,6 +77,7 @@ export const IMPLIED_PERMISSIONS: Partial<Record<Permission, Permission[]>> = {
   'people.payroll.manage': ['people.timesheet.view'],
   'expenses.manage': ['expenses.view'],
   'invoices.manage': ['invoices.view'],
+  'ledger.manage': ['ledger.view'],
 };
 
 // Turns a stored `roles.permissions` array into the effective set the client

@@ -717,6 +717,12 @@ export type Invoice = {
   description: string | null;
   issuedOn: string;
   dueOn: string;
+  // Whether the shop owes this for a month or owed it for a moment. A cash
+  // bill is settled in the same transaction that raises it and is never
+  // outstanding; a credit bill sits in accounts payable until paid. Both post
+  // their cost when RAISED, so the profit-and-loss statement cannot tell them
+  // apart -- see migration 20260902000500.
+  paymentTerms: BillPaymentTerms;
   amountCents: number;
   paidCents: number;
   createdBy: string | null;
@@ -738,7 +744,14 @@ export type InvoicePayment = {
 export type NewInvoiceInput = Omit<
   Invoice,
   'id' | 'shopId' | 'paidCents' | 'createdBy' | 'createdAt' | 'updatedAt' | 'payments' | 'vendorName' | 'vendorPhone'
-> & { vendorName: string | null; vendorPhone: string | null };
+> & {
+  vendorName: string | null;
+  vendorPhone: string | null;
+  // How a CASH bill was settled, since it is paid in the same breath as it is
+  // raised. Meaningless on a credit bill, which has not been paid by any
+  // method yet -- that is what the record-payment modal asks later.
+  paymentMethod?: PaymentMethod;
+};
 
 // Where the shop's money physically sits. A manually-confirmed snapshot, not
 // a computed ledger — see the cash-and-budgets migration for why.
@@ -1043,3 +1056,239 @@ export type TimeOffRequest = {
   decidedBy: string | null;
   decidedAt: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// The ledger
+// ---------------------------------------------------------------------------
+// One rule governs every type below, and it is worth reading once before any
+// of them: an account either REPORTS an operational stream (`feed` set) or is
+// HAND-POSTED through the general journal (`feed` null), never both. See
+// supabase/migrations/20260902000000_ledger_accounts.sql for why, and
+// src/lib/trial-balance.ts for the arithmetic that follows from it.
+
+export type LedgerAccountType = 'asset' | 'liability' | 'equity' | 'income' | 'expense';
+
+// Where the account sits on a statement. `type` alone cannot place it — an
+// asset is either current or fixed, and cost of sales has to sit above gross
+// profit while an operating expense sits below it.
+export type LedgerAccountSubtype =
+  | 'current_asset'
+  | 'fixed_asset'
+  | 'other_asset'
+  | 'current_liability'
+  | 'long_term_liability'
+  | 'equity'
+  | 'operating_income'
+  | 'other_income'
+  | 'cost_of_sales'
+  | 'operating_expense'
+  | 'other_expense';
+
+// The operational stream an account reports. Every value here is a query
+// somebody had to write (src/lib/trial-balance.ts) — this is not an open set,
+// and an unrecognised feed reports zero, which is the worst way a balance
+// sheet can be wrong.
+export type LedgerFeed =
+  | 'cash_on_hand'
+  | 'bank'
+  | 'mobile_money'
+  | 'accounts_receivable'
+  | 'inventory'
+  | 'fixed_assets'
+  | 'accumulated_depreciation'
+  | 'accounts_payable'
+  | 'sales_tax_payable'
+  | 'sales_revenue'
+  | 'cost_of_goods_sold'
+  | 'asset_disposal_result'
+  | 'expense_rent'
+  | 'expense_utilities'
+  | 'expense_salaries_wages'
+  | 'expense_marketing'
+  | 'expense_supplies'
+  | 'expense_transport_delivery'
+  | 'expense_maintenance_repairs'
+  | 'expense_fees_charges'
+  | 'expense_other'
+  | 'expense_depreciation'
+  | 'owner_draw';
+
+export type LedgerAccount = {
+  id: string;
+  shopId: string;
+  /** The shop's own numbering. Text, so '1000.1' and leading zeros survive. */
+  code: string;
+  name: string;
+  type: LedgerAccountType;
+  subtype: LedgerAccountSubtype;
+  /** null = hand-posted. See the note at the top of this section. */
+  feed: LedgerFeed | null;
+  /** Prints as a deduction from the group above it — accumulated depreciation, owner's draw. */
+  contra: boolean;
+  /**
+   * What the account held on the day the shop started keeping books here,
+   * signed in the account's normal direction. Always zero on a fed account:
+   * the feed already reports everything it holds, opening figure included, and
+   * the database refuses the combination.
+   */
+  openingBalanceCents: number;
+  openingBalanceOn: string | null;
+  /** Seeded by the default chart. Renamable and re-numberable, never deletable. */
+  isSystem: boolean;
+  archived: boolean;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewLedgerAccountInput = Pick<
+  LedgerAccount,
+  'code' | 'name' | 'type' | 'subtype' | 'openingBalanceCents' | 'openingBalanceOn' | 'notes'
+>;
+
+export type JournalSource = 'manual' | 'opening_balance' | 'transfer' | 'reversal';
+
+export type JournalLine = {
+  id: string;
+  entryId: string;
+  accountId: string;
+  /** The order it was typed in — an entry is read as a block. */
+  lineNo: number;
+  debitCents: number;
+  creditCents: number;
+  memo: string | null;
+  /** Joined for display, not stored on the line. */
+  accountCode?: string;
+  accountName?: string;
+};
+
+export type JournalEntry = {
+  id: string;
+  shopId: string;
+  locationId: string | null;
+  /** The shop's own running number, gapless per shop. Shown as JE-14. */
+  entryNo: number;
+  /** When the entry belongs, which decides its period — not when it was typed. */
+  entryDate: string;
+  memo: string | null;
+  reference: string | null;
+  source: JournalSource;
+  sourceId: string | null;
+  /** Set on a reversal, pointing at the entry it undoes. */
+  reversesId: string | null;
+  /** Set on an entry that HAS been reversed. Resolved by the client from the same fetch. */
+  reversedById?: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  lines: JournalLine[];
+};
+
+/** One side of one line, as the journal editor holds it before posting. */
+export type NewJournalLineInput = {
+  accountId: string;
+  debitCents: number;
+  creditCents: number;
+  memo: string | null;
+};
+
+export type NewJournalEntryInput = {
+  entryDate: string;
+  memo: string | null;
+  reference: string | null;
+  locationId: string | null;
+  lines: NewJournalLineInput[];
+};
+
+export type FixedAssetCategory =
+  | 'equipment'
+  | 'furniture'
+  | 'fittings'
+  | 'vehicle'
+  | 'technology'
+  | 'building'
+  | 'other';
+
+// Depreciation is never stored — it is a function of these columns and a date.
+// See src/lib/asset-depreciation.ts.
+export type FixedAsset = {
+  id: string;
+  shopId: string;
+  locationId: string | null;
+  name: string;
+  category: FixedAssetCategory;
+  acquiredOn: string;
+  costCents: number;
+  /** What it will still be worth at the end of its life. Zero for most things. */
+  salvageValueCents: number;
+  /** Months, not years: a 30-month fitting is a real figure and 2.5 is not a thing to store. */
+  usefulLifeMonths: number;
+  vendorId: string | null;
+  /** Joined from `vendors` for display, not stored on the row. */
+  vendorName: string | null;
+  reference: string | null;
+  notes: string | null;
+  /** Sold, scrapped or written off. Depreciation stops here. */
+  disposedOn: string | null;
+  disposalProceedsCents: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewFixedAssetInput = Omit<
+  FixedAsset,
+  'id' | 'shopId' | 'vendorName' | 'createdAt' | 'updatedAt'
+>;
+
+// Money moved between the shop's own pots. Posts no journal entry and changes
+// no total — see supabase/migrations/20260902000400_cash_transfers.sql.
+export type CashTransfer = {
+  id: string;
+  shopId: string;
+  fromAccountId: string;
+  toAccountId: string;
+  /** Joined for display. Frozen nowhere — a renamed till renames its history, which is right. */
+  fromAccountName: string | null;
+  toAccountName: string | null;
+  amountCents: number;
+  transferredOn: string;
+  reference: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export type AuditAction = 'create' | 'update' | 'delete' | 'post' | 'reverse' | 'pay';
+
+export type AuditEntity =
+  | 'expense'
+  | 'invoice'
+  | 'invoice_payment'
+  | 'journal_entry'
+  | 'ledger_account'
+  | 'cash_account'
+  | 'cash_transfer'
+  | 'fixed_asset'
+  | 'budget'
+  | 'recurring_bill';
+
+// Append-only. There is no update or delete policy on this table for anyone —
+// see supabase/migrations/20260902000100_accounting_audit_log.sql.
+export type AuditLogEntry = {
+  id: string;
+  shopId: string;
+  occurredAt: string;
+  actorId: string | null;
+  /** Frozen at write time, so the entry survives the person leaving. */
+  actorName: string | null;
+  action: AuditAction;
+  entity: AuditEntity;
+  entityId: string | null;
+  /** Frozen at write time too — the whole point is to outlive the row. */
+  summary: string;
+  /** Signed: a deletion is negative, because that is what a reader scans for. */
+  amountCents: number | null;
+  /** {column: {from, to}} on an edit; the whole row on a deletion. */
+  changes: Record<string, unknown> | null;
+};
+
+/** Raised now and paid later, or paid on the spot. See migration 20260902000500. */
+export type BillPaymentTerms = 'credit' | 'cash';

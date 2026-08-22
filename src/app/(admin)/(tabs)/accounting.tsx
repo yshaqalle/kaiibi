@@ -9,6 +9,7 @@ import { Colors } from '@/constants/theme';
 import { CashBudgetsTab } from '@/components/accounting/cash-budgets-tab';
 import { ExpensesTab } from '@/components/accounting/expenses-tab';
 import { InvoicesTab } from '@/components/accounting/invoices-tab';
+import { LedgerTab } from '@/components/accounting/ledger-tab';
 import { OverviewTab } from '@/components/accounting/overview-tab';
 import { PayrollTab } from '@/components/accounting/payroll-tab';
 import { ReceivablesTab } from '@/components/accounting/receivables-tab';
@@ -29,7 +30,7 @@ const theme = Colors.light;
 // Tabs land incrementally (see the phased plan); only the ones that exist are
 // listed, so the bar never offers a destination that renders nothing.
 
-type AccountingTab = 'overview' | 'transactions' | 'receivables' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
+type AccountingTab = 'overview' | 'transactions' | 'receivables' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'ledger' | 'reports';
 
 // The blurb says what the tab is FOR. Seven tabs of money is a lot to hold in
 // your head, and "Bills" alone does not distinguish what you owe suppliers
@@ -43,8 +44,12 @@ const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
   { key: 'invoices', label: 'Bills', blurb: 'What you owe suppliers, and when it is due.' },
   { key: 'expenses', label: 'Expenses', blurb: 'What the shop spent, by category.' },
   { key: 'payroll', label: 'Payroll', blurb: 'Pay runs and what each one cost.' },
-  { key: 'cash', label: 'Cash & Budgets', blurb: 'Cash on hand, recurring bills and category limits.' },
-  { key: 'reports', label: 'Reports', blurb: 'Profit and loss, tax, labour and category breakdowns.' },
+  { key: 'cash', label: 'Cash & Budgets', blurb: 'Cash on hand, transfers, recurring bills and category limits.' },
+  // The bookkeeping half, in one tab with five sub-views rather than five tabs
+  // of its own -- see ledger-tab.tsx. Last but one on purpose: everything
+  // before it is a shopkeeper's question, and this is a bookkeeper's.
+  { key: 'ledger', label: 'Ledger', blurb: 'The chart of accounts, the journal, the trial balance, assets and the audit log.' },
+  { key: 'reports', label: 'Reports', blurb: 'Statements, sales, item performance, receivables and stock.' },
 ];
 
 // One range control for every tab. An earlier sketch gave Bills and
@@ -156,6 +161,7 @@ export default function AccountingScreen() {
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
+            {tab === 'ledger' && <LedgerTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}

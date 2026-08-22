@@ -25,6 +25,11 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
       'invoices.view',
       'invoices.manage',
       'budgets.manage',
+      // With Accounting rather than in a bucket of their own: the ledger is a
+      // tab of that screen, and a fifth group holding two permissions would
+      // read as a fifth area of the app.
+      'ledger.view',
+      'ledger.manage',
       'dashboard.view',
       'settings.access',
     ],
