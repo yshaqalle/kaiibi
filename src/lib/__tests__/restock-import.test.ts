@@ -145,6 +145,10 @@ describe('planning what arrived', () => {
     const plan = planRestock(sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '0' }]), CONTEXT);
     expect(plan.rejected).toHaveLength(1);
     expect(plan.skipped).toBe(0);
+    // Both the zero and the negative rejection mention "Count", so asserting
+    // only that would pass even with the two messages swapped. Pin the words
+    // only the zero message says.
+    expect(plan.rejected[0].reason).toMatch(/which would change nothing/);
   });
 
   it('matches by SKU before name, so a tidied name still finds its product', () => {
@@ -174,6 +178,41 @@ describe('planning what arrived', () => {
       CONTEXT
     );
     expect(plan.rejected[0].reason).toContain('Jaalala Skincare, Jaalala 2');
+  });
+});
+
+describe('note', () => {
+  // Same rule as Unit cost: a half-finished row (something filled in besides
+  // Quantity received) is a mistake to flag, not a silent skip.
+  it('rejects a note with no quantity received', () => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', Note: '2 arrived broken' }]),
+      CONTEXT
+    );
+    expect(plan.rejected[0].reason).toMatch(/Note is filled in but Quantity received is empty/);
+  });
+
+  it('lands a note alongside a quantity on the store\'s receipt', () => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '6', Note: '2 arrived broken' }]),
+      CONTEXT
+    );
+    expect(plan.receipts[0].note).toBe('2 arrived broken');
+  });
+
+  // Pins the behaviour the corrected comment in planRestock now describes:
+  // one stock_receipts row per store means one note column, so a second note
+  // for the same store is dropped -- silently, not rejected.
+  it('drops a second note for the same store, keeping the first', () => {
+    const plan = planRestock(
+      sheet([
+        { Product: 'Torriden Balanceful Serum', 'Quantity received': '6', Note: '2 arrived broken' },
+        { Product: 'SKIN1004 Madagascar Centella', 'Quantity received': '4', Note: 'short shipped' },
+      ]),
+      CONTEXT
+    );
+    expect(plan.receipts).toHaveLength(1);
+    expect(plan.receipts[0].note).toBe('2 arrived broken');
   });
 });
 
@@ -208,6 +247,31 @@ describe('cost', () => {
       CONTEXT
     );
     expect(costUpdates(plan)).toEqual([]);
+  });
+
+  // parseDollarsToCents strips everything outside [0-9.-] before parsing, and
+  // Number('') is 0 -- so a cell with no digits at all must not fall through
+  // to the free-sample value. null means "the shop didn't say"; a cell that
+  // says nothing sayable must produce null, not a silent $0.00 that overwrites
+  // whatever cost the product already has.
+  it('rejects a unit cost cell with no digits at all, rather than reading it as zero', () => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '6', 'Unit cost': 'n/a' }]),
+      CONTEXT
+    );
+    expect(plan.rejected).toHaveLength(1);
+    expect(plan.rejected[0].reason).toMatch(/Unit cost must be an amount of money/);
+  });
+
+  // The fix above must not over-correct: a genuine zero -- a free sample --
+  // is a real answer and has to keep being accepted.
+  it('accepts a genuine zero cost, since a free sample really does cost nothing', () => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '6', 'Unit cost': '0' }]),
+      CONTEXT
+    );
+    expect(plan.rejected).toEqual([]);
+    expect(plan.receipts[0].items[0].unitCostCents).toBe(0);
   });
 });
 

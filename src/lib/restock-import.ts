@@ -129,10 +129,16 @@ function parseWholeNumber(value: string | undefined): number | null {
 }
 
 // Dollars in the sheet, cents in the database -- the same conversion products
-// import does, so a shop never has to think in cents.
+// import does, so a shop never has to think in cents. One difference from
+// products import's version: this one requires at least one digit before
+// stripping punctuation. Without that check, a cell with no digits at all
+// (`n/a`, `TBD`, an em dash) strips down to '', and Number('') is 0 -- a
+// finite number indistinguishable from a genuine zero. That would read a
+// shop's "I don't know" as "this cost nothing" and silently overwrite the
+// product's real cost, which is exactly what null exists to prevent.
 function parseDollarsToCents(value: string | undefined): number | null {
   const text = value?.trim();
-  if (!text) return null;
+  if (!text || !/\d/.test(text)) return null;
   const n = Number(text.replace(/[^0-9.-]/g, ''));
   return Number.isFinite(n) ? Math.round(n * 100) : null;
 }
@@ -278,8 +284,12 @@ export function planRestock(
       previousCostCents: product.costCents,
     });
     // The first note given for a store stands for the whole receipt: one
-    // stock_receipts row is written per store, so there is one note to write.
-    // Later rows' notes are not lost silently -- they were never separable.
+    // stock_receipts row is written per store, so there is only one note
+    // column to write. A second note for the same store IS lost silently --
+    // there is no rejection, no warning, nothing in RestockPlan that carries
+    // it -- accepted because the schema has room for exactly one note per
+    // receipt and the alternative (rejecting the row) would block a delivery
+    // over a field that does not change what was received.
     if (!receipt.note && noteText) receipt.note = noteText;
     byStore.set(store.id, receipt);
   });
