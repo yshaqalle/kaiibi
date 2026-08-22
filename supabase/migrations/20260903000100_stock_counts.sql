@@ -88,7 +88,19 @@ create table public.stock_count_items (
   -- sample) and isUncosted() in product-costing.ts is careful about exactly
   -- this. Without the freeze, valuing a count from six months ago would use
   -- whatever cost the most recent delivery happened to leave behind.
-  unit_cost_cents integer check (unit_cost_cents is null or unit_cost_cents >= 0)
+  unit_cost_cents integer check (unit_cost_cents is null or unit_cost_cents >= 0),
+  -- One line per product per count, refused at the table rather than merely
+  -- discouraged. A duplicate is arithmetically survivable -- the second line
+  -- reads previous_quantity under the lock after the first line's write, so
+  -- the variances telescope (11->8 then 8->5 records -3 and -3, which sums to
+  -- exactly 5-11) and a report that sums variance or value is unaffected. What
+  -- breaks is anything that COUNTS lines rather than summing them, and the
+  -- preview above does exactly that ("9 with no reason"). A duplicate would
+  -- also persist a previous_quantity nobody asked about a second time. Refusing
+  -- it here, at the layer that cannot regress, matches the posture
+  -- restock-import.ts already takes for the sibling door ("combine them into
+  -- one row") rather than depending on a sheet that has not been written yet.
+  unique (count_id, product_id)
 );
 create index stock_count_items_count_idx on public.stock_count_items(count_id);
 -- "What has this product been counted at, and how often did it come up short?"
@@ -176,11 +188,13 @@ begin
   -- Ordered by product id so two concurrent counts touching the same products
   -- take their row locks in the same order and cannot deadlock -- the same
   -- reason receive_stock, transfer_stock and refund_sale_items order their
-  -- loops. Ordinality is the tiebreaker: product id alone is not a total order
-  -- when a sheet lists the same product twice, and without one the surviving
-  -- count would be whichever line happened to sort second. With it, the last
-  -- line in the sheet is the one that stands, which is the only reading a
-  -- person can predict from what they are looking at.
+  -- loops. Ordinality is carried as the tiebreaker for the sort, not to pick a
+  -- winner among duplicates: a sheet that lists the same product twice is
+  -- refused outright by stock_count_items' `unique (count_id, product_id)`,
+  -- the moment the second line tries to insert. There is no "last line wins"
+  -- here, unlike a plain upsert -- a stock-take is a value judgement someone
+  -- is accountable for, and silently picking one of two conflicting counts of
+  -- the same shelf is a worse answer than refusing the whole sheet.
   for v_item in
     select value from jsonb_array_elements(p_items) with ordinality as t(value, ord)
       order by (value->>'product_id'), ord

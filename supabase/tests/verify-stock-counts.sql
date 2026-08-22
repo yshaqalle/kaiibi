@@ -24,6 +24,12 @@
 --      stock_transfers IS gated on multi_location because a movement needs two
 --      branches; a stock-take needs one, and a one-store shop on any plan has
 --      to be able to do one. stock_receipts already gets this right.
+--   9. two lines for the same product in one call are refused at the table --
+--      not resolved to "last line wins" -- by stock_count_items' unique
+--      (count_id, product_id).
+--  10. a location that has never stocked a product takes the INSERT branch of
+--      the upsert, previous_quantity 0, not the UPDATE branch every other
+--      check above exercises.
 --
 -- Everything runs inside one DO block whose EXCEPTION clause rolls it all back.
 
@@ -37,6 +43,7 @@ declare
   v_other_owner   uuid := gen_random_uuid();
   v_shop_id       uuid;
   v_location_id   uuid;
+  v_second_loc    uuid;
   v_other_shop    uuid;
   v_other_loc     uuid;
   v_other_product uuid;
@@ -67,6 +74,14 @@ begin
   insert into public.shops (owner_id, name) values (v_owner_id, 'Count Shop') returning id into v_shop_id;
   insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_id, 'Jaalala Skincare', true)
     returning id into v_location_id;
+  -- A second, non-primary branch, created before the products below so check
+  -- 10 has somewhere to find a product the branch has never stocked. Opening
+  -- stock (20260810000000) lands only at whichever location sorts first by
+  -- `is_primary desc, created_at asc` -- v_location_id, not this one -- so
+  -- v_second_loc never gets a product_location_stock row for any fixture
+  -- product until a count creates one.
+  insert into public.shop_locations (shop_id, name, is_primary) values (v_shop_id, 'Annex', false)
+    returning id into v_second_loc;
 
   -- Opening stock lands at the primary location by trigger (20260810000000),
   -- so each of these has a product_location_stock row at v_location_id.
@@ -91,10 +106,16 @@ begin
 
   select stock into v_stock from public.product_location_stock
     where product_id = v_serum and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_serum at v_location_id';
+  end if;
   if v_stock <> 8 then
     raise exception 'FAIL: a count of 8 against 11 should leave 8, got % (19 means it ADDED)', v_stock;
   end if;
   select stock into v_stock from public.products where id = v_serum;
+  if not found then
+    raise exception 'FIXTURE: expected a products row for v_serum';
+  end if;
   if v_stock <> 8 then
     raise exception 'FAIL: the products rollup should follow to 8, got %', v_stock;
   end if;
@@ -102,6 +123,9 @@ begin
   select previous_quantity, variance, reason, unit_cost_cents
     into v_previous, v_variance, v_reason, v_cost
     from public.stock_count_items where count_id = v_count_id and product_id = v_serum;
+  if not found then
+    raise exception 'FIXTURE: expected a stock_count_items row for v_serum in count %', v_count_id;
+  end if;
   if v_previous <> 11 then
     raise exception 'FAIL: the line should record what the app believed (11), got %', v_previous;
   end if;
@@ -126,11 +150,17 @@ begin
   );
   select stock into v_stock from public.product_location_stock
     where product_id = v_centella and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_centella at v_location_id';
+  end if;
   if v_stock <> 26 then
     raise exception 'FAIL: a count of 26 against 24 should leave 26, got %', v_stock;
   end if;
   select variance, reason into v_variance, v_reason
     from public.stock_count_items where count_id = v_count_id and product_id = v_centella;
+  if not found then
+    raise exception 'FIXTURE: expected a stock_count_items row for v_centella in count %', v_count_id;
+  end if;
   if v_variance <> 2 then
     raise exception 'FAIL: finding two extra should be +2, got %', v_variance;
   end if;
@@ -150,6 +180,9 @@ begin
   );
   select stock into v_stock from public.product_location_stock
     where product_id = v_centella and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_centella at v_location_id';
+  end if;
   if v_stock <> 0 then
     raise exception 'FAIL: an empty shelf counted as 0 should leave 0, got %', v_stock;
   end if;
@@ -179,6 +212,9 @@ begin
   --    shop tried to sell something it still had.
   select stock into v_stock from public.product_location_stock
     where product_id = v_sun and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_sun at v_location_id';
+  end if;
   if v_stock <> 12 then
     raise exception 'FAIL: a product absent from every count must keep its 12, got %', v_stock;
   end if;
@@ -224,16 +260,25 @@ begin
   -- inserted would leave a stock-take on record that never happened.
   select stock into v_stock from public.product_location_stock
     where product_id = v_sun and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_sun at v_location_id';
+  end if;
   if v_stock <> 12 then
     raise exception 'FAIL: a refused count must leave the shelf alone, got %', v_stock;
   end if;
 
   perform set_config('request.jwt.claims', json_build_object('sub', v_counter_id)::text, true);
-  perform public.save_stock_count(v_shop_id, v_location_id,
+  -- Captured, not discarded with `perform`: the uncosted-product check just
+  -- below needs to name the count it is reading from, rather than guess at
+  -- "the latest" one.
+  v_count_id := public.save_stock_count(v_shop_id, v_location_id,
     jsonb_build_array(jsonb_build_object('product_id', v_sun, 'counted_quantity', 10, 'reason', 'expired')),
     null);
   select stock into v_stock from public.product_location_stock
     where product_id = v_sun and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_sun at v_location_id';
+  end if;
   if v_stock <> 10 then
     raise exception 'FAIL: a member holding inventory.count should be able to count, got %', v_stock;
   end if;
@@ -241,8 +286,16 @@ begin
   -- real answer (a free sample), and writing it here would let the shortfall
   -- total read as complete when it is not -- the exact lie the checkbox in
   -- Task 9 hides itself rather than tell.
+  --
+  -- Filtered by the count just recorded, not "order by id desc limit 1": id
+  -- is a gen_random_uuid() and the table carries no created_at, so ordering by
+  -- id is ordering by nothing -- it looked deterministic only because exactly
+  -- one stock_count_items row for v_sun existed at this point in the script.
   select unit_cost_cents into v_cost
-    from public.stock_count_items where product_id = v_sun order by id desc limit 1;
+    from public.stock_count_items where count_id = v_count_id and product_id = v_sun;
+  if not found then
+    raise exception 'FIXTURE: expected a stock_count_items row for v_sun in count %', v_count_id;
+  end if;
   if v_cost is not null then
     raise exception 'FAIL: an uncosted product should freeze a NULL cost, got %', v_cost;
   end if;
@@ -293,8 +346,23 @@ begin
     raise exception 'FAIL: expected the product guard to fire, got %', v_message;
   end if;
   -- Their shelf is untouched, which is what the guard is actually protecting.
+  --
+  -- Read as postgres, not authenticated: v_owner_id (the identity this whole
+  -- do block is running as at this point) is not a member of v_other_shop, so
+  -- RLS legitimately hides the row from an `authenticated` select -- and would
+  -- have made this assertion structurally vacuous (v_stock always NULL,
+  -- regardless of whether the guard being tested actually worked) rather than
+  -- a real check of the other shop's data. This is a second, distinct way an
+  -- assertion here could pass without checking anything, alongside the
+  -- missing-row case the `if not found` guards elsewhere in this file exist
+  -- for.
+  perform set_config('role', 'postgres', true);
   select stock into v_stock from public.product_location_stock
     where product_id = v_other_product and location_id = v_other_loc;
+  perform set_config('role', 'authenticated', true);
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_other_product at v_other_loc';
+  end if;
   if v_stock <> 7 then
     raise exception 'FAIL: another shop''s stock must not move, got %', v_stock;
   end if;
@@ -303,14 +371,24 @@ begin
   --     five are a closed set because the preview counts them ("9 with no
   --     reason") and a sixth spelling would quietly become a sixth category.
   v_raised := false;
+  v_message := null;
   begin
     perform public.save_stock_count(v_shop_id, v_location_id,
       jsonb_build_array(jsonb_build_object('product_id', v_serum, 'counted_quantity', 5, 'reason', 'shrinkage')),
       null);
-  exception when others then v_raised := true;
+  exception when others then
+    v_raised := true;
+    get stacked diagnostics v_message = message_text;
   end;
   if not v_raised then
     raise exception 'FAIL: an unrecognised reason should raise';
+  end if;
+  -- Narrowed to the check constraint by name, the same discipline every other
+  -- negative case in this file already applies: a bare `when others` would
+  -- pass just as happily if 'shrinkage' failed for the wrong reason entirely
+  -- (a typo'd column, a broken trigger), and the test would never know.
+  if v_message !~ 'stock_count_items_reason_check' then
+    raise exception 'FAIL: expected the reason check constraint to fire by name, got %', v_message;
   end if;
 
   -- 8. Counting is gated on `inventory`, never on `multi_location`.
@@ -349,8 +427,100 @@ begin
     null);
   select stock into v_stock from public.product_location_stock
     where product_id = v_serum and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_serum at v_location_id';
+  end if;
   if v_stock <> 4 then
     raise exception 'FAIL: a one-store shop without multi_location should still count, got %', v_stock;
+  end if;
+
+  -- 9. A duplicate product in one call is refused at the table, not silently
+  --    resolved to "last line in the sheet wins". Arithmetically a duplicate
+  --    is survivable -- the second line reads previous_quantity under the
+  --    lock after the first line's write, so the two variances telescope to
+  --    the same total a single line would have recorded -- but anything that
+  --    COUNTS stock_count_items rows rather than summing them (the preview's
+  --    "9 with no reason") is wrong by exactly one row per duplicate, and a
+  --    duplicate also persists a previous_quantity nobody asked about twice.
+  --    stock_count_items' `unique (count_id, product_id)` refuses it here, at
+  --    the layer that cannot regress, rather than depending on a sheet that
+  --    has not been written yet.
+  select count(*) into v_rows from public.stock_count_items where product_id = v_centella;
+  v_raised := false;
+  v_message := null;
+  begin
+    perform public.save_stock_count(v_shop_id, v_location_id,
+      jsonb_build_array(
+        jsonb_build_object('product_id', v_centella, 'counted_quantity', 5, 'reason', null),
+        jsonb_build_object('product_id', v_centella, 'counted_quantity', 9, 'reason', null)
+      ),
+      null);
+  exception when others then
+    v_raised := true;
+    get stacked diagnostics v_message = message_text;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: two lines for the same product in one call should raise';
+  end if;
+  if v_message !~ 'stock_count_items_count_id_product_id_key' then
+    raise exception 'FAIL: expected the (count_id, product_id) unique constraint to fire by name, got %', v_message;
+  end if;
+  -- And the refusal wrote nothing -- not the shelf, not either line. A
+  -- partial write here (the first line's upsert landing while the second
+  -- line's insert is refused) would be worse than a clean failure: it would
+  -- produce exactly the "arithmetically fine, row count wrong" case the
+  -- constraint exists to rule out, silently.
+  select stock into v_stock from public.product_location_stock
+    where product_id = v_centella and location_id = v_location_id;
+  if not found then
+    raise exception 'FIXTURE: expected a product_location_stock row for v_centella at v_location_id';
+  end if;
+  if v_stock <> 0 then
+    raise exception 'FAIL: a refused duplicate count must leave the shelf alone, got %', v_stock;
+  end if;
+  select count(*) into v_rows from public.stock_count_items where product_id = v_centella;
+  if v_rows <> 2 then
+    raise exception 'FAIL: a refused duplicate count must add no new stock_count_items rows, got %', v_rows;
+  end if;
+
+  -- 10. A location that has never stocked a product takes the INSERT branch
+  --     of the upsert -- coalesce(v_previous, 0), then `insert ... on
+  --     conflict do update` with nothing to conflict on -- not the UPDATE
+  --     branch every check above exercises. Every fixture product's opening
+  --     stock lands only at the primary location (20260810000000), so
+  --     v_second_loc has no product_location_stock row for v_serum until this
+  --     call makes one: the documented "someone finds three on a shelf the
+  --     branch has never carried" case at
+  --     20260903000100_stock_counts.sql:200-211.
+  select count(*) into v_rows from public.product_location_stock
+    where product_id = v_serum and location_id = v_second_loc;
+  if v_rows <> 0 then
+    raise exception 'FIXTURE: v_second_loc should not yet stock v_serum, got % rows', v_rows;
+  end if;
+
+  v_count_id := public.save_stock_count(v_shop_id, v_second_loc,
+    jsonb_build_array(jsonb_build_object('product_id', v_serum, 'counted_quantity', 3, 'reason', null)),
+    null);
+
+  select previous_quantity, variance into v_previous, v_variance
+    from public.stock_count_items where count_id = v_count_id and product_id = v_serum;
+  if not found then
+    raise exception 'FIXTURE: expected a stock_count_items row for v_serum in count %', v_count_id;
+  end if;
+  if v_previous <> 0 then
+    raise exception 'FAIL: a branch that never stocked this product should read a previous of 0, got %', v_previous;
+  end if;
+  if v_variance <> 3 then
+    raise exception 'FAIL: three found where none were on record should be +3, got %', v_variance;
+  end if;
+
+  select stock into v_stock from public.product_location_stock
+    where product_id = v_serum and location_id = v_second_loc;
+  if not found then
+    raise exception 'FAIL: the upsert''s insert branch should have created a product_location_stock row for v_serum at v_second_loc';
+  end if;
+  if v_stock <> 3 then
+    raise exception 'FAIL: the new location''s stock should read 3, got %', v_stock;
   end if;
 
   -- 8c. And the inventory gate genuinely bites: a shop that has lost every
