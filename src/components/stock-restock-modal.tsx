@@ -7,10 +7,26 @@ import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
 import { listCategories } from '@/lib/categories';
 import { extractErrorMessage } from '@/lib/checkout-errors';
+import { rowsToCsv } from '@/lib/csv';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
+import { shareCsv } from '@/lib/export-file';
+import { downloadRejectedRowsCsv, type RejectedRow } from '@/lib/import-shared';
+import { pickCsvFile } from '@/lib/pick-csv-file';
 import { isUncosted } from '@/lib/product-costing';
 import { listProducts, receiveStock } from '@/lib/products';
+import {
+  costUpdates,
+  planRestock,
+  receivedUnits,
+  RESTOCK_SHEET_COLUMNS,
+  RESTOCK_TEMPLATE_COLUMNS,
+  restockSheetRows,
+  type OversizedReceipt,
+  type PlannedReceipt,
+  type RestockPlan,
+  type RestockSheetRow,
+} from '@/lib/restock-import';
 import { readTypedCost, readTypedQuantity, type TypedCost } from '@/lib/restock-typed-input';
 import type { Product } from '@/types/models';
 
@@ -79,6 +95,12 @@ export function StockRestockModal({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Sheet tab
+  const [sheetFile, setSheetFile] = useState<string | null>(null);
+  const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
+  const [plan, setPlan] = useState<RestockPlan | null>(null);
+  const [sheetNotice, setSheetNotice] = useState<string | null>(null);
 
   // Scoped to the receiving store so each row can say what is already there --
   // "Has 3 here" is the number that decides whether 24 is right. Unlike Move,
@@ -157,6 +179,10 @@ export function StockRestockModal({
     setSearch('');
     setCategory(null);
     setError(null);
+    setPlan(null);
+    setSheetFile(null);
+    setSheetHeaders([]);
+    setSheetNotice(null);
     setTab('hand');
     onClose();
   }, [onClose]);
@@ -289,10 +315,158 @@ export function StockRestockModal({
     }
   };
 
+  // --- the sheet tab ------------------------------------------------------
+
+  // What every store holds, keyed `productId|locationId`. Both halves of the
+  // sheet need it: the download states each count, and the preview compares
+  // each received quantity against what the store already has.
+  const loadStockByLocation = useCallback(async (): Promise<Map<string, number>> => {
+    const stock = new Map<string, number>();
+    await Promise.all(
+      selectable.map(async (location) => {
+        for (const product of await listProducts(shopId, location.id)) {
+          stock.set(`${product.id}|${location.id}`, product.stock);
+        }
+      })
+    );
+    return stock;
+  }, [shopId, selectable]);
+
+  // Every product at every store, not just the one selected above -- the sheet
+  // names its own Store on every row, so restricting it would quietly make it a
+  // worse tool than the tab it sits in.
+  //
+  // Rows already in the basket come back pre-filled, so a shop that starts by
+  // hand and realises it is a bigger job than it thought does not retype them.
+  const downloadSheet = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const stockByLocation = await loadStockByLocation();
+      const rows = restockSheetRows(await listProducts(shopId), selectable, (productId, locId) =>
+        stockByLocation.get(`${productId}|${locId}`) ?? 0
+      );
+      const columns = RESTOCK_SHEET_COLUMNS.map((column) =>
+        column.header === 'Quantity received' || column.header === 'Unit cost'
+          ? {
+              header: column.header,
+              value: (row: RestockSheetRow) => {
+                // Only the row for the store the basket is receiving INTO --
+                // the same product's row at another store was not what was
+                // chosen, and pre-filling it would receive the delivery twice.
+                const chosen = row.location.id === locationId
+                  ? lines.find((l) => l.product.id === row.product.id)
+                  : undefined;
+                if (!chosen) return '';
+                return column.header === 'Quantity received' ? String(chosen.quantity) : chosen.cost;
+              },
+            }
+          : column
+      );
+      await shareCsv(rowsToCsv(rows, columns), 'restock-sheet.csv', 'Restock sheet');
+    } catch (err) {
+      setError(extractErrorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadSheet = async () => {
+    setError(null);
+    setSheetNotice(null);
+    const picked = await pickCsvFile(RESTOCK_TEMPLATE_COLUMNS);
+    if (picked.status === 'cancelled') return;
+    if (picked.status === 'error') {
+      setError(picked.message);
+      return;
+    }
+    const products = await listProducts(shopId);
+    const stockByLocation = await loadStockByLocation();
+
+    const next = planRestock(picked.parsed, {
+      products,
+      locations: selectable,
+      stockAt: (productId, locId) => stockByLocation.get(`${productId}|${locId}`) ?? 0,
+    });
+    setSheetFile(picked.fileName);
+    setSheetHeaders(picked.parsed.headers);
+    setPlan(next);
+
+    // A sheet that turns out to be one store is the same thing the by-hand tab
+    // holds, so it lands there -- where a number can still be changed before
+    // anything is received. More than one store has no single destination to
+    // show, so it stays here as a summary.
+    if (next.receipts.length === 1 && next.rejected.length === 0) {
+      const receipt = next.receipts[0];
+      const byId = new Map(products.map((p) => [p.id, p]));
+      setLocationId(receipt.locationId);
+      setLines(
+        receipt.items.flatMap((item) =>
+          byId.has(item.productId)
+            ? [{
+                product: byId.get(item.productId)!,
+                // Both basket fields hold the RAW string a person typed, so a
+                // planned number is turned back into text on the way in --
+                // see the Line type and restock-typed-input.ts for why.
+                quantity: String(item.quantity),
+                cost: item.unitCostCents === null ? '' : (item.unitCostCents / 100).toFixed(2),
+              }]
+            : []
+        )
+      );
+      if (receipt.note) setNote(receipt.note);
+      setSheetNotice(`${picked.fileName} — ${receipt.items.length} product${receipt.items.length === 1 ? '' : 's'} ready. Change anything before receiving.`);
+      setTab('hand');
+    }
+  };
+
+  // One receive_stock call per store. A store that fails fails whole and is
+  // named; the others still go through, because rolling back good work for a
+  // problem the shop can fix by re-uploading one section helps nobody.
+  const commitPlan = async () => {
+    if (!plan || plan.receipts.length === 0) return;
+    setBusy(true);
+    setError(null);
+    const failures: string[] = [];
+    for (const receipt of plan.receipts) {
+      try {
+        await receiveStock(
+          shopId,
+          receipt.locationId,
+          receipt.items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            unitCostCents: item.unitCostCents,
+          })),
+          { supplierName: supplier.trim() || null, reference: reference.trim() || null, note: receipt.note }
+        );
+      } catch (err) {
+        failures.push(`${receipt.locationName}: ${extractErrorMessage(err)}`);
+      }
+    }
+    await onDone();
+    setBusy(false);
+    if (failures.length > 0) {
+      // The plan stays on screen: the stores that DID go through have already
+      // received, so re-pressing must not repeat them. The shop reads which
+      // store failed and fixes that section of the sheet.
+      setError(`Some of the delivery did not go through.\n${failures.join('\n')}`);
+      setPlan({ ...plan, receipts: [] });
+      return;
+    }
+    closeAndReset();
+  };
+
+  const downloadRejected = async () => {
+    if (!plan || plan.rejected.length === 0) return;
+    await downloadRejectedRowsCsv(plan.rejected, sheetHeaders, 'restock-rejected.csv');
+  };
+
   if (!visible) return null;
 
-  const storeName = selectable.find((l) => l.id === locationId)?.name ?? '';
   const valueHint = deliveryHint(readings, deliveryCents);
+  const planUnits = plan ? plan.receipts.reduce((sum, receipt) => sum + receivedUnits(receipt), 0) : 0;
+  const canCommitPlan = Boolean(plan) && (plan?.receipts.length ?? 0) > 0 && !busy;
 
   return (
     <AppModal visible animationType="fade" transparent onRequestClose={closeAndReset}>
@@ -333,6 +507,11 @@ export function StockRestockModal({
 
             {tab === 'hand' ? (
               <>
+                {/* Set by an upload that turned out to be one store, which
+                    lands here rather than staying on the sheet tab. Without it
+                    the basket would fill from nowhere with no explanation. */}
+                {sheetNotice ? <Text style={styles.notice}>{sheetNotice}</Text> : null}
+
                 <Text style={[styles.label, styles.labelSpaced]}>
                   SUPPLIER &amp; REFERENCE <Text style={styles.labelOptional}>— optional</Text>
                 </Text>
@@ -424,10 +603,14 @@ export function StockRestockModal({
                 />
               </>
             ) : (
-              <>
-                <Text style={[styles.label, styles.labelSpaced]}>THE SHEET</Text>
-                <Text style={styles.help}>Receiving a delivery from a sheet is coming next.</Text>
-              </>
+              <SheetTab
+                fileName={sheetFile}
+                plan={plan}
+                busy={busy}
+                onDownload={downloadSheet}
+                onUpload={uploadSheet}
+                onDownloadRejected={downloadRejected}
+              />
             )}
 
             {error && <Text style={styles.error}>{error}</Text>}
@@ -451,11 +634,27 @@ export function StockRestockModal({
             ) : (
               <>
                 <View style={styles.footerTotal}>
-                  <Text style={styles.footerTotalText}>No sheet yet</Text>
-                  <Text style={styles.footerTotalHint}>{storeName ? `Receiving into ${storeName}` : 'Choose a store'}</Text>
+                  <Text style={styles.footerTotalText}>
+                    {plan ? `${planUnits} unit${planUnits === 1 ? '' : 's'} in` : 'No sheet yet'}
+                  </Text>
+                  {/* "nothing has changed yet" is the whole promise of this
+                      tab: the preview above is a reading of the file, not a
+                      record of anything received. Nothing is written until the
+                      button beside this line is pressed. */}
+                  <Text style={styles.footerTotalHint}>
+                    {plan
+                      ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
+                      : 'Download, fill it in, upload it back'}
+                  </Text>
                 </View>
-                <Pressable disabled style={[styles.primary, styles.disabled]}>
-                  <Text style={styles.primaryText}>Receive 0 units</Text>
+                <Pressable
+                  onPress={commitPlan}
+                  disabled={!canCommitPlan}
+                  style={[styles.primary, !canCommitPlan && styles.disabled]}
+                >
+                  <Text style={styles.primaryText}>
+                    {busy ? 'Receiving…' : `Receive ${planUnits} unit${planUnits === 1 ? '' : 's'}`}
+                  </Text>
                 </Pressable>
               </>
             )}
@@ -593,6 +792,137 @@ function LineRow({
   );
 }
 
+// The whole sheet route on one screen: get the file, fill it, bring it back,
+// read what it says, press the button. Nothing above the footer writes -- the
+// plan is planRestock's pure reading of the upload, held in state and shown.
+function SheetTab({
+  fileName,
+  plan,
+  busy,
+  onDownload,
+  onUpload,
+  onDownloadRejected,
+}: {
+  fileName: string | null;
+  plan: RestockPlan | null;
+  busy: boolean;
+  onDownload: () => void;
+  onUpload: () => void;
+  onDownloadRejected: () => void;
+}) {
+  const costChanges = plan ? costUpdates(plan) : [];
+
+  return (
+    <>
+      <Text style={[styles.label, styles.labelSpaced]}>THE SHEET</Text>
+      <Text style={styles.help}>
+        Every product at every store, with what each holds now. Fill in{' '}
+        <Text style={styles.helpStrong}>Quantity received</Text> — and <Text style={styles.helpStrong}>Unit cost</Text>, if
+        you have it.
+      </Text>
+      <View style={styles.sheetActions}>
+        <Pressable onPress={onDownload} disabled={busy} style={styles.ghost}>
+          <Text style={styles.ghostText}>Download the sheet</Text>
+        </Pressable>
+        <Pressable onPress={onUpload} disabled={busy} style={styles.ghost}>
+          <Text style={styles.ghostText}>Upload a filled sheet</Text>
+        </Pressable>
+      </View>
+      {fileName ? <Text style={styles.fileName}>{fileName}</Text> : null}
+
+      {plan && (
+        <>
+          {/* Each pill only when it has something to say. A "0 rejected" pill
+              is a red-adjacent nothing, and `skipped` gets the plain wording
+              it deserves: the sheet is a download of the whole catalogue, so
+              most of it is MEANT to come back untouched. */}
+          <View style={styles.pills}>
+            {plan.receipts.length > 0 && (
+              <Pill
+                tone="ok"
+                text={`${plan.receipts.length} receipt${plan.receipts.length === 1 ? '' : 's'} · ${plan.receipts.reduce(
+                  (sum, receipt) => sum + receivedUnits(receipt),
+                  0
+                )} units`}
+              />
+            )}
+            {plan.skipped > 0 && <Pill tone="warn" text={`${plan.skipped} rows left blank — skipped`} />}
+            {plan.rejected.length > 0 && <Pill tone="bad" text={`${plan.rejected.length} rejected`} />}
+            {costChanges.length > 0 && <Pill tone="acc" text={`${costChanges.length} costs updated`} />}
+          </View>
+
+          {plan.receipts.length > 0 && (
+            <>
+              <Text style={[styles.label, styles.labelSpaced]}>WHAT WILL BE RECEIVED</Text>
+              {plan.receipts.map((receipt: PlannedReceipt) => (
+                <View key={receipt.locationId} style={styles.receipt}>
+                  <View style={styles.receiptCap}>
+                    <Text style={styles.receiptName}>{receipt.locationName}</Text>
+                    <Text style={styles.receiptMeta}>
+                      {receipt.items.length} product{receipt.items.length === 1 ? '' : 's'} · {receivedUnits(receipt)} units
+                    </Text>
+                  </View>
+                  {receipt.items.map((item) => (
+                    <View key={item.productId} style={styles.receiptItem}>
+                      <Text style={styles.receiptItemName} numberOfLines={2}>
+                        {item.productName}
+                      </Text>
+                      <Text style={styles.receiptItemQty}>+{item.quantity}</Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </>
+          )}
+
+          {/* Warned about, never rejected: a pallet arriving really does look
+              like a misplaced decimal point, and only the shop can tell them
+              apart. So it is said out loud and the row still goes through. */}
+          {plan.oversized.length > 0 && (
+            <>
+              <Text style={[styles.label, styles.labelSpaced]}>WORTH A SECOND LOOK</Text>
+              {plan.oversized.map((entry: OversizedReceipt) => (
+                <Text key={`${entry.productName}|${entry.locationName}`} style={styles.oversized}>
+                  {entry.productName} at {entry.locationName}: {entry.quantity} arriving against {entry.held} held. Check it
+                  isn&apos;t a decimal slip.
+                </Text>
+              ))}
+            </>
+          )}
+
+          {plan.rejected.length > 0 && (
+            <>
+              <Text style={[styles.label, styles.labelSpaced]}>WHAT WON&apos;T</Text>
+              {plan.rejected.slice(0, 8).map((row: RejectedRow) => (
+                <View key={row.row} style={styles.rejectRow}>
+                  <Text style={styles.rejectNumber}>Row {row.row}</Text>
+                  <Text style={styles.rejectReason}>{row.reason}</Text>
+                </View>
+              ))}
+              {plan.rejected.length > 8 && (
+                <Text style={styles.empty}>…and {plan.rejected.length - 8} more, in the file below.</Text>
+              )}
+              <Pressable onPress={onDownloadRejected} style={styles.ghost}>
+                <Text style={styles.ghostText}>
+                  Download the {plan.rejected.length} rejected row{plan.rejected.length === 1 ? '' : 's'}
+                </Text>
+              </Pressable>
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function Pill({ tone, text }: { tone: 'ok' | 'bad' | 'warn' | 'acc'; text: string }) {
+  return (
+    <View style={[styles.pill, styles[`pill_${tone}`]]}>
+      <Text style={[styles.pillText, styles[`pillText_${tone}`]]}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 20 },
   card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, maxHeight: '88%' },
@@ -617,6 +947,8 @@ const styles = StyleSheet.create({
   fieldRow: { flexDirection: 'row', gap: 8 },
   fieldHalf: { flex: 1 },
   help: { fontSize: 13, color: '#5E5D65', marginBottom: 10, lineHeight: 19 },
+  helpStrong: { fontWeight: '800', color: '#111111' },
+  notice: { fontSize: 12.5, fontWeight: '700', color: '#1B47B8', backgroundColor: '#E6EDFF', borderRadius: 10, padding: 10, marginTop: 14 },
 
   basket: { backgroundColor: '#F6F6F7', borderRadius: 14, padding: 12, marginTop: 16 },
   basketCap: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 2 },
@@ -648,6 +980,39 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   costInput: { width: 78 },
+
+  // The sheet tab, borrowed wholesale from stock-transfer-modal.tsx so the two
+  // sheets are visibly the same tool. A second set of pill colours would read
+  // as a second feature.
+  sheetActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  ghost: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: '#DCDCE4', alignSelf: 'flex-start', marginTop: 8 },
+  ghostText: { color: '#111111', fontWeight: '800', fontSize: 12.5 },
+  fileName: { fontSize: 12.5, color: '#5E5D65', marginTop: 10, fontWeight: '600' },
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 14 },
+  pill: { borderRadius: 999, paddingHorizontal: 11, paddingVertical: 5 },
+  pill_ok: { backgroundColor: '#D9EFE4' },
+  pill_bad: { backgroundColor: '#FBEAEC' },
+  pill_warn: { backgroundColor: '#FDF1DA' },
+  pill_acc: { backgroundColor: '#E6EDFF' },
+  pillText: { fontSize: 12, fontWeight: '800' },
+  pillText_ok: { color: '#007A38' },
+  pillText_bad: { color: '#A3202F' },
+  pillText_warn: { color: '#8A5806' },
+  pillText_acc: { color: '#1B47B8' },
+  // One block per store, unlike the move sheet's single line per pair: a
+  // delivery is read against the invoice in the shop's hand, so the product
+  // names and their quantities have to be on screen to be checked off.
+  receipt: { backgroundColor: '#F6F6F7', borderRadius: 14, padding: 12, marginTop: 8 },
+  receiptCap: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 4 },
+  receiptName: { fontSize: 13, fontWeight: '800', color: '#111111', flexShrink: 1 },
+  receiptMeta: { fontSize: 12, color: '#9CA3AF', fontVariant: ['tabular-nums'] },
+  receiptItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 5 },
+  receiptItemName: { fontSize: 12.5, color: '#5E5D65', flexShrink: 1 },
+  receiptItemQty: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
+  oversized: { fontSize: 12.5, fontWeight: '700', color: '#8A5806', backgroundColor: '#FDF1DA', borderRadius: 10, padding: 10, marginTop: 8, lineHeight: 18 },
+  rejectRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
+  rejectNumber: { fontSize: 11, fontWeight: '800', color: '#A3202F', letterSpacing: 0.4 },
+  rejectReason: { fontSize: 12.5, color: '#5E5D65', marginTop: 2, lineHeight: 18 },
 
   footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 16, paddingTop: 14, borderTopWidth: 1, borderTopColor: '#DCDCE4' },
   footerTotal: { flex: 1 },
