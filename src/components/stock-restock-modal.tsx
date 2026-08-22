@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { listCategories } from '@/lib/categories';
 import { extractErrorMessage } from '@/lib/checkout-errors';
 import { formatCents } from '@/lib/currency';
+import { describePlanError } from '@/lib/entitlements';
 import { listProducts, receiveStock } from '@/lib/products';
 import type { Product } from '@/types/models';
 
@@ -77,13 +78,24 @@ export function StockRestockModal({
   // "Has 3 here" is the number that decides whether 24 is right. Unlike Move,
   // rows at zero are KEPT: `listProducts` returns null for a product the store
   // does not carry, so the shop-wide list is fetched too and the two are merged.
+  //
+  // The merge carries `reorderLevel` alongside `stock`, not just `stock` --
+  // `listProducts(shopId, locationId)` already resolves the store's own
+  // override (`here.reorder_level ?? row.reorder_level`, products.ts:111),
+  // and overrides are a real, settable thing (products.ts:142-149). Without
+  // this a store whose own reorder level is 20 against a product default of 5
+  // would read "below reorder level 5", or drop the caveat outright, on the
+  // one screen where reordering is the subject.
   const load = useCallback(async () => {
     const [all, here] = await Promise.all([
       listProducts(shopId),
       locationId ? listProducts(shopId, locationId) : Promise.resolve([] as Product[]),
     ]);
-    const hereById = new Map(here.map((p) => [p.id, p.stock]));
-    return all.map((product) => ({ ...product, stock: hereById.get(product.id) ?? 0 }));
+    const hereByProductId = new Map(here.map((p) => [p.id, p]));
+    return all.map((product) => {
+      const scoped = hereByProductId.get(product.id);
+      return { ...product, stock: scoped?.stock ?? 0, reorderLevel: scoped?.reorderLevel ?? product.reorderLevel };
+    });
   }, [shopId, locationId]);
 
   useEffect(() => {
@@ -141,19 +153,57 @@ export function StockRestockModal({
     );
   };
 
+  // Mirrors the sibling (stock-transfer-modal.tsx:177): a quantity cleared to
+  // nothing removes the line, rather than leaving a row behind whose commit
+  // button goes dead with nothing on screen explaining why. That is the
+  // problem chosen over the alternative: a typed leading zero (e.g. the "0" of
+  // "07") reads as quantity 0 too, so it drops the row before a second digit
+  // can land. There is no way to tell "more digits are coming" from "the
+  // field was cleared" without waiting to see what comes next, and the
+  // sibling accepts the same trade for the same reason -- clearing a
+  // quantity to retype it is rare next to typing it once.
   const setQuantity = (productId: string, text: string) => {
     const digits = text.replace(/[^0-9]/g, '');
+    const quantity = digits === '' ? 0 : Number(digits);
     setLines((current) =>
-      current.map((l) => (l.product.id === productId ? { ...l, quantity: digits === '' ? 0 : Number(digits) } : l))
+      quantity <= 0
+        ? current.filter((l) => l.product.id !== productId)
+        : current.map((l) => (l.product.id === productId ? { ...l, quantity } : l))
     );
   };
 
   // Held as the typed STRING, not a number: a half-typed "4." parsed and
   // reformatted on every keystroke loses its trailing dot and the next digit
-  // lands in the wrong column. Converted once, at submit. The filter keeps
-  // digits and at most one dot so the conversion cannot meet a NaN.
+  // lands in the wrong column. Converted once, at submit.
+  //
+  // Cleaning does not guarantee a numeric result -- "." alone survives it
+  // unchanged and `Number('.')` is NaN, same for "12.3.4.5" collapsing to
+  // "12.3.45". That is fine: `Number.isFinite` gates `deliveryCents` below,
+  // and `submit`'s JSON.stringify turns a NaN payload into `null`, so a NaN
+  // cost never reaches `cost_cents`. What this function actually guards
+  // against is a comma.
+  //
+  // iOS's decimal-pad renders the DEVICE LOCALE's separator, so on a
+  // comma-decimal phone typing "1,50" for one-fifty is not a mistake, it is
+  // what the keyboard offers -- and simply deleting the comma (as this used
+  // to) turns it into "150", fifteen thousand cents. But a comma is also used
+  // for thousands ("1,500" for fifteen hundred), and that reading has to keep
+  // working too. The two are told apart by what follows the LAST comma: 1-2
+  // trailing digits reads as a decimal fraction (cents), so only that comma
+  // becomes a dot; 3+ trailing digits reads as a thousands grouping and is
+  // dropped like any other punctuation. Any comma before the last one is
+  // always a grouping separator and is dropped outright. This is re-decided
+  // on every keystroke, so a number typed toward "1,500" briefly reads as a
+  // decimal ("1." then "1.5" then "1.50") before the third digit flips it
+  // back to a thousands grouping ("1500") -- a visible hiccup, but the two
+  // finished readings this file is required to produce are correct either way.
   const setCost = (productId: string, text: string) => {
-    const cleaned = text.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    const lastComma = text.lastIndexOf(',');
+    const isDecimalComma = lastComma !== -1 && /^[0-9]{0,2}$/.test(text.slice(lastComma + 1));
+    const withDot = isDecimalComma
+      ? `${text.slice(0, lastComma).replace(/,/g, '')}.${text.slice(lastComma + 1)}`
+      : text.replace(/,/g, '');
+    const cleaned = withDot.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
     setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, cost: cleaned } : l)));
   };
 
@@ -208,7 +258,12 @@ export function StockRestockModal({
       await onDone();
       closeAndReset();
     } catch (err) {
-      setError(extractErrorMessage(err));
+      // receive_stock is gated by enforce_shop_module('inventory'), which
+      // raises the literal string "module_not_included" -- describePlanError
+      // turns that (and a limit-reached error) into a sentence before the
+      // generic fallback ever sees it. Same precedent as the sibling
+      // (stock-transfer-modal.tsx's local extractErrorMessage).
+      setError(describePlanError(err) ?? extractErrorMessage(err));
       setBusy(false);
     }
   };
@@ -316,7 +371,7 @@ export function StockRestockModal({
                 {matches.map((product) => (
                   <MatchRow key={product.id} product={product} onAdd={() => addLine(product)} />
                 ))}
-                {matches.length === 0 && (
+                {lines.length === 0 && matches.length === 0 && (
                   <Text style={styles.empty}>
                     {search.trim() ? 'Nothing here matches that.' : 'Search above to add what arrived.'}
                   </Text>
@@ -460,10 +515,13 @@ function LineRow({
           <View>
             <Text style={styles.cap}>RECEIVED</Text>
             <TextInput
-              value={line.quantity === 0 ? '' : String(line.quantity)}
+              // setQuantity drops a line the moment its quantity reaches 0, so
+              // a row that still exists here always has quantity >= 1 --
+              // there is no live 0 state left to render blank for.
+              value={String(line.quantity)}
               onChangeText={onQuantity}
               placeholder="0"
-              placeholderTextColor="#BFBFC6"
+              placeholderTextColor="#999999"
               keyboardType="number-pad"
               aria-label={`Units of ${line.product.name} received`}
               style={styles.qtyInput}
@@ -475,7 +533,7 @@ function LineRow({
               value={line.cost}
               onChangeText={onCost}
               placeholder={line.product.costCents !== null ? (line.product.costCents / 100).toFixed(2) : '0.00'}
-              placeholderTextColor="#BFBFC6"
+              placeholderTextColor="#999999"
               keyboardType="decimal-pad"
               aria-label={`Unit cost of ${line.product.name}`}
               style={[styles.qtyInput, styles.costInput]}
