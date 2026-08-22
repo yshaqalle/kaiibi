@@ -17,6 +17,7 @@ import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { StockActionsSheet, type StockAction } from '@/components/stock-actions-sheet';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
+import { StockCountModal } from '@/components/stock-count-modal';
 import { StockRestockModal } from '@/components/stock-restock-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { useStagedSheet } from '@/components/use-staged-sheet';
@@ -80,6 +81,13 @@ export default function InventoryScreen() {
   // edit modals all need `inventory.edit`, which is what the products write
   // policies check too.
   const canEdit = can('inventory.edit');
+  // Nested under canEdit and checked separately. Both were granted to every
+  // role that already held inventory.edit when the split shipped, so these are
+  // false only where a shop has deliberately turned one off -- and each is
+  // re-checked by the database in the RPC behind it, because the sheet must not
+  // be the only thing standing between a cashier and a write-off.
+  const canCount = canEdit && can('inventory.count');
+  const canTransfer = canEdit && can('inventory.transfer');
   // The second gate, orthogonal to the permission above: `canEdit` asks whether
   // this USER may add products, this asks whether the SHOP's plan still has room
   // for one. Both must pass.
@@ -146,6 +154,7 @@ export default function InventoryScreen() {
   // what happens when a stand-down and a `visible` drift apart: the sheet is up
   // and the screen behind it is still adjusting stock on every scan.
   const showRestock = restockFromImport.value !== null || actionFromStock.value === 'restock';
+  const showCount = actionFromStock.value === 'count';
   // `|| actionFromStock.presenterSuppressed` closes a gap, not a typo: between
   // `onPick` and the promotion, `pending` holds the next action but `value` is
   // still null, so `showRestock`/`transferOpen`/`importOpen` all read false and
@@ -336,7 +345,14 @@ export default function InventoryScreen() {
       !scannerOpen &&
       !showRestock &&
       !stockDoorOpen &&
-      !transferOpen,
+      !transferOpen &&
+      // The count sheet offers no scanning of its own, so unlike the other two
+      // this is not about one code being read twice. It is the simpler rule the
+      // app already follows: a scanner firing into the screen BEHIND an open
+      // sheet adjusts a product nobody is looking at, and the count sheet is
+      // the worst place for that to happen -- it would move the very number
+      // being counted, out from under the person counting it.
+      !showCount,
     onScan: handleScannedCode,
   });
 
@@ -984,7 +1000,8 @@ export default function InventoryScreen() {
       {canEdit && (
         <StockActionsSheet
           visible={stockDoorOpen && !actionFromStock.presenterSuppressed}
-          showMove={showLocationFilter}
+          showCount={canCount}
+          showMove={showLocationFilter && canTransfer}
           onClose={() => { setShowStockActions(false); stockFromMore.close(); }}
           onDismissed={actionFromStock.onPresenterDismissed}
           onPick={(action) => {
@@ -994,8 +1011,8 @@ export default function InventoryScreen() {
             // and it is a modal at every width -- an iPad wide enough for the
             // desktop header still presents the door as one. Passing `compact`
             // here would say "not from a modal" on that iPad and hand iOS the
-            // second modal to drop, which is a dead Restock button on the one
-            // device where nothing is logged when it happens.
+            // second modal to drop, which is a dead button on the one device
+            // where nothing is logged when it happens.
             actionFromStock.open(action, true);
           }}
         />
@@ -1008,6 +1025,14 @@ export default function InventoryScreen() {
             restockFromImport.close();
             actionFromStock.close();
           }}
+          onDone={reload}
+        />
+      )}
+      {shop && canCount && (
+        <StockCountModal
+          visible={showCount}
+          shopId={shop.id}
+          onClose={actionFromStock.close}
           onDone={reload}
         />
       )}
@@ -1031,7 +1056,7 @@ export default function InventoryScreen() {
           open keypad's field asks for focus, and the sink takes it back every
           700ms. Standing down costs no scanning -- a code scanned into the
           focused field is caught by the row's own burst rules. */}
-      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !importOpen && !transferOpen && !showRestock && !stockDoorOpen && (
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !importOpen && !transferOpen && !showRestock && !showCount && !stockDoorOpen && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Single, unlike POS: a scan here answers one question — "which product
