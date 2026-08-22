@@ -53,7 +53,15 @@ const PG_INTEGER_MAX = 2_147_483_647;
 //    is a mixed mess like "12,3.4.5" (123450c). The leniency is load-bearing
 //    for the first and merely tolerated for the second: once both characters
 //    are present the last one settles the question, and refusing repeats would
-//    refuse dot-grouped money along with the mess.
+//    refuse dot-grouped money along with the mess. "Merely tolerated" was
+//    written with a phone keypad in mind, where a mess like this is a stray
+//    extra tap someone can see and correct before it goes anywhere. It is not
+//    merely tolerated on the OTHER caller: restock-import.ts reads a sheet's
+//    Unit cost column through this same function, and a spreadsheet cell can
+//    arrive already garbled -- a bad paste, a formula gone wrong -- with no
+//    keystrokes for anyone to watch. There, this branch is the difference
+//    between a rejected row and a silently wrong cost landing in
+//    products.cost_cents, pinned in restock-import.test.ts.
 //  * A comma alone is a decimal point when one or two digits follow the LAST
 //    comma, and thousands grouping otherwise -- however many commas there are.
 //    "1,50" is one-fifty, which is what an iOS decimal-pad renders on a

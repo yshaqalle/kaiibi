@@ -26,7 +26,10 @@ import { formatCents } from '@/lib/currency';
 
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
-    locations: [{ id: 'loc-1', name: 'Main', active: true }],
+    locations: [
+      { id: 'loc-1', name: 'Main', active: true },
+      { id: 'loc-2', name: 'Second', active: true },
+    ],
     activeLocation: { id: 'loc-1', name: 'Main', active: true },
   }),
 }));
@@ -63,6 +66,9 @@ jest.mock('@/lib/products', () => ({
 }));
 
 const { receiveStock } = jest.requireMock('@/lib/products') as { receiveStock: jest.Mock };
+
+jest.mock('@/lib/pick-csv-file', () => ({ pickCsvFile: jest.fn() }));
+const { pickCsvFile } = jest.requireMock('@/lib/pick-csv-file') as { pickCsvFile: jest.Mock };
 
 const COST = 'Unit cost of QA widget';
 const QUANTITY = 'Units of QA widget received';
@@ -228,5 +234,56 @@ describe('StockRestockModal typed input', () => {
     // value that keeps the button down.
     clear(tree, QUANTITY);
     expect(field(tree, QUANTITY).props.placeholder).not.toBe('0');
+  });
+});
+
+// The sheet tab's footer promises "nothing has changed yet" -- the whole
+// design of this screen is that nothing writes before the commit button. That
+// promise has to hold, and stop holding honestly, across the one commit that
+// changes it partway: commitPlan sends one receive_stock call per store, and
+// a store that fails does not undo the stores that already succeeded.
+describe('StockRestockModal sheet-tab footer', () => {
+  it('reads "nothing has changed yet" before any commit, and stops claiming that once a partial commit already changed something', async () => {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '3', 'Unit cost': '', Note: '' },
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Second', 'Quantity now': '10', 'Quantity received': '5', 'Unit cost': '', Note: '' },
+        ],
+      },
+    });
+    // Main goes through; Second fails. plan.receipts is keyed by insertion
+    // order, which is row order, so this is the Main call then the Second
+    // call -- matching the two mockImplementationOnce calls below in order.
+    receiveStock.mockImplementationOnce(async () => {}).mockImplementationOnce(async () => {
+      throw new Error('boom');
+    });
+
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+
+    // Before any commit: the preview is a reading of the file, honestly
+    // labelled -- nothing has been written yet.
+    expect(screenText(tree)).toContain('8 units in');
+    expect(screenText(tree)).toContain('across 2 stores · nothing has changed yet');
+
+    await press(tree, 'Receive 8 units');
+
+    // After the partial failure: Main's 3 units are already in the database
+    // (receiveStock's first call resolved), Second's are not (its call
+    // threw). The footer must say so instead of repeating a line that is now
+    // false directly beneath the error naming the store that failed.
+    expect(screenText(tree)).toContain('Second: boom');
+    expect(screenText(tree)).not.toContain('nothing has changed yet');
+    expect(screenText(tree)).toContain('3 units already in');
+    expect(screenText(tree)).toContain('to 1 store before the failure above');
   });
 });

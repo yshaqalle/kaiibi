@@ -101,6 +101,14 @@ export function StockRestockModal({
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
   const [plan, setPlan] = useState<RestockPlan | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
+  // Set only by a commitPlan that partially failed, and read only by the
+  // footer. commitPlan empties plan.receipts on ANY failure so a re-press
+  // cannot repeat a store that already went through (see commitPlan) -- but
+  // that same clearing is what let the footer claim "nothing has changed
+  // yet" directly under an error naming the store that just changed. This
+  // remembers what actually went through, for display only; it plays no part
+  // in the retry-safety logic below.
+  const [partialReceipt, setPartialReceipt] = useState<{ units: number; stores: number } | null>(null);
 
   // Scoped to the receiving store so each row can say what is already there --
   // "Has 3 here" is the number that decides whether 24 is right. Unlike Move,
@@ -183,6 +191,7 @@ export function StockRestockModal({
     setSheetFile(null);
     setSheetHeaders([]);
     setSheetNotice(null);
+    setPartialReceipt(null);
     setTab('hand');
     onClose();
   }, [onClose]);
@@ -374,6 +383,10 @@ export function StockRestockModal({
   const uploadSheet = async () => {
     setError(null);
     setSheetNotice(null);
+    // A fresh upload is a fresh attempt -- without this, re-uploading after a
+    // partial failure to retry the rest would leave the previous attempt's
+    // "N units already in" banner sitting under a brand new preview.
+    setPartialReceipt(null);
     const picked = await pickCsvFile(RESTOCK_TEMPLATE_COLUMNS);
     if (picked.status === 'cancelled') return;
     if (picked.status === 'error') {
@@ -428,6 +441,7 @@ export function StockRestockModal({
     setBusy(true);
     setError(null);
     const failures: string[] = [];
+    const succeeded: PlannedReceipt[] = [];
     for (const receipt of plan.receipts) {
       try {
         await receiveStock(
@@ -440,8 +454,14 @@ export function StockRestockModal({
           })),
           { supplierName: supplier.trim() || null, reference: reference.trim() || null, note: receipt.note }
         );
+        succeeded.push(receipt);
       } catch (err) {
-        failures.push(`${receipt.locationName}: ${extractErrorMessage(err)}`);
+        // Same RPC, same enforce_shop_module('inventory') gate, as the by-hand
+        // submit's `describePlanError(err) ?? extractErrorMessage(err)` right
+        // above -- so a Free/Standard shop committing from the sheet reads a
+        // sentence for `module_not_included`, not the bare Postgres string a
+        // shop committing by hand no longer sees.
+        failures.push(`${receipt.locationName}: ${describePlanError(err) ?? extractErrorMessage(err)}`);
       }
     }
     await onDone();
@@ -452,6 +472,14 @@ export function StockRestockModal({
       // store failed and fixes that section of the sheet.
       setError(`Some of the delivery did not go through.\n${failures.join('\n')}`);
       setPlan({ ...plan, receipts: [] });
+      // Remembered for the footer, which otherwise has nothing left to read
+      // "nothing has changed yet" against -- receipts is now empty on
+      // purpose (see above), but the stores in `succeeded` already changed.
+      setPartialReceipt(
+        succeeded.length > 0
+          ? { units: succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0), stores: succeeded.length }
+          : null
+      );
       return;
     }
     closeAndReset();
@@ -505,32 +533,43 @@ export function StockRestockModal({
               placeholder="Choose a store"
             />
 
+            {/* On BOTH tabs, not just by-hand: commitPlan (the sheet's commit)
+                stamps this same supplier/reference across every receipt in
+                the plan, exactly as the by-hand submit stamps it on its one
+                receipt. One supplier delivering to three stores on one
+                invoice is a real case, so sharing the reference across a
+                multi-store plan is correct -- it just has to be something the
+                person can see and clear while looking at the plan they are
+                about to commit, not a value carried over from a tab they
+                never opened. The state is shared (`supplier`/`reference`
+                above), so filling it in on one tab is what the other commits
+                too. */}
+            <Text style={[styles.label, styles.labelSpaced]}>
+              SUPPLIER &amp; REFERENCE <Text style={styles.labelOptional}>— optional</Text>
+            </Text>
+            <View style={styles.fieldRow}>
+              <TextInput
+                value={supplier}
+                onChangeText={setSupplier}
+                placeholder="Who it came from"
+                placeholderTextColor="#999999"
+                style={[styles.input, styles.fieldHalf]}
+              />
+              <TextInput
+                value={reference}
+                onChangeText={setReference}
+                placeholder="Invoice no."
+                placeholderTextColor="#999999"
+                style={[styles.input, styles.fieldHalf]}
+              />
+            </View>
+
             {tab === 'hand' ? (
               <>
                 {/* Set by an upload that turned out to be one store, which
                     lands here rather than staying on the sheet tab. Without it
                     the basket would fill from nowhere with no explanation. */}
                 {sheetNotice ? <Text style={styles.notice}>{sheetNotice}</Text> : null}
-
-                <Text style={[styles.label, styles.labelSpaced]}>
-                  SUPPLIER &amp; REFERENCE <Text style={styles.labelOptional}>— optional</Text>
-                </Text>
-                <View style={styles.fieldRow}>
-                  <TextInput
-                    value={supplier}
-                    onChangeText={setSupplier}
-                    placeholder="Who it came from"
-                    placeholderTextColor="#999999"
-                    style={[styles.input, styles.fieldHalf]}
-                  />
-                  <TextInput
-                    value={reference}
-                    onChangeText={setReference}
-                    placeholder="Invoice no."
-                    placeholderTextColor="#999999"
-                    style={[styles.input, styles.fieldHalf]}
-                  />
-                </View>
 
                 <Text style={[styles.label, styles.labelSpaced]}>ADD PRODUCTS</Text>
                 {/* Deliberately NOT cleared when a product is added: clearing it
@@ -635,16 +674,28 @@ export function StockRestockModal({
               <>
                 <View style={styles.footerTotal}>
                   <Text style={styles.footerTotalText}>
-                    {plan ? `${planUnits} unit${planUnits === 1 ? '' : 's'} in` : 'No sheet yet'}
+                    {partialReceipt
+                      ? `${partialReceipt.units} unit${partialReceipt.units === 1 ? '' : 's'} already in`
+                      : plan
+                        ? `${planUnits} unit${planUnits === 1 ? '' : 's'} in`
+                        : 'No sheet yet'}
                   </Text>
                   {/* "nothing has changed yet" is the whole promise of this
-                      tab: the preview above is a reading of the file, not a
-                      record of anything received. Nothing is written until the
-                      button beside this line is pressed. */}
+                      tab before a commit: the preview above is a reading of
+                      the file, not a record of anything received. But
+                      commitPlan can fail PARTIALLY -- some stores go through,
+                      one is named in the error above, and plan.receipts is
+                      then emptied so a re-press cannot repeat what already
+                      landed. That empty plan is not "nothing happened"; it is
+                      "some of it happened and this list is spent". partialReceipt
+                      carries what actually went through so this line says so,
+                      right beneath the error naming what did not. */}
                   <Text style={styles.footerTotalHint}>
-                    {plan
-                      ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
-                      : 'Download, fill it in, upload it back'}
+                    {partialReceipt
+                      ? `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} before the failure above`
+                      : plan
+                        ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
+                        : 'Download, fill it in, upload it back'}
                   </Text>
                 </View>
                 <Pressable
@@ -848,7 +899,9 @@ function SheetTab({
             )}
             {plan.skipped > 0 && <Pill tone="warn" text={`${plan.skipped} rows left blank — skipped`} />}
             {plan.rejected.length > 0 && <Pill tone="bad" text={`${plan.rejected.length} rejected`} />}
-            {costChanges.length > 0 && <Pill tone="acc" text={`${costChanges.length} costs updated`} />}
+            {costChanges.length > 0 && (
+              <Pill tone="acc" text={`${costChanges.length} cost${costChanges.length === 1 ? '' : 's'} updated`} />
+            )}
           </View>
 
           {plan.receipts.length > 0 && (

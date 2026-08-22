@@ -247,8 +247,11 @@ export function planRestock(
     // strips stray currency symbols before reading (so "$4.80" is still 480),
     // and a cell with no digits at all ("n/a", "TBD", an em dash) reads as
     // unreadable rather than as a genuine zero. What it adds is the whole
-    // reason it exists -- the separator question. "1.234,56" was NaN here and
-    // is now 123456c; "1,50" was 15000c and is now 150c.
+    // reason it exists -- the separator question. "1,50" was 15000c and is
+    // now 150c. "1.234,56" was NOT rejected here -- stripping its comma left
+    // "1.23456", which Number() reads as 1.23456, not NaN, so this silently
+    // wrote 123c ($1.23) into products.cost_cents for a €1,234.56 delivery.
+    // It is now 123456c.
     //
     // It also closes two cells that used to reach the server raw: a minus sign
     // is refused by name rather than filtered into a negative that trips the

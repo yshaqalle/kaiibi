@@ -318,9 +318,11 @@ describe('a cost read the same way by both routes', () => {
   });
 
   it('reads both groupings of the same money as the same money', () => {
-    // "1.234,56" used to strip to "1.23456" and read as NaN, which the plan
-    // then rejected as "not an amount of money" -- against a cell holding a
-    // perfectly ordinary European price.
+    // "1.234,56" used to strip to "1.23456" -- and Number("1.23456") is
+    // 1.23456, not NaN, so the old parser did NOT reject this cell. It
+    // silently wrote 123c ($1.23) into products.cost_cents for a perfectly
+    // ordinary European price of $1,234.56, with nothing on screen to say a
+    // cost had been read wrong by three orders of magnitude.
     expect(bySheet('1.234,56')).toBe(123456);
     expect(byHand('1.234,56')).toBe(123456);
     expect(bySheet('1,234.56')).toBe(123456);
@@ -351,6 +353,19 @@ describe('a cost read the same way by both routes', () => {
   it('still has no reading at all for a string of dots', () => {
     expect(bySheet('12.3.4.5')).toMatch(/rejected: Unit cost must be an amount of money/);
     expect(byHand('12.3.4.5')).toBe('unreadable:not-an-amount');
+  });
+
+  // A different mess from the one above, and NOT the same outcome: once both
+  // a comma and a dot are present, readTypedCost lets repeats of either
+  // through (see restock-typed-input.ts's comment on this), so this one has a
+  // reading -- 123450c -- rather than being refused like the dots-only case.
+  // The old sheet parser rejected this shape outright (`Number('123.4.5')` is
+  // NaN); the widened reading is pinned here rather than left implicit,
+  // because on a sheet this is a garbled cell silently becoming a cost with
+  // nothing typed to catch it, not a keypad slip someone can see happen.
+  it('pins the widened reading of a mixed-separator mess the dots-only case does not cover', () => {
+    expect(bySheet('12,3.4.5')).toBe(123450);
+    expect(byHand('12,3.4.5')).toBe(123450);
   });
 });
 
