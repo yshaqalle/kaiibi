@@ -190,7 +190,7 @@ describe('rows the planner refuses', () => {
 
   it('refuses a product it cannot find, and says to use the SKU', () => {
     expect(rejectionFor({ Product: 'Torriden Blanceful Serum', 'To store': 'Jaalala 2', 'Quantity to move': '2' })).toBe(
-      'No product matches "Torriden Blanceful Serum" — check the spelling, or fill in the SKU column.'
+      'No product matches "Torriden Blanceful Serum" — check the spelling, or fill in the SKU column. If you don\'t sell it yet, use Import products.'
     );
   });
 
@@ -241,14 +241,29 @@ describe('rows the planner refuses', () => {
   // `check (stock >= 0)` -- so the row says the count is the thing to fix.
   it('refuses more than the store holds, and points at the count', () => {
     expect(rejectionFor({ Product: 'Torriden Balanceful Serum', 'To store': 'Jaalala 2', 'Quantity to move': '9' })).toBe(
-      'Only 8 at Jaalala Skincare — the sheet asks for 9. If you really have 9, correct the count first.'
+      "Only 8 at Jaalala Skincare — the sheet asks for 9. If 9 really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first."
     );
+  });
+
+  // Four doors means four chances to walk through the wrong one, so a
+  // rejection's job is not to say no -- it is to name the door that says yes.
+  it('points a product it cannot find at Import products', () => {
+    const plan = planStockMoves(sheet([{ Product: 'Anua Heartleaf Toner', 'To store': 'JL2', 'Quantity to move': '2' }]), CONTEXT);
+    expect(plan.rejected[0].reason).toContain('Import products');
+  });
+
+  it('points an over-quantity row at Restock, which is what it usually is', () => {
+    const plan = planStockMoves(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'To store': 'JL2', 'Quantity to move': '20' }]),
+      CONTEXT
+    );
+    expect(plan.rejected[0].reason).toContain('Restock');
   });
 
   it('says plainly when the source holds none of it at all', () => {
     expect(
       rejectionFor({ Product: 'SKIN1004 Madagascar Centella', 'From store': 'Jaalala 2', 'To store': 'Jaalala Skincare', 'Quantity to move': '1' })
-    ).toBe('SKIN1004 Madagascar Centella has none left at Jaalala 2 to move.');
+    ).toBe("SKIN1004 Madagascar Centella has none left at Jaalala 2 to move. If more has just arrived, that's a Restock, not a move.");
   });
 
   it('refuses a half-filled row rather than skipping it', () => {
@@ -283,7 +298,7 @@ describe('rows the planner refuses', () => {
     );
     expect(plan.pairs).toHaveLength(1);
     expect(plan.rejected[0].reason).toBe(
-      'Only 4 at Jaalala Skincare — the sheet asks for 10. If you really have 10, correct the count first.'
+      "Only 4 at Jaalala Skincare — the sheet asks for 10. If 10 really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first."
     );
   });
 

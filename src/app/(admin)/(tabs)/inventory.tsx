@@ -105,10 +105,14 @@ export default function InventoryScreen() {
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
-  // The import sheet's "Move stock instead" hands over to the transfer sheet.
-  // Held by useStagedSheet rather than plain state because that is a sheet
-  // opened from inside a sheet, which iOS drops without a word.
+  // The import sheet's escape hatch hands over to another sheet -- "Restock
+  // instead" to the restock sheet, and "Move stock instead" (reachable from
+  // the Stock door, not from Import -- see importConfig's `elsewhere`) to the
+  // transfer sheet. Held by useStagedSheet rather than plain state because
+  // that is a sheet opened from inside a sheet, which iOS drops without a
+  // word.
   const moveFromImport = useStagedSheet<true>();
+  const restockFromImport = useStagedSheet<true>();
   // Where a newly imported product's opening stock actually lands: the
   // opening-stock trigger picks `order by is_primary desc, created_at asc`
   // (migration 20260810000000), so this mirrors that rather than guessing.
@@ -133,7 +137,7 @@ export default function InventoryScreen() {
   // below and at the foot of the file. The transfer sheet's comment records
   // what happens when a stand-down and a `visible` drift apart: the sheet is up
   // and the screen behind it is still adjusting stock on every scan.
-  const showRestock = actionFromStock.value === 'restock';
+  const showRestock = restockFromImport.value !== null || actionFromStock.value === 'restock';
   // `|| actionFromStock.presenterSuppressed` closes a gap, not a typo: between
   // `onPick` and the promotion, `pending` holds the next action but `value` is
   // still null, so `showRestock`/`transferOpen`/`importOpen` all read false and
@@ -405,16 +409,20 @@ export default function InventoryScreen() {
         // store here is the honest thing rather than offering a picker that
         // could not be honoured.
         purpose: showLocationFilter
-          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already stock an item and want it at another store? That's a move, not an import — importing it again would double the count.`
-          : "For adding products you don't sell yet.",
-        // Staged rather than a plain setShowTransfer(true): this button lives
+          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already sell it and more has arrived? That's a Restock — importing it again would count the same units twice. Want it at another store? That's a Move.`
+          : `For adding products you don't sell yet. Already sell it and more has arrived? That's a Restock — importing it again would count the same units twice.`,
+        // Restock, not Move: this is the mistake the whole feature exists to
+        // prevent -- a shop reaching for product import to add stock to a
+        // store it already stocked, which counts the same units twice (see
+        // stock-move-import.ts's header comment). Move is still named in the
+        // `purpose` text above for the multi-store case, but only Restock gets
+        // a button here.
+        //
+        // Staged rather than a plain setShowRestock(true): this button lives
         // INSIDE the import sheet, and iOS drops a modal presented while
         // another is still up -- so on a phone it would have done nothing at
         // all, silently. `fromModal` is true because the import always is one.
-        elsewhere:
-          canEdit && showLocationFilter
-            ? { label: 'Move stock instead', onPress: () => moveFromImport.open(true, true) }
-            : undefined,
+        elsewhere: { label: 'Restock instead', onPress: () => restockFromImport.open(true, true) },
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>
@@ -886,11 +894,15 @@ export default function InventoryScreen() {
       )}
       {importConfig && (
         <CsvImportModal
-          // Suppressed while the move sheet is being handed over to, so iOS is
-          // never asked to present one modal over another -- see useStagedSheet.
-          visible={importOpen && !moveFromImport.presenterSuppressed}
+          // Suppressed while the restock or move sheet is being handed over
+          // to, so iOS is never asked to present one modal over another -- see
+          // useStagedSheet.
+          visible={importOpen && !restockFromImport.presenterSuppressed && !moveFromImport.presenterSuppressed}
           onClose={actionFromStock.close}
-          onDismissed={moveFromImport.onPresenterDismissed}
+          onDismissed={() => {
+            restockFromImport.onPresenterDismissed();
+            moveFromImport.onPresenterDismissed();
+          }}
           config={importConfig}
           onImported={reload}
         />
@@ -930,7 +942,10 @@ export default function InventoryScreen() {
         <StockRestockModal
           visible={showRestock}
           shopId={shop.id}
-          onClose={actionFromStock.close}
+          onClose={() => {
+            restockFromImport.close();
+            actionFromStock.close();
+          }}
           onDone={reload}
         />
       )}

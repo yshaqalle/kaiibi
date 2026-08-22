@@ -148,19 +148,16 @@ export async function runProductsImport(
     const barcode = normalizeBarcode(raw['Barcode'] ?? '') || null;
     const barcodeKey = barcode?.toLowerCase();
 
-    // Named as a MOVE rather than as an edit. The old wording ("edit it in
+    // Named as a RESTOCK rather than as an edit. The old wording ("edit it in
     // Inventory instead of importing") answered the wrong question: the shop
-    // hitting this is usually stocking a second store, and doing that by
-    // re-importing the catalogue counts the same units twice and inflates the
-    // shop's stock. Sending them to edit 214 products by hand is also not a
-    // thing anyone does. `hasStores` because a single-store shop reading about
-    // moving stock between stores would be told to use a tool it has not got.
+    // hitting this is usually re-importing because more of the same product
+    // just arrived, and doing that by re-importing the catalogue counts the
+    // same units twice and inflates the shop's stock. Sending them to edit 214
+    // products by hand is also not a thing anyone does. Unlike the old
+    // wording, this holds regardless of `hasStores` -- Restock doesn't need a
+    // second store, only Move does.
     if (existingNames.has(nameKey) || (skuKey && existingSkus.has(skuKey))) {
-      return reject(
-        options?.hasStores
-          ? `You already stock "${name}". To put it in another store use Move stock — importing it again would add units you don't have.`
-          : `A product named "${name}"${sku ? ` or with SKU "${sku}"` : ''} already exists — edit it in Inventory instead of importing.`
-      );
+      return reject(`You already carry ${name}. Adding more units is a Restock — importing it again would count the same units twice.`);
     }
     // Separate from the name/SKU message above because the fix is different: a
     // barcode is unique by constraint, so the only way forward is to correct

@@ -168,7 +168,7 @@ describe('products import', () => {
     const second = await runProductsImport(SHOP_ID, downloadThenUpload(PRODUCTS_TEMPLATE_COLUMNS, PRODUCTS_EXAMPLE_ROWS));
     expect(second.accepted).toEqual([]);
     expect(second.rejected).toHaveLength(2);
-    expect(second.rejected[0].reason).toMatch(/already exists/);
+    expect(second.rejected[0].reason).toMatch(/Restock/);
     expect(await listProducts(SHOP_ID)).toHaveLength(2);
   });
 });

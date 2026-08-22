@@ -191,7 +191,7 @@ export function planStockMoves(
     const product = findProduct(context.products, raw);
     if (product === 'none') {
       return reject(
-        `No product matches "${raw['Product']?.trim() || raw['SKU']?.trim() || raw['Barcode']?.trim() || ''}" — check the spelling, or fill in the SKU column.`
+        `No product matches "${raw['Product']?.trim() || raw['SKU']?.trim() || raw['Barcode']?.trim() || ''}" — check the spelling, or fill in the SKU column. If you don't sell it yet, use Import products.`
       );
     }
     if (product === 'ambiguous') {
@@ -226,8 +226,8 @@ export function planStockMoves(
     if (quantity > available) {
       return reject(
         available <= 0
-          ? `${product.name} has none left at ${from.name} to move.`
-          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If you really have ${quantity}, correct the count first.`
+          ? `${product.name} has none left at ${from.name} to move. If more has just arrived, that's a Restock, not a move.`
+          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If ${quantity} really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first.`
       );
     }
 
