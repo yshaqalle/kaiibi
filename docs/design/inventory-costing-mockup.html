@@ -1,0 +1,394 @@
+<title>Kaiibi &mdash; What stock costs, and in what order to fix it</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-profit:#008340; --d-loss:#d72b3e;
+    --d-accwash:#e6edff; --d-accink:#1b47b8; --d-warnwash:#fdf1da; --d-warnink:#8a5806;
+    --d-losswash:#fdeaec; --d-upwash:#d9efe4; --d-upink:#007a38;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:24px 0 6px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr.hi td{background:var(--pg2);}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:960px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.now{background:var(--d-losswash);color:#a3202f;}
+  .stamp.s1{background:var(--d-warnwash);color:var(--d-warnink);}
+  .stamp.s2{background:var(--d-accwash);color:var(--d-accink);}
+  .stamp.s3{background:var(--d-upwash);color:var(--d-upink);}
+
+  /* app chrome, from the real style objects */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:18px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:12px;}
+  .d-metrics{display:flex;gap:10px;flex-wrap:wrap;}
+  .d-tile{flex:1;min-width:132px;background:var(--d-soft);border-radius:14px;padding:12px 13px;}
+  .d-tile .v{font-size:21px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+  .d-tile .l{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--d-mut);margin-top:3px;text-transform:uppercase;}
+  .d-tile .h{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-tile.bad .v{color:var(--d-loss);}
+  /* Caveat: src/components/ui/caveat.tsx */
+  .d-cav{border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;gap:11px;align-items:flex-start;}
+  .d-cav.context{background:var(--d-accwash);}
+  .d-cav.wrong{background:var(--d-warnwash);}
+  .d-cav .dot{width:7px;height:7px;border-radius:99px;margin-top:6px;flex:none;}
+  .d-cav.context .dot{background:var(--d-accink);}
+  .d-cav.wrong .dot{background:var(--d-warnink);}
+  .d-cav p{margin:0;font-size:12.5px;line-height:1.55;}
+  .d-cav.context p{color:var(--d-accink);}
+  .d-cav.wrong p{color:var(--d-warnink);}
+  .d-cav .x{margin-left:auto;font-size:12px;font-weight:800;opacity:.55;flex:none;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-amt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:9px;}
+  .d-pill{border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;display:inline-block;}
+  .d-pill.acc{background:var(--d-accwash);color:var(--d-accink);}
+  .d-pill.warn{background:var(--d-warnwash);color:var(--d-warnink);}
+  .d-calc{background:var(--d-soft);border-radius:12px;padding:11px 13px;margin-top:8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--d-ink2);line-height:1.7;}
+  .d-calc b{color:var(--d-ink);}
+
+  .steps{display:grid;gap:10px;margin-top:16px;}
+  @media(min-width:820px){ .steps{grid-template-columns:repeat(3,1fr);} }
+  .step{border:1px solid var(--ln);border-radius:14px;padding:14px 16px;background:var(--sf);}
+  .step b{display:block;font-size:13.5px;font-weight:800;margin-bottom:4px;}
+  .step span{font-size:13px;color:var(--ink2);display:block;}
+  .step .tag{font-size:10.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--mut);margin-bottom:6px;display:block;}
+
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:16px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Inventory &middot; design mockup</p>
+<h1>What stock costs, and in what order to fix it</h1>
+<p class="lede">Restock shipped with <b>latest cost wins</b> on a single shop&#8209;wide field. Closed months are safe &mdash; that was solved in 2026 and still holds &mdash; but three things are wrong today, and one of them is wrong rather than merely approximate. This is what each fix looks like, and why the order matters more than the choice.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#safe">What is already safe</a> &mdash; <em>the sale-time snapshot, and what it does not cover</em></li>
+    <li><a href="#wrong">The three that are wrong</a> &mdash; <em>and which is a real error, not a rounding</em></li>
+    <li><a href="#s1">Step 1 &mdash; say what the number means</a></li>
+    <li><a href="#s2">Step 2 &mdash; cost belongs to a store</a></li>
+    <li><a href="#s3">Step 3 &mdash; weighted average</a></li>
+    <li><a href="#order">Why this order, and not any other</a></li>
+    <li><a href="#fifo">FIFO, and why not</a> &mdash; <em>recorded so it is not re-argued</em></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="safe">
+<h2>1 &middot; What is already safe</h2>
+
+<p class="note">Before proposing anything: <b>a restock cannot change a closed month.</b> Migration <code>20260804000000_sale_item_cost_snapshot.sql</code> freezes each sold line's unit cost onto <code>sale_items</code>, and <code>costOfGoodsSold()</code> reads that frozen value, never the product. Its header states the problem it was written for:</p>
+
+<div class="q">
+  <p><i>&ldquo;Without this, cost of goods sold has to read <code>products.cost_cents</code> live, which means raising a product's cost retroactively rewrites every past period's gross profit &mdash; a closed month's numbers change depending on when you look at them.&rdquo;</i></p>
+  <p>It also refuses to backfill, and reports pre&#8209;migration rows as <b>uncosted</b> rather than valuing them at zero or at today's cost. That instinct &mdash; a precise&#8209;looking number that is simply wrong is worse than an admitted gap &mdash; is the one this whole document follows.</p>
+</div>
+
+<p class="note" style="margin-top:16px"><b>What the snapshot does not cover</b>, and this is the part that was under&#8209;stated when Restock was designed: the freeze protects <i>history</i> perfectly, but <i>what it freezes</i> is <code>cost_cents</code> at that instant &mdash; which is the replacement cost, not the cost of the unit that actually left the shelf. Restock at $4.80 while still holding units bought at $4.20, and the next sale of an old unit is <b>permanently</b> costed at $4.80. Correctly frozen, and wrong.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="wrong">
+<h2>2 &middot; The three that are wrong</h2>
+
+<p class="note">One shop, one product, two branches. Jaalala 1 holds 10 bought at $4.50; Jaalala 2 holds 20 bought at $4.20 months ago. A delivery of 6 arrives at Jaalala 1 at $4.80.</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>&nbsp;</th><th class="num">Units</th><th class="num">Actually paid</th><th class="num">App says</th><th>Verdict</th></tr></thead>
+  <tbody>
+    <tr><td>Jaalala 1 &mdash; old stock</td><td class="num">10</td><td class="num">$45.00</td><td class="num">$48.00</td><td>Overstated by $3.00</td></tr>
+    <tr><td>Jaalala 1 &mdash; the delivery</td><td class="num">6</td><td class="num">$28.80</td><td class="num">$28.80</td><td>Right</td></tr>
+    <tr class="hi"><td><b>Jaalala 2 &mdash; untouched by this delivery</b></td><td class="num">20</td><td class="num">$84.00</td><td class="num">$96.00</td><td><b>Overstated by $12.00</b></td></tr>
+    <tr><td colspan="2"><b>Shop total</b></td><td class="num"><b>$157.80</b></td><td class="num"><b>$172.80</b></td><td>&nbsp;</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="verdict">
+  <div class="vx mid">
+    <b>1 &mdash; Stock at cost values everything at the newest price</b>
+    <p>Approximate, and it moves both ways: it overstates when prices rise and understates when they fall. Every shop holding mixed&#8209;cost stock has some of this. Annoying; not a defect.</p>
+  </div>
+  <div class="vx bad">
+    <b>2 &mdash; A delivery at one branch re&#8209;values another branch's stock</b>
+    <p><code>cost_cents</code> lives on <code>products</code>. <code>product_location_stock</code> has <b>no cost column at all</b>. So the $12.00 error on the highlighted row was caused by a delivery Jaalala 2 never saw, and nothing on that store's screen says so. This is not imprecision &mdash; it is one branch's number changing because of an event somewhere else. <b>This is the one to fix.</b></p>
+  </div>
+  <div class="vx mid">
+    <b>3 &mdash; Future sales freeze the replacement cost</b>
+    <p>The mixed&#8209;cost problem, made permanent one sale at a time. Fixing 1 fixes this too: whatever <code>cost_cents</code> holds at sale time is what gets frozen, so making that number honest makes the snapshot honest.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="s1">
+<h2>3 &middot; Step 1 &mdash; say what the number means</h2>
+<p class="note">This ships first because it is true regardless of what you decide next, and because the feature is <b>already live on real shops</b>. A figure nobody has been told the basis of is the only genuinely urgent part.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Now</b> <i>inventory.tsx &mdash; Stock at a glance</i></div>
+    <div class="stamp now">Today</div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Stock at a glance</div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">214</div><div class="l">Products</div><div class="h">carried across your stores</div></div>
+          <div class="d-tile"><div class="v">$172.80</div><div class="l">Stock at cost</div><div class="h">what you paid for it</div></div>
+        </div>
+        <div class="d-note" style="margin-top:12px">&ldquo;What you paid for it&rdquo; is the claim, and it is $15.00 out. Nothing on screen hints that the basis is anything other than literal.</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead"><b>Step 1</b> <i>+ one Caveat, tone="context"</i></div>
+    <div class="stamp s1">Ship now</div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Stock at a glance</div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">214</div><div class="l">Products</div><div class="h">carried across your stores</div></div>
+          <div class="d-tile"><div class="v">$172.80</div><div class="l">Stock at cost</div><div class="h">at the latest price paid</div></div>
+        </div>
+        <div class="d-cav context">
+          <div class="dot"></div>
+          <p>Stock at cost values every unit at the <b>most recent price you paid</b> for it, not what each unit actually cost. Restocking at a new price re&mdash;values what you already hold &mdash; across all your stores, including ones the delivery didn&rsquo;t go to.</p>
+          <div class="x">&times;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>Why <code>context</code> and not <code>wrong</code></b>
+  <p>The house rule: <code>wrong</code> means the number is wrong until the reader fixes something, and <b>must</b> carry an action. <code>context</code> means the number is right and here is why it looks surprising. There is nothing a shop can do about this from Inventory &mdash; the basis is the app's choice, not their mistake &mdash; so a <code>wrong</code> with no fix would train people to ignore the whole family. The hint under the tile changes too: <b>&ldquo;at the latest price paid&rdquo;</b> rather than &ldquo;what you paid for it&rdquo;, so the caveat is a second telling, not the only one.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="s2">
+<h2>4 &middot; Step 2 &mdash; cost belongs to a store</h2>
+<p class="note">Add <code>cost_cents</code> to <code>product_location_stock</code>, exactly as <code>reorder_level</code> and <code>shelf_number</code> already live there. Null keeps meaning &ldquo;use the product's&rdquo;, so a shop that never restocks per&#8209;store behaves precisely as it does today.</p>
+
+<div class="frameHead" style="margin-top:20px"><b>Step 2</b> <i>the per-store breakdown, which already exists</i></div>
+<div class="stamp s2">Fixes the real error</div>
+<div class="frame">
+  <div class="d-modal" style="max-width:560px">
+    <div class="d-title">Torriden Balanceful Serum &mdash; by store</div>
+    <div class="d-row">
+      <div><div class="d-nm">Jaalala Skincare</div><div class="d-mt">16 units &middot; last received 22 Aug</div></div>
+      <div style="text-align:right"><div class="d-amt">$4.69</div><div class="d-mt">cost each</div></div>
+    </div>
+    <div class="d-row">
+      <div><div class="d-nm">Jaalala 2</div><div class="d-mt">20 units &middot; last received 3 Jun</div></div>
+      <div style="text-align:right"><div class="d-amt">$4.20</div><div class="d-mt">cost each</div></div>
+    </div>
+    <div class="d-row">
+      <div><div class="d-nm">Jaalala Kiosk</div><div class="d-mt">0 units</div></div>
+      <div style="text-align:right"><div class="d-amt" style="color:#9ca3af">$4.50</div><div class="d-mt">the product&rsquo;s own</div></div>
+    </div>
+    <div class="d-note">A store with no cost of its own falls back to the product's, shown greyed so the fallback is visible rather than implied. Jaalala 2&rsquo;s $4.20 no longer moves when Jaalala 1 takes a delivery.</div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:16px"><b>What this touches:</b> the migration and <code>receive_stock</code>'s cost write; <code>listProducts</code>'s scoped branch, which already resolves <code>reorder_level</code> and <code>shelf_number</code> the same way (<code>here.x ?? row.x</code>) and needs one more field; the stock&#8209;value sum on Inventory; and <code>complete_sale</code>'s snapshot, which must read the <b>selling store's</b> cost rather than the product's. That last one is the only checkout change in this whole plan, and it is a one&#8209;line lookup, not a loop.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="s3">
+<h2>5 &middot; Step 3 &mdash; weighted average</h2>
+<p class="note">Once cost has a per&#8209;store home, averaging becomes meaningful: <code>(held &times; old + received &times; new) / total</code>, computed inside <code>receive_stock</code> where both numbers are already in hand.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>The preview says what will happen</b></div>
+    <div class="stamp s3">Then</div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">COSTS THAT WILL CHANGE</div>
+        <div class="d-row">
+          <div>
+            <div class="d-nm">Torriden Balanceful Serum</div>
+            <div class="d-mt">Jaalala Skincare</div>
+          </div>
+          <div style="text-align:right"><div class="d-amt">$4.50 &rarr; $4.69</div><div class="d-mt">weighted average</div></div>
+        </div>
+        <div class="d-calc">
+          10 held &times; <b>$4.50</b> = $45.00<br>
+          &nbsp;6 in &nbsp;&times; <b>$4.80</b> = $28.80<br>
+          &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;<br>
+          16 units &nbsp;&nbsp; $73.80 &rarr; <b>$4.6125</b> ea
+        </div>
+        <div class="d-note">Rounded to <b>$4.61</b> when written. The working is shown because an average is a number the shop never typed and cannot find on any invoice &mdash; which is the one real objection to this method, and the answer to it is to show the arithmetic.</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead"><b>And Stock at cost stops lying</b></div>
+    <div class="stamp s3">Then</div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Stock at a glance</div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">214</div><div class="l">Products</div><div class="h">carried across your stores</div></div>
+          <div class="d-tile"><div class="v">$157.80</div><div class="l">Stock at cost</div><div class="h">average of what you paid</div></div>
+        </div>
+        <div class="d-cav context">
+          <div class="dot"></div>
+          <p>Each store values its stock at the <b>average</b> of what that store paid. A delivery changes only the store it arrived at.</p>
+          <div class="x">&times;</div>
+        </div>
+        <div class="d-note" style="margin-top:10px">$157.80 &mdash; the figure from &sect;2's &ldquo;actually paid&rdquo; column, to the cent.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p class="note" style="margin-top:16px"><b>Rounding is not free and should be stated.</b> $4.6125 stored as $4.61 loses 4&frac12; cents across 16 units. Over many receipts the drift is one&#8209;directional if it always truncates, so it rounds half&#8209;up, and the <b>receipt ledger stays exact</b> &mdash; <code>stock_receipt_items.unit_cost_cents</code> is never rewritten, so the true history survives whatever the rolling figure does.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="order">
+<h2>6 &middot; Why this order, and not any other</h2>
+
+<div class="steps">
+  <div class="step"><span class="tag">Step 1 &middot; hours</span><b>Say what it means</b><span>One caveat, one hint reword. True under every later decision, and the feature is live now.</span></div>
+  <div class="step"><span class="tag">Step 2 &middot; days</span><b>Cost per store</b><span>Migration, one field through the scoped read, one lookup in <code>complete_sale</code>. Fixes the only actual error.</span></div>
+  <div class="step"><span class="tag">Step 3 &middot; days</span><b>Weighted average</b><span>Arithmetic inside <code>receive_stock</code>, plus the preview showing its working.</span></div>
+</div>
+
+<div class="verdict" style="margin-top:20px">
+  <div class="vx bad">
+    <b>Doing 3 before 2 is worse than doing nothing</b>
+    <p>A weighted average across the <i>shop</i> would carefully blend Jaalala 1's $4.80 delivery with Jaalala 2's unrelated $4.20 purchase and produce $4.41 &mdash; a precise figure describing no store's stock. Today's blunt latest&#8209;wins is at least obviously a single number; a considered average is <b>more</b> believable and no more true. That is exactly the failure the 2026 snapshot migration refused to commit when it declined to backfill.</p>
+  </div>
+  <div class="vx good">
+    <b>Step 2 alone is a coherent stopping point</b>
+    <p>If Step 3 never happens, per&#8209;store latest&#8209;wins is still a defensible position: each store's stock is valued at the last price <i>that store</i> paid, no branch's number moves because of another's delivery, and the caveat from Step 1 says so accurately. Worth knowing, because it means Step 3 can wait for evidence that shops care rather than being carried by the same push.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="fifo">
+<h2>7 &middot; FIFO, and why not</h2>
+<p class="note">Recorded here so it is decided once. The standard comparison has four rows; two of them land differently in this app.</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th style="width:20%">Row</th><th>The general case</th><th>In kaiibi</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><b>Physical match</b></td>
+      <td>FIFO wins &mdash; old stock sells first</td>
+      <td><b>True, and more so than usual.</b> Products carry <code>expiryDate</code> and expiry tracking, so for skincare the shelf enforces it. But this is a claim about which <i>units</i> left, not about which <i>number</i> the owner needs &mdash; and those come apart.</td>
+    </tr>
+    <tr class="hi">
+      <td><b>Taxes</b></td>
+      <td>Usually decides it</td>
+      <td><b>Inert.</b> <code>taxRatePercent</code> applies server&#8209;side to each sale's post&#8209;discount subtotal &mdash; a revenue tax. COGS never enters it, so the tax this app computes is byte&#8209;identical either way.</td>
+    </tr>
+    <tr class="hi">
+      <td><b>Profit under inflation</b></td>
+      <td>FIFO reports higher</td>
+      <td><b>Argues against FIFO here.</b> FIFO reports higher precisely by matching old cheap stock against today's prices &mdash; phantom profit. For a shop holding SLSH that is not a neutral preference: it says money was made that cannot be spent, exactly when currency movement is largest.</td>
+    </tr>
+    <tr>
+      <td><b>Cost to build</b></td>
+      <td>FIFO is harder</td>
+      <td><b>Lopsided.</b> Average is arithmetic in <code>receive_stock</code>. FIFO needs sales to <i>consume</i> layers &mdash; changing <code>complete_sale</code>, which already carries tax, promotions, loyalty, credit and the stock decrement. The worst place in this codebase to be wrong.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>Weighted average, and it is not close</b>
+    <p>The row that usually decides &mdash; tax &mdash; is inert here. The row that favours FIFO argues about physical flow rather than about the figure. The profit row actively favours average given the currency. And the build row is a rounding error against the risk of touching checkout.</p>
+    <p>The door is not shut: <code>stock_receipt_items</code> keeps every delivery's true unit cost, unrewritten, so the layer ledger FIFO would need <b>already exists from today</b>. If a shop ever needs true FIFO, the data will be there to build it from &mdash; it does not need deciding now, which is the whole reason that column was frozen rather than derived.</p>
+  </div>
+</div>
+</section>
+
+</div>
