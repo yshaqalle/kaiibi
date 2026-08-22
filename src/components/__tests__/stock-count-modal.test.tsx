@@ -652,3 +652,97 @@ describe('closing the sheet tab', () => {
     expect(allText(tree)).not.toContain('before the failure above');
   });
 });
+
+const { createExpense } = jest.requireMock('@/lib/expenses') as { createExpense: jest.Mock };
+
+describe('logging the shortfall', () => {
+  beforeEach(() => createExpense.mockClear());
+
+  // Unticked, for the same reason Restock's sibling is: a silent write into
+  // Accounting is a surprise, and opt-in is recoverable where opt-out is not.
+  // (The double-count argument that justifies Restock's default does NOT apply
+  // here -- nothing else in the app or in a shop's paperwork records shrinkage
+  // -- which is exactly why it is worth stating that this is a deliberate
+  // match rather than the same reasoning.)
+  it('offers the write and does not make it', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    expect(allText(tree)).toContain('Also log $13.83 of shortfall as stock loss');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(createExpense).not.toHaveBeenCalled();
+  });
+
+  it('writes one stock_loss expense for the store when it is ticked', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(createExpense).toHaveBeenCalledTimes(1);
+    expect(createExpense.mock.calls[0][1]).toMatchObject({
+      locationId: 'loc-1',
+      amountCents: 1383,
+      category: 'stock_loss',
+    });
+  });
+
+  // After the count, never before: an expense for a stock-take that failed is a
+  // number in the P&L with no missing stock behind it.
+  it('writes the expense only after the numbers have changed', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount.mock.invocationCallOrder[0]).toBeLessThan(createExpense.mock.invocationCallOrder[0]);
+  });
+
+  it('writes nothing when the count itself was refused', async () => {
+    saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(createExpense).not.toHaveBeenCalled();
+  });
+
+  // GROSS, not net. Two units found are not a refund, and the checkbox's figure
+  // is deliberately larger than the variance line above it.
+  it('offers the shortfall without netting off the units that were found', async () => {
+    const tree = await open([product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 24, costCents: 461 })]);
+    await act(async () => pressableLabelled(tree, 'Count QA other').props.onPress());
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await backspace(tree, 'Counted units of QA other', 2);
+    await type(tree, 'Counted units of QA other', '26');
+    expect(allText(tree)).toContain('−$4.61');
+    expect(allText(tree)).toContain('Also log $13.83 of shortfall as stock loss');
+  });
+
+  // Hide, don't lie. An uncosted product contributes nothing to the total, so a
+  // count full of them would offer a figure far below the real loss.
+  it('hides the offer when a product that came up short has no cost, and says why', async () => {
+    const tree = await open([product({ costCents: null })]);
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    expect(allText(tree)).not.toContain('as stock loss');
+    expect(allText(tree)).toContain('no cost recorded');
+  });
+
+  // The tick survives a tab switch and an edit, so the gate is re-read at
+  // commit rather than trusted -- the checkbox merely disappearing must not
+  // leave a stale yes behind it.
+  it('does not write when an edit removes the honest total after ticking', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await backspace(tree, COUNTED, 1);
+    await type(tree, COUNTED, '11');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(createExpense).not.toHaveBeenCalled();
+  });
+});

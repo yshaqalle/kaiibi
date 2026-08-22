@@ -25,13 +25,15 @@ import {
 } from '@/lib/count-import';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
+import { createExpense } from '@/lib/expenses';
 import { shareCsv } from '@/lib/export-file';
 import { downloadRejectedRowsCsv, type RejectedRow } from '@/lib/import-shared';
+import { toDateColumn } from '@/lib/period';
 import { pickCsvFile } from '@/lib/pick-csv-file';
 import { isUncosted } from '@/lib/product-costing';
 import { listProducts, saveStockCount } from '@/lib/products';
 import { readCountedQuantity } from '@/lib/restock-typed-input';
-import type { Product, StockCountReason } from '@/types/models';
+import type { NewExpenseInput, Product, StockCountReason } from '@/types/models';
 
 // A stock-take, by hand or by spreadsheet.
 //
@@ -301,6 +303,36 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
 
   const canSubmit = Boolean(locationId) && readings.length > 0 && everyCountReads && !busy;
 
+  // After the count, never before: an expense for a stock-take that failed to
+  // land is a number in the P&L with no missing stock behind it. This never
+  // throws and never closes anything -- it RETURNS what went wrong so the
+  // caller can say so while keeping the count, because the numbers really did
+  // change and rolling them back to punish a failed expense loses the more
+  // important of the two. (Returning rather than calling setError is what makes
+  // that possible: both callers finish by resetting, which would wipe the
+  // message.)
+  const logStockLoss = async (locId: string, amountCents: number): Promise<string | null> => {
+    try {
+      await createExpense(shopId, {
+        locationId: locId,
+        // Local date, not toISOString().slice(0, 10) -- an evening stock-take
+        // west of Greenwich would otherwise land in tomorrow's P&L.
+        occurredOn: toDateColumn(new Date()),
+        amountCents,
+        category: 'stock_loss',
+        vendorId: null,
+        // There is no counterparty and nothing was paid today; `cash` is the
+        // column's default and the only honest thing to put in a field that
+        // does not apply. The note is what carries the meaning.
+        paymentMethod: 'cash',
+        note: note.trim() ? `Stock-take — ${note.trim()}` : 'Stock-take',
+      } satisfies NewExpenseInput);
+      return null;
+    } catch (err) {
+      return extractErrorMessage(err);
+    }
+  };
+
   const submit = async () => {
     if (!canSubmit || !locationId) return;
     setBusy(true);
@@ -342,10 +374,27 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     updateLines(() => []);
     setNote('');
     setLogExpense(false);
+
+    // Only after the numbers are in, and only if the offer was actually on
+    // screen. `handSummary.shortfallCents` is re-read here rather than trusting
+    // `logExpense` alone, because the tick survives an edit that turns a
+    // shortfall into a match, and a checkbox merely disappearing must not leave
+    // a stale yes behind it.
+    const shortfall = handSummary.shortfallCents;
+    const expenseProblem =
+      logExpense && shortfall !== null && shortfall > 0 ? await logStockLoss(locationId, shortfall) : null;
     // Swallowed on purpose: the caller's list refresh is not part of the
     // stock-take, and treating its failure as this screen's failure is what
     // produced the double-commit above.
     await onDone().catch(() => {});
+    if (expenseProblem) {
+      // The sheet stays open carrying the one sentence that says what happened
+      // and what is left to do by hand. The basket is already empty, so the
+      // button still on screen cannot count the same shelf again.
+      setError(`The count was saved, but the stock loss was not logged: ${expenseProblem}`);
+      setBusy(false);
+      return;
+    }
     closeAndReset();
   };
 
@@ -502,6 +551,11 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setBusy(true);
     setError(null);
     const failures: string[] = [];
+    // Kept apart from `failures`, which heads its error with "Some of the count
+    // did not go through". A logged-expense failure is the opposite case -- all
+    // of the count went through and a bookkeeping row did not -- and folding the
+    // two together would tell a shop its stock-take failed when it did not.
+    const expenseProblems: string[] = [];
     const succeeded: PlannedCount[] = [];
     for (const count of plan.counts) {
       try {
@@ -516,6 +570,19 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
           { note: note.trim() || null }
         );
         succeeded.push(count);
+        // Per store, not one lump. Each store's count is its own stock-take,
+        // and per-store reporting (migration 20260816000000) would otherwise
+        // attribute the whole loss to whichever store happened to be first.
+        // `logStockLoss` cannot throw, which matters here: an expense failure
+        // reaching the catch below would name this store as one whose count did
+        // not go through, when it did.
+        if (logExpense) {
+          const storeShortfall = summariseCount(count.lines).shortfallCents;
+          if (storeShortfall !== null && storeShortfall > 0) {
+            const problem = await logStockLoss(count.locationId, storeShortfall);
+            if (problem) expenseProblems.push(`${count.locationName}: ${problem}`);
+          }
+        }
       } catch (err) {
         // Same RPC and same gates as the by-hand submit, so a plan-gated shop
         // and a member without inventory.count both read the same sentence
@@ -535,8 +602,22 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     );
     await onDone().catch(() => {});
     setBusy(false);
-    if (failures.length > 0) {
-      setError(`Some of the count did not go through.\n${failures.join('\n')}`);
+    if (failures.length > 0 || expenseProblems.length > 0) {
+      // An expense problem alone lands here too -- the numbers are in, so the
+      // plan is spent either way, and the sentence says which store's stock
+      // loss is left to add by hand. Kept separate from `failures`, which heads
+      // its error with "Some of the count did not go through": folding the two
+      // together would tell a shop its stock-take failed when it did not.
+      setError(
+        [
+          failures.length > 0 ? `Some of the count did not go through.\n${failures.join('\n')}` : null,
+          expenseProblems.length > 0
+            ? `The count was saved, but the stock loss was not logged:\n${expenseProblems.join('\n')}`
+            : null,
+        ]
+          .filter(Boolean)
+          .join('\n\n')
+      );
       return;
     }
     closeAndReset();
@@ -683,6 +764,15 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
           </ScrollView>
 
           <View style={styles.footerWrap}>
+            {/* Above the buttons rather than beside them: it is a question
+                about the stock-take, and a shop should read it on the way to
+                the button whose meaning it changes. */}
+            <StockLossCheck
+              cents={(tab === 'hand' ? handSummary : planSummary).shortfallCents}
+              uncostedShortfallLines={(tab === 'hand' ? handSummary : planSummary).uncostedShortfallLines}
+              on={logExpense}
+              onToggle={() => setLogExpense((ticked) => !ticked)}
+            />
             {tab === 'hand' ? (
               <>
                 {/* Gated on `everyCountReads` as well as a non-empty basket: with
@@ -878,6 +968,57 @@ function LineRow({
         </View>
       )}
     </View>
+  );
+}
+
+// The offer to write this stock-take into Accounting as well as into stock.
+//
+// `cents === null` renders NOTHING but the sentence beside it, and that is the
+// whole design of this control. Shortfall is valued at cost, and any line whose
+// product is uncosted contributes zero -- so a count full of uncosted products
+// would offer to log a figure far below what actually went missing. A smaller
+// number presented as the whole loss is worse than no number, because nothing
+// downstream can tell it was partial. So it hides, and says why.
+//
+// Unticked, for the same reason its restock sibling is: a silent write into a
+// shop's books is a surprise, and opt-in is recoverable where opt-out is not.
+// The argument is genuinely weaker here -- Restock's default protects against
+// double-counting a supplier invoice entered separately, and there is NO
+// equivalent risk for shrinkage, because nothing else in the app or in a shop's
+// paperwork records it at all. Matched to its sibling deliberately, so the two
+// stock sheets do not disagree about how bold they are with somebody's P&L.
+function StockLossCheck({
+  cents,
+  uncostedShortfallLines,
+  on,
+  onToggle,
+}: {
+  cents: number | null;
+  uncostedShortfallLines: number;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  if (cents === null) {
+    return (
+      <Text style={styles.checkWithheld}>
+        {uncostedShortfallLines === 1
+          ? '1 of the products that came up short has no cost recorded, so any stock-loss figure here would understate what was lost. Add its cost in Inventory.'
+          : `${uncostedShortfallLines} of the products that came up short have no cost recorded, so any stock-loss figure here would understate what was lost. Add their costs in Inventory.`}
+      </Text>
+    );
+  }
+  if (cents <= 0) return null;
+  return (
+    <Pressable
+      onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityLabel="Log the shortfall as stock loss"
+      accessibilityState={{ checked: on }}
+      style={styles.checkRow}
+    >
+      <View style={[styles.checkBox, on && styles.checkBoxOn]}>{on && <Text style={styles.checkMark}>✓</Text>}</View>
+      <Text style={styles.checkLabel}>Also log {formatCents(cents)} of shortfall as stock loss</Text>
+    </Pressable>
   );
 }
 
@@ -1165,6 +1306,7 @@ const styles = StyleSheet.create({
   checkBoxOn: { backgroundColor: '#111111', borderColor: '#111111' },
   checkMark: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', lineHeight: 13 },
   checkLabel: { fontSize: 12.5, fontWeight: '700', color: '#5E5D65', flexShrink: 1 },
+  checkWithheld: { fontSize: 12, color: '#9CA3AF', lineHeight: 17 },
   footerTotal: { flex: 1 },
   footerTotalText: { fontSize: 13, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
   footerTotalHint: { fontSize: 11.5, fontWeight: '600', color: '#9CA3AF', marginTop: 1 },
