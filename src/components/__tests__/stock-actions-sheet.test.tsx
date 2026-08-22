@@ -9,18 +9,42 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
   return textsIn(node.children as ReactTestRendererJSON[] | null);
 }
 
+// Post-order search for the deepest (most specific) node matching `predicate`
+// -- children are checked before the node itself, so a match on an outer
+// wrapper (e.g. the sheet's own overlay Pressable, which is `focusable` and
+// contains every row's text in its subtree) never shadows the actual row
+// that owns the property being tested for.
+function findNode(
+  node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null,
+  predicate: (n: ReactTestRendererJSON) => boolean,
+): ReactTestRendererJSON | null {
+  if (node == null || typeof node === 'string') return null;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findNode(child, predicate);
+      if (found) return found;
+    }
+    return null;
+  }
+  const childMatch = findNode(node.children as ReactTestRendererJSON[] | null, predicate);
+  if (childMatch) return childMatch;
+  return predicate(node) ? node : null;
+}
+
 // `create` is wrapped in `act` because React's concurrent root does the first
 // render in a scheduled task, not in the call: a bare `create(...).toJSON()`
 // reads the tree before anything has been rendered into it and returns null for
 // every case, including the ones that should be full of text. Same reason every
 // other renderer test in this directory wraps it.
-const render = (over: Partial<React.ComponentProps<typeof StockActionsSheet>> = {}) => {
+const renderJSON = (over: Partial<React.ComponentProps<typeof StockActionsSheet>> = {}) => {
   let tree!: ReactTestRenderer;
   act(() => {
     tree = create(<StockActionsSheet visible onClose={() => {}} onPick={() => {}} showMove {...over} />);
   });
-  return textsIn(tree.toJSON() as ReactTestRendererJSON | null);
+  return tree.toJSON() as ReactTestRendererJSON | null;
 };
+
+const render = (over: Partial<React.ComponentProps<typeof StockActionsSheet>> = {}) => textsIn(renderJSON(over));
 
 describe('the Stock door', () => {
   // The hints are the entire reason this sheet exists: shops were reaching for
@@ -81,5 +105,27 @@ describe('the Stock door', () => {
 
   it('renders nothing when it is not visible', () => {
     expect(render({ visible: false })).toEqual([]);
+  });
+
+  // Restock, Move and Import are `Pressable`, which React Native marks
+  // `accessible`/`focusable` on the host node it renders. Count is a plain
+  // `View` carrying only `accessibilityState: { disabled: true }` -- if Count
+  // ever became a `Pressable` (even a disabled one), it would pick up
+  // `focusable: true` here and this assertion would catch it.
+  it('renders Count as an inert row, not a disabled Pressable', () => {
+    const tree = renderJSON();
+
+    const countRow = findNode(tree, (n) => n.props?.accessibilityState?.disabled === true);
+    expect(countRow).not.toBeNull();
+    expect(countRow?.props.focusable).not.toBe(true);
+    expect(countRow?.props.accessible).not.toBe(true);
+
+    // A live row, for contrast: the same search, but for a focusable node
+    // whose subtree contains "Restock" -- without this, the assertions above
+    // would just as well pass against a component with no focusable rows at
+    // all.
+    const restockRow = findNode(tree, (n) => n.props?.focusable === true && textsIn(n).includes('Restock'));
+    expect(restockRow).not.toBeNull();
+    expect(restockRow?.props.focusable).toBe(true);
   });
 });
