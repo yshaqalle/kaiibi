@@ -73,11 +73,21 @@ export function groupedPermissions(): {
   // not something a shop should ever see silently swallowed into a stripped
   // role -- so this throws instead of returning a catalogue short (or long,
   // if a permission was drawn twice) a row.
+  //
+  // Dev only, deliberately. Nothing data-borne can reach this: the function
+  // takes no arguments and reads only PERMISSIONS and PERMISSION_GROUPS, both
+  // module constants shipped in the same bundle. So for any given build it
+  // raises for everyone or for no one -- it is a build-time assertion, and the
+  // permission-groups test already fails on both a missing and a duplicated
+  // row without it. Ungated it would buy nothing in CI and cost a shop the
+  // whole Settings route: roles-panel.tsx calls this at module scope, and the
+  // app has no ErrorBoundary, so a raise here is a failed module evaluation
+  // rather than one missing checkbox.
   const drawn = result.flatMap((g) => g.rows.flatMap((r) => [r.permission.key, ...r.children.map((c) => c.key)]));
   const sortedDrawn = [...drawn].sort();
   const sortedAll = [...ALL_PERMISSIONS].sort();
   const matches = sortedDrawn.length === sortedAll.length && sortedDrawn.every((key, i) => key === sortedAll[i]);
-  if (!matches) {
+  if (__DEV__ && !matches) {
     throw new Error(
       `groupedPermissions() drew ${drawn.length} row(s) for a ${ALL_PERMISSIONS.length}-permission catalogue -- check PERMISSIONS parent links and PERMISSION_GROUPS filing.`
     );
