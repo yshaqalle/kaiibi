@@ -1,0 +1,437 @@
+<title>Kaiibi Accounting &mdash; the ledger, the statements, and why nothing is posted twice</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-s1:#2f6bff; --d-profit:#008340; --d-loss:#d72b3e; --d-warn:#b07206;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1100px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 6px;}
+  section{margin-top:56px;padding-top:8px;border-top:1px solid var(--ln);}
+  .note{font-size:13.5px;color:var(--ink2);max-width:78ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);margin-top:14px;}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  table{border-collapse:collapse;width:100%;margin-top:16px;font-size:13.5px;}
+  th,td{border-bottom:1px solid var(--ln);padding:9px 10px;text-align:left;vertical-align:top;}
+  th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:800;}
+  td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .scroller{overflow-x:auto;}
+
+  .flow{display:grid;gap:10px;margin-top:18px;}
+  .step{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;
+    border:1px solid var(--ln);border-radius:12px;padding:12px 14px;background:var(--sf);}
+  .step .k{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    border:1px solid var(--ln);border-radius:999px;padding:3px 9px;white-space:nowrap;}
+  .step .b{font-size:13.5px;color:var(--ink2);}
+  .step .b b{color:var(--ink);}
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Design record &middot; 22 August 2026</p>
+  <h1>The ledger, the statements, and why nothing is posted twice</h1>
+  <p class="lede">
+    Accounting gains a chart of accounts, a general journal, a trial balance, an asset register, an
+    audit log, bank transfers, cash bills, and nine reports. This is the record of the one decision
+    the whole thing rests on &mdash; and of the four places that decision is enforced, because none
+    of them is the client.
+  </p>
+
+  <div class="toc">
+    <b>Contents</b>
+    <ol>
+      <li><a href="#problem">The problem a general ledger creates here</a> <em>&mdash; and why the obvious answer is wrong</em></li>
+      <li><a href="#rule">Fed or posted, never both</a> <em>&mdash; the rule, and where it lives</em></li>
+      <li><a href="#chart">What each account reports</a></li>
+      <li><a href="#statements">Three statements, one set of balances</a></li>
+      <li><a href="#windows">What &ldquo;as of&rdquo; means, and why it is not a fudge</a></li>
+      <li><a href="#depreciation">Depreciation is computed, never posted</a></li>
+      <li><a href="#immutable">Four things the database will not let you do</a></li>
+      <li><a href="#surfaces">Where it all lands on screen</a></li>
+      <li><a href="#open">What is deliberately not here</a></li>
+    </ol>
+  </div>
+
+  <section id="problem">
+    <h2>1. The problem a general ledger creates here</h2>
+    <p class="note">
+      A real general ledger posts a balanced journal entry for every event: each sale, each refund,
+      each bill, each pay run. Doing that in this app means one of two things, and both are bad.
+    </p>
+    <div class="vx bad">
+      <b>Backfill the history</b>
+      <p>
+        Generate entries for every sale already in the database. They can then drift from the rows they
+        came from &mdash; a refund edited, a sale deleted &mdash; and nothing reconciles them. A ledger
+        that silently disagrees with the sales list is worse than no ledger.
+      </p>
+    </div>
+    <div class="vx bad">
+      <b>Start the ledger from today</b>
+      <p>
+        Two numbers for one question, and no way to say which is right. A shopkeeper who counts the
+        drawer and gets a different figure from the app stops trusting the app &mdash; and they are
+        correct to.
+      </p>
+    </div>
+    <p class="note" style="margin-top:16px">
+      The operational tables are already the record of truth and are already good. A sale is the truth
+      about revenue, <code>expenses</code> about spend, <code>cash_accounts</code> about cash,
+      <code>invoices</code> about what is owed. The ledger&rsquo;s job is not to re-record any of it.
+    </p>
+  </section>
+
+  <section id="rule">
+    <h2>2. Fed or posted, never both</h2>
+    <p class="note">
+      Every account carries a <code>feed</code>: the name of the operational stream it reports, or
+      <code>null</code>. <b>1000 Cash on hand</b> has feed <code>cash_on_hand</code>, and its balance
+      <em>is</em> the sum of the cash accounts, computed when the statement is drawn. Accounts with no
+      feed &mdash; opening equity, a loan, an accrual, a correction &mdash; are hand-posted through the
+      general journal.
+    </p>
+    <div class="vx good">
+      <b>The rule: a fed account cannot be hand-posted to, and a posted account has no feed.</b>
+      <p>
+        This is the single way the design could produce a wrong number. Credit <b>1000 Cash on hand</b>
+        by hand and the shop&rsquo;s money is counted twice &mdash; once by the journal, and once by the
+        drawer the owner went on to re-count.
+      </p>
+    </div>
+    <h3>Where it is enforced</h3>
+    <div class="flow">
+      <div class="step"><span class="k">Unique index</span><span class="b">
+        <b>One account per feed per shop.</b> Two accounts both claiming <code>sales_revenue</code>
+        would each report the full period&rsquo;s takings, and the trial balance would be out by exactly
+        one period of revenue.</span></div>
+      <div class="step"><span class="k">Check constraint</span><span class="b">
+        <b>A fed account cannot carry an opening balance.</b> The feed already reports everything the
+        account holds, day one included. Same double count, different door.</span></div>
+      <div class="step"><span class="k">RPC</span><span class="b">
+        <b><code>post_journal_entry</code> refuses a line against a fed account</b> &mdash; and refuses an
+        unbalanced entry, a line carrying both a debit and a credit, and an account belonging to another
+        shop.</span></div>
+      <div class="step"><span class="k">Client</span><span class="b">
+        <b>The picker only offers postable accounts</b> (<code>postableAccounts</code>), so the form
+        never proposes something the server will reject. This layer is a courtesy, not the
+        enforcement.</span></div>
+    </div>
+    <p class="note" style="margin-top:16px">
+      All four are exercised by <code>supabase/tests/verify-ledger.sql</code>, which builds a shop,
+      tries each forbidden thing, and rolls back.
+    </p>
+  </section>
+
+  <section id="chart">
+    <h2>3. What each account reports</h2>
+    <p class="note">
+      Twenty-eight accounts, seeded per shop by a trigger and backfilled for every shop that already
+      existed. Small on purpose: a shop that sells things over a counter needs about twenty accounts,
+      and handing it the two hundred a generic package ships with is how a chart of accounts becomes
+      something nobody maintains. Numbering is the conventional one, so an accountant handed it
+      recognises 1000s as assets and 4000s as income without being told.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Account</th><th>Feed</th><th>What fills it</th></tr></thead>
+        <tbody>
+          <tr><td>1000 Cash on hand</td><td><code>cash_on_hand</code></td><td>Every till and drawer, at its last counted balance</td></tr>
+          <tr><td>1010 Bank accounts</td><td><code>bank</code></td><td>Every bank account, at its last confirmed balance</td></tr>
+          <tr><td>1020 Mobile money</td><td><code>mobile_money</code></td><td>Every wallet, at its last confirmed balance</td></tr>
+          <tr><td>1100 Accounts receivable</td><td><code>accounts_receivable</code></td><td>What customers still owe on unsettled sales</td></tr>
+          <tr><td>1200 Inventory</td><td><code>inventory</code></td><td>Stock on hand, valued at what it cost</td></tr>
+          <tr><td>1500 Fixed assets</td><td><code>fixed_assets</code></td><td>The asset register, at cost</td></tr>
+          <tr><td>1510 Accumulated depreciation</td><td><code>accumulated_depreciation</code></td><td>Wear charged on those assets to date &mdash; a contra account</td></tr>
+          <tr><td>2000 Accounts payable</td><td><code>accounts_payable</code></td><td>What is still outstanding on vendor bills</td></tr>
+          <tr><td>2100 Sales tax payable</td><td><code>sales_tax_payable</code></td><td>Tax collected, net of tax handed back with refunds</td></tr>
+          <tr><td>2200 Wages payable</td><td>&mdash;</td><td>Hand-posted</td></tr>
+          <tr><td>2500 Loans</td><td>&mdash;</td><td>Hand-posted</td></tr>
+          <tr><td>3000 Owner&rsquo;s equity</td><td>&mdash;</td><td>Hand-posted &mdash; usually as an opening balance</td></tr>
+          <tr><td>3100 Owner&rsquo;s draw</td><td><code>owner_draw</code></td><td>Expenses logged as owner&rsquo;s draw &mdash; a contra account</td></tr>
+          <tr><td>3200 Retained earnings</td><td>&mdash;</td><td>Hand-posted opening figure; the period&rsquo;s profit is added by the balance sheet</td></tr>
+          <tr><td>4000 Sales revenue</td><td><code>sales_revenue</code></td><td>Takings net of sales tax and refunds</td></tr>
+          <tr><td>4910 Gain or loss on disposal</td><td><code>asset_disposal_result</code></td><td>What disposed assets fetched, less what they were still worth</td></tr>
+          <tr><td>5000 Cost of goods sold</td><td><code>cost_of_goods_sold</code></td><td>What the goods sold in the period cost the shop</td></tr>
+          <tr><td>6000&ndash;6900</td><td><code>expense_*</code></td><td>One account per expense category the app already has</td></tr>
+          <tr><td>6080 Depreciation</td><td><code>expense_depreciation</code></td><td>Wear on the asset register for the period</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="vx mid">
+      <b>Two expense categories deliberately have no account.</b>
+      <p>
+        <b>Inventory restock</b> is not a cost &mdash; it is one asset becoming another, and the goods it
+        bought are already counted by the <code>inventory</code> feed. Giving restock spend an account
+        would count the same goods twice.
+      </p>
+      <p>
+        <b>Owner&rsquo;s draw</b> is not a cost of trading. It reduces equity, through the contra account
+        of the same name.
+      </p>
+      <p>
+        Both already sit outside the P&amp;L&rsquo;s operating subtotal
+        (<code>NON_OPERATING_CATEGORIES</code>). This is the same rule stated in the ledger&rsquo;s
+        vocabulary, and the two must agree.
+      </p>
+    </div>
+  </section>
+
+  <section id="statements">
+    <h2>4. Three statements, one set of balances</h2>
+    <p class="note">
+      <code>accountBalances()</code> produces one array; the income statement, the balance sheet and
+      the trial balance are three arrangements of it. The balance sheet computes retained earnings by
+      <em>calling</em> the income statement rather than re-summing income and expense accounts, so the
+      two reports cannot drift apart. A test pins that.
+    </p>
+    <h3>The contra handling is the part that goes wrong</h3>
+    <p class="note">
+      A contra account is filed under one type and leans the other way: accumulated depreciation is an
+      asset that carries a credit, an owner&rsquo;s draw is equity that carries a debit. Judged by
+      <code>type</code> alone, accumulated depreciation lands in the debit column and the trial balance
+      is out by <em>twice</em> the depreciation charged &mdash; which sends someone hunting for an
+      arithmetic slip that is not there. Hence <code>accountNormalBalance()</code>, which reads the
+      <code>contra</code> flag, and the tests that pin both directions.
+    </p>
+    <h3>A difference is shown, never plugged</h3>
+    <p class="note">
+      In a hand-kept ledger, debits not meeting credits means an arithmetic mistake. Here it almost
+      always means the shop has not yet said what it started with &mdash; the capital the owner put in,
+      and any profit kept from before these books began. The trial balance and the balance sheet both
+      name that, and offer the figure an opening entry would need to be. Neither applies it: that is a
+      decision about the business, and an app that quietly closed the gap would be making it on the
+      owner&rsquo;s behalf and hiding that it had.
+    </p>
+  </section>
+
+  <section id="windows">
+    <h2>5. What &ldquo;as of&rdquo; means, and why it is not a fudge</h2>
+    <p class="note">
+      The screen produces a <b>period-end</b> picture, which is what a period-end trial balance is:
+    </p>
+    <div class="flow">
+      <div class="step"><span class="k">Right now</span><span class="b">
+        <b>Cash, receivables, inventory, assets, payables.</b> A cash account holds a single confirmed
+        balance and stock holds a single count &mdash; there is no history behind either, so
+        &ldquo;inventory on 31 March&rdquo; is not a question this app can answer. Inventing an answer
+        would be worse than saying so, and the balance sheet says so.</span></div>
+      <div class="step"><span class="k">The period</span><span class="b">
+        <b>Income and expenses.</b> These follow the range picker, as they should.</span></div>
+      <div class="step"><span class="k">All time</span><span class="b">
+        <b>Posted journal movement.</b> A loan taken out last year is still owed; scoping the journal to
+        the range would report it as repaid.</span></div>
+    </div>
+    <h3>Sales tax payable is the period&rsquo;s, not a running total</h3>
+    <p class="note">
+      The app records tax collected but not tax remitted, so a running total would climb forever and
+      describe a debt no shop has. What a filing needs is the period&rsquo;s figure, and that is what
+      the account carries.
+    </p>
+  </section>
+
+  <section id="depreciation">
+    <h2>6. Depreciation is computed, never posted</h2>
+    <p class="note">
+      There is no monthly job writing entries and no <code>accumulated_depreciation_cents</code> column.
+      An asset&rsquo;s depreciation at any date is a function of its cost, its life and the date &mdash;
+      straight line, cost less salvage, counted in whole months from the month <em>after</em>
+      acquisition, rounded once at the end.
+    </p>
+    <div class="vx good">
+      <b>A missed month cannot leave the books wrong, because there is no month to miss.</b>
+      <p>
+        And a stored figure that disagrees with the formula cannot exist. The cost is that every
+        statement recomputes it &mdash; which is why <code>asset-depreciation.ts</code> is pure and has
+        the tightest tests in Accounting.
+      </p>
+    </div>
+    <h3>Why rounding once matters</h3>
+    <p class="note">
+      Rounding a monthly figure and multiplying it leaves the final month short by up to a cent per
+      month of life. On a five-year asset that is a 60-cent hole in the balance sheet that nothing else
+      will ever explain. A test pins that three consecutive periods of a 100-cent, 3-month asset sum
+      to exactly 100.
+    </p>
+    <h3>A disposal posts nothing either</h3>
+    <p class="note">
+      The moment an asset is marked disposed it stops being reported, on the cost line and the
+      accumulated-depreciation line together, in step. The difference between what it fetched and what
+      it was still worth becomes the period&rsquo;s gain or loss through the
+      <code>asset_disposal_result</code> feed. A journal entry as well would count the removal twice.
+      The same argument applies to a <b>cash transfer</b>, which also posts nothing: both balances move,
+      both feeds see it, and the shop still has exactly as much money as before.
+    </p>
+  </section>
+
+  <section id="immutable">
+    <h2>7. Four things the database will not let you do</h2>
+    <p class="note">
+      Each of these is enforced in Postgres rather than in the app, because the app is not what protects
+      the books. Every one is exercised by <code>verify-ledger.sql</code>.
+    </p>
+    <div class="flow">
+      <div class="step"><span class="k">Unbalance</span><span class="b">
+        <b>An entry balances or it does not exist.</b> Validated before anything is written, in one
+        transaction, so a rejected entry leaves no header behind for someone to find later and wonder
+        about.</span></div>
+      <div class="step"><span class="k">Edit</span><span class="b">
+        <b>A posted entry is reversed, never edited.</b> A second entry, dated when the correction was
+        made, every line the other way round. Not ceremony: an edited entry silently changes a period
+        somebody has already reported on. And a reversal happens once &mdash; a unique index, so a
+        double tap cannot undo the same entry twice and leave the books out by its own
+        amount.</span></div>
+      <div class="step"><span class="k">Tamper</span><span class="b">
+        <b>The audit log is append-only, for everyone.</b> No insert, update or delete policy &mdash; not
+        for a manager, not for an owner. Entries are written by triggers, so a log written by the client
+        would be a log with a hole in it exactly where somebody bypassed the client. Each entry freezes
+        its own summary and the actor&rsquo;s name, so it outlives the row it describes.</span></div>
+      <div class="step"><span class="k">Orphan</span><span class="b">
+        <b>An account with journal lines against it cannot be deleted</b> (<code>restrict</code>), and a
+        seeded account cannot be deleted at all &mdash; a feed with no account to report it would vanish
+        from the balance sheet silently. Archiving is what the chart offers instead.</span></div>
+    </div>
+    <div class="vx mid">
+      <b>One bug this caught before it shipped.</b>
+      <p>
+        The audit triggers fire during the cascade when a shop is deleted &mdash; and Postgres removes
+        the parent row <em>before</em> processing the cascade, so the log entry had no shop to point at
+        and the foreign key rejected it. That did not just lose a log entry: it aborted the delete
+        entirely. <code>verify-owner-membership.sql</code> found it on the first run.
+        <code>write_accounting_audit</code> now returns early when the shop is already gone, which costs
+        nothing &mdash; the log cascades on the same key, so any entry written would have been deleted a
+        moment later.
+      </p>
+    </div>
+  </section>
+
+  <section id="surfaces">
+    <h2>8. Where it all lands on screen</h2>
+    <h3>One new tab, five sub-views</h3>
+    <p class="note">
+      Accounting&rsquo;s pill row already carried eight destinations. Thirteen is not a row anybody
+      scans &mdash; it is a thing you scroll sideways looking for something you half remember the name
+      of. The five bookkeeping surfaces belong together anyway: they are what a bookkeeper opens, and
+      everything else on the screen is what a shopkeeper opens.
+    </p>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Ledger sub-view</th><th>What it answers</th></tr></thead>
+        <tbody>
+          <tr><td>Chart of accounts</td><td>What each bucket is, and whether it fills itself in or is hand-posted</td></tr>
+          <tr><td>Journal</td><td>Every hand-posted entry, opened out so its lines are visible without a tap</td></tr>
+          <tr><td>Trial balance</td><td>Whether the books balance, and what it would take to close the gap</td></tr>
+          <tr><td>Fixed assets</td><td>What the shop owns, what it has worn down to, what is left</td></tr>
+          <tr><td>Audit log</td><td>Who changed the books, when, and what it was worth</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Nine reports behind a picker</h3>
+    <p class="note">
+      Somebody looking for &ldquo;balance sheet&rdquo; is looking for a <em>document</em>, not a section
+      of the app, so the picker names documents. Each report owns its own fetch and only the one on
+      screen runs it &mdash; which matters here more than anywhere, because the statements each pull the
+      whole ledger.
+    </p>
+    <p class="note">
+      <b>Profit &amp; loss</b> and <b>Income statement</b> are two entries rendering one component. They
+      are the same document under two names, and both names are in the picker because both are what
+      somebody went looking for. Giving them separate reports would mean two profit figures for one
+      period &mdash; exactly the drift <code>lib/pnl.ts</code> was written to prevent.
+    </p>
+    <h3>The one place two profit figures legitimately differ</h3>
+    <p class="note">
+      The Sales report&rsquo;s profit is the <em>trading</em> view, built from money in and money out;
+      it is what the Dashboard and Overview show. The income statement adds depreciation, which is real
+      and non-cash. Where the two differ, the income statement says so, with the amount, in a
+      <code>context</code> caveat &mdash; the number is right, and here is why it looks surprising.
+    </p>
+    <h3>Cash bills</h3>
+    <p class="note">
+      Every bill used to be a credit bill. The commoner case &mdash; a supplier hands over goods, is paid
+      on the spot, hands over a receipt &mdash; had two bad options: log it as an expense and lose the
+      invoice number, the vendor and the trail; or log it as a bill and have the shop look as though it
+      owes money it has already handed over. A bill now says which it is, and a cash bill is raised and
+      settled in one transaction through <code>record_bill</code> &mdash; because an insert followed by a
+      separate payment call can half-succeed, and what that leaves behind is exactly the wrong picture.
+    </p>
+  </section>
+
+  <section id="open">
+    <h2>9. What is deliberately not here</h2>
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Not built</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Automatic posting from sales, expenses, bills and pay runs</td>
+            <td>Section 1. The feeds are the answer; entries would be a second set of numbers to reconcile.</td>
+          </tr>
+          <tr>
+            <td>An indirect cash-flow statement</td>
+            <td>It needs each balance-sheet figure at <em>both</em> ends of the period, and there is no history to read the opening figures from. The direct method needs none &mdash; every line is a sum over rows carrying the date they happened on.</td>
+          </tr>
+          <tr>
+            <td>A year-end close that rolls profit into retained earnings</td>
+            <td>A shop that skipped one would find its balance sheet quietly wrong ever after. The period&rsquo;s profit is computed instead, on top of an opening figure somebody typed once.</td>
+          </tr>
+          <tr>
+            <td>Reducing-balance and units-of-production depreciation</td>
+            <td>Real methods a shop this size does not use. Each extra method is another set of figures nobody can check by hand.</td>
+          </tr>
+          <tr>
+            <td>Historical inventory and cash balances</td>
+            <td>Would make a true as-of balance sheet possible. It needs a snapshot table and a job that writes it &mdash; its own piece of work, with its own failure modes.</td>
+          </tr>
+          <tr>
+            <td>Tax remittance</td>
+            <td>Without it, sales tax payable can only honestly report the period&rsquo;s figure rather than a running liability.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
