@@ -64,6 +64,16 @@ export function QuantityField({
         >
           <Text style={styles.buttonText}>−</Text>
         </Pressable>
+        {/* This is a NORMALISING parent: the state is a number, so what comes
+            back out is a rewrite of what went in, and 0 comes back as an empty
+            box. That used to break a scan outright -- a barcode's leading zero
+            (every UPC-A read as EAN-13 has one) came back as '', which no
+            longer matched what the field was showing, so the burst was thrown
+            away; and on the Move sheet the same 0 removes the line and
+            unmounts this field mid-code. `ScanSafeField` now withholds what is
+            typed until it knows whether it is a scan, which is what makes a
+            parent like this one safe. See its docblock before changing either
+            side. */}
         <ScanSafeField
           value={quantity === 0 ? '' : String(quantity)}
           // Empty reads as 0, which is how a line is removed -- the same meaning

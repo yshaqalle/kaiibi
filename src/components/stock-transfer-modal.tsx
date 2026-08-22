@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -78,6 +78,26 @@ export function StockTransferModal({
   const [category, setCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
+  // The basket as an event HANDLER sees it, which is not always what the last
+  // render saw.
+  //
+  // A scan into a quantity box is one tick with two halves: `ScanSafeField`
+  // puts the box back to the number it held, and then hands the code to
+  // `addByCode`, which has to count from that number. A queued updater has not
+  // run when the second half executes and the render closure is a render
+  // behind, so reading `lines` there could read the barcode itself -- and a
+  // move of 12 became a move of 8,809,611,860,019. Every basket write goes
+  // through `updateLines`, which computes from this ref and stores the result
+  // in both; the assignment below re-points it at whatever React committed.
+  const linesRef = useRef(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+  const updateLines = useCallback((next: (current: Line[]) => Line[]) => {
+    const value = next(linesRef.current);
+    linesRef.current = value;
+    setLines(value);
+  }, []);
   const [sourceStock, setSourceStock] = useState<Product[]>([]);
   const [destinationStock, setDestinationStock] = useState<Map<string, number>>(new Map());
   const [note, setNote] = useState('');
@@ -170,7 +190,7 @@ export function StockTransferModal({
   // twice, which is not a safety mechanism anyone should rely on.
   const closeAndReset = useCallback(() => {
     setBusy(false);
-    setLines([]);
+    updateLines(() => []);
     setNote('');
     setSearch('');
     setCategory(null);
@@ -182,7 +202,7 @@ export function StockTransferModal({
     setScannerOpen(false);
     setTab('hand');
     onClose();
-  }, [onClose]);
+  }, [onClose, updateLines]);
 
   // Changing the source clears the basket: the quantities were chosen against
   // the old store's availability and mean nothing against the new one's. Done
@@ -191,7 +211,7 @@ export function StockTransferModal({
   // means.
   const setFromId = (locationId: string | null) => {
     setFromIdState(locationId);
-    setLines([]);
+    updateLines(() => []);
     setPlan(null);
     setSheetFile(null);
     if (toId === locationId) setToId(null);
@@ -204,7 +224,7 @@ export function StockTransferModal({
   const atDestination = (productId: string) => destinationStock.get(productId) ?? 0;
 
   const setQuantity = (product: Product, quantity: number) => {
-    setLines((current) => {
+    updateLines((current) => {
       if (quantity <= 0) return current.filter((l) => l.product.id !== product.id);
       if (current.some((l) => l.product.id === product.id)) {
         return current.map((l) => (l.product.id === product.id ? { ...l, quantity } : l));
@@ -246,16 +266,25 @@ export function StockTransferModal({
       return;
     }
     const { product } = resolution;
-    // Read off `lines` rather than computed inside the updater, because the
-    // banner below has to say the number this scan produced -- and an updater
-    // does not run until the render, long after this handler has finished.
-    // Counting there and reporting here said "1" on every scan of an item
-    // already in the basket, which is the one message the banner exists to get
-    // right. `lines` is not stale: this handler is rebuilt on every render and
-    // the wedge holds it in a ref, and two scans cannot share a tick -- each is
-    // a separate key event, with a render between them.
-    const moving = quantityOf(product.id) + 1;
-    setQuantity(product, moving);
+    // Counted INSIDE the update, never off the render's `lines`.
+    //
+    // The banner has to say the number this scan produced, so the count cannot
+    // wait for the render either -- `updateLines` is what makes both possible:
+    // it runs this function now, against the basket as it stands after
+    // everything earlier in this tick. Which matters, because a scan fired
+    // while the cursor is in THIS product's own quantity box arrives with a
+    // restore already queued in front of it. Reading the render closure there
+    // read the barcode as the quantity and turned a move of 12 into a move of
+    // 8,809,611,860,019. (Not "lines is never stale": on the wedge path it is
+    // not, but the field-sink path puts a write and this read in the same tick.)
+    let moving = 1;
+    updateLines((current) => {
+      const existing = current.find((l) => l.product.id === product.id);
+      moving = (existing?.quantity ?? 0) + 1;
+      return existing
+        ? current.map((l) => (l.product.id === product.id ? { ...l, quantity: moving } : l))
+        : [...current, { product, quantity: moving }];
+    });
     // What the last scan did. Without it a scan is a number changing somewhere
     // up the list, which is invisible when the item is already in the basket and
     // scrolled out of view.
@@ -425,7 +454,7 @@ export function StockTransferModal({
       const byId = new Map(products.map((p) => [p.id, p]));
       setFromIdState(pair.fromLocationId);
       setToId(pair.toLocationId);
-      setLines(pair.items.flatMap((item) => (byId.has(item.productId) ? [{ product: byId.get(item.productId)!, quantity: item.quantity }] : [])));
+      updateLines(() => pair.items.flatMap((item) => (byId.has(item.productId) ? [{ product: byId.get(item.productId)!, quantity: item.quantity }] : [])));
       if (pair.note) setNote(pair.note);
       setSheetNotice(`${picked.fileName} — ${pair.items.length} product${pair.items.length === 1 ? '' : 's'} ready. Change anything before moving.`);
       setTab('hand');

@@ -91,13 +91,32 @@ describe('giving a Received box back what a person typed', () => {
     expect(fieldSinkScan(state, at)).toEqual({ code: '8809611860018', restore: '' });
   });
 
-  // Both number boxes carry selectTextOnFocus, so the scanner's first character
-  // arrives as a REPLACEMENT rather than an append. Without this case the first
-  // digit is lost twice over: the code goes to lookup one digit short, and the
-  // box is left holding that digit as its quantity.
+  // Restock's Received box and Move's quantity box carry selectTextOnFocus (the
+  // Unit cost box deliberately does not -- a typed price is edited rather than
+  // replaced), so there the scanner's first character arrives as a REPLACEMENT
+  // rather than an append. Without this case the first digit is lost twice
+  // over: the code goes to lookup one digit short, and the box is left holding
+  // that digit as its quantity.
   it('survives the scanner replacing a selected value', () => {
     const { state, at } = intoField('1', '8809611860018', { replacingSelection: true });
     expect(fieldSinkScan(state, at)).toEqual({ code: '8809611860018', restore: '1' });
+  });
+
+  // The other half of that: a box with no selectTextOnFocus leaves the caret
+  // wherever the finger landed, so every scanned character is an INSERTION.
+  // stepFieldBurst ends a burst on anything that is not an append, so without
+  // this the Unit cost box detected no scan at all and kept the barcode
+  // interleaved into the price.
+  it('reads a burst typed into the middle of what the box already held', () => {
+    let state = initialFieldSinkState('3.50');
+    let shown = '3.50';
+    const caretAt = 3; // 3.5|0
+    '8809611860018'.split('').forEach((char, i) => {
+      const next = `${shown.slice(0, caretAt + i)}${char}${shown.slice(caretAt + i)}`;
+      state = stepFieldSink(state, shown, next, 1_000 + i * 5);
+      shown = next;
+    });
+    expect(fieldSinkScan(state, 1_065)).toEqual({ code: '8809611860018', restore: '3.50' });
   });
 
   it('leaves a hand-typed 24 alone', () => {

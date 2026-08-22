@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
@@ -95,6 +95,27 @@ export function StockRestockModal({
   const [category, setCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
   const [lines, setLines] = useState<Line[]>([]);
+  // The basket as an event HANDLER sees it, which is not always what the last
+  // render saw.
+  //
+  // A scan into a Received box is one tick with two halves: `ScanSafeField`
+  // puts the box back to the number it held, and then hands the code to
+  // `addByCode`, which has to count from that number. A queued updater has not
+  // run when the second half executes and the render closure is a render
+  // behind, so reading `lines` there could read the barcode itself -- and
+  // `readTypedQuantity` refuses a 13-digit number, so the shop's typed 24
+  // silently became 1. Every basket write goes through `updateLines`, which
+  // computes from this ref and stores the result in both; the assignment below
+  // re-points it at whatever React actually committed.
+  const linesRef = useRef(lines);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
+  const updateLines = useCallback((next: (current: Line[]) => Line[]) => {
+    const value = next(linesRef.current);
+    linesRef.current = value;
+    setLines(value);
+  }, []);
   const [catalogue, setCatalogue] = useState<Product[]>([]);
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
@@ -185,7 +206,7 @@ export function StockRestockModal({
         if (!active) return;
         setCatalogue(rows);
         const byId = new Map(rows.map((product) => [product.id, product]));
-        setLines((current) =>
+        updateLines((current) =>
           current.map((line) => {
             const fresh = byId.get(line.product.id);
             return fresh ? { ...line, product: fresh } : line;
@@ -196,7 +217,7 @@ export function StockRestockModal({
     return () => {
       active = false;
     };
-  }, [visible, load]);
+  }, [visible, load, updateLines]);
 
   useEffect(() => {
     if (!visible) return;
@@ -214,7 +235,7 @@ export function StockRestockModal({
   // being received twice.
   const closeAndReset = useCallback(() => {
     setBusy(false);
-    setLines([]);
+    updateLines(() => []);
     setNote('');
     setSupplier('');
     setReference('');
@@ -231,7 +252,7 @@ export function StockRestockModal({
     setScannerOpen(false);
     setTab('hand');
     onClose();
-  }, [onClose]);
+  }, [onClose, updateLines]);
 
   // Unlike Move, changing the store does NOT clear the basket: what arrived is
   // what arrived, and the quantities were read off an invoice rather than off
@@ -244,7 +265,7 @@ export function StockRestockModal({
   // but pre-filling would let a stale cost be committed as this delivery's
   // cost by pressing one button, which is the thing this column exists to fix.
   const addLine = (product: Product) => {
-    setLines((current) =>
+    updateLines((current) =>
       current.some((l) => l.product.id === product.id) ? current : [...current, { product, quantity: '1', cost: '' }]
     );
   };
@@ -266,15 +287,15 @@ export function StockRestockModal({
   // an empty field and selectTextOnFocus, it has +/- steppers, and it has no
   // second field whose contents a vanishing row would destroy.)
   const setQuantity = (productId: string, text: string) => {
-    setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, quantity: text } : l)));
+    updateLines((current) => current.map((l) => (l.product.id === productId ? { ...l, quantity: text } : l)));
   };
 
   const setCost = (productId: string, text: string) => {
-    setLines((current) => current.map((l) => (l.product.id === productId ? { ...l, cost: text } : l)));
+    updateLines((current) => current.map((l) => (l.product.id === productId ? { ...l, cost: text } : l)));
   };
 
   const removeLine = (productId: string) => {
-    setLines((current) => current.filter((l) => l.product.id !== productId));
+    updateLines((current) => current.filter((l) => l.product.id !== productId));
   };
 
   // What every scan path here ends at: the document listener, the search box,
@@ -303,24 +324,29 @@ export function StockRestockModal({
       return;
     }
     const { product } = resolution;
-    // Read off `lines` rather than computed inside the updater, because the
-    // banner below has to say the number this scan produced -- and an updater
-    // does not run until the render, long after this handler has finished.
-    // Counting there and reporting here said "1" on every scan of an item
-    // already in the basket, which is the one message the banner exists to get
-    // right. `lines` is not stale: this handler is rebuilt on every render and
-    // the wedge holds it in a ref, and two scans cannot share a tick -- each is
-    // a separate key event, with a render between them.
-    const existing = lines.find((l) => l.product.id === product.id);
-    // An unreadable or emptied box starts again at one rather than staying
-    // stuck: the scan is a unit that physically arrived, and the alternative is
-    // a scan that appears to do nothing.
-    const received = existing ? (readTypedQuantity(existing.quantity) ?? 0) + 1 : 1;
-    setLines((current) =>
-      current.some((l) => l.product.id === product.id)
+    // Counted INSIDE the update, never off the render's `lines`.
+    //
+    // The banner has to say the number this scan produced, so the count cannot
+    // wait for the render either -- `updateLines` is what makes both possible:
+    // it runs this function now, against the basket as it stands after
+    // everything earlier in this tick. Which matters, because a scan fired
+    // while the cursor is in THIS product's own Received box arrives with a
+    // restore already queued in front of it. Reading the render closure there
+    // read the barcode as the quantity, `readTypedQuantity` refused it as too
+    // large, and the delivery was silently recorded as 1 instead of the 24 that
+    // was typed. (Not "lines is never stale": on the wedge path it is not, but
+    // the field-sink path puts a write and this read in the same tick.)
+    let received = 1;
+    updateLines((current) => {
+      const existing = current.find((l) => l.product.id === product.id);
+      // An unreadable or emptied box starts again at one rather than staying
+      // stuck: the scan is a unit that physically arrived, and the alternative
+      // is a scan that appears to do nothing.
+      received = existing ? (readTypedQuantity(existing.quantity) ?? 0) + 1 : 1;
+      return existing
         ? current.map((l) => (l.product.id === product.id ? { ...l, quantity: String(received) } : l))
-        : [...current, { product, quantity: '1', cost: '' }]
-    );
+        : [...current, { product, quantity: '1', cost: '' }];
+    });
     // What the last scan did. Without it a scan is a number changing somewhere
     // up the list, which is invisible once the item is in the basket and
     // scrolled out of view.
@@ -470,7 +496,7 @@ export function StockRestockModal({
         // still sitting there -- but the sheet stays open carrying the one
         // sentence that says what happened and what is left to do by hand.
         // Closing here would show the message for no time at all.
-        setLines([]);
+        updateLines(() => []);
         setNote('');
         setError(`The stock was received, but the expense was not logged: ${expenseProblem}`);
         setBusy(false);
@@ -577,7 +603,7 @@ export function StockRestockModal({
       const receipt = next.receipts[0];
       const byId = new Map(products.map((p) => [p.id, p]));
       setLocationId(receipt.locationId);
-      setLines(
+      updateLines(() =>
         receipt.items.flatMap((item) =>
           byId.has(item.productId)
             ? [{
