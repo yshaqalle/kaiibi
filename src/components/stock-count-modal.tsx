@@ -111,13 +111,40 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // keeps a whole Product snapshot taken when it was added, and "App says" is
   // read off that snapshot. Only `product` is replaced -- the typed count and
   // the chosen reason are the person's, not the server's.
+  //
+  // EXCEPT when `locationId` itself has just changed. A typed `counted`
+  // string is a claim about a specific shelf -- "App says 11, I found 8" --
+  // and that claim does not carry to a different store just because the two
+  // happen to stock a product with the same id. Re-pointing `product` alone
+  // (the old behaviour) left the stale `counted` in place: change the store
+  // from one holding 11 to one holding 3 and the row silently became "found
+  // 11 at a shelf nobody walked", ready to overwrite the new store's real
+  // count on Save. Losing the basket is the correct outcome of a store
+  // change; carrying it forward is the bug.
+  //
+  // `lastLocationRef` is what tells an actual transition apart from this
+  // effect's ordinary re-runs (first mount, a product added mid-session
+  // triggering a reload) -- both of which must NOT clear a basket someone is
+  // mid-typing. It starts equal to the initial `locationId`, so mount never
+  // reads as a change, and it is only ever compared against the `locationId`
+  // this render closed over, which is exactly the value `load` was rebuilt
+  // for.
+  const lastLocationRef = useRef(locationId);
   useEffect(() => {
     if (!visible) return;
     let active = true;
+    const storeChanged = lastLocationRef.current !== locationId;
+    lastLocationRef.current = locationId;
+    if (storeChanged) {
+      updateLines(() => []);
+      setReasonOpenFor(null);
+    }
     load()
       .then((rows) => {
         if (!active) return;
         setCatalogue(rows);
+        // The basket was just emptied above -- nothing left to re-point.
+        if (storeChanged) return;
         const byId = new Map(rows.map((product) => [product.id, product]));
         updateLines((current) =>
           current.map((line) => {
@@ -130,7 +157,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     return () => {
       active = false;
     };
-  }, [visible, load, updateLines]);
+  }, [visible, load, updateLines, locationId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -405,14 +432,19 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
           </ScrollView>
 
           <View style={styles.footerWrap}>
-            {lines.length > 0 && (
+            {/* Gated on `everyCountReads` as well as a non-empty basket: with
+                one line counted and one blank, `handLines` is `[]` (see the
+                comment above it) and every figure here would read as zero
+                sitting directly under a live per-line variance -- a
+                contradiction, not an honest partial total. The empty-basket
+                case (`lines.length === 0`) is still allowed through as
+                zeroes, which is the honest reading of nothing counted yet. */}
+            {lines.length > 0 && everyCountReads && (
               <View style={styles.basket}>
                 <View style={styles.basketCap}>
                   <Text style={styles.basketCapLabel}>VARIANCE</Text>
                   <Text style={styles.basketCapTotal}>
-                    {`${varianceText(handSummary.varianceUnits)} · ${
-                      handSummary.varianceCents !== null ? formatCents(handSummary.varianceCents) : 'value withheld'
-                    }`}
+                    {`${varianceText(handSummary.varianceUnits)} · ${varianceMoneyText(handSummary.varianceCents)}`}
                   </Text>
                 </View>
                 <Text style={styles.lineMeta}>
@@ -449,6 +481,19 @@ function varianceText(variance: number | null): string {
   if (variance === null) return '—';
   if (variance === 0) return '0';
   return variance > 0 ? `+${variance}` : `−${Math.abs(variance)}`;
+}
+
+// `formatCents` puts the sign inside the digits -- `formatCents(-461)` is
+// `$-4.61` -- which reads as a typo next to the U+2212 minus `varianceText`
+// above already uses for the unit count. `formatAccountingCents`'s default
+// style has the same problem with an ASCII hyphen instead (`-$4.61`), and its
+// `parens` style is for a P&L, not a phone footer. The design of record
+// (docs/design/inventory-count-mockup.html) reads `−$4.61`, so this takes the
+// magnitude and prefixes the same minus by hand.
+function varianceMoneyText(cents: number | null): string {
+  if (cents === null) return 'value withheld';
+  const magnitude = formatCents(Math.abs(cents));
+  return cents < 0 ? `−${magnitude}` : magnitude;
 }
 
 // The line under the count, which is also the only place a blocked commit is

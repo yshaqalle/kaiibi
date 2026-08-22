@@ -1,5 +1,5 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { StockCountModal } from '@/components/stock-count-modal';
 
@@ -19,9 +19,16 @@ import { StockCountModal } from '@/components/stock-count-modal';
 // that did `state + character` would never touch the component and could not
 // catch the class it was written for.
 
+// Two stores, not one: `hasMultipleLocations` renders nothing for a single
+// store, and the store-switch regression (below) can only happen where a
+// switcher exists at all. Every other test in this file still opens on
+// 'loc-1' via `activeLocation`, so this is not a change of default for them.
 jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({
-    locations: [{ id: 'loc-1', name: 'Main', active: true }],
+    locations: [
+      { id: 'loc-1', name: 'Main', active: true },
+      { id: 'loc-2', name: 'Branch', active: true },
+    ],
     activeLocation: { id: 'loc-1', name: 'Main', active: true },
   }),
 }));
@@ -67,18 +74,28 @@ jest.mock('@/lib/expenses', () => ({ createExpense: jest.fn(async () => ({})) })
 
 const COUNTED = 'Counted units of QA widget';
 
-// Reassembles an interpolated <Text>, whose children React splits into several
-// nodes ("Save ", 3, " counts").
-function textOf(node: ReactTestInstance): string {
-  return node.children.map((child) => (typeof child === 'string' ? child : '')).join('');
-}
-
 function fieldNamed(tree: ReactTestRenderer, label: string): ReactTestInstance {
   return tree.root.findAll((n) => n.props['aria-label'] === label)[0];
 }
 
 function pressableLabelled(tree: ReactTestRenderer, label: string): ReactTestInstance {
   return tree.root.findAll((n) => n.props.accessibilityLabel === label)[0];
+}
+
+// For the handful of Pressables (the header Close button, StoreDropdown's
+// trigger and its options) that carry no accessibilityLabel at all -- found
+// instead by walking up from the Text they render to the nearest ancestor
+// that actually handles a press. Not matched by `n.type === Pressable`:
+// RN's `Pressable` renders through an inner function component of the same
+// name, so the instance found by walking `.parent` is that inner one and
+// fails a reference match against the imported `Pressable` -- `onPress` is
+// present on both and is what a test actually needs to call.
+function pressableWithText(tree: ReactTestRenderer, text: string): ReactTestInstance {
+  const label = tree.root.findAll((n) => n.type === Text && textFrom(n) === text)[0];
+  let node: ReactTestInstance | null = label;
+  while (node && typeof node.props.onPress !== 'function') node = node.parent;
+  if (!node) throw new Error(`No pressable ancestor found for text "${text}"`);
+  return node;
 }
 
 // `node.children` is the TEST-INSTANCE tree, not the `children` prop: React
@@ -199,6 +216,85 @@ describe('a line added to a count', () => {
     await type(tree, COUNTED, '14');
     expect(allText(tree)).toContain('+3');
   });
+
+  // Colour is the ONLY signal that a variance is a shortfall rather than a
+  // surplus -- the glyph itself ('−3') reads the same whether or not the
+  // style attached to it survives a refactor. Caught a real mutation: with
+  // the red/green styling deleted, every one of this file's other cases
+  // stayed green because none of them look at style.
+  it('marks a shortfall in the shortfall colour, and a surplus in a different one', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8'); // App says 11, counted 8: a shortfall of 3.
+    const shortfall = tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')[0];
+    expect(StyleSheet.flatten(shortfall.props.style).color).toBe('#A3202F');
+
+    await backspace(tree, COUNTED, 1);
+    await type(tree, COUNTED, '14'); // Counted 14: a surplus of 3.
+    const surplus = tree.root.findAll((n) => n.type === Text && textFrom(n) === '+3')[0];
+    expect(StyleSheet.flatten(surplus.props.style).color).toBe('#007A38');
+    expect(StyleSheet.flatten(surplus.props.style).color).not.toBe('#A3202F');
+  });
+});
+
+describe('changing the store', () => {
+  // Finding 1: the reload effect used to re-point every line's `product` at
+  // the new store's row while leaving the typed `counted` string untouched.
+  // Main holds this product at 11, Branch at 3 -- pre-fill at Main reads 11,
+  // switch to Branch, and the stale "11" was still sitting in a field now
+  // captioned "App says 3", ready to overwrite a shelf nobody walked. The
+  // fix has to be proven at the boundary that matters: what `saveStockCount`
+  // is actually called with, not just what the screen renders.
+  it('empties the basket, so a commit after the switch cannot send the old store\'s number', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId: string) =>
+      locationId === 'loc-2' ? [product({ stock: 3 })] : [product({ stock: 11 })]
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('11');
+
+    // Open the store picker (trigger reads the current store's name) and
+    // choose the other one.
+    await act(async () => pressableWithText(tree, 'Main').props.onPress());
+    await act(async () => pressableWithText(tree, 'Branch').props.onPress());
+
+    // The row counted at Main is gone entirely -- not merely re-pointed.
+    expect(tree.root.findAll((n) => n.props['aria-label'] === COUNTED)).toHaveLength(0);
+    expect(allText(tree)).not.toContain('App says 11');
+
+    // Re-add at Branch and commit untouched: it must read Branch's own
+    // stock (3), never the 11 that was typed for Main.
+    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('3');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-2',
+      [{ productId: 'p-1', countedQuantity: 3, reason: null }],
+      { note: null }
+    );
+  });
+
+  // The reload effect re-runs for reasons that are NOT a store change too --
+  // this component is hidden with `visible={false}` rather than unmounted,
+  // so a screen toggling it back and forth re-fires the same effect at the
+  // same `locationId`. That must not be mistaken for a transition and clear
+  // a basket someone is mid-typing.
+  it('does not clear the basket when the effect re-runs at the same store', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8');
+    await act(async () => {
+      tree.update(<StockCountModal visible={false} shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => {
+      tree.update(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+  });
 });
 
 describe('saving a count', () => {
@@ -268,5 +364,22 @@ describe('saving a count', () => {
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
     expect(allText(tree)).toContain('not authorized');
+  });
+});
+
+describe('closing the sheet', () => {
+  // This component is never unmounted -- the screen renders it with
+  // `visible={false}` and it returns null, keeping all of its state -- so
+  // `closeAndReset` is the ONLY thing that empties the basket between one
+  // stock-take and the next. A basket that survives a close is a double-count
+  // waiting to happen the next time this sheet is opened.
+  it('empties the basket', async () => {
+    const tree = await open();
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    // The row is gone, not merely blanked -- "App says 11" still appears in
+    // the search results below (the product is available to add again), so
+    // the field itself is what proves the basket, not the surrounding text.
+    expect(tree.root.findAll((n) => n.props['aria-label'] === COUNTED)).toHaveLength(0);
+    expect(allText(tree)).toContain('Save 0 count');
   });
 });
