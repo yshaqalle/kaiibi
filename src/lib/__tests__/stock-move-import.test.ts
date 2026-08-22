@@ -17,6 +17,11 @@ import type { Product, ShopLocation } from '@/types/models';
 const MAIN = { id: 'loc-main', name: 'Jaalala Skincare', code: 'JL1', active: true } as ShopLocation;
 const SECOND = { id: 'loc-2', name: 'Jaalala 2', code: 'JL2', active: true } as ShopLocation;
 const CLOSED = { id: 'loc-closed', name: 'Jaalala Kiosk', code: 'JLK', active: false } as ShopLocation;
+// Codeless, deliberately: the norm for a store, per locations-panel.tsx:205,
+// which saves `code.trim() || null` rather than an empty string. Kept out of
+// the shared LOCATIONS below so the cross-product tests over "a store" stay
+// exact; it is added explicitly by the tests that need a codeless store.
+const WAREHOUSE = { id: 'loc-warehouse', name: 'Warehouse', code: null, active: true } as ShopLocation;
 const LOCATIONS = [MAIN, SECOND, CLOSED];
 
 const serum = { id: 'p-serum', name: 'Torriden Balanceful Serum', sku: 'TOR-BAL-50', barcode: '8809611860018' } as Product;
@@ -269,6 +274,40 @@ describe('rows the planner refuses', () => {
   it('refuses a half-filled row rather than skipping it', () => {
     expect(rejectionFor({ Product: 'Torriden Balanceful Serum', 'Quantity to move': '2' })).toMatch(/To store is empty/);
     expect(rejectionFor({ Product: 'Torriden Balanceful Serum', 'To store': 'Jaalala 2' })).toMatch(/Quantity to move is empty/);
+  });
+
+  // The bug this guards against, and the worst of the three places it showed
+  // up: a blank From store cell lowercases and trims to '', and a naive
+  // `(l.code ?? '').trim().toLowerCase() === key` comparison then matches the
+  // first active store with no code at all -- Warehouse here -- rather than
+  // being refused. Codeless stores are the norm, not the exception (see
+  // locations-panel.tsx:205). Matched here rather than refused, a blank From
+  // store takes stock OUT of a store nobody named and pairs it with whatever
+  // To store the row does give, so one bad row moves quantity in two
+  // directions at once.
+  it('refuses a blank From store rather than moving stock out of the first store with no code', () => {
+    const plan = planStockMoves(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'From store': '', 'To store': 'Jaalala 2', 'Quantity to move': '3' }]),
+      { products: PRODUCTS, locations: [MAIN, SECOND, WAREHOUSE], stockAt }
+    );
+    expect(plan.rejected[0].reason).toBe('From store is empty — say which store the stock is leaving.');
+    expect(plan.pairs).toEqual([]);
+  });
+
+  // The twin of the case above, for the other end of the row. Unlike From
+  // store, an empty To store is caught earlier, by the half-filled-row check
+  // a few lines up in planStockMoves -- before findLocation ever runs -- so
+  // this one passes regardless of findLocation's own guard. Pinned anyway:
+  // a shop with a codeless store must never see To store silently match it
+  // either, and the reason has to name the empty cell, not a store nobody
+  // typed.
+  it('refuses a blank To store rather than moving stock into the first store with no code', () => {
+    const plan = planStockMoves(
+      sheet([{ Product: 'Torriden Balanceful Serum', 'To store': '', 'Quantity to move': '3' }]),
+      { products: PRODUCTS, locations: [MAIN, SECOND, WAREHOUSE], stockAt }
+    );
+    expect(plan.rejected[0].reason).toBe('Quantity to move is filled in but To store is empty — say which store it is going to.');
+    expect(plan.pairs).toEqual([]);
   });
 
   it('refuses a second row for the same product and route, naming the first', () => {
