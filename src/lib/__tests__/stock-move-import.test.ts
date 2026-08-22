@@ -238,10 +238,10 @@ describe('rows the planner refuses', () => {
   });
 
   // The answer settled in the design: stock cannot go negative -- the column is
-  // `check (stock >= 0)` -- so the row says the count is the thing to fix.
-  it('refuses more than the store holds, and points at the count', () => {
+  // `check (stock >= 0)` -- so the row names Count as the thing to fix.
+  it('refuses more than the store holds, and points at Count', () => {
     expect(rejectionFor({ Product: 'Torriden Balanceful Serum', 'To store': 'Jaalala 2', 'Quantity to move': '9' })).toBe(
-      "Only 8 at Jaalala Skincare — the sheet asks for 9. If 9 really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first."
+      "Only 8 at Jaalala Skincare — the sheet asks for 9. If 9 really did arrive, that's a Restock; if the shelf disagrees with the app, that's a Count."
     );
   });
 
@@ -298,7 +298,7 @@ describe('rows the planner refuses', () => {
     );
     expect(plan.pairs).toHaveLength(1);
     expect(plan.rejected[0].reason).toBe(
-      "Only 4 at Jaalala Skincare — the sheet asks for 10. If 10 really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first."
+      "Only 4 at Jaalala Skincare — the sheet asks for 10. If 10 really did arrive, that's a Restock; if the shelf disagrees with the app, that's a Count."
     );
   });
 

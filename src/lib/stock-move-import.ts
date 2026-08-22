@@ -227,7 +227,7 @@ export function planStockMoves(
       return reject(
         available <= 0
           ? `${product.name} has none left at ${from.name} to move. If more has just arrived, that's a Restock, not a move.`
-          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If ${quantity} really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first.`
+          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If ${quantity} really did arrive, that's a Restock; if the shelf disagrees with the app, that's a Count.`
       );
     }
 

@@ -138,15 +138,13 @@ describe('planning what arrived', () => {
     expect(plan.rejected[0].row).toBe(2);
   });
 
-  // Named a door that WORKS, which Count does not: the Stock sheet renders it
-  // disabled with a "Coming next" badge, so this was the one rejection in the
-  // file with nowhere to send anybody. Until Count ships, reducing a count is
-  // done in the product's own stock-by-store editor.
-  it('names a working destination when the sheet asks to take stock away', () => {
+  // Restock only adds, so a negative cell is asking for a different job.
+  // Count now ships from the same Stock sheet, so the rejection names it
+  // instead of pointing at the per-product editor Count replaced.
+  it('names Count when the sheet asks to take stock away', () => {
     const plan = planRestock(sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '-3' }]), CONTEXT);
     expect(plan.rejected[0].reason).toContain('Restock only adds');
-    expect(plan.rejected[0].reason).toContain('edit its stock, store by store');
-    expect(plan.rejected[0].reason).not.toContain('use Count');
+    expect(plan.rejected[0].reason).toContain('use Count');
   });
 
   it('rejects zero, which changes nothing and is always a mistake', () => {

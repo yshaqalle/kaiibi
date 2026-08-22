@@ -132,15 +132,15 @@ const OVERSIZED_MULTIPLE = 10;
 // stores earlier in commitPlan's loop had already committed.)
 function quantityRejection(text: string): string {
   const trimmed = text.trim();
-  // "To reduce a count, use Count" was the old wording for both of these, and
-  // Count is the one door in this sheet with nothing behind it -- the Stock
-  // sheet renders it disabled with a "Coming next" badge. Until it ships, the
-  // working destination is the product's own stock-by-store editor.
+  // Restock only ever adds units, so a negative or a zero cell is asking for
+  // a different job -- setting the shelf to what is actually there, which is
+  // Count's job, not this sheet's. Name the door: Count ships from the same
+  // Stock sheet this one does.
   if (/^-[0-9]+$/.test(trimmed)) {
-    return 'Restock only adds. To reduce a count, open the product and edit its stock, store by store.';
+    return 'Restock only adds. To reduce a count, use Count.';
   }
   if (/^0+$/.test(trimmed)) {
-    return 'Quantity received is 0, which would change nothing. Leave the cell empty to skip the row, or open the product and edit its stock, store by store, to set a total.';
+    return 'Quantity received is 0, which would change nothing. Leave the cell empty to skip the row, or use Count to set a total.';
   }
   // Digits only, so the cell was a number -- just not one the column can hold.
   // Told apart from gibberish because the two ask for different corrections.
