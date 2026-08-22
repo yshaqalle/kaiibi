@@ -1308,7 +1308,9 @@ const styles = StyleSheet.create({
   varianceDown: { color: '#A3202F' },
   varianceFlat: { color: '#9CA3AF' },
   reasonChip: {
-    backgroundColor: '#F2F2F2',
+    // White for the same reason the field is: the card behind it is grey now,
+    // and a grey pill on a grey card has no edge left to read as a button.
+    backgroundColor: '#FFFFFF',
     borderRadius: 999,
     width: 108,
     height: 38,
