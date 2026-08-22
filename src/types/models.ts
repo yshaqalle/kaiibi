@@ -218,6 +218,36 @@ export type ProductLocationStock = {
   shelfNumber: string | null;
 };
 
+// A delivery that arrived at one store. Written only by the receive_stock RPC
+// (migration 20260902000000) -- there is no write policy on the table, so a
+// receipt always means units that actually landed.
+export type StockReceipt = {
+  id: string;
+  shopId: string;
+  locationId: string;
+  // Free text, not a vendor FK: a delivery is usually logged by whoever opened
+  // the box. Accounting's vendor list stays where a supplier becomes a record.
+  supplierName: string | null;
+  // The shop's handle on the delivery -- invoice number, waybill, PO.
+  reference: string | null;
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type StockReceiptItem = {
+  id: string;
+  receiptId: string;
+  productId: string;
+  // Frozen at receipt time, like SaleItem's productName.
+  productName: string;
+  quantity: number;
+  // What THIS delivery charged per unit. Distinct from Product.costCents, which
+  // the RPC overwrites with this value: that one is "what it costs me now",
+  // this one is the record of a particular delivery and is never rewritten.
+  unitCostCents: number | null;
+};
+
 // An alternate currency a shop accepts as a way to settle a payment line
 // (see PaymentLine below) — USD itself is not a row here, it's the
 // implicit default when a payment's currencyCode is null. `rateToUsd` is

@@ -176,6 +176,35 @@ export async function transferStock(
   return data as string;
 }
 
+// Takes in a delivery: adds units to one store and records what arrived, in one
+// transaction. The counterpart to transferStock -- that one relocates units and
+// keeps the shop's total the same, this one increases it.
+//
+// `unitCostCents` null means "I didn't say", and leaves the product's cost
+// exactly as it was. A number means "this is what it costs me now" and
+// overwrites it, because a delivery is the one moment the true cost is at hand.
+export async function receiveStock(
+  shopId: string,
+  locationId: string,
+  items: { productId: string; quantity: number; unitCostCents: number | null }[],
+  options?: { supplierName?: string | null; reference?: string | null; note?: string | null }
+): Promise<string> {
+  const { data, error } = await supabase.rpc('receive_stock', {
+    p_shop_id: shopId,
+    p_location_id: locationId,
+    p_items: items.map((item) => ({
+      product_id: item.productId,
+      quantity: item.quantity,
+      unit_cost_cents: item.unitCostCents,
+    })),
+    p_supplier_name: options?.supplierName ?? null,
+    p_reference: options?.reference ?? null,
+    p_note: options?.note ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
 // Evaluated against the scoped stock when a location is given: a branch that is
 // out of an item needs reordering even if the other branch is overflowing --
 // which is exactly what the shop-wide rollup would hide.

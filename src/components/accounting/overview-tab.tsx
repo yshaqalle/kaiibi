@@ -238,7 +238,13 @@ export function OverviewTab({
         <BentoCard title="This period at a glance" scope={rangeLabel}>
           <View style={styles.metricRow}>
             <StatTile variant="bento" value={formatCompactCents(revenueCents)} label="Revenue" hint="net of sales tax & refunds" />
-            <StatTile variant="bento" value={formatCompactCents(expenseCents)} label="Expenses" hint="operating" />
+            {/* "all categories", not "operating": `expenseCents` above is
+                totalExpenseCents over every category, inventory_purchase
+                included -- and Restock's checkbox makes that category
+                reachable, so a shop that ticks it would otherwise read
+                "EXPENSES $50 operating" here against "OPERATING EXPENSES $0"
+                on the Expenses tab for the same money. */}
+            <StatTile variant="bento" value={formatCompactCents(expenseCents)} label="Expenses" hint="all categories" />
             <StatTile variant="bento"
               value={formatCompactCents(grossProfitCents)}
               label="Gross profit"

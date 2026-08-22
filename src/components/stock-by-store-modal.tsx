@@ -106,8 +106,13 @@ export function StockByStoreModal({
           </ScrollView>
 
           {canEdit && (
+            // "Stock → Move", not "Move stock": the header pill once named
+            // "Move stock" is gone (Task 6 moved it behind the Stock door),
+            // and a route named after a button that no longer exists is worse
+            // than no route at all -- see the identical fix on inventory.tsx's
+            // empty-store copy.
             <Text style={styles.footnote}>
-              Each change saves to that store on its own. To move stock between stores instead, use Move stock.
+              Each change saves to that store on its own. To move stock between stores instead, use Stock → Move.
             </Text>
           )}
         </View>

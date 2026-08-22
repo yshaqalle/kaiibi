@@ -1,0 +1,779 @@
+<title>Kaiibi Inventory &mdash; Restock, and one door called Stock</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-s1:#2f6bff; --d-profit:#008340; --d-loss:#d72b3e; --d-warn:#b07206;
+    --d-upwash:#d9efe4; --d-upink:#007a38; --d-accwash:#e6edff; --d-accink:#1b47b8;
+    --d-warnwash:#fdf1da; --d-warnink:#8a5806; --d-losswash:#fdeaec;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  button{font-family:inherit;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,42px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:26px 0 6px;}
+  section{margin-top:56px;padding-top:8px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td b{font-weight:700;}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+
+  .frameHead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:10px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w560{width:560px;max-width:100%;} .frame.w980{width:980px;} .frame.w420{width:420px;max-width:100%;}
+  .frame.w620{width:620px;max-width:100%;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:1000px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.now{background:var(--d-losswash);color:#a3202f;}
+  .stamp.next{background:var(--d-upwash);color:var(--d-upink);}
+
+  /* ---- app chrome, drawn from the real style objects ---- */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:20px;}
+  .d-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);}
+  .d-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .d-btn{background:#111111;color:#fff;border-radius:10px;padding:11px 17px;font-size:13px;font-weight:800;
+    border:0;display:inline-block;}
+  .d-btn.ghost{background:transparent;color:var(--d-ink);border:1px solid var(--d-rule);}
+  .d-btn.off{background:#cccccc;}
+  .d-btn.sm{padding:8px 13px;font-size:12px;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:16px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-input{background:#f2f2f2;border-radius:10px;height:42px;display:flex;align-items:center;
+    padding:0 12px;color:#999999;font-size:13.5px;}
+  .d-input.filled{color:var(--d-ink);}
+  .d-chips{display:flex;gap:6px;flex-wrap:wrap;}
+  .d-chip{border:1px solid var(--d-rule);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:700;
+    color:var(--d-ink);background:#fff;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;}
+  .d-chip.on{background:#111;color:#fff;border-color:#111;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:12px;color:#9ca3af;margin-top:2px;}
+  .d-mt.bad{color:#c0392b;font-weight:700;}
+  .d-mt.ok{color:var(--d-upink);font-weight:700;}
+  .d-empty{font-size:13px;color:#9ca3af;margin-top:12px;}
+  .d-err{color:#c0392b;font-size:13px;font-weight:700;margin-top:12px;}
+  .d-bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .d-pill{border-radius:999px;padding:5px 11px;font-size:12px;font-weight:800;}
+  .d-pill.ok{background:var(--d-upwash);color:var(--d-upink);}
+  .d-pill.warn{background:var(--d-warnwash);color:var(--d-warnink);}
+  .d-pill.bad{background:var(--d-losswash);color:#a3202f;}
+  .d-pill.acc{background:var(--d-accwash);color:var(--d-accink);}
+  .d-seg{display:flex;background:#f2f2f2;border-radius:12px;padding:4px;gap:4px;}
+  .d-seg span{flex:1;text-align:center;padding:9px 12px;border-radius:9px;font-size:13px;font-weight:700;color:#6b6b73;}
+  .d-seg span.on{background:#fff;color:var(--d-ink);box-shadow:0 1px 2px rgba(0,0,0,.08);}
+  .d-tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+  .d-tbl th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#999;font-weight:800;
+    padding:7px 8px;border-bottom:1px solid var(--d-rule);text-align:left;}
+  .d-tbl td{padding:8px;border-bottom:1px solid #f2f2f2;color:var(--d-ink2);}
+  .d-tbl td.num,.d-tbl th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  .d-tbl tr.bad td{background:var(--d-losswash);}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:10px;}
+  .d-qtyin{width:64px;height:36px;border-radius:9px;border:1.5px solid var(--d-rule);background:#fff;
+    display:grid;place-items:center;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:#c2c2c8;}
+  .d-qtyin.on{border-color:#111;color:var(--d-ink);}
+  .d-qtyin.wide{width:84px;}
+  .d-qtypair{display:flex;align-items:center;gap:8px;}
+  .d-qtypair .cap{font-size:9.5px;font-weight:800;letter-spacing:.6px;color:#b4b4bc;text-align:center;
+    display:block;margin-bottom:3px;}
+  .d-basket{background:var(--d-soft);border-radius:14px;padding:12px 14px;margin-top:8px;}
+  .d-basket .cap{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:2px;}
+  .d-basket .cap b{font-size:11px;font-weight:800;letter-spacing:.6px;color:#6b6b73;}
+  .d-basket .cap i{font-style:normal;font-size:12.5px;font-weight:800;color:var(--d-ink);
+    font-variant-numeric:tabular-nums;}
+  .d-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;
+    padding-top:14px;border-top:1px solid var(--d-rule);}
+  .d-foot .tot{font-size:13px;font-weight:800;color:var(--d-ink);font-variant-numeric:tabular-nums;}
+  .d-foot .tot span{display:block;font-size:11.5px;font-weight:600;color:#9ca3af;}
+  .d-scan{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;color:var(--d-accink);
+    background:var(--d-accwash);border-radius:999px;padding:6px 11px;}
+  .d-drop{background:#f2f2f2;border-radius:10px;height:42px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 12px;font-size:13px;font-weight:600;color:var(--d-ink);}
+  .d-drop .chev{font-size:10px;color:var(--d-ink);}
+  .d-drop.ph{color:#999999;}
+  .d-opts{background:#fff;border-radius:18px;padding:16px;border:1px solid var(--d-rule);}
+  .d-opts .t{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:10px;}
+  .d-opt{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+    padding:13px 12px;border-radius:12px;}
+  .d-opt.sel{background:#f2f2f2;}
+  .d-opt .l{font-size:14.5px;font-weight:800;color:var(--d-ink);}
+  .d-opt .h{font-size:12.5px;color:#8a8a92;margin-top:2px;max-width:44ch;}
+  .d-opt .ck{font-size:16px;font-weight:800;color:#c9c9d1;}
+  .d-opt .verb{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;font-weight:800;
+    background:var(--d-soft);border-radius:6px;padding:2px 7px;color:#6b6b73;margin-left:8px;
+    vertical-align:2px;letter-spacing:0;}
+  .sheet{border:1px solid var(--d-rule);border-radius:10px;overflow:hidden;margin-top:10px;background:#fff;}
+  .sheet .hdr{background:var(--d-soft);font-weight:800;}
+  .sheet table{margin:0;font-size:12px;}
+  .sheet th,.sheet td{border-bottom:1px solid #f0f0f3;border-right:1px solid #f0f0f3;padding:7px 9px;
+    white-space:nowrap;color:var(--d-ink2);}
+  .sheet th{font-size:10.5px;color:#6b6b73;text-transform:uppercase;letter-spacing:.05em;}
+  .sheet td.fill{background:#fffbe8;color:var(--d-ink);font-weight:700;}
+  .sheet th.fill{background:#fff6d6;color:#8a5806;}
+  .sheet td.given{color:#8a8a92;}
+
+  .flow{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-top:16px;}
+  .flow .st{flex:1;min-width:150px;border:1px solid var(--ln);border-radius:12px;padding:12px 14px;background:var(--sf);}
+  .flow .st b{display:block;font-size:12.5px;font-weight:800;margin-bottom:3px;}
+  .flow .st span{font-size:12.5px;color:var(--ink2);}
+  .flow .ar{align-self:center;color:var(--mut);font-weight:800;}
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:14px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+  .q ul{margin:8px 0 0;padding-left:19px;font-size:13.5px;color:var(--ink2);}
+  .q li{margin:3px 0;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Inventory &middot; design mockup</p>
+<h1>Restock, and one door called Stock</h1>
+<p class="lede">Inventory can create products, move them between stores, and correct a count one product at a time. What it cannot do is the most ordinary thing a shop does all week: <b>take in a delivery of things it already sells</b>. This is that job &mdash; by hand and by spreadsheet &mdash; plus the header change that stops the four stock jobs competing for the same button.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#gap">Four jobs, three doors</a> &mdash; <em>and the missing one is the one shops do most</em></li>
+    <li><a href="#verbs">Add, replace, relocate, create</a> &mdash; <em>the four verbs, and why they must never blur</em></li>
+    <li><a href="#header">The header: one button called Stock</a> &mdash; <em>before and after</em></li>
+    <li><a href="#door">The Stock sheet</a> &mdash; <em>the door that says which of the four you want</em></li>
+    <li><a href="#hand">Restock by hand</a> &mdash; <em>scan or search, type what arrived</em></li>
+    <li><a href="#csv">Restock by sheet</a> &mdash; <em>one blank column, and it is named after the verb</em></li>
+    <li><a href="#seam">Where the two halves meet</a> &mdash; <em>same checks, same button, same record</em></li>
+    <li><a href="#wrong">When the row is the wrong job</a> &mdash; <em>the rejection hands you the right door</em></li>
+    <li><a href="#cost">Unit cost &mdash; the decision I need from you</a></li>
+    <li><a href="#phone">Phone</a> &mdash; <em>the More sheet gets shorter, not longer</em></li>
+    <li><a href="#scan">Scanning, on web only</a> &mdash; <em>the revert named an Android window; a browser has no such thing</em></li>
+    <li><a href="#open">Open questions</a></li>
+  </ol>
+</div>
+
+<div class="q" style="margin-top:26px;border-left-color:#0f9d58">
+  <b>STATUS &mdash; shipped 22 Aug 2026, migration <code>20260902000000</code> live on production</b>
+  <p>Read this before building from anything below. <b>Built as drawn:</b> the Stock door and header button, Restock by hand and by sheet, the cross&#8209;door rejections, the unticked inventory&#8209;purchase expense, and in&#8209;sheet scanning (&sect;11) &mdash; web only, as argued.</p>
+  <p><b>Not built:</b> <b>Count</b>. It renders in the door, disabled, with a <i>Coming next</i> badge, exactly as &sect;2 proposed as the fallback. Every &ldquo;11 becomes 8&rdquo; description of Count in this document describes a room that does not exist yet. Two Restock rejections point at it, which is currently a dead end.</p>
+  <p><b>Superseded:</b> &sect;9's cost decision (option A, latest&#8209;wins) shipped and is now known to be narrower than this document implies &mdash; cost is <b>shop&#8209;wide</b>, so a delivery at one branch re&#8209;values every other branch's stock, and the sale&#8209;time snapshot freezes replacement cost rather than the cost of the unit sold. <a href="inventory-costing-mockup.html">inventory-costing-mockup.html</a> supersedes &sect;9 and carries the sequenced fix. &sect;10's Scan chip was drawn wrong and is corrected in place.</p>
+</div>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="gap">
+<h2>1 &middot; Four jobs, three doors</h2>
+<p class="note">Every change to a stock number a shop makes is one of four things. Three of them have a tool. The fourth &mdash; the one that happens every time a supplier's van pulls up &mdash; has nothing, so people improvise, and every improvisation is wrong in a way the app cannot see.</p>
+
+<div class="tableWrap">
+<table>
+  <thead>
+    <tr><th>What the shop is doing</th><th>Today's tool</th><th>What actually happens</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><b>&ldquo;I've started carrying something new&rdquo;</b><br><span style="color:var(--mut)">40 lines of a new brand</span></td>
+      <td>Import products</td>
+      <td>Works. Creates the rows, stock lands at the primary store.</td>
+    </tr>
+    <tr>
+      <td><b>&ldquo;A delivery came in&rdquo;</b><br><span style="color:var(--mut)">60 units across 22 products I already sell</span></td>
+      <td style="color:#c0392b"><b>Nothing</b></td>
+      <td>
+        Three bad ways out, all seen in the code comments already:<br>
+        &mdash; open 22 products and retype 22 counts;<br>
+        &mdash; re-import the catalogue &rarr; every row <b>rejected as a duplicate</b>, nothing imported;<br>
+        &mdash; re-import under tweaked names &rarr; it works, and now the shop <b>owns two of every product</b>.
+      </td>
+    </tr>
+    <tr>
+      <td><b>&ldquo;Send some to the other branch&rdquo;</b></td>
+      <td>Move stock (hand + sheet)</td>
+      <td>Works. One transaction, a <code>stock_transfers</code> record.</td>
+    </tr>
+    <tr>
+      <td><b>&ldquo;The shelf says 8, the app says 11&rdquo;</b></td>
+      <td>Inline edit on the row</td>
+      <td>Works &mdash; one product at a time. A stock-take of 300 lines is 300 taps.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<div class="verdict">
+  <div class="vx bad">
+    <b>The gap is not &ldquo;Move can't upload products&rdquo; &mdash; it's that receiving has no home at all</b>
+    <p>Move is correct to reject a product it doesn't recognise: moving stock that isn't there is not a thing you can do, and <code>planStockMoves</code> is right to say so. Teaching Move to create products would make the same mistake Import already made in reverse &mdash; <code>stock-move-import.ts</code> exists precisely <i>because</i> people were reaching for the nearest bulk tool and inflating their counts.</p>
+    <p>The answer isn't a fourth column on the Move sheet. It's a fourth door &mdash; and then all four behind one button, each one labelled with what it does to the number.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="verbs">
+<h2>2 &middot; Add, replace, relocate, create</h2>
+<p class="note">This is the spine of the whole design. Four operations, four verbs, and each sheet has <b>exactly one blank column named after its verb</b>. If a shop can read the column header, it cannot pick the wrong tool.</p>
+
+<div class="tableWrap">
+<table>
+  <thead>
+    <tr><th>Door</th><th>Verb</th><th>Its one blank column</th><th>Effect on the count</th><th>Record written</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><b>Restock</b></td><td><code>+=</code></td><td class="num"><b>Quantity received</b></td><td>11 &rarr; <b>11 + 6 = 17</b></td><td>stock receipt (new)</td></tr>
+    <tr><td><b>Count</b></td><td><code>=</code></td><td class="num"><b>Counted</b></td><td>11 &rarr; <b>8</b>, and &minus;3 is the shrinkage</td><td>stock adjustment</td></tr>
+    <tr><td><b>Move</b></td><td><code>&rarr;</code></td><td class="num"><b>Quantity to move</b></td><td>A 11&rarr;5, B 2&rarr;8. Total unchanged.</td><td><code>stock_transfers</code></td></tr>
+    <tr><td><b>Import products</b></td><td><code>new</code></td><td class="num"><b>Stock</b> (opening)</td><td>&mdash; &rarr; <b>25</b>, on a row that didn't exist</td><td>product rows</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="q">
+  <b>Why Count is in scope even though it half-exists</b>
+  <p>Because it's the sibling that makes Restock legible. &ldquo;<b>Received</b>&rdquo; and &ldquo;<b>counted</b>&rdquo; are the two numbers a shop writes on paper, and if only one of them has a bulk tool, people will use it for both &mdash; typing the shelf total into <i>Quantity received</i> and doubling their stock. One shared frame, two column headers, and a running <code>+6</code> / <code>&minus;3</code> in the footer that spells out which arithmetic is happening.</p>
+  <p>If you'd rather ship Restock alone first, Count stays greyed in the door sheet with &ldquo;coming next&rdquo; &mdash; the door still teaches the distinction even when one room is locked.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="header">
+<h2>3 &middot; The header: one button called Stock</h2>
+<p class="note">Desktop today is five controls fighting for the same row, three of which are stock verbs presented as peers. After: two nouns and two verbs &mdash; <b>what you're looking at</b>, and <b>the two things you can do</b>.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Now</b> <i>inventory.tsx:488&ndash;517</i></div>
+    <div class="stamp now">Today</div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-head">
+          <div>
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut)">INVENTORY</div>
+            <div style="font-size:26px;font-weight:800;letter-spacing:-1px">Inventory</div>
+          </div>
+          <div class="d-actions">
+            <span class="d-btn sm">All stores &#9662;</span>
+            <span class="d-btn sm">Export &#9662;</span>
+            <span class="d-btn sm">Move stock</span>
+            <span class="d-btn sm">Import</span>
+            <span class="d-btn sm">+ Add product</span>
+          </div>
+        </div>
+        <div class="d-note" style="margin-top:0">Five solid pills, all the same weight. &ldquo;Move stock&rdquo;, &ldquo;Import&rdquo; and &ldquo;+ Add product&rdquo; are three different verbs wearing one uniform &mdash; which is how a shop ends up in Import when it wanted to receive a delivery.</div>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>Proposed</b> <i>one door for the numbers, one for the catalogue</i></div>
+    <div class="stamp next">Proposed</div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-head">
+          <div>
+            <div style="font-size:10.5px;font-weight:800;letter-spacing:1px;color:var(--d-mut)">INVENTORY</div>
+            <div style="font-size:26px;font-weight:800;letter-spacing:-1px">Inventory</div>
+          </div>
+          <div class="d-actions">
+            <span class="d-btn sm">All stores &#9662;</span>
+            <span class="d-btn sm">Export &#9662;</span>
+            <span class="d-btn sm" style="background:#111">Stock &#9662;</span>
+            <span class="d-btn sm">+ Add product</span>
+          </div>
+        </div>
+        <div class="d-note" style="margin-top:0"><b>Stock</b> opens the door sheet below &mdash; Restock, Count, Move, Import products. <b>+ Add product</b> stays out on its own because it is the only one that makes a <i>row</i> rather than changing a <i>number</i>, and it's the single most-tapped control on the screen.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>Why Import products sits inside Stock and not next to + Add product</b>
+  <p>Both readings are defensible &mdash; import <i>does</i> create rows. It goes inside because of who reaches for it and when: nobody opens Import having decided &ldquo;I will create catalogue rows&rdquo;. They open it having decided &ldquo;I have a spreadsheet and I want these numbers in the app&rdquo;, which is the exact sentence that leads to Restock, Count and Move too. Putting all four spreadsheet-shaped jobs behind one door is what lets the door disambiguate them. Filing Import elsewhere leaves the one tool that <i>caused</i> the double-counting sitting alone with no sibling to be distinguished from.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="door">
+<h2>4 &middot; The Stock sheet</h2>
+<p class="note">One tap, four rows. The hint line under each is not decoration &mdash; it is the whole reason the sheet exists, and each one names the arithmetic. This screen is the fix for the double-counting problem, more than any validation rule downstream of it.</p>
+
+<div class="scroller">
+<div class="frame w620">
+  <div class="d-opts">
+    <div class="d-head" style="margin-bottom:6px">
+      <div class="d-title">Stock</div>
+      <span class="d-btn ghost sm">Close</span>
+    </div>
+    <div class="d-note" style="margin:0 0 12px">Change the numbers. To add something you don&rsquo;t sell yet, use <b>+ Add product</b>.</div>
+
+    <div class="d-opt sel">
+      <div>
+        <div class="l">Restock <span class="verb">adds</span></div>
+        <div class="h">A delivery arrived. Adds units to what a store already holds &mdash; 11 becomes 17.</div>
+      </div>
+      <div class="ck">&rsaquo;</div>
+    </div>
+    <div class="d-opt">
+      <div>
+        <div class="l">Count <span class="verb">replaces</span></div>
+        <div class="h">A stock-take. Replaces the count with what you actually found &mdash; 11 becomes 8, and the app records the &minus;3.</div>
+      </div>
+      <div class="ck">&rsaquo;</div>
+    </div>
+    <div class="d-opt">
+      <div>
+        <div class="l">Move <span class="verb">relocates</span></div>
+        <div class="h">Send units from one of your stores to another. Your total doesn&rsquo;t change.</div>
+      </div>
+      <div class="ck">&rsaquo;</div>
+    </div>
+    <div class="d-opt">
+      <div>
+        <div class="l">Import products <span class="verb">creates</span></div>
+        <div class="h">Only for products you don&rsquo;t sell yet. Importing something you already carry would count the same units twice.</div>
+      </div>
+      <div class="ck">&rsaquo;</div>
+    </div>
+  </div>
+</div>
+</div>
+
+<p class="note" style="margin-top:14px">Each row leads to a modal with the same two tabs &mdash; <b>By hand</b> and <b>By sheet</b> &mdash; so the choice of <i>which job</i> and the choice of <i>how many rows</i> never get tangled. Today they are: Move has the two tabs, Import has only the sheet, and receiving has neither.</p>
+
+<div class="q">
+  <b>Single-store shops</b>
+  <p><b>Move</b> hides itself, exactly as the header button does today (<code>showLocationFilter</code>). A one-store shop sees three rows, and Restock &mdash; the one it needs &mdash; is the first and default-highlighted.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="hand">
+<h2>5 &middot; Restock by hand</h2>
+<p class="note">Deliberately the same frame as Move's by-hand tab &mdash; a store picker, a search row, results you type a quantity into, a running basket, one commit button. Two differences, and both are load-bearing.</p>
+
+<div class="scroller">
+<div class="frame w560">
+  <div class="d-modal">
+    <div class="d-head">
+      <div class="d-title">Restock</div>
+      <span class="d-btn ghost sm">Close</span>
+    </div>
+
+    <div class="d-seg" style="margin-bottom:14px">
+      <span class="on">By hand</span><span>By sheet</span>
+    </div>
+
+    <div class="d-lbl">RECEIVING INTO</div>
+    <div class="d-drop">Jaalala Skincare <span class="chev">&#9662;</span></div>
+
+    <div class="d-lbl">SUPPLIER &amp; REFERENCE <span style="font-weight:600;letter-spacing:0;text-transform:none">&mdash; optional</span></div>
+    <div style="display:flex;gap:8px">
+      <div class="d-input filled" style="flex:1">Torriden Wholesale</div>
+      <div class="d-input" style="flex:1">Invoice no.</div>
+    </div>
+
+    <div class="d-lbl">ADD PRODUCTS</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <div class="d-input" style="flex:1">Search by name, SKU or barcode&hellip;</div>
+      <span class="d-scan">&#9635; Scan &middot; web only</span>
+    </div>
+    <div class="d-note" style="margin-top:6px">On a phone or tablet this row is search only. See &sect;11 &mdash; the reason is a specific Android window, and it does not exist in a browser.</div>
+
+    <div style="margin-top:12px">
+      <div class="d-row">
+        <div style="flex:1">
+          <div class="d-nm">Torriden Balanceful Serum</div>
+          <div class="d-mt">Has 11 here &middot; cost 4.50</div>
+        </div>
+        <div class="d-qtypair">
+          <div><span class="cap">RECEIVED</span><div class="d-qtyin on">6</div></div>
+          <div><span class="cap">UNIT COST</span><div class="d-qtyin wide on">4.80</div></div>
+        </div>
+      </div>
+      <div class="d-row">
+        <div style="flex:1">
+          <div class="d-nm">SKIN1004 Madagascar Centella</div>
+          <div class="d-mt">Has 3 here &middot; <span style="color:var(--d-warnink);font-weight:700">below reorder level 5</span></div>
+        </div>
+        <div class="d-qtypair">
+          <div><span class="cap">RECEIVED</span><div class="d-qtyin on">24</div></div>
+          <div><span class="cap">UNIT COST</span><div class="d-qtyin wide">&mdash;</div></div>
+        </div>
+      </div>
+      <div class="d-row">
+        <div style="flex:1">
+          <div class="d-nm">Beauty of Joseon Relief Sun</div>
+          <div class="d-mt bad">No cost recorded &mdash; add one here and stock at cost stops understating</div>
+        </div>
+        <div class="d-qtypair">
+          <div><span class="cap">RECEIVED</span><div class="d-qtyin on">12</div></div>
+          <div><span class="cap">UNIT COST</span><div class="d-qtyin wide on">2.10</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-basket">
+      <div class="cap"><b>RECEIVING</b><i>3 products &middot; 42 units</i></div>
+      <div class="d-note" style="margin-top:2px">Jaalala Skincare goes from 14 to 56 units across these three.</div>
+    </div>
+
+    <div class="d-foot">
+      <div class="tot">42 units in<span>Delivery value 158.40</span></div>
+      <span class="d-btn">Receive 42 units</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>Difference 1 &mdash; the results list is the whole catalogue, not just what's in stock here</b>
+    <p>Move can only offer products the source store <i>holds</i> (<code>listProducts(shopId, fromId)</code>, and rightly). Restock is the opposite case: the product you're receiving is very often the one that hit zero, and a picker that hides zero-stock rows would hide exactly what the van just delivered. Rows show &ldquo;Has 0 here&rdquo; rather than disappearing.</p>
+  </div>
+  <div class="vx good">
+    <b>Difference 2 &mdash; there is a cost column, and it is the point</b>
+    <p>Inventory already carries a <code>tone="wrong"</code> caveat for uncosted products, because they make <i>stock at cost</i> understate and <i>gross profit</i> overstate. A delivery is the one moment the true cost is on the desk, on the invoice, in the shop's hand. Asking for it anywhere else is asking someone to remember; asking here is asking someone to read. Every restock is a chance to retire that caveat one product at a time.</p>
+  </div>
+  <div class="vx mid">
+    <b>Typed, not stepped</b>
+    <p>The quantity is a text field, per the decision already made for Move: a stepper is &ldquo;+1&rdquo; forty times. Deliveries are larger than transfers, not smaller.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="csv">
+<h2>6 &middot; Restock by sheet</h2>
+<p class="note">Same three beats as Move's sheet tab, because it is the same muscle memory: <b>download what you carry &rarr; fill the blank column &rarr; upload and preview</b>. Nothing moves until the last button.</p>
+
+<div class="flow">
+  <div class="st"><b>1 &middot; Download</b><span>Every product &times; store, with what it holds now. Zero-stock rows <b>included</b> &mdash; unlike Move.</span></div>
+  <div class="ar">&rarr;</div>
+  <div class="st"><b>2 &middot; Fill</b><span>Two blank columns. Everything else comes back untouched and is skipped, not rejected.</span></div>
+  <div class="ar">&rarr;</div>
+  <div class="st"><b>3 &middot; Preview</b><span>Grouped by store. Rejections name the row and the fix. Then one button.</span></div>
+</div>
+
+<h3>The sheet you get back</h3>
+<div class="scroller">
+<div class="frame w980">
+  <div class="d-modal">
+    <div class="d-bar" style="margin-bottom:8px">
+      <span class="d-pill acc">restock-jaalala-2026-08-21.csv</span>
+      <span class="d-pill ok">214 rows</span>
+    </div>
+    <div class="sheet">
+      <table>
+        <tr class="hdr">
+          <th>Product</th><th>SKU</th><th>Barcode</th><th>Store</th><th>Quantity now</th>
+          <th class="fill">Quantity received</th><th class="fill">Unit cost</th><th>Note</th>
+        </tr>
+        <tr><td class="given">Torriden Balanceful Serum</td><td class="given">TOR-BAL-100</td><td class="given">8809&hellip;</td><td class="given">JAALALA</td><td class="given">11</td><td class="fill">6</td><td class="fill">4.80</td><td class="fill">INV-8841</td></tr>
+        <tr><td class="given">SKIN1004 Madagascar Centella</td><td class="given">SKIN1004</td><td class="given"></td><td class="given">JAALALA</td><td class="given">3</td><td class="fill">24</td><td></td><td></td></tr>
+        <tr><td class="given">Beauty of Joseon Relief Sun</td><td class="given">BOJ-SUN-50</td><td class="given">8809&hellip;</td><td class="given">JAALALA</td><td class="given">0</td><td class="fill">12</td><td class="fill">2.10</td><td></td></tr>
+        <tr><td class="given">Torriden Balanceful Serum</td><td class="given">TOR-BAL-100</td><td class="given">8809&hellip;</td><td class="given">JAALALA2</td><td class="given">2</td><td></td><td></td><td></td></tr>
+        <tr><td class="given" colspan="8" style="color:#b4b4bc">&hellip; 210 more rows, left blank and skipped</td></tr>
+      </table>
+    </div>
+    <div class="d-note"><b>Shaded columns are yours.</b> Same convention as the Move sheet, so a shop that has filled one can fill the other without reading anything. The difference is the header word &mdash; <b>received</b>, not <b>to move</b> &mdash; and it appears on the column the shop is literally typing into.</div>
+  </div>
+</div>
+</div>
+
+<h3>Why zero-stock rows are included here and excluded from Move</h3>
+<p class="note"><code>stockMoveSheetRows</code> drops anything at zero, and that is right: you cannot move what isn't there, and including it would bury the movable rows. Restock inverts the logic exactly &mdash; a product at zero is the <i>most</i> likely thing in the delivery. Same rule underneath both: <b>the sheet contains the rows the operation can act on</b>. It just happens to select the complement.</p>
+
+<h3>The preview</h3>
+<div class="scroller">
+<div class="frame w980">
+  <div class="d-modal">
+    <div class="d-bar" style="margin-bottom:10px">
+      <span class="d-pill ok">3 receipts &middot; 42 units</span>
+      <span class="d-pill warn">210 rows left blank &mdash; skipped</span>
+      <span class="d-pill bad">2 rejected</span>
+      <span class="d-pill acc">2 costs updated</span>
+    </div>
+
+    <div class="d-basket" style="margin-top:0">
+      <div class="cap"><b>JAALALA SKINCARE</b><i>3 products &middot; 42 units &middot; 158.40</i></div>
+      <div class="d-note" style="margin-top:2px">Torriden Balanceful Serum +6 &middot; SKIN1004 Madagascar Centella +24 &middot; Beauty of Joseon Relief Sun +12</div>
+    </div>
+
+    <table class="d-tbl">
+      <tr><th style="width:52px">Row</th><th>What&rsquo;s wrong</th><th>What to do</th></tr>
+      <tr class="bad">
+        <td class="num">14</td>
+        <td>No product matches &ldquo;Anua Heartleaf Toner&rdquo;.</td>
+        <td>You don&rsquo;t sell this yet &mdash; <b>Import products</b> creates it with its price and opening stock. Restock only adds to what you already carry.</td>
+      </tr>
+      <tr class="bad">
+        <td class="num">57</td>
+        <td>Quantity received is &ldquo;12 units&rdquo;.</td>
+        <td>Whole number above zero &mdash; just <code>12</code>. To reduce a count, use <b>Count</b>.</td>
+      </tr>
+    </table>
+
+    <div class="d-foot">
+      <div class="tot">42 units in<span>across 1 store &middot; nothing has changed yet</span></div>
+      <div style="display:flex;gap:8px">
+        <span class="d-btn ghost sm">Download the 2 rejected rows</span>
+        <span class="d-btn">Receive 42 units</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<p class="note" style="margin-top:12px">The four pills across the top are the whole report in one line, and <b>&ldquo;210 rows left blank &mdash; skipped&rdquo; is deliberately not a failure</b>. The sheet is a download of everything the shop carries; most of it is <i>meant</i> to come back untouched. Reporting 210 rejections for a file that did exactly what was asked would bury the two rows that are genuinely wrong &mdash; the same call <code>StockMovePlan.skipped</code> already makes.</p>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="seam">
+<h2>7 &middot; Where the two halves meet</h2>
+<p class="note">&ldquo;Seamless&rdquo; is not a feeling, it's a structural claim, and it has to be true in the code or it isn't true on screen. Both tabs build the <b>same object</b>, pass it through the <b>same checks</b>, and end at the <b>same button</b>:</p>
+
+<div class="flow">
+  <div class="st"><b>By hand</b><span>Search / scan a product, type a quantity</span></div>
+  <div class="ar">&#8600;</div>
+  <div class="st" style="background:var(--pg2)"><b>PlannedReceipt[]</b><span>store, product, qty, unit cost, note &mdash; pure, testable, writes nothing</span></div>
+  <div class="ar">&#8601;</div>
+  <div class="st"><b>By sheet</b><span>Upload, parse, match by SKU &rarr; barcode &rarr; name</span></div>
+</div>
+
+<p class="note" style="margin-top:16px">The plan module mirrors <code>stock-move-import.ts</code> line for line &mdash; a pure <code>planRestock()</code> that turns a parsed sheet plus what the shop currently holds into receipts and rejections, and a caller that commits it. Every rule below is then testable without a database, which is how the Move importer got its rules right:</p>
+
+<ul class="note" style="padding-left:19px">
+  <li>Product matched <b>SKU &rarr; barcode &rarr; name</b>, in that order, for the same reason: identifiers survive someone tidying a name in Excel, and a name is the only one of the three two products can share.</li>
+  <li>Store matched on <b>code or name</b>, trimmed and case-insensitive, so a store rename doesn't orphan a sheet downloaded last week.</li>
+  <li>Two rows receiving the same product into the same store &rarr; <b>rejected, not summed</b>. Almost always a copy-paste slip, and silently adding them receives twice what the shop read on screen.</li>
+  <li>Both columns blank &rarr; skipped. <b>Only one</b> filled &rarr; rejected, naming the empty one.</li>
+</ul>
+
+<div class="q">
+  <b>The one asymmetry: Restock has no ceiling</b>
+  <p>Move's hardest rule is &ldquo;you cannot send more than the source holds&rdquo;, checked against a running total so five rows each moving 8 out of a store holding 10 are all caught at once. Restock has no equivalent &mdash; a delivery can be any size, and there is nothing to run out of. That removes the trickiest part of the Move importer and is why this is a smaller build than it looks.</p>
+  <p>What replaces it is softer and belongs in the preview, not in rejections: a receipt of <b>10&times; or more</b> what a store has ever held of that product gets a warning pill. It's the shape of a misplaced decimal or a case-vs-unit mix-up, and it is a warning rather than an error because sometimes the pallet really did arrive.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="wrong">
+<h2>8 &middot; When the row is the wrong job</h2>
+<p class="note">Four doors means four chances to walk through the wrong one. Every rejection therefore names the right door, and the modal offers to hand over &mdash; the pattern already live between Import and Move (<code>&ldquo;Move stock instead&rdquo;</code>, <code>useStagedSheet</code> so iOS doesn't drop the second sheet).</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>You are in&hellip;</th><th>and the row is really&hellip;</th><th>What it says</th></tr></thead>
+  <tbody>
+    <tr><td><b>Restock</b></td><td>a product that doesn&rsquo;t exist</td><td>&ldquo;You don&rsquo;t sell this yet &mdash; <b>Import products</b> creates it with its price and opening stock.&rdquo;</td></tr>
+    <tr><td><b>Restock</b></td><td>a negative quantity</td><td>&ldquo;Restock only adds. To reduce a count, use <b>Count</b>.&rdquo;</td></tr>
+    <tr><td><b>Import products</b></td><td>a product that already exists</td><td>Today: &ldquo;already exists&rdquo;. <b>Change to:</b> &ldquo;You already carry this. Adding more units is a <b>Restock</b>; importing it again would count the same units twice.&rdquo; &mdash; with the handover button.</td></tr>
+    <tr><td><b>Move</b></td><td>a product that doesn&rsquo;t exist</td><td>Today: &ldquo;check the spelling, or fill in the SKU&rdquo;. <b>Add:</b> &ldquo;&hellip;or, if it&rsquo;s new, <b>Import products</b>.&rdquo;</td></tr>
+    <tr><td><b>Move</b></td><td>more than the source holds</td><td>Today: &ldquo;Only 3 at Jaalala &mdash; the sheet asks for 20.&rdquo; <b>Add:</b> &ldquo;If 20 really did arrive, that&rsquo;s a <b>Restock</b>, not a move.&rdquo;</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>This is the actual answer to &ldquo;Move doesn't let people upload products&rdquo;</b>
+    <p>Move stays exactly as strict as it is &mdash; it will never create a product, because a product that doesn't exist has no units to relocate. What changes is that the dead end becomes a doorway: the rejection stops being &ldquo;no&rdquo; and starts being &ldquo;not here &mdash; there, and here's the button&rdquo;.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="cost">
+<h2>9 &middot; Unit cost &mdash; the decision I need from you</h2>
+<p class="note">A product has one <code>costCents</code> (nullable &mdash; and <code>isUncosted</code> is careful that null &ne; zero, because a free sample really does cost nothing). A restock arrives at a price that may differ from the last one. Three options, and this changes what <i>stock at cost</i> and <i>gross profit</i> mean everywhere in Accounting:</p>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>A &mdash; Latest cost wins <span style="font-weight:600;color:var(--mut)">&mdash; my recommendation</span></b>
+    <p>A filled unit cost overwrites <code>costCents</code>; blank leaves it alone. The preview says so out loud: &ldquo;<b>2 costs updated</b> &mdash; Torriden 4.50 &rarr; 4.80&rdquo;, and it's a line the shop can see before committing.</p>
+    <p>Matches the single field that already exists, needs no migration, and is what a small shop means by &ldquo;what it costs me&rdquo;. It does mean the 11 units already on the shelf are retroactively valued at the new price &mdash; acceptable, and worth one <code>tone="context"</code> caveat on the Accounting side.</p>
+  </div>
+  <div class="vx mid">
+    <b>B &mdash; Weighted average</b>
+    <p><code>(11&times;4.50 + 6&times;4.80) / 17 = 4.61</code>. Correct accounting, and the honest answer to &ldquo;what did the stock I'm holding cost me?&rdquo; Needs no new column either. But it produces a cost the shop never typed and cannot find on any invoice, which is a support conversation every time. Right for a shop with a bookkeeper; heavy for one without.</p>
+  </div>
+  <div class="vx bad">
+    <b>C &mdash; Cost is display-only</b>
+    <p>Show it in the preview, write nothing. Cheapest, and wrong: it wastes the one moment the true cost is in the room, and leaves the uncosted-products caveat un-retireable in bulk. Only worth it if you want Restock shipped this week and costing as a follow-up.</p>
+  </div>
+</div>
+
+<div class="q">
+  <b>The related one: does a restock create an expense?</b>
+  <p><code>expense-reporting.ts</code> already has an <code>inventory_purchase</code> category labelled <b>&ldquo;Inventory restock&rdquo;</b>, and it's excluded from profit &mdash; the Accounting tile literally reads &ldquo;Stock &amp; owner draws &mdash; excluded from profit&rdquo;. So the concept exists and is waiting for this feature.</p>
+  <p>My recommendation is a <b>single unticked checkbox</b> at the foot of the modal &mdash; &ldquo;Also log 158.40 as an inventory purchase&rdquo; &mdash; visible only when every line has a cost, so the amount shown is the real amount and not a partial one. Unticked because a shop that enters supplier invoices in Accounting separately would otherwise double-count its spending, silently, forever. Opt-in is recoverable; opt-out is not.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="phone">
+<h2>10 &middot; Phone</h2>
+<p class="note">The compact header is <b>More</b> + <b>+ Add</b> today, and the More sheet lists Store / Move stock / Import products / Export. With one Stock door it gets <i>shorter</i> even though the app gained a feature &mdash; four stock jobs arrive as one row.</p>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Now</b> <i>inventory.tsx:760&ndash;800</i></div>
+    <div class="frame w420">
+      <div class="d-opts">
+        <div class="d-title" style="margin-bottom:8px">Inventory actions</div>
+        <div class="d-opt"><div><div class="l">Store</div><div class="h">Which store&rsquo;s stock the list shows</div></div></div>
+        <div class="d-opt"><div><div class="l">Move stock</div><div class="h">Send units from one store to another</div></div></div>
+        <div class="d-opt"><div><div class="l">Import products</div><div class="h">From a CSV file</div></div></div>
+        <div class="d-opt"><div><div class="l">Export</div><div class="h">214 products</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="frameHead"><b>Proposed</b> <i>one row opens the door sheet</i></div>
+    <div class="frame w420">
+      <div class="d-opts">
+        <div class="d-title" style="margin-bottom:8px">Inventory actions</div>
+        <div class="d-opt"><div><div class="l">Store</div><div class="h">Which store&rsquo;s stock the list shows</div></div></div>
+        <div class="d-opt sel"><div><div class="l">Stock</div><div class="h">Restock, count, move, or import</div></div><div class="ck">&rsaquo;</div></div>
+        <div class="d-opt"><div><div class="l">Export</div><div class="h">214 products</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx mid">
+    <b>Sheet-from-a-sheet is the one real iOS risk here</b>
+    <p>More &rarr; Stock &rarr; Restock is three stacked modals, and iOS silently drops the third. Whatever ships, the compact path must go through <code>useStagedSheet</code> &mdash; the same mechanism the Import&rarr;Move handover already uses &mdash; or the Restock button will simply do nothing on a phone and look like a dead control.</p>
+    <p>The cheaper alternative, if you'd rather not stage three deep: on compact, the <b>Stock</b> row <i>replaces</i> the contents of the More sheet in place rather than opening a new one. One sheet, two panes, a back chevron. Worth deciding before code.</p>
+  </div>
+  <div class="vx good">
+    <b>Scanning inside the sheet works on web &mdash; and only on web</b>
+    <p>See &sect;11. The revert that took scanning out of the Move sheet named a cause that is specific to one platform, and reading it closely is what makes this a decision rather than a re-run of the same mistake.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="scan">
+<h2>11 &middot; Scanning, on web only</h2>
+<p class="note">Scanning was built into the Move sheet and reverted the next day (<code>f31d9aa</code>). The right way to read that revert is not &ldquo;scanning in a sheet is impossible&rdquo; &mdash; it is to read <b>what it actually names</b>, because the cause it names is one platform's window system:</p>
+
+<div class="q">
+  <b>From the revert message</b>
+  <p><i>&ldquo;HardwareKeyboardModule.startCapture wraps <code>currentActivity.window</code>. A React Native Modal on Android is a Dialog with a window of its own, so keys typed while any sheet is up never reach that wrapper &mdash; it neither reports them to JS nor swallows them.&rdquo;</i></p>
+  <p>Two separate failures, both downstream of that one fact: <b>no scan registered</b> (keys never arrived), and <b>the trailing Enter closed the sheet and discarded the basket</b> (with no capture to swallow it, Enter pressed whatever had focus).</p>
+</div>
+
+<p class="note" style="margin-top:16px">Neither failure can occur in a browser, and not by luck &mdash; by construction. React Native Web renders <code>Modal</code> as an ordinary DOM node <b>in the same document</b>. There is no Dialog and no second window, so:</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>The Android failure</th><th>Why the browser cannot have it</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Keys never reach the capture wrapper</td>
+      <td>The web path listens on <code>document</code> (<code>use-barcode-wedge.ts:169</code>). A sheet is a node inside that document, so its keystrokes were always arriving.</td>
+    </tr>
+    <tr>
+      <td>The trailing Enter presses whatever has focus</td>
+      <td>The listener is attached in the <b>capture</b> phase and calls <code>preventDefault()</code> + <code>stopPropagation()</code> on a terminator that completed a scan (<code>:150-155</code>) &mdash; it runs before React's synthetic handlers, so the Enter is swallowed before any control sees it.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h3>The one real hazard, and the mechanism that already solves it</h3>
+<p class="note">The global listener deliberately stands aside when focus is inside a field (<code>:142</code>), so the field can handle its own scan. Inside this sheet that matters more than usual: <b>a barcode is all digits</b>, and a scan fired while the cursor sits in a quantity box would set the quantity to <code>8809611860018</code> &mdash; a wrong number that looks like a typed one.</p>
+<p class="note">This app already has the answer, built for exactly this: <code>stepFieldBurst()</code> / <code>fieldBurstScan()</code> in <code>barcode-wedge.ts</code> tell a scan from typing <i>inside a field</i>, by the same speed discriminator (3&ndash;20ms per character from a scanner; 90&ndash;150ms from a fast typist). So:</p>
+
+<div class="flow">
+  <div class="st"><b>Focus in Search</b><span>A detected burst resolves the code and adds the row. What Inventory's own search row already does.</span></div>
+  <div class="st"><b>Focus in Received / Unit cost</b><span>A detected burst is <b>discarded from the field</b> and routed to the same handler. The box keeps the number a person typed.</span></div>
+  <div class="st"><b>Focus nowhere</b><span>The document listener catches it, and swallows the Enter.</span></div>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>And this is the platform where it matters most</b>
+    <p>A delivery is checked in at a back-office desk with a USB scanner, not by holding a phone over 22 boxes. The web build is where that desk is. The mobile builds keep a plain search field and promise nothing they cannot do &mdash; which is the sentence the revert asked for.</p>
+  </div>
+  <div class="vx mid">
+    <b>Two things must stay true or one scan gets read twice</b>
+    <p>Inventory's own wedge must stand down while the sheet is up &mdash; it already does this for the Move sheet, and the Restock sheet has to join that same condition. And the camera <b>Scan</b> button renders on web only: <code>BarcodeScannerModal</code> works there (only torch and haptics are native-gated), and a modal over a modal is fine in a browser.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────────────────────── -->
+<section id="open">
+<h2>12 &middot; Open questions</h2>
+<div class="q">
+  <b>Answer these four and I'll write the plan</b>
+  <ul>
+    <li><b>Cost</b> &mdash; A (latest wins), B (weighted average), or C (display only)?</li>
+    <li><b>Count</b> &mdash; ship alongside Restock, or greyed out as &ldquo;coming next&rdquo;?</li>
+    <li><b>Import products</b> &mdash; inside the Stock door as drawn, or left beside <b>+ Add product</b>?</li>
+    <li><b>Expense</b> &mdash; unticked checkbox, no checkbox at all, or a follow-up?</li>
+  </ul>
+  <p>Independent of those: <b>a restock needs a record</b>. Move writes <code>stock_transfers</code>; a receipt that only bumps a number leaves &ldquo;where did these 24 come from?&rdquo; unanswerable a week later, and makes the expense question above unimplementable. A <code>stock_receipts</code> table (store, supplier, reference, note, lines) is part of this feature, not an extra.</p>
+</div>
+</section>
+
+</div>

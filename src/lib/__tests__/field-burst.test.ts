@@ -45,14 +45,31 @@ describe('stepFieldBurst', () => {
     expect(scanInto('', 'shea butter', 150).scan).toBeNull();
   });
 
-  // Native delivers the whole code in one `onChangeText` rather than one per
-  // key, so there is no per-character timing to measure -- only the gap since
-  // whatever the user last typed, which is long.
-  it('reads a code delivered as a single change onto typed text', () => {
+  // A whole string arriving in ONE change is a paste, and it is never a scan.
+  //
+  // This case used to assert the opposite, on the belief that native delivers a
+  // whole code in a single `onChangeText`. It does not: `onChangeText` always
+  // reports the whole FIELD, on both platforms, which is why this machine is
+  // given `before` and `next` and measures the delta -- and a hardware scanner
+  // is a keyboard, so its delta is one character at a time. The only thing that
+  // really arrives whole is a paste, and treating it as a scan is how `1500`
+  // pasted into a Received box became a barcode: the field handed the digits to
+  // the basket and silently put itself back to `1`. (The native invisible sink
+  // does read whole payloads -- that is `stepSink`, a different machine.)
+  it('reads nothing from a whole string arriving in one change, which is a paste', () => {
     let state = initialFieldBurstState();
     state = stepFieldBurst(state, '', 'shea', 1000);
     state = stepFieldBurst(state, 'shea', 'shea8809447255972', 4000);
-    expect(fieldBurstScan(state, 4000)).toBe('8809447255972');
+    expect(fieldBurstScan(state, 4000)).toBeNull();
+  });
+
+  // And the same paste straight into an empty field, which is the shape the
+  // Restock sheet actually sees: a quantity copied off an invoice.
+  it('reads nothing from a pasted number, so the paste survives', () => {
+    let state = initialFieldBurstState();
+    state = stepFieldBurst(state, '', '1500', 1000);
+    expect(fieldBurstScan(state, 1000)).toBeNull();
+    expect(state.burst).toBe('');
   });
 
   // The reported bug, and the reason the terminator gets a window of its own.

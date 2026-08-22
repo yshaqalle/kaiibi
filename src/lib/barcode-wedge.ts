@@ -223,12 +223,26 @@ export function stepFieldBurst(
   at: number,
   config: WedgeConfig = DEFAULT_WEDGE_CONFIG
 ): FieldBurstState {
-  // Anything that is not a pure extension -- a backspace, a selection typed
-  // over, a value the screen set itself -- is not a scan in progress, and
-  // leaving a burst standing through it would let a later Enter replace the
-  // field with a fragment of something the user was editing by hand.
+  // Anything that is not a pure extension by exactly ONE character -- a
+  // backspace, a selection typed over, a value the screen set itself, a PASTE --
+  // is not a scan in progress, and leaving a burst standing through it would let
+  // a later Enter replace the field with a fragment of something the user was
+  // editing by hand.
+  //
+  // The one-character rule is what tells a paste from a scan, and it has to live
+  // here rather than in either field wrapper. A paste arrives as a SINGLE
+  // `onChangeText` carrying the whole string -- there is no second event and no
+  // gap to measure -- so a burst counted by characters rather than by changes
+  // read `1500` pasted into a Received box as a thirteen-character-class code:
+  // ScanSafeField waited for a terminator, gave up, and put the box silently
+  // back to what it held before, so the delivery committed as `1`. Paste-then-
+  // Enter was worse: the pasted digits were handed to the basket as a scanned
+  // barcode. A hardware scanner is a keyboard and arrives one character per
+  // change, so nothing real is given up. (The native sink -- `stepSink` above --
+  // is a different machine and genuinely does read whole-field payloads; it is
+  // not affected by this rule.)
   const appended = next.startsWith(before) ? next.slice(before.length) : '';
-  if (!appended) return { burst: '', lastChangeAt: at };
+  if (appended.length !== 1) return { burst: '', lastChangeAt: at };
 
   const continuing = state.burst.length > 0 && at - state.lastChangeAt <= config.maxInterKeyMs;
   return { burst: continuing ? state.burst + appended : appended, lastChangeAt: at };
@@ -250,6 +264,116 @@ export function fieldBurstScan(
   const inBurst = at - state.lastChangeAt <= config.maxTerminatorGapMs;
   if (!inBurst || state.burst.length < config.minLength) return null;
   return state.burst;
+}
+
+// ---------------------------------------------------------------------------
+// The fourth case: a field that must GIVE BACK what a scanner typed into it.
+//
+// The search boxes above want the scanned code -- it is what they were pointed
+// at. A Received box on the Restock sheet, or a quantity box on the Move sheet,
+// wants the opposite: the scan belongs to the basket, and the box has to end up
+// holding exactly the number it held before the scanner touched it.
+//
+// That difference cannot be papered over by clearing the field, because a
+// barcode is ALL DIGITS. A scan that lands in a quantity box otherwise records
+// a delivery of 8,809,611,860,018 units, which reads on screen as a number
+// somebody typed rather than as anything gone wrong.
+//
+// So this pairs the burst machine with one extra fact: what the field was
+// showing when the burst began. `restore` is that value, and it is the whole
+// reason this exists as a state rather than as two calls at the call site.
+
+export type FieldSinkState = {
+  burst: FieldBurstState;
+  /** What the field showed before the burst in progress started. */
+  restore: string;
+};
+
+export function initialFieldSinkState(text = ''): FieldSinkState {
+  return { burst: initialFieldBurstState(), restore: text };
+}
+
+/**
+ * The single character `next` gains over `before`, wherever it was put, or null
+ * if `next` is not `before` with exactly one character inserted into it.
+ */
+function insertedCharacter(before: string, next: string): string | null {
+  if (next.length !== before.length + 1) return null;
+  let at = 0;
+  while (at < before.length && before[at] === next[at]) at += 1;
+  return next.slice(0, at) + next.slice(at + 1) === before ? next[at] : null;
+}
+
+/** `onChangeText`, with the value the field held immediately before it. */
+export function stepFieldSink(
+  state: FieldSinkState,
+  before: string,
+  next: string,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): FieldSinkState {
+  // One character standing where a whole value used to be is a selection typed
+  // over, which is the ordinary shape of a scan into a box carrying
+  // `selectTextOnFocus` -- Restock's Received box, seeded at "1", and Move's
+  // quantity box. To `stepFieldBurst` it is not an extension and rightly ends
+  // any burst; here it is the FIRST character of one. Without this the code
+  // reaches lookup a digit short AND the box is left holding that digit as its
+  // quantity, which is the exact failure the whole machine exists to prevent,
+  // arrived at sideways.
+  //
+  // It is safe to start a burst on it because starting one decides nothing:
+  // every character after it still has to arrive within `maxInterKeyMs`, and a
+  // lone character is far below `minLength`. A person who selects a value and
+  // types over it simply starts a burst that never completes.
+  if (next.length === 1 && !next.startsWith(before)) {
+    return { burst: { burst: next, lastChangeAt: at }, restore: before };
+  }
+
+  // A caret parked mid-text makes every scanned character an INSERTION rather
+  // than an append, and `stepFieldBurst` ends a burst on anything that is not
+  // an append -- so no burst is ever detected and the code is left interleaved
+  // into what was already there. Reachable in Restock's Unit cost box, which
+  // does NOT carry `selectTextOnFocus` (a typed price is edited, not replaced),
+  // so a second tap leaves the caret wherever the finger landed; and in any box
+  // whose owner clicks back into a number to correct a digit.
+  //
+  // A scanner types at the caret, so the caret advances with it and the
+  // insertions ARE the code, in order. Same safety as the rule above: one
+  // insertion is one character, and everything after it still has to arrive at
+  // a speed no one can type.
+  const inserted = next.startsWith(before) ? null : insertedCharacter(before, next);
+  if (inserted !== null) {
+    const continuing = state.burst.burst.length > 0 && at - state.burst.lastChangeAt <= config.maxInterKeyMs;
+    return {
+      burst: { burst: continuing ? state.burst.burst + inserted : inserted, lastChangeAt: at },
+      restore: continuing ? state.restore : before,
+    };
+  }
+
+  const burst = stepFieldBurst(state.burst, before, next, at, config);
+  // A burst whose entire content is what THIS change added is a burst that
+  // began here -- so what the field was showing a moment ago is what a scan has
+  // to give back. A burst that is longer than the change is one already
+  // running, and its `restore` was recorded when it started.
+  const added = next.length - before.length;
+  const beginning = burst.burst.length > 0 && burst.burst.length <= added;
+  return { burst, restore: beginning ? before : state.restore };
+}
+
+/**
+ * `onSubmitEditing`: the code the scanner typed into this field and the value
+ * to put back, or null when a person typed what is there.
+ *
+ * Null means leave the field exactly as it is -- see `fieldBurstScan`, which
+ * makes that judgement and is the only thing that makes it.
+ */
+export function fieldSinkScan(
+  state: FieldSinkState,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): { code: string; restore: string } | null {
+  const code = fieldBurstScan(state.burst, at, config);
+  return code === null ? null : { code, restore: state.restore };
 }
 
 /**

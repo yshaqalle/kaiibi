@@ -15,7 +15,9 @@ import { useCaveatDismissal } from '@/hooks/use-caveat-dismissal';
 import { useInventorySessionField } from '@/hooks/use-inventory-session';
 import { ProductModal } from '@/components/product-modal';
 import { StoreDropdown } from '@/components/store-dropdown';
+import { StockActionsSheet, type StockAction } from '@/components/stock-actions-sheet';
 import { StockByStoreModal } from '@/components/stock-by-store-modal';
+import { StockRestockModal } from '@/components/stock-restock-modal';
 import { StockTransferModal } from '@/components/stock-transfer-modal';
 import { useStagedSheet } from '@/components/use-staged-sheet';
 import { TillKeyboardNotice } from '@/components/till-keyboard-notice';
@@ -37,7 +39,7 @@ import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
-import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
+import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, productImportHatches, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -99,24 +101,65 @@ export default function InventoryScreen() {
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [showImportModal, setShowImportModal] = useState(false);
   // null = the shop-wide rollup, which is what this screen has always shown.
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
-  // The import sheet's "Move stock instead" hands over to the transfer sheet.
-  // Held by useStagedSheet rather than plain state because that is a sheet
-  // opened from inside a sheet, which iOS drops without a word.
+  // The import sheet's two escape hatches, each handing over to another sheet.
+  // `elsewhere` (see `productImportHatches`) opens the restock sheet through
+  // `restockFromImport` and, for a multi-store shop only, the transfer sheet
+  // through `moveFromImport` -- because the rejection it answers cannot tell
+  // "more arrived" from "put these at the other branch", so it offers both.
+  // The Stock door's own Restock and Move go through `actionFromStock`, not
+  // these; these are only the handover from inside Import.
+  //
+  // Held by useStagedSheet rather than plain state because each is a sheet
+  // opened from inside a sheet, which iOS drops without a word. Both are wired
+  // identically -- into `showRestock`/`transferOpen`, `CsvImportModal`'s
+  // suppression and `onDismissed`, and the target sheet's close handler -- and
+  // a hatch missing any one of those is a button that does nothing on iOS
+  // alone, where nothing is logged when it happens.
   const moveFromImport = useStagedSheet<true>();
+  const restockFromImport = useStagedSheet<true>();
   // Where a newly imported product's opening stock actually lands: the
   // opening-stock trigger picks `order by is_primary desc, created_at asc`
   // (migration 20260810000000), so this mirrors that rather than guessing.
   const primaryLocationName =
     locations.find((location) => location.isPrimary)?.name ?? locations[0]?.name ?? 'your main store';
   const [stockError, setStockError] = useState<string | null>(null);
-  const [showTransfer, setShowTransfer] = useState(false);
-  // Phone only. The store filter, Export, Import and Move stock live behind one
-  // pill on the title row rather than wrapping to a second and third row.
+  const [showStockActions, setShowStockActions] = useState(false);
+  // Two staged handovers, not one. On a phone the chain is More → Stock →
+  // Restock, which is three sheets deep, and iOS silently drops the third --
+  // the exact bug use-staged-sheet was written for. Each hop stages its own.
+  const stockFromMore = useStagedSheet<true>();
+  const actionFromStock = useStagedSheet<StockAction>();
+  // Derived, not state promoted by an effect. Which sheet the door handed over
+  // to IS `actionFromStock.value` -- copying it into a second `useState` inside
+  // a `useEffect` would be a second copy of the same fact that can disagree
+  // with the first, and the linter rejects the setState-in-effect that copying
+  // needs. Read straight, exactly as StockTransferModal already reads
+  // `moveFromImport.value` below.
+  //
+  // Each of these is named once because two or three places need the same
+  // answer -- the sheet's own `visible`, and the wedge-scanner stand-downs
+  // below and at the foot of the file. The transfer sheet's comment records
+  // what happens when a stand-down and a `visible` drift apart: the sheet is up
+  // and the screen behind it is still adjusting stock on every scan.
+  const showRestock = restockFromImport.value !== null || actionFromStock.value === 'restock';
+  // `|| actionFromStock.presenterSuppressed` closes a gap, not a typo: between
+  // `onPick` and the promotion, `pending` holds the next action but `value` is
+  // still null, so `showRestock`/`transferOpen`/`importOpen` all read false and
+  // the door itself is already closed -- the wedge below would read every one
+  // of those as false and switch back on while a modal is mid-animation.
+  // `presenterSuppressed` stays true for that whole gap, and the door's own
+  // `visible` (below) already ANDs its negation in, so folding it into
+  // `stockDoorOpen` cannot re-present the door -- it only keeps the wedge (and
+  // the sink fallback) standing down through the handover.
+  const stockDoorOpen = showStockActions || stockFromMore.value !== null || actionFromStock.presenterSuppressed;
+  const transferOpen = moveFromImport.value !== null || actionFromStock.value === 'move';
+  const importOpen = actionFromStock.value === 'import';
+  // Phone only. The store filter, Export and Stock live behind one pill on the
+  // title row rather than wrapping to a second and third row.
   const [showMore, setShowMore] = useState(false);
   const [breakdownProduct, setBreakdownProduct] = useState<Product | null>(null);
   // Set by a link that already knows what it wants -- the Dashboard's
@@ -274,18 +317,26 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    // The transfer sheet included for the same reason as the others: Move stock
-    // runs its own wedge to build a transfer, and a scan must not also be read
-    // here as an adjustment to the product behind it. Written as the same
-    // condition that sheet's `visible` uses -- it also opens from the import
-    // hand-over, when `showTransfer` alone is still false.
+    // The transfer and restock sheets are both excluded, and on web that
+    // exclusion is now load-bearing rather than merely tidy: each of them runs
+    // a wedge of its own to build its basket (see stock-transfer-modal.tsx and
+    // stock-restock-modal.tsx, where scanning is gated to web because a React
+    // Native Modal on Android is a Dialog whose window the key capture never
+    // sees). One scan must never be read BOTH as a line in that basket and as
+    // an adjustment to the product behind it. Written as the same conditions
+    // those sheets' `visible` uses -- `transferOpen` and `importOpen` are
+    // derived from `moveFromImport.value` and `actionFromStock.value`, which
+    // already cover a hand-over into either sheet, not only each sheet opened
+    // directly from its own door.
     enabled:
       scanner.hardware &&
       !showAddModal &&
       editingProduct === null &&
-      !showImportModal &&
+      !importOpen &&
       !scannerOpen &&
-      !(showTransfer || moveFromImport.value !== null),
+      !showRestock &&
+      !stockDoorOpen &&
+      !transferOpen,
     onScan: handleScannedCode,
   });
 
@@ -367,23 +418,37 @@ export default function InventoryScreen() {
         // 20260810000000), not a choice this screen makes -- so naming the
         // store here is the honest thing rather than offering a picker that
         // could not be honoured.
+        //
+        // Only what prose alone can say. This paragraph used to carry the whole
+        // explanation -- "that's a Restock", "that's a Move" -- because there
+        // was one button and Move had no other way to be named. The buttons
+        // below now say both, so repeating them here would make the reader
+        // choose between a sentence and a control that mean the same thing.
+        // What stays is what no button says: who this import is for, where
+        // opening stock lands, and the consequence of importing anyway.
         purpose: showLocationFilter
-          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already stock an item and want it at another store? That's a move, not an import — importing it again would double the count.`
-          : "For adding products you don't sell yet.",
-        // Staged rather than a plain setShowTransfer(true): this button lives
+          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Importing something you already carry would count the same units twice.`
+          : `For adding products you don't sell yet. Importing something you already carry would count the same units twice.`,
+        // Both doors, not one. The rejection fires on "you already carry this
+        // product", which is the same row whether the shop means more units
+        // arriving or the same units at another branch -- so it asks rather
+        // than picking. Move is withheld from a single-store shop inside
+        // `productImportHatches`, which is where that gate is tested.
+        //
+        // Staged rather than a plain setShowRestock(true): these buttons live
         // INSIDE the import sheet, and iOS drops a modal presented while
-        // another is still up -- so on a phone it would have done nothing at
+        // another is still up -- so on a phone they would have done nothing at
         // all, silently. `fromModal` is true because the import always is one.
-        elsewhere:
-          canEdit && showLocationFilter
-            ? { label: 'Move stock instead', onPress: () => moveFromImport.open(true, true) }
-            : undefined,
+        elsewhere: productImportHatches({
+          locations,
+          onRestock: () => restockFromImport.open(true, true),
+          onMove: () => moveFromImport.open(true, true),
+        }),
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>
           runProductsImport(shop.id, parsed, {
             headroom: productLimit == null ? null : Math.max(0, productLimit - usageOf('products')),
-            hasStores: showLocationFilter,
           }),
       }
     : null;
@@ -430,6 +495,18 @@ export default function InventoryScreen() {
   // resetting on the next mount.
   const uncostedNote = useCaveatDismissal('inventory.uncosted-products', String(uncostedCount));
   const retailNote = useCaveatDismissal('inventory.stock-at-retail', 'v1');
+  // Dismissible, and keyed to WHICH sentence was read rather than to a bare
+  // 'v1'. An explanation that never changes is fair to close forever — that is
+  // what the hook says a 'context' signature is for — but this one has two
+  // wordings, and the multi-store half is the part with real money in it. A
+  // shop that reads and closes the single-store sentence, then opens a second
+  // branch, has not been told that a delivery at one branch now moves the
+  // other's number; changing the signature makes that a new fact and brings it
+  // back exactly once.
+  const costBasisNote = useCaveatDismissal(
+    'inventory.stock-at-cost-basis',
+    showLocationFilter ? 'multi-store-v1' : 'single-store-v1'
+  );
 
   // What the shelf is worth, twice: at what it cost and at what it would sell
   // for. Reported as a PAIR because either alone invites the reader to supply
@@ -466,9 +543,9 @@ export default function InventoryScreen() {
                 : `${filtered.length} of ${products.length} products`}
             </Text>
           </View>
-          {/* Six controls fit at desktop width and are two full rows of pills on
-              a phone. Compact keeps the one primary action and folds the rest
-              into a sheet — same split the Schedule tab landed on. */}
+          {/* Four controls fit at desktop width. Compact keeps two -- More and
+              + Add -- and folds the rest into a sheet — same split the
+              Schedule tab landed on. */}
           <View style={styles.headerActions}>
             {compact ? (
               <>
@@ -489,21 +566,14 @@ export default function InventoryScreen() {
               <>
                 <StoreDropdown value={locationFilter} onChange={setLocationFilter} />
                 <ExportMenu rows={filtered} columns={PRODUCT_EXPORT_COLUMNS} title="Inventory" subtitle={`${filtered.length} products`} filenamePrefix="inventory" />
-                {/* Only with somewhere to move stock TO — a one-store shop has no
-                    transfer to make, and the button would be a dead end. */}
-                {/* Solid, like every other action in this row. The store
-                    dropdown and the export menu paint themselves #111, and
-                    `+ Add product` is `pillButtonSolid` -- so an outline here
-                    read as a different KIND of control rather than as a
-                    quieter one, when all five do the same sort of thing. */}
-                {canEdit && showLocationFilter && (
-                  <Pressable onPress={() => setShowTransfer(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
-                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Move stock</Text>
-                  </Pressable>
-                )}
+                {/* One pill, four jobs. Move stock and Import used to sit here
+                    as peers of + Add product, which put three different verbs
+                    in one uniform -- and is how a shop with a delivery to
+                    receive ended up in Import, counting its units twice. The
+                    sheet behind this button is what tells them apart. */}
                 {canEdit && (
-                  <Pressable onPress={() => setShowImportModal(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
-                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Import</Text>
+                  <Pressable onPress={() => setShowStockActions(true)} style={[styles.pillButton, styles.pillButtonSolid]}>
+                    <Text style={[styles.pillButtonText, styles.pillButtonTextSolid]}>Stock</Text>
                   </Pressable>
                 )}
                 {canEdit && (
@@ -530,7 +600,12 @@ export default function InventoryScreen() {
               hint={showLocationFilter ? 'carried across your stores' : undefined}
             />
             <StatTile variant="bento" value={String(needsAttention)} label="Low stock" hint="at or below reorder level" />
-            <StatTile variant="bento" value={formatCompactCents(stockValue.costCents)} label="Stock at cost" hint="what you paid for it" />
+            {/* "what you paid for it" was a claim the figure cannot support:
+                cost_cents is shop-wide and latest-price-wins, so this values
+                every unit at the most recent price rather than at what it
+                cost. The hint states the basis, and the caveat below says what
+                that basis costs the reader. */}
+            <StatTile variant="bento" value={formatCompactCents(stockValue.costCents)} label="Stock at cost" hint="at the latest price paid" />
             <StatTile
               variant="bento"
               value={formatCompactCents(stockValue.retailCents)}
@@ -557,6 +632,31 @@ export default function InventoryScreen() {
             } as nothing in stock at cost, so that figure is understated — and anything sold from ${
               uncostedCount === 1 ? 'it' : 'them'
             } counts as pure profit, so gross profit reads higher than it is.`}
+          </Caveat>
+        )}
+
+        {/* What "Stock at cost" is actually counting. Restock writes
+            products.cost_cents on every priced delivery, latest price wins,
+            and that column is SHOP-WIDE — product_location_stock has no cost
+            of its own — so one branch's delivery re-prices every branch's
+            stock.
+
+            'context', not 'wrong', and deliberately no action: the figure is
+            the honest answer to the question the app currently knows how to
+            ask, and there is nothing a shop can do about the basis from this
+            screen. A 'wrong' with no fix would train people to skip the whole
+            family — including the uncosted one above, which does have a fix.
+            Per-store cost and a weighted average are what change the number;
+            until then this says what it means.
+
+            Sits after the uncosted warning and before Stock at retail: the
+            actionable one leads, then the two explanations follow their tiles
+            left to right. */}
+        {products.length > 0 && !costBasisNote.dismissed && (
+          <Caveat tone="context" onDismiss={costBasisNote.dismiss}>
+            {showLocationFilter
+              ? 'Stock at cost values every unit at the most recent price you paid for it, not what each unit actually cost. Restocking at a new price re-values what you already hold — across all your stores, including ones the delivery didn’t go to.'
+              : 'Stock at cost values every unit at the most recent price you paid for it, not what each unit actually cost. Restocking at a new price re-values what you already hold.'}
           </Caveat>
         )}
 
@@ -698,7 +798,10 @@ export default function InventoryScreen() {
                       // empty list here is a real answer, not a missing filter. It
                       // also has to say how to change that, since the routes in are
                       // all somewhere else.
-                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Move stock to send some here, or open a product from All stores and set its count for this store.`
+                      // "Stock → Move" rather than "Move stock": the pill by
+                      // that name is gone, and a route named after a button
+                      // that no longer exists is worse than no route at all.
+                      `${locations.find((l) => l.id === locationFilter)?.name ?? 'This store'} doesn't carry anything yet. Use Stock → Move to send some here, or open a product from All stores and set its count for this store.`
                     : 'No products yet. Add your first one above.'}
             </Text>
           </BentoCard>
@@ -753,8 +856,20 @@ export default function InventoryScreen() {
       ) : null}
 
       {/* Same sheet treatment People and Schedule use, so a sheet is a sheet
-          wherever the app opens one. */}
-      <AppModal visible={showMore} transparent animationType="slide" onRequestClose={() => setShowMore(false)}>
+          wherever the app opens one.
+
+          `onDismiss` is the first hop of More → Stock → Restock: this sheet is
+          the presenter the Stock door waits on. Without it the door would open
+          only on useStagedSheet's 700ms safety net, which is meant to be the
+          net and not the mechanism -- a visible pause between the tap and the
+          sheet, on the one platform where the pause is the symptom. */}
+      <AppModal
+        visible={showMore}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMore(false)}
+        onDismiss={stockFromMore.onPresenterDismissed}
+      >
         <Pressable style={styles.sheetOverlay} onPress={() => setShowMore(false)} accessibilityLabel="Close">
           {/* Stops a tap inside the sheet from closing it. */}
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -775,17 +890,10 @@ export default function InventoryScreen() {
               </View>
             )}
 
-            {canEdit && showLocationFilter && (
-              <Pressable onPress={() => { setShowMore(false); setShowTransfer(true); }} style={styles.sheetRow}>
-                <Text style={styles.sheetRowLabel}>Move stock</Text>
-                <Text style={styles.sheetRowHint}>Send units from one store to another</Text>
-              </Pressable>
-            )}
-
             {canEdit && (
-              <Pressable onPress={() => { setShowMore(false); setShowImportModal(true); }} style={styles.sheetRow}>
-                <Text style={styles.sheetRowLabel}>Import products</Text>
-                <Text style={styles.sheetRowHint}>From a CSV file</Text>
+              <Pressable onPress={() => { setShowMore(false); stockFromMore.open(true, compact); }} style={styles.sheetRow}>
+                <Text style={styles.sheetRowLabel}>Stock</Text>
+                <Text style={styles.sheetRowHint}>Restock, count, move, or import</Text>
               </Pressable>
             )}
 
@@ -848,11 +956,15 @@ export default function InventoryScreen() {
       )}
       {importConfig && (
         <CsvImportModal
-          // Suppressed while the move sheet is being handed over to, so iOS is
-          // never asked to present one modal over another -- see useStagedSheet.
-          visible={showImportModal && !moveFromImport.presenterSuppressed}
-          onClose={() => setShowImportModal(false)}
-          onDismissed={moveFromImport.onPresenterDismissed}
+          // Suppressed while the restock or move sheet is being handed over
+          // to, so iOS is never asked to present one modal over another -- see
+          // useStagedSheet.
+          visible={importOpen && !restockFromImport.presenterSuppressed && !moveFromImport.presenterSuppressed}
+          onClose={actionFromStock.close}
+          onDismissed={() => {
+            restockFromImport.onPresenterDismissed();
+            moveFromImport.onPresenterDismissed();
+          }}
           config={importConfig}
           onImported={reload}
         />
@@ -866,13 +978,46 @@ export default function InventoryScreen() {
           canEdit={canEdit}
         />
       )}
+      {/* The door. Suppressed while it is handing over to one of the four, so
+          iOS is never asked to present a sheet over a sheet -- see
+          useStagedSheet, and the same suppression on CsvImportModal above. */}
+      {canEdit && (
+        <StockActionsSheet
+          visible={stockDoorOpen && !actionFromStock.presenterSuppressed}
+          showMove={showLocationFilter}
+          onClose={() => { setShowStockActions(false); stockFromMore.close(); }}
+          onDismissed={actionFromStock.onPresenterDismissed}
+          onPick={(action) => {
+            setShowStockActions(false);
+            stockFromMore.close();
+            // `true`, not `compact`: the thing being opened FROM is this sheet,
+            // and it is a modal at every width -- an iPad wide enough for the
+            // desktop header still presents the door as one. Passing `compact`
+            // here would say "not from a modal" on that iPad and hand iOS the
+            // second modal to drop, which is a dead Restock button on the one
+            // device where nothing is logged when it happens.
+            actionFromStock.open(action, true);
+          }}
+        />
+      )}
       {shop && canEdit && (
-        <StockTransferModal
-          visible={showTransfer || moveFromImport.value !== null}
+        <StockRestockModal
+          visible={showRestock}
           shopId={shop.id}
           onClose={() => {
-            setShowTransfer(false);
+            restockFromImport.close();
+            actionFromStock.close();
+          }}
+          onDone={reload}
+        />
+      )}
+      {shop && canEdit && (
+        <StockTransferModal
+          visible={transferOpen}
+          shopId={shop.id}
+          onClose={() => {
             moveFromImport.close();
+            actionFromStock.close();
           }}
           onDone={reload}
         />
@@ -886,7 +1031,7 @@ export default function InventoryScreen() {
           open keypad's field asks for focus, and the sink takes it back every
           700ms. Standing down costs no scanning -- a code scanned into the
           focused field is caught by the row's own burst rules. */}
-      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !showImportModal && !showTransfer && (
+      {sinkFallback && scanner.hardware && !keypadOpen && !scannerOpen && !showAddModal && editingProduct === null && !importOpen && !transferOpen && !showRestock && !stockDoorOpen && (
         <WedgeSink onScan={handleScannedCode} />
       )}
       {/* Single, unlike POS: a scan here answers one question — "which product

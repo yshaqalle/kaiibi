@@ -29,6 +29,15 @@ function mapExpenseRow(row: any): Expense {
 
 function toRow(input: Partial<NewExpenseInput>) {
   return {
+    // `null` is a real value here -- business-wide, not "unset" -- so this is
+    // keyed off `undefined`, like every other field, rather than off falsiness.
+    // Without this line the column added by migration 20260816000000 was never
+    // written by anything the APP inserts: the expense editor's store picker
+    // set it, `createExpense` dropped it, and per-store reporting then read
+    // every hand-entered cost as unattributed business-wide overhead. (The
+    // rows that migration generates itself -- from a vendor bill, from a pay
+    // run -- always had it, which is what made the gap easy to miss.)
+    ...(input.locationId !== undefined && { location_id: input.locationId }),
     ...(input.occurredOn !== undefined && { occurred_on: input.occurredOn }),
     ...(input.amountCents !== undefined && { amount_cents: input.amountCents }),
     ...(input.category !== undefined && { category: input.category }),

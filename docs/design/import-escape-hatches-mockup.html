@@ -1,0 +1,236 @@
+<title>Kaiibi &mdash; Import's second door</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts). */
+  .doc{
+    --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65;
+    --d-rule:#dcdce4; --d-soft:#f6f6f7; --d-pg:#f4f4f5;
+    --d-accwash:#e6edff; --d-accink:#1b47b8; --d-losswash:#fdeaec;
+    --d-upwash:#d9efe4; --d-upink:#007a38; --d-warnwash:#fdf1da; --d-warnink:#8a5806;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1180px;margin:0 auto;padding:44px 22px 90px;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:64ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:24px 0 6px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .vx p + p{margin-top:8px;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:940px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.now{background:var(--d-losswash);color:#a3202f;}
+  .stamp.a{background:var(--d-accwash);color:var(--d-accink);}
+  .stamp.b{background:var(--d-upwash);color:var(--d-upink);}
+
+  /* app chrome, from the real style objects */
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:20px;}
+  .d-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);}
+  .d-btn{background:#111111;color:#fff;border-radius:10px;padding:10px 16px;font-size:13px;font-weight:800;
+    border:0;display:inline-block;}
+  .d-btn.ghost{background:transparent;color:var(--d-ink);border:1px solid var(--d-rule);}
+  .d-btn.sm{padding:8px 13px;font-size:12px;}
+  .d-purpose{font-size:12.5px;color:#6b6b73;line-height:1.55;margin-bottom:12px;}
+  /* the real `elsewhere` control: styles.elsewhere in csv-import-modal.tsx */
+  /* CORRECTED after implementation: the real `elsewhere` control has never had a
+     backgroundColor -- it is an outline pill on a white card (csv-import-modal.tsx's
+     `elsewhere` style). This mockup originally drew it accent-filled while calling it
+     "the real control", which was wrong. The weighting between two hatches carries on
+     INK and WEIGHT (#111/800 vs #5E5D65/700), not on a fill; the border shift alone
+     would be near-invisible. The rejection-list treatment (filled vs outlined) is as
+     drawn. */
+  .d-else{border:1px solid var(--d-rule);border-radius:10px;padding:11px 13px;font-size:13px;
+    font-weight:800;color:#111111;background:#fff;display:block;margin-bottom:8px;}
+  .d-else.quiet{border-color:#EDEDED;color:var(--d-mut);font-weight:700;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
+  .d-rule{height:1px;background:var(--d-rule);margin:14px 0;}
+  .d-tbl{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px;}
+  .d-tbl th{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#999;font-weight:800;
+    padding:7px 8px;border-bottom:1px solid var(--d-rule);text-align:left;}
+  .d-tbl td{padding:8px;border-bottom:1px solid #f2f2f2;color:var(--d-ink2);}
+  .d-tbl tr.bad td{background:var(--d-losswash);}
+  .d-opt{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;
+    padding:12px;border-radius:12px;}
+  .d-opt.sel{background:#f2f2f2;}
+  .d-opt .l{font-size:14px;font-weight:800;color:var(--d-ink);}
+  .d-opt .h{font-size:12.5px;color:#8a8a92;margin-top:2px;max-width:42ch;}
+  .d-opt .ck{font-size:15px;font-weight:800;color:#c9c9d1;}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:10px;}
+
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:16px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Inventory &middot; design mockup</p>
+<h1>Import's second door</h1>
+<p class="lede">Shipping Restock gave Import's rejection somewhere useful to point. But <code>CsvImportModal</code>'s escape hatch is <b>one slot</b>, and pointing it at Restock silently took Move's away &mdash; so a multi&#8209;store shop now gets Move named in prose and nothing to press. Two ways to give it back.</p>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+<h2>1 &middot; Why one slot isn&rsquo;t enough</h2>
+
+<p class="note">The rejection fires on the same condition either way &mdash; <b>you already carry this product</b>. What it cannot know is which of two things the shop wants:</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>The shop is thinking</th><th>Right door</th><th>What the app can see</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>&ldquo;40 more of these just arrived&rdquo;</td>
+      <td><b>Restock</b></td>
+      <td rowspan="2" style="vertical-align:middle;background:var(--pg2);font-style:italic;color:var(--mut)">
+        Exactly the same row. Same name, same SKU, same collision. The app has no signal that separates these two intentions &mdash; only the shop knows.
+      </td>
+    </tr>
+    <tr>
+      <td>&ldquo;I want these at the second branch&rdquo;</td>
+      <td><b>Move</b></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note" style="margin-top:14px">So the app cannot pick. It has to <b>ask</b> &mdash; and only when there is something to ask about: a one&#8209;store shop has no Move, and must keep seeing exactly one button.</p>
+
+<div class="frameHead" style="margin-top:22px"><b>Today</b> <i>csv-import-modal.tsx:128&ndash;138</i></div>
+<div class="stamp now">Now &mdash; one slot</div>
+<div class="frame">
+  <div class="d-modal">
+    <div class="d-head"><div class="d-title">Import products</div><span class="d-btn ghost sm">Done</span></div>
+    <div class="d-purpose">For adding products you don&rsquo;t sell yet. Stock on a new product starts at Jaalala Skincare. Already sell it and more has arrived? That&rsquo;s a Restock &mdash; importing it again would count the same units twice. Want it at another store? That&rsquo;s a Move.</div>
+    <div class="d-else">Restock instead &rarr;</div>
+    <div class="d-note" style="margin-top:2px">Move is named in the paragraph and nowhere else. The shop that wants it has read the right answer and has nothing to press.</div>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+<h2>2 &middot; Two options</h2>
+
+<div class="pair two">
+  <div>
+    <div class="frameHead"><b>Option A</b> <i>elsewhere becomes a list</i></div>
+    <div class="stamp a">A &mdash; two buttons</div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-head"><div class="d-title">Import products</div><span class="d-btn ghost sm">Done</span></div>
+        <div class="d-purpose">For adding products you don&rsquo;t sell yet. Stock on a new product starts at Jaalala Skincare.</div>
+        <div class="d-else">More of something you already sell? Restock &rarr;</div>
+        <div class="d-else quiet">Already sell it, want it at another store? Move &rarr;</div>
+
+        <div class="d-rule"></div>
+        <div class="d-lbl">AFTER AN IMPORT</div>
+        <table class="d-tbl">
+          <tr><th style="width:46px">Row</th><th>What&rsquo;s wrong</th></tr>
+          <tr class="bad"><td>7</td><td>You already carry Torriden Balanceful Serum. Adding more units is a Restock &mdash; importing it again would count the same units twice.</td></tr>
+        </table>
+        <div class="d-else" style="margin-top:10px">Restock instead &rarr;</div>
+        <div class="d-else quiet">Move instead &rarr;</div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px"><b>Change:</b> <code>elsewhere?: {label, onPress}</code> &rarr; an array. One call site to update, one render loop. The second button renders only when <code>showLocationFilter</code>.</p>
+  </div>
+
+  <div>
+    <div class="frameHead"><b>Option B</b> <i>one button, back to the door</i></div>
+    <div class="stamp b">B &mdash; the door decides</div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-head"><div class="d-title">Import products</div><span class="d-btn ghost sm">Done</span></div>
+        <div class="d-purpose">For adding products you don&rsquo;t sell yet. Stock on a new product starts at Jaalala Skincare.</div>
+        <div class="d-else">Already sell these? Pick the right tool &rarr;</div>
+
+        <div class="d-rule"></div>
+        <div class="d-note" style="margin-top:0">&hellip;which reopens the Stock door, minus the one you just left:</div>
+        <div style="background:#fff;border:1px solid var(--d-rule);border-radius:14px;padding:12px;margin-top:10px">
+          <div class="d-title" style="font-size:15px;margin-bottom:8px">Stock</div>
+          <div class="d-opt sel"><div><div class="l">Restock</div><div class="h">A delivery arrived. Adds units to what a store already holds &mdash; 11 becomes 17.</div></div><div class="ck">&rsaquo;</div></div>
+          <div class="d-opt"><div><div class="l">Move</div><div class="h">Send units from one of your stores to another. Your total doesn&rsquo;t change.</div></div><div class="ck">&rsaquo;</div></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:12px"><b>Change:</b> none to <code>CsvImportModal</code>&rsquo;s type. The <code>onPress</code> reopens <code>StockActionsSheet</code>. But it is a <b>third staged sheet</b> on a phone &mdash; Import &rarr; door &rarr; Restock &mdash; and that chain is what <code>useStagedSheet</code> exists for.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section>
+<h2>3 &middot; Which</h2>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>A, and it isn&rsquo;t close</b>
+    <p>The whole point of the Stock door is that a shop reads four hints and picks. Someone who has already reached Import and hit a rejection has <b>narrowed it to two</b>, and the app knows which two. Sending them back to a four&#8209;row menu to re&#8209;make a decision they have half&#8209;made is the kind of politeness that reads as a runaround.</p>
+    <p>A also puts the choice where the shop meets the problem &mdash; on the rejection row itself, which is the placement <code>csv-import-modal.tsx:36&ndash;39</code> already argues for in its own comment: <i>&ldquo;offered both up front and again on the rejection list, since that is where someone actually meets the problem.&rdquo;</i></p>
+  </div>
+  <div class="vx mid">
+    <b>B&rsquo;s real cost is the third sheet, not the extra tap</b>
+    <p>On a phone, Import is already reached through <code>More &rarr; Stock &rarr; Import</code>. Adding a door on top makes the Restock sheet the <b>fourth</b>. Every hop needs its own <code>useStagedSheet</code>, and this branch has already shipped one bug where the wrong staging flag would have left a dead button on a wide iPad. Four&#8209;deep is a lot of rope.</p>
+  </div>
+  <div class="vx bad">
+    <b>Doing nothing is worse than it looks</b>
+    <p>A multi&#8209;store shop reads &ldquo;that&rsquo;s a Move&rdquo; and gets no button &mdash; so it closes Import, finds Stock, opens Move, and re&#8209;does the work. That is the friction that sent people to Import in the first place. And <code>moveFromImport</code> stays wired but unreachable: a hook no test can reach, which drifts.</p>
+  </div>
+</div>
+
+<div class="q">
+  <b>The one thing to get right in A</b>
+  <p>Two solid blue buttons stacked would read as a choice between equals. They are not: <b>Restock is the common case</b> &mdash; more of something arriving is ordinary, redistributing between branches is occasional, and a one&#8209;store shop never sees the second at all. So Restock keeps the filled treatment and Move takes the quiet outline, exactly as drawn above.</p>
+  <p>Labels say the <i>situation</i>, not the tool &mdash; &ldquo;More of something you already sell?&rdquo; rather than &ldquo;Restock instead&rdquo;. Someone who picked the wrong door does not yet know the vocabulary; that is why they are here.</p>
+</div>
+
+<p class="note" style="margin-top:20px"><b>Scope:</b> one type change in <code>csv-import-modal.tsx</code>, one render loop, one call site in <code>inventory.tsx</code> that already has both staged hooks (<code>restockFromImport</code> and the currently-inert <code>moveFromImport</code>) built and waiting. Roughly an hour, and it retires the inert hook rather than leaving it to rot.</p>
+</section>
+
+</div>

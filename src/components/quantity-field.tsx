@@ -1,5 +1,6 @@
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { ScanSafeField } from '@/components/scan-safe-field';
 import { Colors } from '@/constants/theme';
 
 // Pinned to the light palette, same as QuantityStepper.
@@ -27,12 +28,22 @@ export function QuantityField({
   // Move stock renders a category filter whose first chip is "All", and two
   // controls a few pixels apart reading the same word is a coin toss.
   fillLabel = 'All',
+  onScan = null,
 }: {
   quantity: number;
   onChange: (next: number) => void;
   max?: number;
   label?: string;
   fillLabel?: string;
+  /**
+   * Where a scan typed into this box goes instead of into it, or null.
+   *
+   * Null everywhere by default, which leaves an ordinary field. The Move sheet
+   * passes a handler on web, where a scanner can reach a sheet: a barcode is
+   * all digits, so without somewhere else to send it the code becomes the
+   * quantity and a move of 6 units reads as a move of 8,809,611,860,018.
+   */
+  onScan?: ((code: string) => void) | null;
 }) {
   const over = max !== undefined && quantity > max;
   const canFill = max !== undefined && max > 0 && quantity !== max;
@@ -53,7 +64,17 @@ export function QuantityField({
         >
           <Text style={styles.buttonText}>−</Text>
         </Pressable>
-        <TextInput
+        {/* This is a NORMALISING parent: the state is a number, so what comes
+            back out is a rewrite of what went in, and 0 comes back as an empty
+            box. That used to break a scan outright -- a barcode's leading zero
+            (every UPC-A read as EAN-13 has one) came back as '', which no
+            longer matched what the field was showing, so the burst was thrown
+            away; and on the Move sheet the same 0 removes the line and
+            unmounts this field mid-code. `ScanSafeField` now withholds what is
+            typed until it knows whether it is a scan, which is what makes a
+            parent like this one safe. See its docblock before changing either
+            side. */}
+        <ScanSafeField
           value={quantity === 0 ? '' : String(quantity)}
           // Empty reads as 0, which is how a line is removed -- the same meaning
           // the stepper's minus already has when it reaches zero. Anything
@@ -63,6 +84,7 @@ export function QuantityField({
             const digits = text.replace(/[^0-9]/g, '');
             onChange(digits ? Number(digits) : 0);
           }}
+          onScan={onScan}
           keyboardType="number-pad"
           inputMode="numeric"
           selectTextOnFocus
