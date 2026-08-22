@@ -237,4 +237,13 @@ describe('the inventory verbs', () => {
     expect(byKey.get('inventory.transfer')?.parent).toBe('inventory.edit');
     expect(byKey.get('inventory.edit')?.parent).toBeUndefined();
   });
+
+  // The editor renders from the groups, so a permission missing from every group
+  // would be a capability nobody could grant -- invisible, and only discoverable
+  // by a shop wondering why a feature never works for their staff.
+  it('files every permission in exactly one group', () => {
+    const filed = PERMISSION_GROUPS.flatMap((g) => g.permissions);
+    expect([...filed].sort()).toEqual([...ALL_PERMISSIONS].sort());
+    expect(new Set(filed).size).toBe(filed.length);
+  });
 });

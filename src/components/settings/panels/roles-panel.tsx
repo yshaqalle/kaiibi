@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 
 import { Btn, PageHeader, Row, Section } from '@/components/settings/settings-primitives';
-import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, PERMISSIONS, type Permission } from '@/lib/permissions';
+import { ALL_PERMISSIONS, expandPermissions, IMPLIED_PERMISSIONS, type Permission } from '@/lib/permissions';
+import { groupedPermissions } from '@/lib/permission-groups';
 import { createRole, deleteRole, updateRole } from '@/lib/staff';
 import type { Role } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
@@ -54,7 +55,7 @@ function RolesSection({
       ) : (
         roles.map((role) => (
           <Row key={role.id} label={role.name} desc={`${role.permissions.length} permission${role.permissions.length === 1 ? '' : 's'} · ${usage.get(role.id) ?? 0} staff`}>
-            <Btn onPress={() => setEditing(role)}>Edit</Btn>
+            <Btn accessibilityLabel={`Edit ${role.name}`} onPress={() => setEditing(role)}>Edit</Btn>
           </Row>
         ))
       )}
@@ -161,7 +162,12 @@ function RoleEditorModal({
           <View style={modalStyles.header}>
             <Text style={modalStyles.title}>{role ? 'Edit role' : 'New role'}</Text>
             <View style={modalStyles.headerActions}>
-              <Pressable onPress={save} disabled={saving || !name.trim()} style={[modalStyles.addButton, (saving || !name.trim()) && modalStyles.buttonDisabled]}>
+              <Pressable
+                accessibilityLabel="Save role"
+                onPress={save}
+                disabled={saving || !name.trim()}
+                style={[modalStyles.addButton, (saving || !name.trim()) && modalStyles.buttonDisabled]}
+              >
                 <Text style={modalStyles.addButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
               </Pressable>
               <Pressable onPress={onClose} style={modalStyles.close}>
@@ -173,14 +179,35 @@ function RoleEditorModal({
             <Text style={modalStyles.fieldLabel}>ROLE NAME</Text>
             <TextInput value={name} onChangeText={setName} placeholder="e.g. Cashier" placeholderTextColor="#999999" style={modalStyles.input} />
             <Text style={[modalStyles.fieldLabel, { marginTop: 16 }]}>PERMISSIONS</Text>
-            {PERMISSIONS.map((p) => (
-              <Pressable key={p.key} onPress={() => togglePermission(p.key)} style={modalStyles.permissionRow}>
-                <Switch value={permissions.includes(p.key)} pointerEvents="none" onValueChange={() => togglePermission(p.key)} />
-                <View style={{ flex: 1 }}>
-                  <Text style={modalStyles.rowLabel}>{p.label}</Text>
-                  <Text style={modalStyles.rowSubLabel}>{p.description}</Text>
-                </View>
-              </Pressable>
+            {groupedPermissions().map((group) => (
+              <View key={group.label}>
+                <Text style={[modalStyles.fieldLabel, { marginTop: 16 }]}>{group.label.toUpperCase()}</Text>
+                {group.rows.map(({ permission, children }) => (
+                  <View key={permission.key}>
+                    <PermissionRow
+                      entry={permission}
+                      checked={permissions.includes(permission.key)}
+                      disabled={false}
+                      onToggle={() => togglePermission(permission.key)}
+                    />
+                    {/* Indented and ruled, so a child reads as living INSIDE
+                        the row above rather than beside it -- and disabled
+                        when that row is off, because a child granted under an
+                        absent parent is an array the database honours and the
+                        screen denies. */}
+                    {children.map((child) => (
+                      <PermissionRow
+                        key={child.key}
+                        entry={child}
+                        checked={permissions.includes(child.key)}
+                        disabled={!permissions.includes(permission.key)}
+                        onToggle={() => togglePermission(child.key)}
+                        nested
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
             ))}
             {error && <Text style={styles.error}>{error}</Text>}
             <View style={modalStyles.formActions}>
@@ -189,7 +216,12 @@ function RoleEditorModal({
                   <Text style={modalStyles.rowActionTextDanger}>Delete role</Text>
                 </Pressable>
               )}
-              <Pressable onPress={save} disabled={saving || !name.trim()} style={[modalStyles.addButton, (saving || !name.trim()) && modalStyles.buttonDisabled]}>
+              <Pressable
+                accessibilityLabel="Save role"
+                onPress={save}
+                disabled={saving || !name.trim()}
+                style={[modalStyles.addButton, (saving || !name.trim()) && modalStyles.buttonDisabled]}
+              >
                 <Text style={modalStyles.addButtonText}>{saving ? 'Saving…' : 'Save'}</Text>
               </Pressable>
             </View>
@@ -197,6 +229,48 @@ function RoleEditorModal({
         </View>
       </View>
     </AppModal>
+  );
+}
+
+function PermissionRow({
+  entry,
+  checked,
+  disabled,
+  onToggle,
+  nested,
+}: {
+  entry: { key: Permission; label: string; description: string };
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+  nested?: boolean;
+}) {
+  return (
+    <Pressable
+      // The label, not the key: the tests and a screen reader both read the
+      // sentence a shop reads.
+      accessibilityLabel={`Permission: ${entry.label}`}
+      accessibilityRole="switch"
+      accessibilityState={{ checked, disabled }}
+      // Guarded here as well as visually, and guarded INSIDE the handler
+      // rather than by nulling the `onPress` prop -- a caller (a test, or a
+      // screen reader that still dispatches an activation event to a
+      // "disabled" node) that invokes it anyway must land on a no-op, not a
+      // crash. A disabled row whose press still ran would switch the child on
+      // under an off parent -- which is precisely the state the disabling
+      // exists to prevent.
+      onPress={() => {
+        if (disabled) return;
+        onToggle();
+      }}
+      style={[modalStyles.permissionRow, nested && modalStyles.permissionRowNested, disabled && modalStyles.permissionRowOff]}
+    >
+      <Switch value={checked} disabled={disabled} pointerEvents="none" onValueChange={() => {}} />
+      <View style={{ flex: 1 }}>
+        <Text style={modalStyles.rowLabel}>{entry.label}</Text>
+        <Text style={modalStyles.rowSubLabel}>{entry.description}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -219,6 +293,8 @@ const modalStyles = StyleSheet.create({
   fieldLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 6 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
   permissionRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#ECECEC' },
+  permissionRowNested: { paddingLeft: 18, marginLeft: 2, borderLeftWidth: 2, borderLeftColor: '#F2F2F2' },
+  permissionRowOff: { opacity: 0.45 },
   rowLabel: { fontSize: 13, fontWeight: '700', color: '#111111' },
   rowSubLabel: { fontSize: 11, color: '#999999', marginTop: 2 },
   rowAction: { paddingVertical: 4, paddingHorizontal: 4 },
