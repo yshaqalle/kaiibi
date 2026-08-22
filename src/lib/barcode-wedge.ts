@@ -252,6 +252,83 @@ export function fieldBurstScan(
   return state.burst;
 }
 
+// ---------------------------------------------------------------------------
+// The fourth case: a field that must GIVE BACK what a scanner typed into it.
+//
+// The search boxes above want the scanned code -- it is what they were pointed
+// at. A Received box on the Restock sheet, or a quantity box on the Move sheet,
+// wants the opposite: the scan belongs to the basket, and the box has to end up
+// holding exactly the number it held before the scanner touched it.
+//
+// That difference cannot be papered over by clearing the field, because a
+// barcode is ALL DIGITS. A scan that lands in a quantity box otherwise records
+// a delivery of 8,809,611,860,018 units, which reads on screen as a number
+// somebody typed rather than as anything gone wrong.
+//
+// So this pairs the burst machine with one extra fact: what the field was
+// showing when the burst began. `restore` is that value, and it is the whole
+// reason this exists as a state rather than as two calls at the call site.
+
+export type FieldSinkState = {
+  burst: FieldBurstState;
+  /** What the field showed before the burst in progress started. */
+  restore: string;
+};
+
+export function initialFieldSinkState(text = ''): FieldSinkState {
+  return { burst: initialFieldBurstState(), restore: text };
+}
+
+/** `onChangeText`, with the value the field held immediately before it. */
+export function stepFieldSink(
+  state: FieldSinkState,
+  before: string,
+  next: string,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): FieldSinkState {
+  // One character standing where a whole value used to be is a selection typed
+  // over, and both number boxes carry `selectTextOnFocus` -- so this is the
+  // ordinary shape of a scan into a box somebody has just tapped. To
+  // `stepFieldBurst` it is not an extension and rightly ends any burst; here it
+  // is the FIRST character of one. Without this the code reaches lookup a digit
+  // short AND the box is left holding that digit as its quantity, which is the
+  // exact failure the whole machine exists to prevent, arrived at sideways.
+  //
+  // It is safe to start a burst on it because starting one decides nothing:
+  // every character after it still has to arrive within `maxInterKeyMs`, and a
+  // lone character is far below `minLength`. A person who selects a value and
+  // types over it simply starts a burst that never completes.
+  if (next.length === 1 && !next.startsWith(before)) {
+    return { burst: { burst: next, lastChangeAt: at }, restore: before };
+  }
+
+  const burst = stepFieldBurst(state.burst, before, next, at, config);
+  // A burst whose entire content is what THIS change added is a burst that
+  // began here -- so what the field was showing a moment ago is what a scan has
+  // to give back. A burst that is longer than the change is one already
+  // running, and its `restore` was recorded when it started.
+  const added = next.length - before.length;
+  const beginning = burst.burst.length > 0 && burst.burst.length <= added;
+  return { burst, restore: beginning ? before : state.restore };
+}
+
+/**
+ * `onSubmitEditing`: the code the scanner typed into this field and the value
+ * to put back, or null when a person typed what is there.
+ *
+ * Null means leave the field exactly as it is -- see `fieldBurstScan`, which
+ * makes that judgement and is the only thing that makes it.
+ */
+export function fieldSinkScan(
+  state: FieldSinkState,
+  at: number,
+  config: WedgeConfig = DEFAULT_WEDGE_CONFIG
+): { code: string; restore: string } | null {
+  const code = fieldBurstScan(state.burst, at, config);
+  return code === null ? null : { code, restore: state.restore };
+}
+
 /**
  * The code a burst holds once it has gone quiet, or null.
  *

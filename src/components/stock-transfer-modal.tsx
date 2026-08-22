@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
 import { QuantityField } from '@/components/quantity-field';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { ScanSafeField } from '@/components/scan-safe-field';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { listCategories } from '@/lib/categories';
 import { rowsToCsv } from '@/lib/csv';
 import { describePlanError } from '@/lib/entitlements';
@@ -79,6 +85,29 @@ export function StockTransferModal({
   const [error, setError] = useState<string | null>(null);
   const [repairing, setRepairing] = useState<string | null>(null);
 
+  // Scanning items into the move as they go into the box -- on web, and nowhere
+  // else.
+  //
+  // This restores what f31d9aa removed, on the one platform where it works, and
+  // the gate is the whole reason that revert happened. On Android a React
+  // Native Modal is a Dialog with a window of its own, so HardwareKeyboard's
+  // capture -- which wraps `currentActivity.window` -- never sees the keys, and
+  // with nothing swallowing it the scanner's trailing Enter pressed whichever
+  // control held focus and closed this sheet, discarding the basket.
+  //
+  // On web a Modal is a plain DOM node in the same document, the wedge listener
+  // is already attached there in the CAPTURE phase, and it already swallows a
+  // terminator that completed a scan (use-barcode-wedge.ts:150-155). Neither
+  // failure is reachable.
+  //
+  // Lifting this gate to native means teaching the native module about the
+  // Dialog's window first -- a change to make deliberately, in code that has
+  // already cost this app three keyboard bugs. Not here.
+  const canScanInSheet = Platform.OS === 'web';
+  const scanner = useScannerSettings();
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
+
   // Sheet tab
   const [sheetFile, setSheetFile] = useState<string | null>(null);
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
@@ -149,6 +178,8 @@ export function StockTransferModal({
     setPlan(null);
     setSheetFile(null);
     setSheetNotice(null);
+    setScanFeedback(null);
+    setScannerOpen(false);
     setTab('hand');
     onClose();
   }, [onClose]);
@@ -182,6 +213,72 @@ export function StockTransferModal({
     });
   };
   const quantityOf = (productId: string) => lines.find((l) => l.product.id === productId)?.quantity ?? 0;
+
+  // Read here rather than after the `visible` guard below, because the scan
+  // handler names the source store in what it says and runs from an event
+  // rather than from the render.
+  const destinationName = selectable.find((l) => l.id === toId)?.name ?? '';
+  const sourceName = selectable.find((l) => l.id === fromId)?.name ?? '';
+
+  // Every scan path ends here: the document listener, the search box, the
+  // quantity boxes, and the camera.
+  //
+  // This is the most accurate way to build a transfer -- the count comes off
+  // the physical goods rather than being typed from memory -- and it is why the
+  // search field says "or scan" on the platform that can do it.
+  //
+  // Each scan adds ONE, deliberately without clamping to what the source is
+  // recorded as holding: scanning is a physical count, so a tenth scan of an
+  // item the app thinks it has nine of is the shop telling us the count is
+  // wrong. That surfaces the repair box, which is the right conversation. A
+  // silent clamp would hide it.
+  //
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant -- same reasoning as inventory.tsx's handler.
+  const addByCode = (raw: string) => {
+    const resolution = resolveBarcode(sourceStock, raw);
+    if (resolution.status === 'not-found') {
+      setScanFeedback({ tone: 'error', message: `No product at ${sourceName || 'this store'} matches ${resolution.code}.` });
+      return;
+    }
+    if (resolution.status === 'ambiguous') {
+      setScanFeedback({ tone: 'warn', message: 'More than one product matches that code — add it by name instead.' });
+      return;
+    }
+    const { product } = resolution;
+    // Read off `lines` rather than computed inside the updater, because the
+    // banner below has to say the number this scan produced -- and an updater
+    // does not run until the render, long after this handler has finished.
+    // Counting there and reporting here said "1" on every scan of an item
+    // already in the basket, which is the one message the banner exists to get
+    // right. `lines` is not stale: this handler is rebuilt on every render and
+    // the wedge holds it in a ref, and two scans cannot share a tick -- each is
+    // a separate key event, with a render between them.
+    const moving = quantityOf(product.id) + 1;
+    setQuantity(product, moving);
+    // What the last scan did. Without it a scan is a number changing somewhere
+    // up the list, which is invisible when the item is already in the basket and
+    // scrolled out of view.
+    setScanFeedback({ tone: 'ok', message: `${product.name} — ${moving}` });
+  };
+
+  // Focus nowhere: the document listener, for this sheet's own lifetime.
+  //
+  // Only on the by-hand tab, which is the only one with a basket a scan can act
+  // on -- and not while this sheet's own camera scanner is up, so one code can
+  // never be read by both. Inventory's wedge is already standing down for the
+  // whole time this sheet is open (inventory.tsx's `enabled`), which is what
+  // stops a scan being read here AND as an adjustment to the product behind it.
+  useBarcodeWedge({
+    enabled: canScanInSheet && visible && tab === 'hand' && scanner.hardware && !scannerOpen,
+    onScan: addByCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
 
 
   // The count is what's wrong, not the move. Writing it here rather than making
@@ -377,9 +474,6 @@ export function StockTransferModal({
 
   if (!visible) return null;
 
-  const destinationName = selectable.find((l) => l.id === toId)?.name ?? '';
-  const sourceName = selectable.find((l) => l.id === fromId)?.name ?? '';
-
   return (
     <AppModal visible animationType="fade" transparent onRequestClose={closeAndReset}>
       <View style={styles.overlay}>
@@ -400,7 +494,7 @@ export function StockTransferModal({
                 style={[styles.segmentItem, tab === option && styles.segmentItemActive]}
               >
                 <Text style={[styles.segmentText, tab === option && styles.segmentTextActive]}>
-                  {option === 'hand' ? 'By hand' : 'From a sheet'}
+                  {option === 'hand' ? 'By hand' : 'By sheet'}
                 </Text>
               </Pressable>
             ))}
@@ -452,6 +546,7 @@ export function StockTransferModal({
                         repairing={repairing === line.product.id}
                         onChange={(quantity) => setQuantity(line.product, quantity)}
                         onRepairCount={(counted) => repairCount(line.product, counted)}
+                        onScan={canScanInSheet ? addByCode : null}
                       />
                     ))}
                   </View>
@@ -462,32 +557,39 @@ export function StockTransferModal({
                     is what made moving fifteen items mean typing fifteen
                     searches, which is why shops reached for Import instead.
 
-                    No "or scan one" here, and no wedge on this sheet, though
-                    scanning items as they go into the box would be the most
-                    accurate way to build a move. It cannot work yet: the native
-                    key capture wraps `currentActivity.window`
-                    (HardwareKeyboardModule.startCapture), and a React Native
-                    Modal on Android is a Dialog with a window of its own, so
-                    keys typed while this sheet is up never reach it. That is
-                    also why POS and Inventory stand their own scanners down
-                    while any sheet is open rather than scanning through one --
-                    the app has never scanned inside a modal.
+                    The placeholder says "or scan" ONLY where scanning works.
+                    On native it reads "Search a product" and promises nothing
+                    it cannot do -- that sentence is where f31d9aa ended, and
+                    the reason is recorded at `canScanInSheet` above.
 
-                    Offering it anyway would be worse than not: with no capture
-                    to swallow it, a scanner's trailing Enter presses whichever
-                    control happens to hold focus, which is the same failure the
-                    module's comment records as "observed opening the photo
-                    picker from Inventory". Making this work means teaching the
-                    module about the Dialog's window -- a native change, and one
-                    to make deliberately in the code that has already cost this
-                    app three keyboard bugs. */}
-                <TextInput
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Search a product"
-                  placeholderTextColor="#999999"
-                  style={styles.input}
-                />
+                    A scan INTO this box is not a search term: `ScanSafeField`
+                    gives the box back whatever it held before the burst --
+                    usually nothing, which is the box clearing -- and the
+                    product goes into the basket instead. */}
+                <View style={styles.searchRow}>
+                  <ScanSafeField
+                    value={search}
+                    onChangeText={setSearch}
+                    onScan={canScanInSheet ? addByCode : null}
+                    placeholder={canScanInSheet ? 'Search or scan a product' : 'Search a product'}
+                    placeholderTextColor="#999999"
+                    style={[styles.input, styles.searchField]}
+                  />
+                  {/* Web only, like everything else here. BarcodeScannerModal
+                      works in a browser -- only torch and haptics are
+                      native-gated -- and a modal over a modal is fine there. */}
+                  {canScanInSheet && scanner.camera ? (
+                    <Pressable
+                      onPress={() => setScannerOpen(true)}
+                      style={styles.scanPill}
+                      accessibilityRole="button"
+                      accessibilityLabel="Scan a barcode"
+                    >
+                      <Text style={styles.scanPillText}>Scan</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                <ScanFeedbackBanner feedback={scanFeedback} />
                 {categories.length > 0 && (
                   <ScrollView
                     horizontal
@@ -514,6 +616,7 @@ export function StockTransferModal({
                     repairing={repairing === product.id}
                     onChange={(quantity) => setQuantity(product, quantity)}
                     onRepairCount={(counted) => repairCount(product, counted)}
+                    onScan={canScanInSheet ? addByCode : null}
                   />
                 ))}
                 {lines.length === 0 && matches.length === 0 && (
@@ -582,6 +685,22 @@ export function StockTransferModal({
           </View>
         </View>
       </View>
+
+      {/* Over the sheet, which is only ever a browser here -- on native this is
+          never rendered at all. Continuous, because a move is a box of items
+          rather than one question: each scan adds one and the banner says what
+          it was, and the scanner closes when the shop says so. */}
+      {canScanInSheet && scannerOpen ? (
+        <BarcodeScannerModal
+          visible
+          onClose={() => setScannerOpen(false)}
+          onScan={addByCode}
+          mode="continuous"
+          title="Scan what is moving"
+          hint="Each scan adds one unit."
+          feedback={scanFeedback}
+        />
+      ) : null}
     </AppModal>
   );
 }
@@ -598,6 +717,7 @@ function ProductRow({
   repairing,
   onChange,
   onRepairCount,
+  onScan,
 }: {
   product: Product;
   quantity: number;
@@ -608,6 +728,15 @@ function ProductRow({
   repairing: boolean;
   onChange: (quantity: number) => void;
   onRepairCount: (counted: number) => void;
+  /**
+   * Where a scan that lands in this row's quantity box goes instead of into it.
+   *
+   * Not "handle the scan too" -- REPLACE what the field would have done with
+   * it. Every character of a barcode is a digit, so without this the box
+   * silently takes the code as its value and a move of 6 units becomes a move
+   * of 8,809,611,860,018. Null on native, where no scan can reach a sheet.
+   */
+  onScan: ((code: string) => void) | null;
 }) {
   const over = quantity > available;
 
@@ -630,6 +759,7 @@ function ProductRow({
             max={available}
             label={`Quantity of ${product.name}`}
             fillLabel="Move all"
+            onScan={onScan}
           />
         )}
       </View>
@@ -781,6 +911,12 @@ const styles = StyleSheet.create({
   chipScroll: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   chips: { flexDirection: 'row', gap: 6, paddingRight: 8, paddingTop: 10 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
+  // The search box and, on web, the camera button beside it. One row so the
+  // button cannot drift away from the field it belongs to.
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchField: { flex: 1 },
+  scanPill: { backgroundColor: '#111111', borderRadius: 10, height: 42, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  scanPillText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12.5 },
   help: { fontSize: 13, color: '#5E5D65', marginBottom: 10, lineHeight: 19 },
   helpStrong: { fontWeight: '800', color: '#111111' },
   notice: { fontSize: 12.5, fontWeight: '700', color: '#1B47B8', backgroundColor: '#E6EDFF', borderRadius: 10, padding: 10, marginTop: 14 },

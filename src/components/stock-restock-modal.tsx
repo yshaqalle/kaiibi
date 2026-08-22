@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import { BarcodeScannerModal } from '@/components/barcode-scanner-modal';
 import { CategoryChip } from '@/components/category-chip';
+import { ScanFeedbackBanner } from '@/components/scan-feedback-banner';
+import { ScanSafeField } from '@/components/scan-safe-field';
 import { StoreDropdown } from '@/components/store-dropdown';
 import { AppModal } from '@/components/ui/app-modal';
 import { useAuth } from '@/hooks/use-auth';
+import { useBarcodeWedge } from '@/hooks/use-barcode-wedge';
+import { useScannerSettings } from '@/hooks/use-scanner-settings';
+import { resolveBarcode, type ScanFeedback } from '@/lib/barcode';
 import { listCategories } from '@/lib/categories';
 import { extractErrorMessage } from '@/lib/checkout-errors';
 import { rowsToCsv } from '@/lib/csv';
@@ -50,12 +56,8 @@ import type { NewExpenseInput, Product } from '@/types/models';
 //     one, because they make stock-at-cost understate and gross profit
 //     overstate. A delivery is the one moment the true cost is on the desk.
 //
-// No scanning here, on any platform. Scanning was built into the Move sheet and
-// taken back out the next day: the native key capture wraps the activity's
-// window, and a React Native Modal on Android is a Dialog with a window of its
-// own, so keys typed while a sheet is up never reach it -- and with nothing
-// swallowing it, a scanner's trailing Enter presses whichever control holds
-// focus. The web-only camera button is a later job, deliberately separate.
+// Scanning here is WEB ONLY, and that is a deliberate platform gate rather than
+// an oversight -- see `canScanInSheet` below for the whole reason.
 
 type Tab = 'hand' | 'sheet';
 // Both typed fields are held as the RAW string the person typed, never as a
@@ -106,6 +108,27 @@ export function StockRestockModal({
   // delivery, but each tab decides for itself whether the question can even be
   // asked (see `handExpenseCents` and `planExpenseCents`).
   const [logExpense, setLogExpense] = useState(false);
+
+  // Scanning what arrived, on web and nowhere else.
+  //
+  // This is a deliberate platform gate rather than an oversight. Scanning
+  // inside a sheet was built and reverted (f31d9aa): on Android a React Native
+  // Modal is a Dialog with a window of its own, so HardwareKeyboard's capture --
+  // which wraps `currentActivity.window` -- never sees the keys, and with
+  // nothing swallowing it the scanner's trailing Enter pressed whichever
+  // control held focus and closed the sheet, discarding the basket.
+  //
+  // On web a Modal is a plain DOM node in the same document, the wedge listener
+  // is already attached there in the CAPTURE phase, and it already swallows a
+  // terminator that completed a scan (use-barcode-wedge.ts:150-155). Neither
+  // failure is reachable.
+  //
+  // Lifting this gate to native requires teaching the native module about the
+  // Dialog's window first. Do not do it here.
+  const canScanInSheet = Platform.OS === 'web';
+  const scanner = useScannerSettings();
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
 
   // Sheet tab
   const [sheetFile, setSheetFile] = useState<string | null>(null);
@@ -204,6 +227,8 @@ export function StockRestockModal({
     setSheetNotice(null);
     setPartialReceipt(null);
     setLogExpense(false);
+    setScanFeedback(null);
+    setScannerOpen(false);
     setTab('hand');
     onClose();
   }, [onClose]);
@@ -251,6 +276,74 @@ export function StockRestockModal({
   const removeLine = (productId: string) => {
     setLines((current) => current.filter((l) => l.product.id !== productId));
   };
+
+  // What every scan path here ends at: the document listener, the search box,
+  // the two number boxes, and the camera.
+  //
+  // Each scan adds ONE, or adds one to a line already in the basket -- scan,
+  // scan, scan through a box of the same item is the motion this is for, and it
+  // is the most accurate way to take in a delivery, because the count comes off
+  // the physical goods rather than off the invoice.
+  //
+  // Resolved against `catalogue`, which is the whole shop's products rather
+  // than what this store carries (see `load`): the thing in the van is very
+  // often the thing that hit zero here, and a scan of it must add a line, not
+  // report that nothing matches.
+  //
+  // Not wrapped in useCallback: `useBarcodeWedge` keeps it in a ref, so its
+  // identity is irrelevant -- same reasoning as inventory.tsx's handler.
+  const addByCode = (raw: string) => {
+    const resolution = resolveBarcode(catalogue, raw);
+    if (resolution.status === 'not-found') {
+      setScanFeedback({ tone: 'error', message: `No product matches ${resolution.code} — add it from Inventory first.` });
+      return;
+    }
+    if (resolution.status === 'ambiguous') {
+      setScanFeedback({ tone: 'warn', message: 'More than one product matches that code — add it by name instead.' });
+      return;
+    }
+    const { product } = resolution;
+    // Read off `lines` rather than computed inside the updater, because the
+    // banner below has to say the number this scan produced -- and an updater
+    // does not run until the render, long after this handler has finished.
+    // Counting there and reporting here said "1" on every scan of an item
+    // already in the basket, which is the one message the banner exists to get
+    // right. `lines` is not stale: this handler is rebuilt on every render and
+    // the wedge holds it in a ref, and two scans cannot share a tick -- each is
+    // a separate key event, with a render between them.
+    const existing = lines.find((l) => l.product.id === product.id);
+    // An unreadable or emptied box starts again at one rather than staying
+    // stuck: the scan is a unit that physically arrived, and the alternative is
+    // a scan that appears to do nothing.
+    const received = existing ? (readTypedQuantity(existing.quantity) ?? 0) + 1 : 1;
+    setLines((current) =>
+      current.some((l) => l.product.id === product.id)
+        ? current.map((l) => (l.product.id === product.id ? { ...l, quantity: String(received) } : l))
+        : [...current, { product, quantity: '1', cost: '' }]
+    );
+    // What the last scan did. Without it a scan is a number changing somewhere
+    // up the list, which is invisible once the item is in the basket and
+    // scrolled out of view.
+    setScanFeedback({ tone: 'ok', message: `${product.name} — ${received}` });
+  };
+
+  // Focus nowhere: the document listener, for this sheet's own lifetime.
+  //
+  // Only on the by-hand tab, which is the only one with a basket a scan can act
+  // on -- and not while this sheet's own camera scanner is up, so one code can
+  // never be read by both. Inventory's wedge is already standing down for the
+  // whole time this sheet is open (inventory.tsx's `enabled`), which is what
+  // stops a scan being read here AND as an adjustment to the product behind it.
+  useBarcodeWedge({
+    enabled: canScanInSheet && visible && tab === 'hand' && scanner.hardware && !scannerOpen,
+    onScan: addByCode,
+  });
+
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const timer = setTimeout(() => setScanFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [scanFeedback]);
 
   const matches = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -697,14 +790,40 @@ export function StockRestockModal({
                 {/* Deliberately NOT cleared when a product is added: clearing it
                     is what made moving fifteen items mean typing fifteen
                     searches on the Move sheet, which is why shops reached for
-                    Import instead. */}
-                <TextInput
-                  value={search}
-                  onChangeText={setSearch}
-                  placeholder="Search by name, SKU or barcode"
-                  placeholderTextColor="#999999"
-                  style={styles.input}
-                />
+                    Import instead.
+
+                    A scan INTO this box is a different thing from typing into
+                    it: the code is not a search term, so `ScanSafeField` gives
+                    the box back whatever it held before the burst -- usually
+                    nothing, which is the box clearing -- and the product goes
+                    into the basket instead. On native `onScan` is null and this
+                    is an ordinary text field. */}
+                <View style={styles.searchRow}>
+                  <ScanSafeField
+                    value={search}
+                    onChangeText={setSearch}
+                    onScan={canScanInSheet ? addByCode : null}
+                    placeholder={
+                      canScanInSheet ? 'Search or scan — name, SKU or barcode' : 'Search by name, SKU or barcode'
+                    }
+                    placeholderTextColor="#999999"
+                    style={[styles.input, styles.searchField]}
+                  />
+                  {/* Web only, like everything else here. BarcodeScannerModal
+                      works in a browser -- only torch and haptics are
+                      native-gated -- and a modal over a modal is fine there. */}
+                  {canScanInSheet && scanner.camera ? (
+                    <Pressable
+                      onPress={() => setScannerOpen(true)}
+                      style={styles.scanPill}
+                      accessibilityRole="button"
+                      accessibilityLabel="Scan a barcode"
+                    >
+                      <Text style={styles.scanPillText}>Scan</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+                <ScanFeedbackBanner feedback={scanFeedback} />
                 {categories.length > 0 && (
                   <ScrollView
                     horizontal
@@ -749,6 +868,7 @@ export function StockRestockModal({
                         onQuantity={(text) => setQuantity(line.product.id, text)}
                         onCost={(text) => setCost(line.product.id, text)}
                         onRemove={() => removeLine(line.product.id)}
+                        onScan={canScanInSheet ? addByCode : null}
                       />
                     ))}
                   </View>
@@ -846,6 +966,22 @@ export function StockRestockModal({
           </View>
         </View>
       </View>
+
+      {/* Over the sheet, which is only ever a browser here -- on native this is
+          never rendered at all. Continuous, because a delivery is a box of
+          items rather than one question: each scan adds one and the banner
+          says what it was, and the scanner closes when the shop says so. */}
+      {canScanInSheet && scannerOpen ? (
+        <BarcodeScannerModal
+          visible
+          onClose={() => setScannerOpen(false)}
+          onScan={addByCode}
+          mode="continuous"
+          title="Scan what arrived"
+          hint="Each scan adds one unit."
+          feedback={scanFeedback}
+        />
+      ) : null}
     </AppModal>
   );
 }
@@ -936,11 +1072,22 @@ function LineRow({
   onQuantity,
   onCost,
   onRemove,
+  onScan,
 }: {
   line: Line;
   onQuantity: (text: string) => void;
   onCost: (text: string) => void;
   onRemove: () => void;
+  /**
+   * Where a scan that lands in one of these boxes goes instead of into it.
+   *
+   * Not "handle the scan too" -- REPLACE what the field would have done with
+   * it. Every character of a barcode is a digit, so without this the box
+   * silently takes the code as its value and a delivery of 6 units is recorded
+   * as a delivery of 8,809,611,860,018. Null on native, where no scan can reach
+   * a sheet at all.
+   */
+  onScan: ((code: string) => void) | null;
 }) {
   return (
     <View style={styles.lineWrap}>
@@ -955,12 +1102,13 @@ function LineRow({
         <View style={styles.qtyPair}>
           <View>
             <Text style={styles.cap}>RECEIVED</Text>
-            <TextInput
+            <ScanSafeField
               // The typed text itself. Emptying it leaves an empty field and a
               // row that stays put with its unit cost intact; the footer says
               // what is missing and the commit waits.
               value={line.quantity}
               onChangeText={onQuantity}
+              onScan={onScan}
               // Not "0": readTypedQuantity rejects a typed zero (nothing
               // arrived is not a delivery line), so a greyed 0 would be the
               // field advertising the one value that keeps the button down.
@@ -979,9 +1127,10 @@ function LineRow({
           </View>
           <View>
             <Text style={styles.cap}>UNIT COST</Text>
-            <TextInput
+            <ScanSafeField
               value={line.cost}
               onChangeText={onCost}
+              onScan={onScan}
               placeholder={isUncosted(line.product) ? '0.00' : ((line.product.costCents ?? 0) / 100).toFixed(2)}
               placeholderTextColor="#999999"
               keyboardType="decimal-pad"
@@ -1149,6 +1298,12 @@ const styles = StyleSheet.create({
   chipScroll: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   chips: { flexDirection: 'row', gap: 6, paddingRight: 8, paddingTop: 10 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
+  // The search box and, on web, the camera button beside it. One row so the
+  // button cannot drift away from the field it belongs to.
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchField: { flex: 1 },
+  scanPill: { backgroundColor: '#111111', borderRadius: 10, height: 42, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  scanPillText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12.5 },
   fieldRow: { flexDirection: 'row', gap: 8 },
   fieldHalf: { flex: 1 },
   help: { fontSize: 13, color: '#5E5D65', marginBottom: 10, lineHeight: 19 },

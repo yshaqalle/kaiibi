@@ -314,15 +314,17 @@ export default function InventoryScreen() {
   // Off unless this store reports a wedge scanner, and off whenever a modal
   // owns the keyboard.
   useBarcodeWedge({
-    // The transfer and restock sheets are included because POS and Inventory
-    // stand their own scanners down while any sheet is open rather than
-    // scanning through one -- neither sheet runs a wedge of its own (see
-    // stock-transfer-modal.tsx and stock-restock-modal.tsx) -- and a scan must
-    // not also be read here as an adjustment to the product behind it. Written
-    // as the same conditions those sheets' `visible` uses -- `transferOpen` and
-    // `importOpen` are derived from `moveFromImport.value` and
-    // `actionFromStock.value`, which already cover a hand-over into either
-    // sheet, not only each sheet opened directly from its own door.
+    // The transfer and restock sheets are both excluded, and on web that
+    // exclusion is now load-bearing rather than merely tidy: each of them runs
+    // a wedge of its own to build its basket (see stock-transfer-modal.tsx and
+    // stock-restock-modal.tsx, where scanning is gated to web because a React
+    // Native Modal on Android is a Dialog whose window the key capture never
+    // sees). One scan must never be read BOTH as a line in that basket and as
+    // an adjustment to the product behind it. Written as the same conditions
+    // those sheets' `visible` uses -- `transferOpen` and `importOpen` are
+    // derived from `moveFromImport.value` and `actionFromStock.value`, which
+    // already cover a hand-over into either sheet, not only each sheet opened
+    // directly from its own door.
     enabled:
       scanner.hardware &&
       !showAddModal &&

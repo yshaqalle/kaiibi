@@ -68,6 +68,14 @@ jest.mock('@/lib/products', () => ({
 const { receiveStock } = jest.requireMock('@/lib/products') as { receiveStock: jest.Mock };
 
 jest.mock('@/lib/pick-csv-file', () => ({ pickCsvFile: jest.fn() }));
+
+// The sheet's own wedge (web only, and off entirely on the platform Jest
+// reports) binds to the screen being in FRONT, through expo-router's
+// `useFocusEffect` -- which asks for a navigation object this renderer has no
+// tree to provide. Nothing below is about scanning, so the hook is stubbed
+// rather than the whole component being wrapped in a navigator it never has in
+// the app either.
+jest.mock('@/hooks/use-barcode-wedge', () => ({ useBarcodeWedge: () => {} }));
 const { pickCsvFile } = jest.requireMock('@/lib/pick-csv-file') as { pickCsvFile: jest.Mock };
 
 // Mocked for the same reason as @/lib/products: the real module builds the
