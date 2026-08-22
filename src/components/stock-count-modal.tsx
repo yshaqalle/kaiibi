@@ -734,23 +734,38 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 )}
 
                 {lines.length > 0 && (
-                  <View style={styles.basket}>
-                    {readings.map((reading) => (
-                      <LineRow
-                        key={reading.line.product.id}
-                        line={reading.line}
-                        variance={reading.variance}
-                        reasonOpen={reasonOpenFor === reading.line.product.id}
-                        onToggleReason={() =>
-                          setReasonOpenFor((current) =>
-                            current === reading.line.product.id ? null : reading.line.product.id
-                          )
-                        }
-                        onCounted={(text) => setCounted(reading.line.product.id, text)}
-                        onReason={(reason) => setReason(reading.line.product.id, reason)}
-                        onRemove={() => removeLine(reading.line.product.id)}
-                      />
-                    ))}
+                  <View style={styles.basketWrap}>
+                    {/* One COUNTED / OFF BY / WHY header for the whole basket,
+                        not one per row -- see LineRow, which no longer renders
+                        its own cap. Widths (62 / 58 / 108) and the 8px gap
+                        mirror qtyPair's own field / varianceBox / reasonChip so
+                        the three labels sit directly over their columns. */}
+                    <View style={styles.columnHeaderRow}>
+                      <View style={styles.columnHeaderSpacer} />
+                      <View style={styles.columnHeaderCaps}>
+                        <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
+                        <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
+                        <Text style={[styles.cap, styles.capChip]}>WHY</Text>
+                      </View>
+                    </View>
+                    <View style={styles.basketList}>
+                      {readings.map((reading) => (
+                        <LineRow
+                          key={reading.line.product.id}
+                          line={reading.line}
+                          variance={reading.variance}
+                          reasonOpen={reasonOpenFor === reading.line.product.id}
+                          onToggleReason={() =>
+                            setReasonOpenFor((current) =>
+                              current === reading.line.product.id ? null : reading.line.product.id
+                            )
+                          }
+                          onCounted={(text) => setCounted(reading.line.product.id, text)}
+                          onReason={(reason) => setReason(reading.line.product.id, reason)}
+                          onRemove={() => removeLine(reading.line.product.id)}
+                        />
+                      ))}
+                    </View>
                   </View>
                 )}
 
@@ -927,14 +942,17 @@ function LineRow({
   onReason: (reason: StockCountReason) => void;
   onRemove: () => void;
 }) {
-  const varianceStyle =
-    variance === null || variance === 0
-      ? styles.lineMeta
-      : variance > 0
-        ? styles.varianceUp
-        : styles.varianceDown;
+  // One of three tints, never colour alone: the sign inside `varianceText`
+  // (−2 / +3 / 0) survives for a deutan viewer even where red and green do
+  // not, so the box's background and the box's own text colour always agree
+  // on the same direction rather than one of them carrying it alone.
+  const direction = variance === null || variance === 0 ? 'flat' : variance > 0 ? 'up' : 'down';
+  const varianceBoxStyle =
+    direction === 'up' ? styles.varianceBoxUp : direction === 'down' ? styles.varianceBoxDown : styles.varianceBoxFlat;
+  const varianceColorStyle =
+    direction === 'up' ? styles.varianceUp : direction === 'down' ? styles.varianceDown : styles.varianceFlat;
   return (
-    <View style={styles.lineWrap}>
+    <View style={styles.basketCard}>
       <View style={styles.lineRow}>
         <View style={styles.lineText}>
           <Text style={styles.lineName}>{line.product.name}</Text>
@@ -944,19 +962,18 @@ function LineRow({
           </Pressable>
         </View>
         <View style={styles.qtyPair}>
-          <View>
-            <Text style={styles.cap}>COUNTED</Text>
-            <TextInput
-              value={line.counted}
-              onChangeText={onCounted}
-              keyboardType="number-pad"
-              inputMode="numeric"
-              selectTextOnFocus
-              aria-label={`Counted units of ${line.product.name}`}
-              style={styles.qtyInput}
-            />
+          <TextInput
+            value={line.counted}
+            onChangeText={onCounted}
+            keyboardType="number-pad"
+            inputMode="numeric"
+            selectTextOnFocus
+            aria-label={`Counted units of ${line.product.name}`}
+            style={styles.qtyInput}
+          />
+          <View style={[styles.varianceBox, varianceBoxStyle]}>
+            <Text style={[styles.varianceText, varianceColorStyle]}>{varianceText(variance)}</Text>
           </View>
-          <Text style={[styles.varianceText, varianceStyle]}>{varianceText(variance)}</Text>
           <Pressable
             onPress={onToggleReason}
             style={styles.reasonChip}
@@ -1234,6 +1251,9 @@ const styles = StyleSheet.create({
   basketCapLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#6B6B73' },
   basketCapTotal: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
 
+  // Search-result rows only (MatchRow) -- the by-hand tab's already-counted
+  // basket rows use `basketCard` below instead, so re-tinting the basket
+  // cannot also re-tint the picker above it.
   lineWrap: { borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
   lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10 },
   lineText: { flex: 1 },
@@ -1246,10 +1266,27 @@ const styles = StyleSheet.create({
   removeText: { fontSize: 11.5, fontWeight: '700', color: '#9CA3AF' },
   empty: { fontSize: 13, color: '#9CA3AF', marginTop: 12 },
 
-  qtyPair: { flexDirection: 'row', gap: 8, alignItems: 'flex-end' },
-  cap: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: '#9CA3AF', marginBottom: 3 },
+  // The by-hand basket: one card per product (`basketCard`), 8px of air
+  // between them (`basketList`'s own gap), and one column header
+  // (`columnHeaderRow`) above the whole stack instead of a `cap` repeated on
+  // every row.
+  basketWrap: { marginTop: 16 },
+  columnHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingBottom: 8 },
+  columnHeaderSpacer: { flex: 1 },
+  columnHeaderCaps: { flexDirection: 'row', gap: 8 },
+  capField: { width: 62, textAlign: 'center' },
+  capVariance: { width: 58, textAlign: 'center' },
+  capChip: { width: 108, textAlign: 'center' },
+  basketList: { gap: 8 },
+  basketCard: { backgroundColor: '#F7F7F7', borderRadius: 14, paddingHorizontal: 14 },
+
+  qtyPair: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  cap: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: '#9CA3AF' },
   qtyInput: {
-    backgroundColor: '#F2F2F2',
+    // White, not the field's old grey -- the basket row underneath it is
+    // grey now (`basketCard`), and the field has to stay the one thing on
+    // the row that still reads as typeable.
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     height: 38,
     width: 62,
@@ -1259,10 +1296,25 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   costInput: { width: 78 },
-  varianceText: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'], minWidth: 30, textAlign: 'right' },
+  varianceText: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  // Sign and tint together, never the tint alone -- '−2' / '+3' / '0' read the
+  // same to a deutan viewer whether or not the colour behind them survives a
+  // refactor.
+  varianceBox: { width: 58, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+  varianceBoxUp: { backgroundColor: '#E9F5EE' },
+  varianceBoxDown: { backgroundColor: '#FBEDEE' },
+  varianceBoxFlat: { backgroundColor: '#FFFFFF' },
   varianceUp: { color: '#007A38' },
   varianceDown: { color: '#A3202F' },
-  reasonChip: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  varianceFlat: { color: '#9CA3AF' },
+  reasonChip: {
+    backgroundColor: '#F2F2F2',
+    borderRadius: 999,
+    width: 108,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   reasonChipText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
   reasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 10 },
   reasonOption: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },

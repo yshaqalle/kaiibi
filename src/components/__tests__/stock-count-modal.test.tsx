@@ -225,18 +225,68 @@ describe('a line added to a count', () => {
   // style attached to it survives a refactor. Caught a real mutation: with
   // the red/green styling deleted, every one of this file's other cases
   // stayed green because none of them look at style.
-  it('marks a shortfall in the shortfall colour, and a surplus in a different one', async () => {
+  //
+  // The variance is now a tinted BOX (varianceBox + varianceBoxUp/Down/Flat),
+  // not a bare Text -- so the tint itself is read off the box the number sits
+  // inside, one level up from the Text node the number is found on. Reading
+  // only the text colour (as the old version of this test did) would stay
+  // green if the box's background were deleted entirely, since the number
+  // itself is still legible without it -- exactly the regression the tint
+  // exists to prevent for a reader who cannot rely on colour alone. Verified
+  // by mutation: see the report.
+  it('marks a shortfall in the shortfall tint, and a surplus in a different one', async () => {
     const tree = await open();
     await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8'); // App says 11, counted 8: a shortfall of 3.
-    const shortfall = tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')[0];
-    expect(StyleSheet.flatten(shortfall.props.style).color).toBe('#A3202F');
+    const shortfallText = tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')[0];
+    const shortfallBox = shortfallText.parent!;
+    expect(StyleSheet.flatten(shortfallBox.props.style).backgroundColor).toBe('#FBEDEE');
+    expect(StyleSheet.flatten(shortfallText.props.style).color).toBe('#A3202F');
 
     await backspace(tree, COUNTED, 1);
     await type(tree, COUNTED, '14'); // Counted 14: a surplus of 3.
-    const surplus = tree.root.findAll((n) => n.type === Text && textFrom(n) === '+3')[0];
-    expect(StyleSheet.flatten(surplus.props.style).color).toBe('#007A38');
-    expect(StyleSheet.flatten(surplus.props.style).color).not.toBe('#A3202F');
+    const surplusText = tree.root.findAll((n) => n.type === Text && textFrom(n) === '+3')[0];
+    const surplusBox = surplusText.parent!;
+    expect(StyleSheet.flatten(surplusBox.props.style).backgroundColor).toBe('#E9F5EE');
+    expect(StyleSheet.flatten(surplusText.props.style).color).toBe('#007A38');
+    expect(StyleSheet.flatten(surplusBox.props.style).backgroundColor).not.toBe('#FBEDEE');
+    expect(StyleSheet.flatten(surplusText.props.style).color).not.toBe('#A3202F');
+  });
+
+  // The sign is the accessibility fallback for the tint above -- '−3' and
+  // '+3' must stay distinguishable by glyph alone, never only by the box's
+  // colour. Pinned separately from the tint test so a mutation that drops the
+  // sign (but leaves the tint and the magnitude intact) still goes red.
+  it('keeps the sign on the variance regardless of direction', async () => {
+    const tree = await open();
+    await backspace(tree, COUNTED, 2);
+    await type(tree, COUNTED, '8'); // App says 11, counted 8: a shortfall of 3.
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')).toHaveLength(1);
+    // The bare, unsigned magnitude must not appear at all -- a mutation that
+    // drops the minus (but keeps the magnitude and the tint) would otherwise
+    // still read as a plausible "3" in the same spot.
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === '3')).toHaveLength(0);
+
+    await backspace(tree, COUNTED, 1);
+    await type(tree, COUNTED, '14'); // Counted 14: a surplus of 3.
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === '+3')).toHaveLength(1);
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === '3')).toHaveLength(0);
+  });
+
+  // The regression this whole change exists to prevent: COUNTED used to sit
+  // above every field, once per row, which is what made the first child of
+  // `qtyPair` taller than its neighbours in the first place. It now renders
+  // once, as a header over the whole basket -- pinned here with two lines in
+  // the basket, where "once per row" and "once per basket" actually disagree.
+  it('renders the COUNTED header once for the whole basket, not once per row', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await act(async () => pressableLabelled(tree, 'Count QA other').props.onPress());
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'COUNTED')).toHaveLength(1);
+    expect(allText(tree)).toContain('OFF BY');
+    expect(allText(tree)).toContain('WHY');
   });
 });
 
