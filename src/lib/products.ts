@@ -1,7 +1,7 @@
 import { containsPattern, orFilterValue } from '@/lib/like-pattern';
 import { uploadImage } from '@/lib/storage';
 import { supabase } from '@/lib/supabase';
-import type { NewProductInput, Product, ProductLocationStock } from '@/types/models';
+import type { NewProductInput, Product, ProductLocationStock, StockReceipt, StockReceiptItem } from '@/types/models';
 
 // `products_shop_barcode_key` (migration 20260819000000) makes a barcode unique
 // per shop. Raw, that reads as "duplicate key value violates unique constraint
@@ -171,6 +171,35 @@ export async function transferStock(
     p_to_location_id: toLocationId,
     p_items: items.map((item) => ({ product_id: item.productId, quantity: item.quantity })),
     p_note: note ?? null,
+  });
+  if (error) throw error;
+  return data as string;
+}
+
+// Takes in a delivery: adds units to one store and records what arrived, in one
+// transaction. The counterpart to transferStock -- that one relocates units and
+// keeps the shop's total the same, this one increases it.
+//
+// `unitCostCents` null means "I didn't say", and leaves the product's cost
+// exactly as it was. A number means "this is what it costs me now" and
+// overwrites it, because a delivery is the one moment the true cost is at hand.
+export async function receiveStock(
+  shopId: string,
+  locationId: string,
+  items: { productId: string; quantity: number; unitCostCents: number | null }[],
+  options?: { supplierName?: string | null; reference?: string | null; note?: string | null }
+): Promise<string> {
+  const { data, error } = await supabase.rpc('receive_stock', {
+    p_shop_id: shopId,
+    p_location_id: locationId,
+    p_items: items.map((item) => ({
+      product_id: item.productId,
+      quantity: item.quantity,
+      unit_cost_cents: item.unitCostCents,
+    })),
+    p_supplier_name: options?.supplierName ?? null,
+    p_reference: options?.reference ?? null,
+    p_note: options?.note ?? null,
   });
   if (error) throw error;
   return data as string;
