@@ -9,7 +9,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   // their drawer count. Everyone with pos.access already opens and closes their
   // own — this is only the supervisory half.
   { label: 'POS', permissions: ['pos.access', 'registers.manage', 'discounts.apply', 'discounts.manual'] },
-  { label: 'Inventory', permissions: ['inventory.view', 'inventory.edit'] },
+  { label: 'Inventory', permissions: ['inventory.view', 'inventory.edit', 'inventory.count', 'inventory.transfer'] },
   {
     label: 'People',
     permissions: ['customers.view', 'customers.edit', 'staff.manage', 'people.timeoff.approve', 'people.payroll.manage', 'people.timesheet.view', 'people.schedule.manage'],

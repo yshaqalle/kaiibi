@@ -189,3 +189,52 @@ describe('the cashier scope this gate exists to enforce', () => {
     expect(permissionForPath('/inventory')!.some((p) => cashier.includes(p))).toBe(true);
   });
 });
+
+// The nesting is real, not visual: a role granting the child has to resolve
+// the parent too, or someone who can count could not open the screen they
+// count on. expandPermissions folds ONE level, so the parent's own implication
+// (inventory.view) has to be listed here as well -- writing only
+// ['inventory.edit'] and expecting the view to come along is the bug this case
+// exists to catch.
+describe('the inventory verbs', () => {
+  it('resolves counting into editing and viewing', () => {
+    expect(expandPermissions(['inventory.count'])).toEqual([
+      'inventory.view',
+      'inventory.edit',
+      'inventory.count',
+    ]);
+  });
+
+  it('resolves transferring the same way', () => {
+    expect(expandPermissions(['inventory.transfer'])).toEqual([
+      'inventory.view',
+      'inventory.edit',
+      'inventory.transfer',
+    ]);
+  });
+
+  // What the migration's backfill produces, read back through the client.
+  it('leaves a backfilled stockroom role holding all four', () => {
+    expect(expandPermissions(['inventory.view', 'inventory.edit', 'inventory.count', 'inventory.transfer'])).toEqual([
+      'inventory.view',
+      'inventory.edit',
+      'inventory.count',
+      'inventory.transfer',
+    ]);
+  });
+
+  // The seeded Cashier is already read-only and stays that way -- the gap this
+  // split closes is inside edit, not at the edge of it.
+  it('gives a cashier neither verb', () => {
+    expect(expandPermissions(CASHIER)).not.toContain('inventory.count');
+    expect(expandPermissions(CASHIER)).not.toContain('inventory.transfer');
+  });
+
+  // Task 8's editor indents from this, and cascades a parent's OFF through it.
+  it('names its parent so the editor can nest it', () => {
+    const byKey = new Map(PERMISSIONS.map((p) => [p.key, p]));
+    expect(byKey.get('inventory.count')?.parent).toBe('inventory.edit');
+    expect(byKey.get('inventory.transfer')?.parent).toBe('inventory.edit');
+    expect(byKey.get('inventory.edit')?.parent).toBeUndefined();
+  });
+});

@@ -12,6 +12,8 @@ export type Permission =
   | 'pos.access'
   | 'inventory.view'
   | 'inventory.edit'
+  | 'inventory.count'
+  | 'inventory.transfer'
   | 'sales.view'
   | 'sales.edit'
   | 'sales.refund'
@@ -33,10 +35,43 @@ export type Permission =
   | 'discounts.apply'
   | 'discounts.manual';
 
-export const PERMISSIONS: { key: Permission; label: string; description: string }[] = [
+export const PERMISSIONS: {
+  key: Permission;
+  label: string;
+  description: string;
+  // Which permission this one sits UNDER in the role editor. Presentation and
+  // cascade only -- the stored array is always explicit, and the database reads
+  // the child string on its own (save_stock_count checks 'inventory.count', not
+  // 'inventory.edit'). Set on a child, absent on everything else.
+  parent?: Permission;
+}[] = [
   { key: 'pos.access', label: 'Access POS', description: 'Use the register to ring up sales and take payment.' },
   { key: 'inventory.view', label: 'View inventory', description: 'See the product list and stock levels.' },
-  { key: 'inventory.edit', label: 'Edit inventory', description: 'Add, edit, or delete products and adjust stock.' },
+  {
+    key: 'inventory.edit',
+    label: 'Change stock',
+    // Says what it covers TODAY rather than what the split would like it to
+    // cover. The mockup draws a separate "Edit the catalogue" row above this
+    // one, and until that exists inventory.edit is still what the products
+    // insert/update/delete policies check (0024_permission_gates.sql:85-91) --
+    // so a description naming only the stock verbs would be a lie on the one
+    // screen a shop reads to decide who gets what.
+    description:
+      'Receive deliveries, count, and move between stores. Also covers adding and editing products, until catalogue editing gets its own permission.',
+  },
+  {
+    key: 'inventory.count',
+    label: '… count and write off',
+    description:
+      'Record a stock-take, including marking units as damaged, expired or lost. There is no invoice behind a write-off.',
+    parent: 'inventory.edit',
+  },
+  {
+    key: 'inventory.transfer',
+    label: '… move between stores',
+    description: 'Send units from one branch to another.',
+    parent: 'inventory.edit',
+  },
   { key: 'sales.view', label: 'View sales history', description: 'See past sales and receipts.' },
   { key: 'sales.edit', label: 'Edit/delete sales', description: 'Edit or delete a past sale.' },
   { key: 'sales.refund', label: 'Refund sales', description: 'Issue refunds against past sales and restore stock. Independent of sales editing.' },
@@ -67,6 +102,15 @@ export const ALL_PERMISSIONS: Permission[] = PERMISSIONS.map((p) => p.key);
 // permission set is always the explicit array.
 export const IMPLIED_PERMISSIONS: Partial<Record<Permission, Permission[]>> = {
   'inventory.edit': ['inventory.view'],
+  // Both levels are listed, not just the parent. expandPermissions folds
+  // exactly ONE level (it does not walk the graph), so 'inventory.edit' alone
+  // here would resolve a count-only role as unable to open Inventory at all --
+  // the screen it counts on. Listing both is also what makes roles-panel's
+  // `dependents` filter work in the other direction: turning "Change stock"
+  // off finds every permission that implies it and clears them too, which is
+  // the nesting being real rather than visual.
+  'inventory.count': ['inventory.edit', 'inventory.view'],
+  'inventory.transfer': ['inventory.edit', 'inventory.view'],
   'sales.edit': ['sales.view'],
   'sales.refund': ['sales.view'],
   'customers.edit': ['customers.view'],

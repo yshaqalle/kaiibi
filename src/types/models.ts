@@ -680,6 +680,7 @@ export type NewVendorInput = Omit<Vendor, 'id' | 'shopId' | 'createdAt' | 'updat
 
 export type ExpenseCategory =
   | 'inventory_purchase'
+  | 'stock_loss'
   | 'rent'
   | 'utilities'
   | 'salaries_wages'
