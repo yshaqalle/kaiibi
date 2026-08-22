@@ -39,7 +39,7 @@ import type { CsvColumn } from '@/lib/csv';
 import { hasMultipleLocations } from '@/lib/location-selection';
 import { isUncosted } from '@/lib/product-costing';
 import { createProduct, findProductsByCode, listProducts, setLocationStock, updateProduct } from '@/lib/products';
-import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, runProductsImport } from '@/lib/products-import';
+import { PRODUCTS_EXAMPLE_ROWS, PRODUCTS_TEMPLATE_COLUMNS, productImportHatches, runProductsImport } from '@/lib/products-import';
 import type { Product } from '@/types/models';
 import { AppModal } from '@/components/ui/app-modal';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
@@ -105,17 +105,20 @@ export default function InventoryScreen() {
   // The picker only appears once there is a second branch.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
   const showLocationFilter = hasMultipleLocations(locations);
-  // The import sheet's escape hatch hands over to another sheet: `elsewhere`
-  // opens `restockFromImport` below, whose sheet is the restock sheet. This
-  // one, `moveFromImport`, has no opener anywhere in this file -- Import
-  // offers only "Restock instead" now, and the Stock door's own Move goes
-  // through `actionFromStock`, not this hook. It stays wired into
-  // `transferOpen`, `CsvImportModal`'s suppression/dismissal, and
-  // `StockTransferModal`'s close handler per the plan, so a future Import
-  // escape hatch to Move can be turned on by adding one `.open()` call --
-  // whether it should be is an open product question, not settled here.
-  // Held by useStagedSheet rather than plain state because that is a sheet
-  // opened from inside a sheet, which iOS drops without a word.
+  // The import sheet's two escape hatches, each handing over to another sheet.
+  // `elsewhere` (see `productImportHatches`) opens the restock sheet through
+  // `restockFromImport` and, for a multi-store shop only, the transfer sheet
+  // through `moveFromImport` -- because the rejection it answers cannot tell
+  // "more arrived" from "put these at the other branch", so it offers both.
+  // The Stock door's own Restock and Move go through `actionFromStock`, not
+  // these; these are only the handover from inside Import.
+  //
+  // Held by useStagedSheet rather than plain state because each is a sheet
+  // opened from inside a sheet, which iOS drops without a word. Both are wired
+  // identically -- into `showRestock`/`transferOpen`, `CsvImportModal`'s
+  // suppression and `onDismissed`, and the target sheet's close handler -- and
+  // a hatch missing any one of those is a button that does nothing on iOS
+  // alone, where nothing is logged when it happens.
   const moveFromImport = useStagedSheet<true>();
   const restockFromImport = useStagedSheet<true>();
   // Where a newly imported product's opening stock actually lands: the
@@ -415,21 +418,32 @@ export default function InventoryScreen() {
         // 20260810000000), not a choice this screen makes -- so naming the
         // store here is the honest thing rather than offering a picker that
         // could not be honoured.
-        purpose: showLocationFilter
-          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Already sell it and more has arrived? That's a Restock — importing it again would count the same units twice. Want it at another store? That's a Move.`
-          : `For adding products you don't sell yet. Already sell it and more has arrived? That's a Restock — importing it again would count the same units twice.`,
-        // Restock, not Move: this is the mistake the whole feature exists to
-        // prevent -- a shop reaching for product import to add stock to a
-        // store it already stocked, which counts the same units twice (see
-        // stock-move-import.ts's header comment). Move is still named in the
-        // `purpose` text above for the multi-store case, but only Restock gets
-        // a button here.
         //
-        // Staged rather than a plain setShowRestock(true): this button lives
+        // Only what prose alone can say. This paragraph used to carry the whole
+        // explanation -- "that's a Restock", "that's a Move" -- because there
+        // was one button and Move had no other way to be named. The buttons
+        // below now say both, so repeating them here would make the reader
+        // choose between a sentence and a control that mean the same thing.
+        // What stays is what no button says: who this import is for, where
+        // opening stock lands, and the consequence of importing anyway.
+        purpose: showLocationFilter
+          ? `For adding products you don't sell yet. Stock on a new product starts at ${primaryLocationName}. Importing something you already carry would count the same units twice.`
+          : `For adding products you don't sell yet. Importing something you already carry would count the same units twice.`,
+        // Both doors, not one. The rejection fires on "you already carry this
+        // product", which is the same row whether the shop means more units
+        // arriving or the same units at another branch -- so it asks rather
+        // than picking. Move is withheld from a single-store shop inside
+        // `productImportHatches`, which is where that gate is tested.
+        //
+        // Staged rather than a plain setShowRestock(true): these buttons live
         // INSIDE the import sheet, and iOS drops a modal presented while
-        // another is still up -- so on a phone it would have done nothing at
+        // another is still up -- so on a phone they would have done nothing at
         // all, silently. `fromModal` is true because the import always is one.
-        elsewhere: { label: 'Restock instead', onPress: () => restockFromImport.open(true, true) },
+        elsewhere: productImportHatches({
+          locations,
+          onRestock: () => restockFromImport.open(true, true),
+          onMove: () => moveFromImport.open(true, true),
+        }),
         // Headroom is read at import time rather than captured on render, so a
         // long-open screen doesn't import against a stale allowance.
         run: (parsed) =>

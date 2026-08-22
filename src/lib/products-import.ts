@@ -1,11 +1,12 @@
 import { normalizeBarcode } from '@/lib/barcode';
 import { createBrand } from '@/lib/brands';
 import { createCategory } from '@/lib/categories';
+import { hasMultipleLocations } from '@/lib/location-selection';
 import type { ParsedCsv } from '@/lib/csv';
 import type { ImportReport, RejectedRow } from '@/lib/import-shared';
 import { createProducts, listProducts } from '@/lib/products';
 import { createTag } from '@/lib/tags';
-import type { NewProductInput, Product } from '@/types/models';
+import type { NewProductInput, Product, ShopLocation } from '@/types/models';
 
 export const PRODUCTS_TEMPLATE_COLUMNS: { header: string; required: boolean }[] = [
   { header: 'Name', required: true },
@@ -83,6 +84,54 @@ function parseWholeNumber(value: string | undefined): number | null {
   if (!value?.trim()) return null;
   const n = Number(value.trim());
   return Number.isFinite(n) && Number.isInteger(n) ? n : null;
+}
+
+// Where someone who reached product import by mistake should have gone
+// instead, as `CsvImportModal`'s `elsewhere` list.
+//
+// TWO doors, and the app cannot pick between them. The rejection fires on one
+// condition -- you already carry this product -- and that identical row means
+// "40 more of these just arrived" (Restock) or "I want these at the second
+// branch" (Move) depending only on what the shop is thinking. Naming Move in
+// prose while offering a button for Restock alone is what this replaces: the
+// shop read the right answer and had nothing to press.
+//
+// Restock first, because `CsvImportModal` gives the first entry the loud
+// treatment and these are not equals -- more of something arriving is ordinary,
+// redistributing between branches is occasional.
+//
+// Move only once there is a second store. A single-store shop has nowhere to
+// move TO, so the control would be a dead end -- the same gate as the Stock
+// door's own Move row (`showMove`) and the inventory header's Move pill. That
+// shop must keep seeing exactly one control.
+//
+// The labels name the SITUATION, not the tool: someone who picked the wrong
+// door does not yet know that "Restock" and "Move" are the words for what they
+// want. No trailing arrow -- `CsvImportModal` appends it.
+//
+// Takes the stores rather than a `multiStore` boolean for two reasons. It puts
+// the gate itself under test -- "a shop with one open branch and one closed one
+// is a single-store shop" is `hasMultipleLocations`'s rule, and a caller that
+// passed `locations.length > 1` would be wrong in a way a boolean parameter
+// would hide. And the React Compiler bails out of the whole inventory screen
+// when a locally-derived value is handed to a call it cannot see into
+// ("existing memoization could not be preserved"), which the screen's own
+// `showLocationFilter` is; `locations` comes from a hook and is already frozen.
+//
+// Here rather than inline in inventory.tsx so the gate is reachable by a test:
+// the screen it lives on cannot be rendered without auth, Supabase and a
+// router, and this gate silently costing a shop its Move button is exactly the
+// regression nothing else would catch.
+export function productImportHatches({ locations, onRestock, onMove }: {
+  locations: readonly ShopLocation[];
+  onRestock: () => void;
+  onMove: () => void;
+}): { label: string; onPress: () => void }[] {
+  const hatches = [{ label: 'More of something you already sell? Restock', onPress: onRestock }];
+  if (hasMultipleLocations(locations)) {
+    hatches.push({ label: 'Already sell it, want it at another store? Move', onPress: onMove });
+  }
+  return hatches;
 }
 
 // Rejects any row whose name, SKU or barcode collides with an existing product,

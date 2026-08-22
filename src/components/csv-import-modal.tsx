@@ -33,10 +33,28 @@ export type ImportEntityConfig<T> = {
   // units and inflates the count. Saying so up front is cheaper than a
   // rejection they read afterwards.
   purpose?: string;
-  // An escape hatch to whatever the right tool is, offered both up front and
+  // Escape hatches to whatever the right tool is, offered both up front and
   // again on the rejection list, since that is where someone actually meets the
-  // problem. Products point at Restock.
-  elsewhere?: { label: string; onPress: () => void };
+  // problem.
+  //
+  // A LIST, not one slot. The products rejection fires on a single condition --
+  // you already carry this product -- and that one row means two different
+  // things depending only on what the shop is thinking: more units arriving
+  // (Restock) or the same units at another branch (Move). Same name, same SKU,
+  // same collision; the app has no signal that separates them. So it offers
+  // both rather than picking, and a single slot silently costs whichever one it
+  // isn't pointed at.
+  //
+  // Order carries weight. The first entry keeps the loud treatment and the rest
+  // take a quieter outline, because these are not equals: more of something
+  // arriving is the ordinary case, redistributing between branches is
+  // occasional, and a one-store shop is handed only the first. Two identical
+  // buttons would read as a choice between equals.
+  //
+  // Labels should name the SITUATION, not the tool -- someone who picked the
+  // wrong door does not yet know the vocabulary, which is why they are here.
+  // The ` →` is appended below, so a label must not carry its own.
+  elsewhere?: { label: string; onPress: () => void }[];
 };
 
 type Step = 'idle' | 'parsed' | 'importing' | 'done';
@@ -125,16 +143,23 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported, onDism
 
           <ScrollView style={styles.scroll}>
             {config.purpose ? <Text style={styles.purpose}>{config.purpose}</Text> : null}
-            {config.elsewhere ? (
-              <Pressable
-                onPress={() => {
-                  close();
-                  config.elsewhere!.onPress();
-                }}
-                style={styles.elsewhere}
-              >
-                <Text style={styles.elsewhereText}>{config.elsewhere.label} →</Text>
-              </Pressable>
+            {config.elsewhere?.length ? (
+              <View style={styles.elsewhereGroup}>
+                {config.elsewhere.map((hatch, i) => (
+                  <Pressable
+                    key={hatch.label}
+                    onPress={() => {
+                      close();
+                      hatch.onPress();
+                    }}
+                    style={i === 0 ? styles.elsewhere : [styles.elsewhere, styles.elsewhereQuiet]}
+                  >
+                    <Text style={i === 0 ? styles.elsewhereText : [styles.elsewhereText, styles.elsewhereQuietText]}>
+                      {hatch.label} →
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             ) : null}
 
             <Text style={styles.sectionLabel}>COLUMNS</Text>
@@ -196,18 +221,22 @@ export function CsvImportModal<T>({ visible, onClose, config, onImported, onDism
                     {/* Offered again here, because this is where someone
                         actually meets the problem -- reading the reason on
                         every row is the moment the right tool is worth
-                        naming, not the screen they skimmed on the way in. */}
-                    {config.elsewhere ? (
+                        naming, not the screen they skimmed on the way in.
+                        Same list, same order, same weighting as up front. */}
+                    {config.elsewhere?.map((hatch, i) => (
                       <Pressable
+                        key={hatch.label}
                         onPress={() => {
                           close();
-                          config.elsewhere!.onPress();
+                          hatch.onPress();
                         }}
-                        style={styles.primaryButton}
+                        style={i === 0 ? styles.primaryButton : styles.secondaryButton}
                       >
-                        <Text style={styles.primaryButtonText}>{config.elsewhere.label} →</Text>
+                        <Text style={i === 0 ? styles.primaryButtonText : styles.secondaryButtonText}>
+                          {hatch.label} →
+                        </Text>
                       </Pressable>
-                    ) : null}
+                    ))}
                     <Pressable onPress={downloadRejected} style={styles.linkButton}>
                       <Text style={styles.linkButtonText}>Download rejected rows</Text>
                     </Pressable>
@@ -237,8 +266,17 @@ const styles = StyleSheet.create({
 
   scroll: { flex: 1 },
   purpose: { fontSize: 13, color: '#5E5D65', lineHeight: 19, marginBottom: 10 },
-  elsewhere: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: '#DCDCE4', alignSelf: 'flex-start', marginBottom: 16 },
+  // `gap` rather than a margin on each control, so the space between two
+  // hatches and the space before COLUMNS stay independent of how many there are.
+  elsewhereGroup: { alignItems: 'flex-start', gap: 8, marginBottom: 16 },
+  elsewhere: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: '#DCDCE4', alignSelf: 'flex-start' },
   elsewhereText: { color: '#111111', fontWeight: '800', fontSize: 12.5 },
+  // The quieter treatment for every hatch after the first -- a lighter rule and
+  // the same muted ink `purpose` uses. Both values are already in this sheet;
+  // the difference between first and second is deliberately small, since the
+  // second is a real option and not a disabled one.
+  elsewhereQuiet: { borderColor: '#EDEDED' },
+  elsewhereQuietText: { color: '#5E5D65', fontWeight: '700' },
   sectionLabel: { fontSize: 10, letterSpacing: 0.6, fontWeight: '800', color: '#999999', marginBottom: 8 },
   legend: { backgroundColor: '#F7F7F5', borderRadius: 10, padding: 12, gap: 6 },
   legendRow: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -250,6 +288,9 @@ const styles = StyleSheet.create({
 
   primaryButton: { backgroundColor: '#111111', borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 4 },
   primaryButtonText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
+  // The rejection list's quieter hatch: the filled button's shape, outlined.
+  secondaryButton: { borderRadius: 12, paddingVertical: 13, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: '#DCDCE4' },
+  secondaryButtonText: { color: '#111111', fontWeight: '800', fontSize: 13 },
   linkButton: { paddingVertical: 10, alignItems: 'center' },
   linkButtonText: { color: '#111111', fontWeight: '700', fontSize: 12, textDecorationLine: 'underline' },
 
