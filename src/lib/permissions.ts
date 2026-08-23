@@ -31,6 +31,9 @@ export type Permission =
   | 'invoices.view'
   | 'invoices.manage'
   | 'budgets.manage'
+  | 'ledger.view'
+  | 'ledger.post'
+  | 'ledger.close'
   | 'registers.manage'
   | 'discounts.apply'
   | 'discounts.manual';
@@ -92,6 +95,9 @@ export const PERMISSIONS: {
   { key: 'invoices.view', label: 'View bills', description: 'See bills owed to vendors and what is still outstanding.' },
   { key: 'invoices.manage', label: 'Manage bills', description: 'Record vendor bills and mark payments against them.' },
   { key: 'budgets.manage', label: 'Manage budgets and cash', description: 'Set category budgets, recurring bills, and cash-on-hand balances.' },
+  { key: 'ledger.view', label: 'View the books', description: 'Read the chart of accounts, journals, trial balance and financial statements.' },
+  { key: 'ledger.post', label: 'Post journal entries', description: 'Write manual entries to the ledger, and reverse posted ones. A posted entry can never be edited.' },
+  { key: 'ledger.close', label: 'Close an accounting period', description: 'Lock a month so its numbers stop moving, and change how stock is valued.' },
   { key: 'registers.manage', label: 'Manage registers', description: "Open a register for someone else, close anyone's register, and sign off cash variance. Everyone with POS access can open and close their own." },
 ];
 
