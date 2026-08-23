@@ -7,6 +7,7 @@ import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
 import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
 import { CashBudgetsTab } from '@/components/accounting/cash-budgets-tab';
@@ -193,6 +194,7 @@ export default function AccountingScreen() {
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
             {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} />}
             {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
