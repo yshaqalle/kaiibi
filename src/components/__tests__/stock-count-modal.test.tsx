@@ -1,5 +1,5 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { Dimensions, ScrollView, StyleSheet, Text } from 'react-native';
 
 import { StockCountModal } from '@/components/stock-count-modal';
 import { parseCsvText, rowsToCsv } from '@/lib/csv';
@@ -156,6 +156,35 @@ function isDescendantOf(node: ReactTestInstance, ancestor: ReactTestInstance): b
     current = current.parent;
   }
   return false;
+}
+
+// The phone-width row (see ROW_STACK_BREAKPOINT in stock-count-modal.tsx):
+// line 1 is the name at full width, line 2 is the boxes right-aligned
+// underneath. Neither `lineRow` nor `qtyPair` carries an accessibilityLabel,
+// so these walk UP from something that does -- the product's own name, and
+// its own field -- to the nearest ancestor whose flattened style still
+// carries a marker unique to that row. Both markers (`paddingVertical: 10`,
+// `gap: 8`) are UNCONDITIONAL on their target: `lineRowStacked` and
+// `qtyPairStacked` only add flexDirection/alignItems/alignSelf, never touch
+// these two, so the same walk finds the right node in both the stacked and
+// the one-line style -- and stays correct if a wrapper is ever added between
+// the name/field and its row.
+function lineRowFor(tree: ReactTestRenderer, productName: string): ReactTestInstance {
+  let node: ReactTestInstance | null = tree.root.findAll((n) => n.type === Text && textFrom(n) === productName)[0];
+  while (node && StyleSheet.flatten(node.props.style ?? {}).paddingVertical !== 10) {
+    node = node.parent;
+  }
+  if (!node) throw new Error(`No lineRow found above the name "${productName}"`);
+  return node;
+}
+
+function qtyPairFor(tree: ReactTestRenderer, productName: string): ReactTestInstance {
+  let node: ReactTestInstance | null = fieldNamed(tree, `Counted units of ${productName}`);
+  while (node && StyleSheet.flatten(node.props.style ?? {}).gap !== 8) {
+    node = node.parent;
+  }
+  if (!node) throw new Error(`No qtyPair found above the field for "${productName}"`);
+  return node;
 }
 
 // One character at a time, through the component's own handler.
@@ -470,6 +499,108 @@ describe('a line added to a count', () => {
     await act(async () => fieldNamed(tree, 'Search products').props.onChangeText('other'));
     expect(fieldNamed(tree, 'Counted units of QA widget')).toBeUndefined();
     expect(fieldNamed(tree, 'Counted units of QA other')).toBeDefined();
+  });
+});
+
+describe('the row at phone width', () => {
+  // Every other test in this file relies on the ambient jest window (750pt,
+  // the `@react-native/jest-preset` default -- well above
+  // ROW_STACK_BREAKPOINT) to keep today's one-line row. This block is the
+  // only place in the file that moves it, so it is also the only place that
+  // has to put it back: `Dimensions.set` is a process-global, not scoped to
+  // one `it`, and Jest does not reset it between tests in the same file on
+  // its own.
+  //
+  // Wrapped in `act`, unlike the one-off `Dimensions.set` at
+  // inventory-stock-door.test.tsx's own module scope: that one runs before
+  // anything is mounted, where this one runs after the just-finished test's
+  // tree is still sitting there, subscribed via `useWindowDimensions`'s own
+  // effect -- unwrapped, the width change reaches that live component and
+  // React logs "not wrapped in act(...)" on every test in this block.
+  afterEach(async () => {
+    await act(async () => {
+      Dimensions.set({
+        window: { width: 750, height: 1334, scale: 1, fontScale: 1 },
+        screen: { width: 750, height: 1334, scale: 1, fontScale: 1 },
+      });
+    });
+  });
+
+  // The approved fix: the fixed-width boxes and their gaps already spend
+  // 280pt (styles.qtyPair), and a phone's card has nowhere near that much
+  // left over once the overlay's own padding, the card's, and the row's are
+  // all spent too -- see ROW_STACK_BREAKPOINT's own comment for the
+  // arithmetic. 390 (iPhone 14/15/16 width) sits well inside it.
+  //
+  // MUTATION: hardcode `stackedRow` to `false` in StockCountModal (or flip
+  // the comparison to `windowWidth > ROW_STACK_BREAKPOINT`). `lineRow` stays
+  // in its one-line `flexDirection: 'row'` at this width either way, and the
+  // first assertion below goes red.
+  it('stacks the row onto two lines, boxes right-aligned, once the card is phone-narrow', async () => {
+    // Wrapped in `act` for the same reason the `afterEach` above is: dozens
+    // of earlier tests' trees are still mounted and still subscribed via
+    // `useWindowDimensions`, so this reaches every one of them, not only the
+    // tree `open()` is about to create.
+    await act(async () => {
+      Dimensions.set({
+        window: { width: 390, height: 844, scale: 3, fontScale: 1 },
+        screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
+      });
+    });
+    const tree = await open();
+    expect(StyleSheet.flatten(lineRowFor(tree, 'QA widget').props.style).flexDirection).toBe('column');
+    // The column switch alone would still leave the boxes at the LEFT edge
+    // of line 2 -- this is the other half of "right-aligned", proven
+    // separately so a mutation dropping only `qtyPairStacked` (leaving
+    // `lineRowStacked` intact) still goes red even though the assertion
+    // above would not catch it on its own.
+    //
+    // MUTATION: drop `stacked && styles.qtyPairStacked` from the `qtyPair`
+    // View's style array in CountRowView. This goes red on its own with the
+    // assertion above still green.
+    expect(StyleSheet.flatten(qtyPairFor(tree, 'QA widget').props.style).alignSelf).toBe('flex-end');
+  });
+
+  // Tablet and web must not change -- the other half of that promise, proven
+  // the same structural way as the row above rather than by absence of the
+  // stacked style alone. 1024 is comfortably past where the card has already
+  // hit its own 560pt cap (see ROW_STACK_BREAKPOINT), so this also stands in
+  // for every wider window, including a desktop browser tab.
+  //
+  // MUTATION: hardcode `stackedRow` to `true` in StockCountModal. The row
+  // goes two lines even at this width and both assertions go red.
+  it('keeps the row on one line, boxes on the right, at a tablet width', async () => {
+    await act(async () => {
+      Dimensions.set({
+        window: { width: 1024, height: 1366, scale: 2, fontScale: 1 },
+        screen: { width: 1024, height: 1366, scale: 2, fontScale: 1 },
+      });
+    });
+    const tree = await open();
+    expect(StyleSheet.flatten(lineRowFor(tree, 'QA widget').props.style).flexDirection).toBe('row');
+    expect(StyleSheet.flatten(qtyPairFor(tree, 'QA widget').props.style).alignSelf).not.toBe('flex-end');
+  });
+
+  // COUNTED / OFF BY / WHY captions a right-hand column that only exists in
+  // one-line mode. Stacked, the boxes are each row's own second line, not a
+  // band the header could sit above -- left up, it would read as labelling
+  // the first product's NAME instead (see the comment beside
+  // `columnHeaderRow` in stock-count-modal.tsx).
+  //
+  // MUTATION: drop the `!stackedRow &&` guard around `columnHeaderRow`.
+  // 'COUNTED' (and 'OFF BY', and 'WHY') render at this width too and this
+  // goes red.
+  it('drops the COUNTED / OFF BY / WHY header once the row itself has stacked', async () => {
+    await act(async () => {
+      Dimensions.set({
+        window: { width: 390, height: 844, scale: 3, fontScale: 1 },
+        screen: { width: 390, height: 844, scale: 3, fontScale: 1 },
+      });
+    });
+    const tree = await open();
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'COUNTED')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'OFF BY')).toHaveLength(0);
+    expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'WHY')).toHaveLength(0);
   });
 });
 

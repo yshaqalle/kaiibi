@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 
 import { CategoryChip } from '@/components/category-chip';
 import { StoreDropdown } from '@/components/store-dropdown';
@@ -81,6 +81,28 @@ import {
 
 type Tab = 'hand' | 'sheet';
 
+// Below this window width, a row goes two lines -- the name on its own, the
+// boxes right-aligned underneath -- rather than staying on one where the
+// name has nowhere left to sit. At or above it the row renders exactly as it
+// always has: one line, boxes on the right. Every tablet and every ordinary
+// web window is well clear of this number, so neither changes.
+//
+// Worked backward from the same figures `styles` below already uses, not
+// chosen as a round one. Starting from the window and spending it, in order:
+// the overlay's own 20pt padding a side (styles.overlay), the card's 20pt
+// padding a side (styles.card -- its own 560pt cap sits well above where
+// this lands, so it is never the binding constraint), the row's own 14pt
+// padding a side (styles.countRow), the 12pt gap `lineRow` puts between the
+// name and the boxes, and the boxes themselves -- qtyInput (62) +
+// varianceBox (58) + reasonChip (108) + clear (28) plus three 8pt gaps
+// between them, 280 total (styles.qtyPair's own comment derives the same
+// figure). What is left over is what the product name actually gets, and
+// the design of record (count-one-step-mockup.html's `.left`) draws that
+// name column at a 130px minimum -- below that it reads as cut off, not
+// merely snug, and two lines beats one that is losing the fight.
+// 130 + 280 + 12 + 14×2 + 20×2 + 20×2 = 530.
+const ROW_STACK_BREAKPOINT = 530;
+
 export function StockCountModal({ visible, shopId, onClose, onDone }: {
   visible: boolean;
   shopId: string;
@@ -89,6 +111,13 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
 }) {
   const { locations, activeLocation } = useAuth();
   const selectable = useMemo(() => locations.filter((location) => location.active), [locations]);
+
+  // Read once, here, rather than inside every row: it is the same answer for
+  // all of them, and `useWindowDimensions` already re-renders this whole
+  // component on rotation or a web resize -- see ROW_STACK_BREAKPOINT above
+  // for what the number means and where it comes from.
+  const { width: windowWidth } = useWindowDimensions();
+  const stackedRow = windowWidth < ROW_STACK_BREAKPOINT;
 
   const [tab, setTab] = useState<Tab>('hand');
   const [chosenLocationId, setLocationId] = useState<string | null>(activeLocation?.id ?? selectable[0]?.id ?? null);
@@ -915,21 +944,36 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                         columns: 62+58+108+28 + 3×8 = 280 on both sides. The
                         trailing `capClear` carries no label -- the mockup draws
                         that header cell empty too (count-one-step-mockup.html's
-                        `overClear`), since a lone × has nothing to caption. */}
-                    <View style={styles.columnHeaderRow}>
-                      <View style={styles.columnHeaderSpacer} />
-                      <View style={styles.columnHeaderCaps}>
-                        <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
-                        <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
-                        <Text style={[styles.cap, styles.capChip]}>WHY</Text>
-                        <View style={styles.capClear} />
+                        `overClear`), since a lone × has nothing to caption.
+
+                        ABSENT when the row itself has stacked (`stackedRow`),
+                        rather than left floating: this header only names a
+                        column when the boxes ARE one, sitting in a straight
+                        line at the right of every row. Stacked, the boxes are
+                        each row's own second line, directly under THAT row's
+                        name -- there is no shared column left for a caption
+                        placed once, above all of them, to describe, and it
+                        would read as labelling the first product's name
+                        instead. Each box still says what it is on its own
+                        (a dash, a signed number in its tint, the word
+                        "Reason"), which is what a header exists to shortcut. */}
+                    {!stackedRow && (
+                      <View style={styles.columnHeaderRow}>
+                        <View style={styles.columnHeaderSpacer} />
+                        <View style={styles.columnHeaderCaps}>
+                          <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
+                          <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
+                          <Text style={[styles.cap, styles.capChip]}>WHY</Text>
+                          <View style={styles.capClear} />
+                        </View>
                       </View>
-                    </View>
+                    )}
                     <View style={styles.listRows}>
                       {paged.items.map((item) => (
                         <CountRowView
                           key={item.id}
                           row={walkRow(item, entries)}
+                          stacked={stackedRow}
                           reasonOpen={reasonOpenFor === item.id}
                           onToggleReason={() =>
                             setReasonOpenFor((current) => (current === item.id ? null : item.id))
@@ -1173,6 +1217,7 @@ function saveSuccessText(changed: number, storeName: string): string {
 
 function CountRowView({
   row,
+  stacked,
   reasonOpen,
   onToggleReason,
   onCounted,
@@ -1180,6 +1225,10 @@ function CountRowView({
   onClear,
 }: {
   row: CountRow;
+  // Phone width, from `StockCountModal`'s own ROW_STACK_BREAKPOINT check --
+  // read once up there rather than per row, since it is the same answer for
+  // all of them.
+  stacked: boolean;
   reasonOpen: boolean;
   onToggleReason: () => void;
   onCounted: (text: string) => void;
@@ -1208,12 +1257,18 @@ function CountRowView({
         : styles.varianceFlat;
   return (
     <View style={[styles.countRow, touched && styles.countRowCounted]}>
-      <View style={styles.lineRow}>
+      <View style={[styles.lineRow, stacked && styles.lineRowStacked]}>
         <View style={styles.lineText}>
-          <Text style={styles.lineName}>{row.product.name}</Text>
+          {/* Capped everywhere, not only once stacked: line 1 has the full
+              row width here, but a name long enough to wrap three or four
+              lines would still bloat the row and break the list's rhythm.
+              Two lines, matching this same file's `changeName` on the sheet
+              tab's own change table -- ellipsized, never silently cut off
+              mid-word, by RN's own default `ellipsizeMode`. */}
+          <Text style={styles.lineName} numberOfLines={2}>{row.product.name}</Text>
           <Text style={styles.lineMeta}>{`App says ${row.product.stock}`}</Text>
         </View>
-        <View style={styles.qtyPair}>
+        <View style={[styles.qtyPair, stacked && styles.qtyPairStacked]}>
           {/* `placeholder`, never a value: the field's `value` stays '' for an
               uncounted row, so blank and a typed 0 can never be confused by
               anything reading this component -- including the commit. */}
@@ -1705,6 +1760,13 @@ const styles = StyleSheet.create({
   basketCapTotal: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
 
   lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10 },
+  // Phone width (see ROW_STACK_BREAKPOINT): the name becomes line 1 at full
+  // width via the column default of `alignItems: 'stretch'`, and `gap: 12`
+  // -- inherited unchanged from `lineRow` above -- becomes the vertical space
+  // between it and line 2, rather than the horizontal space between name and
+  // boxes. `qtyPairStacked` below is what actually pulls the boxes to the
+  // right on that second line; this alone would leave them at the left.
+  lineRowStacked: { flexDirection: 'column', alignItems: 'stretch', justifyContent: 'flex-start' },
   lineText: { flex: 1 },
   lineName: { fontSize: 13, fontWeight: '700', color: '#111111' },
   lineMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
@@ -1737,6 +1799,12 @@ const styles = StyleSheet.create({
   countRowCounted: { backgroundColor: '#F7F7F7' },
 
   qtyPair: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  // Sized to its own content (280pt, see ROW_STACK_BREAKPOINT) and pinned to
+  // the right edge of the now-vertical `lineRowStacked`, instead of
+  // stretching to the full row width the way `lineText` (the name) does --
+  // this is what makes line 2 read as "boxes, right-aligned" and not "boxes,
+  // left-aligned under a name that no longer touches them".
+  qtyPairStacked: { alignSelf: 'flex-end' },
   cap: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: '#9CA3AF' },
   qtyInput: {
     // White, not the field's old grey -- the row underneath it is grey now
