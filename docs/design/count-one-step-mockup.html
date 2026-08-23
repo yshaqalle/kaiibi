@@ -1,0 +1,401 @@
+<title>Count — one list, one step</title>
+
+<style>
+  :root {
+    --page:#F0EFEC; --card:#FFFFFF; --panel:#F7F7F7; --ink:#111111; --ink2:#3A3A38;
+    --muted:#9CA3AF; --muted2:#B6B6BC; --hair:#ECECEC; --hair2:#E4E3DF; --fill:#EFEFEF;
+    --loss:#A3202F; --lossbg:#FBEDEE; --gain:#007A38; --gainbg:#E9F5EE;
+    --flag:#8A5806; --flagbg:#FBF3E2; --focus:#2563EB;
+    --mono: ui-monospace,"SF Mono",Menlo,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --page:#16161A; --card:#1F1F24; --panel:#26262C; --ink:#F4F4F5; --ink2:#C8C8CE;
+      --muted:#8A8A93; --muted2:#6E6E77; --hair:#33333B; --hair2:#33333B; --fill:#2F2F37;
+      --loss:#F08C97; --lossbg:#3A2226; --gain:#5FD08C; --gainbg:#1D2C23;
+      --flag:#E3B45F; --flagbg:#2E2718; --focus:#6A9BFF; }
+  }
+  :root[data-theme="dark"] { --page:#16161A; --card:#1F1F24; --panel:#26262C; --ink:#F4F4F5; --ink2:#C8C8CE;
+    --muted:#8A8A93; --muted2:#6E6E77; --hair:#33333B; --hair2:#33333B; --fill:#2F2F37;
+    --loss:#F08C97; --lossbg:#3A2226; --gain:#5FD08C; --gainbg:#1D2C23;
+    --flag:#E3B45F; --flagbg:#2E2718; --focus:#6A9BFF; }
+  :root[data-theme="light"] { --page:#F0EFEC; --card:#FFFFFF; --panel:#F7F7F7; --ink:#111111; --ink2:#3A3A38;
+    --muted:#9CA3AF; --muted2:#B6B6BC; --hair:#ECECEC; --hair2:#E4E3DF; --fill:#EFEFEF;
+    --loss:#A3202F; --lossbg:#FBEDEE; --gain:#007A38; --gainbg:#E9F5EE;
+    --flag:#8A5806; --flagbg:#FBF3E2; --focus:#2563EB; }
+
+  body { background:var(--page); color:var(--ink); font-family:var(--sans); padding:40px 20px 80px; line-height:1.55; }
+  .wrap { max-width:980px; margin:0 auto; display:flex; flex-direction:column; gap:34px; }
+  .eyebrow { font-size:10.5px; font-weight:800; letter-spacing:1px; color:var(--muted); text-transform:uppercase; }
+  h1 { font-size:27px; font-weight:800; letter-spacing:-0.8px; margin:4px 0 8px; text-wrap:balance; }
+  h2 { font-size:17px; font-weight:800; letter-spacing:-0.3px; margin:0 0 4px; }
+  p { font-size:14px; color:var(--ink2); margin:0 0 10px; max-width:68ch; }
+  p.sub { color:var(--muted); font-size:13px; }
+  code { font-family:var(--mono); font-size:12.5px; background:var(--fill); padding:1px 5px; border-radius:5px; }
+  section { background:var(--card); border-radius:22px; padding:24px 26px 26px; }
+  .tag { display:inline-block; font-size:10px; font-weight:800; letter-spacing:0.7px; text-transform:uppercase; padding:3px 9px; border-radius:999px; margin-bottom:10px; }
+  .tag.bad { background:var(--flagbg); color:var(--flag); }
+  .tag.good { background:var(--gainbg); color:var(--gain); }
+  .scroller { overflow-x:auto; }
+
+  .modal { background:var(--card); border:1px solid var(--hair2); border-radius:24px; padding:18px; margin-top:16px; min-width:600px; }
+  .mHead { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:14px; }
+  .mTitle { font-size:20px; font-weight:800; letter-spacing:-0.4px; }
+  .mBtns { display:flex; gap:8px; align-items:center; }
+  .btnDark { background:var(--ink); color:var(--card); border-radius:999px; padding:9px 18px; font-size:13px; font-weight:800; }
+  .btnGhost { border:1px solid var(--hair2); color:var(--ink2); border-radius:999px; padding:8px 15px; font-size:12.5px; font-weight:700; background:transparent; }
+  .btnGhost.off { color:var(--muted2); border-color:var(--hair); }
+
+  .seg { display:flex; background:var(--fill); border-radius:12px; padding:4px; margin-bottom:14px; }
+  .seg div { flex:1; text-align:center; font-size:13px; font-weight:700; padding:8px; border-radius:9px; color:var(--muted); }
+  .seg div.on { background:var(--card); color:var(--ink); }
+
+  .search { background:var(--fill); border-radius:10px; height:36px; display:flex; align-items:center; padding:0 12px; font-size:13px; color:var(--muted); margin-bottom:10px; }
+  .chips { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+  .catChip { background:var(--fill); border-radius:999px; padding:5px 11px; font-size:11.5px; font-weight:700; color:var(--ink2); }
+  .catChip.on { background:var(--ink); color:var(--card); }
+
+  .cap { font-size:9px; font-weight:800; letter-spacing:0.6px; color:var(--muted); }
+  .head { display:flex; align-items:center; gap:10px; padding:0 12px 7px; }
+  .head .spacer { flex:1; min-width:130px; }
+  .capRow { display:flex; gap:8px; align-items:center; }
+  .capRow .overField { width:62px; text-align:center; }
+  .capRow .overVar   { width:58px; text-align:center; }
+  .capRow .overWhy   { width:108px; text-align:center; }
+  .capRow .overClear { width:28px; }
+
+  .list { display:flex; flex-direction:column; gap:6px; }
+  .row { display:flex; align-items:center; gap:10px; border-radius:14px; padding:10px 12px; background:transparent; }
+  .row.counted { background:var(--panel); }
+  .name { font-size:13px; font-weight:700; color:var(--ink); }
+  .says { font-size:12px; color:var(--muted); margin-top:1px; }
+  .left { flex:1; min-width:130px; }
+
+  .boxes { display:flex; gap:8px; align-items:center; }
+  .field { background:var(--fill); border-radius:10px; height:38px; width:62px; padding:0 10px; box-sizing:border-box;
+           display:flex; align-items:center; justify-content:flex-end; font-weight:700; font-size:14px;
+           font-variant-numeric:tabular-nums; color:var(--ink); }
+  .row.counted .field { background:var(--card); }
+  .field.blank { color:var(--muted2); font-weight:600; }
+  .field.focused { background:var(--card); box-shadow:0 0 0 2px var(--focus); }
+
+  .varBox { width:58px; height:38px; border-radius:10px; box-sizing:border-box; display:flex; align-items:center; justify-content:center;
+            font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .varBox.down { background:var(--lossbg); color:var(--loss); }
+  .varBox.up   { background:var(--gainbg); color:var(--gain); }
+  .varBox.flat { background:var(--card);   color:var(--muted); }
+  .varBox.none { background:transparent;   color:var(--muted2); }
+
+  .why { width:108px; height:38px; border-radius:999px; box-sizing:border-box; display:flex; align-items:center; justify-content:center;
+         font-size:11.5px; font-weight:700; background:var(--card); color:var(--ink); }
+  .why.none { background:transparent; color:var(--muted2); font-weight:600; }
+
+  .clear { width:28px; height:28px; border-radius:999px; display:flex; align-items:center; justify-content:center;
+           font-size:14px; color:var(--muted); background:var(--card); }
+  .clear.none { background:transparent; color:transparent; }
+
+  /* pager */
+  .pager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px;
+           padding-top:12px; border-top:1px solid var(--hair); }
+  .pager .info { font-size:12.5px; color:var(--muted); }
+  .pager .info b { color:var(--ink2); font-weight:700; }
+  .pgBtns { display:flex; gap:6px; }
+  .pgBtn { border:1px solid var(--hair2); border-radius:999px; padding:6px 13px; font-size:12px; font-weight:700; color:var(--ink2); }
+  .pgBtn.off { color:var(--muted2); border-color:var(--hair); }
+
+  .noteCap { margin:16px 0 4px; }
+  .noteLine { border-bottom:1px solid var(--hair); height:26px; }
+  .footer { background:var(--panel); border-radius:14px; padding:12px 14px; margin-top:14px; display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }
+  .footer .l b { font-size:9px; font-weight:800; letter-spacing:0.6px; color:var(--muted); display:block; }
+  .footer .l span { font-size:12.5px; color:var(--muted); }
+  .footer .r { font-size:15px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .save { display:flex; justify-content:space-between; align-items:center; margin-top:14px; gap:14px; }
+  .save .l b { font-size:14px; font-weight:800; display:block; }
+  .save .l span { font-size:12.5px; color:var(--muted); }
+
+  /* confirm panel */
+  .confirm { background:var(--panel); border-radius:16px; padding:16px; margin-top:14px; }
+  .confirm h3 { font-size:15px; font-weight:800; margin:0 0 2px; letter-spacing:-0.2px; }
+  .confirm .where { font-size:12.5px; color:var(--muted); margin-bottom:12px; }
+  .chg { background:var(--card); border-radius:12px; padding:4px 12px; }
+  .chgRow { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--hair); font-size:13px; }
+  .chgRow:last-child { border-bottom:0; }
+  .chgRow .n { font-weight:700; }
+  .chgRow .m { color:var(--muted); font-size:12px; font-weight:600; }
+  .arrow { font-variant-numeric:tabular-nums; font-weight:800; white-space:nowrap; }
+  .arrow .from { color:var(--muted); font-weight:600; }
+  .arrow .to.down { color:var(--loss); }
+  .arrow .to.up { color:var(--gain); }
+  .quiet { font-size:12.5px; color:var(--muted); margin-top:10px; }
+  .money { background:var(--flagbg); color:var(--flag); border-radius:10px; padding:9px 12px; font-size:12.5px; font-weight:700; margin-top:10px; }
+  .cBtns { display:flex; gap:8px; margin-top:14px; justify-content:flex-end; align-items:center; }
+
+  .why-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:14px; margin-top:18px; }
+  .why-grid div { background:var(--page); border-radius:12px; padding:14px 15px; }
+  .why-grid b { display:block; font-size:13px; margin-bottom:3px; }
+  .why-grid span { font-size:12.5px; color:var(--ink2); }
+
+  table { width:100%; border-collapse:collapse; margin-top:14px; font-size:13px; }
+  th { text-align:left; font-size:10px; letter-spacing:0.7px; text-transform:uppercase; color:var(--muted); padding:0 10px 7px 0; font-weight:800; }
+  td { padding:8px 10px 8px 0; border-top:1px solid var(--hair); color:var(--ink2); vertical-align:top; }
+  td:first-child { font-family:var(--mono); font-size:12px; color:var(--ink); white-space:nowrap; }
+
+  .steps { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+  .step { background:var(--page); border-radius:12px; padding:12px 14px; flex:1; min-width:170px; }
+  .step b { display:block; font-size:12.5px; }
+  .step span { font-size:12px; color:var(--muted); }
+  .step.gone { opacity:0.5; text-decoration:line-through; text-decoration-thickness:1px; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Count · by hand</div>
+    <h1>One list, one step</h1>
+    <p>Counting a shelf today takes three gestures per product: find it in the catalogue, press <b>Count</b> to move it into a basket, then type the number into the basket copy. The catalogue and the basket are the same products twice. This drops the middle step &mdash; every product is already a line, and typing a number <i>is</i> counting it.</p>
+    <div class="steps">
+      <div class="step"><b>1 · Find the product</b><span>Search, category, or page through. Unchanged.</span></div>
+      <div class="step gone"><b>2 · Press Count to add it</b><span>Gone. The row is already there.</span></div>
+      <div class="step"><b>3 · Type what you found</b><span>Now the only action.</span></div>
+    </div>
+  </header>
+
+  <section>
+    <span class="tag good">Proposed</span>
+    <h2>Every product is a line you can audit in place</h2>
+    <p class="sub">A blank field means <i>not counted</i> &mdash; that row is left alone. A row with a number is counted, tints to show it, and gains a clear button. <b>Clear all</b> sits beside Close.</p>
+
+    <div class="scroller">
+      <div class="modal">
+        <div class="mHead">
+          <div class="mTitle">Count</div>
+          <div class="mBtns">
+            <div class="btnGhost">Clear all</div>
+            <div class="btnDark">Close</div>
+          </div>
+        </div>
+
+        <div class="seg"><div class="on">By hand</div><div>By sheet</div></div>
+
+        <div class="search">Search products</div>
+        <div class="chips"><div class="catChip on">All</div><div class="catChip">Skincare</div><div class="catChip">Household</div><div class="catChip">Dry goods</div></div>
+
+        <div class="head">
+          <div class="spacer"></div>
+          <div class="capRow">
+            <div class="cap overField">COUNTED</div>
+            <div class="cap overVar">OFF BY</div>
+            <div class="cap overWhy">WHY</div>
+            <div class="cap overClear"></div>
+          </div>
+        </div>
+
+        <div class="list">
+          <div class="row counted">
+            <div class="left"><div class="name">Dr Althea</div><div class="says">App says 7</div></div>
+            <div class="boxes">
+              <div class="field">5</div><div class="varBox down">&minus;2</div><div class="why">Theft or loss</div><div class="clear">&times;</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="left"><div class="name">item2</div><div class="says">App says 2</div></div>
+            <div class="boxes">
+              <div class="field blank">&mdash;</div><div class="varBox none">&middot;</div><div class="why none">&mdash;</div><div class="clear none">&times;</div>
+            </div>
+          </div>
+          <div class="row counted">
+            <div class="left"><div class="name">daily facial</div><div class="says">App says 5</div></div>
+            <div class="boxes">
+              <div class="field">5</div><div class="varBox flat">0</div><div class="why none">&mdash;</div><div class="clear">&times;</div>
+            </div>
+          </div>
+          <div class="row counted">
+            <div class="left"><div class="name">QA scanwidget</div><div class="says">App says 8</div></div>
+            <div class="boxes">
+              <div class="field focused">5</div><div class="varBox down">&minus;3</div><div class="why">Reason</div><div class="clear">&times;</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="left"><div class="name">test</div><div class="says">App says 15</div></div>
+            <div class="boxes">
+              <div class="field blank">&mdash;</div><div class="varBox none">&middot;</div><div class="why none">&mdash;</div><div class="clear none">&times;</div>
+            </div>
+          </div>
+          <div class="row counted">
+            <div class="left"><div class="name">clay mask sachet</div><div class="says">App says 12</div></div>
+            <div class="boxes">
+              <div class="field">15</div><div class="varBox up">+3</div><div class="why">Miscount</div><div class="clear">&times;</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pager">
+          <div class="info">Showing <b>1&ndash;100</b> of <b>240</b> &middot; <b>4 counted</b> so far, on any page</div>
+          <div class="pgBtns"><div class="pgBtn off">Previous</div><div class="pgBtn">Next</div></div>
+        </div>
+
+        <div class="cap noteCap">NOTE</div>
+        <div class="noteLine"></div>
+
+        <div class="footer">
+          <div class="l"><b>VARIANCE</b><span>4 counted &middot; 1 matched &middot; 3 differ &middot; 236 left alone. Nothing changes until you press Save.</span></div>
+          <div class="r">&minus;2 &middot; &minus;$18.00</div>
+        </div>
+
+        <div class="save">
+          <div class="l"><b>Save 4 counts</b><span>3 will change a number</span></div>
+          <div class="btnDark" style="padding:13px 22px;font-size:14px">Save counts</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why-grid">
+      <div>
+        <b>Blank is a real state, and it is the default</b>
+        <span>An empty field means &ldquo;I did not count this&rdquo; and the product is left exactly as it was. Only rows with a number are sent.</span>
+      </div>
+      <div>
+        <b>Zero still means an empty shelf</b>
+        <span>Typing <code>0</code> is a claim &mdash; the shelf is bare &mdash; and it commits. This is why blank and zero must look different, and why an untouched field renders <code>&mdash;</code> rather than <code>0</code>.</span>
+      </div>
+      <div>
+        <b>&times; clears one line</b>
+        <span>Appears only on a counted row. It returns that row to blank &mdash; it does not delete the product, because the product was never added in the first place.</span>
+      </div>
+      <div>
+        <b>Clear all starts the walk over</b>
+        <span>Beside Close, where a destructive action belongs. It empties every field on every page, the reasons and the note, and leaves the store and the tab where they are.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="tag good">Paging</span>
+    <h2>A hundred at a time, and invisible below that</h2>
+    <p>Most shops on the platform carry fewer than a hundred products, so for most of them <b>the pager never appears at all</b> &mdash; one page, no controls, nothing new to learn. It shows up only when the catalogue is genuinely long.</p>
+
+    <div class="why-grid">
+      <div>
+        <b>100 per page</b>
+        <span>Below that threshold the whole pager row is absent, not greyed. A control that can never do anything should not be on screen.</span>
+      </div>
+      <div>
+        <b>Search and category page too</b>
+        <span>Filtering narrows the set first, then paginates what is left &mdash; and resets to page 1, because staying on page 3 of a set that now has 12 rows shows nothing.</span>
+      </div>
+      <div>
+        <b>Typed counts outlive the page</b>
+        <span>Go to page 2, come back, and page 1&rsquo;s numbers are still there. The counts belong to the walk, not to what happens to be rendered. Same for changing the search or the category.</span>
+      </div>
+      <div>
+        <b>Save covers every page</b>
+        <span>The footer and Save count <i>everything typed</i>, not what is visible. &ldquo;4 counted so far, on any page&rdquo; in the pager says so out loud, because this is the one thing a person could reasonably get wrong.</span>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:16px">That third point is the one to be careful about in the build: it is exactly the shape of bug that has bitten this feature before &mdash; state tied to what is rendered rather than to the work. A count typed on page 1 and silently dropped by paging to page 2 would be invisible until a shelf came out wrong.</p>
+  </section>
+
+  <section>
+    <span class="tag good">Confirm</span>
+    <h2>Save asks first, and shows its working</h2>
+    <p>Count <b>sets</b> a number. There is no undo, and a mistyped row overwrites a real shelf. So pressing <b>Save counts</b> does not write &mdash; it unfolds this, in place, where the footer was.</p>
+
+    <div class="scroller">
+      <div class="modal" style="min-width:600px">
+        <div class="mHead">
+          <div class="mTitle">Count</div>
+          <div class="mBtns"><div class="btnGhost off">Clear all</div><div class="btnDark">Close</div></div>
+        </div>
+
+        <div class="confirm">
+          <h3>3 products will change</h3>
+          <div class="where">At <b>yusefshop</b> &middot; 4 counted, 1 already matched</div>
+
+          <div class="chg">
+            <div class="chgRow">
+              <div><div class="n">Dr Althea</div><div class="m">Theft or loss</div></div>
+              <div class="arrow"><span class="from">7</span> &rarr; <span class="to down">5</span></div>
+            </div>
+            <div class="chgRow">
+              <div><div class="n">QA scanwidget</div><div class="m">no reason given</div></div>
+              <div class="arrow"><span class="from">8</span> &rarr; <span class="to down">5</span></div>
+            </div>
+            <div class="chgRow">
+              <div><div class="n">clay mask sachet</div><div class="m">Miscount</div></div>
+              <div class="arrow"><span class="from">12</span> &rarr; <span class="to up">15</span></div>
+            </div>
+          </div>
+
+          <div class="quiet"><b>daily facial</b> was counted at 5 and is already 5 &mdash; it will be recorded, but no number moves.</div>
+          <div class="quiet">236 products were not counted and are untouched.</div>
+
+          <div class="money">Also logs $18.00 as a stock&#8209;loss expense</div>
+
+          <div class="cBtns">
+            <div class="btnGhost">Go back</div>
+            <div class="btnDark" style="padding:12px 22px;font-size:14px">Yes, save 3 changes</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why-grid">
+      <div>
+        <b>It unfolds, it does not pop</b>
+        <span>A modal presented from a modal is silently dropped on iOS &mdash; the button just reads as dead. This panel replaces the footer inside the sheet already on screen, the same way the reason chips do.</span>
+      </div>
+      <div>
+        <b>The headline is the number that matters</b>
+        <span>&ldquo;3 products will change&rdquo; &mdash; not 4, the number counted. A row counted at the figure it already held changes nothing, and saying otherwise overstates what you are about to do.</span>
+      </div>
+      <div>
+        <b>Every change, from and to</b>
+        <span>The whole point of a confirmation is auditing it. Names, both numbers, and the reason each carries &mdash; including <i>no reason given</i>, because unexplained shrinkage is the finding.</span>
+      </div>
+      <div>
+        <b>The store is named</b>
+        <span>Stock&#8209;takes go wrong by being saved against the wrong branch. The one screen that can catch it is the one right before the write.</span>
+      </div>
+      <div>
+        <b>The expense is disclosed here too</b>
+        <span>If the stock&#8209;loss box is ticked, this write also touches the P&amp;L. That belongs in the confirmation, not only in a checkbox scrolled past.</span>
+      </div>
+      <div>
+        <b>Go back, not Cancel</b>
+        <span>It returns to the list with everything intact. &ldquo;Cancel&rdquo; reads like it might throw the walk away, and on a shelf you just spent twenty minutes counting that ambiguity is cruel.</span>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:16px">One edge worth naming: if <i>nothing</i> would change &mdash; every counted row already matched &mdash; the confirmation says so plainly and still offers to save, because recording that a shelf was checked and found correct is a real and useful result.</p>
+  </section>
+
+  <section>
+    <h2>What this changes beyond layout</h2>
+    <p>The two&#8209;step version had a rule: <b>every line in the basket must read a number before Save is allowed</b>, because a line only existed if you put it there. That rule cannot survive here &mdash; every product is a line now, and almost all of them will be blank.</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Behaviour</th><th>Two&#8209;step</th><th>One list</th></tr></thead>
+        <tbody>
+          <tr><td>a blank field</td><td>blocks Save &mdash; <i>&ldquo;Type what you found on every line&rdquo;</i></td><td>means not counted; the row is skipped and the product is untouched</td></tr>
+          <tr><td>Save is allowed when</td><td>every basket line reads</td><td>at least one row reads</td></tr>
+          <tr><td>what is sent</td><td>every basket line</td><td>only rows with a number, across every page</td></tr>
+          <tr><td>an unreadable entry</td><td>blocks Save</td><td>blocks Save &mdash; unchanged. <code>abc</code> is a mistake, not a decision.</td></tr>
+          <tr><td>Remove</td><td>takes the line out of the basket</td><td>replaced by <b>&times;</b>, which returns the row to blank</td></tr>
+          <tr><td>store change</td><td>clears the basket</td><td>clears every typed field &mdash; same rule, same reason: the numbers described a different shelf</td></tr>
+          <tr><td>pressing Save</td><td>writes immediately</td><td>unfolds a confirmation naming the store, the changes and the expense</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="sub" style="margin-top:14px">The footer gains one figure &mdash; <b>236 left alone</b> &mdash; because with the whole catalogue in play, &ldquo;how much of the shop did I actually walk?&rdquo; becomes a question worth answering, and it is the honest reading of a partial stock&#8209;take.</p>
+  </section>
+
+  <section>
+    <h2>One thing worth your call</h2>
+    <p><b>Typing into the wrong row is easier now</b>, with no explicit &ldquo;add&rdquo; to confirm intent. Three things mitigate it: a counted row is tinted, it carries a <b>&times;</b>, and nothing is written until the confirmation names every product by name with both numbers beside it.</p>
+    <p class="sub">If that still feels thin for a door that overwrites stock, the next lever is making the confirmation scroll rather than truncate for large counts &mdash; so &ldquo;40 products will change&rdquo; is a list you can actually read, not a number you have to trust.</p>
+  </section>
+
+</div>
