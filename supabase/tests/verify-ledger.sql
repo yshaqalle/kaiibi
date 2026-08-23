@@ -253,6 +253,54 @@ begin
     raise exception 'FAIL: a posted entry was edited';
   end if;
 
+  -- 14. Posting wrote an audit row by itself. Written by a TRIGGER rather than
+  -- by the RPC, so a change made by any route -- the app, a script, direct SQL
+  -- -- still lands here. Checks 10-13 above were raw inserts that never went
+  -- near an RPC, which is exactly the population this has to cover.
+  if not exists (
+    select 1 from public.accounting_audit_log
+     where shop_id = v_shop_id and subject_table = 'journal_entries' and action = 'insert'
+  ) then
+    raise exception 'FAIL: writing an entry wrote no audit row';
+  end if;
+
+  -- 14b. The before/after of an update is captured, not just the fact of it.
+  -- "It changed" without "from what" is a log that records that something is
+  -- missing without recording what.
+  if not exists (
+    select 1 from public.accounting_audit_log
+     where shop_id = v_shop_id and subject_table = 'accounting_periods' and action = 'update'
+       and before->>'status' = 'open' and after->>'status' = 'closed'
+  ) then
+    raise exception 'FAIL: the period close was logged without its before/after';
+  end if;
+
+  -- 15. There is no route by which a row leaves this table.
+  --
+  -- Asserted against pg_policies rather than by attempting a DELETE, because
+  -- this script runs as the postgres superuser and RLS does not apply to it --
+  -- a DELETE here would succeed no matter how the policies are written, and the
+  -- check would be reporting on nothing. That is the trap this whole file has
+  -- to be read for: every RLS assertion in these scripts must be a statement
+  -- about the POLICY, not an attempt at the operation.
+  if exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'accounting_audit_log'
+       and cmd in ('DELETE', 'UPDATE', 'ALL')
+  ) then
+    raise exception 'FAIL: accounting_audit_log has a policy that can remove or rewrite a row';
+  end if;
+
+  -- The same, for the two ledger tables: they are written only through the
+  -- RPCs, so a write policy on either would be a second door.
+  if exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename in ('journal_entries', 'journal_lines')
+       and cmd in ('INSERT', 'UPDATE', 'DELETE', 'ALL')
+  ) then
+    raise exception 'FAIL: a journal table has a write policy; the RPCs are meant to be the only door';
+  end if;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception
