@@ -332,7 +332,15 @@ if a lender is coming, revisit before phase 3 fixes the statement layouts.
 
 ## Open
 
-- **Whether new shops should default to FIFO rather than weighted average.** Recommended as weighted
-  average for consistency with existing shops; a one-line change if preferred.
-- **Whether shrinkage sits in cost of sales or operating expenses.** Recommended as cost of sales
-  (5100); see Decisions. Net profit is identical either way, so this is presentation only.
+None. The two remaining recommendations were accepted on 2026-08-23:
+
+- **New shops default to weighted average**, same as existing ones. One basis across the platform
+  until a shop deliberately changes it.
+- **Shrinkage sits in cost of sales** (`5100`), above gross profit. The P&L carries it as a single
+  line; the Stock Movement Log breaks it out by reason. `miscount` posts identically to a real loss
+  — the two cannot be told apart at posting time, so the reason does its work in the report rather
+  than in the accounts.
+
+Two things would reopen this document rather than the plan built from it: a **lender or tax
+authority** becoming a reader of the statements (changes disclosures, revisit before phase 3), or
+**FEFO** being wanted over FIFO (changes COGS semantics, revisit before phase 2a).
