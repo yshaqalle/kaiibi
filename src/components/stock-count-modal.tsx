@@ -703,16 +703,17 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 ) : (
                   <View style={styles.listWrap}>
                     {/* One COUNTED / OFF BY / WHY header for the whole list, not
-                        one per row. Widths (62 / 58 / 108 / 28) and the 8px gap
-                        mirror qtyPair's own field / varianceBox / reasonChip /
-                        clear so the labels sit directly over their columns. */}
+                        one per row. Widths (62 / 58 / 108) and the 8px gap mirror
+                        qtyPair's own field / varianceBox / reasonChip exactly, so
+                        the labels sit directly over their columns. No clear-column
+                        spacer here: the row has no × yet -- that lands in Task 3
+                        alongside the header cap that reserves room for it. */}
                     <View style={styles.columnHeaderRow}>
                       <View style={styles.columnHeaderSpacer} />
                       <View style={styles.columnHeaderCaps}>
                         <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
                         <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
                         <Text style={[styles.cap, styles.capChip]}>WHY</Text>
-                        <View style={styles.capClear} />
                       </View>
                     </View>
                     <View style={styles.listRows}>
@@ -934,17 +935,28 @@ function CountRowView({
               {touched ? varianceText(row.variance) : '·'}
             </Text>
           </View>
-          <Pressable
-            onPress={onToggleReason}
-            style={styles.reasonChip}
-            accessibilityRole="button"
-            accessibilityLabel={`Reason for ${row.product.name}`}
-          >
-            <Text style={styles.reasonChipText}>{row.reason ? reasonLabel(row.reason) : 'Reason'}</Text>
-          </Pressable>
+          {touched ? (
+            <Pressable
+              onPress={onToggleReason}
+              style={styles.reasonChip}
+              accessibilityRole="button"
+              accessibilityLabel={`Reason for ${row.product.name}`}
+            >
+              <Text style={styles.reasonChipText}>{row.reason ? reasonLabel(row.reason) : 'Reason'}</Text>
+            </Pressable>
+          ) : (
+            // Inert on purpose -- a reason is a statement about a count, and an
+            // untouched row has not made one. Pressable here reads as a control
+            // that folds up and records something; it would record nothing, and
+            // the fold-up alone reads as confirmation. Matches the mockup, which
+            // draws this cell as a dash precisely so there is nothing to press.
+            <View style={[styles.reasonChip, styles.reasonChipNone]}>
+              <Text style={styles.reasonChipTextNone}>—</Text>
+            </View>
+          )}
         </View>
       </View>
-      {reasonOpen && (
+      {touched && reasonOpen && (
         <View style={styles.reasonRow}>
           {COUNT_REASONS.map(({ key, label }) => (
             <Pressable
@@ -1278,6 +1290,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reasonChipText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
+  // Untouched row: transparent, not white -- there is no pressable surface to
+  // suggest, only the dash matching varianceBoxNone's own '·'.
+  reasonChipNone: { backgroundColor: 'transparent' },
+  reasonChipTextNone: { fontSize: 11.5, fontWeight: '600', color: '#B6B6BC' },
   reasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 10 },
   reasonOption: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   reasonOptionText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },

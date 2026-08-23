@@ -243,6 +243,42 @@ describe('a line added to a count', () => {
     expect(allText(tree)).toContain('Damaged');
   });
 
+  // Finding 2: the two-step version never gave an untouched product a WHY
+  // cell to press at all -- MatchRow (the search-result row for a product not
+  // yet added to the basket) rendered a bare "Count" button, nothing else.
+  // That coverage disappeared when every product became a row in this
+  // migration, because the WHY cell started rendering unconditionally. A
+  // reason is a statement about a count; a blank row has not made one, and
+  // the mockup draws this cell as an inert dash for exactly that reason
+  // (count-one-step-mockup.html:203, 221).
+  //
+  // MUTATION: render the pressable Reason chip unconditionally (drop the
+  // `touched ? … : …` branch in CountRowView). This test's `toBeUndefined()`
+  // goes red -- the chip exists, opens, and a reason can be picked for a shelf
+  // nobody counted.
+  it('gives a row nobody has counted nothing to press for a reason', async () => {
+    const tree = await open();
+    expect(pressableLabelled(tree, 'Reason for QA widget')).toBeUndefined();
+    expect(allText(tree)).toContain('—');
+  });
+
+  // The panel has to close along with the chip, not merely lose its trigger:
+  // a reason panel opened before a backspace emptied the field must not stay
+  // interactable underneath the dash it left behind.
+  //
+  // MUTATION: drop the `touched &&` guard on the reason-options panel. The
+  // panel (and `Reason: Damaged` inside it) stays open and pressable after the
+  // backspace that emptied the field.
+  it('closes the open reason panel along with the chip when the count is backspaced to blank', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
+    expect(pressableLabelled(tree, 'Reason: Damaged')).toBeDefined();
+    await backspace(tree, COUNTED, 1);
+    expect(pressableLabelled(tree, 'Reason for QA widget')).toBeUndefined();
+    expect(pressableLabelled(tree, 'Reason: Damaged')).toBeUndefined();
+  });
+
   // Zero is a finding, not a blank. Refusing it would leave the door able to
   // record every loss except a total one.
   // MUTATION: filter `handLines` on `countedQuantity !== 0` before the RPC
@@ -339,6 +375,35 @@ describe('a line added to a count', () => {
     expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'COUNTED')).toHaveLength(1);
     expect(allText(tree)).toContain('OFF BY');
     expect(allText(tree)).toContain('WHY');
+  });
+
+  // Finding 4: the brief declares this label an interface Tasks 3-5 depend on
+  // (paging's own filter box), and deleting it left every other test green --
+  // nothing else in the file looks the search field up by name.
+  //
+  // MUTATION: delete `aria-label="Search products"` from the search
+  // TextInput. `fieldNamed` returns `undefined` and this goes red.
+  it('carries the aria-label the picker and paging tasks are built on', async () => {
+    const tree = await open();
+    expect(fieldNamed(tree, 'Search products')).toBeDefined();
+  });
+
+  // Finding 4: `filtered` used to read `filterProducts(catalogue, search,
+  // category)`; wiring it to `catalogue` directly instead left every existing
+  // test green, because none of them ever narrowed the list before this.
+  //
+  // MUTATION: replace `filterProducts(catalogue, search, category)` with
+  // `catalogue` in the `filtered` memo. Both rows stay on screen after the
+  // search narrows to one, and this goes red.
+  it('narrows the rows on screen to what the search matches', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    expect(fieldNamed(tree, 'Counted units of QA other')).toBeDefined();
+    await act(async () => fieldNamed(tree, 'Search products').props.onChangeText('other'));
+    expect(fieldNamed(tree, 'Counted units of QA widget')).toBeUndefined();
+    expect(fieldNamed(tree, 'Counted units of QA other')).toBeDefined();
   });
 });
 
@@ -861,6 +926,33 @@ describe('logging the shortfall', () => {
     expect(saveStockCount).toHaveBeenCalledTimes(1);
     expect(allText(tree)).toContain('The count was saved, but the stock loss was not logged: expenses are read-only');
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Finding 3: `updateEntries(() => ({}))` right after the write commits has
+  // no guard of its own -- the test above never presses Save a second time,
+  // so deleting that line leaves all other tests green. Without it, the sheet
+  // reopens on the failed-expense path holding the same typed count, Save
+  // goes live again the moment `busy` resets, and a second press repeats a
+  // commit that already landed -- the exact double-commit the comment above
+  // `submit`'s try block claims to prevent, and the same Critical that shipped
+  // on the sibling Restock screen.
+  //
+  // MUTATION: delete `updateEntries(() => ({}))` from `submit`, immediately
+  // after the `saveStockCount` write resolves. `saveStockCount` goes from 1
+  // call to 2 on the second press.
+  it('clears what was typed even when the expense after it fails, so a second press cannot repeat the commit', async () => {
+    createExpense.mockRejectedValueOnce(new Error('expenses are read-only'));
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
   });
 });
 
