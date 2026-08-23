@@ -4,7 +4,9 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
+import { AuditLogView } from '@/components/accounting/ledger/audit-log-view';
 import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
+import { JournalsView } from '@/components/accounting/ledger/journals-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
 import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
@@ -195,6 +197,8 @@ export default function AccountingScreen() {
             {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} />}
             {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}

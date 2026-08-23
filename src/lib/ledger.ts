@@ -122,3 +122,36 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
   if (error) throw error;
   return data as string;
 }
+
+export type AuditRow = {
+  id: string;
+  actorId: string | null;
+  action: 'insert' | 'update' | 'delete';
+  subjectTable: string;
+  subjectId: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+// Newest first, capped. The log is append-only and grows without bound, so a
+// screen that fetched all of it would get slower every day it worked.
+export async function listAuditLog(shopId: string, limit = 200): Promise<AuditRow[]> {
+  const { data, error } = await supabase
+    .from('accounting_audit_log')
+    .select('id, actor_id, action, subject_table, subject_id, before, after, created_at')
+    .eq('shop_id', shopId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    actorId: row.actor_id ?? null,
+    action: row.action,
+    subjectTable: row.subject_table,
+    subjectId: row.subject_id,
+    before: row.before ?? null,
+    after: row.after ?? null,
+    createdAt: row.created_at,
+  }));
+}
