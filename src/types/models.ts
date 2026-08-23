@@ -1121,3 +1121,43 @@ export type TimeOffRequest = {
   decidedBy: string | null;
   decidedAt: string | null;
 };
+
+export type AccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'cost_of_sales' | 'expense';
+
+export type Account = {
+  id: string;
+  shopId: string;
+  code: string;
+  name: string;
+  type: AccountType;
+  isContra: boolean;
+  archivedAt: string | null;
+};
+
+export type JournalEntryStatus = 'draft' | 'posted' | 'reversed';
+
+export type JournalEntry = {
+  id: string;
+  shopId: string;
+  entryDate: string;
+  reference: string | null;
+  description: string;
+  source: string;
+  status: JournalEntryStatus;
+  locationId: string | null;
+  reversesEntryId: string | null;
+  createdAt: string;
+  lines: JournalLine[];
+};
+
+// amountCents is SIGNED: debit positive, credit negative. The two columns a
+// reader expects are a projection of this one number -- see debitOf/creditOf in
+// src/lib/ledger-math.ts. Never add a separate debit and credit field; a shape
+// that can hold both is a shape that will eventually hold both.
+export type JournalLine = {
+  id: string;
+  accountId: string;
+  amountCents: number;
+  locationId: string | null;
+  memo: string | null;
+};
