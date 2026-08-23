@@ -153,13 +153,15 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // What the last successful by-hand save actually did. Save no longer closes
-  // the sheet (see `submit`), so a successful save and Clear all would
-  // otherwise be indistinguishable -- both leave every field blank, on a door
-  // that overwrites a shelf with no undo. This is the one thing on screen that
-  // tells them apart. Cleared by `setCounted` the moment a new count starts,
-  // so it can never be misread as describing what is currently being typed,
-  // and by `closeAndReset` for the same reason `error` is.
+  // What the last successful save actually did -- by hand, or (see
+  // `commitPlan`) from a sheet whose rejected rows are still on screen. Save
+  // no longer closes the sheet (see `submit`), so a successful save and Clear
+  // all would otherwise be indistinguishable -- both leave every field blank,
+  // on a door that overwrites a shelf with no undo. This is the one thing on
+  // screen that tells them apart. Cleared by `setCounted` the moment a new
+  // count starts, by `uploadSheet` and `commitPlan` the moment a new sheet
+  // attempt starts, so it can never be misread as describing an attempt this
+  // one is not, and by `closeAndReset` for the same reason `error` is.
   const [success, setSuccess] = useState<string | null>(null);
   // Which line's reason chips are expanded, by product id. Inline, never a
   // second modal: a sheet opened from a sheet is dropped by iOS without a word
@@ -179,12 +181,19 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
   const [plan, setPlan] = useState<CountPlan | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
-  // Set only by a commitPlan that partially failed, and read only by the
-  // footer. commitPlan empties plan.counts on ANY failure so a re-press cannot
-  // repeat a store that already went through -- but that same clearing is what
-  // let the restock footer claim "nothing has changed yet" directly under an
-  // error naming the store that just changed.
-  const [partialCount, setPartialCount] = useState<{ lines: number; stores: number } | null>(null);
+  // Set by a commitPlan that did not reach closeAndReset -- either because a
+  // store failed (`failed: true`) or because every store went through but
+  // rejected rows are still on screen (`failed: false`; see commitPlan's own
+  // tail). Read only by the footer. commitPlan empties plan.counts on EITHER
+  // exit so a re-press cannot repeat a store that already went through -- but
+  // that same clearing is what let the footer claim "nothing has changed yet"
+  // directly under an error naming the store that just changed, and is why
+  // `failed` exists: without it, a fully successful commit with rejects left
+  // behind would read the same "before the failure above" sentence written
+  // for an actual one.
+  const [partialCount, setPartialCount] = useState<{ lines: number; stores: number; failed: boolean } | null>(
+    null
+  );
 
   // Scoped to the store being counted, because "App says 11" is the number the
   // whole screen is about. Unlike Restock, the shop-wide list is NOT merged in:
@@ -649,6 +658,11 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     // A fresh upload is a fresh attempt -- without this, re-uploading to retry
     // the rest after a partial failure would leave the previous attempt's
     // "N lines already counted" banner sitting under a brand new preview.
+    //
+    // `success` is deliberately NOT cleared here: uploading only builds a
+    // preview, it writes nothing, and a success banner describes the last
+    // thing that actually wrote. `commitPlan` and `askToSave` are the two
+    // places an attempt to write actually starts, and both already clear it.
     setPartialCount(null);
 
     // A sheet that turns out to be one store is the same thing the by-hand tab
@@ -736,6 +750,11 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     committingPlanRef.current = true;
     setBusy(true);
     setError(null);
+    // A fresh commit is a fresh attempt: a success banner left over from an
+    // earlier commitPlan call (or from the by-hand tab's own `submit`) must
+    // not go on describing this one while it is in flight, or sit there
+    // unexplained beside an error this attempt is about to raise.
+    setSuccess(null);
     const failures: string[] = [];
     // Kept apart from `failures`, which heads its error with "Some of the count
     // did not go through". A logged-expense failure is the opposite case -- all
@@ -791,15 +810,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     // section of the sheet and uploading it again, never by pressing this
     // button a second time. Emptied here, before anything that can throw.
     setPlan({ ...plan, counts: [] });
+    const failed = failures.length > 0 || expenseProblems.length > 0;
     setPartialCount(
       succeeded.length > 0
-        ? { lines: succeeded.reduce((sum, count) => sum + count.lines.length, 0), stores: succeeded.length }
+        ? { lines: succeeded.reduce((sum, count) => sum + count.lines.length, 0), stores: succeeded.length, failed }
         : null
     );
     await onDone().catch(() => {});
     setBusy(false);
     committingPlanRef.current = false;
-    if (failures.length > 0 || expenseProblems.length > 0) {
+    if (failed) {
       // An expense problem alone lands here too -- the numbers are in, so the
       // plan is spent either way, and the sentence says which store's stock
       // loss is left to add by hand. Kept separate from `failures`, which heads
@@ -815,6 +835,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
           .filter(Boolean)
           .join('\n\n')
       );
+      return;
+    }
+    // Every store went through. `plan.rejected` is untouched by the loop above
+    // -- it is planCount's own reading of the upload, not something commitPlan
+    // produces -- so a sheet that carried both good rows and bad ones still has
+    // its bad ones sitting right here, with the modal about to take the only
+    // way to see them or download them along with it. CsvImportModal's own
+    // import report stays open for exactly this reason (see its `step ===
+    // 'done'` branch): closing is the right move only once there is nothing
+    // left on screen to show.
+    if (plan.rejected.length > 0) {
+      setSuccess(sheetCommitSuccessText(succeeded, plan.rejected.length));
       return;
     }
     closeAndReset();
@@ -1143,7 +1175,9 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                       </Text>
                       <Text style={styles.footerTotalHint}>
                         {partialCount
-                          ? `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} before the failure above`
+                          ? partialCount.failed
+                            ? `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} before the failure above`
+                            : `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} · nothing left to save`
                           : plan
                             ? `across ${plan.counts.length} store${plan.counts.length === 1 ? '' : 's'} · nothing has changed yet`
                             : 'Download, fill it in, upload it back'}
@@ -1213,6 +1247,19 @@ function saveSuccessText(changed: number, storeName: string): string {
   return changed === 0
     ? `Nothing changed at ${storeName} — every count matched`
     : `${changed} product${changed === 1 ? '' : 's'} changed at ${storeName}`;
+}
+
+// commitPlan's own success line -- read only once every store in the plan has
+// gone through and the only thing left on the sheet tab is rows planCount
+// already refused. Kept separate from `saveSuccessText` above rather than
+// generalised to cover both: that one names ONE store, because the by-hand
+// basket is always exactly one store's walk, and a plan is routinely several.
+function sheetCommitSuccessText(succeeded: PlannedCount[], rejectedRowCount: number): string {
+  const lines = succeeded.reduce((sum, count) => sum + count.lines.length, 0);
+  const stores = succeeded.length;
+  return `${lines} counted across ${stores} store${stores === 1 ? '' : 's'}. ${rejectedRowCount} row${
+    rejectedRowCount === 1 ? '' : 's'
+  } rejected.`;
 }
 
 function CountRowView({

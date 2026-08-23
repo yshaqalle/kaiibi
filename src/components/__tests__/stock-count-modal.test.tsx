@@ -1316,6 +1316,110 @@ describe('closing the sheet tab', () => {
   });
 });
 
+// CsvImportModal's own precedent (see its `step === 'done'` branch): a report
+// with something left to see stays open. Before this fix, commitPlan called
+// closeAndReset whenever every store went through, whether or not
+// `plan.rejected` still had rows on it -- so a shop whose sheet mixed good
+// rows with bad ones lost the rejected list, the reasons and the download
+// button the instant the good rows landed, with no way back to the rows that
+// needed fixing.
+describe('the sheet tab staying open after a commit with rejects', () => {
+  function uploadTwoStoresAndOneReject(): void {
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+    });
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '9' },
+        { Product: 'Nonexistent widget', Store: 'Main', Counted: '5' },
+      ])
+    );
+  }
+
+  it('stays open, says what landed and what did not, and keeps the rejected rows reachable', async () => {
+    uploadTwoStoresAndOneReject();
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={onClose} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // Two stores accepted, one row rejected -- a rejection keeps `handedOver`
+    // false regardless of store count, so this plan stays on the sheet tab
+    // for `commitPlan` rather than being handed to the by-hand tab.
+    expect(allText(tree)).toContain('2 counted');
+    expect(allText(tree)).toContain('1 rejected');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    // Both stores actually committed -- the good rows landed.
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-1',
+      [{ productId: 'p-1', countedQuantity: 8, reason: null }],
+      { note: null }
+    );
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-2',
+      [{ productId: 'p-2', countedQuantity: 9, reason: null }],
+      { note: null }
+    );
+
+    // The sheet stayed open -- the whole point of this fix.
+    expect(onClose).not.toHaveBeenCalled();
+
+    // It says plainly that the commit succeeded, and names what did not.
+    expect(allText(tree)).toContain('2 counted across 2 stores. 1 row rejected.');
+
+    // The rejected row, its reason and its download are all still here --
+    // nothing about a successful write clears `plan.rejected`.
+    expect(allText(tree)).toContain("WHAT WON'T");
+    expect(allText(tree)).toContain('Row 4');
+    expect(allText(tree)).toContain('No product matches "Nonexistent widget"');
+    expect(allText(tree)).toContain('Download the 1 rejected row');
+
+    // The footer's own hint agrees with the banner: nothing failed, so it
+    // must not borrow the sentence written for a store that did.
+    expect(allText(tree)).toContain('nothing left to save');
+    expect(allText(tree)).not.toContain('before the failure above');
+
+    // The committed plan cannot be committed again: `plan.counts` is already
+    // empty, so the button is structurally dead rather than merely unlucky
+    // to be pressed at a bad time.
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+  });
+
+  // The hazard this branch has fought twice: a failed reload leaving a full
+  // basket under a live button, so pressing it again repeats the write.
+  // Keeping the sheet open after a SUCCESSFUL commit is exactly the
+  // condition that bug lives under, so this presses the same button again
+  // and checks the RPC's own call count -- text would stay green even if the
+  // guard below it were deleted.
+  it('cannot commit the same rows twice once the sheet stays open after a successful commit', async () => {
+    uploadTwoStoresAndOneReject();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+
+    // Same button, pressed again, with the sheet still open and the two
+    // stores it already counted still named on screen.
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+  });
+});
+
 const { createExpense } = jest.requireMock('@/lib/expenses') as { createExpense: jest.Mock };
 
 describe('logging the shortfall', () => {
