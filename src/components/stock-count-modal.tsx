@@ -910,10 +910,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
               />
             )}
 
-            {error && <Text style={styles.error}>{error}</Text>}
           </ScrollView>
 
           <View style={styles.footerWrap}>
+            {/* In the footer, NOT at the foot of the ScrollView above it. A
+                failed write is reported here, and the ScrollView is where the
+                catalogue lives -- on a shop with 119 products the message
+                landed below all of them, off screen, so a save that refused
+                looked like a save that did nothing. The button that failed and
+                the reason it failed belong to each other. */}
+            {error && <Text style={styles.error}>{error}</Text>}
             {tab === 'hand' && confirming ? (
               <CountConfirm
                 storeName={storeName}
