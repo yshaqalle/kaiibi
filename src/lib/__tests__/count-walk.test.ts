@@ -66,12 +66,24 @@ describe('what a field means', () => {
 
   // MUTATION: classify an unreadable entry as blank. `abc` would then be
   // silently skipped instead of blocking the commit.
-  it('reads a non-number as unreadable, not as blank', () => {
-    const entries: CountEntries = { 'p-1': { counted: 'abc', reason: null } };
+  //
+  // MUTATION: replace the `readCountedQuantity` call in `walkRow` with a local
+  // `Number.isFinite(Number(typed)) ? Math.trunc(Number(typed)) : null`. `abc`
+  // still rejects under that drift (Number('abc') is NaN), which is why it
+  // alone does not pin the delegation -- but '-5' reads as -5, '3.5' silently
+  // truncates to 3, and '2147483648' (one past the Postgres integer ceiling)
+  // passes Number.isFinite untouched. Each would reach `save_stock_count`
+  // instead of blocking Save: a negative count violates the column's own check
+  // constraint as a raw Postgres string, a truncated fraction commits a number
+  // nobody typed, and the oversized one fails with "integer out of range".
+  // This is the two-readers drift count-import.ts:312-314 documents as having
+  // already shipped twice on this feature.
+  it.each(['abc', '-5', '3.5', '2147483648'])('reads %s as unreadable, not as blank', (typed) => {
+    const entries: CountEntries = { 'p-1': { counted: typed, reason: null } };
     const row = walkRow(product({ id: 'p-1' }), entries);
     expect(row.state).toBe('unreadable');
     expect(row.counted).toBeNull();
-    expect(row.typed).toBe('abc');
+    expect(row.typed).toBe(typed);
   });
 
   // MUTATION: compute variance as `product.stock - counted`. Every sign on the
@@ -100,6 +112,22 @@ describe('what gets sent', () => {
     const catalogue = [product({ id: 'p-1' }), product({ id: 'p-2' }), product({ id: 'p-3' })];
     const rows = walkRows(catalogue, { 'p-2': { counted: '8', reason: 'damaged' } });
     expect(plannedLines(rows).map((line) => line.productId)).toEqual(['p-2']);
+  });
+
+  // MUTATION: filter with `Boolean(row.counted)` instead of `row.state ===
+  // 'counted'`. Every other test in this block types a non-zero count, so the
+  // two filters agree on all of them and the mutant reads as green -- but
+  // `Boolean(0)` is false, so it silently drops the one row that matters most:
+  // a completely empty shelf, the whole reason `readCountedQuantity` exists
+  // apart from `readTypedQuantity`. Dropped here, it never reaches the RPC or
+  // the footer totals, with no message anywhere on screen.
+  it('plans a counted zero, not just a filled shelf', () => {
+    const rows = walkRows([product({ id: 'p-1', stock: 11 })], {
+      'p-1': { counted: '0', reason: null },
+    });
+    expect(plannedLines(rows)).toEqual([
+      expect.objectContaining({ productId: 'p-1', countedQuantity: 0, variance: -11 }),
+    ]);
   });
 
   // MUTATION: send `variance` as `countedQuantity`. This is the ADD-instead-of-
@@ -211,9 +239,15 @@ describe('paging', () => {
 
   // MUTATION: delete the clamp. A catalogue that shrinks under a filter while
   // the page number stays put renders an empty list with no explanation.
+  //
+  // MUTATION: drop the `Math.trunc` from the clamp. No caller can currently
+  // produce a fractional page, but the clamp exists precisely for input the
+  // caller does not control -- and an untruncated 1.5 would slice from index
+  // 50 instead of 0, a wrong page with a page number that still reads "1".
   it('clamps a page past the end onto the last page rather than showing nothing', () => {
     expect(pageSlice(items, 9, 100)).toMatchObject({ page: 3, from: 201, to: 240 });
     expect(pageSlice(items, 0, 100)).toMatchObject({ page: 1, from: 1, to: 100 });
+    expect(pageSlice(items, 1.5, 100)).toMatchObject({ page: 1, from: 1, to: 100 });
   });
 
   // MUTATION: drop the `Math.max(1, ...)` from pageCount, so an empty list
