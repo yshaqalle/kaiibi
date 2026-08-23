@@ -140,6 +140,119 @@ begin
   update public.accounting_periods set status = 'open'
     where shop_id = v_shop_id and starts_on = date '2026-08-01';
 
+  -- 10. A balanced entry is accepted. Deferred means the imbalance is legal
+  -- BETWEEN the two inserts and only judged at commit, which is the only way
+  -- to write two rows that must sum to zero.
+  declare
+    v_entry uuid;
+    v_cash  uuid := (select id from public.accounts where shop_id = v_shop_id and code = '1000');
+    v_shrink uuid := (select id from public.accounts where shop_id = v_shop_id and code = '5100');
+  begin
+    insert into public.journal_entries (shop_id, period_id, entry_date, description, source, status, created_by)
+      values (v_shop_id, public.open_period_for(v_shop_id, date '2026-08-15'), date '2026-08-15',
+              'balanced', 'manual', 'posted', v_owner_id)
+      returning id into v_entry;
+    insert into public.journal_lines (entry_id, account_id, amount_cents) values (v_entry, v_shrink,  84000);
+    insert into public.journal_lines (entry_id, account_id, amount_cents) values (v_entry, v_cash,   -84000);
+  end;
+
+  -- 11. An UNBALANCED entry is refused, and refused for a write that never went
+  -- near post_journal_entry. This is the assertion the whole design rests on.
+  --
+  -- SET CONSTRAINTS ... IMMEDIATE is what makes this testable inside a
+  -- transaction that is going to roll back: the trigger is deferred to commit,
+  -- and commit never arrives here. A flag rather than a raise-inside-a-raise,
+  -- because plpgsql's exception handler cannot tell "the assertion tripped"
+  -- from "the thing being asserted about tripped" when both are P0001.
+  --
+  -- TWO lines that do not cancel, not one line. Written with one line first,
+  -- and it was a test that could not fail: assert_journal_balances refuses a
+  -- single-line entry by the line-count rule before it ever reaches the sum,
+  -- so the check stayed green with the balance rule commented out entirely.
+  -- Found by mutation, not by reading. The line-count rule gets its own check
+  -- below rather than being smuggled into this one.
+  v_raised := false;
+  declare
+    v_bad uuid;
+    v_cash uuid := (select id from public.accounts where shop_id = v_shop_id and code = '1000');
+    v_shrink uuid := (select id from public.accounts where shop_id = v_shop_id and code = '5100');
+  begin
+    insert into public.journal_entries (shop_id, period_id, entry_date, description, source, status, created_by)
+      values (v_shop_id, public.open_period_for(v_shop_id, date '2026-08-15'), date '2026-08-15',
+              'unbalanced', 'manual', 'posted', v_owner_id)
+      returning id into v_bad;
+    insert into public.journal_lines (entry_id, account_id, amount_cents) values (v_bad, v_shrink, 84000);
+    insert into public.journal_lines (entry_id, account_id, amount_cents) values (v_bad, v_cash,   -83999);
+    set constraints journal_entry_balances immediate;
+  exception
+    when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an unbalanced entry was accepted';
+  end if;
+  set constraints all deferred;
+
+  -- 11b. A one-line entry is refused too.
+  --
+  -- No single mutation turns this one red, and that is the finding rather than
+  -- a defect: a lone line is caught by the line-count rule, and if that rule is
+  -- removed it is caught by the sum instead, because one non-zero line cannot
+  -- total zero. Two independent rules cover it. What the line-count rule buys
+  -- is the MESSAGE -- "this entry needs two lines" rather than "debits and
+  -- credits differ by 100", which describes the symptom of nobody having
+  -- written the other side.
+  --
+  -- Kept because it asserts the behaviour a caller depends on. Both rules have
+  -- to be disabled together before it fails, which is exactly what defence in
+  -- depth is supposed to look like.
+  v_raised := false;
+  declare
+    v_lonely uuid;
+    v_cash uuid := (select id from public.accounts where shop_id = v_shop_id and code = '1000');
+  begin
+    insert into public.journal_entries (shop_id, period_id, entry_date, description, source, status, created_by)
+      values (v_shop_id, public.open_period_for(v_shop_id, date '2026-08-15'), date '2026-08-15',
+              'lonely', 'manual', 'posted', v_owner_id)
+      returning id into v_lonely;
+    insert into public.journal_lines (entry_id, account_id, amount_cents) values (v_lonely, v_cash, 100);
+    set constraints journal_entry_balances immediate;
+  exception
+    when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a one-line entry was accepted';
+  end if;
+  set constraints all deferred;
+
+  -- 12. A zero line is refused. Two zero lines would sum to zero and pass the
+  -- balance check while recording nothing.
+  v_raised := false;
+  begin
+    insert into public.journal_lines (entry_id, account_id, amount_cents)
+      values ((select id from public.journal_entries where shop_id = v_shop_id and description = 'balanced'),
+              (select id from public.accounts where shop_id = v_shop_id and code = '1000'), 0);
+  exception
+    when check_violation then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a zero-amount line was accepted';
+  end if;
+
+  -- 13. A posted entry cannot be edited. Correction is a reversing entry; an
+  -- UPDATE would rewrite history and leave no trace that it had been rewritten.
+  v_raised := false;
+  begin
+    update public.journal_entries set description = 'edited'
+      where shop_id = v_shop_id and description = 'balanced';
+  exception
+    when sqlstate 'P0001' then
+      if position('immutable' in sqlerrm) = 0 then raise; end if;
+      v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a posted entry was edited';
+  end if;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception
