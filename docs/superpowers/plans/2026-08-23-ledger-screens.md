@@ -30,7 +30,11 @@ Therefore `view` is a URL param mirrored the same way, read once as an initial v
 
 - `npx tsc --noEmit` → **clean, exit 0**
 - `npm test` → **136 suites, 2097 tests, all passing**
-- `npm run lint` → **76 problems (44 errors, 32 warnings)**. Do not add to this number, and do not "fix" pre-existing ones in this plan's commits.
+- `npm run lint` → **76 problems (44 errors, 32 warnings)** at the start. Do not "fix" pre-existing ones in this plan's commits.
+
+  **One expected exception, +1 per data-loading view, ending at 81.** Every screen that fetches needs `useEffect(() => { reload(); }, [reload])`, and `react-hooks` flags it as "Calling setState synchronously within an effect". That is not avoidable here: `use-refresh-on-focus.ts:28-31` states outright that it deliberately does *not* fetch on the focus that arrives with mounting, because **the screen's own effect has just fetched** — remove the effect and the view stays empty until its data goes stale. All five existing accounting tabs carry the same error (`receivables-tab.tsx:85`, `cash-budgets-tab.tsx:202`), and 68 instances of the rule already exist across the app.
+
+  So the five new views take the count to **81**, and each commit's expected number is stated in its own verify step. Any increase beyond that is a real regression and must be fixed.
 - `npm run test:db` → **16 checks pass.** Nothing here should touch it; run it once at the end to prove that.
 
 ### Bento rules — read [`.claude/skills/building-bento-screens/SKILL.md`](../../../.claude/skills/building-bento-screens/SKILL.md) before writing a screen
@@ -320,7 +324,7 @@ Replace the two `TAB_OPTIONS.find(...)` calls in the header with `{title}` and `
 - [ ] **Step 8: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; **137 suites, 2101 tests**; 76 lint problems.
+Expected: exit 0; **137 suites, 2101 tests**; **76** lint problems — this task adds no data-loading view.
 
 ```bash
 git add src/app/\(admin\)/\(tabs\)/accounting.tsx src/components/accounting/ledger/ src/components/__tests__/accounting-ledger-nav.test.tsx
@@ -604,7 +608,7 @@ Third mutation: in `draftDifferenceCents`, drop the `row.isCredit ? -cents : cen
 - [ ] **Step 6: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; **138 suites, 2112 tests**; 76 lint problems.
+Expected: exit 0; **138 suites, 2112 tests**; **76** lint problems — `ledger-view.ts` is pure and fetches nothing.
 
 ```bash
 git add src/lib/ledger-view.ts src/lib/__tests__/ledger-view.test.ts
@@ -783,7 +787,7 @@ and import it.
 - [ ] **Step 3: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; 138 suites / 2112 tests; 76 lint problems.
+Expected: exit 0; 138 suites / 2112 tests; **77** lint problems — +1, the unavoidable mount-effect rule described in the constraints.
 
 No new Jest test: every decision this component makes lives in `ledger-view.ts` and is tested there. What remains is rendering, and a test of it would assert that a `Text` contains what was passed to it.
 
@@ -933,7 +937,7 @@ and the route line, beneath the `accounts` line from Task 3:
 - [ ] **Step 3: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; 138 suites / 2112 tests; 76 lint problems.
+Expected: exit 0; 138 suites / 2112 tests; **78** lint problems — +1 for the Trial Balance view's mount effect.
 
 ```bash
 git add src/components/accounting/ledger/trial-balance-view.tsx src/app/\(admin\)/\(tabs\)/accounting.tsx
@@ -1240,7 +1244,7 @@ and the two route lines:
 - [ ] **Step 5: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; 138 suites / 2112 tests; 76 lint problems.
+Expected: exit 0; 138 suites / 2112 tests; **80** lint problems — +2, one for each of the two views this task adds.
 
 ```bash
 git add src/components/accounting/ledger/journals-view.tsx src/components/accounting/ledger/audit-log-view.tsx src/lib/ledger.ts src/app/\(admin\)/\(tabs\)/accounting.tsx
@@ -1534,7 +1538,7 @@ Posting lands the reader on the journals list, where the entry they just wrote i
 - [ ] **Step 6: Verify and commit**
 
 Run: `npx tsc --noEmit && npm test && npm run lint`
-Expected: exit 0; **139 suites, 2117 tests**; 76 lint problems.
+Expected: exit 0; **139 suites, 2117 tests**; **81** lint problems — +1 for the form's account-list fetch. This is the final figure.
 
 ```bash
 git add src/components/accounting/ledger/journal-entry-view.tsx src/components/__tests__/journal-entry-view.test.tsx src/app/\(admin\)/\(tabs\)/accounting.tsx
@@ -1580,7 +1584,7 @@ Narrow the window to ~390px. The hub cards stack to one column; the tables scrol
 - [ ] **Step 5: Run the whole suite one last time and commit anything found**
 
 Run: `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: exit 0; 139 suites / 2117 tests; 76 lint problems; 16 database checks.
+Expected: exit 0; 139 suites / 2117 tests; **81** lint problems; 16 database checks.
 
 `test:db` is run here to prove this plan touched nothing it should not have.
 

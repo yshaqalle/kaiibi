@@ -4,6 +4,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
+import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
 import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
 import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
@@ -191,6 +192,7 @@ export default function AccountingScreen() {
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
             {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} />}
+            {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
