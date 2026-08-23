@@ -150,6 +150,14 @@ async function backspace(tree: ReactTestRenderer, label: string, times = 1) {
   }
 }
 
+// The by-hand tab writes in two presses now: Save counts opens the
+// confirmation, and only the confirmation's own button commits. The sheet tab
+// still writes on one press and does NOT use this.
+async function saveByHand(tree: ReactTestRenderer) {
+  await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+  await act(async () => pressableLabelled(tree, 'Confirm and save the count').props.onPress());
+}
+
 async function open(products = [product({})]): Promise<ReactTestRenderer> {
   listProducts.mockResolvedValue(products);
   let tree!: ReactTestRenderer;
@@ -193,7 +201,7 @@ describe('a line added to a count', () => {
       product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
     ]);
     await type(tree, 'Counted units of QA other', '4');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(saveStockCount).toHaveBeenCalledWith(
       'shop-1',
       'loc-1',
@@ -304,7 +312,26 @@ describe('a line added to a count', () => {
     await type(tree, COUNTED, '0');
     expect(allText(tree)).toContain('−11');
     expect(allText(tree)).toContain('1 will change a number');
+    // Not named in the brief's own list of by-hand saves to rewrite -- but a
+    // single press here now only opens the confirmation, so left alone this
+    // assertion would read `saveStockCount.mock.calls[0]` off a mock that was
+    // never called and throw rather than fail cleanly. The zero-as-a-real-count
+    // rule is exactly the one the confirmation's own "blank vs zero" guarantee
+    // exists to protect, so it has to keep reaching the RPC through the new
+    // two-press path.
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    // The confirmation has to draw the SAME distinction the RPC payload does:
+    // a zero count is a real, large change (an empty shelf), never folded into
+    // "already matched" or left off the list the way an untouched row would be.
+    //
+    // MUTATION: classify `changing`/`matched` in CountConfirm on
+    // `countedQuantity !== 0` instead of `variance !== 0`. Nothing else in this
+    // file opens the panel on a zero count and reads what it says, so this is
+    // the one place a carve-out for zero would go unnoticed -- and it is
+    // exactly the row a mistaken carve-out would hide: a total loss.
+    expect(allText(tree)).toContain('1 product will change');
+    expect(allText(tree)).toContain('11 → 0');
+    await act(async () => pressableLabelled(tree, 'Confirm and save the count').props.onPress());
     expect(saveStockCount).toHaveBeenCalledWith(
       'shop-1',
       'loc-1',
@@ -575,7 +602,7 @@ describe('changing the store', () => {
     expect(allText(tree)).toContain('App says 3');
 
     await type(tree, COUNTED, '3');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(saveStockCount).toHaveBeenCalledWith(
       'shop-1',
       'loc-2',
@@ -610,7 +637,7 @@ describe('saving a count', () => {
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
     await act(async () => pressableLabelled(tree, 'Reason: Damaged').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
 
     expect(saveStockCount).toHaveBeenCalledWith(
       'shop-1',
@@ -623,7 +650,7 @@ describe('saving a count', () => {
   it('sends a null reason rather than defaulting one', async () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(saveStockCount.mock.calls[0][2]).toEqual([
       { productId: 'p-1', countedQuantity: 8, reason: null },
     ]);
@@ -650,8 +677,13 @@ describe('saving a count', () => {
       );
     });
     await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    // The walk is spent: the confirmation is gone and Save is dead, so the one
+    // failure that already committed cannot be committed again.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
     expect(saveStockCount).toHaveBeenCalledTimes(1);
   });
 
@@ -661,7 +693,7 @@ describe('saving a count', () => {
     saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
     const tree = await open();
     await type(tree, COUNTED, '8');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
     expect(allText(tree)).toContain('not authorized');
   });
@@ -969,7 +1001,12 @@ describe('logging the shortfall', () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
     expect(allText(tree)).toContain('Also log $13.83 of shortfall as stock loss');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    // Not named in the brief's own list -- but a single press only opens the
+    // confirmation now, so `submit` (and the gate this test exists to prove)
+    // would never run at all, and `createExpense` not being called would stop
+    // meaning anything.
+    await saveByHand(tree);
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
     expect(createExpense).not.toHaveBeenCalled();
   });
 
@@ -977,7 +1014,7 @@ describe('logging the shortfall', () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
 
     expect(createExpense).toHaveBeenCalledTimes(1);
     // The whole payload, not just the three fields a `toMatchObject` used to
@@ -1001,7 +1038,7 @@ describe('logging the shortfall', () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(saveStockCount.mock.invocationCallOrder[0]).toBeLessThan(createExpense.mock.invocationCallOrder[0]);
   });
 
@@ -1010,7 +1047,7 @@ describe('logging the shortfall', () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(createExpense).not.toHaveBeenCalled();
   });
 
@@ -1042,7 +1079,7 @@ describe('logging the shortfall', () => {
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await backspace(tree, COUNTED, 1);
     await type(tree, COUNTED, '11');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(createExpense).not.toHaveBeenCalled();
   });
 
@@ -1061,7 +1098,7 @@ describe('logging the shortfall', () => {
     });
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
 
     expect(saveStockCount).toHaveBeenCalledTimes(1);
     expect(allText(tree)).toContain('The count was saved, but the stock loss was not logged: expenses are read-only');
@@ -1085,11 +1122,15 @@ describe('logging the shortfall', () => {
     const tree = await open();
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
 
     expect(saveStockCount).toHaveBeenCalledTimes(1);
     expect(fieldNamed(tree, COUNTED).props.value).toBe('');
     expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+    // The confirmation went down with the write, same as the reload-failure
+    // canary above -- a live "Yes, save" here would be a second route into an
+    // expense retry that isn't what this button says it does.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
 
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(saveStockCount).toHaveBeenCalledTimes(1);
@@ -1249,7 +1290,11 @@ describe('paging a long catalogue', () => {
     await act(async () => pressableLabelled(tree, 'Previous page').props.onPress());
     expect(fieldNamed(tree, 'Counted units of QA 000').props.value).toBe('4');
 
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    // Not named in the brief's own list -- but left as a single press this
+    // would only open the confirmation, and `saveStockCount.mock.calls[0]`
+    // would be undefined rather than the two-page payload this test exists to
+    // prove.
+    await saveByHand(tree);
     expect(saveStockCount.mock.calls[0][2]).toEqual([
       { productId: 'p-0', countedQuantity: 4, reason: null },
       { productId: 'p-100', countedQuantity: 7, reason: null },
@@ -1272,7 +1317,7 @@ describe('paging a long catalogue', () => {
     await backspace(tree, 'Search products', 4);
 
     expect(fieldNamed(tree, 'Counted units of Dr Althea').props.value).toBe('5');
-    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await saveByHand(tree);
     expect(saveStockCount.mock.calls[0][2]).toEqual([
       { productId: 'p-1', countedQuantity: 5, reason: null },
       { productId: 'p-2', countedQuantity: 15, reason: null },
@@ -1421,5 +1466,159 @@ describe('paging a long catalogue', () => {
 
     expect(allText(tree)).toContain('Showing 1–100 of 150');
     expect(fieldNamed(tree, 'Counted units of QA 000').props.value).toBe('4');
+  });
+});
+
+describe('the confirmation', () => {
+  // Count SETS a number. There is no undo, and a mistyped row overwrites a real
+  // shelf -- so pressing Save must not write.
+  //
+  // MUTATION: wire the list footer's button straight to `submit`. The write
+  // happens on the first press and the panel never appears.
+  it('writes nothing on the first press, and names the store, the changes and the reasons', async () => {
+    const tree = await open([
+      product({ id: 'p-1', name: 'Dr Althea', sku: 'SK-1', stock: 7 }),
+      product({ id: 'p-2', name: 'daily facial', sku: 'SK-2', stock: 5 }),
+      product({ id: 'p-3', name: 'clay mask sachet', sku: 'SK-3', stock: 12 }),
+      product({ id: 'p-4', name: 'untouched thing', sku: 'SK-4', stock: 3 }),
+    ]);
+    await type(tree, 'Counted units of Dr Althea', '5');
+    await act(async () => pressableLabelled(tree, 'Reason for Dr Althea').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Reason: Theft or loss').props.onPress());
+    await type(tree, 'Counted units of daily facial', '5');
+    await type(tree, 'Counted units of clay mask sachet', '15');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).not.toHaveBeenCalled();
+
+    const shown = allText(tree);
+    // The headline is the number that CHANGES, not the number counted.
+    // MUTATION: headline `summary.counted` instead. It reads "3 counted" as
+    // "3 will change" on any walk where a row matched -- overstating what is
+    // about to happen, on the one screen that exists to state it exactly.
+    expect(shown).toContain('2 products will change');
+    expect(shown).not.toContain('3 products will change');
+    // MUTATION: drop the store name. Stock-takes go wrong by being saved
+    // against the wrong branch, and this is the last screen that can catch it.
+    expect(shown).toContain('At Main');
+    expect(shown).toContain('3 counted, 1 already matched');
+    // Both numbers for every change, and the reason each carries.
+    expect(shown).toContain('Dr Althea');
+    expect(shown).toContain('7 → 5');
+    expect(shown).toContain('Theft or loss');
+    expect(shown).toContain('clay mask sachet');
+    expect(shown).toContain('12 → 15');
+    // MUTATION: hide the reasonless line's caption. Unexplained shrinkage IS
+    // the finding, and a blank there reads as "no shrinkage".
+    expect(shown).toContain('no reason given');
+    // A matched row is recorded, and says so rather than appearing as a change.
+    expect(shown).toContain('daily facial was counted at 5 and is already 5');
+    expect(shown).toContain('1 product was not counted and is untouched.');
+  });
+
+  // MUTATION: replace the panel with a `Modal` (or `AppModal`). On iOS a modal
+  // presented from a modal is silently dropped and the button reads as dead --
+  // this has bitten twice on this branch. The panel must be a plain View inside
+  // the AppModal already on screen.
+  it('unfolds inside the sheet already on screen, opening no second modal', async () => {
+    const tree = await open();
+    const modalsBefore = tree.root.findAll((n) => n.props.transparent !== undefined).length;
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('1 product will change');
+    expect(tree.root.findAll((n) => n.props.transparent !== undefined)).toHaveLength(modalsBefore);
+  });
+
+  // "Cancel" reads like it might throw the walk away, and on a shelf you just
+  // spent twenty minutes counting that ambiguity is cruel.
+  //
+  // MUTATION: have `Go back` call `clearAll` as well. Twenty minutes gone.
+  it('goes back to the list with everything intact', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Go back').props.onPress());
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Go back')).toHaveLength(0);
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+    expect(saveStockCount).not.toHaveBeenCalled();
+  });
+
+  // If the stock-loss box is ticked, this write also touches the P&L. That
+  // belongs in the confirmation, not only in a checkbox scrolled past.
+  //
+  // MUTATION: render the money line whenever `logExpense` is true, ignoring
+  // `handExpenseCents`. The panel then promises a P&L row on a walk with no
+  // shortfall, which `submit` correctly refuses to write -- a confirmation that
+  // lies about what it is about to do.
+  it('discloses the stock-loss expense, and only when one will actually be written', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('Also logs $13.83 as a stock-loss expense');
+
+    await act(async () => pressableLabelled(tree, 'Go back').props.onPress());
+    await backspace(tree, COUNTED, 1);
+    await type(tree, COUNTED, '11');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).not.toContain('stock-loss expense');
+  });
+
+  // Recording that a shelf was checked and found correct is a real and useful
+  // result, so this still offers to save.
+  //
+  // MUTATION: disable the confirm button when nothing changes, or refuse to
+  // open the panel at all. A shop that walks a shelf and finds it right can no
+  // longer record that it did.
+  it('says plainly that nothing will change, and still offers to save', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '11');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('Nothing will change');
+    expect(allText(tree)).toContain('Yes, record the count');
+    await act(async () => pressableLabelled(tree, 'Confirm and save the count').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-1',
+      [{ productId: 'p-1', countedQuantity: 11, reason: null }],
+      { note: null }
+    );
+  });
+
+  // HAZARD 3, from the other direction: a refused write leaves the walk intact,
+  // and the confirmation must not be left standing over it with a live button.
+  //
+  // MUTATION: drop `setConfirming(false)` from the catch. The error renders
+  // behind a panel still offering "Yes, save 1 change" against numbers that
+  // just failed, which is a second live route into the same write.
+  it('returns to the list on a refused write, with everything typed still there', async () => {
+    saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+    expect(allText(tree)).toContain('not authorized');
+  });
+
+  // MUTATION: leave `Clear all` live during the confirmation. Pressing it from
+  // behind the panel empties the walk the panel is describing, and the panel
+  // goes on offering to save it.
+  it('stands Clear all down while the confirmation is open', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(pressableLabelled(tree, 'Clear all').props.disabled).toBe(true);
+  });
+
+  // MUTATION: drop `setConfirming(false)` from `closeAndReset`. The next
+  // stock-take opens straight into a confirmation of the last one's numbers.
+  it('is gone when the sheet is closed and re-opened', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
   });
 });

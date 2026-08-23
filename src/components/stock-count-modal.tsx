@@ -21,6 +21,7 @@ import {
   type CountSheetRow,
   type CountSummary,
   type PlannedCount,
+  type PlannedCountLine,
 } from '@/lib/count-import';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
@@ -129,6 +130,12 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // avoid the whole class, and a reason is a five-way choice, not a screen.
   const [reasonOpenFor, setReasonOpenFor] = useState<string | null>(null);
   const [logExpense, setLogExpense] = useState(false);
+  // The confirmation, which is a PANEL and never a modal. A modal presented
+  // from a modal is silently dropped on iOS and the button reads as dead --
+  // this has bitten twice on this branch. It replaces the footer's contents
+  // inside the AppModal already on screen, the same way the reason chips
+  // unfold under a row.
+  const [confirming, setConfirming] = useState(false);
 
   // Sheet tab
   const [sheetFile, setSheetFile] = useState<string | null>(null);
@@ -179,6 +186,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     if (storeChanged) {
       updateEntries(() => ({}));
       setReasonOpenFor(null);
+      setConfirming(false);
       setPage(1);
     }
     load()
@@ -211,6 +219,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setError(null);
     setReasonOpenFor(null);
     setLogExpense(false);
+    setConfirming(false);
     setPlan(null);
     setSheetFile(null);
     setSheetHeaders([]);
@@ -288,8 +297,9 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setNote('');
     setReasonOpenFor(null);
     setLogExpense(false);
+    setConfirming(false);
   };
-  const canClearAll = !busy && (typed.length > 0 || note.trim() !== '');
+  const canClearAll = !busy && !confirming && (typed.length > 0 || note.trim() !== '');
 
   const unreadable = useMemo(() => typed.filter((row) => row.state === 'unreadable').length, [typed]);
   const handLines = useMemo(() => plannedLines(rows), [rows]);
@@ -309,6 +319,13 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // anything is unreadable, so one non-empty check carries both rules: at least
   // one row reads, and none of them is gibberish.
   const canSubmit = Boolean(locationId) && handLines.length > 0 && !busy;
+
+  // Stock-takes go wrong by being saved against the wrong branch, and the one
+  // screen that can catch it is the one right before the write.
+  const storeName = useMemo(
+    () => selectable.find((location) => location.id === locationId)?.name ?? '',
+    [selectable, locationId]
+  );
 
   // The one stock-loss gate, read by the footer's disclosure and by `submit`
   // alike. Written once so the two cannot drift: a panel promising a P&L row
@@ -350,6 +367,14 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     }
   };
 
+  // The list footer's Save button. It WRITES NOTHING -- it unfolds the
+  // confirmation, which carries the only button that commits.
+  const askToSave = () => {
+    if (!canSubmit) return;
+    setError(null);
+    setConfirming(true);
+  };
+
   const submit = async () => {
     if (!canSubmit || !locationId) return;
     setBusy(true);
@@ -382,6 +407,12 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // Nothing was counted, so the basket is deliberately left exactly as it
       // is: this is the one failure a shop fixes by pressing again.
       setError(describePlanError(err) ?? extractErrorMessage(err));
+      // Back to the list, with everything typed still there -- this is the one
+      // failure a shop fixes by pressing again. The panel does NOT stay up: a
+      // live "Yes, save" sitting over numbers that just failed is a second
+      // route into the same write, which is exactly how the restock branch
+      // committed a delivery twice.
+      setConfirming(false);
       setBusy(false);
       return;
     }
@@ -391,6 +422,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     updateEntries(() => ({}));
     setNote('');
     setLogExpense(false);
+    setConfirming(false);
 
     // Only after the numbers are in, and only if the offer was actually on
     // screen. `handExpenseCents` is the same expression the footer disclosed,
@@ -882,80 +914,95 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
           </ScrollView>
 
           <View style={styles.footerWrap}>
-            {/* Above the buttons rather than beside them: it is a question
-                about the stock-take, and a shop should read it on the way to
-                the button whose meaning it changes. */}
-            <StockLossCheck
-              cents={(tab === 'hand' ? handSummary : planSummary).shortfallCents}
-              uncostedShortfallLines={(tab === 'hand' ? handSummary : planSummary).uncostedShortfallLines}
-              on={logExpense}
-              onToggle={() => setLogExpense((ticked) => !ticked)}
-            />
-            {tab === 'hand' ? (
+            {tab === 'hand' && confirming ? (
+              <CountConfirm
+                storeName={storeName}
+                lines={handLines}
+                summary={handSummary}
+                untouched={catalogue.length - handSummary.counted}
+                expenseCents={handExpenseCents}
+                busy={busy}
+                onBack={() => setConfirming(false)}
+                onConfirm={submit}
+              />
+            ) : (
               <>
-                {/* Hidden while anything is unreadable: `handLines` is `[]` then
-                    (see plannedLines) and every figure here would read as zero
-                    sitting directly under a live per-row variance -- a
-                    contradiction, not an honest partial total. Nothing typed at
-                    all is still allowed through as zeroes, which is the honest
-                    reading of a walk not started. */}
-                {handLines.length > 0 && (
-                  <View style={styles.basket}>
-                    <View style={styles.basketCap}>
-                      <Text style={styles.basketCapLabel}>VARIANCE</Text>
-                      <Text style={styles.basketCapTotal}>
-                        {`${varianceText(handSummary.varianceUnits)} · ${varianceMoneyText(handSummary.varianceCents)}`}
+                {/* Above the buttons rather than beside them: it is a question
+                    about the stock-take, and a shop should read it on the way to
+                    the button whose meaning it changes. */}
+                <StockLossCheck
+                  cents={(tab === 'hand' ? handSummary : planSummary).shortfallCents}
+                  uncostedShortfallLines={(tab === 'hand' ? handSummary : planSummary).uncostedShortfallLines}
+                  on={logExpense}
+                  onToggle={() => setLogExpense((ticked) => !ticked)}
+                />
+                {tab === 'hand' ? (
+                  <>
+                    {/* Hidden while anything is unreadable: `handLines` is `[]` then
+                        (see plannedLines) and every figure here would read as zero
+                        sitting directly under a live per-row variance -- a
+                        contradiction, not an honest partial total. Nothing typed at
+                        all is still allowed through as zeroes, which is the honest
+                        reading of a walk not started. */}
+                    {handLines.length > 0 && (
+                      <View style={styles.basket}>
+                        <View style={styles.basketCap}>
+                          <Text style={styles.basketCapLabel}>VARIANCE</Text>
+                          <Text style={styles.basketCapTotal}>
+                            {`${varianceText(handSummary.varianceUnits)} · ${varianceMoneyText(handSummary.varianceCents)}`}
+                          </Text>
+                        </View>
+                        <Text style={styles.lineMeta}>
+                          {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ · ${catalogue.length - handSummary.counted} left alone. Nothing changes until you press Save.`}
+                        </Text>
+                      </View>
+                    )}
+                    <View style={styles.footerRow}>
+                      <View style={styles.footerTotal}>
+                        <Text style={styles.footerTotalText}>
+                          {`Save ${typed.length} count${typed.length === 1 ? '' : 's'}`}
+                        </Text>
+                        <Text style={styles.footerTotalHint}>{countHint(typed.length, unreadable, handSummary)}</Text>
+                      </View>
+                      <Pressable
+                        onPress={askToSave}
+                        disabled={!canSubmit}
+                        style={[styles.primary, !canSubmit && styles.disabled]}
+                        accessibilityLabel="Save counts"
+                      >
+                        <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.footerRow}>
+                    <View style={styles.footerTotal}>
+                      <Text style={styles.footerTotalText}>
+                        {partialCount
+                          ? `${partialCount.lines} line${partialCount.lines === 1 ? '' : 's'} already counted`
+                          : plan
+                            ? `${planSummary.counted} counted`
+                            : 'No sheet yet'}
+                      </Text>
+                      <Text style={styles.footerTotalHint}>
+                        {partialCount
+                          ? `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} before the failure above`
+                          : plan
+                            ? `across ${plan.counts.length} store${plan.counts.length === 1 ? '' : 's'} · nothing has changed yet`
+                            : 'Download, fill it in, upload it back'}
                       </Text>
                     </View>
-                    <Text style={styles.lineMeta}>
-                      {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ · ${catalogue.length - handSummary.counted} left alone. Nothing changes until you press Save.`}
-                    </Text>
+                    <Pressable
+                      onPress={commitPlan}
+                      disabled={!canCommitPlan}
+                      style={[styles.primary, !canCommitPlan && styles.disabled]}
+                      accessibilityLabel="Save counts"
+                    >
+                      <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
+                    </Pressable>
                   </View>
                 )}
-                <View style={styles.footerRow}>
-                  <View style={styles.footerTotal}>
-                    <Text style={styles.footerTotalText}>
-                      {`Save ${typed.length} count${typed.length === 1 ? '' : 's'}`}
-                    </Text>
-                    <Text style={styles.footerTotalHint}>{countHint(typed.length, unreadable, handSummary)}</Text>
-                  </View>
-                  <Pressable
-                    onPress={submit}
-                    disabled={!canSubmit}
-                    style={[styles.primary, !canSubmit && styles.disabled]}
-                    accessibilityLabel="Save counts"
-                  >
-                    <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
-                  </Pressable>
-                </View>
               </>
-            ) : (
-              <View style={styles.footerRow}>
-                <View style={styles.footerTotal}>
-                  <Text style={styles.footerTotalText}>
-                    {partialCount
-                      ? `${partialCount.lines} line${partialCount.lines === 1 ? '' : 's'} already counted`
-                      : plan
-                        ? `${planSummary.counted} counted`
-                        : 'No sheet yet'}
-                  </Text>
-                  <Text style={styles.footerTotalHint}>
-                    {partialCount
-                      ? `to ${partialCount.stores} store${partialCount.stores === 1 ? '' : 's'} before the failure above`
-                      : plan
-                        ? `across ${plan.counts.length} store${plan.counts.length === 1 ? '' : 's'} · nothing has changed yet`
-                        : 'Download, fill it in, upload it back'}
-                  </Text>
-                </View>
-                <Pressable
-                  onPress={commitPlan}
-                  disabled={!canCommitPlan}
-                  style={[styles.primary, !canCommitPlan && styles.disabled]}
-                  accessibilityLabel="Save counts"
-                >
-                  <Text style={styles.primaryText}>{busy ? 'Saving…' : 'Save counts'}</Text>
-                </Pressable>
-              </View>
             )}
           </View>
         </View>
@@ -1170,6 +1217,131 @@ function StockLossCheck({
       <View style={[styles.checkBox, on && styles.checkBoxOn]}>{on && <Text style={styles.checkMark}>✓</Text>}</View>
       <Text style={styles.checkLabel}>Also log {formatCents(cents)} of shortfall as stock loss</Text>
     </Pressable>
+  );
+}
+
+// Save asks first, and shows its working.
+//
+// A PANEL, deliberately, not a sheet: a modal presented from a modal is
+// silently dropped on iOS and the button just reads as dead. This replaces the
+// footer inside the AppModal already on screen, the same way the reason chips
+// unfold under a row.
+//
+// The headline is the number that CHANGES, not the number counted. A row
+// counted at the figure it already held changes nothing, and saying otherwise
+// overstates what is about to happen on the one screen that exists to state it
+// exactly.
+function CountConfirm({
+  storeName,
+  lines,
+  summary,
+  untouched,
+  expenseCents,
+  busy,
+  onBack,
+  onConfirm,
+}: {
+  storeName: string;
+  lines: PlannedCountLine[];
+  summary: CountSummary;
+  untouched: number;
+  expenseCents: number | null;
+  busy: boolean;
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
+  const changing = lines.filter((line) => line.variance !== 0);
+  const matched = lines.filter((line) => line.variance === 0);
+  return (
+    <View style={styles.confirm}>
+      <Text style={styles.confirmTitle}>
+        {changing.length === 0
+          ? 'Nothing will change'
+          : `${changing.length} product${changing.length === 1 ? '' : 's'} will change`}
+      </Text>
+      <Text style={styles.confirmWhere}>
+        {`At ${storeName} · ${summary.counted} counted${
+          matched.length > 0 ? `, ${matched.length} already matched` : ''
+        }`}
+      </Text>
+
+      {/* Scrolls rather than truncates. The whole point of a confirmation is
+          auditing it, and "40 products will change" has to be a list a person
+          can actually read rather than a number they have to trust. */}
+      {changing.length > 0 && (
+        <ScrollView style={styles.confirmList} contentContainerStyle={styles.confirmListInner}>
+          {changing.map((line) => (
+            <View key={line.productId} style={styles.confirmRow}>
+              <View style={styles.confirmRowText}>
+                <Text style={styles.confirmName}>{line.productName}</Text>
+                {/* Including "no reason given", because unexplained shrinkage
+                    is the finding, and a blank here would read as none. */}
+                <Text style={styles.confirmReason}>
+                  {line.reason ? reasonLabel(line.reason) : 'no reason given'}
+                </Text>
+              </View>
+              <Text style={styles.confirmArrow}>
+                <Text style={styles.confirmFrom}>{line.previousQuantity}</Text>
+                <Text style={styles.confirmFrom}> → </Text>
+                <Text style={line.variance > 0 ? styles.varianceUp : styles.varianceDown}>
+                  {line.countedQuantity}
+                </Text>
+              </Text>
+            </View>
+          ))}
+        </ScrollView>
+      )}
+
+      {matched.length > 0 && (
+        <Text style={styles.confirmQuiet}>
+          {matched.length === 1
+            ? `${matched[0].productName} was counted at ${matched[0].countedQuantity} and is already ${matched[0].countedQuantity} — it will be recorded, but no number moves.`
+            : `${matched.length} products were counted at the figure they already held — they will be recorded, but no numbers move.`}
+        </Text>
+      )}
+      {untouched > 0 && (
+        <Text style={styles.confirmQuiet}>
+          {untouched === 1
+            ? '1 product was not counted and is untouched.'
+            : `${untouched} products were not counted and are untouched.`}
+        </Text>
+      )}
+      {expenseCents !== null && (
+        <Text style={styles.confirmMoney}>
+          {`Also logs ${formatCents(expenseCents)} as a stock-loss expense`}
+        </Text>
+      )}
+
+      <View style={styles.confirmButtons}>
+        {/* "Go back", not "Cancel": Cancel reads like it might throw the walk
+            away, and on a shelf somebody just spent twenty minutes counting
+            that ambiguity is cruel. */}
+        <Pressable
+          onPress={onBack}
+          disabled={busy}
+          style={styles.confirmBack}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
+          <Text style={styles.ghostText}>Go back</Text>
+        </Pressable>
+        <Pressable
+          onPress={onConfirm}
+          disabled={busy}
+          style={[styles.primary, busy && styles.disabled]}
+          accessibilityRole="button"
+          accessibilityLabel="Confirm and save the count"
+        >
+          <Text style={styles.primaryText}>
+            {busy
+              ? 'Saving…'
+              : changing.length === 0
+                ? 'Yes, record the count'
+                : `Yes, save ${changing.length} change${changing.length === 1 ? '' : 's'}`}
+          </Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -1530,4 +1702,21 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 12 },
   closeText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 12 },
+
+  // The confirmation panel that replaces the footer -- see CountConfirm.
+  confirm: { backgroundColor: '#F6F6F7', borderRadius: 16, padding: 14 },
+  confirmTitle: { fontSize: 15, fontWeight: '800', color: '#111111' },
+  confirmWhere: { fontSize: 12.5, color: '#9CA3AF', marginTop: 2, marginBottom: 10 },
+  confirmList: { maxHeight: 180 },
+  confirmListInner: { backgroundColor: '#FFFFFF', borderRadius: 12, paddingHorizontal: 12 },
+  confirmRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
+  confirmRowText: { flexShrink: 1 },
+  confirmName: { fontSize: 13, fontWeight: '700', color: '#111111' },
+  confirmReason: { fontSize: 12, fontWeight: '600', color: '#9CA3AF', marginTop: 1 },
+  confirmArrow: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  confirmFrom: { color: '#9CA3AF', fontWeight: '600' },
+  confirmQuiet: { fontSize: 12.5, color: '#9CA3AF', marginTop: 10, lineHeight: 18 },
+  confirmMoney: { fontSize: 12.5, fontWeight: '700', color: '#8A5806', backgroundColor: '#FDF1DA', borderRadius: 10, padding: 10, marginTop: 10 },
+  confirmButtons: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 8, marginTop: 14 },
+  confirmBack: { borderWidth: 1, borderColor: '#DCDCE4', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12 },
 });
