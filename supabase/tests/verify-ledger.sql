@@ -65,6 +65,51 @@ begin
     raise exception 'FAIL: seeded Cashier was handed a ledger verb: %', v_perms;
   end if;
 
+  -- 4. A new shop gets a full chart of accounts, seeded by the same trigger
+  -- that seeds its roles.
+  if (select count(*) from public.accounts where shop_id = v_shop_id) < 30 then
+    raise exception 'FAIL: shop seeded with only % accounts', (select count(*) from public.accounts where shop_id = v_shop_id);
+  end if;
+
+  -- 5. The three accounts the whole design turns on exist, and are the type
+  -- that makes a balance sheet possible. inventory_purchase must reach an
+  -- ASSET, owner_draw must reach EQUITY, and stock_loss must reach COST OF
+  -- SALES -- not the expense account each of them is filed under today.
+  if not exists (select 1 from public.accounts where shop_id = v_shop_id and code = '1200' and type = 'asset') then
+    raise exception 'FAIL: 1200 Inventory is missing or is not an asset';
+  end if;
+  if not exists (select 1 from public.accounts where shop_id = v_shop_id and code = '3100' and type = 'equity' and is_contra) then
+    raise exception 'FAIL: 3100 Owner''s Draw is missing or is not contra-equity';
+  end if;
+  if not exists (select 1 from public.accounts where shop_id = v_shop_id and code = '5100' and type = 'cost_of_sales') then
+    raise exception 'FAIL: 5100 Inventory Shrinkage is missing or is not cost of sales';
+  end if;
+
+  -- 6. Codes are unique per shop. Two accounts numbered 1000 would make every
+  -- statement ambiguous and nothing would report the collision.
+  v_raised := false;
+  begin
+    insert into public.accounts (shop_id, code, name, type) values (v_shop_id, '1000', 'Duplicate', 'asset');
+  exception
+    when unique_violation then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a duplicate account code was accepted';
+  end if;
+
+  -- 7. A bogus type is refused. The six are a closed set because every report
+  -- groups by them; a seventh spelling would silently become a seventh section
+  -- that no statement knows how to place.
+  v_raised := false;
+  begin
+    insert into public.accounts (shop_id, code, name, type) values (v_shop_id, '9999', 'Bogus', 'liabilities');
+  exception
+    when check_violation then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a bogus account type was accepted';
+  end if;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception
