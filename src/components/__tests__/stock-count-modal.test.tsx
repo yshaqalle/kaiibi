@@ -1502,7 +1502,21 @@ describe('paging a long catalogue', () => {
 
   // The same rule for the other two things that change what is rendered.
   //
-  // MUTATION: rebuild `entries` from `filtered` on every search change.
+  // Review finding 5: this test USED TO clear the search box before saving
+  // (a trailing `backspace(tree, 'Search products', 4)`), so at the moment of
+  // commit `filtered === catalogue` and the mutation below was invisible --
+  // the exact test that LOOKS like it covers the search case did not. This
+  // matters more than the paging case above it: by this screen's own design a
+  // shop under 100 products has NO PAGER AT ALL, so search is the only
+  // navigation such a shop has. Fixed by saving WHILE 'clay' is still active,
+  // which hides Dr Althea's row entirely.
+  //
+  // MUTATION: build `handLines` from `filterProducts(catalogue, search,
+  // category)` instead of the whole catalogue (equivalently: rebuild
+  // `entries` from `filtered` on every search change). The render stays
+  // perfect -- Dr Althea's field, off screen, still shows '5' if you narrow
+  // back to it -- but the commit silently drops it, and this test's
+  // `saveStockCount.mock.calls` assertion goes red.
   it('keeps a count typed under one search term after the search changes, and sends both', async () => {
     const tree = await open([
       product({ id: 'p-1', name: 'Dr Althea', sku: 'SK-1', stock: 7 }),
@@ -1513,14 +1527,63 @@ describe('paging a long catalogue', () => {
     await backspace(tree, 'Search products', 6);
     await type(tree, 'Search products', 'clay');
     await type(tree, 'Counted units of clay mask sachet', '15');
-    await backspace(tree, 'Search products', 4);
 
-    expect(fieldNamed(tree, 'Counted units of Dr Althea').props.value).toBe('5');
+    // The search is STILL ACTIVE at save -- 'clay' matches only the second
+    // product, so Dr Althea's row is not merely scrolled away, it is not in
+    // the tree at all.
+    expect(fieldNamed(tree, 'Counted units of Dr Althea')).toBeUndefined();
     await saveByHand(tree);
     expect(saveStockCount.mock.calls[0][2]).toEqual([
       { productId: 'p-1', countedQuantity: 5, reason: null },
       { productId: 'p-2', countedQuantity: 15, reason: null },
     ]);
+  });
+
+  // Review finding 6 (first half). The confirmation's own `untouched` count
+  // (`catalogue.length - handSummary.counted`) is built from the WHOLE
+  // catalogue, the same as `handLines` beside it -- pinned separately because
+  // nothing above opens the confirmation from behind an active search.
+  //
+  // MUTATION: change `untouched={catalogue.length - handSummary.counted}` to
+  // `untouched={filtered.length - handSummary.counted}` at the CountConfirm
+  // call site. With the search narrowing `filtered` to the one counted
+  // product, `filtered.length - counted` is 0 -- the "were not counted" line
+  // vanishes entirely, and this test's assertion goes red.
+  it('counts the untouched products against the whole catalogue, not the search-narrowed list', async () => {
+    const tree = await open([
+      product({ id: 'p-1', name: 'Dr Althea', sku: 'SK-1', stock: 7 }),
+      product({ id: 'p-2', name: 'daily facial', sku: 'SK-2', stock: 5 }),
+      product({ id: 'p-3', name: 'clay mask sachet', sku: 'SK-3', stock: 12 }),
+    ]);
+    await type(tree, 'Search products', 'Althea');
+    await type(tree, 'Counted units of Dr Althea', '5');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    // 3 in the catalogue, 1 counted -- 2 untouched, not `filtered.length` (1)
+    // minus the 1 counted, which would be 0.
+    expect(allText(tree)).toContain('2 products were not counted and are untouched.');
+  });
+
+  // Review finding 6 (second half, the sharper one): a confirmation naming
+  // only the current page's changes while the button underneath it commits
+  // ALL of them would undercount, in the headline, what pressing it is about
+  // to do.
+  //
+  // MUTATION: change `lines={handLines}` to `lines={plannedLines(walkRows(
+  // paged.items, entries))}` at the CountConfirm call site. The panel would
+  // show only page 2's own line (QA 100) and headline "1 product will
+  // change" while `submit` still sends both -- this test's page-1 assertions
+  // go red.
+  it('shows every changed line in the confirmation, not just the ones on the current page', async () => {
+    const tree = await open(catalogueOf(150));
+    await type(tree, 'Counted units of QA 000', '4');
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    await type(tree, 'Counted units of QA 100', '7');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('2 products will change');
+    expect(allText(tree)).toContain('QA 000');
+    expect(allText(tree)).toContain('QA 100');
   });
 
   // A control that can never do anything should not be on screen -- and most
