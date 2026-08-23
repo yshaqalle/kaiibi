@@ -103,15 +103,19 @@ function screenText(tree: ReactTestRenderer): string {
 // Duck-typed rather than found by component type: RN 0.86's Pressable is a
 // memo, and React 19's test renderer collapses a memo's fiber type, so
 // findAllByType(Pressable) matches nothing (see search-row.test.tsx).
-//
-// Awaited, always: the Receive button's handler is async, and an act() whose
-// callback returns an unawaited promise leaks its scope into the next test --
-// which surfaces as the NEXT renderer reporting itself unmounted.
-async function press(tree: ReactTestRenderer, label: string) {
+function pressableSaying(tree: ReactTestRenderer, label: string): ReactTestInstance {
   const target = tree.root
     .findAll((node) => typeof node.props?.onPress === 'function')
     .find((node) => textOf(node).includes(label));
   if (!target) throw new Error(`no pressable saying ${label}`);
+  return target;
+}
+
+// Awaited, always: the Receive button's handler is async, and an act() whose
+// callback returns an unawaited promise leaks its scope into the next test --
+// which surfaces as the NEXT renderer reporting itself unmounted.
+async function press(tree: ReactTestRenderer, label: string) {
+  const target = pressableSaying(tree, label);
   await act(async () => {
     await target.props.onPress();
   });
@@ -573,5 +577,99 @@ describe('StockRestockModal sheet-tab footer', () => {
     expect(screenText(tree)).not.toContain('nothing has changed yet');
     expect(screenText(tree)).toContain('3 units already in');
     expect(screenText(tree)).toContain('to 1 store before the failure above');
+  });
+});
+
+// CsvImportModal's own precedent (see its `step === 'done'` branch): a report
+// with something left to see stays open. Before this fix, commitPlan called
+// closeAndReset whenever every store went through, whether or not
+// `plan.rejected` still had rows on it -- so a delivery sheet that mixed good
+// rows with bad ones lost the rejected list, the reasons and the download
+// button the instant the good rows landed, with no way back to the rows that
+// needed fixing.
+describe('StockRestockModal sheet-tab commit with rejects', () => {
+  function uploadTwoStoresAndOneReject() {
+    pickCsvFile.mockResolvedValueOnce({
+      status: 'ok',
+      fileName: 'restock.csv',
+      parsed: {
+        headers: ['Product', 'SKU', 'Barcode', 'Store', 'Quantity now', 'Quantity received', 'Unit cost', 'Note'],
+        rows: [
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Main', 'Quantity now': '10', 'Quantity received': '3', 'Unit cost': '', Note: '' },
+          { Product: 'QA widget', SKU: 'QA-1', Barcode: '', Store: 'Second', 'Quantity now': '10', 'Quantity received': '5', 'Unit cost': '', Note: '' },
+          { Product: 'Nonexistent widget', SKU: '', Barcode: '', Store: 'Main', 'Quantity now': '', 'Quantity received': '5', 'Unit cost': '', Note: '' },
+        ],
+      },
+    });
+  }
+
+  it('stays open, says what landed and what did not, and keeps the rejected rows reachable', async () => {
+    uploadTwoStoresAndOneReject();
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={onClose} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+
+    // Two stores accepted (3 + 5 = 8 units), one row rejected -- a rejection
+    // keeps the plan on the sheet tab rather than handing it to the by-hand
+    // tab, exactly like the sibling suite's own "one-store handover" tests.
+    expect(screenText(tree)).toContain('8 units in');
+    expect(screenText(tree)).toContain('1 rejected');
+
+    await press(tree, 'Receive 8 units');
+
+    // Both stores actually received -- the good rows landed.
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+    expect(receiveStock).toHaveBeenCalledWith('shop-1', 'loc-1', [{ productId: 'p-1', quantity: 3, unitCostCents: null }], expect.anything());
+    expect(receiveStock).toHaveBeenCalledWith('shop-1', 'loc-2', [{ productId: 'p-1', quantity: 5, unitCostCents: null }], expect.anything());
+
+    // The sheet stayed open -- the whole point of this fix.
+    expect(onClose).not.toHaveBeenCalled();
+
+    // It says plainly that the commit succeeded, and names what did not.
+    expect(screenText(tree)).toContain('8 units received across 2 stores. 1 row rejected.');
+
+    // The rejected row, its reason and its download are all still here --
+    // nothing about a successful write clears `plan.rejected`.
+    expect(screenText(tree)).toContain("WHAT WON'T");
+    expect(screenText(tree)).toContain('Row 4');
+    expect(screenText(tree)).toContain('No product matches "Nonexistent widget"');
+    expect(screenText(tree)).toContain('Download the 1 rejected row');
+
+    // The footer's own hint agrees with the banner: nothing failed, so it
+    // must not borrow the sentence written for a store that did.
+    expect(screenText(tree)).toContain('nothing left to receive');
+    expect(screenText(tree)).not.toContain('before the failure above');
+
+    // The committed plan cannot be committed again: `plan.receipts` is
+    // already empty, so the button is structurally dead rather than merely
+    // unlucky to be pressed at a bad time.
+    expect(pressableSaying(tree, 'Receive').props.disabled).toBe(true);
+  });
+
+  // The hazard this branch has fought twice: a failed reload leaving a full
+  // basket under a live button, so pressing it again repeats the write.
+  // Keeping the sheet open after a SUCCESSFUL commit is exactly the
+  // condition that bug lives under, so this presses the same button again
+  // and checks the RPC's own call count -- text would stay green even if the
+  // guard below it were deleted.
+  it('cannot receive the same rows twice once the sheet stays open after a successful commit', async () => {
+    uploadTwoStoresAndOneReject();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockRestockModal visible shopId="shop-1" onClose={jest.fn()} onDone={jest.fn(async () => {})} />);
+    });
+    await press(tree, 'By sheet');
+    await press(tree, 'Upload a filled sheet');
+    await press(tree, 'Receive 8 units');
+    expect(receiveStock).toHaveBeenCalledTimes(2);
+
+    // Same button, pressed again, with the sheet still open and the two
+    // stores it already received still named on screen.
+    await press(tree, 'Receive');
+    expect(receiveStock).toHaveBeenCalledTimes(2);
   });
 });
