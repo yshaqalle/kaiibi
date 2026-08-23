@@ -699,6 +699,180 @@ describe('saving a count', () => {
   });
 });
 
+describe('the sheet staying open after a save', () => {
+  // The reason this whole change exists: a shop with a long catalogue does
+  // not finish a stock-take in one sitting, and closing throws away the
+  // store, the search, the category filter and the place in the list.
+  //
+  // MUTATION: call `closeAndReset()` at the tail of `submit` instead of
+  // `setSuccess(...)`. `onClose` fires and this goes red.
+  it('does not close the sheet on a successful save', async () => {
+    listProducts.mockResolvedValue([product({})]);
+    const onClose = jest.fn();
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={onClose} onDone={async () => {}} />);
+    });
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(onClose).not.toHaveBeenCalled();
+    // Still on the by-hand tab and still able to count -- not merely "did not
+    // call onClose" while actually stuck in some broken half-state.
+    expect(fieldNamed(tree, COUNTED)).toBeDefined();
+  });
+
+  // A successful save and Clear all both leave every field blank -- once the
+  // sheet stops closing, this sentence is the only thing on screen that tells
+  // them apart, on a door that overwrites stock with no undo. Register
+  // matched to CountConfirm's own headline ("N products will change"), past
+  // tense.
+  //
+  // MUTATION: delete the `setSuccess(...)` call from `submit`. The banner
+  // never appears and this goes red.
+  it('names what changed and where, once the save lands', async () => {
+    const tree = await open(); // App says 11
+    await type(tree, COUNTED, '8'); // a real change
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('1 product changed at Main');
+  });
+
+  // MUTATION: headline `handSummary.counted` instead of filtering on
+  // `variance !== 0` -- the exact mistake CountConfirm's own headline guards
+  // against (see its own comment). A row counted at the figure it already
+  // held would read as a change here too.
+  it('says plainly that nothing changed when every counted row already matched', async () => {
+    const tree = await open(); // App says 11
+    await type(tree, COUNTED, '11'); // matches
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('Nothing changed at Main');
+  });
+
+  // The banner describes a walk that is already over. Left standing while a
+  // new number is typed, it would read as a claim about THAT number -- on a
+  // screen whose whole design is that typing a number IS counting it.
+  //
+  // MUTATION: delete `setSuccess(null)` from `setCounted`. The stale banner
+  // is still on screen after the new keystroke and this goes red.
+  it('clears the success banner the moment a new count is typed', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('1 product changed at Main');
+    await type(tree, COUNTED, '5');
+    expect(allText(tree)).not.toContain('1 product changed at Main');
+    expect(allText(tree)).not.toContain('changed at Main');
+  });
+
+  // `closeAndReset` is the only thing standing between one stock-take and the
+  // next, because this component is never unmounted (the screen renders it
+  // with `visible={false}` instead) -- nothing else would ever clear a banner
+  // left over from a session ago.
+  //
+  // MUTATION: drop `setSuccess(null)` from `closeAndReset`. The banner is
+  // still there after Close and this goes red.
+  it('drops the success banner on close, so the next stock-take does not open under a stale one', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('1 product changed at Main');
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    expect(allText(tree)).not.toContain('changed at Main');
+  });
+
+  // The whole point of staying open: "App says" has to catch up to what was
+  // just saved, or the sheet is lying to whoever counts the next shelf.
+  //
+  // MUTATION: delete the `load()` / `setCatalogue(refreshed)` call from
+  // `submit`. The row goes on reading "App says 11" forever and this goes red.
+  it('reloads the catalogue so App says shows the number that was just saved', async () => {
+    const tree = await open(); // App says 11
+    await type(tree, COUNTED, '5');
+    listProducts.mockResolvedValueOnce([product({ stock: 5 })]);
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('App says 5');
+    expect(allText(tree)).not.toContain('App says 11');
+  });
+
+  // The reload is not conditioned on the expense write also succeeding -- the
+  // count itself already landed either way, and "App says" has to catch up
+  // regardless of what happens to the bookkeeping.
+  //
+  // MUTATION: move the `load()` call after the `if (expenseProblem)` check.
+  // This test's "App says 5" assertion goes red because the function returns
+  // before ever reaching it.
+  it('reloads the catalogue even when the stock-loss expense fails to log afterward', async () => {
+    createExpense.mockRejectedValueOnce(new Error('expenses are read-only'));
+    const tree = await open(); // App says 11
+    await type(tree, COUNTED, '5');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    listProducts.mockResolvedValueOnce([product({ stock: 5 })]);
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('App says 5');
+    expect(allText(tree)).toContain('The count was saved, but the stock loss was not logged');
+  });
+
+  // THE guard against a double-commit, proven again now that the sheet stays
+  // open to be pressed a second time: `entries` is emptied and `canSubmit`
+  // needs a typed row, so Save counts is dead until something new is typed.
+  //
+  // MUTATION: drop `setBusy(false)` from the tail of `submit`. `busy` stays
+  // true forever, and the button reads "Saving…" and stays disabled for a
+  // reason that has nothing to do with an empty basket -- but still disabled,
+  // so this specific test cannot tell that apart from the fix. It is caught
+  // instead by the Clear-all test below, which goes red the same way.
+  it('leaves Save counts dead after a successful save until something new is typed', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
+  });
+
+  // `canClearAll` reads `busy` and `confirming` too, and both have to come
+  // back down rather than merely leaving Save counts disabled for the wrong
+  // reason (see the comment above).
+  //
+  // MUTATION: drop `setBusy(false)` OR `setConfirming(false)` from the tail
+  // of `submit`. Either flag stuck true keeps Clear all disabled even once
+  // there is something to clear again, and this goes red.
+  it('leaves Clear all enable-able again after a successful save, once something new is typed', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    // Nothing to clear immediately after a clean save -- correctly disabled.
+    expect(pressableLabelled(tree, 'Clear all').props.disabled).toBe(true);
+    await type(tree, COUNTED, '3');
+    expect(pressableLabelled(tree, 'Clear all').props.disabled).toBe(false);
+  });
+
+  // A note describes THIS stock-take. Carried silently into the next one, it
+  // would attach the wrong sentence to a different walk -- now an observable
+  // risk for the first time, since the field is still on screen to carry it.
+  it('clears the note after a successful save, so it does not attach to the next stock-take', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await type(tree, 'Note about this stock-take', 'aisle three');
+    await saveByHand(tree);
+    expect(fieldNamed(tree, 'Note about this stock-take').props.value).toBe('');
+  });
+
+  // Same reasoning as the note: the tick was an answer about THIS shortfall,
+  // not a standing preference to log the next one too.
+  it('un-ticks the stock-loss checkbox after a successful save, so it does not carry into the next one', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
+    await saveByHand(tree);
+    // Type a new shortfall-causing count so the checkbox renders again.
+    await type(tree, COUNTED, '5');
+    expect(pressableLabelled(tree, 'Log the shortfall as stock loss').props.accessibilityState).toEqual({
+      checked: false,
+    });
+  });
+});
+
 describe('closing the sheet', () => {
   // This component is never unmounted -- the screen renders it with
   // `visible={false}` and it returns null, keeping all of its state -- so

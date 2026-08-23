@@ -124,6 +124,14 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What the last successful by-hand save actually did. Save no longer closes
+  // the sheet (see `submit`), so a successful save and Clear all would
+  // otherwise be indistinguishable -- both leave every field blank, on a door
+  // that overwrites a shelf with no undo. This is the one thing on screen that
+  // tells them apart. Cleared by `setCounted` the moment a new count starts,
+  // so it can never be misread as describing what is currently being typed,
+  // and by `closeAndReset` for the same reason `error` is.
+  const [success, setSuccess] = useState<string | null>(null);
   // Which line's reason chips are expanded, by product id. Inline, never a
   // second modal: a sheet opened from a sheet is dropped by iOS without a word
   // and needs useStagedSheet to survive -- five chips that unfold under the row
@@ -217,6 +225,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setCategory(null);
     setPage(1);
     setError(null);
+    setSuccess(null);
     setReasonOpenFor(null);
     setLogExpense(false);
     setConfirming(false);
@@ -239,6 +248,10 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // there again when the number is retyped. A blank entry is still blank -- see
   // walkRow -- so nothing is sent for it.
   const setCounted = (productId: string, text: string) => {
+    // A fresh keystroke means a new count is starting. The success banner
+    // (if one is showing) describes a walk that is already over, and leaving
+    // it up would let it be read as a claim about the number now being typed.
+    setSuccess(null);
     updateEntries((current) => ({
       ...current,
       [productId]: { counted: text, reason: current[productId]?.reason ?? null },
@@ -424,6 +437,17 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setLogExpense(false);
     setConfirming(false);
 
+    // This modal's OWN catalogue, reloaded -- `onDone` below refreshes the
+    // screen behind this sheet, which has no way to reach state that lives in
+    // here. Without this call every row's "App says" would go on showing the
+    // number that was just overwritten until the sheet was closed and
+    // reopened, which defeats the entire reason it stays open now. Swallowed
+    // like `onDone`, for the same reason: a refresh failing here does not mean
+    // the write failed, and the numbers simply stay stale until the next
+    // natural reload (a store switch, or a close and reopen).
+    const refreshed = await load().catch(() => null);
+    if (refreshed) setCatalogue(refreshed);
+
     // Only after the numbers are in, and only if the offer was actually on
     // screen. `handExpenseCents` is the same expression the footer disclosed,
     // re-read here rather than trusting `logExpense` alone: the tick survives
@@ -442,7 +466,19 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       setBusy(false);
       return;
     }
-    closeAndReset();
+
+    // The sheet STAYS OPEN -- a shop with a long catalogue does not finish a
+    // stock-take in one sitting, and closing would throw away the store, the
+    // search, the category filter and the place in the list, all to be rebuilt
+    // by hand before the next shelf. `handLines` is read here rather than
+    // recomputed, because it is the exact list that was just sent to
+    // `saveStockCount` -- recomputing it now, against the just-reloaded
+    // `catalogue`, would compare the new numbers to themselves and find no
+    // variance at all. See `styles.footerWrap` for why this renders where it
+    // does.
+    const changed = handLines.filter((line) => line.variance !== 0).length;
+    setSuccess(saveSuccessText(changed, storeName));
+    setBusy(false);
   };
 
   // --- the sheet tab ------------------------------------------------------
@@ -918,8 +954,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 catalogue lives -- on a shop with 119 products the message
                 landed below all of them, off screen, so a save that refused
                 looked like a save that did nothing. The button that failed and
-                the reason it failed belong to each other. */}
+                the reason it failed belong to each other.
+
+                A SUCCESSFUL write is reported in the same place for the same
+                reason. Save no longer closes the sheet (see `submit`), so a
+                banner scrolled to the foot of a long catalogue would be just
+                as unreachable as the error above always was -- and a
+                successful save nobody can see is indistinguishable from
+                Clear all, on a door that overwrites stock with no undo. */}
             {error && <Text style={styles.error}>{error}</Text>}
+            {success && <Text style={styles.success}>{success}</Text>}
             {tab === 'hand' && confirming ? (
               <CountConfirm
                 storeName={storeName}
@@ -1050,6 +1094,18 @@ function countHint(typedCount: number, unreadable: number, summary: CountSummary
       : `${unreadable} lines are not whole numbers — just the digits`;
   }
   return `${summary.differ} will change a number`;
+}
+
+// The footer's success banner, once a save has landed -- echoes CountConfirm's
+// own headline (below), past tense: a row counted at the figure it already
+// held was not a change there, and it is not one here either. `changed` is
+// `handLines` filtered on `variance !== 0`, the same rule `CountConfirm` uses
+// for its own `changing`, so the two never disagree about what "changed"
+// means on this screen.
+function saveSuccessText(changed: number, storeName: string): string {
+  return changed === 0
+    ? `Nothing changed at ${storeName} — every count matched`
+    : `${changed} product${changed === 1 ? '' : 's'} changed at ${storeName}`;
 }
 
 function CountRowView({
@@ -1708,6 +1764,10 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 12 },
   closeText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 12 },
+  // Same shape as `error`, in the green this file already uses for a positive
+  // reading (`varianceUp`, `pillText_ok`) -- mutually exclusive with it in
+  // practice, since `submit` only ever sets one or the other for a given save.
+  success: { color: '#007A38', fontSize: 13, fontWeight: '700', marginTop: 12 },
 
   // The confirmation panel that replaces the footer -- see CountConfirm.
   confirm: { backgroundColor: '#F6F6F7', borderRadius: 16, padding: 14 },
