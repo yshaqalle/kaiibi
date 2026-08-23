@@ -1851,7 +1851,7 @@
   <table class="dtbl">
     <thead><tr><th>Table</th><th>Holds</th><th>Written by</th></tr></thead>
     <tbody>
-      <tr><td><code>inventory_cost_layers</code></td><td>product, <b>location</b>, unit cost, quantity received, quantity remaining, source and its id, received_at</td><td><code>receive_stock</code>, opening-balance migration, positive stock adjustments, customer returns</td></tr>
+      <tr><td><code>inventory_cost_layers</code></td><td>product, <b>location</b>, unit cost, quantity received, quantity remaining, source and its id, received_at — plus nullable <code>expires_on</code> and <code>batch_number</code>, which the accounting never reads</td><td><code>receive_stock</code>, opening-balance migration, positive stock adjustments, customer returns</td></tr>
       <tr><td><code>inventory_cost_consumption</code></td><td>which layers a given <code>sale_item</code> drew from, and how many units at what cost</td><td><code>complete_sale</code> — and read by <code>refund_sale_items</code> to put units back at the price they left at</td></tr>
       <tr><td colspan="3"><b>A stock-take is the fourth writer.</b> <code>save_stock_count</code> <i>sets</i> stock where <code>receive_stock</code> adds, so a count down consumes layers oldest-first exactly as a sale does, and a count up creates a layer at the frozen <code>unit_cost_cents</code>. Where that cost is null — an uncosted product — the variance is recorded with no value, because null and zero are different answers.</td></tr>
     </tbody>
@@ -1890,6 +1890,18 @@
       the sale, its items, its payments and now its journal entry. Needs an index on
       <code>(shop_id, product_id, location_id, received_at) where quantity_remaining &gt; 0</code>
       and a measured before/after on a realistic basket.</p>
+    </div>
+    <div class="vx good">
+      <b>Layers also fix a bug in a feature that already shipped</b>
+      <p><code>products.expiry_date</code> has been there since <code>0001_init</code> — one expiry
+      per product, overwritten by the next delivery. Two batches of milk with different dates cannot
+      both be represented, so the second silently replaces the first and the alert fires on the
+      wrong day. That is the same defect <code>products.cost_cents</code> has, and a cost layer
+      <i>is</i> a delivery.</p>
+      <p>So layers carry a nullable <code>expires_on</code> and <code>batch_number</code>. The
+      accounting never reads them; <code>getExpiringProducts()</code> is left alone and keeps
+      working. Consumption order stays <b>FIFO, not FEFO</b> — first-expiring-first would change
+      COGS semantics, and the table supports it later by changing one <code>ORDER BY</code>.</p>
     </div>
     <div class="vx mid">
       <b>FIFO starts at the switch date — history is not restated</b>

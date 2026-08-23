@@ -146,18 +146,46 @@ report's clothes, it is the only item on the list with zero existing data, and i
 `stock_receipts` flow that shipped days ago. Bundled in, the balance sheet ships when procurement
 ships. The card is removed rather than left showing a permanent empty state.
 
-## Assumption
+## Expiry — resolved 2026-08-23
 
-**No batch or expiry tracking is in scope.** This was asked twice and not answered, so it is
-recorded as an assumption rather than blocking the rest.
+The earlier version of this section recorded "no batch or expiry tracking in scope" as an
+assumption. That was written without checking the schema, and it was wrong. **Expiry tracking
+already exists** and has since `0001_init`:
 
-FIFO is a *cost-flow assumption*, not a physical-flow rule — it does not make kaiibi sell old stock
-first, and it does not track which physical batch left. If shops sell perishables where rotation and
-expiry genuinely matter, batch tracking is a separate feature whose shape overlaps heavily with cost
-layers, and the two are better designed together than bolted on.
+- `products.expiry_date` and `products.batch_number` — one of each, per product
+- `shops.expiry_tracking_enabled` (default **false**) and `expiry_warning_lead_days` (default 30),
+  from `0030_inventory_alert_settings`
+- `getExpiringProducts()` in `src/lib/products.ts`
+- `'expired'` as a variance reason on `stock_count_items`
 
-**If the answer is "yes, perishables matter", stop and revisit the layer design before phase 2a.**
-Retrofitting batches into layers afterwards means touching `complete_sale` a second time.
+So the question was never whether to build it. It is that **the shipped version has exactly the
+defect cost layers exist to fix**, and the parallel is precise:
+
+| | One value per product | Overwritten by | Fixed by |
+|---|---|---|---|
+| `products.cost_cents` | the current cost | the next delivery | `inventory_cost_layers` |
+| `products.expiry_date` | the current expiry | the next delivery | the same table |
+
+Two deliveries of milk with different expiry dates cannot both be represented today. The second
+overwrites the first, silently, and the alert then fires on the wrong date. A cost layer **is** a
+delivery, which makes it the right home for a per-batch expiry.
+
+**Decision: `inventory_cost_layers` carries a nullable `expires_on` and `batch_number`, populated by
+`receive_stock`. Nothing in the accounting reads either.**
+
+Not a speculative column — it has a waiting consumer in `getExpiringProducts()`. Explicitly **out of
+scope**:
+
+- **Consumption order stays FIFO, not FEFO.** Consuming first-expiring-first would change COGS
+  semantics and is a separate decision. The layer table supports it later by changing one
+  `ORDER BY`.
+- **The expiry alerting is not rewritten.** `getExpiringProducts()` keeps reading
+  `products.expiry_date` and keeps working. Upgrading it to per-batch is a follow-on inventory
+  project that layers make cheap, not a rewrite this project performs.
+- **No batch entry UI.** Capturing a batch on receipt is an inventory change, not an accounting one.
+
+`expiry_tracking_enabled` defaulting to false matters: perishables are not universal across kaiibi
+shops, so nothing here is forced on a shop that does not need it.
 
 ## Scope
 
@@ -276,11 +304,35 @@ already writes the sale, its items, its payments and now its journal entry. Need
 `(shop_id, product_id, location_id, received_at) where quantity_remaining > 0` and a measured
 before/after on a realistic basket.
 
+## The framework — resolved 2026-08-23
+
+**Target IFRS for SMEs as the design reference. Do not claim compliance anywhere in the UI.**
+
+IFRS for SMEs is the simplified standard written for businesses this size and is the prevailing
+reference across East Africa. It is also what this design already conforms to in substance, so
+naming it costs nothing now and would be expensive to retrofit later — statement layouts and
+disclosure notes are the parts that ossify.
+
+Checked against it, four things already hold:
+
+| Requirement | Status |
+|---|---|
+| Inventory at the lower of cost and net realisable value, FIFO or weighted average only | Both offered, LIFO not |
+| The cost formula must be disclosed | The basis is printed on the Inventory Valuation report and on statements |
+| Balance sheet split current / non-current | Already the layout |
+| P&L by nature or by function, consistently | By function — cost of sales, then operating expenses |
+
+The distinction that matters: the app should produce statements **an accountant can work with**, not
+statements carrying a compliance claim nobody audited. No badge, no "IFRS compliant" label.
+
+**The sharper question, if this needs revisiting:** not "which framework" but **who reads these
+statements** — a tax authority, a lender, an investor, or only the owner. That changes the required
+disclosures far more than the framework name does. If it is only the owner today, this is settled;
+if a lender is coming, revisit before phase 3 fixes the statement layouts.
+
 ## Open
 
-- **Perishables / batch tracking** — see Assumption. Changes the layer design if the answer is yes.
-- **Statement layout against a named framework.** The ledger is the same either way, but if the
-  target is IFRS for SMEs specifically, or a Somali filing format, the statement layouts and a few
-  disclosures need pinning to it.
 - **Whether new shops should default to FIFO rather than weighted average.** Recommended as weighted
-  average for consistency with existing shops; it is a one-line change if preferred.
+  average for consistency with existing shops; a one-line change if preferred.
+- **Whether shrinkage sits in cost of sales or operating expenses.** Recommended as cost of sales
+  (5100); see Decisions. Net profit is identical either way, so this is presentation only.
