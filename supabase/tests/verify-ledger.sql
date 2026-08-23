@@ -110,6 +110,36 @@ begin
     raise exception 'FAIL: a bogus account type was accepted';
   end if;
 
+  -- 8. A month with no period row yet is open, and asking for it creates it.
+  -- A shop should not have to be set up before it can trade; the first entry
+  -- of a month opens that month.
+  if public.open_period_for(v_shop_id, date '2026-08-15') is null then
+    raise exception 'FAIL: open_period_for did not open a period for an untouched month';
+  end if;
+  if (select count(*) from public.accounting_periods
+        where shop_id = v_shop_id and starts_on = date '2026-08-01') <> 1 then
+    raise exception 'FAIL: open_period_for did not create exactly one August period';
+  end if;
+
+  -- 9. A closed month refuses. This is the whole point of closing, and it must
+  -- be refused HERE rather than in the UI -- a period that only the client
+  -- respects is not closed.
+  update public.accounting_periods set status = 'closed'
+    where shop_id = v_shop_id and starts_on = date '2026-08-01';
+  v_raised := false;
+  begin
+    perform public.open_period_for(v_shop_id, date '2026-08-15');
+  exception
+    when sqlstate 'P0001' then
+      if position('closed' in sqlerrm) = 0 then raise; end if;
+      v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a closed period accepted a posting date';
+  end if;
+  update public.accounting_periods set status = 'open'
+    where shop_id = v_shop_id and starts_on = date '2026-08-01';
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception
