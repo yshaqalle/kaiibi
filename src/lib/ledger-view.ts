@@ -1,4 +1,5 @@
 import { creditOf, debitOf, type PostedLine } from '@/lib/ledger-math';
+import { fromDateColumn } from '@/lib/period';
 import type { Account, AccountType } from '@/types/models';
 
 // What the ledger screens need that is arithmetic rather than rendering. Kept
@@ -109,4 +110,14 @@ export function draftDifferenceCents(draft: DraftLine[]): number {
     if (cents === null) return sum;
     return sum + (row.isCredit ? -cents : cents);
   }, 0);
+}
+
+// A `date` column rendered as the day it actually says.
+//
+// `new Date('2026-08-23')` parses as UTC MIDNIGHT, so toLocaleDateString in any
+// western timezone renders "Aug 22" -- every entry a day early for every user
+// west of Greenwich. period.ts says this on fromDateColumn and this is the
+// ledger screens' one place to get it right.
+export function entryDateLabel(dateColumn: string): string {
+  return fromDateColumn(dateColumn).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }

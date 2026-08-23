@@ -1,4 +1,4 @@
-import { accountingEquation, draftDifferenceCents, draftToLines, groupAccountsByType } from '@/lib/ledger-view';
+import { accountingEquation, draftDifferenceCents, draftToLines, entryDateLabel, groupAccountsByType } from '@/lib/ledger-view';
 import type { Account } from '@/types/models';
 
 const acct = (id: string, code: string, type: Account['type'], isContra = false): Account => ({
@@ -106,5 +106,37 @@ describe('draftDifferenceCents', () => {
   it('treats an unreadable amount as zero rather than throwing while somebody types', () => {
     // draftToLines throws on save; this runs on every keystroke and must not.
     expect(draftDifferenceCents([{ code: '5100', amountText: 'ab', isCredit: false }])).toBe(0);
+  });
+});
+
+describe('entryDateLabel', () => {
+  it('renders a date column as the day it says, not the day before', () => {
+    // `new Date('2026-08-23')` parses as UTC MIDNIGHT, so toLocaleDateString in
+    // any western timezone renders "Aug 22". Every entry would read a day early
+    // for every user west of Greenwich. period.ts documents this on
+    // fromDateColumn; this pins it at the point the ledger screens format.
+    // Compared against the LOCAL-time constructor rather than a hardcoded
+    // string, so the test says "the same day this date names" instead of
+    // pinning one locale's word order. The buggy version parses to the day
+    // before, so this still distinguishes them.
+    const local = (y: number, m: number, d: number) =>
+      new Date(y, m - 1, d).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+
+    expect(entryDateLabel('2026-08-23')).toBe(local(2026, 8, 23));
+    expect(entryDateLabel('2026-01-01')).toBe(local(2026, 1, 1));
+    expect(entryDateLabel('2026-12-31')).toBe(local(2026, 12, 31));
+  });
+
+  it('is not the same as parsing the column with the Date constructor', () => {
+    // The mutation guard. If entryDateLabel ever goes back to `new Date(col)`,
+    // these two agree and the test above stops meaning anything.
+    const naive = new Date('2026-08-23').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    const correct = new Date(2026, 7, 23).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    // Only meaningful west of Greenwich; east of it the naive parse is right by
+    // accident, so the assertion is skipped rather than made to lie.
+    if (new Date().getTimezoneOffset() > 0) {
+      expect(naive).not.toBe(correct);
+      expect(entryDateLabel('2026-08-23')).toBe(correct);
+    }
   });
 });

@@ -11,6 +11,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents, formatCompactCents } from '@/lib/currency';
 import { listAccounts, listPostedLines } from '@/lib/ledger';
+import { toDateColumn } from '@/lib/period';
 import { trialBalance, type TrialBalanceRow } from '@/lib/ledger-math';
 
 const COLUMNS: Column<TrialBalanceRow>[] = [
@@ -50,7 +51,9 @@ export function TrialBalanceView({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // toDateColumn, not toISOString: the latter converts to UTC first, so an
+    // evening query west of Greenwich would ask for tomorrow.
+    const today = toDateColumn(new Date());
     const [accounts, lines] = await Promise.all([listAccounts(shop.id), listPostedLines(shop.id, today)]);
     setRows(trialBalance(accounts, lines));
     setLoaded(true);

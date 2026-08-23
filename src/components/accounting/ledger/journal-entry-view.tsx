@@ -8,6 +8,7 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { formatCents } from '@/lib/currency';
 import { listAccounts, postJournalEntry } from '@/lib/ledger';
+import { toDateColumn } from '@/lib/period';
 import { draftDifferenceCents, draftToLines, type DraftLine } from '@/lib/ledger-view';
 import type { Account } from '@/types/models';
 
@@ -63,7 +64,9 @@ export function JournalEntryView({ onPosted, setRefresh }: { onPosted: () => voi
     try {
       await postJournalEntry({
         shopId: shop.id,
-        entryDate: new Date().toISOString().slice(0, 10),
+        // toDateColumn, not toISOString: an entry posted in the evening west of
+        // Greenwich would otherwise be dated tomorrow.
+        entryDate: toDateColumn(new Date()),
         description: description.trim(),
         lines,
       });

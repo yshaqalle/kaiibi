@@ -12,6 +12,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents, formatCompactCents } from '@/lib/currency';
 import { listAccounts, listPostedLines } from '@/lib/ledger';
+import { toDateColumn } from '@/lib/period';
 import { accountingEquation, groupAccountsByType, type AccountGroup } from '@/lib/ledger-view';
 import type { Account } from '@/types/models';
 
@@ -69,7 +70,9 @@ export function ChartOfAccountsView({
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    const today = new Date().toISOString().slice(0, 10);
+    // toDateColumn, not toISOString: the latter converts to UTC first, so an
+    // evening query west of Greenwich would ask for tomorrow.
+    const today = toDateColumn(new Date());
     const [rows, lines] = await Promise.all([listAccounts(shop.id), listPostedLines(shop.id, today)]);
     const map = new Map<string, number>();
     for (const line of lines) map.set(line.accountId, (map.get(line.accountId) ?? 0) + line.amountCents);

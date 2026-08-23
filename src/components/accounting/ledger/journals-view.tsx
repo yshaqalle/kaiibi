@@ -11,6 +11,8 @@ import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { formatCents } from '@/lib/currency';
 import { listJournalEntries } from '@/lib/ledger';
+import { entryDateLabel } from '@/lib/ledger-view';
+import { toDateColumn } from '@/lib/period';
 import { debitOf } from '@/lib/ledger-math';
 import type { JournalEntry } from '@/types/models';
 
@@ -28,7 +30,7 @@ const COLUMNS: Column<JournalEntry>[] = [
     header: 'Date',
     width: 84,
     render: (row) => (
-      <ValueCell value={new Date(row.entryDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} tone="muted" />
+      <ValueCell value={entryDateLabel(row.entryDate)} tone="muted" />
     ),
   },
   {
@@ -51,9 +53,9 @@ export function JournalsView({ dateRange, setRefresh }: { dateRange: DateRange; 
 
   const reload = useCallback(async () => {
     if (!shop) return;
-    const from = dateRange.since.toISOString().slice(0, 10);
+    const from = toDateColumn(dateRange.since);
     // `until` is optional and means "through today" -- range-selector.tsx:22.
-    const to = (dateRange.until ?? new Date()).toISOString().slice(0, 10);
+    const to = toDateColumn(dateRange.until ?? new Date());
     setEntries(await listJournalEntries(shop.id, from, to));
     setLoaded(true);
   }, [shop, dateRange]);
