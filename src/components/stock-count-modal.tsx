@@ -21,7 +21,6 @@ import {
   type CountSheetRow,
   type CountSummary,
   type PlannedCount,
-  type PlannedCountLine,
 } from '@/lib/count-import';
 import { formatCents } from '@/lib/currency';
 import { describePlanError } from '@/lib/entitlements';
@@ -30,29 +29,45 @@ import { shareCsv } from '@/lib/export-file';
 import { downloadRejectedRowsCsv, type RejectedRow } from '@/lib/import-shared';
 import { toDateColumn } from '@/lib/period';
 import { pickCsvFile } from '@/lib/pick-csv-file';
-import { isUncosted } from '@/lib/product-costing';
 import { listProducts, saveStockCount } from '@/lib/products';
-import { readCountedQuantity } from '@/lib/restock-typed-input';
 import type { NewExpenseInput, Product, StockCountReason } from '@/types/models';
+import {
+  filterProducts,
+  plannedLines,
+  typedRows,
+  walkRow,
+  walkRows,
+  type CountEntries,
+  type CountRow,
+} from '@/lib/count-walk';
 
 // A stock-take, by hand or by spreadsheet.
 //
-// The sibling of StockRestockModal, and deliberately the same shape: a store
-// picker, a search row, rows you type a number into, a running summary, one
-// commit button, the same two tabs. A shop that has received a delivery once
-// can count a shelf without reading anything.
+// The by-hand tab is ONE LIST. Every product the store carries is already a
+// row with a field in it, and typing a number IS counting it -- there is no
+// "add to a basket" step, because the catalogue and the basket were the same
+// products listed twice.
 //
-// Two differences, and both follow from the fact that the number typed here is
-// a TOTAL rather than an amount:
+// That makes BLANK the default state of almost every row, and blank has to
+// mean something exact: NOBODY COUNTED THIS PRODUCT, and the product is left
+// exactly as it was. It is not zero. Zero is a claim -- the shelf is bare --
+// and it commits, which is why an untouched field renders a dash and a typed
+// zero renders 0. See src/lib/count-walk.ts, which holds that rule.
 //
-//  1. The field is PRE-FILLED with what the app believes. Restock's quantity
-//     starts empty, because zero received is the honest default. A stock-take
-//     mostly confirms, so a row left untouched means "I looked, it matched" --
-//     real information, and the reason the footer counts three counted while
-//     only two change anything.
-//  2. The VARIANCE is a column, not a footnote. The person doing the count does
-//     not need to be told the 8 they just counted. What they need to see, and
-//     what they will be asked about, is how far off the app was.
+// (An earlier version of this screen PRE-FILLED each field with what the app
+// believed, and argued that a row left untouched meant "I looked, it matched".
+// That was true when a row only existed because you pressed `Count` on it --
+// the act of adding it was the statement. With every product already a row it
+// would mean the app had counted every shelf in the shop on its own.)
+//
+// What has been typed belongs to the PRODUCT, not to the row: `entries` is
+// keyed by product id, and Save sends everything typed across every page,
+// never what happens to be rendered. A count typed on page 1 and dropped by
+// paging to page 2 is invisible until a shelf comes out wrong.
+//
+// The VARIANCE is a column, not a footnote. The person doing the count does
+// not need to be told the 8 they just counted. What they need to see, and what
+// they will be asked about, is how far off the app was.
 //
 // Not built here, deliberately: scanning. The mockup does not propose it, and
 // the equivalent work on the restock sheet cost a CRITICAL to get right -- a
@@ -62,11 +77,6 @@ import type { NewExpenseInput, Product, StockCountReason } from '@/types/models'
 // here does nothing rather than something wrong.
 
 type Tab = 'hand' | 'sheet';
-// `counted` is the RAW string the person typed, never a parsed number and never
-// rewritten on the way in. See restock-typed-input.ts for why that is the whole
-// design of this screen's input handling.
-type Line = { product: Product; counted: string; reason: StockCountReason | null };
-type LineReading = { line: Line; counted: number | null; variance: number | null };
 
 export function StockCountModal({ visible, shopId, onClose, onDone }: {
   visible: boolean;
@@ -87,18 +97,21 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
   const [categories, setCategories] = useState<string[]>([]);
-  const [lines, setLines] = useState<Line[]>([]);
-  // Every basket write goes through one helper that runs its updater
-  // immediately and stores the result in both the ref and the state, so a
-  // handler reading the basket never reads a render behind.
-  const linesRef = useRef(lines);
+  // Keyed by PRODUCT ID, never by row index and never derived from what is on
+  // screen. This is the whole of the paging guarantee: filtering, searching and
+  // paging all change which rows render and none of them can touch this.
+  const [entries, setEntries] = useState<CountEntries>({});
+  // Every write goes through one helper that runs its updater immediately and
+  // stores the result in both the ref and the state, so a handler reading what
+  // has been typed never reads a render behind.
+  const entriesRef = useRef(entries);
   useEffect(() => {
-    linesRef.current = lines;
-  }, [lines]);
-  const updateLines = useCallback((next: (current: Line[]) => Line[]) => {
-    const value = next(linesRef.current);
-    linesRef.current = value;
-    setLines(value);
+    entriesRef.current = entries;
+  }, [entries]);
+  const updateEntries = useCallback((next: (current: CountEntries) => CountEntries) => {
+    const value = next(entriesRef.current);
+    entriesRef.current = value;
+    setEntries(value);
   }, []);
   const [catalogue, setCatalogue] = useState<Product[]>([]);
   const [note, setNote] = useState('');
@@ -133,28 +146,24 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     return listProducts(shopId, locationId);
   }, [shopId, locationId]);
 
-  // The basket is re-pointed at the reloaded rows as well as the picker: a line
-  // keeps a whole Product snapshot taken when it was added, and "App says" is
-  // read off that snapshot. Only `product` is replaced -- the typed count and
-  // the chosen reason are the person's, not the server's.
-  //
-  // EXCEPT when `locationId` itself has just changed. A typed `counted`
-  // string is a claim about a specific shelf -- "App says 11, I found 8" --
-  // and that claim does not carry to a different store just because the two
-  // happen to stock a product with the same id. Re-pointing `product` alone
-  // (the old behaviour) left the stale `counted` in place: change the store
-  // from one holding 11 to one holding 3 and the row silently became "found
-  // 11 at a shelf nobody walked", ready to overwrite the new store's real
-  // count on Save. Losing the basket is the correct outcome of a store
-  // change; carrying it forward is the bug.
+  // A typed count is a claim about a specific shelf -- "App says 11, I found 8"
+  // -- and that claim does not carry to a different store just because the two
+  // happen to stock a product with the same id. Change the store from one
+  // holding 11 to one holding 3 and a surviving "11" would be "found 11 at a
+  // shelf nobody walked", ready to overwrite the new store's real count on
+  // Save. Losing what was typed is the correct outcome of a store change.
   //
   // `lastLocationRef` is what tells an actual transition apart from this
   // effect's ordinary re-runs (first mount, a product added mid-session
-  // triggering a reload) -- both of which must NOT clear a basket someone is
+  // triggering a reload) -- both of which must NOT clear a walk someone is
   // mid-typing. It starts equal to the initial `locationId`, so mount never
   // reads as a change, and it is only ever compared against the `locationId`
-  // this render closed over, which is exactly the value `load` was rebuilt
-  // for.
+  // this render closed over, which is exactly the value `load` was rebuilt for.
+  // The sheet tab's handover pins it deliberately; see `uploadSheet`.
+  //
+  // Nothing re-points a product snapshot any more: `entries` holds text and a
+  // reason, and every "App says" is read off `catalogue` at render. Replacing
+  // `catalogue` IS the re-point.
   const lastLocationRef = useRef(locationId);
   useEffect(() => {
     if (!visible) return;
@@ -162,28 +171,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     const storeChanged = lastLocationRef.current !== locationId;
     lastLocationRef.current = locationId;
     if (storeChanged) {
-      updateLines(() => []);
+      updateEntries(() => ({}));
       setReasonOpenFor(null);
     }
     load()
       .then((rows) => {
-        if (!active) return;
-        setCatalogue(rows);
-        // The basket was just emptied above -- nothing left to re-point.
-        if (storeChanged) return;
-        const byId = new Map(rows.map((product) => [product.id, product]));
-        updateLines((current) =>
-          current.map((line) => {
-            const fresh = byId.get(line.product.id);
-            return fresh ? { ...line, product: fresh } : line;
-          })
-        );
+        if (active) setCatalogue(rows);
       })
       .catch(() => {});
     return () => {
       active = false;
     };
-  }, [visible, load, updateLines, locationId]);
+  }, [visible, load, updateEntries, locationId]);
 
   useEffect(() => {
     if (!visible) return;
@@ -197,7 +196,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // null, keeping all of its state.
   const closeAndReset = useCallback(() => {
     setBusy(false);
-    updateLines(() => []);
+    updateEntries(() => ({}));
     setNote('');
     setSearch('');
     setCategory(null);
@@ -211,97 +210,65 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setPartialCount(null);
     setTab('hand');
     onClose();
-  }, [onClose, updateLines]);
-
-  // PRE-FILLED, and this is the difference the whole screen turns on. Restock
-  // seeds "1" because a delivery is at least one unit; a count seeds what the
-  // app already holds, because most lines of a stock-take confirm it. Left
-  // alone, the row reads as "I looked, it matched" and still counts.
-  const addLine = (product: Product) => {
-    updateLines((current) =>
-      current.some((l) => l.product.id === product.id)
-        ? current
-        : [...current, { product, counted: String(product.stock), reason: null }]
-    );
-  };
+  }, [onClose, updateEntries]);
 
   // Stores the keystrokes and nothing else. Rewriting text inside onChangeText
   // on a controlled input cannot work: the rewritten string is what the NEXT
   // keystroke is appended to, so a number is reinterpreted before it has
-  // finished being typed. The row is NOT dropped at zero, and not at an empty
-  // field either -- one backspace unmounting the focused input would close the
-  // keyboard and take the reason chosen beside it. readCountedQuantity returns
-  // null for an empty field, the commit is blocked, and the footer says why.
+  // finished being typed.
+  //
+  // An emptied field leaves the ENTRY in place holding a blank string rather
+  // than deleting it, so a reason chosen beside it survives a backspace and is
+  // there again when the number is retyped. A blank entry is still blank -- see
+  // walkRow -- so nothing is sent for it.
   const setCounted = (productId: string, text: string) => {
-    updateLines((current) => current.map((l) => (l.product.id === productId ? { ...l, counted: text } : l)));
+    updateEntries((current) => ({
+      ...current,
+      [productId]: { counted: text, reason: current[productId]?.reason ?? null },
+    }));
   };
 
-  // Picking the reason a line already carries clears it, so a mis-tap is
-  // undoable without a sixth "None" chip pretending to be a reason.
+  // Picking the reason a row already carries clears it, so a mis-tap is
+  // undoable without a sixth "None" chip pretending to be a reason. A reason
+  // cannot be given to a row nobody has counted: the sheet planner rejects
+  // exactly that shape ("Reason is filled in but Counted is empty"), and the
+  // two tabs must not disagree about it.
   const setReason = (productId: string, reason: StockCountReason) => {
-    updateLines((current) =>
-      current.map((l) => (l.product.id === productId ? { ...l, reason: l.reason === reason ? null : reason } : l))
-    );
+    updateEntries((current) => {
+      const entry = current[productId];
+      if (!entry) return current;
+      return { ...current, [productId]: { ...entry, reason: entry.reason === reason ? null : reason } };
+    });
     setReasonOpenFor(null);
   };
 
-  const removeLine = (productId: string) => {
-    updateLines((current) => current.filter((l) => l.product.id !== productId));
-  };
-
-  const matches = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return catalogue
-      .filter((p) => (category === null || p.category === category) && !lines.some((l) => l.product.id === p.id))
-      .filter(
-        (p) =>
-          !query ||
-          p.name.toLowerCase().includes(query) ||
-          (p.sku ?? '').toLowerCase().includes(query) ||
-          (p.barcode ?? '').toLowerCase().includes(query)
-      )
-      .slice(0, 12);
-  }, [catalogue, search, category, lines]);
-
-  // Every typed field read once, here, from the whole string -- the only place
-  // in this component that turns text into numbers.
-  const readings: LineReading[] = useMemo(
-    () =>
-      lines.map((line) => {
-        const counted = readCountedQuantity(line.counted);
-        return { line, counted, variance: counted === null ? null : counted - line.product.stock };
-      }),
-    [lines]
-  );
-  const everyCountReads = readings.every((reading) => reading.counted !== null);
-
-  // The plan this basket amounts to, in exactly the shape the sheet tab builds
-  // -- so one summariseCount serves both tabs and the two can never disagree
-  // about what "2 differ" or "$13.83 of shortfall" means.
-  //
-  // Empty until every field reads, because a summary computed over half a
-  // basket is a smaller number presented as the whole thing. `readings.length`
-  // is checked separately in `canSubmit` below and NOT relied on here: `every`
-  // on an empty array is true, so an empty basket produces an empty plan and a
-  // summary of zeroes -- honest for a footer, and refused by the button.
-  const handLines: PlannedCountLine[] = useMemo(
-    () =>
-      everyCountReads
-        ? readings.map((reading) => ({
-            productId: reading.line.product.id,
-            productName: reading.line.product.name,
-            previousQuantity: reading.line.product.stock,
-            countedQuantity: reading.counted!,
-            variance: reading.variance!,
-            reason: reading.line.reason,
-            unitCostCents: isUncosted(reading.line.product) ? null : reading.line.product.costCents,
-          }))
-        : [],
-    [readings, everyCountReads]
-  );
+  // The WHOLE store, walked once. Not `filtered`, and not the page slice: the
+  // footer, the Save caption and the commit are about the stock-take, not about
+  // what is scrolled into view.
+  const rows = useMemo(() => walkRows(catalogue, entries), [catalogue, entries]);
+  const typed = useMemo(() => typedRows(rows), [rows]);
+  const unreadable = useMemo(() => typed.filter((row) => row.state === 'unreadable').length, [typed]);
+  const handLines = useMemo(() => plannedLines(rows), [rows]);
   const handSummary = useMemo(() => summariseCount(handLines), [handLines]);
 
-  const canSubmit = Boolean(locationId) && readings.length > 0 && everyCountReads && !busy;
+  // Which products are on screen. Separate from `rows` on purpose -- this is
+  // the only thing search and the category chips are allowed to change.
+  const filtered = useMemo(() => filterProducts(catalogue, search, category), [catalogue, search, category]);
+
+  // `plannedLines` is empty both when nothing has been counted and when
+  // anything is unreadable, so one non-empty check carries both rules: at least
+  // one row reads, and none of them is gibberish.
+  const canSubmit = Boolean(locationId) && handLines.length > 0 && !busy;
+
+  // The one stock-loss gate, read by the footer's disclosure and by `submit`
+  // alike. Written once so the two cannot drift: a panel promising a P&L row
+  // that never lands, or hiding one that does, is worse than either behaviour
+  // on its own. `shortfallCents` goes null the moment a short line is uncosted,
+  // which is why the tick alone is never trusted.
+  const handExpenseCents =
+    logExpense && handSummary.shortfallCents !== null && handSummary.shortfallCents > 0
+      ? handSummary.shortfallCents
+      : null;
 
   // After the count, never before: an expense for a stock-take that failed to
   // land is a number in the P&L with no missing stock behind it. This never
@@ -369,20 +336,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       return;
     }
 
-    // The numbers are IN. The basket is spent from here on, and it is emptied
-    // before anything that can fail.
-    updateLines(() => []);
+    // The numbers are IN. What was typed is spent from here on, and it is
+    // cleared before anything that can fail.
+    updateEntries(() => ({}));
     setNote('');
     setLogExpense(false);
 
     // Only after the numbers are in, and only if the offer was actually on
-    // screen. `handSummary.shortfallCents` is re-read here rather than trusting
-    // `logExpense` alone, because the tick survives an edit that turns a
-    // shortfall into a match, and a checkbox merely disappearing must not leave
-    // a stale yes behind it.
-    const shortfall = handSummary.shortfallCents;
-    const expenseProblem =
-      logExpense && shortfall !== null && shortfall > 0 ? await logStockLoss(locationId, shortfall) : null;
+    // screen. `handExpenseCents` is the same expression the footer disclosed,
+    // re-read here rather than trusting `logExpense` alone: the tick survives
+    // an edit that turns a shortfall into a match, and a checkbox merely
+    // disappearing must not leave a stale yes behind it.
+    const expenseProblem = handExpenseCents !== null ? await logStockLoss(locationId, handExpenseCents) : null;
     // Swallowed on purpose: the caller's list refresh is not part of the
     // stock-take, and treating its failure as this screen's failure is what
     // produced the double-commit above.
@@ -450,12 +415,14 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 // pre-filling it would set that branch's shelf to a number
                 // nobody walked to.
                 const chosen =
-                  row.location.id === locationId
-                    ? lines.find((l) => l.product.id === row.product.id)
-                    : undefined;
-                if (!chosen) return '';
+                  row.location.id === locationId ? entries[row.product.id] : undefined;
+                // A blank entry writes BOTH columns empty. A Reason on a row
+                // with no Counted is the one shape planCount rejects outright
+                // ("Reason is filled in but Counted is empty"), and a sheet
+                // this screen produced must not come back rejected.
+                if (!chosen || chosen.counted.trim() === '') return '';
                 // `counted` is already the raw string the person typed -- see
-                // the Line type. It needs no converting on the way out.
+                // CountEntry. It needs no converting on the way out.
                 return column.header === 'Counted' ? chosen.counted : chosen.reason ? reasonLabel(chosen.reason) : '';
               },
             }
@@ -523,19 +490,22 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // for the render the handover causes, while a genuine dropdown pick
       // still lands on the effect's own assignment and clears as before.
       lastLocationRef.current = count.locationId;
-      updateLines(() =>
-        count.lines.flatMap((line) =>
-          byId.has(line.productId)
-            ? [{
-                product: byId.get(line.productId)!,
-                // The basket field holds the RAW string a person typed, so a
-                // planned number is turned back into text on the way in.
-                counted: String(line.countedQuantity),
-                reason: line.reason,
-              }]
-            : []
+      updateEntries(() =>
+        Object.fromEntries(
+          count.lines
+            // A line for a product this store does not carry has no shelf to
+            // walk to, and `walkRows` would drop it anyway.
+            .filter((line) => byId.has(line.productId))
+            // The field holds the RAW string a person typed, so a planned
+            // number is turned back into text on the way in.
+            .map((line) => [line.productId, { counted: String(line.countedQuantity), reason: line.reason }])
         )
       );
+      // The handover fills rows scattered through the whole catalogue. A search
+      // or a category left over from before would hide every one of them and
+      // the notice below would name lines nobody can see.
+      setSearch('');
+      setCategory(null);
       setSheetNotice(
         `${picked.fileName} — ${count.lines.length} line${count.lines.length === 1 ? '' : 's'} ready. Change anything before saving.`
       );
@@ -694,7 +664,6 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                     the basket would fill from nowhere with no explanation. */}
                 {sheetNotice ? <Text style={styles.notice}>{sheetNotice}</Text> : null}
 
-                <Text style={[styles.label, styles.labelSpaced]}>ADD PRODUCTS</Text>
                 {/* Deliberately not ScanSafeField -- no scan path is offered here,
                     and wrapping a field in a scan guard that can never fire is a
                     component pretending to do something. */}
@@ -703,7 +672,8 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                   onChangeText={setSearch}
                   placeholder="Search by name, SKU or barcode…"
                   placeholderTextColor="#999999"
-                  style={styles.input}
+                  aria-label="Search products"
+                  style={[styles.input, styles.inputSpaced]}
                 />
                 {categories.length > 0 && (
                   <ScrollView
@@ -724,45 +694,38 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                   </ScrollView>
                 )}
 
-                {matches.map((product) => (
-                  <MatchRow key={product.id} product={product} onAdd={() => addLine(product)} />
-                ))}
-                {lines.length === 0 && matches.length === 0 && (
+                {filtered.length === 0 ? (
                   <Text style={styles.empty}>
-                    {search.trim() ? 'Nothing here matches that.' : 'Search above to add what you are counting.'}
+                    {search.trim() || category !== null
+                      ? 'Nothing here matches that.'
+                      : 'This store carries nothing to count yet.'}
                   </Text>
-                )}
-
-                {lines.length > 0 && (
-                  <View style={styles.basketWrap}>
-                    {/* One COUNTED / OFF BY / WHY header for the whole basket,
-                        not one per row -- see LineRow, which no longer renders
-                        its own cap. Widths (62 / 58 / 108) and the 8px gap
-                        mirror qtyPair's own field / varianceBox / reasonChip so
-                        the three labels sit directly over their columns. */}
+                ) : (
+                  <View style={styles.listWrap}>
+                    {/* One COUNTED / OFF BY / WHY header for the whole list, not
+                        one per row. Widths (62 / 58 / 108 / 28) and the 8px gap
+                        mirror qtyPair's own field / varianceBox / reasonChip /
+                        clear so the labels sit directly over their columns. */}
                     <View style={styles.columnHeaderRow}>
                       <View style={styles.columnHeaderSpacer} />
                       <View style={styles.columnHeaderCaps}>
                         <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
                         <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
                         <Text style={[styles.cap, styles.capChip]}>WHY</Text>
+                        <View style={styles.capClear} />
                       </View>
                     </View>
-                    <View style={styles.basketList}>
-                      {readings.map((reading) => (
-                        <LineRow
-                          key={reading.line.product.id}
-                          line={reading.line}
-                          variance={reading.variance}
-                          reasonOpen={reasonOpenFor === reading.line.product.id}
+                    <View style={styles.listRows}>
+                      {filtered.map((item) => (
+                        <CountRowView
+                          key={item.id}
+                          row={walkRow(item, entries)}
+                          reasonOpen={reasonOpenFor === item.id}
                           onToggleReason={() =>
-                            setReasonOpenFor((current) =>
-                              current === reading.line.product.id ? null : reading.line.product.id
-                            )
+                            setReasonOpenFor((current) => (current === item.id ? null : item.id))
                           }
-                          onCounted={(text) => setCounted(reading.line.product.id, text)}
-                          onReason={(reason) => setReason(reading.line.product.id, reason)}
-                          onRemove={() => removeLine(reading.line.product.id)}
+                          onCounted={(text) => setCounted(item.id, text)}
+                          onReason={(reason) => setReason(item.id, reason)}
                         />
                       ))}
                     </View>
@@ -805,14 +768,13 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
             />
             {tab === 'hand' ? (
               <>
-                {/* Gated on `everyCountReads` as well as a non-empty basket: with
-                    one line counted and one blank, `handLines` is `[]` (see the
-                    comment above it) and every figure here would read as zero
-                    sitting directly under a live per-line variance -- a
-                    contradiction, not an honest partial total. The empty-basket
-                    case (`lines.length === 0`) is still allowed through as
-                    zeroes, which is the honest reading of nothing counted yet. */}
-                {lines.length > 0 && everyCountReads && (
+                {/* Hidden while anything is unreadable: `handLines` is `[]` then
+                    (see plannedLines) and every figure here would read as zero
+                    sitting directly under a live per-row variance -- a
+                    contradiction, not an honest partial total. Nothing typed at
+                    all is still allowed through as zeroes, which is the honest
+                    reading of a walk not started. */}
+                {handLines.length > 0 && (
                   <View style={styles.basket}>
                     <View style={styles.basketCap}>
                       <Text style={styles.basketCapLabel}>VARIANCE</Text>
@@ -821,16 +783,16 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                       </Text>
                     </View>
                     <Text style={styles.lineMeta}>
-                      {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ. Nothing changes until you press Save.`}
+                      {`${handSummary.counted} counted · ${handSummary.matched} matched · ${handSummary.differ} differ · ${catalogue.length - handSummary.counted} left alone. Nothing changes until you press Save.`}
                     </Text>
                   </View>
                 )}
                 <View style={styles.footerRow}>
                   <View style={styles.footerTotal}>
                     <Text style={styles.footerTotalText}>
-                      {`Save ${readings.length} count${readings.length === 1 ? '' : 's'}`}
+                      {`Save ${typed.length} count${typed.length === 1 ? '' : 's'}`}
                     </Text>
-                    <Text style={styles.footerTotalHint}>{countHint(readings, handSummary)}</Text>
+                    <Text style={styles.footerTotalHint}>{countHint(typed.length, unreadable, handSummary)}</Text>
                   </View>
                   <Pressable
                     onPress={submit}
@@ -899,88 +861,86 @@ function varianceMoneyText(cents: number | null): string {
 }
 
 // The line under the count, which is also the only place a blocked commit is
-// explained. Ordered by what the person has to do next.
-function countHint(readings: LineReading[], summary: CountSummary): string {
-  if (readings.length === 0) return 'Nothing counted yet';
-  if (readings.some((reading) => reading.counted === null)) return 'Type what you found on every line';
+// explained. Ordered by what the person has to do next. A BLANK row is never
+// mentioned, because a blank row is not a problem -- it is a product nobody
+// counted, and on a 240-product catalogue that is almost all of them.
+function countHint(typedCount: number, unreadable: number, summary: CountSummary): string {
+  if (typedCount === 0) return 'Nothing counted yet';
+  if (unreadable > 0) {
+    return unreadable === 1
+      ? 'One line is not a whole number — just the digits'
+      : `${unreadable} lines are not whole numbers — just the digits`;
+  }
   return `${summary.differ} will change a number`;
 }
 
-function MatchRow({ product, onAdd }: { product: Product; onAdd: () => void }) {
-  return (
-    <Pressable
-      onPress={onAdd}
-      style={styles.lineWrap}
-      accessibilityRole="button"
-      accessibilityLabel={`Count ${product.name}`}
-    >
-      <View style={styles.lineRow}>
-        <View style={styles.lineText}>
-          <Text style={styles.lineName}>{product.name}</Text>
-          <Text style={styles.lineMeta}>{`App says ${product.stock}`}</Text>
-        </View>
-        <Text style={styles.add}>Count</Text>
-      </View>
-    </Pressable>
-  );
-}
-
-function LineRow({
-  line,
-  variance,
+function CountRowView({
+  row,
   reasonOpen,
   onToggleReason,
   onCounted,
   onReason,
-  onRemove,
 }: {
-  line: Line;
-  variance: number | null;
+  row: CountRow;
   reasonOpen: boolean;
   onToggleReason: () => void;
   onCounted: (text: string) => void;
   onReason: (reason: StockCountReason) => void;
-  onRemove: () => void;
 }) {
+  const touched = row.state !== 'blank';
   // One of three tints, never colour alone: the sign inside `varianceText`
   // (−2 / +3 / 0) survives for a deutan viewer even where red and green do
-  // not, so the box's background and the box's own text colour always agree
-  // on the same direction rather than one of them carrying it alone.
-  const direction = variance === null || variance === 0 ? 'flat' : variance > 0 ? 'up' : 'down';
-  const varianceBoxStyle =
-    direction === 'up' ? styles.varianceBoxUp : direction === 'down' ? styles.varianceBoxDown : styles.varianceBoxFlat;
-  const varianceColorStyle =
-    direction === 'up' ? styles.varianceUp : direction === 'down' ? styles.varianceDown : styles.varianceFlat;
+  // not, so the box's background and the box's own text colour always agree on
+  // the same direction rather than one of them carrying it alone.
+  const direction = row.variance === null || row.variance === 0 ? 'flat' : row.variance > 0 ? 'up' : 'down';
+  const varianceBoxStyle = !touched
+    ? styles.varianceBoxNone
+    : direction === 'up'
+      ? styles.varianceBoxUp
+      : direction === 'down'
+        ? styles.varianceBoxDown
+        : styles.varianceBoxFlat;
+  const varianceColorStyle = !touched
+    ? styles.varianceNone
+    : direction === 'up'
+      ? styles.varianceUp
+      : direction === 'down'
+        ? styles.varianceDown
+        : styles.varianceFlat;
   return (
-    <View style={styles.basketCard}>
+    <View style={[styles.countRow, touched && styles.countRowCounted]}>
       <View style={styles.lineRow}>
         <View style={styles.lineText}>
-          <Text style={styles.lineName}>{line.product.name}</Text>
-          <Text style={styles.lineMeta}>{`App says ${line.product.stock}`}</Text>
-          <Pressable onPress={onRemove} style={styles.remove} accessibilityRole="button">
-            <Text style={styles.removeText}>Remove</Text>
-          </Pressable>
+          <Text style={styles.lineName}>{row.product.name}</Text>
+          <Text style={styles.lineMeta}>{`App says ${row.product.stock}`}</Text>
         </View>
         <View style={styles.qtyPair}>
+          {/* `placeholder`, never a value: the field's `value` stays '' for an
+              uncounted row, so blank and a typed 0 can never be confused by
+              anything reading this component -- including the commit. */}
           <TextInput
-            value={line.counted}
+            value={row.typed}
             onChangeText={onCounted}
             keyboardType="number-pad"
             inputMode="numeric"
             selectTextOnFocus
-            aria-label={`Counted units of ${line.product.name}`}
-            style={styles.qtyInput}
+            placeholder="—"
+            placeholderTextColor="#B6B6BC"
+            aria-label={`Counted units of ${row.product.name}`}
+            style={[styles.qtyInput, !touched && styles.qtyInputBlank]}
           />
           <View style={[styles.varianceBox, varianceBoxStyle]}>
-            <Text style={[styles.varianceText, varianceColorStyle]}>{varianceText(variance)}</Text>
+            <Text style={[styles.varianceText, varianceColorStyle]}>
+              {touched ? varianceText(row.variance) : '·'}
+            </Text>
           </View>
           <Pressable
             onPress={onToggleReason}
             style={styles.reasonChip}
             accessibilityRole="button"
-            accessibilityLabel={`Reason for ${line.product.name}`}
+            accessibilityLabel={`Reason for ${row.product.name}`}
           >
-            <Text style={styles.reasonChipText}>{line.reason ? reasonLabel(line.reason) : 'Reason'}</Text>
+            <Text style={styles.reasonChipText}>{row.reason ? reasonLabel(row.reason) : 'Reason'}</Text>
           </Pressable>
         </View>
       </View>
@@ -1234,6 +1194,7 @@ const styles = StyleSheet.create({
   chipScroll: { flexGrow: 0, flexShrink: 0, minWidth: 0 },
   chips: { flexDirection: 'row', gap: 6, paddingRight: 8, paddingTop: 10 },
   input: { backgroundColor: '#F2F2F2', borderRadius: 10, height: 42, paddingHorizontal: 12, color: '#111111' },
+  inputSpaced: { marginTop: 16 },
   // The search box and, on web, the camera button beside it. One row so the
   // button cannot drift away from the field it belongs to.
   searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1251,41 +1212,37 @@ const styles = StyleSheet.create({
   basketCapLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6, color: '#6B6B73' },
   basketCapTotal: { fontSize: 12.5, fontWeight: '800', color: '#111111', fontVariant: ['tabular-nums'] },
 
-  // Search-result rows only (MatchRow) -- the by-hand tab's already-counted
-  // basket rows use `basketCard` below instead, so re-tinting the basket
-  // cannot also re-tint the picker above it.
-  lineWrap: { borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
   lineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, paddingVertical: 10 },
   lineText: { flex: 1 },
   lineName: { fontSize: 13, fontWeight: '700', color: '#111111' },
   lineMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
   lineMetaLow: { color: '#8A5806', fontWeight: '700', fontSize: 12 },
   lineMetaMissing: { fontSize: 12, color: '#A3202F', fontWeight: '700', marginTop: 2, lineHeight: 17 },
-  add: { fontSize: 12, fontWeight: '800', color: '#111111' },
-  remove: { alignSelf: 'flex-start', marginTop: 6 },
-  removeText: { fontSize: 11.5, fontWeight: '700', color: '#9CA3AF' },
   empty: { fontSize: 13, color: '#9CA3AF', marginTop: 12 },
 
-  // The by-hand basket: one card per product (`basketCard`), 8px of air
-  // between them (`basketList`'s own gap), and one column header
-  // (`columnHeaderRow`) above the whole stack instead of a `cap` repeated on
-  // every row.
-  basketWrap: { marginTop: 16 },
+  // The by-hand list: one row per product (`countRow`), 8px of air between
+  // them (`listRows`'s own gap), and one column header (`columnHeaderRow`)
+  // above the whole stack instead of a `cap` repeated on every row.
+  listWrap: { marginTop: 16 },
   columnHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 14, paddingBottom: 8 },
   columnHeaderSpacer: { flex: 1 },
   columnHeaderCaps: { flexDirection: 'row', gap: 8 },
   capField: { width: 62, textAlign: 'center' },
   capVariance: { width: 58, textAlign: 'center' },
   capChip: { width: 108, textAlign: 'center' },
-  basketList: { gap: 8 },
-  basketCard: { backgroundColor: '#F7F7F7', borderRadius: 14, paddingHorizontal: 14 },
+  capClear: { width: 28 },
+  listRows: { gap: 8 },
+  // Untinted until something is typed into it. The tint IS the signal that a
+  // row has been counted, on a list where almost every row has not been.
+  countRow: { borderRadius: 14, paddingHorizontal: 14 },
+  countRowCounted: { backgroundColor: '#F7F7F7' },
 
   qtyPair: { flexDirection: 'row', gap: 8, alignItems: 'center' },
   cap: { fontSize: 9, fontWeight: '800', letterSpacing: 0.6, color: '#9CA3AF' },
   qtyInput: {
-    // White, not the field's old grey -- the basket row underneath it is
-    // grey now (`basketCard`), and the field has to stay the one thing on
-    // the row that still reads as typeable.
+    // White, not the field's old grey -- the row underneath it is grey now
+    // once counted (`countRowCounted`), and the field has to stay the one
+    // thing on the row that still reads as typeable.
     backgroundColor: '#FFFFFF',
     borderRadius: 10,
     height: 38,
@@ -1295,6 +1252,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textAlign: 'right',
   },
+  qtyInputBlank: { backgroundColor: '#F2F2F2' },
   costInput: { width: 78 },
   varianceText: { fontSize: 13, fontWeight: '800', fontVariant: ['tabular-nums'] },
   // Sign and tint together, never the tint alone -- '−2' / '+3' / '0' read the
@@ -1304,9 +1262,11 @@ const styles = StyleSheet.create({
   varianceBoxUp: { backgroundColor: '#E9F5EE' },
   varianceBoxDown: { backgroundColor: '#FBEDEE' },
   varianceBoxFlat: { backgroundColor: '#FFFFFF' },
+  varianceBoxNone: { backgroundColor: 'transparent' },
   varianceUp: { color: '#007A38' },
   varianceDown: { color: '#A3202F' },
   varianceFlat: { color: '#9CA3AF' },
+  varianceNone: { color: '#B6B6BC' },
   reasonChip: {
     // White for the same reason the field is: the card behind it is grey now,
     // and a grey pill on a grey card has no edge left to read as a button.

@@ -144,8 +144,6 @@ async function open(products = [product({})]): Promise<ReactTestRenderer> {
       <StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />
     );
   });
-  // The results list renders the whole (short) catalogue with no search term.
-  await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
   return tree;
 }
 
@@ -155,20 +153,64 @@ beforeEach(() => {
 });
 
 describe('a line added to a count', () => {
-  // Difference 1 from Restock, and the reason the footer can say "3 counted"
-  // while only 2 change anything: a stock-take mostly CONFIRMS, so the field
-  // starts at the current figure and a row left untouched means "I looked, it
-  // matched" -- which is real information.
-  it('starts at what the app believes, not at zero or empty', async () => {
+  // The pre-fill is gone, and this is the rule the whole redesign turns on. A
+  // field seeded with what the app believes would mean the app had counted
+  // every shelf in the shop on its own.
+  //
+  // MUTATION: seed the field with `String(product.stock)`. This test goes red
+  // on the value; the 'skips a product nobody counted' test below goes red on
+  // what reaches the RPC.
+  it('starts blank, so a row nobody has touched is a product nobody counted', async () => {
     const tree = await open();
-    expect(fieldNamed(tree, COUNTED).props.value).toBe('11');
+    const field = fieldNamed(tree, COUNTED);
+    expect(field.props.value).toBe('');
+    // Blank and zero must never look alike: the DASH is a placeholder, so the
+    // value stays '' and nothing downstream can read it as a count.
+    expect(field.props.placeholder).toBe('—');
     expect(allText(tree)).toContain('App says 11');
+    expect(allText(tree)).toContain('Nothing counted yet');
   });
 
-  it('counts an untouched row and reports that it changes nothing', async () => {
+  // MUTATION: have `plannedLines` include blank rows. On a real catalogue that
+  // is 238 shelves zeroed by a walk that touched two of them.
+  it('skips a product nobody counted and sends only the row that was typed', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await type(tree, 'Counted units of QA other', '4');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-1',
+      [{ productId: 'p-2', countedQuantity: 4, reason: null }],
+      { note: null }
+    );
+  });
+
+  // MUTATION: make `canSubmit` true when `handLines` is empty. Saving nothing
+  // writes a stock-take record against a shelf nobody walked.
+  it('refuses to save a catalogue nobody has typed into', async () => {
     const tree = await open();
-    expect(allText(tree)).toContain('Save 1 count');
-    expect(allText(tree)).toContain('0 will change a number');
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+    expect(allText(tree)).toContain('Save 0 counts');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).not.toHaveBeenCalled();
+  });
+
+  // MUTATION: classify an unreadable entry as blank in `walkRow`. `abc` would
+  // be silently skipped and the shop would believe it counted that shelf.
+  it('blocks the save on an unreadable entry, and says which', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await type(tree, COUNTED, '8');
+    await type(tree, 'Counted units of QA other', 'abc');
+    expect(allText(tree)).toContain('One line is not a whole number');
+    expect(pressableLabelled(tree, 'Save counts').props.disabled).toBe(true);
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).not.toHaveBeenCalled();
   });
 
   // The regression class three separate 100x cost bugs came from on the restock
@@ -176,7 +218,6 @@ describe('a line added to a count', () => {
   // value after some keystroke stops equalling what was typed.
   it('never rewrites the text between keystrokes', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     expect(fieldNamed(tree, COUNTED).props.value).toBe('');
     await type(tree, COUNTED, '108');
     expect(fieldNamed(tree, COUNTED).props.value).toBe('108');
@@ -184,27 +225,42 @@ describe('a line added to a count', () => {
     expect(fieldNamed(tree, COUNTED).props.value).toBe('10');
   });
 
-  // An empty field is just an empty field. Dropping the row at 0 -- the restock
-  // screen's first attempt -- unmounted the focused input on the first
-  // backspace, closed the keyboard, and took the reason chosen beside it.
-  it('keeps the row and its reason when the field is emptied', async () => {
+  // An emptied field returns the row to "not counted" -- but the reason chosen
+  // beside it survives, so a backspace to retype a number does not silently
+  // take the shop's own word for what happened with it.
+  //
+  // MUTATION: delete the entry outright in `setCounted` when the text is empty.
+  // The reason is lost on the first backspace and comes back as 'Reason'.
+  it('returns an emptied row to not-counted, and gives the reason back when it is retyped', async () => {
     const tree = await open();
+    await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
     await act(async () => pressableLabelled(tree, 'Reason: Damaged').props.onPress());
-    await backspace(tree, COUNTED, 2);
+    await backspace(tree, COUNTED, 1);
     expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(allText(tree)).toContain('Nothing counted yet');
+    await type(tree, COUNTED, '9');
     expect(allText(tree)).toContain('Damaged');
-    expect(allText(tree)).toContain('Type what you found on every line');
   });
 
   // Zero is a finding, not a blank. Refusing it would leave the door able to
   // record every loss except a total one.
-  it('accepts a counted zero and reads it as an empty shelf', async () => {
+  // MUTATION: filter `handLines` on `countedQuantity !== 0` before the RPC
+  // call in `submit`. Every other save test types a non-zero count, so the
+  // filter reads as harmless -- but it is the one row that matters most, an
+  // empty shelf, and it would silently never reach the RPC at all.
+  it('accepts a counted zero, reads it as an empty shelf, and sends it', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '0');
     expect(allText(tree)).toContain('−11');
     expect(allText(tree)).toContain('1 will change a number');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount).toHaveBeenCalledWith(
+      'shop-1',
+      'loc-1',
+      [{ productId: 'p-1', countedQuantity: 0, reason: null }],
+      { note: null }
+    );
   });
 
   // The variance is the column, not a footnote: the person doing the
@@ -212,7 +268,6 @@ describe('a line added to a count', () => {
   // off the app was.
   it('shows the variance live and signed', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     expect(allText(tree)).toContain('−3');
     await backspace(tree, COUNTED, 1);
@@ -236,7 +291,6 @@ describe('a line added to a count', () => {
   // by mutation: see the report.
   it('marks a shortfall in the shortfall tint, and a surplus in a different one', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8'); // App says 11, counted 8: a shortfall of 3.
     const shortfallText = tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')[0];
     const shortfallBox = shortfallText.parent!;
@@ -259,7 +313,6 @@ describe('a line added to a count', () => {
   // sign (but leaves the tint and the magnitude intact) still goes red.
   it('keeps the sign on the variance regardless of direction', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8'); // App says 11, counted 8: a shortfall of 3.
     expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === '−3')).toHaveLength(1);
     // The bare, unsigned magnitude must not appear at all -- a mutation that
@@ -283,7 +336,6 @@ describe('a line added to a count', () => {
       product({}),
       product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
     ]);
-    await act(async () => pressableLabelled(tree, 'Count QA other').props.onPress());
     expect(tree.root.findAll((n) => n.type === Text && textFrom(n) === 'COUNTED')).toHaveLength(1);
     expect(allText(tree)).toContain('OFF BY');
     expect(allText(tree)).toContain('WHY');
@@ -306,22 +358,18 @@ describe('changing the store', () => {
     await act(async () => {
       tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
     });
-    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
-    expect(fieldNamed(tree, COUNTED).props.value).toBe('11');
-
-    // Open the store picker (trigger reads the current store's name) and
-    // choose the other one.
+    await type(tree, COUNTED, '11');
     await act(async () => pressableWithText(tree, 'Main').props.onPress());
     await act(async () => pressableWithText(tree, 'Branch').props.onPress());
 
-    // The row counted at Main is gone entirely -- not merely re-pointed.
-    expect(tree.root.findAll((n) => n.props['aria-label'] === COUNTED)).toHaveLength(0);
-    expect(allText(tree)).not.toContain('App says 11');
+    // The row is still on screen -- it is Branch's row now -- and it is blank.
+    // MUTATION: remove the `storeChanged` branch's `updateEntries(() => ({}))`.
+    // The stale 11 sits in a field captioned "App says 3", ready to overwrite a
+    // shelf nobody walked, and the commit below sends 11 instead of 3.
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(allText(tree)).toContain('App says 3');
 
-    // Re-add at Branch and commit untouched: it must read Branch's own
-    // stock (3), never the 11 that was typed for Main.
-    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
-    expect(fieldNamed(tree, COUNTED).props.value).toBe('3');
+    await type(tree, COUNTED, '3');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(saveStockCount).toHaveBeenCalledWith(
       'shop-1',
@@ -335,10 +383,9 @@ describe('changing the store', () => {
   // this component is hidden with `visible={false}` rather than unmounted,
   // so a screen toggling it back and forth re-fires the same effect at the
   // same `locationId`. That must not be mistaken for a transition and clear
-  // a basket someone is mid-typing.
-  it('does not clear the basket when the effect re-runs at the same store', async () => {
+  // what has been typed.
+  it('does not clear what has been typed when the effect re-runs at the same store', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => {
       tree.update(<StockCountModal visible={false} shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
@@ -355,7 +402,6 @@ describe('saving a count', () => {
   // it: the RPC is handed the TOTAL that was found, never the difference.
   it('sends the counted total, not the change', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
     await act(async () => pressableLabelled(tree, 'Reason: Damaged').props.onPress());
@@ -371,7 +417,6 @@ describe('saving a count', () => {
 
   it('sends a null reason rather than defaulting one', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(saveStockCount.mock.calls[0][2]).toEqual([
@@ -399,8 +444,6 @@ describe('saving a count', () => {
         />
       );
     });
-    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -412,7 +455,6 @@ describe('saving a count', () => {
   it('keeps the basket when the count itself was refused', async () => {
     saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
     expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
@@ -428,12 +470,15 @@ describe('closing the sheet', () => {
   // waiting to happen the next time this sheet is opened.
   it('empties the basket', async () => {
     const tree = await open();
+    await type(tree, COUNTED, '8');
     await act(async () => pressableWithText(tree, 'Close').props.onPress());
-    // The row is gone, not merely blanked -- "App says 11" still appears in
-    // the search results below (the product is available to add again), so
-    // the field itself is what proves the basket, not the surrounding text.
-    expect(tree.root.findAll((n) => n.props['aria-label'] === COUNTED)).toHaveLength(0);
-    expect(allText(tree)).toContain('Save 0 count');
+    // Every field is blank again. The ROW still renders -- every product is a
+    // row now -- so the field's value is what proves the walk was reset, not
+    // the row's absence.
+    // MUTATION: drop `updateEntries(() => ({}))` from `closeAndReset`. The next
+    // stock-take opens holding the last one's numbers under a live Save button.
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(allText(tree)).toContain('Save 0 counts');
   });
 });
 
@@ -717,7 +762,6 @@ describe('logging the shortfall', () => {
   // match rather than the same reasoning.)
   it('offers the write and does not make it', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     expect(allText(tree)).toContain('Also log $13.83 of shortfall as stock loss');
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -726,7 +770,6 @@ describe('logging the shortfall', () => {
 
   it('writes one stock_loss expense for the store when it is ticked', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -751,7 +794,6 @@ describe('logging the shortfall', () => {
   // number in the P&L with no missing stock behind it.
   it('writes the expense only after the numbers have changed', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -761,7 +803,6 @@ describe('logging the shortfall', () => {
   it('writes nothing when the count itself was refused', async () => {
     saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -772,10 +813,7 @@ describe('logging the shortfall', () => {
   // is deliberately larger than the variance line above it.
   it('offers the shortfall without netting off the units that were found', async () => {
     const tree = await open([product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 24, costCents: 461 })]);
-    await act(async () => pressableLabelled(tree, 'Count QA other').props.onPress());
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
-    await backspace(tree, 'Counted units of QA other', 2);
     await type(tree, 'Counted units of QA other', '26');
     expect(allText(tree)).toContain('−$4.61');
     expect(allText(tree)).toContain('Also log $13.83 of shortfall as stock loss');
@@ -785,7 +823,6 @@ describe('logging the shortfall', () => {
   // count full of them would offer a figure far below the real loss.
   it('hides the offer when a product that came up short has no cost, and says why', async () => {
     const tree = await open([product({ costCents: null })]);
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     expect(allText(tree)).not.toContain('as stock loss');
     expect(allText(tree)).toContain('no cost recorded');
@@ -796,7 +833,6 @@ describe('logging the shortfall', () => {
   // leave a stale yes behind it.
   it('does not write when an edit removes the honest total after ticking', async () => {
     const tree = await open();
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await backspace(tree, COUNTED, 1);
@@ -818,8 +854,6 @@ describe('logging the shortfall', () => {
     await act(async () => {
       tree = create(<StockCountModal visible shopId="shop-1" onClose={onClose} onDone={async () => {}} />);
     });
-    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
@@ -854,8 +888,6 @@ describe('logging the shortfall from a sheet', () => {
     });
     // Tick the checkbox on the by-hand tab, against Main's own costed
     // shortfall -- this is the stale `true` the fix must not trust later.
-    await act(async () => pressableLabelled(tree, 'Count QA widget').props.onPress());
-    await backspace(tree, COUNTED, 2);
     await type(tree, COUNTED, '8');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
 
