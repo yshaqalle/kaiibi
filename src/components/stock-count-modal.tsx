@@ -242,11 +242,47 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setReasonOpenFor(null);
   };
 
+  // Returns ONE row to blank -- the count and the reason together. It does not
+  // remove the product, because the product was never added in the first place.
+  // The whole entry goes, unlike an emptied field (see `setCounted`), because
+  // this is a deliberate "forget this row" rather than a backspace on the way
+  // to retyping it.
+  const clearRow = (productId: string) => {
+    updateEntries((current) => {
+      if (!(productId in current)) return current;
+      const next = { ...current };
+      delete next[productId];
+      return next;
+    });
+    setReasonOpenFor((open) => (open === productId ? null : open));
+  };
+
   // The WHOLE store, walked once. Not `filtered`, and not the page slice: the
   // footer, the Save caption and the commit are about the stock-take, not about
   // what is scrolled into view.
   const rows = useMemo(() => walkRows(catalogue, entries), [catalogue, entries]);
   const typed = useMemo(() => typedRows(rows), [rows]);
+
+  // Starts the walk over. Every field on every page, every reason and the note
+  // -- and NOT the store or the tab, which are where the person is standing
+  // rather than what they have written down. The stock-loss tick goes too: the
+  // shortfall it referred to no longer exists, and a tick with no offer behind
+  // it is exactly the stale yes `handExpenseCents` exists to refuse.
+  //
+  // Placed after `typed` rather than beside `clearRow` above (where the brief
+  // that specified this screen put it): `canClearAll` reads `typed`, and
+  // `typed` is a `useMemo` declared below `setReason` -- putting this block
+  // there instead throws "Cannot access 'typed' before initialization" on
+  // every render, since a `const` is in scope but unreadable before its own
+  // declaration runs.
+  const clearAll = () => {
+    updateEntries(() => ({}));
+    setNote('');
+    setReasonOpenFor(null);
+    setLogExpense(false);
+  };
+  const canClearAll = !busy && (typed.length > 0 || note.trim() !== '');
+
   const unreadable = useMemo(() => typed.filter((row) => row.state === 'unreadable').length, [typed]);
   const handLines = useMemo(() => plannedLines(rows), [rows]);
   const handSummary = useMemo(() => summariseCount(handLines), [handLines]);
@@ -626,9 +662,22 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
         <View style={styles.card}>
           <View style={styles.header}>
             <Text style={styles.title}>Count</Text>
-            <Pressable onPress={closeAndReset} style={styles.close}>
-              <Text style={styles.closeText}>Close</Text>
-            </Pressable>
+            <View style={styles.headerButtons}>
+              {tab === 'hand' && (
+                <Pressable
+                  onPress={clearAll}
+                  disabled={!canClearAll}
+                  style={[styles.clearAll, !canClearAll && styles.clearAllOff]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear all"
+                >
+                  <Text style={[styles.clearAllText, !canClearAll && styles.clearAllTextOff]}>Clear all</Text>
+                </Pressable>
+              )}
+              <Pressable onPress={closeAndReset} style={styles.close}>
+                <Text style={styles.closeText}>Close</Text>
+              </Pressable>
+            </View>
           </View>
 
           <View style={styles.segment}>
@@ -703,17 +752,20 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 ) : (
                   <View style={styles.listWrap}>
                     {/* One COUNTED / OFF BY / WHY header for the whole list, not
-                        one per row. Widths (62 / 58 / 108) and the 8px gap mirror
-                        qtyPair's own field / varianceBox / reasonChip exactly, so
-                        the labels sit directly over their columns. No clear-column
-                        spacer here: the row has no × yet -- that lands in Task 3
-                        alongside the header cap that reserves room for it. */}
+                        one per row. Widths (62 / 58 / 108 / 28) and the 8px gap
+                        mirror qtyPair's own field / varianceBox / reasonChip /
+                        clear exactly, so the labels sit directly over their
+                        columns: 62+58+108+28 + 3×8 = 280 on both sides. The
+                        trailing `capClear` carries no label -- the mockup draws
+                        that header cell empty too (count-one-step-mockup.html's
+                        `overClear`), since a lone × has nothing to caption. */}
                     <View style={styles.columnHeaderRow}>
                       <View style={styles.columnHeaderSpacer} />
                       <View style={styles.columnHeaderCaps}>
                         <Text style={[styles.cap, styles.capField]}>COUNTED</Text>
                         <Text style={[styles.cap, styles.capVariance]}>OFF BY</Text>
                         <Text style={[styles.cap, styles.capChip]}>WHY</Text>
+                        <View style={styles.capClear} />
                       </View>
                     </View>
                     <View style={styles.listRows}>
@@ -727,6 +779,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                           }
                           onCounted={(text) => setCounted(item.id, text)}
                           onReason={(reason) => setReason(item.id, reason)}
+                          onClear={() => clearRow(item.id)}
                         />
                       ))}
                     </View>
@@ -739,6 +792,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                   onChangeText={setNote}
                   placeholder="Anything worth recording about this stock-take"
                   placeholderTextColor="#999999"
+                  aria-label="Note about this stock-take"
                   style={styles.input}
                 />
               </>
@@ -881,12 +935,14 @@ function CountRowView({
   onToggleReason,
   onCounted,
   onReason,
+  onClear,
 }: {
   row: CountRow;
   reasonOpen: boolean;
   onToggleReason: () => void;
   onCounted: (text: string) => void;
   onReason: (reason: StockCountReason) => void;
+  onClear: () => void;
 }) {
   const touched = row.state !== 'blank';
   // One of three tints, never colour alone: the sign inside `varianceText`
@@ -950,9 +1006,30 @@ function CountRowView({
             // that folds up and records something; it would record nothing, and
             // the fold-up alone reads as confirmation. Matches the mockup, which
             // draws this cell as a dash precisely so there is nothing to press.
-            <View style={[styles.reasonChip, styles.reasonChipNone]}>
-              <Text style={styles.reasonChipTextNone}>—</Text>
+            <View style={styles.reasonChipBlank}>
+              <Text style={styles.reasonChipBlankText}>—</Text>
             </View>
+          )}
+          {touched ? (
+            // The × that replaces `Remove`: there is no basket to take a line
+            // out of, so this returns the row to blank rather than deleting a
+            // product that was never added in the first place. Only on a
+            // counted row -- see clearRow's own comment for why blank has
+            // nothing to clear.
+            <Pressable
+              onPress={onClear}
+              style={styles.clear}
+              accessibilityRole="button"
+              accessibilityLabel={`Clear ${row.product.name}`}
+            >
+              <Text style={styles.clearText}>×</Text>
+            </Pressable>
+          ) : (
+            // An empty spacer, not nothing -- it holds the column's width so
+            // an uncounted row's boxes stay under the same header caps as a
+            // counted row's, exactly the way varianceBoxNone and
+            // reasonChipBlank already hold theirs.
+            <View style={styles.clearSlot} />
           )}
         </View>
       </View>
@@ -1190,6 +1267,15 @@ const styles = StyleSheet.create({
   card: { backgroundColor: '#FFFFFF', borderRadius: 18, padding: 20, width: '100%', maxWidth: 560, maxHeight: '88%' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
   title: { fontSize: 16, fontWeight: '800', color: '#111111' },
+  headerButtons: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  // Disabled rather than absent when there is nothing to clear (`canClearAll`)
+  // -- unlike Clear all's own absence over the sheet tab, this is the same
+  // control staying in place with nothing to do yet, not a control that does
+  // not apply here at all.
+  clearAll: { borderWidth: 1, borderColor: '#DCDCE4', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 11 },
+  clearAllOff: { borderColor: '#F2F2F2' },
+  clearAllText: { fontSize: 12.5, fontWeight: '700', color: '#5E5D65' },
+  clearAllTextOff: { color: '#B6B6BC' },
   segment: { flexDirection: 'row', backgroundColor: '#F2F2F2', borderRadius: 12, padding: 4, gap: 4, marginBottom: 16 },
   segmentItem: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: 9 },
   segmentItemActive: { backgroundColor: '#FFFFFF' },
@@ -1290,13 +1376,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reasonChipText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
-  // Untouched row: transparent, not white -- there is no pressable surface to
-  // suggest, only the dash matching varianceBoxNone's own '·'.
-  reasonChipNone: { backgroundColor: 'transparent' },
-  reasonChipTextNone: { fontSize: 11.5, fontWeight: '600', color: '#B6B6BC' },
+  // Untouched row: no fill at all, not white -- there is no pressable surface
+  // to suggest, only the dash matching varianceBoxNone's own '·'.
+  reasonChipBlank: { width: 108, height: 38, alignItems: 'center', justifyContent: 'center' },
+  reasonChipBlankText: { fontSize: 12, fontWeight: '600', color: '#B6B6BC' },
   reasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingBottom: 10 },
   reasonOption: { backgroundColor: '#F2F2F2', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   reasonOptionText: { fontSize: 11.5, fontWeight: '700', color: '#111111' },
+  // The × that replaces Remove on a counted row, and the spacer that holds its
+  // column open on a blank one -- same width (28), so `qtyPair`'s total stays
+  // constant whether or not the row has anything to clear.
+  clear: { width: 28, height: 28, borderRadius: 999, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center' },
+  clearSlot: { width: 28, height: 28 },
+  clearText: { fontSize: 14, fontWeight: '700', color: '#6B6B73' },
 
   // The sheet tab, borrowed wholesale from stock-transfer-modal.tsx so the two
   // sheets are visibly the same tool. A second set of pill colours would read

@@ -85,6 +85,20 @@ function pressableLabelled(tree: ReactTestRenderer, label: string): ReactTestIns
   return tree.root.findAll((n) => n.props.accessibilityLabel === label)[0];
 }
 
+// A single labelled `Pressable` shows up as THREE matching tree nodes, not
+// one: the outer `Pressable` element, RN's own inner `View` wrapper, and the
+// host view underneath it all carry `accessibilityLabel` unchanged.
+// `pressableLabelled` above never notices, because `[0]` is always the
+// outermost of the three and its `onPress` works the same as the others' --
+// but COUNTING how many rows offer a control needs exactly one entry per
+// control, so this keeps only the outermost node in each matching subtree
+// (the one whose parent does not already match).
+function pressablesLabelled(tree: ReactTestRenderer, label: string): ReactTestInstance[] {
+  return tree.root.findAll(
+    (n) => n.props.accessibilityLabel === label && (!n.parent || n.parent.props.accessibilityLabel !== label)
+  );
+}
+
 // For the handful of Pressables (the header Close button, StoreDropdown's
 // trigger and its options) that carry no accessibilityLabel at all -- found
 // instead by walking up from the Text they render to the nearest ancestor
@@ -404,6 +418,132 @@ describe('a line added to a count', () => {
     await act(async () => fieldNamed(tree, 'Search products').props.onChangeText('other'));
     expect(fieldNamed(tree, 'Counted units of QA widget')).toBeUndefined();
     expect(fieldNamed(tree, 'Counted units of QA other')).toBeDefined();
+  });
+});
+
+describe('clearing', () => {
+  // The × replaces `Remove`, and the difference matters: there is no basket to
+  // take a line out of. It returns the row to blank -- the product was never
+  // added in the first place.
+  //
+  // MUTATION: have `clearRow` set `{ counted: '', reason: <kept> }` instead of
+  // deleting the entry. The count clears but a reason nobody can see any more
+  // rides along into the next thing typed there.
+  it('clears one row back to blank, reason and all', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Reason: Damaged').props.onPress());
+    await type(tree, 'Counted units of QA other', '4');
+    expect(allText(tree)).toContain('Save 2 counts');
+
+    await act(async () => pressableLabelled(tree, 'Clear QA widget').props.onPress());
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(allText(tree)).toContain('Save 1 count');
+    // The row's own reason is gone, not merely hidden: retyping must not bring
+    // 'Damaged' back the way an ordinary backspace does.
+    await type(tree, COUNTED, '8');
+    expect(pressableLabelled(tree, 'Reason for QA widget')).toBeDefined();
+    expect(allText(tree)).not.toContain('Damaged');
+    // The other row is untouched.
+    expect(fieldNamed(tree, 'Counted units of QA other').props.value).toBe('4');
+  });
+
+  // MUTATION: render the × on every row. On a 240-product catalogue that is 240
+  // clear buttons for rows there is nothing to clear on -- and the × is one of
+  // the three things standing between a mistyped row and an overwritten shelf,
+  // so it has to mean "this row is counted".
+  it('offers the × only on a counted row', async () => {
+    const tree = await open();
+    expect(pressablesLabelled(tree, 'Clear QA widget')).toHaveLength(0);
+    await type(tree, COUNTED, '8');
+    expect(pressablesLabelled(tree, 'Clear QA widget')).toHaveLength(1);
+  });
+
+  // A reason without a count is the one shape the sheet planner rejects
+  // outright ("Reason is filled in but Counted is empty"). The two tabs must
+  // not disagree about it.
+  //
+  // MUTATION: keep the reason chip pressable on a blank row. A shop can then
+  // record why a product it never counted went missing.
+  it('offers the reason only on a counted row', async () => {
+    const tree = await open();
+    expect(pressablesLabelled(tree, 'Reason for QA widget')).toHaveLength(0);
+    await type(tree, COUNTED, '8');
+    expect(pressablesLabelled(tree, 'Reason for QA widget')).toHaveLength(1);
+  });
+
+  // Beside Close, where a destructive action belongs. It empties every field on
+  // every page, the reasons and the note -- and leaves the store and the tab
+  // where they are.
+  //
+  // MUTATION: have `clearAll` reset `locationId` too. A shop that clears a
+  // mistake is silently moved to a different branch, and the next walk counts
+  // the wrong room.
+  it('clears every field and the note, and leaves the store alone', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await act(async () => pressableWithText(tree, 'Main').props.onPress());
+    await act(async () => pressableWithText(tree, 'Branch').props.onPress());
+    await type(tree, COUNTED, '8');
+    await type(tree, 'Counted units of QA other', '4');
+    await type(tree, 'Note about this stock-take', 'aisle three');
+    expect(allText(tree)).toContain('Save 2 counts');
+
+    await act(async () => pressableLabelled(tree, 'Clear all').props.onPress());
+
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+    expect(fieldNamed(tree, 'Counted units of QA other').props.value).toBe('');
+    expect(fieldNamed(tree, 'Note about this stock-take').props.value).toBe('');
+    expect(allText(tree)).toContain('Save 0 counts');
+    // Still at Branch -- the store is not part of what was cleared.
+    expect(allText(tree)).toContain('Branch');
+  });
+
+  // `reasonOpenFor` is state separate from `entries` -- wiping the entries
+  // does not by itself close a reason panel a chip press had already opened.
+  // Left standing, it is invisible until the SAME row is counted again after
+  // Clear all, when the panel would fold open on its own rather than staying
+  // shut until pressed -- indistinguishable from the row confirming a reason
+  // nobody chose this time.
+  //
+  // MUTATION: drop `setReasonOpenFor(null)` from `clearAll`. Every other test
+  // in this file stays green, because none of them recount a row whose reason
+  // panel was left open across a Clear all.
+  it('does not leave a reason panel primed to reopen across Clear all', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Reason for QA widget').props.onPress());
+    expect(pressableLabelled(tree, 'Reason: Damaged')).toBeDefined();
+
+    await act(async () => pressableLabelled(tree, 'Clear all').props.onPress());
+    await type(tree, COUNTED, '8');
+
+    expect(pressableLabelled(tree, 'Reason: Damaged')).toBeUndefined();
+  });
+
+  // MUTATION: drop the `canClearAll` gate. A live destructive button over a
+  // walk with nothing in it is a control that can only do harm.
+  it('offers Clear all only when there is something to clear', async () => {
+    const tree = await open();
+    expect(pressableLabelled(tree, 'Clear all').props.disabled).toBe(true);
+    await type(tree, COUNTED, '8');
+    expect(pressableLabelled(tree, 'Clear all').props.disabled).toBe(false);
+  });
+
+  // It clears by-hand state. Over the sheet tab it would read as an offer to
+  // discard an uploaded plan, which it does not do.
+  //
+  // MUTATION: render Clear all unconditionally.
+  it('does not offer Clear all over the sheet tab', async () => {
+    const tree = await open();
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Clear all')).toHaveLength(0);
   });
 });
 
