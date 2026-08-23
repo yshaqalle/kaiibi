@@ -257,11 +257,14 @@
       a guess with a total on it.</p>
     </div>
     <div class="vx bad">
-      <b>Stock purchases and owner draws are filed as "expenses"</b>
-      <p>The <code>expenses.category</code> enum includes <code>inventory_purchase</code> and
-      <code>owner_draw</code>. Neither is an expense: one buys an <i>asset</i>, the other reduces
-      <i>equity</i>. The Reports tab papers over this by filtering them out of net profit — the
-      right answer arrived at the wrong way. A chart of accounts fixes it structurally.</p>
+      <b>Three things in the expense enum are not operating expenses</b>
+      <p><code>inventory_purchase</code> buys an <i>asset</i>. <code>owner_draw</code> reduces
+      <i>equity</i>. <code>NON_OPERATING_CATEGORIES</code> in <code>expense-reporting.ts</code>
+      reaches the right net profit by excluding both — the right answer arrived at the wrong way.</p>
+      <p><b>And now <code>stock_loss</code>, added by the Count door.</b> It correctly reaches the
+      P&amp;L, but as an operating expense — below gross profit. Shrinkage is the cost of goods that
+      left without selling, so gross margin should carry it. A chart of accounts fixes all three
+      structurally: 1200, 3100 and 5100 respectively.</p>
     </div>
     <div class="vx bad">
       <b>Posted records are silently editable</b>
@@ -380,7 +383,7 @@
       <tr><td>4100</td><td>Sales Returns</td><td>Contra-revenue</td><td><code>refunds</code> / <code>refund_items</code></td></tr>
       <tr><td>4200</td><td>Discounts Given</td><td>Contra-revenue</td><td><code>promotions</code> attribution on a sale</td></tr>
       <tr><td>5000</td><td>Cost of Goods Sold</td><td>Cost of sales</td><td><code>sale_items.cost_cents</code></td></tr>
-      <tr><td>5100</td><td>Inventory Shrinkage</td><td>Cost of sales</td><td><span class="tag new">new</span> stock adjustments &amp; write-offs</td></tr>
+      <tr><td>5100</td><td>Inventory Shrinkage</td><td>Cost of sales</td><td><span class="tag chg">moved</span> was <code>expenses.category='stock_loss'</code> — an operating expense until now</td></tr>
       <tr><td>6000–6900</td><td>Rent · Utilities · Wages · Marketing · Supplies · Transport · Repairs · Fees · Depreciation · Other</td><td>Expense</td><td>The nine remaining <code>expenses.category</code> values, one account each</td></tr>
     </tbody>
   </table>
@@ -411,6 +414,7 @@
       <tr><td>Fixed asset bought</td><td><span class="tag new">new</span> <code>create_fixed_asset</code></td><td>1500 Equipment</td><td>1000 Cash / 2000 Payable</td></tr>
       <tr><td>Monthly depreciation</td><td><span class="tag new">new</span> <code>run_depreciation</code></td><td>6800 Depreciation</td><td>1590 Accum. Depreciation</td></tr>
       <tr><td>Owner takes money out</td><td><span class="tag new">new</span> <code>create_bill</code> (equity)</td><td>3100 Owner's Draw</td><td>1000 Cash</td></tr>
+      <tr><td>Stock-take variance</td><td><code>save_stock_count</code></td><td>5100 Shrinkage<br><i>or</i> 1200 Inventory if found</td><td>1200 Inventory<br><i>or</i> 5100 if found</td></tr>
       <tr><td>Anything else</td><td><span class="tag new">new</span> <code>post_journal_entry</code></td><td colspan="2">Any accounts, entered by hand, must balance</td></tr>
     </tbody>
   </table>
@@ -1849,6 +1853,7 @@
     <tbody>
       <tr><td><code>inventory_cost_layers</code></td><td>product, <b>location</b>, unit cost, quantity received, quantity remaining, source and its id, received_at</td><td><code>receive_stock</code>, opening-balance migration, positive stock adjustments, customer returns</td></tr>
       <tr><td><code>inventory_cost_consumption</code></td><td>which layers a given <code>sale_item</code> drew from, and how many units at what cost</td><td><code>complete_sale</code> — and read by <code>refund_sale_items</code> to put units back at the price they left at</td></tr>
+      <tr><td colspan="3"><b>A stock-take is the fourth writer.</b> <code>save_stock_count</code> <i>sets</i> stock where <code>receive_stock</code> adds, so a count down consumes layers oldest-first exactly as a sale does, and a count up creates a layer at the frozen <code>unit_cost_cents</code>. Where that cost is null — an uncosted product — the variance is recorded with no value, because null and zero are different answers.</td></tr>
     </tbody>
   </table>
 
@@ -1970,7 +1975,7 @@
       <tr><td>Inventory Balance Summary</td><td>As of today</td><td><code>product_location_stock</code> ↔ <b>ledger</b> 1200</td><td><span class="tag new">new</span></td></tr>
       <tr><td>Inventory Valuation</td><td>As of today</td><td><code>inventory_cost_layers</code> ↔ <b>ledger</b> 1200</td><td><span class="tag new">new</span> FIFO — the cost layers land in phase 2a</td></tr>
       <tr><td>Low Stock &amp; Reorder</td><td>As of today</td><td><code>product_location_stock.reorder_level</code></td><td><span class="tag new">new</span> column already exists</td></tr>
-      <tr><td>Stock Movement Log</td><td>7 days</td><td><code>stock_transfers</code>, <code>stock_receipts</code>, <b>ledger</b> 5100</td><td><span class="tag new">new</span> adjustments need a home</td></tr>
+      <tr><td>Stock Movement Log</td><td>7 days</td><td><code>stock_transfers</code>, <code>stock_receipts</code>, <code>stock_counts</code>, <b>ledger</b> 5100</td><td><span class="tag new">new</span> all three sources now exist</td></tr>
       <tr><td>Vendor Balance Summary</td><td>As of today</td><td><code>invoices</code> ↔ <b>ledger</b> 2000</td><td><span class="tag new">new</span></td></tr>
       <tr><td>Aging Payables</td><td>As of today</td><td><code>invoices.due_on</code> ↔ <b>ledger</b> 2000</td><td><span class="tag new">new</span></td></tr>
       <tr><td>Purchase Order Report</td><td>7 days</td><td>—</td><td><span class="tag gone">no data at all</span></td></tr>

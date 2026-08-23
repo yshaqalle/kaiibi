@@ -1,6 +1,6 @@
 # Accounting and reporting on a general ledger — design
 
-**Date:** 2026-08-22
+**Date:** 2026-08-22 · **revised 2026-08-23** against `main` after PR #62 (the Count door)
 **Mockup:** [`docs/design/accounting-standards-mockup.html`](../../design/accounting-standards-mockup.html)
 
 ## The problem
@@ -19,9 +19,9 @@ Four structural gaps, all confirmed against the schema:
    migration says so outright. The shop's cash position and its transaction history are two
    independent claims that are never reconciled.
 3. **Two non-expenses are filed as expenses.** `expenses.category` includes `inventory_purchase`
-   and `owner_draw`. One buys an asset, the other reduces equity. `reports-tab.tsx` reaches the
-   right net profit by filtering them out — the right answer by the wrong route, and the reason a
-   balance sheet is currently impossible.
+   and `owner_draw`. One buys an asset, the other reduces equity. `NON_OPERATING_CATEGORIES` in
+   `src/lib/expense-reporting.ts` reaches the right net profit by excluding them — the right answer
+   by the wrong route, and the reason a balance sheet is currently impossible.
 4. **Posted records are editable.** `expenses` and `invoices` carry `updated_at`/`updated_by` and
    change in place. There is no shop-level audit trail; `platform_audit_log` is operator-side only.
 
@@ -29,7 +29,10 @@ Four structural gaps, all confirmed against the schema:
 
 | Thing | Where | Reused for |
 |---|---|---|
-| Per-line cost frozen at sale time | `sale_items.cost_cents`, `20260819000300_backfill_sale_item_costs` | COGS — the matching principle, already correct |
+| Per-line cost frozen at sale time | `sale_items.unit_cost_cents`, `20260804000000_sale_item_cost_snapshot` | COGS — the matching principle, already correct |
+| Stock-take with frozen cost and per-line reason | `stock_counts`, `stock_count_items`, `save_stock_count()`, `20260903000100` | Account 5100, Stock Movement Log, shrinkage posting |
+| Pure expense roll-ups, testable without a client | `src/lib/expense-reporting.ts` | The P&L's expense side |
+| Uncosted is null, never zero | `isUncosted()` in `src/lib/product-costing.ts` | Provisional cost layers |
 | Sales tax treated as owed, not earned | `reports-tab.tsx` tax section | Account 2100 |
 | Credit sales and settlement | `sale_balances`, `settle_sale_balance` | Account 1100, receivables reports |
 | Refunds return goods, not cash by default | `20260831000200_refund_goods_not_cash` | Refund posting, layer restoration |
@@ -88,6 +91,34 @@ deliberate and final. Without the middle state, a genuinely late bill has nowher
 **Corrections are reversing entries, never edits.** Posted journals are immutable. Voiding writes a
 mirror entry linked to the original with a stated reason. Both stay on the record.
 
+**Shrinkage moves from operating expenses to cost of sales.** *Added 2026-08-23.* The Count door
+shipped a twelfth expense category, `stock_loss`, and `save_stock_count()` writes an expense row for
+the variance — the correct single-entry answer to a real problem the migration states well: a unit
+that is stolen or breaks is never sold, so its cost never enters COGS by any path and gross profit
+reads high by exactly that amount, every month, invisibly.
+
+Under the ledger that category maps to `5100 Inventory Shrinkage`, which sits in **cost of sales,
+above gross profit** — not in operating expenses where `stock_loss` lands today. Shrinkage is the
+cost of goods that left the building without selling; gross margin should carry it, because a shop
+losing 3% of stock does not have the margin its P&L currently claims.
+
+**This is a visible presentation change:** gross profit falls, operating expenses fall by the same
+amount, net profit is unchanged. It is a presentation choice under IAS 2, not a rule — if the
+preference is to keep shrinkage in operating expenses, map 5100 into the opex group instead. One
+line either way, but it should be a decision rather than a surprise.
+
+**`save_stock_count()` becomes the fourth layer-mutating RPC.** *Added 2026-08-23.* A count **sets**
+stock (`stock = excluded.stock`) where `receive_stock` adds. Under cost layers that means a downward
+variance consumes layers oldest-first exactly as a sale does, and an upward variance creates a layer
+at the frozen `unit_cost_cents`. It needs the same `FOR UPDATE` ordering as `complete_sale`, and it
+was not in the original scope because the door did not exist when this was written.
+
+**Refund reasons follow the Count door's shape, but are required.** *Revised 2026-08-23.*
+`stock_count_items.reason` set the pattern: a closed enum, checked at the table. Refunds copy the
+enum style but make it **required**, where counts deliberately made it optional. The count
+migration's reasoning — "requiring a reason on every one of sixteen variances is how a 300-line
+stock-take stops getting done" — turns on there being sixteen of them. A refund has one.
+
 **`expenses` and `invoices` survive as source documents.** They hold the receipt, vendor, note and
 paperwork; the ledger holds the accounting. Each gains `journal_entry_id`. The
 `sync_invoice_expense` trigger — which mirrored invoices into expenses — is removed, because the
@@ -136,7 +167,7 @@ Retrofitting batches into layers afterwards means touching `complete_sale` a sec
 |---|---|
 | Ledger | `accounts`, `journal_entries`, `journal_lines`, `accounting_periods`, `accounting_audit_log`; balanced-entry constraint; seeded chart of accounts |
 | Valuation | `inventory_cost_layers`, `inventory_cost_consumption`; per-shop basis setting; opening-balance migration |
-| Posting | `complete_sale`, `refund_sale_items`, `settle_sale_balance`, `receive_stock`, `record_invoice_payment`, `post_payroll_run` each gain a posting side; historical backfill |
+| Posting | `complete_sale`, `refund_sale_items`, `settle_sale_balance`, `receive_stock`, `record_invoice_payment`, `post_payroll_run`, **`save_stock_count`** each gain a posting side; historical backfill |
 | New RPCs | `post_journal_entry`, `reverse_journal_entry`, `create_bill`, `transfer_funds`, `create_fixed_asset`, `dispose_fixed_asset`, `run_depreciation`, `close_accounting_period`, plus report functions |
 | Assets | `fixed_assets` register, straight-line depreciation posting monthly |
 | Screens | Accounting hub (10 destinations), Reports hub (22 of 23 cards — Purchase Orders removed) |
@@ -158,9 +189,11 @@ Retrofitting batches into layers afterwards means touching `complete_sale` a sec
 ### Chart of accounts
 
 Seeded per shop by extending `seed_shop_defaults`. Full listing in the mockup. The structural point:
-the eleven-value `expenses.category` enum becomes **nine expense accounts plus two accounts that
-were never expenses** — `inventory_purchase` posts to `1200 Inventory`, `owner_draw` to
-`3100 Owner's Draw` (contra-equity). That single move is what makes a balance sheet possible.
+the **twelve**-value `expenses.category` enum becomes **nine expense accounts plus three accounts
+that were never operating expenses** — `inventory_purchase` posts to `1200 Inventory`, `owner_draw`
+to `3100 Owner's Draw` (contra-equity), and `stock_loss` to `5100 Inventory Shrinkage` (cost of
+sales). That is what makes a balance sheet possible, and it turns `NON_OPERATING_CATEGORIES` from a
+filter into a consequence of where each account sits.
 
 ### Posting map
 
@@ -178,6 +211,20 @@ Three, following `has_shop_permission`:
 
 Staff who can already record a sale need no new grant. The ledger posts underneath them.
 
+**Two constraints the Count door's permission split makes explicit** (`20260903000000`), and which
+this migration must follow:
+
+1. Any migration granting a permission to a default role must **also update
+   `default_shop_roles()`**, not only run an `update public.roles`. The update reaches shops that
+   exist; the function reaches shops created tomorrow. Miss it and "Manager" means two different
+   things either side of the migration date.
+2. The backfill must be guarded (`not permissions && array[...]`) so re-running is a no-op and a
+   customised role is not overwritten.
+
+Unlike `inventory.count` / `inventory.transfer`, these do **not** default on for existing
+permission-holders — nobody holds a ledger permission today, and `ledger.post` is exactly the grant
+that should be made deliberately rather than inherited.
+
 ## Build order
 
 Five phases. Each ships something usable and leaves the app working.
@@ -185,8 +232,8 @@ Five phases. Each ships something usable and leaves the app working.
 | Phase | Ships | Outcome |
 |---|---|---|
 | **1 · Foundations** | Ledger tables, RLS, balanced-entry constraint, seeded chart of accounts, `post_journal_entry`, audit log | Chart of Accounts, General Journal Entry, Journals List, Audit Log, Trial Balance — manual entries only |
-| **2a · Cost layers** | `inventory_cost_layers`, `inventory_cost_consumption`, opening-balance migration, basis setting, concurrency work in `complete_sale` | Inventory Valuation on either basis. COGS becomes the number the ledger will post |
-| **2b · Auto-posting** | Posting side on six RPCs, historical backfill | Trial balance reflects real trading. Cash becomes derived |
+| **2a · Cost layers** | `inventory_cost_layers`, `inventory_cost_consumption`, opening-balance migration, basis setting, concurrency work in `complete_sale` **and `save_stock_count`** | Inventory Valuation on either basis. COGS becomes the number the ledger will post |
+| **2b · Auto-posting** | Posting side on seven RPCs, historical backfill | Trial balance reflects real trading. Cash becomes derived |
 | **3 · Statements** | Balance sheet, cash flow, income statement, period close, retained earnings, Create Bill, transfers, fixed assets, depreciation | Accounting hub complete; the three statements tie to each other |
 | **4 · Reports** | The remaining 16 reports. Sales and inventory groups first — they need no ledger and unblock the most people | Every requested report except Purchase Orders |
 | **5 · Small gaps** | `refunds.reason`, `tax_filings` | Discounts & Refunds and Sales Tax Liability become complete |
@@ -207,6 +254,13 @@ there is then no cost to record, and silently using zero overstates profit on ex
 nobody watches. Fix: consume what exists, create a flagged provisional layer at last known cost for
 the shortfall, true it up when stock arrives, difference posts to 5100. Inventory Valuation shows
 how much of the value is provisional.
+
+**A count sets, it does not add.** *Added 2026-08-23.* `save_stock_count` writes
+`stock = excluded.stock`, so under layers a downward variance has to consume oldest-first like a
+sale and an upward one has to create a layer at the frozen `unit_cost_cents`. Where that cost is
+**null** — an uncosted product — there is no value to move, and the count must record the variance
+without inventing one, matching `isUncosted()`'s posture that null and zero are different answers.
+The Count sheet already surfaces "9 with no reason"; uncosted lines need the same treatment.
 
 **The backfill has to tie.** Phase 2b replays every existing sale, refund, bill, payment, pay run and
 stock receipt into journal entries, then posts one opening-balance entry per shop. It needs a
