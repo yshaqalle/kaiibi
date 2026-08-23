@@ -1,5 +1,5 @@
 import { act, create, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
-import { StyleSheet, Text } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 
 import { StockCountModal } from '@/components/stock-count-modal';
 import { parseCsvText, rowsToCsv } from '@/lib/csv';
@@ -131,6 +131,31 @@ function allText(tree: ReactTestRenderer): string {
     .findAllByType(Text)
     .map((node) => textFrom(node))
     .join(' | ');
+}
+
+// Finding 4: `allText(tree).toContain(...)` is POSITION-BLIND -- it stays
+// green whether a node renders in the footer beside the button it explains,
+// or is buried at the foot of the body ScrollView with the rest of a
+// 240-product catalogue on top of it, off screen. These two walk the actual
+// tree to answer the question `allText` cannot.
+
+// The one ScrollView in this component that sets `keyboardShouldPersistTaps`
+// -- nothing else does, including the confirmation's own scrolling
+// change-list and the category chip row -- so this finds specifically the
+// body ScrollView the catalogue renders inside.
+function bodyScrollView(tree: ReactTestRenderer): ReactTestInstance {
+  return tree.root.findAll(
+    (n) => n.type === ScrollView && n.props.keyboardShouldPersistTaps === 'handled'
+  )[0];
+}
+
+function isDescendantOf(node: ReactTestInstance, ancestor: ReactTestInstance): boolean {
+  let current: ReactTestInstance | null = node.parent;
+  while (current) {
+    if (current === ancestor) return true;
+    current = current.parent;
+  }
+  return false;
 }
 
 // One character at a time, through the component's own handler.
@@ -1794,5 +1819,304 @@ describe('the confirmation', () => {
     await act(async () => pressableWithText(tree, 'Close').props.onPress());
     expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
     expect(fieldNamed(tree, COUNTED).props.value).toBe('');
+  });
+
+  // Review finding 1. The confirmation replaces the footer but does not stand
+  // the list down -- every row's × stays live behind it. Clearing the one row
+  // this panel was about must not leave a live-looking "Yes, record the
+  // count" that commits nothing when pressed: byte-identical to the
+  // legitimate all-matched state, which DOES commit.
+  //
+  // MUTATION: drop `nothingPlanned` from the confirm button's `disabled` (and
+  // style) in CountConfirm, leaving it gated on `busy` alone. The button
+  // stays enabled and this test's `.disabled).toBe(true)` assertion goes red
+  // -- this is the reviewer's Repro A, proven.
+  it('disables the confirm button and explains why, when the only counted row is cleared while the panel is open', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('1 product will change');
+
+    await act(async () => pressableLabelled(tree, 'Clear QA widget').props.onPress());
+
+    // Distinct wording from the legitimate "Nothing will change" (an
+    // all-matched walk that DOES commit) -- the two must never read alike.
+    expect(allText(tree)).toContain('Nothing to confirm');
+    // The footer's own hint, reachable here instead of nowhere: the footer it
+    // would render in is exactly what this panel has replaced.
+    expect(allText(tree)).toContain('Nothing counted yet');
+    expect(pressableLabelled(tree, 'Confirm and save the count').props.disabled).toBe(true);
+    await act(async () => pressableLabelled(tree, 'Confirm and save the count').props.onPress());
+    expect(saveStockCount).not.toHaveBeenCalled();
+  });
+
+  // Repro B: a DIFFERENT row turning unreadable also empties `plannedLines`
+  // for the WHOLE walk (see count-walk.ts's global guard), so the panel goes
+  // the same way even though the row it was actually about (QA widget, still
+  // showing a live −3 above the panel) never changed.
+  //
+  // MUTATION: pass `typedCount={0}` / `unreadable={0}` at the CountConfirm
+  // call site instead of the live `typed.length` / `unreadable`. `countHint`
+  // then always reads "Nothing counted yet" regardless of what actually
+  // blocked the plan, and this test's hint assertion goes red.
+  it('shows the unreadable-line hint inside the panel, when a different row breaks the plan while it is open', async () => {
+    const tree = await open([
+      product({}),
+      product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 }),
+    ]);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).toContain('1 product will change');
+
+    await type(tree, 'Counted units of QA other', 'abc');
+
+    expect(allText(tree)).toContain('Nothing to confirm');
+    expect(allText(tree)).toContain('One line is not a whole number — just the digits');
+    expect(pressableLabelled(tree, 'Confirm and save the count').props.disabled).toBe(true);
+  });
+
+  // Review finding 2. `confirming` used to survive a tab switch: `By hand` ->
+  // Save counts -> `By sheet` -> `By hand` restored a panel the person walked
+  // away from. `Go back` is the documented exit from a confirmation; the tab
+  // control must not become an undocumented second one.
+  //
+  // MUTATION: revert the segment's `onPress` to `() => setTab(option)`
+  // (dropping `changeTab`, which also resets `confirming`). The panel
+  // reappears and this goes red.
+  it('does not restore a confirmation the person walked away from by switching tabs and back', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(pressableLabelled(tree, 'Confirm and save the count')).toBeDefined();
+
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'By hand').props.onPress());
+
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+    // The walk itself survives -- only the confirmation does not.
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('8');
+  });
+
+  // The realistic full journey the finding itself describes: by hand, Save
+  // counts, `By sheet`, upload. Pins the OUTCOME -- no stale confirmation
+  // survives it -- on top of the narrower test above.
+  //
+  // NEITHER fix bites HERE on its own -- verified by mutating each alone and
+  // finding this test stays green both times. Reaching `Upload a filled
+  // sheet` requires pressing `By sheet` first, so the segment's own fix
+  // already clears `confirming` before this handover runs; and `uploadSheet`'s
+  // OWN `changeTab('hand')` clears it again on the way back regardless of
+  // what the segment did on the way out. Each is independently sufficient for
+  // this journey, which is why the two together mask each other from it. Only
+  // reverting BOTH (segment `onPress` back to `setTab`, AND `uploadSheet`'s
+  // handover back to `setTab('hand')`) turns this test red.
+  //
+  // The segment's fix is still independently proven -- by the narrower test
+  // above, which never uploads anything and so cannot reach `uploadSheet`'s
+  // fix at all. `uploadSheet`'s own line has no test that isolates it alone;
+  // it is defensive against a future second path to this handover that skips
+  // the segment, and its source comment says so. See the report for the full
+  // mutation matrix (each alone: green; both together: red).
+  it('does not land a sheet-upload handover directly on a stale confirmation', async () => {
+    const tree = await open([product({})]);
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(pressableLabelled(tree, 'Confirm and save the count')).toBeDefined();
+
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA widget', Counted: '9' }]));
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    // Landed back on `By hand` holding the sheet's own numbers...
+    expect(fieldNamed(tree, COUNTED).props.value).toBe('9');
+    // ...but not one tap from committing them.
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+  });
+
+  // Review finding 3. The error and success Text nodes are siblings in the
+  // same footer slot, and `submit` used to clear only `error`. A refused save
+  // rendered its error DIRECTLY BENEATH a stale success banner from an
+  // earlier one -- reachable because the sheet-upload handover refills
+  // `entries` through `updateEntries` directly, bypassing `setCounted`, the
+  // only thing that otherwise clears `success`.
+  //
+  // MUTATION: drop `setSuccess(null)` from `askToSave`. The middle assertion
+  // (checked the moment Save counts is pressed, before any new attempt can
+  // resolve) goes red -- proven separately from the final state, since
+  // `submit`'s own clear cannot run until AFTER `askToSave` already has.
+  it('does not render a refused save beneath a stale success banner from an earlier one', async () => {
+    const tree = await open([product({})]);
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('1 product changed at Main');
+
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA widget', Counted: '9' }]));
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    // Landed back on `By hand` with the earlier banner still standing -- the
+    // handover bypassed `setCounted`, so nothing has cleared it yet.
+    expect(allText(tree)).toContain('1 product changed at Main');
+
+    saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    // Pressing Save counts alone -- before the new attempt can succeed or
+    // fail -- is already "a new attempt starting", and must drop a banner
+    // describing a walk that is over.
+    expect(allText(tree)).not.toContain('changed at Main');
+
+    await act(async () => pressableLabelled(tree, 'Confirm and save the count').props.onPress());
+    expect(allText(tree)).toContain('not authorized');
+    expect(allText(tree)).not.toContain('changed at Main');
+  });
+
+  // Review finding 7 (first half). `askToSave`'s own `setError(null)` was
+  // unpinned -- without it, an error from an earlier refused save would still
+  // be on screen underneath a fresh confirmation for a NEW attempt.
+  //
+  // MUTATION: drop `setError(null)` from `askToSave`. The error from the
+  // first attempt is still on screen after the second Save counts press, and
+  // this goes red.
+  it('clears a previous error the moment Save counts is pressed again', async () => {
+    saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await saveByHand(tree);
+    expect(allText(tree)).toContain('not authorized');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(allText(tree)).not.toContain('not authorized');
+  });
+
+  // Review finding 7 (second half). The store guard's `setConfirming(false)`
+  // (the `storeChanged` branch of the reload effect) was unpinned. It matters
+  // because it is another route into finding 1's territory: a store switch
+  // clears `entries` (so `handLines` empties, and the button correctly goes
+  // dead per the fix above) but nothing else in this codebase closes the
+  // PANEL itself -- left open, it would sit there under the new store's name
+  // showing stale content nobody asked to reconsider for THIS store.
+  //
+  // MUTATION: drop `setConfirming(false)` from the `storeChanged` branch of
+  // the reload effect. The panel (with its now-disabled button) stays open
+  // after the switch, and this test's zero-length assertion goes red -- it
+  // checks the button is ABSENT, not merely disabled, so finding 1's own fix
+  // (which only ever disables it, never removes it) cannot mask this.
+  it('stands the confirmation down when the store changes while it is open', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId: string) =>
+      locationId === 'loc-2' ? [product({ stock: 3 })] : [product({ stock: 11 })]
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(pressableLabelled(tree, 'Confirm and save the count')).toBeDefined();
+
+    await act(async () => pressableWithText(tree, 'Main').props.onPress());
+    await act(async () => pressableWithText(tree, 'Branch').props.onPress());
+
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Confirm and save the count')).toHaveLength(0);
+  });
+});
+
+// Recommended, not one of the seven numbered findings: two `onPress`es
+// landing in the same event turn (a double-tap, or two fingers) both read
+// `canSubmit` / `canCommitPlan` off the SAME stale render closure, since
+// React has not yet applied `busy: true` when the second one fires -- the
+// guard at the top of each function is not enough to stop it on its own.
+// Pre-existing on this door (and on the shipped Restock sibling, which this
+// change does not touch), but a `ref` closes the gap cheaply on a write with
+// no undo.
+describe('two presses in one event turn', () => {
+  // MUTATION: drop `submittingRef` from `submit` (revert to the `canSubmit`
+  // check alone). `saveStockCount` is called twice and this goes red.
+  it('does not send two writes when the by-hand confirm button is pressed twice in the same turn', async () => {
+    const tree = await open();
+    await type(tree, COUNTED, '8');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    const confirmButton = pressableLabelled(tree, 'Confirm and save the count');
+    await act(async () => {
+      confirmButton.props.onPress();
+      confirmButton.props.onPress();
+    });
+    expect(saveStockCount).toHaveBeenCalledTimes(1);
+  });
+
+  // The sheet tab's own commit, same shape: `commitPlan` reads `canCommitPlan`
+  // from the same stale closure.
+  //
+  // MUTATION: drop `committingPlanRef` from `commitPlan`. Two stores' worth of
+  // lines are sent twice each and this goes red.
+  it('does not send two writes when the sheet tab commit button is pressed twice in the same turn', async () => {
+    pickCsvFile.mockResolvedValue(
+      uploaded([
+        { Product: 'QA widget', Store: 'Main', Counted: '8' },
+        { Product: 'QA other', Store: 'Branch', Counted: '9' },
+      ])
+    );
+    listProducts.mockImplementation(async (_shopId: string, locationId?: string) => {
+      if (locationId === 'loc-2') return [product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+      if (locationId === 'loc-1') return [product({})];
+      return [product({}), product({ id: 'p-2', name: 'QA other', sku: 'QA-2', stock: 5 })];
+    });
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    const saveButton = pressableLabelled(tree, 'Save counts');
+    await act(async () => {
+      saveButton.props.onPress();
+      saveButton.props.onPress();
+    });
+    expect(saveStockCount).toHaveBeenCalledTimes(2);
+  });
+});
+
+// Review finding 4, test hygiene. Commit 9f546a3 moved the error and success
+// Text nodes out of the body ScrollView and into `footerWrap`, because on a
+// 119-product shop they rendered below every row, off screen -- a save the
+// server refused looked like a save that had done nothing. THE PRODUCT OWNER
+// found that, not the suite: every assertion in this file was (and mostly
+// still is) `allText(tree).toContain(...)`, which is position-blind and
+// cannot tell "on screen" from "off screen at the bottom of a 240-row list".
+// Moving the nodes back leaves 100/100 green; moving the WHOLE `CountConfirm`
+// panel into the same ScrollView -- which nothing shipped ever did, but
+// nothing pinned either -- also leaves 100/100 green. These three assert
+// REACHABILITY instead: that the node is not a descendant of the body
+// ScrollView, using `bodyScrollView` / `isDescendantOf` (defined near the top
+// of this file) to walk the actual tree rather than search rendered text.
+describe('what renders inside the footer, not just the body list', () => {
+  it('keeps the error from a refused save out of the body ScrollView, reachable on a long catalogue', async () => {
+    saveStockCount.mockRejectedValueOnce(new Error('not authorized for shop shop-1'));
+    const tree = await open(catalogueOf(240));
+    await type(tree, 'Counted units of QA 000', '8');
+    await saveByHand(tree);
+
+    const errorNode = tree.root.findAll((n) => n.type === Text && textFrom(n).includes('not authorized'))[0];
+    expect(errorNode).toBeDefined();
+    expect(isDescendantOf(errorNode, bodyScrollView(tree))).toBe(false);
+  });
+
+  it('keeps the success banner out of the body ScrollView, reachable on a long catalogue', async () => {
+    const tree = await open(catalogueOf(240));
+    await type(tree, 'Counted units of QA 000', '4');
+    await saveByHand(tree);
+
+    const successNode = tree.root.findAll((n) => n.type === Text && textFrom(n).includes('changed at Main'))[0];
+    expect(successNode).toBeDefined();
+    expect(isDescendantOf(successNode, bodyScrollView(tree))).toBe(false);
+  });
+
+  it('keeps the confirmation panel out of the body ScrollView, reachable on a long catalogue', async () => {
+    const tree = await open(catalogueOf(240));
+    await type(tree, 'Counted units of QA 000', '4');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+
+    const confirmButton = pressableLabelled(tree, 'Confirm and save the count');
+    expect(confirmButton).toBeDefined();
+    expect(isDescendantOf(confirmButton, bodyScrollView(tree))).toBe(false);
   });
 });

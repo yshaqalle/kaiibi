@@ -238,6 +238,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     onClose();
   }, [onClose, updateEntries]);
 
+  // Switches the tab AND drops a confirmation left open on the way out. `By
+  // hand` -> Save counts -> `By sheet` -> `By hand` must not restore a panel
+  // the person walked away from -- `Go back` is the documented exit from a
+  // confirmation, and the tab control must not become an undocumented second
+  // one. This is also what the sheet-upload handover uses to land back on
+  // `hand`: a single-store upload refills `entries` with numbers nobody has
+  // reviewed yet, and those must never appear pre-confirmed either.
+  const changeTab = useCallback((next: Tab) => {
+    setTab(next);
+    setConfirming(false);
+  }, []);
+
   // Stores the keystrokes and nothing else. Rewriting text inside onChangeText
   // on a controlled input cannot work: the rewritten string is what the NEXT
   // keystroke is appended to, so a number is reinterpreted before it has
@@ -385,13 +397,41 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const askToSave = () => {
     if (!canSubmit) return;
     setError(null);
+    // A success banner describes a walk that is already over -- the same
+    // reason `setCounted` clears it on the first keystroke of a new one.
+    // Opening a fresh confirmation is that same "a new attempt is starting"
+    // moment, and it can be reached WITHOUT a keystroke: the sheet-upload
+    // handover refills `entries` directly, bypassing `setCounted` entirely,
+    // so a stale success from an earlier by-hand save would otherwise still
+    // be standing when this confirmation opens.
+    setSuccess(null);
     setConfirming(true);
   };
 
+  // Two `onPress`es landing in the same event turn (a double-tap, or two
+  // fingers) both read `canSubmit` off the SAME render's closure, since React
+  // has not yet re-rendered with `busy: true` when the second one fires -- so
+  // the guard at the top of `submit` alone does not stop it. A `ref` closes
+  // that gap because it is written synchronously, immediately, and shared by
+  // both calls, where `busy` state is not: pre-existing on this door (and on
+  // the shipped Restock sibling), but cheap to close on a write with no undo.
+  const submittingRef = useRef(false);
+
   const submit = async () => {
     if (!canSubmit || !locationId) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true);
     setError(null);
+    // Redundant with `askToSave`'s own clear TODAY -- `onConfirm={submit}` is
+    // this function's only caller, and it only renders once `askToSave` has
+    // already set `confirming` true, which is the same press that already
+    // cleared `success`. Kept anyway: `submit` is the one function that
+    // actually SETS `success`, so it is the one place a refused write can
+    // never render its error underneath a banner naming a different, earlier
+    // walk, even if a future change gives this function a second caller that
+    // does not go through `askToSave` first.
+    setSuccess(null);
     // ONLY the write is inside the try, and the try ends the moment it
     // resolves. Everything after this point runs against a count that has
     // already committed, so nothing after it may reach a catch that leaves the
@@ -427,6 +467,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // committed a delivery twice.
       setConfirming(false);
       setBusy(false);
+      submittingRef.current = false;
       return;
     }
 
@@ -464,6 +505,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // button still on screen cannot count the same shelf again.
       setError(`The count was saved, but the stock loss was not logged: ${expenseProblem}`);
       setBusy(false);
+      submittingRef.current = false;
       return;
     }
 
@@ -479,6 +521,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     const changed = handLines.filter((line) => line.variance !== 0).length;
     setSuccess(saveSuccessText(changed, storeName));
     setBusy(false);
+    submittingRef.current = false;
   };
 
   // --- the sheet tab ------------------------------------------------------
@@ -628,7 +671,18 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       setSheetNotice(
         `${picked.fileName} — ${count.lines.length} line${count.lines.length === 1 ? '' : 's'} ready. Change anything before saving.`
       );
-      setTab('hand');
+      // changeTab, not setTab: this handover fills `entries` with numbers
+      // fresh off the sheet, never reviewed by a person, and a `confirming`
+      // left over from an EARLIER by-hand walk must not survive to offer them
+      // up pre-confirmed. Redundant with the segment control's OWN
+      // `changeTab` today -- reaching this line at all requires having
+      // switched to `sheet` through it first, which already cleared
+      // `confirming`, and nothing on the sheet tab can set it true again
+      // (`askToSave` is the only setter, and its button renders on `hand`
+      // only). Kept anyway, for the same reason `submit`'s own `setSuccess
+      // (null)` is: a future path to this handover that skips the segment
+      // must not reopen this gap.
+      changeTab('hand');
     }
   };
 
@@ -640,11 +694,17 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // Compiler's manual-memoization check the first time this was written.
   const planSummary = useMemo(() => summariseCount(plan ? planLines(plan) : []), [plan]);
 
+  // Same reasoning as `submittingRef` above `submit`: two presses in one
+  // event turn both read `canCommitPlan` off the same stale render.
+  const committingPlanRef = useRef(false);
+
   // One save_stock_count call per store. A store that fails fails whole and is
   // named; the others still go through, because rolling back good work for a
   // problem the shop can fix by re-uploading one section helps nobody.
   const commitPlan = async () => {
     if (!plan || plan.counts.length === 0) return;
+    if (committingPlanRef.current) return;
+    committingPlanRef.current = true;
     setBusy(true);
     setError(null);
     const failures: string[] = [];
@@ -709,6 +769,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     );
     await onDone().catch(() => {});
     setBusy(false);
+    committingPlanRef.current = false;
     if (failures.length > 0 || expenseProblems.length > 0) {
       // An expense problem alone lands here too -- the numbers are in, so the
       // plan is spent either way, and the sentence says which store's stock
@@ -767,7 +828,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
             {(['hand', 'sheet'] as const).map((option) => (
               <Pressable
                 key={option}
-                onPress={() => setTab(option)}
+                onPress={() => changeTab(option)}
                 accessibilityState={{ selected: tab === option }}
                 style={[styles.segmentItem, tab === option && styles.segmentItemActive]}
               >
@@ -971,6 +1032,8 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                 summary={handSummary}
                 untouched={catalogue.length - handSummary.counted}
                 expenseCents={handExpenseCents}
+                typedCount={typed.length}
+                unreadable={unreadable}
                 busy={busy}
                 onBack={() => setConfirming(false)}
                 onConfirm={submit}
@@ -1299,6 +1362,8 @@ function CountConfirm({
   summary,
   untouched,
   expenseCents,
+  typedCount,
+  unreadable,
   busy,
   onBack,
   onConfirm,
@@ -1308,23 +1373,48 @@ function CountConfirm({
   summary: CountSummary;
   untouched: number;
   expenseCents: number | null;
+  // Neither is derivable from `lines` -- an unreadable row never reaches it
+  // (plannedLines returns `[]` for the WHOLE walk the moment any row is
+  // unreadable) and a blank one was never in it. Both exist so this panel can
+  // say WHY it has nothing to commit, rather than going quiet the way the
+  // footer's own hint would if this panel simply covered it up.
+  typedCount: number;
+  unreadable: number;
   busy: boolean;
   onBack: () => void;
   onConfirm: () => void;
 }) {
   const changing = lines.filter((line) => line.variance !== 0);
   const matched = lines.filter((line) => line.variance === 0);
+  // `lines` IS `handLines` -- empty both when nothing has been counted and
+  // when ANY row (not necessarily one shown here) is unreadable. Either way
+  // there is nothing for `onConfirm` to commit: `submit` itself already
+  // refuses on `!canSubmit`, which this panel's button must now agree with,
+  // never merely on `busy`. Without this a person can clear the one row this
+  // panel was about (the × is still live behind it) or make some OTHER row
+  // unreadable while it is open, and face a button reading "Yes, record the
+  // count" that is byte-identical to the one that does commit, silently
+  // pressing nothing.
+  const nothingPlanned = lines.length === 0;
   return (
     <View style={styles.confirm}>
       <Text style={styles.confirmTitle}>
-        {changing.length === 0
-          ? 'Nothing will change'
-          : `${changing.length} product${changing.length === 1 ? '' : 's'} will change`}
+        {nothingPlanned
+          ? 'Nothing to confirm'
+          : changing.length === 0
+            ? 'Nothing will change'
+            : `${changing.length} product${changing.length === 1 ? '' : 's'} will change`}
       </Text>
       <Text style={styles.confirmWhere}>
-        {`At ${storeName} · ${summary.counted} counted${
-          matched.length > 0 ? `, ${matched.length} already matched` : ''
-        }`}
+        {nothingPlanned
+          ? // The footer's own hint, reused rather than covered up: it already
+            // says correctly why nothing is plannable -- nothing typed at all,
+            // or which line(s) do not read -- and this is now the only place
+            // on screen that sentence can be read while the panel is up.
+            countHint(typedCount, unreadable, summary)
+          : `At ${storeName} · ${summary.counted} counted${
+              matched.length > 0 ? `, ${matched.length} already matched` : ''
+            }`}
       </Text>
 
       {/* Scrolls rather than truncates. The whole point of a confirmation is
@@ -1389,8 +1479,8 @@ function CountConfirm({
         </Pressable>
         <Pressable
           onPress={onConfirm}
-          disabled={busy}
-          style={[styles.primary, busy && styles.disabled]}
+          disabled={busy || nothingPlanned}
+          style={[styles.primary, (busy || nothingPlanned) && styles.disabled]}
           accessibilityRole="button"
           accessibilityLabel="Confirm and save the count"
         >
