@@ -1,4 +1,4 @@
-import { readTypedCost, readTypedQuantity } from '@/lib/restock-typed-input';
+import { readCountedQuantity, readTypedCost, readTypedQuantity } from '@/lib/restock-typed-input';
 
 // This module is pure and only ever sees a finished string, so that is how it
 // is tested here -- an earlier version of this file passed each case through a
@@ -200,5 +200,44 @@ describe('readTypedQuantity', () => {
     expect(readTypedQuantity('2147483647')).toBe(2147483647);
     expect(readTypedQuantity('2147483648')).toBeNull();
     expect(readTypedQuantity('999999999999')).toBeNull();
+  });
+});
+
+// Zero is the one difference between the two readers, and it is not a detail.
+//
+// readTypedQuantity refuses 0 because a delivery of nothing is a mistake in a
+// sheet, not a no-op. A COUNT of zero is the opposite: an empty shelf is one of
+// the most important findings a stock-take makes, and refusing it would mean
+// the door could record every loss except a total one.
+//
+// Everything else -- the digits-only rule, the Postgres integer ceiling, the
+// refusal of a minus sign -- is shared, deliberately, so the two entry routes
+// cannot drift the way the cost readers did.
+describe('readCountedQuantity', () => {
+  it('accepts an empty shelf where readTypedQuantity will not', () => {
+    expect(readCountedQuantity('0')).toBe(0);
+    expect(readTypedQuantity('0')).toBeNull();
+  });
+
+  it('reads an ordinary count', () => {
+    expect(readCountedQuantity('8')).toBe(8);
+    expect(readCountedQuantity(' 26 ')).toBe(26);
+  });
+
+  it('refuses everything readTypedQuantity refuses, for the same reasons', () => {
+    expect(readCountedQuantity('')).toBeNull();
+    expect(readCountedQuantity('   ')).toBeNull();
+    expect(readCountedQuantity('-3')).toBeNull();
+    expect(readCountedQuantity('2a')).toBeNull();
+    expect(readCountedQuantity('2.5')).toBeNull();
+    expect(readCountedQuantity('1e3')).toBeNull();
+  });
+
+  // stock_count_items.counted_quantity is a Postgres `integer`. A pasted cell
+  // past it has to be caught here, while nothing has been written, rather than
+  // inside the RPC halfway through a commit.
+  it('refuses more units than the column can hold', () => {
+    expect(readCountedQuantity('2147483647')).toBe(2147483647);
+    expect(readCountedQuantity('2147483648')).toBeNull();
   });
 });

@@ -120,6 +120,14 @@ export function StockRestockModal({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What commitPlan's own success said, the one time a fully successful sheet
+  // commit still has rejected rows on screen (see commitPlan's own tail). The
+  // by-hand tab has no equivalent state to set it: `submit` still closes the
+  // sheet on its own success, because the by-hand basket has no such thing as
+  // a "rejected row" to stay open for. Cleared by `commitPlan` and `submit`
+  // the moment either starts a fresh write, and by `closeAndReset` for the
+  // same reason `error` is.
+  const [success, setSuccess] = useState<string | null>(null);
   // Unticked, and it starts unticked again on every open (closeAndReset below).
   //
   // A shop that types its supplier invoices into Accounting separately would
@@ -156,14 +164,21 @@ export function StockRestockModal({
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([]);
   const [plan, setPlan] = useState<RestockPlan | null>(null);
   const [sheetNotice, setSheetNotice] = useState<string | null>(null);
-  // Set only by a commitPlan that partially failed, and read only by the
-  // footer. commitPlan empties plan.receipts on ANY failure so a re-press
-  // cannot repeat a store that already went through (see commitPlan) -- but
-  // that same clearing is what let the footer claim "nothing has changed
-  // yet" directly under an error naming the store that just changed. This
+  // Set by a commitPlan that did not reach closeAndReset -- either because a
+  // store failed (`failed: true`) or because every store went through but
+  // rejected rows are still on screen (`failed: false`; see commitPlan's own
+  // tail). Read only by the footer. commitPlan empties plan.receipts on
+  // EITHER exit so a re-press cannot repeat a store that already went
+  // through (see commitPlan) -- but that same clearing is what let the
+  // footer claim "nothing has changed yet" directly under an error naming
+  // the store that just changed, and is why `failed` exists: without it, a
+  // fully successful commit with rejects left behind would read the same
+  // "before the failure above" sentence written for an actual one. This
   // remembers what actually went through, for display only; it plays no part
   // in the retry-safety logic below.
-  const [partialReceipt, setPartialReceipt] = useState<{ units: number; stores: number } | null>(null);
+  const [partialReceipt, setPartialReceipt] = useState<
+    { units: number; stores: number; failed: boolean } | null
+  >(null);
 
   // Scoped to the receiving store so each row can say what is already there --
   // "Has 3 here" is the number that decides whether 24 is right. Unlike Move,
@@ -242,6 +257,7 @@ export function StockRestockModal({
     setSearch('');
     setCategory(null);
     setError(null);
+    setSuccess(null);
     setPlan(null);
     setSheetFile(null);
     setSheetHeaders([]);
@@ -477,6 +493,11 @@ export function StockRestockModal({
     }
     setBusy(true);
     setError(null);
+    // A fresh by-hand attempt is a fresh attempt: a success banner left over
+    // from an earlier sheet-tab commit (see `commitPlan`) must not go on
+    // describing that one while this write is in flight, or sit there
+    // unexplained beside an error this attempt is about to raise.
+    setSuccess(null);
     // ONLY the write is inside the try, and the try ends the moment it resolves.
     //
     // Everything after this point runs against a delivery that has already
@@ -685,6 +706,9 @@ export function StockRestockModal({
     if (!plan || plan.receipts.length === 0) return;
     setBusy(true);
     setError(null);
+    // A fresh commit is a fresh attempt -- see `submit`'s own identical clear
+    // for why.
+    setSuccess(null);
     const failures: string[] = [];
     // Kept apart from `failures`, which heads its error with "Some of the
     // delivery did not go through". A logged-expense failure is the opposite
@@ -738,12 +762,18 @@ export function StockRestockModal({
     // whole plan on screen with a live Receive button that would have repeated
     // every store that already went through.
     setPlan({ ...plan, receipts: [] });
+    const failed = failures.length > 0 || expenseProblems.length > 0;
     // What actually went through, for the footer -- which otherwise has nothing
     // left to read "nothing has changed yet" against, receipts being empty on
-    // purpose. Cleared again by closeAndReset on the all-succeeded path.
+    // purpose. Cleared again by closeAndReset on the all-succeeded, all-accepted
+    // path.
     setPartialReceipt(
       succeeded.length > 0
-        ? { units: succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0), stores: succeeded.length }
+        ? {
+            units: succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0),
+            stores: succeeded.length,
+            failed,
+          }
         : null
     );
     // Swallowed on purpose, exactly as in `submit` above: the caller's list
@@ -751,7 +781,7 @@ export function StockRestockModal({
     // as one.
     await onDone().catch(() => {});
     setBusy(false);
-    if (failures.length > 0 || expenseProblems.length > 0) {
+    if (failed) {
       // An expense problem alone lands here too -- the stock is in, so the plan
       // is spent either way and the sentence says which store's expense is left
       // to add by hand.
@@ -765,6 +795,17 @@ export function StockRestockModal({
           .filter(Boolean)
           .join('\n\n')
       );
+      return;
+    }
+    // Every store received. `plan.rejected` is untouched by the loop above --
+    // it is planRestock's own reading of the upload -- so a sheet that carried
+    // both good rows and bad ones still has its bad ones sitting right here,
+    // with the modal about to take the only way to see them or download them
+    // along with it. CsvImportModal's own import report stays open for
+    // exactly this reason (see its `step === 'done'` branch): closing is the
+    // right move only once there is nothing left on screen to show.
+    if (plan.rejected.length > 0) {
+      setSuccess(sheetCommitSuccessText(succeeded, plan.rejected.length));
       return;
     }
     closeAndReset();
@@ -965,6 +1006,7 @@ export function StockRestockModal({
             )}
 
             {error && <Text style={styles.error}>{error}</Text>}
+            {success && <Text style={styles.success}>{success}</Text>}
           </ScrollView>
 
           <View style={styles.footerWrap}>
@@ -1015,7 +1057,9 @@ export function StockRestockModal({
                         right beneath the error naming what did not. */}
                     <Text style={styles.footerTotalHint}>
                       {partialReceipt
-                        ? `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} before the failure above`
+                        ? partialReceipt.failed
+                          ? `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} before the failure above`
+                          : `to ${partialReceipt.stores} store${partialReceipt.stores === 1 ? '' : 's'} · nothing left to receive`
                         : plan
                           ? `across ${plan.receipts.length} store${plan.receipts.length === 1 ? '' : 's'} · nothing has changed yet`
                           : 'Download, fill it in, upload it back'}
@@ -1091,6 +1135,17 @@ function deliveryHint(readings: LineReading[], deliveryCents: number | null): st
   if (readings.some((reading) => reading.cost.kind === 'unreadable'))
     return 'One unit cost is not an amount of money — fix it or clear it';
   return 'Add a unit cost to every line for a delivery value';
+}
+
+// commitPlan's own success line -- read only once every store in the plan has
+// received and the only thing left on the sheet tab is rows planRestock
+// already refused.
+function sheetCommitSuccessText(succeeded: PlannedReceipt[], rejectedRowCount: number): string {
+  const units = succeeded.reduce((sum, receipt) => sum + receivedUnits(receipt), 0);
+  const stores = succeeded.length;
+  return `${units} unit${units === 1 ? '' : 's'} received across ${stores} store${
+    stores === 1 ? '' : 's'
+  }. ${rejectedRowCount} row${rejectedRowCount === 1 ? '' : 's'} rejected.`;
 }
 
 // What the receiving store already holds, and what it costs -- the two numbers
@@ -1518,4 +1573,9 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 12 },
   closeText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 12 },
+  // Same shape as `error`, in the green this file's own Pill already uses for
+  // a positive reading (`pillText_ok`) -- mutually exclusive with it in
+  // practice, since both `submit` and `commitPlan` clear one before the other
+  // can be set for a given attempt.
+  success: { color: '#007A38', fontSize: 13, fontWeight: '700', marginTop: 12 },
 });

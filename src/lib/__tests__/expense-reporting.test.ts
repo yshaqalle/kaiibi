@@ -1,4 +1,11 @@
-import { expenseTotalsByCategory, isOperatingExpense, operatingExpenseCents, totalExpenseCents } from '@/lib/expense-reporting';
+import {
+  EXPENSE_CATEGORIES,
+  expenseCategoryLabel,
+  expenseTotalsByCategory,
+  isOperatingExpense,
+  operatingExpenseCents,
+  totalExpenseCents,
+} from '@/lib/expense-reporting';
 import type { Expense, ExpenseCategory } from '@/types/models';
 
 function makeExpense(overrides: Partial<Expense> = {}): Expense {
@@ -87,3 +94,22 @@ describe('expenseTotalsByCategory', () => {
   });
 });
 
+
+// The whole reason the category exists. inventory_purchase and owner_draw are
+// held out of the operating subtotal because one is an asset that becomes COGS
+// and the other is equity. Shrinkage is neither -- it is stock the shop paid
+// for and will never sell -- so it has to reduce net profit, or Count reports a
+// loss that the P&L still never hears about.
+describe('stock loss', () => {
+  it('is an operating expense, unlike the other two stock-shaped categories', () => {
+    expect(isOperatingExpense('stock_loss')).toBe(true);
+    expect(isOperatingExpense('inventory_purchase')).toBe(false);
+    expect(isOperatingExpense('owner_draw')).toBe(false);
+  });
+
+  it('is offered in the catalogue, next to the purchase it is the other half of', () => {
+    const keys = EXPENSE_CATEGORIES.map((c) => c.key);
+    expect(keys[keys.indexOf('inventory_purchase') + 1]).toBe('stock_loss');
+    expect(expenseCategoryLabel('stock_loss')).toBe('Stock loss');
+  });
+});

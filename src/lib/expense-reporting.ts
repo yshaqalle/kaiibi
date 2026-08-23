@@ -11,6 +11,17 @@ import type { Expense, ExpenseCategory } from '@/types/models';
 
 export const EXPENSE_CATEGORIES: { key: ExpenseCategory; label: string }[] = [
   { key: 'inventory_purchase', label: 'Inventory restock' },
+  // Stock the shop paid for and will never sell -- stolen, broken, expired, or
+  // simply never there. Written by the Count sheet, and by hand from the
+  // expense editor like any other category.
+  //
+  // Deliberately NOT in NON_OPERATING_CATEGORIES below, which is where its
+  // neighbour above sits. That exclusion is right for a purchase, because stock
+  // is an asset that becomes COGS through sale_items.unit_cost_cents when it
+  // sells. Shrinkage never sells, so its cost reaches the P&L by no other path
+  // at all -- and excluding it here would rebuild, one line lower, exactly the
+  // silence the Count door was built to end.
+  { key: 'stock_loss', label: 'Stock loss' },
   { key: 'rent', label: 'Rent' },
   { key: 'utilities', label: 'Utilities' },
   { key: 'salaries_wages', label: 'Salaries and wages' },

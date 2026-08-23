@@ -56,14 +56,17 @@ export function Btn({
   danger,
   onPress,
   disabled,
+  accessibilityLabel,
 }: {
   children: React.ReactNode;
   danger?: boolean;
   onPress?: () => void;
   disabled?: boolean;
+  accessibilityLabel?: string;
 }) {
   return (
     <Pressable
+      accessibilityLabel={accessibilityLabel}
       onPress={onPress}
       disabled={disabled}
       style={({ pressed }) => [styles.btn, danger && styles.btnDanger, disabled && styles.btnDisabled, pressed && !disabled && styles.btnPressed]}

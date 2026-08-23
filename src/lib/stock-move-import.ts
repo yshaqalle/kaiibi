@@ -111,6 +111,12 @@ function parseWholeNumber(value: string | undefined): number | null {
 // spreadsheet by hand is not going to match byte for byte.
 function findLocation(locations: ShopLocation[], text: string): ShopLocation | undefined {
   const key = text.trim().toLowerCase();
+  // A blank cell must never match. Codeless stores are the norm (a code is
+  // optional, saved as null rather than ''), so an empty key would otherwise
+  // find the first active store with no code at all and plan a move into or
+  // out of it -- exactly the store the shop never named. This is called for
+  // both From store and To store, so the guard protects both directions.
+  if (!key) return undefined;
   return locations.find((l) => l.name.trim().toLowerCase() === key || (l.code ?? '').trim().toLowerCase() === key);
 }
 
@@ -227,7 +233,7 @@ export function planStockMoves(
       return reject(
         available <= 0
           ? `${product.name} has none left at ${from.name} to move. If more has just arrived, that's a Restock, not a move.`
-          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If ${quantity} really did arrive, that's a Restock; if the shelf disagrees with the app, correct the count first.`
+          : `Only ${available} at ${from.name} — the sheet asks for ${quantity}. If ${quantity} really did arrive, that's a Restock; if the shelf disagrees with the app, that's a Count.`
       );
     }
 

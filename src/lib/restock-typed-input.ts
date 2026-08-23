@@ -173,20 +173,50 @@ export function readTypedCost(text: string): TypedCost {
   return { kind: 'cents', cents };
 }
 
+// The shared guts of both quantity readers. Digits only, no separators, no
+// sign, and never past what the column can hold.
+//
+// `^[0-9]+$` already excludes a minus sign and anything with a decimal point,
+// so `allowZero` is the ONLY axis the two callers differ on -- which is the
+// point of factoring it: the ceiling, the digits rule and the safe-integer
+// check are shared, so the by-hand field and the sheet cell cannot drift apart
+// the way the two cost readers did before Task 5 of the restock plan merged
+// them.
+//
+// The ceiling is the Postgres `integer` one, shared by
+// stock_receipt_items.quantity (20260902000000:45) and
+// stock_count_items.counted_quantity (20260903000100). Past it the RPC fails on
+// the server with a raw "integer out of range", which reaches the shop as a
+// Postgres error string on a screen that was otherwise explaining itself in
+// sentences -- and, on a multi-store commit, after earlier stores have already
+// gone through.
+function readWholeNumber(text: string, options: { allowZero: boolean }): number | null {
+  const trimmed = text.trim();
+  if (!/^[0-9]+$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  if (!Number.isSafeInteger(value) || value > PG_INTEGER_MAX) return null;
+  return options.allowZero || value > 0 ? value : null;
+}
+
 // null means "not a quantity that can be received" -- empty, zero, not a whole
 // number, or more units than the column can hold. The caller blocks the commit
 // and says so on screen; it does NOT delete the row, because the row carries a
 // typed unit cost that would go with it, and clearing a field to retype it is
 // an ordinary edit.
 //
-// The ceiling is the same Postgres `integer` one the cost has
-// (stock_receipt_items.quantity, 20260902000000_stock_receipts.sql:45): a
-// mis-pasted quantity is the same silent trip to a raw server error as a
-// mis-pasted cost, and there is no reason for one to be guarded and the other
-// not.
+// Zero is refused because a delivery of nothing is a mistake in the sheet, not
+// a no-op: skipping it silently would report a delivery larger than the one
+// that actually landed.
 export function readTypedQuantity(text: string): number | null {
-  const trimmed = text.trim();
-  if (!/^[0-9]+$/.test(trimmed)) return null;
-  const quantity = Number(trimmed);
-  return Number.isSafeInteger(quantity) && quantity > 0 && quantity <= PG_INTEGER_MAX ? quantity : null;
+  return readWholeNumber(text, { allowZero: false });
+}
+
+// The same reading, with zero allowed -- and the difference is the whole point.
+//
+// An empty shelf is a real finding, and often the most important one a
+// stock-take makes. A reader that refused it would leave the Count door able to
+// record every loss except a total one, and would push a shop towards typing 1
+// for a product that is simply gone.
+export function readCountedQuantity(text: string): number | null {
+  return readWholeNumber(text, { allowZero: true });
 }

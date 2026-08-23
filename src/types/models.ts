@@ -248,6 +248,53 @@ export type StockReceiptItem = {
   unitCostCents: number | null;
 };
 
+// Why a shop believes a line came up short (or long). Five, and a closed set,
+// because the count preview reports how many lines have NONE ("9 with no
+// reason") and a sixth spelling would quietly become a sixth category. The
+// database stores exactly these strings (migration 20260903000100).
+//
+// A missing reason is `null` and stays null. It is deliberately never defaulted
+// to 'miscount': that is a precise-looking answer to a question nobody asked,
+// and unexplained shrinkage is itself the finding a shop needs to see.
+export type StockCountReason = 'damaged' | 'expired' | 'theft_or_loss' | 'miscount' | 'other';
+
+// A stock-take at one store. Written only by the save_stock_count RPC
+// (migration 20260903000100) -- there is no write policy on the table, so a
+// count always means numbers that actually changed, and by whom.
+export type StockCount = {
+  id: string;
+  shopId: string;
+  locationId: string;
+  // One note for the whole walk. The reasons are per line, below: one
+  // stock-take finds different causes on different shelves.
+  note: string | null;
+  createdBy: string | null;
+  createdAt: string;
+};
+
+export type StockCountItem = {
+  id: string;
+  countId: string;
+  productId: string;
+  // Frozen at count time, like SaleItem's and StockReceiptItem's.
+  productName: string;
+  // What the app believed at the moment it was replaced. Without it the new
+  // number alone cannot answer "who said these three were gone, and when?",
+  // which is the whole reason this door exists rather than the inline stepper.
+  previousQuantity: number;
+  countedQuantity: number;
+  // countedQuantity - previousQuantity, computed by the database as a generated
+  // column so the record and the arithmetic cannot disagree. Negative is a
+  // shortfall; positive means the app was wrong the other way.
+  variance: number;
+  reason: StockCountReason | null;
+  // What a unit cost when it was counted, frozen. Null where the product is
+  // uncosted -- null, never zero, because zero is a real answer (a free
+  // sample). Frozen because valuing a count from six months ago must not use
+  // whatever cost the most recent delivery happened to leave behind.
+  unitCostCents: number | null;
+};
+
 // An alternate currency a shop accepts as a way to settle a payment line
 // (see PaymentLine below) — USD itself is not a row here, it's the
 // implicit default when a payment's currencyCode is null. `rateToUsd` is
@@ -680,6 +727,7 @@ export type NewVendorInput = Omit<Vendor, 'id' | 'shopId' | 'createdAt' | 'updat
 
 export type ExpenseCategory =
   | 'inventory_purchase'
+  | 'stock_loss'
   | 'rent'
   | 'utilities'
   | 'salaries_wages'

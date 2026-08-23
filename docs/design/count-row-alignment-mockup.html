@@ -1,0 +1,323 @@
+<title>Count — the basket row, lined up</title>
+
+<style>
+  :root {
+    --page:      #F0EFEC;
+    --card:      #FFFFFF;
+    --panel:     #F7F7F7;
+    --ink:       #111111;
+    --ink2:      #3A3A38;
+    --muted:     #9CA3AF;
+    --hair:      #ECECEC;
+    --hair2:     #E4E3DF;
+    --fill:      #EFEFEF;
+    --loss:      #A3202F;
+    --lossbg:    #FBEDEE;
+    --gain:      #007A38;
+    --gainbg:    #E9F5EE;
+    --flag:      #8A5806;
+    --flagbg:    #FBF3E2;
+    --focus:     #2563EB;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #16161A; --card: #1F1F24; --panel: #26262C; --ink: #F4F4F5; --ink2: #C8C8CE;
+      --muted: #8A8A93; --hair: #33333B; --hair2: #33333B; --fill: #2F2F37;
+      --loss: #F08C97; --lossbg: #3A2226; --gain: #5FD08C; --gainbg: #1D2C23;
+      --flag: #E3B45F; --flagbg: #2E2718; --focus: #6A9BFF;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #16161A; --card: #1F1F24; --panel: #26262C; --ink: #F4F4F5; --ink2: #C8C8CE;
+    --muted: #8A8A93; --hair: #33333B; --hair2: #33333B; --fill: #2F2F37;
+    --loss: #F08C97; --lossbg: #3A2226; --gain: #5FD08C; --gainbg: #1D2C23;
+    --flag: #E3B45F; --flagbg: #2E2718; --focus: #6A9BFF;
+  }
+  :root[data-theme="light"] {
+    --page: #F0EFEC; --card: #FFFFFF; --panel: #F7F7F7; --ink: #111111; --ink2: #3A3A38;
+    --muted: #9CA3AF; --hair: #ECECEC; --hair2: #E4E3DF; --fill: #EFEFEF;
+    --loss: #A3202F; --lossbg: #FBEDEE; --gain: #007A38; --gainbg: #E9F5EE;
+    --flag: #8A5806; --flagbg: #FBF3E2; --focus: #2563EB;
+  }
+
+  body { background: var(--page); color: var(--ink); font-family: var(--sans); padding: 40px 20px 80px; line-height: 1.55; }
+  .wrap { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+
+  .eyebrow { font-size: 10.5px; font-weight: 800; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+  h1 { font-size: 27px; font-weight: 800; letter-spacing: -0.8px; margin: 4px 0 8px; text-wrap: balance; }
+  h2 { font-size: 17px; font-weight: 800; letter-spacing: -0.3px; margin: 0 0 4px; }
+  p  { font-size: 14px; color: var(--ink2); margin: 0 0 10px; max-width: 68ch; }
+  p.sub { color: var(--muted); font-size: 13px; }
+  code { font-family: var(--mono); font-size: 12.5px; background: var(--fill); padding: 1px 5px; border-radius: 5px; }
+
+  section { background: var(--card); border-radius: 22px; padding: 24px 26px 26px; }
+
+  .tag { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; margin-bottom: 10px; }
+  .tag.bad  { background: var(--flagbg); color: var(--flag); }
+  .tag.good { background: var(--gainbg); color: var(--gain); }
+
+  .scroller { overflow-x: auto; }
+  .stage { background: var(--card); border: 1px solid var(--hair2); border-radius: 16px; padding: 16px; margin-top: 16px; min-width: 560px; }
+
+  /* left half, identical everywhere */
+  .lineText { flex: 1; min-width: 150px; }
+  .lineName { font-size: 13px; font-weight: 700; color: var(--ink); }
+  .lineMeta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .removeText { font-size: 11.5px; font-weight: 700; color: var(--muted); margin-top: 6px; display: inline-block; }
+
+  .cap { font-size: 9px; font-weight: 800; letter-spacing: 0.6px; color: var(--muted); }
+
+  .qtyInput {
+    background: var(--fill); border-radius: 10px; height: 38px; width: 62px; padding: 0 10px;
+    color: var(--ink); font-weight: 700; font-size: 14px; text-align: right;
+    display: flex; align-items: center; justify-content: flex-end; box-sizing: border-box;
+    font-variant-numeric: tabular-nums;
+  }
+  .qtyInput.focused { background: var(--card); box-shadow: 0 0 0 2px var(--focus); }
+  .chip { background: var(--fill); border-radius: 999px; padding: 6px 10px; font-size: 11.5px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+
+  /* ===================== NOW ===================== */
+  .now .panel { background: var(--panel); border-radius: 16px; padding: 0 14px; }
+  .now .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--hair); }
+  .now .row:last-child { border-bottom: 0; }
+  .now .qtyPair { display: flex; gap: 8px; align-items: flex-end; }
+  .now .cap { display: block; margin-bottom: 3px; }
+  .now .variance { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+  .now .variance.down { color: var(--loss); }
+  .now .variance.up   { color: var(--gain); }
+  .now .variance.flat { color: var(--muted); }
+
+  /* ===================== NEXT ===================== */
+  .next .head { display: flex; align-items: center; gap: 12px; padding: 0 14px 8px; }
+  .next .head .spacer { flex: 1; min-width: 150px; }
+  .next .capRow { display: flex; gap: 8px; }
+  .next .capRow .overField    { width: 62px;  text-align: center; }
+  .next .capRow .overVariance { width: 58px;  text-align: center; }
+  .next .capRow .overChip     { width: 108px; text-align: center; }
+
+  .next .panel { display: flex; flex-direction: column; gap: 8px; }
+  .next .row {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border-radius: 14px; padding: 12px 14px;
+  }
+  .next .qtyPair { display: flex; gap: 8px; align-items: center; }
+  .next .qtyInput { background: var(--card); }
+  .next .qtyInput.focused { box-shadow: 0 0 0 2px var(--focus); }
+  .next .varBox {
+    width: 58px; height: 38px; border-radius: 10px; box-sizing: border-box;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums;
+  }
+  .next .varBox.down { background: var(--lossbg); color: var(--loss); }
+  .next .varBox.up   { background: var(--gainbg); color: var(--gain); }
+  .next .varBox.flat { background: var(--card);   color: var(--muted); }
+  .next .chip { width: 108px; text-align: center; background: var(--card); box-sizing: border-box; height: 38px; display: flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0; }
+
+  .ruled .qtyPair > * { outline: 1px dashed var(--loss); outline-offset: 2px; }
+  .next.ruled .qtyPair > * { outline-color: var(--gain); }
+
+  .why { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin-top: 18px; }
+  .why div { background: var(--page); border-radius: 12px; padding: 14px 15px; }
+  .why b { display: block; font-size: 13px; margin-bottom: 3px; }
+  .why span { font-size: 12.5px; color: var(--ink2); }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 13px; }
+  th { text-align: left; font-size: 10px; letter-spacing: 0.7px; text-transform: uppercase; color: var(--muted); padding: 0 10px 7px 0; font-weight: 800; }
+  td { padding: 8px 10px 8px 0; border-top: 1px solid var(--hair); color: var(--ink2); vertical-align: top; }
+  td:first-child { font-family: var(--mono); font-size: 12px; color: var(--ink); white-space: nowrap; }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Count · by hand</div>
+    <h1>The basket row, lined up</h1>
+    <p>Three things sit to the right of a counted product: the field, how far off it is, and why. Today they bottom&#8209;align to each other rather than to the box, the label repeats on every row, and the products themselves run together in one grey block. This is the fix.</p>
+  </header>
+
+  <section>
+    <span class="tag bad">Now</span>
+    <h2>Nothing lines up, and three products read as one</h2>
+    <p class="sub">At the shipped sizes. Dashed outlines mark each child of <code>qtyPair</code>.</p>
+
+    <div class="scroller">
+      <div class="stage now ruled">
+        <div class="panel">
+          <div class="row">
+            <div class="lineText"><div class="lineName">Dr Althea</div><div class="lineMeta">App says 7</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div><div class="cap">COUNTED</div><div class="qtyInput">5</div></div>
+              <div class="variance down">&minus;2</div>
+              <div class="chip">Reason</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lineText"><div class="lineName">daily facial</div><div class="lineMeta">App says 5</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div><div class="cap">COUNTED</div><div class="qtyInput">5</div></div>
+              <div class="variance flat">0</div>
+              <div class="chip">Reason</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lineText"><div class="lineName">QA scanwidget</div><div class="lineMeta">App says 8</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div><div class="cap">COUNTED</div><div class="qtyInput focused">5</div></div>
+              <div class="variance down">&minus;3</div>
+              <div class="chip">Reason</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <b>Three heights, bottom&#8209;aligned</b>
+        <span>The label&#8209;plus&#8209;field stack is ~50px, the variance ~16px, the chip ~28px. <code>alignItems: 'flex-end'</code> settles them on a shared bottom edge, nowhere near the middle of the box.</span>
+      </div>
+      <div>
+        <b>The cap repeats on every row</b>
+        <span>Nine&#8209;pixel <code>COUNTED</code> over each field — the noise <i>and</i> the cause, since it is what makes the first child taller than everything beside it.</span>
+      </div>
+      <div>
+        <b>The variance floats between two boxes</b>
+        <span>A bare number sandwiched between a filled field and a filled pill. It reads as a stray annotation rather than the third column it is.</span>
+      </div>
+      <div>
+        <b>Products run together</b>
+        <span>One grey block, hairline rules, no gaps. Scanning a count of twelve, there is nothing to tell you where one product ends and the next begins.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <span class="tag good">Next</span>
+    <h2>Each product its own card, three boxes of equal height</h2>
+    <p class="sub">The cap lifts out to one column header. The variance becomes a box like its neighbours, tinted by direction. Every product gets its own card with a real gap between them.</p>
+
+    <div class="scroller">
+      <div class="stage next">
+        <div class="head">
+          <div class="spacer"></div>
+          <div class="capRow">
+            <div class="cap overField">COUNTED</div>
+            <div class="cap overVariance">OFF BY</div>
+            <div class="cap overChip">WHY</div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="row">
+            <div class="lineText"><div class="lineName">Dr Althea</div><div class="lineMeta">App says 7</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div class="qtyInput">5</div>
+              <div class="varBox down">&minus;2</div>
+              <div class="chip">Reason</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lineText"><div class="lineName">daily facial</div><div class="lineMeta">App says 5</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div class="qtyInput">5</div>
+              <div class="varBox flat">0</div>
+              <div class="chip">Reason</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lineText"><div class="lineName">QA scanwidget</div><div class="lineMeta">App says 8</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div class="qtyInput focused">5</div>
+              <div class="varBox down">&minus;3</div>
+              <div class="chip">Theft or loss</div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="lineText"><div class="lineName">clay mask sachet</div><div class="lineMeta">App says 12</div><div class="removeText">Remove</div></div>
+            <div class="qtyPair">
+              <div class="qtyInput">15</div>
+              <div class="varBox up">+3</div>
+              <div class="chip">Miscount</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="why">
+      <div>
+        <b>The card is the separator</b>
+        <span>A white row on the grey panel, 8px of air between each. Down a count of twelve, one product is one card — no hunting for where the next begins.</span>
+      </div>
+      <div>
+        <b>Three boxes, one height</b>
+        <span>Field, variance and reason are all 38px and vertically centred. The eye reads three columns instead of a box, a number and a pill at three different altitudes.</span>
+      </div>
+      <div>
+        <b>The tint carries the direction</b>
+        <span>Short is red on a red wash, over is green on green, unchanged is plain grey — so a shortfall is findable at a glance, and colour is never the only signal because the sign is right there.</span>
+      </div>
+      <div>
+        <b>Fixed widths, stable edges</b>
+        <span>62 / 58 / 108. <code>&minus;12</code> occupies the same column as <code>&minus;1</code>, and &ldquo;Theft or loss&rdquo; the same as &ldquo;Reason&rdquo; — so nothing shifts as the count is filled in.</span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What changes, exactly</h2>
+    <p>Six style edits and one small piece of markup. No new state and no behaviour change — the reason chips still unfold inline beneath the row, which is the part iOS cannot do any other way.</p>
+
+    <div class="scroller">
+      <table>
+        <thead><tr><th>Style</th><th>From</th><th>To</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>qtyPair</td>
+            <td>alignItems: 'flex&#8209;end'</td>
+            <td>alignItems: 'center'</td>
+            <td>The variance and the chip centre on the field instead of hanging off its bottom edge.</td>
+          </tr>
+          <tr>
+            <td>cap</td>
+            <td>once per row, above each field</td>
+            <td>once per basket, as a header</td>
+            <td>Removes the height mismatch that caused the misalignment, and stops repeating a label twelve times down a long count.</td>
+          </tr>
+          <tr>
+            <td>varianceText</td>
+            <td>bare Text, minWidth 30</td>
+            <td>a 58&times;38 box, tinted by direction</td>
+            <td>Gives the middle column the same weight as its neighbours, and makes a shortfall findable by colour as well as by sign.</td>
+          </tr>
+          <tr>
+            <td>reasonChip</td>
+            <td>hugs its text, ~28px tall</td>
+            <td>width 108, height 38</td>
+            <td>Matches the other two boxes, and holds the row&rsquo;s right edge still when a reason is picked.</td>
+          </tr>
+          <tr>
+            <td>lineWrap</td>
+            <td>hairline rule between rows</td>
+            <td>a card, with 8px gaps</td>
+            <td>One product reads as one thing.</td>
+          </tr>
+          <tr>
+            <td>qtyInput</td>
+            <td>grey fill on a grey panel</td>
+            <td>white fill on a grey card</td>
+            <td>The field has to stay the one thing that looks typeable now that the card behind it is grey.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>One thing to decide</h2>
+    <p>The header needs three words. <b>COUNTED</b> is already the shipped one. For the other two I have drawn <b>OFF BY</b> and <b>WHY</b> — short enough not to wrap at phone width, and plain rather than accounting language: a shop reads &ldquo;off by &minus;2&rdquo;, not &ldquo;variance&rdquo;.</p>
+    <p class="sub">If you would rather the middle column stayed unlabelled, dropping <b>OFF BY</b> costs nothing — the tint and the sign already say what it is. <b>WHY</b> is the one worth keeping, because an untouched row shows a chip reading &ldquo;Reason&rdquo; and nothing else explains what that button is for.</p>
+  </section>
+
+</div>

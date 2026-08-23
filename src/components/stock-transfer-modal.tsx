@@ -103,6 +103,14 @@ export function StockTransferModal({
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // What commitPlan's own success said, the one time a fully successful sheet
+  // commit still has rejected rows on screen (see commitPlan's own tail). The
+  // by-hand tab has no equivalent state to set it: `submit` still closes the
+  // sheet on its own success, because the by-hand basket has no such thing as
+  // a "rejected row" to stay open for. Cleared by `commitPlan` and `submit`
+  // the moment either starts a fresh write, and by `closeAndReset` for the
+  // same reason `error` is.
+  const [success, setSuccess] = useState<string | null>(null);
   const [repairing, setRepairing] = useState<string | null>(null);
 
   // Scanning items into the move as they go into the box -- on web, and nowhere
@@ -195,6 +203,7 @@ export function StockTransferModal({
     setSearch('');
     setCategory(null);
     setError(null);
+    setSuccess(null);
     setPlan(null);
     setSheetFile(null);
     setSheetNotice(null);
@@ -351,6 +360,11 @@ export function StockTransferModal({
     if (!canSubmit || !fromId || !toId) return;
     setBusy(true);
     setError(null);
+    // A fresh by-hand attempt is a fresh attempt: a success banner left over
+    // from an earlier sheet-tab commit (see `commitPlan`) must not go on
+    // describing that one while this write is in flight, or sit there
+    // unexplained beside an error this attempt is about to raise.
+    setSuccess(null);
     // ONLY the write is inside the try, and the try ends the moment it resolves.
     //
     // `await onDone()` used to sit in here, after the move had committed --
@@ -493,6 +507,9 @@ export function StockTransferModal({
     if (!plan || plan.pairs.length === 0) return;
     setBusy(true);
     setError(null);
+    // A fresh commit is a fresh attempt -- see `submit`'s own identical clear
+    // for why.
+    setSuccess(null);
     const failures: string[] = [];
     for (const pair of plan.pairs) {
       try {
@@ -522,6 +539,20 @@ export function StockTransferModal({
     if (failures.length > 0) {
       // The shop reads which pair failed and fixes that section of the sheet.
       setError(`Some moves did not go through.\n${failures.join('\n')}`);
+      return;
+    }
+    // Every pair moved -- `failures` is empty, so `plan.pairs` (the ORIGINAL
+    // plan this call closed over, never mutated by the loop above) is exactly
+    // what went through. `plan.rejected` is untouched by that same loop -- it
+    // is planStockMoves's own reading of the upload -- so a sheet that
+    // carried both good rows and bad ones still has its bad ones sitting
+    // right here, with the modal about to take the only way to see them or
+    // download them along with it. CsvImportModal's own import report stays
+    // open for exactly this reason (see its `step === 'done'` branch):
+    // closing is the right move only once there is nothing left on screen to
+    // show.
+    if (plan.rejected.length > 0) {
+      setSuccess(sheetCommitSuccessText(plan.pairs, plan.rejected.length));
       return;
     }
     closeAndReset();
@@ -706,6 +737,7 @@ export function StockTransferModal({
             )}
 
             {error && <Text style={styles.error}>{error}</Text>}
+            {success && <Text style={styles.success}>{success}</Text>}
           </ScrollView>
 
           <View style={styles.footer}>
@@ -937,6 +969,19 @@ function Pill({ tone, text }: { tone: 'ok' | 'bad' | 'warn' | 'acc'; text: strin
 // `instanceof Error`. The RPC's own message is the useful one here — it names
 // the product and the counts ("insufficient stock for Soap at the source
 // location: has 4, need 10").
+// commitPlan's own success line -- read only once every pair in the plan has
+// moved and the only thing left on the sheet tab is rows planStockMoves
+// already refused.
+function sheetCommitSuccessText(pairs: PlannedMovePair[], rejectedRowCount: number): string {
+  const products = pairs.reduce((sum, pair) => sum + pair.items.length, 0);
+  const units = pairs.reduce((sum, pair) => sum + plannedUnits(pair), 0);
+  return `${products} product${products === 1 ? '' : 's'} · ${units} unit${
+    units === 1 ? '' : 's'
+  } moved across ${pairs.length} store pair${pairs.length === 1 ? '' : 's'}. ${rejectedRowCount} row${
+    rejectedRowCount === 1 ? '' : 's'
+  } rejected.`;
+}
+
 function extractErrorMessage(err: unknown): string {
   // Moving stock between branches is the multi_location module, so this is the
   // most likely place a Standard shop meets a plan wall. Without this it would
@@ -1034,4 +1079,9 @@ const styles = StyleSheet.create({
   close: { backgroundColor: '#111111', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 12 },
   closeText: { fontSize: 13, fontWeight: '800', color: '#FFFFFF' },
   error: { color: '#C0392B', fontSize: 13, fontWeight: '700', marginTop: 12 },
+  // Same shape as `error`, in the green this file's own Pill already uses for
+  // a positive reading (`pillText_ok`) -- mutually exclusive with it in
+  // practice, since both `submit` and `commitPlan` clear one before the other
+  // can be set for a given attempt.
+  success: { color: '#007A38', fontSize: 13, fontWeight: '700', marginTop: 12 },
 });

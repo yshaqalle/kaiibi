@@ -20,6 +20,11 @@ import type { Product, ShopLocation } from '@/types/models';
 const MAIN = { id: 'loc-main', name: 'Jaalala Skincare', code: 'JL1', active: true } as ShopLocation;
 const SECOND = { id: 'loc-2', name: 'Jaalala 2', code: 'JL2', active: true } as ShopLocation;
 const CLOSED = { id: 'loc-closed', name: 'Jaalala Kiosk', code: 'JLK', active: false } as ShopLocation;
+// Codeless, deliberately: the norm for a store, per locations-panel.tsx:205,
+// which saves `code.trim() || null` rather than an empty string. Kept out of
+// the shared LOCATIONS below so the cross-product tests over "a store" stay
+// exact; it is added explicitly by the one test that needs a codeless store.
+const WAREHOUSE = { id: 'loc-warehouse', name: 'Warehouse', code: null, active: true } as ShopLocation;
 const LOCATIONS = [MAIN, SECOND, CLOSED];
 
 const serum = {
@@ -138,15 +143,13 @@ describe('planning what arrived', () => {
     expect(plan.rejected[0].row).toBe(2);
   });
 
-  // Named a door that WORKS, which Count does not: the Stock sheet renders it
-  // disabled with a "Coming next" badge, so this was the one rejection in the
-  // file with nowhere to send anybody. Until Count ships, reducing a count is
-  // done in the product's own stock-by-store editor.
-  it('names a working destination when the sheet asks to take stock away', () => {
+  // Restock only adds, so a negative cell is asking for a different job.
+  // Count now ships from the same Stock sheet, so the rejection names it
+  // instead of pointing at the per-product editor Count replaced.
+  it('names Count when the sheet asks to take stock away', () => {
     const plan = planRestock(sheet([{ Product: 'Torriden Balanceful Serum', 'Quantity received': '-3' }]), CONTEXT);
     expect(plan.rejected[0].reason).toContain('Restock only adds');
-    expect(plan.rejected[0].reason).toContain('edit its stock, store by store');
-    expect(plan.rejected[0].reason).not.toContain('use Count');
+    expect(plan.rejected[0].reason).toContain('use Count');
   });
 
   it('rejects zero, which changes nothing and is always a mistake', () => {
@@ -186,6 +189,20 @@ describe('planning what arrived', () => {
       CONTEXT
     );
     expect(plan.rejected[0].reason).toContain('Jaalala Skincare, Jaalala 2');
+  });
+
+  // The bug this guards against: a blank Store cell lowercases and trims to
+  // '', and a naive `(l.code ?? '').trim().toLowerCase() === key` comparison
+  // then matches the first active store with no code at all -- Warehouse
+  // here -- rather than being refused. Codeless stores are the norm, not the
+  // exception, so this has to be refused by name, not guessed by omission.
+  it('refuses a blank store rather than guessing the first store with no code', () => {
+    const plan = planRestock(
+      sheet([{ Product: 'Torriden Balanceful Serum', Store: '', 'Quantity received': '6' }]),
+      { products: PRODUCTS, locations: [MAIN, SECOND, WAREHOUSE, CLOSED], stockAt }
+    );
+    expect(plan.rejected[0].reason).toBe('Store is empty — say which store the delivery arrived at.');
+    expect(plan.receipts).toEqual([]);
   });
 });
 
