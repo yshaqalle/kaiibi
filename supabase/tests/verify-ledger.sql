@@ -301,6 +301,104 @@ begin
     raise exception 'FAIL: a journal table has a write policy; the RPCs are meant to be the only door';
   end if;
 
+  -- From here on the checks go through the RPCs, which gate on
+  -- has_shop_permission -> auth.uid() -> request.jwt.claims->>'sub'. Without
+  -- this the owner is nobody and every call below refuses. Setting `role` also
+  -- turns RLS ON, which is why every raw insert above had to come first.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  -- 16. The happy path: two lines by account CODE, posted, balanced, numbered.
+  declare v_posted uuid;
+  begin
+    v_posted := public.post_journal_entry(
+      v_shop_id, date '2026-08-20', 'Write off damaged stock',
+      '[{"code":"5100","amount_cents":84000},{"code":"1200","amount_cents":-84000}]'::jsonb
+    );
+    if (select status from public.journal_entries where id = v_posted) <> 'posted' then
+      raise exception 'FAIL: post_journal_entry left the entry unposted';
+    end if;
+    if (select reference from public.journal_entries where id = v_posted) !~ '^JE-2026-\d{4}$' then
+      raise exception 'FAIL: reference is not JE-YYYY-NNNN: %',
+        (select reference from public.journal_entries where id = v_posted);
+    end if;
+    if (select count(*) from public.journal_lines where entry_id = v_posted) <> 2 then
+      raise exception 'FAIL: expected two lines';
+    end if;
+    -- The signed amounts survived the round trip through jsonb. A cast that
+    -- dropped the sign would give an entry whose lines both read as debits and
+    -- whose sum is 168000, which the deferred trigger would catch -- but only
+    -- at commit, and this asserts it at the door.
+    if (select coalesce(sum(amount_cents), 0) from public.journal_lines where entry_id = v_posted) <> 0 then
+      raise exception 'FAIL: the posted lines do not sum to zero';
+    end if;
+  end;
+
+  -- 17. An unbalanced payload is refused BY THE RPC, with a message a person
+  -- can act on -- not by the deferred trigger at commit, whose message is
+  -- about the constraint rather than about what they typed.
+  v_raised := false;
+  begin
+    perform public.post_journal_entry(
+      v_shop_id, date '2026-08-20', 'Lopsided',
+      '[{"code":"5100","amount_cents":84000},{"code":"1200","amount_cents":-1}]'::jsonb
+    );
+  exception
+    when sqlstate 'P0001' then
+      if position('balance' in sqlerrm) = 0 then raise; end if;
+      v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an unbalanced payload was posted';
+  end if;
+
+  -- 18. An unknown account code is refused by name. Resolving codes here rather
+  -- than making the client send uuids is what lets every future posting site
+  -- say '5100' and not hold a lookup.
+  --
+  -- Removing the guard does redden this, but not through this handler: the
+  -- code resolves to null and journal_lines.account_id refuses it, so the
+  -- caller gets "null value in column account_id violates not-null
+  -- constraint". Which is the whole argument for the guard -- the row is
+  -- refused either way, and only one of the two messages tells the person
+  -- typing the entry that they mistyped an account number.
+  v_raised := false;
+  begin
+    perform public.post_journal_entry(
+      v_shop_id, date '2026-08-20', 'Nowhere',
+      '[{"code":"9999","amount_cents":1},{"code":"1200","amount_cents":-1}]'::jsonb
+    );
+  exception
+    when sqlstate 'P0001' then
+      if position('9999' in sqlerrm) = 0 then raise; end if;
+      v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an unknown account code was posted';
+  end if;
+
+  -- 18b. A closed month refuses through the RPC too, not only through
+  -- open_period_for called directly. The gate has to hold at the door people
+  -- actually use.
+  update public.accounting_periods set status = 'closed'
+    where shop_id = v_shop_id and starts_on = date '2026-08-01';
+  v_raised := false;
+  begin
+    perform public.post_journal_entry(
+      v_shop_id, date '2026-08-20', 'Into a shut month',
+      '[{"code":"5100","amount_cents":100},{"code":"1200","amount_cents":-100}]'::jsonb
+    );
+  exception
+    when sqlstate 'P0001' then
+      if position('closed' in sqlerrm) = 0 then raise; end if;
+      v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: the RPC posted into a closed month';
+  end if;
+  update public.accounting_periods set status = 'open'
+    where shop_id = v_shop_id and starts_on = date '2026-08-01';
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception
