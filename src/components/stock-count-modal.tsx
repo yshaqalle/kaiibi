@@ -32,7 +32,9 @@ import { pickCsvFile } from '@/lib/pick-csv-file';
 import { listProducts, saveStockCount } from '@/lib/products';
 import type { NewExpenseInput, Product, StockCountReason } from '@/types/models';
 import {
+  COUNT_PAGE_SIZE,
   filterProducts,
+  pageSlice,
   plannedLines,
   typedRows,
   walkRow,
@@ -96,6 +98,10 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   const locationId = chosenLocationId ?? activeLocation?.id ?? selectable[0]?.id ?? null;
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<string | null>(null);
+  // One-based, and never trusted blind -- `pageSlice` clamps it. Reset by the
+  // handlers that change what is being paged (search, category, the store) so
+  // page 3 of a set that now has 12 rows is never on screen.
+  const [page, setPage] = useState(1);
   const [categories, setCategories] = useState<string[]>([]);
   // Keyed by PRODUCT ID, never by row index and never derived from what is on
   // screen. This is the whole of the paging guarantee: filtering, searching and
@@ -173,6 +179,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     if (storeChanged) {
       updateEntries(() => ({}));
       setReasonOpenFor(null);
+      setPage(1);
     }
     load()
       .then((rows) => {
@@ -200,6 +207,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
     setNote('');
     setSearch('');
     setCategory(null);
+    setPage(1);
     setError(null);
     setReasonOpenFor(null);
     setLogExpense(false);
@@ -290,6 +298,12 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
   // Which products are on screen. Separate from `rows` on purpose -- this is
   // the only thing search and the category chips are allowed to change.
   const filtered = useMemo(() => filterProducts(catalogue, search, category), [catalogue, search, category]);
+
+  // One page of `filtered`, plus everything the pager row needs to say about
+  // it. `page` is never trusted blind -- `pageSlice` clamps it, since a
+  // catalogue can shrink underneath a page number for reasons this component
+  // does not drive (a reload after a delete, a narrower store).
+  const paged = useMemo(() => pageSlice(filtered, page, COUNT_PAGE_SIZE), [filtered, page]);
 
   // `plannedLines` is empty both when nothing has been counted and when
   // anything is unreadable, so one non-empty check carries both rules: at least
@@ -542,6 +556,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
       // the notice below would name lines nobody can see.
       setSearch('');
       setCategory(null);
+      setPage(1);
       setSheetNotice(
         `${picked.fileName} — ${count.lines.length} line${count.lines.length === 1 ? '' : 's'} ready. Change anything before saving.`
       );
@@ -718,7 +733,10 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                     component pretending to do something. */}
                 <TextInput
                   value={search}
-                  onChangeText={setSearch}
+                  onChangeText={(text) => {
+                    setSearch(text);
+                    setPage(1);
+                  }}
                   placeholder="Search by name, SKU or barcode…"
                   placeholderTextColor="#999999"
                   aria-label="Search products"
@@ -731,13 +749,23 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                     style={styles.chipScroll}
                     contentContainerStyle={styles.chips}
                   >
-                    <CategoryChip label="All" active={category === null} onPress={() => setCategory(null)} />
+                    <CategoryChip
+                      label="All"
+                      active={category === null}
+                      onPress={() => {
+                        setCategory(null);
+                        setPage(1);
+                      }}
+                    />
                     {categories.map((item) => (
                       <CategoryChip
                         key={item}
                         label={item}
                         active={category === item}
-                        onPress={() => setCategory(item)}
+                        onPress={() => {
+                          setCategory(item);
+                          setPage(1);
+                        }}
                       />
                     ))}
                   </ScrollView>
@@ -769,7 +797,7 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                       </View>
                     </View>
                     <View style={styles.listRows}>
-                      {filtered.map((item) => (
+                      {paged.items.map((item) => (
                         <CountRowView
                           key={item.id}
                           row={walkRow(item, entries)}
@@ -783,6 +811,48 @@ export function StockCountModal({ visible, shopId, onClose, onDone }: {
                         />
                       ))}
                     </View>
+                    {/* ABSENT below the threshold, not greyed: a control that
+                        can never do anything should not be on screen, and most
+                        shops on the platform carry fewer than a hundred
+                        products. */}
+                    {filtered.length > COUNT_PAGE_SIZE && (
+                      <View style={styles.pager}>
+                        <Text style={styles.pagerInfo}>
+                          {`Showing ${paged.from}–${paged.to} of ${filtered.length}${
+                            typed.length > 0 ? ` · ${typed.length} counted so far, on any page` : ''
+                          }`}
+                        </Text>
+                        <View style={styles.pagerButtons}>
+                          <Pressable
+                            onPress={() => setPage(paged.page - 1)}
+                            disabled={paged.page <= 1}
+                            style={[styles.pageButton, paged.page <= 1 && styles.pageButtonOff]}
+                            accessibilityRole="button"
+                            accessibilityLabel="Previous page"
+                          >
+                            <Text style={[styles.pageButtonText, paged.page <= 1 && styles.pageButtonTextOff]}>
+                              Previous
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            onPress={() => setPage(paged.page + 1)}
+                            disabled={paged.page >= paged.pageCount}
+                            style={[styles.pageButton, paged.page >= paged.pageCount && styles.pageButtonOff]}
+                            accessibilityRole="button"
+                            accessibilityLabel="Next page"
+                          >
+                            <Text
+                              style={[
+                                styles.pageButtonText,
+                                paged.page >= paged.pageCount && styles.pageButtonTextOff,
+                              ]}
+                            >
+                              Next
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
                   </View>
                 )}
 
@@ -1330,6 +1400,13 @@ const styles = StyleSheet.create({
   capChip: { width: 108, textAlign: 'center' },
   capClear: { width: 28 },
   listRows: { gap: 8 },
+  pager: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#F2F2F2' },
+  pagerInfo: { fontSize: 12, color: '#9CA3AF', flexShrink: 1 },
+  pagerButtons: { flexDirection: 'row', gap: 6 },
+  pageButton: { borderWidth: 1, borderColor: '#DCDCE4', borderRadius: 999, paddingHorizontal: 13, paddingVertical: 6 },
+  pageButtonOff: { borderColor: '#F2F2F2' },
+  pageButtonText: { fontSize: 12, fontWeight: '700', color: '#5E5D65' },
+  pageButtonTextOff: { color: '#B6B6BC' },
   // Untinted until something is typed into it. The tint IS the signal that a
   // row has been counted, on a list where almost every row has not been.
   countRow: { borderRadius: 14, paddingHorizontal: 14 },

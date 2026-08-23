@@ -1220,3 +1220,206 @@ describe('logging the shortfall from a sheet', () => {
     expect(allText(tree)).not.toContain('Some of the count did not go through');
   });
 });
+
+// A catalogue long enough to page. Names are zero-padded so the aria-label of
+// any row is predictable, and stock is uniform so a variance is only ever the
+// result of something this test typed.
+const catalogueOf = (count: number, prefix = 'QA') =>
+  Array.from({ length: count }, (_, i) =>
+    product({ id: `p-${i}`, name: `${prefix} ${String(i).padStart(3, '0')}`, sku: `${prefix}-${i}`, stock: 10 })
+  );
+
+describe('paging a long catalogue', () => {
+  // THE regression this feature keeps producing, pinned at the only boundary
+  // that can see it: what `saveStockCount` is actually handed. A count typed on
+  // page 1 and dropped by paging to page 2 is invisible until a shelf comes out
+  // wrong.
+  //
+  // MUTATION: build `handLines` from `paged.items` (or from `filtered`) instead
+  // of from the whole `catalogue`. The render stays perfect and the commit
+  // silently loses every count not currently scrolled into view.
+  it('keeps a count typed on page 1 while the walk is on page 2, and sends both', async () => {
+    const tree = await open(catalogueOf(150));
+    await type(tree, 'Counted units of QA 000', '4');
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+
+    // Page 2 genuinely does not render page 1's row.
+    expect(tree.root.findAll((n) => n.props['aria-label'] === 'Counted units of QA 000')).toHaveLength(0);
+    await type(tree, 'Counted units of QA 100', '7');
+    await act(async () => pressableLabelled(tree, 'Previous page').props.onPress());
+    expect(fieldNamed(tree, 'Counted units of QA 000').props.value).toBe('4');
+
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount.mock.calls[0][2]).toEqual([
+      { productId: 'p-0', countedQuantity: 4, reason: null },
+      { productId: 'p-100', countedQuantity: 7, reason: null },
+    ]);
+  });
+
+  // The same rule for the other two things that change what is rendered.
+  //
+  // MUTATION: rebuild `entries` from `filtered` on every search change.
+  it('keeps a count typed under one search term after the search changes, and sends both', async () => {
+    const tree = await open([
+      product({ id: 'p-1', name: 'Dr Althea', sku: 'SK-1', stock: 7 }),
+      product({ id: 'p-2', name: 'clay mask sachet', sku: 'SK-2', stock: 12 }),
+    ]);
+    await type(tree, 'Search products', 'Althea');
+    await type(tree, 'Counted units of Dr Althea', '5');
+    await backspace(tree, 'Search products', 6);
+    await type(tree, 'Search products', 'clay');
+    await type(tree, 'Counted units of clay mask sachet', '15');
+    await backspace(tree, 'Search products', 4);
+
+    expect(fieldNamed(tree, 'Counted units of Dr Althea').props.value).toBe('5');
+    await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
+    expect(saveStockCount.mock.calls[0][2]).toEqual([
+      { productId: 'p-1', countedQuantity: 5, reason: null },
+      { productId: 'p-2', countedQuantity: 15, reason: null },
+    ]);
+  });
+
+  // A control that can never do anything should not be on screen -- and most
+  // shops on the platform carry fewer than a hundred products.
+  //
+  // MUTATION: render the pager whenever `pageCount > 0`. Every shop in the
+  // country grows a Previous/Next row that does nothing.
+  it('renders no pager at all at a hundred products', async () => {
+    const tree = await open(catalogueOf(100));
+    expect(tree.root.findAll((n) => n.props.accessibilityLabel === 'Next page')).toHaveLength(0);
+    expect(allText(tree)).not.toContain('Showing');
+  });
+
+  // MUTATION: off-by-one in `from`/`to`, or reading `filtered.length` as the
+  // page length. This line is the only thing on screen that says how much of
+  // the shop is not visible.
+  it('says which window it is showing and how much of the walk is off-screen', async () => {
+    const tree = await open(catalogueOf(240));
+    expect(allText(tree)).toContain('Showing 1–100 of 240');
+    await type(tree, 'Counted units of QA 000', '4');
+    expect(allText(tree)).toContain('Showing 1–100 of 240 · 1 counted so far, on any page');
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(allText(tree)).toContain('Showing 101–200 of 240 · 1 counted so far, on any page');
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(allText(tree)).toContain('Showing 201–240 of 240');
+  });
+
+  // MUTATION: leave both buttons always enabled. `Next` on the last page walks
+  // off the end into a blank list.
+  it('disables the ends of the walk', async () => {
+    const tree = await open(catalogueOf(240));
+    expect(pressableLabelled(tree, 'Previous page').props.disabled).toBe(true);
+    expect(pressableLabelled(tree, 'Next page').props.disabled).toBe(false);
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(pressableLabelled(tree, 'Next page').props.disabled).toBe(true);
+    expect(pressableLabelled(tree, 'Previous page').props.disabled).toBe(false);
+  });
+
+  // Staying on page 3 of a set that now has 12 rows shows nothing. The clamp in
+  // `pageSlice` would rescue the empty-list case on its own, so this is built
+  // to be a case the clamp CANNOT rescue: 250 down to 150 leaves page 3
+  // clamping to page 2, which renders rows 101-150 of the new set rather than
+  // its first row.
+  //
+  // MUTATION: delete `setPage(1)` from the search handler.
+  it('goes back to the first page when the search narrows the set', async () => {
+    const tree = await open([...catalogueOf(150, 'SKIN'), ...catalogueOf(100, 'HOME')]);
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(allText(tree)).toContain('Showing 201–250 of 250');
+    await type(tree, 'Search products', 'SKIN');
+    expect(allText(tree)).toContain('Showing 1–100 of 150');
+    expect(fieldNamed(tree, 'Counted units of SKIN 000').props.value).toBe('');
+  });
+
+  // --- coverage beyond the brief's own six cases -------------------------
+  //
+  // `setPage(1)` lands at six call sites in total: the search box, the
+  // category chips, the store-transition guard, `closeAndReset`, and the
+  // sheet-upload handover -- plus the pager's own buttons. The search case
+  // above proves the pattern works; these four prove the other guarded sites
+  // actually carry it, since a mutation dropping any ONE of them leaves every
+  // test above green (none of them touch a store switch, a close, or a
+  // sheet upload while parked on page 2).
+
+  // `Clear all` replaces the whole `entries` object in one write
+  // (`updateEntries(() => ({}))`), which should already reach every page --
+  // but nothing above ever presses it after paging, so nothing proves it.
+  //
+  // MUTATION: scope the wipe to `paged.items` (delete only the entries for
+  // products on the CURRENT page) instead of replacing the whole object. A
+  // shop that presses Clear all on page 1 would still find page 2's counts
+  // alive and reach Save believing the walk was cleared.
+  it('clears every page, not just the one on screen', async () => {
+    const tree = await open(catalogueOf(150));
+    await type(tree, 'Counted units of QA 000', '4');
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    await type(tree, 'Counted units of QA 100', '7');
+    expect(allText(tree)).toContain('Save 2 counts');
+
+    await act(async () => pressableLabelled(tree, 'Clear all').props.onPress());
+    expect(allText(tree)).toContain('Save 0 counts');
+    expect(fieldNamed(tree, 'Counted units of QA 100').props.value).toBe('');
+
+    await act(async () => pressableLabelled(tree, 'Previous page').props.onPress());
+    expect(fieldNamed(tree, 'Counted units of QA 000').props.value).toBe('');
+  });
+
+  // Both stores carry 150 -- two pages each -- on purpose: with only one page
+  // at the destination, `pageSlice`'s own clamp would land on page 1 anyway
+  // and the test would pass whether or not the guard's `setPage(1)` exists.
+  //
+  // MUTATION: delete `setPage(1)` from the store-transition branch. Page 2 of
+  // Main becomes page 2 of Branch, a set the clamp alone cannot correct back
+  // to page 1 because Branch also has a page 2.
+  it('goes back to the first page when the store changes', async () => {
+    listProducts.mockImplementation(async (_shopId: string, locationId: string) =>
+      locationId === 'loc-2' ? catalogueOf(150, 'BR') : catalogueOf(150, 'MA')
+    );
+    let tree!: ReactTestRenderer;
+    await act(async () => {
+      tree = create(<StockCountModal visible shopId="shop-1" onClose={() => {}} onDone={async () => {}} />);
+    });
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(allText(tree)).toContain('Showing 101–150 of 150');
+
+    await act(async () => pressableWithText(tree, 'Main').props.onPress());
+    await act(async () => pressableWithText(tree, 'Branch').props.onPress());
+
+    expect(allText(tree)).toContain('Showing 1–100 of 150');
+  });
+
+  // This component is never unmounted -- the screen renders it with
+  // `visible={false}` and it returns null -- so `closeAndReset` is the only
+  // thing standing between a stock-take parked on page 2 and the next one
+  // opening stranded there before anything has been typed.
+  //
+  // MUTATION: delete `setPage(1)` from `closeAndReset`. The sheet reopens on
+  // whatever page it was last left on.
+  it('resets the page on close, so the sheet does not reopen stranded on a later page', async () => {
+    const tree = await open(catalogueOf(150));
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    expect(allText(tree)).toContain('Showing 101–150 of 150');
+    await act(async () => pressableWithText(tree, 'Close').props.onPress());
+    expect(allText(tree)).toContain('Showing 1–100 of 150');
+  });
+
+  // A sheet that turns out to be one store hands its lines to the by-hand tab
+  // scattered across the whole catalogue -- a page left on 2 from before the
+  // upload would hide the very row the notice above is about.
+  //
+  // MUTATION: delete `setPage(1)` from the upload handover. The filled row is
+  // in `entries` (Save would still send it) but sits on page 1 behind a
+  // screen still parked on page 2.
+  it('goes back to the first page when an uploaded sheet hands its single store over to the by-hand tab', async () => {
+    pickCsvFile.mockResolvedValue(uploaded([{ Product: 'QA 000', Store: 'Main', Counted: '4' }]));
+    const tree = await open(catalogueOf(150));
+    await act(async () => pressableLabelled(tree, 'Next page').props.onPress());
+    await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
+    await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+
+    expect(allText(tree)).toContain('Showing 1–100 of 150');
+    expect(fieldNamed(tree, 'Counted units of QA 000').props.value).toBe('4');
+  });
+});
