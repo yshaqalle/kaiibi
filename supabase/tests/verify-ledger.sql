@@ -399,6 +399,70 @@ begin
   update public.accounting_periods set status = 'open'
     where shop_id = v_shop_id and starts_on = date '2026-08-01';
 
+  -- 19-21. Reversal: the mirror exists, both rows point at each other, and the
+  -- pair nets to nothing.
+  declare
+    v_orig uuid;
+    v_rev  uuid;
+  begin
+    v_orig := public.post_journal_entry(
+      v_shop_id, date '2026-08-21', 'Mis-coded bill',
+      '[{"code":"6400","amount_cents":9500},{"code":"2000","amount_cents":-9500}]'::jsonb
+    );
+    v_rev := public.reverse_journal_entry(v_orig, 'wrong expense account');
+
+    if (select status from public.journal_entries where id = v_orig) <> 'reversed' then
+      raise exception 'FAIL: the original was not marked reversed';
+    end if;
+    if (select reverses_entry_id from public.journal_entries where id = v_rev) <> v_orig then
+      raise exception 'FAIL: the reversal does not point at its original';
+    end if;
+    if (select reverses_entry_id from public.journal_entries where id = v_orig) <> v_rev then
+      raise exception 'FAIL: the original does not point at its reversal';
+    end if;
+
+    -- Per ACCOUNT, not over the pair as a whole.
+    --
+    -- Written as sum(amount_cents) over both entries first, and it was a test
+    -- that could not fail: each entry balances on its own, so their combined
+    -- total is zero whether or not the reversal negated anything. Copying the
+    -- lines across unchanged left the check green. Found by mutation.
+    --
+    -- What actually has to hold is that the pair cancels ACCOUNT BY ACCOUNT --
+    -- 6400 at +9500 against 6400 at -9500 -- which is the only thing that makes
+    -- the correction undo the mistake rather than double it.
+    if exists (
+      select 1 from public.journal_lines
+       where entry_id in (v_orig, v_rev)
+       group by account_id
+      having coalesce(sum(amount_cents), 0) <> 0
+    ) then
+      raise exception 'FAIL: the reversal does not cancel the original account by account';
+    end if;
+
+    -- The reversal is dated to the ORIGINAL's date, not today. A correction to
+    -- August belongs in August; dating it now would leave August overstated and
+    -- this month understated, and every monthly comparison after that wrong in
+    -- two directions at once.
+    if (select entry_date from public.journal_entries where id = v_rev) <> date '2026-08-21' then
+      raise exception 'FAIL: the reversal is not dated to the original: %',
+        (select entry_date from public.journal_entries where id = v_rev);
+    end if;
+
+    -- Reversing twice would create a second mirror and double the correction.
+    v_raised := false;
+    begin
+      perform public.reverse_journal_entry(v_orig, 'again');
+    exception
+      when sqlstate 'P0001' then
+        if position('already' in sqlerrm) = 0 then raise; end if;
+        v_raised := true;
+    end;
+    if not v_raised then
+      raise exception 'FAIL: an already-reversed entry was reversed again';
+    end if;
+  end;
+
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
 exception

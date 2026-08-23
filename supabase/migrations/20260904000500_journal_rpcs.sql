@@ -106,3 +106,77 @@ end;
 $$;
 
 grant execute on function public.post_journal_entry(uuid, date, text, jsonb, uuid, text) to authenticated;
+
+-- Correcting a posted entry, which is never an edit.
+--
+-- Writes a second entry whose lines are the first's, negated, and links the two
+-- in both directions. Both stay on the record: the mistake and the correction.
+-- That is the difference between a book and a document -- a document is
+-- amended, a book is added to.
+--
+-- The reversal is dated to the ORIGINAL's date, not today. A correction to
+-- August belongs in August; dating it to September would leave August
+-- overstated and September understated, and every monthly comparison after that
+-- would be wrong in two directions at once. If August is closed, the reversal
+-- is refused by open_period_for and the caller must re-open it -- which is the
+-- correct thing to make somebody decide, and is why 'closed' is reversible.
+create or replace function public.reverse_journal_entry(
+  p_entry_id uuid,
+  p_reason text
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_shop uuid;
+  v_status text;
+  v_date date;
+  v_ref text;
+  v_loc uuid;
+  v_new uuid;
+begin
+  select shop_id, status, entry_date, reference, location_id
+    into v_shop, v_status, v_date, v_ref, v_loc
+    from public.journal_entries where id = p_entry_id;
+
+  if v_shop is null then
+    raise exception 'No such journal entry.' using errcode = 'P0001';
+  end if;
+  if not has_shop_permission(v_shop, 'ledger.post') then
+    raise exception 'You do not have permission to reverse journal entries.'
+      using errcode = 'P0001';
+  end if;
+  if v_status = 'reversed' then
+    raise exception 'That entry has already been reversed.' using errcode = 'P0001';
+  end if;
+  if v_status <> 'posted' then
+    raise exception 'Only a posted entry can be reversed; this one is %.', v_status
+      using errcode = 'P0001';
+  end if;
+  if p_reason is null or length(trim(p_reason)) = 0 then
+    raise exception 'Say why this entry is being reversed.' using errcode = 'P0001';
+  end if;
+
+  -- Built by hand rather than through post_journal_entry: the reference has to
+  -- be the original's with an R, so the pair reads as a pair in the journals
+  -- list, and post_journal_entry allocates a fresh JE- number.
+  insert into public.journal_entries
+      (shop_id, period_id, entry_date, reference, description, source, status,
+       location_id, reverses_entry_id, created_by)
+    values (v_shop, public.open_period_for(v_shop, v_date), v_date, v_ref || 'R',
+            'Reversal of ' || v_ref || ' — ' || trim(p_reason),
+            'manual', 'posted', v_loc, p_entry_id, auth.uid())
+    returning id into v_new;
+
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+    select v_new, account_id, -amount_cents, location_id, memo
+      from public.journal_lines where entry_id = p_entry_id;
+
+  -- The one update refuse_posted_entry_edit() permits.
+  update public.journal_entries
+     set status = 'reversed', reverses_entry_id = v_new
+   where id = p_entry_id;
+
+  return v_new;
+end;
+$$;
+
+grant execute on function public.reverse_journal_entry(uuid, text) to authenticated;

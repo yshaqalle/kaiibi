@@ -125,11 +125,18 @@ begin
   -- reversed and pointing it at its mirror. Everything else about the row must
   -- be identical, which is what the row comparison below checks -- listing
   -- columns by name would silently stop covering any column added later.
+  --
+  -- IS NOT DISTINCT FROM, never =. A row comparison containing a null on both
+  -- sides evaluates to NULL rather than true, so `=` here refused every
+  -- reversal of an entry with no location_id -- which is every entry a
+  -- single-store shop writes. The reversal failed with "A posted entry is
+  -- immutable", accusing the one function allowed to make this change.
   if old.status = 'posted' and new.status = 'reversed'
      and new.reverses_entry_id is not null
      and (new.id, new.shop_id, new.period_id, new.entry_date, new.reference,
           new.description, new.source, new.location_id, new.created_by, new.created_at)
-       = (old.id, old.shop_id, old.period_id, old.entry_date, old.reference,
+       is not distinct from
+         (old.id, old.shop_id, old.period_id, old.entry_date, old.reference,
           old.description, old.source, old.location_id, old.created_by, old.created_at) then
     return new;
   end if;
