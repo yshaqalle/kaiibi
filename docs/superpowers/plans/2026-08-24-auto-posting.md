@@ -198,7 +198,7 @@ Three ways out, in the order I would rank them:
 | `supabase/migrations/20260908000350_post_refund_and_settlement.sql` | `refund_sale_items`, `settle_sale_balance`. |
 | `supabase/migrations/20260908000360_settle_at_its_till_and_split_a_refund.sql` | Task 5's review fixes, copied forward from `20260908000350`: a settlement's entry carries the settling till's location, and a refund credits every tender it came in on. |
 | `supabase/migrations/20260908000400_post_receive_stock.sql` | `receive_stock`, copied forward from `20260907000000`. |
-| `supabase/migrations/20260908000500_post_bills_and_payroll.sql` | `record_invoice_payment`, `post_payroll_run`. |
+| `supabase/migrations/20260908000500_post_bills_and_payroll.sql` | `record_invoice_payment`, `post_payroll_run`, `unpost_payroll_run`. |
 | `supabase/migrations/20260908000600_post_stock_count.sql` | `save_stock_count`. |
 | `supabase/migrations/20260908000650_post_sale_edit.sql` | Task 5b. `edit_sale`, copied forward: reverse, re-post, re-point. |
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
@@ -1866,6 +1866,8 @@ git commit -m "feat(accounting): stock receipts and count variances post to the 
 **Interfaces:**
 - Consumes: `invoice_payments.journal_entry_id`, `payroll_runs.journal_entry_id` (Task 2), `account_code_for_payment_method` (Task 1).
 
+**`unpost_payroll_run` is in scope too, and was not in the first draft.** It is a button in the app (`src/lib/payroll.ts:141`) that returns a posted run to draft. The moment `post_payroll_run` writes a journal entry, unposting has to reverse it and clear `payroll_runs.journal_entry_id` — otherwise the next post overwrites the pointer, orphans the first entry, and `6200` reads double the wages actually paid **with the trial balance still zero**, because both entries individually balance.
+
 Paying a supplier is **Dr 2000 Accounts Payable, Cr the cash account**. A pay run is **Dr 6200 Salaries and Wages, Cr the cash account** — paid immediately, because `post_payroll_run` records a run that has been paid, not one that is owed. `2200 Wages Payable` stays unused until phase 3's accrual work.
 
 - [ ] **Step 1: Write the failing test**
@@ -1890,9 +1892,9 @@ Create `supabase/tests/verify-posting-bills.sql`:
   -- Against the wallet it was actually paid from, not the till.
   select coalesce(sum(l.amount_cents), 0) into v_amount
     from public.journal_lines l join public.accounts a on a.id = l.account_id
-   where l.entry_id = v_entry and a.code = '1021';
+   where l.entry_id = v_entry and a.code = '1020';
   if v_amount <> -4300 then
-    raise exception 'FAIL: expected Cr 1021 eDahab -4300, got % (paid by zaad should not touch 1000 Cash)', v_amount;
+    raise exception 'FAIL: expected Cr 1020 Zaad -4300, got % (paid by zaad should not touch 1000 Cash)', v_amount;
   end if;
 
   if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
@@ -1902,7 +1904,8 @@ Create `supabase/tests/verify-posting-bills.sql`:
 
   -- 2. A pay run posts wages against cash.
   --    Three members at 15000, 22000 and 9000 = 46000. No two sum to it.
-  v_run_id := public.post_payroll_run(v_run_id);
+  --    PERFORM, not assignment: post_payroll_run returns the EXPENSE id.
+  perform public.post_payroll_run(v_run_id);
   select journal_entry_id into v_entry from public.payroll_runs where id = v_run_id;
   if v_entry is null then raise exception 'FAIL: the pay run did not post'; end if;
 
@@ -1913,10 +1916,13 @@ Create `supabase/tests/verify-posting-bills.sql`:
     raise exception 'FAIL: expected Dr 6200 Salaries 46000, got % (37000/31000/24000 = a member dropped)', v_amount;
   end if;
 
-  -- 3. Posting the SAME run twice posts one entry, not two. post_payroll_run
-  --    already refuses a posted run, so this asserts the guard still holds with
-  --    a ledger behind it -- the failure mode being a second entry written
-  --    before the status check raises.
+  -- 3. Posting the SAME run twice posts one entry, not two. This exercises the
+  --    PRE-EXISTING status guard only. It CANNOT see the failure mode named
+  --    here (a second entry written before the status check raises): a plpgsql
+  --    BEGIN ... EXCEPTION block is a subtransaction, so the raise rolls that
+  --    entry back too. Proved dead by mutation M8 in task-7-report.md. The
+  --    check that bites is unpost-then-repost -- see check 7 of the shipped
+  --    verify-posting-bills.sql.
   select count(*) into v_rows from public.journal_entries
    where shop_id = v_shop_id and source = 'payroll';
   begin
@@ -1948,12 +1954,15 @@ In `record_invoice_payment`, after the payment row is inserted:
   -- moves money against the liability that recognition created. Posting 6xxx
   -- again here would double every cost the shop has.
   v_entry_id := public.post_journal_entry(
-    v_shop_id, p_paid_on, 'Supplier paid',
+    -- v_shop_id does not exist in record_invoice_payment; the row is v_invoice.
+    v_invoice.shop_id, p_paid_on, 'Supplier paid',
     jsonb_build_array(
       jsonb_build_object('code', '2000', 'amount_cents',  p_amount_cents, 'memo', 'Bill paid'),
       jsonb_build_object('code', public.account_code_for_payment_method(p_method),
                          'amount_cents', -p_amount_cents, 'memo', 'Paid by ' || p_method)),
-    null, 'payment');
+    -- The bill's store, not null: a payment against one store's bill must not
+    -- post with no store at all.
+    v_invoice.location_id, 'payment');
   update public.invoice_payments set journal_entry_id = v_entry_id where id = v_payment_id;
 ```
 
@@ -1964,7 +1973,9 @@ In `post_payroll_run`, after the run's status becomes `'posted'`:
   -- paid. Accruing wages that are owed but unpaid is phase 3's work, and 2200
   -- stays unused until then rather than being written to speculatively.
   v_entry_id := public.post_journal_entry(
-    v_run.shop_id, coalesce(v_run.paid_on, current_date), 'Payroll',
+    -- payroll_runs has NO paid_on column; the coalesce collapses to its
+    -- fallback, and current_date resolves in UTC.
+    v_run.shop_id, public.shop_local_date(), 'Payroll',
     jsonb_build_array(
       jsonb_build_object('code', '6200', 'amount_cents',  v_total, 'memo', 'Wages'),
       jsonb_build_object('code', '1000', 'amount_cents', -v_total, 'memo', 'Paid out')),
@@ -1975,7 +1986,7 @@ In `post_payroll_run`, after the run's status becomes `'posted'`:
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run test:db`
-Expected: `verify-posting-bills  pass`, **22 database checks passed**.
+Expected: `verify-posting-bills  pass`, **23 database checks passed**.
 
 - [ ] **Step 5: Prove the test can fail**
 
