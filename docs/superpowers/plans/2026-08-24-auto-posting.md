@@ -59,6 +59,8 @@ Five rules the RPC enforces, each of which will reject a posting bug at write ti
 
 **Every posting call in this plan passes an explicit `p_source`.** Never `'manual'`. The values used here are `'sale'`, `'refund'`, `'settlement'`, `'receipt'`, `'bill_payment'`, `'payroll'`, `'count'`, `'backfill'`.
 
+**Every `p_entry_date` comes from `public.shop_local_date()` (`20260908000320_shop_local_date.sql`), never a bare `now()::date` or `current_date`.** A bare cast resolves in the database session's timezone — UTC on Supabase — and Somalia is UTC+3, so a transaction near midnight local posts into the wrong month, permanently, once that month closes. `complete_sale` (Task 3b) predates the function and keeps its inline `at time zone 'Africa/Mogadishu'` expression rather than being copied forward for a cosmetic change; every task below is new code and has no such excuse. The one exception is `record_invoice_payment`'s `p_paid_on` (Task 7), which arrives as a `date`, not a `timestamptz` — there is no timezone to resolve, so it passes through unchanged.
+
 ### The seeded chart of accounts
 
 All 31 exist already, seeded per shop by `seed_shop_defaults` (`20260904000100`). The ones this phase posts to:
@@ -170,12 +172,14 @@ Three ways out, in the order I would rank them:
 | `supabase/migrations/20260908000100_posting_idempotency.sql` | `journal_entry_id` on eight source tables. |
 | `supabase/migrations/20260908000200_post_complete_sale.sql` | `complete_sale`, copied forward with a posting side. |
 | `supabase/migrations/20260908000300_sale_entry_date.sql` | Task 3b. The entry date is shop-local, and a closed month redates rather than refusing. |
+| `supabase/migrations/20260908000320_shop_local_date.sql` | `public.shop_local_date()`. One definition of the shop's local date, for every task below to call instead of copying the `at time zone 'Africa/Mogadishu'` expression again. Not itself a task — created ahead of Task 5 so it exists before its first caller. |
 | `supabase/migrations/20260908000350_post_refund_and_settlement.sql` | `refund_sale_items`, `settle_sale_balance`. |
 | `supabase/migrations/20260908000400_post_receive_stock.sql` | `receive_stock`, copied forward from `20260907000000`. |
 | `supabase/migrations/20260908000500_post_bills_and_payroll.sql` | `record_invoice_payment`, `post_payroll_run`. |
 | `supabase/migrations/20260908000600_post_stock_count.sql` | `save_stock_count`. |
 | `supabase/migrations/20260908000650_post_sale_edit.sql` | Task 5b. `edit_sale`, copied forward: reverse, re-post, re-point. |
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
+| `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
 | `supabase/tests/verify-posting-inventory.sql` | Receipt and stock-count entries. |
@@ -1350,7 +1354,7 @@ In `refund_sale_items`, after the refund row and its items are written:
   end if;
 
   v_entry_id := public.post_journal_entry(
-    v_shop_id, now()::date, 'Refund', v_lines, v_location_id, 'refund');
+    v_shop_id, public.shop_local_date(), 'Refund', v_lines, v_location_id, 'refund');
   update public.refunds set journal_entry_id = v_entry_id where id = v_refund_id;
 ```
 
@@ -1360,7 +1364,7 @@ In `settle_sale_balance`, after each settlement payment row is inserted:
   -- One entry per instalment, dated when the money arrived. Lumping several
   -- settlements into one entry would date the whole thing on the last payment.
   v_entry_id := public.post_journal_entry(
-    v_shop_id, now()::date, 'Balance settled',
+    v_shop_id, public.shop_local_date(), 'Balance settled',
     jsonb_build_array(
       jsonb_build_object('code', public.account_code_for_payment_method(v_method),
                          'amount_cents',  v_amount, 'memo', 'Settlement received'),
@@ -1568,7 +1572,7 @@ Create `supabase/migrations/20260908000650_post_sale_edit.sql`, reproducing `edi
   update public.sales set journal_entry_id = v_entry_id where id = p_sale_id;
 ```
 
-> New declarations: `v_old_entry_id`, `v_entry_id`, `v_lines`, `v_cogs_cents`, `v_owed_cents`, `v_item_discount_cents`, plus Task 3b's `v_entry_date`, `v_period_status`, `v_posted_date`.
+> New declarations: `v_old_entry_id`, `v_entry_id`, `v_lines`, `v_cogs_cents`, `v_owed_cents`, `v_item_discount_cents`, plus Task 3b's `v_entry_date`, `v_period_status`, `v_posted_date` — same names, same redirect-when-closed logic, but computed by calling `public.shop_local_date()`, not by pasting Task 3b's inline `at time zone 'Africa/Mogadishu'` expression again. `edit_sale` is new posting code as of this migration; it has none of `complete_sale`'s copy-forward history excusing the duplication.
 >
 > **The line-building logic is duplicated from `complete_sale`, and that is a real cost.** Two copies of the discount arithmetic — the `v_gross_cents + v_item_discount_cents` asymmetry that Task 3's review caught once already — is two places to get it wrong. Consider extracting `sale_journal_lines(p_sale_id uuid) returns jsonb`, which reads `sale_items` and `sale_payments` back off the rows both functions have just written, and calling it from both. Both functions already read those tables for COGS and for the payment lines, so the extraction is smaller than it looks and it makes Task 8's backfill a third caller rather than a third copy.
 
@@ -1758,7 +1762,7 @@ Expected: `verify-posting-inventory  FAIL` on check 1, `the receipt did not post
   -- record_invoice_payment, which debits 2000 back down.
   if v_value_cents > 0 then
     v_entry_id := public.post_journal_entry(
-      p_shop_id, now()::date, 'Stock received',
+      p_shop_id, public.shop_local_date(), 'Stock received',
       jsonb_build_array(
         jsonb_build_object('code', '1200', 'amount_cents',  v_value_cents, 'memo', 'Delivery received'),
         jsonb_build_object('code', '2000', 'amount_cents', -v_value_cents, 'memo', 'Owed to supplier')),
@@ -1784,7 +1788,7 @@ Expected: `verify-posting-inventory  FAIL` on check 1, `the receipt did not post
     -- enters COGS by any other path and gross profit reads high by exactly
     -- that amount, every month, invisibly.
     v_entry_id := public.post_journal_entry(
-      p_shop_id, now()::date, 'Stock count variance',
+      p_shop_id, public.shop_local_date(), 'Stock count variance',
       jsonb_build_array(
         jsonb_build_object('code', '5100', 'amount_cents', -v_variance_cents, 'memo', 'Stock short'),
         jsonb_build_object('code', '1200', 'amount_cents',  v_variance_cents, 'memo', 'Written off')),
@@ -1795,7 +1799,7 @@ Expected: `verify-posting-inventory  FAIL` on check 1, `the receipt did not post
     -- debit and a negative credit sum to zero and pass every check while
     -- meaning nothing a reader could act on.
     v_entry_id := public.post_journal_entry(
-      p_shop_id, now()::date, 'Stock count variance',
+      p_shop_id, public.shop_local_date(), 'Stock count variance',
       jsonb_build_array(
         jsonb_build_object('code', '1200', 'amount_cents',  v_variance_cents, 'memo', 'Stock found'),
         jsonb_build_object('code', '5100', 'amount_cents', -v_variance_cents, 'memo', 'Shrinkage reversed')),
@@ -1911,6 +1915,8 @@ Expected: `verify-posting-bills  FAIL` on check 1, `the invoice payment did not 
 Create `supabase/migrations/20260908000500_post_bills_and_payroll.sql`, reproducing both functions in full.
 
 In `record_invoice_payment`, after the payment row is inserted:
+
+**`p_paid_on` is exempt from the `public.shop_local_date()` rule below.** It arrives as a `date`, not a `timestamptz` — there is no server timezone to resolve against, so wrapping it (`public.shop_local_date(p_paid_on)`) would be a no-op cast through a function that expects a moment in time, not a clarification. Do not "fix" this one.
 
 ```sql
   -- No expense line. The expense was recognised when the bill arrived; this
