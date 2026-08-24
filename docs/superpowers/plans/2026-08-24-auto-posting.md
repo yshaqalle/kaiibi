@@ -487,7 +487,7 @@ Using `complete_sale`'s own variables:
 | Line | Account | Amount |
 |---|---|---|
 | Dr | per payment, `account_code_for_payment_method(method)` | that payment's `amount_cents` |
-| Dr | `1100` Accounts Receivable | `v_balance`, when the sale is left part-paid |
+| Dr | `1100` Accounts Receivable | `v_owed_cents` (= `v_total_cents - v_payments_total`), when the sale is left part-paid |
 | Dr | `4200` Discounts Given | `v_discount_cents + v_redeem_cents` |
 | Cr | `4000` Sales Revenue | `v_gross_cents` |
 | Cr | `2100` Sales Tax Payable | `v_tax_cents` |
@@ -642,8 +642,12 @@ Create `supabase/tests/verify-posting-sales.sql`. Fixture: a shop, one location,
   --    raises, every sale in the shop stops until someone grants the permission.
   --    (The fixture user is the owner, so this asserts the shape rather than
   --    the grant: a staff role with pos.access but no ledger.post.)
-  perform public.grant_role_permissions(v_staff_role_id, array['pos.access']);
   perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+  -- Asserted, not assumed: a fixture that drifted into handing the cashier
+  -- ledger.post would make check 5 pass while proving nothing at all.
+  if public.has_shop_permission(v_shop_id, 'ledger.post') then
+    raise exception 'FAIL: the fixture cashier holds ledger.post, so check 5 would prove nothing';
+  end if;
   v_sale_id := public.complete_sale(
     v_shop_id,
     jsonb_build_array(jsonb_build_object('product_id', v_prod_a, 'quantity', 1, 'unit_price_cents', 2000)),
@@ -655,7 +659,17 @@ Create `supabase/tests/verify-posting-sales.sql`. Fixture: a shop, one location,
   perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
 ```
 
-> The fixture must create `v_staff_id`, `v_staff_role_id` and `v_prod_uncosted`, and grant the staff member `pos.access` only. Copy the role-and-member setup from `verify-inventory-permissions.sql`, which already does exactly this.
+> The fixture must create `v_staff_id`, `v_staff_role_id` and `v_prod_uncosted`, and give the staff member `pos.access` only. Copy the role-and-member setup from `verify-inventory-permissions.sql`, which already does exactly this — but note there is **no `grant_role_permissions()` helper** in this database. Permissions are a `text[]` column set inline, and the table is `public.roles`, not `shop_roles`:
+>
+> ```sql
+> insert into public.roles (shop_id, name, permissions)
+>   values (v_shop_id, 'Till Only', array['pos.access'])
+>   returning id into v_staff_role_id;
+> insert into public.shop_members (shop_id, user_id, role_id, active)
+>   values (v_shop_id, v_staff_id, v_staff_role_id, true);
+> ```
+>
+> Both inserts must happen **before** the JWT claim is switched, while raw inserts are still possible.
 
 - [ ] **Step 2: Run it and verify it fails**
 
@@ -664,12 +678,28 @@ Expected: `verify-posting-sales  FAIL` on check 1, `the sale did not post a jour
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/20260908000200_post_complete_sale.sql`. Reproduce `complete_sale` **in full** from `20260831000100_complete_sale_allows_credit.sql`, then add two declarations and one block.
+Create `supabase/migrations/20260908000200_post_complete_sale.sql`. Reproduce `complete_sale` **in full** from `20260831000100_complete_sale_allows_credit.sql`, then add four declarations and one block.
+
+> **The trap this task actually contains.** `20260831000100` is the newest `create or replace` definition, but it is **not** the newest state of the function. `20260905000000_complete_sale_lock_order.sql` patches `complete_sale` (and `edit_sale`) by **text substitution against the live `pg_proc` source**, so its fix appears in no migration's `create or replace` text — invisible to a grep for the newest definition, and invisible to `accumulated-rpc-edits.test.ts`, which reads migration text. Copying this function forward from `20260831000100` therefore **silently reverts a live deadlock fix on the hottest path in the app.** `verify-sale-lock-order` catches it; nothing else does. The item loop must read:
+>
+> ```sql
+>   for v_item in
+>     select value from jsonb_array_elements(p_items) with ordinality as t(value, ord)
+>       order by (value->>'product_id'), ord
+>   loop
+> ```
+>
+> Before copying any RPC forward in this repo, check for text-substitution migrations too, not just `create or replace` blocks: `grep -rln "prosrc" supabase/migrations/`.
 
 Add to `declare`:
 
 ```sql
   v_cogs_cents integer := 0;
+  -- What is still owed. NOT v_balance -- that one holds the customer's loyalty
+  -- POINTS balance and is only ever assigned inside the redemption branch, so
+  -- reading it as money would post a receivable denominated in points on a
+  -- redeeming sale, and none at all on a plain credit sale.
+  v_owed_cents integer := 0;
   v_entry_id uuid;
   v_lines jsonb;
 ```
@@ -694,7 +724,9 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
   --
   -- Uncosted lines contribute nothing rather than zero. isUncosted() is careful
   -- that null and zero are different answers: a free sample really does cost
-  -- nothing; an unpriced product is a question nobody answered.
+  -- nothing; an unpriced product is a question nobody answered. (sum() ignores
+  -- nulls anyway; the filter states the intent for the next reader. What makes
+  -- the uncosted case correct is the `if v_cogs_cents > 0` guard below.)
   select coalesce(sum(si.unit_cost_cents::bigint * si.quantity), 0)
     into v_cogs_cents
     from public.sale_items si
@@ -711,9 +743,21 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
     from public.sale_payments sp
    where sp.sale_id = v_sale_id and sp.amount_cents <> 0;
 
-  if v_balance > 0 then
+  -- What the customer still owes, which the guards above have already accepted
+  -- as an under-payment made on purpose against a named customer. Both operands
+  -- are final here: the payments loop has closed and the tax has been folded
+  -- into v_total_cents.
+  --
+  -- NOT v_balance. That variable exists in this function and holds the
+  -- customer's loyalty POINTS balance, assigned only inside the redemption
+  -- branch -- so it is NULL on a plain credit sale (no receivable posted, entry
+  -- unbalanced, every credit sale fails) and a points count on a redeeming one
+  -- (a receivable denominated in points, entry unbalanced, every redeeming sale
+  -- fails). Guarded on > 0 because journal_lines refuses a zero amount.
+  v_owed_cents := v_total_cents - v_payments_total;
+  if v_owed_cents > 0 then
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', '1100', 'amount_cents', v_balance, 'memo', 'Left on account'));
+      'code', '1100', 'amount_cents', v_owed_cents, 'memo', 'Left on account'));
   end if;
 
   -- Discounts and redeemed points are shown GROSS: revenue at list, the
@@ -759,9 +803,20 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
 Modify `supabase/tests/accumulated-rpc-edits.test.ts`, adding to `COMPLETE_SALE_EDITS`:
 
 ```ts
+  // Introduced in 20260905000000, but only guardable now: that migration
+  // rewrites complete_sale by text substitution against the live pg_proc
+  // source, so until 20260908000200 the newest `create or replace` text --
+  // all this test can read -- did not contain the fix. That is the blind
+  // spot, and 20260908000200 duly reverted the fix on its first run.
+  ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
   ['20260908000200', 'the sale posts a journal entry', "'sale')"],
   ['20260908000200', 'COGS comes from the frozen line cost', 'v_cogs_cents'],
+  // Specific to the variable, not merely to account 1100 -- this plan
+  // originally said `v_balance`, which is the loyalty POINTS balance.
+  ['20260908000200', 'the receivable is money owed, not the points balance', 'v_owed_cents'],
 ```
+
+Note that the migration's own header comment must avoid the literal string `create or replace function public.` — this test slices from the **first** occurrence of that signature to the first `$$;`, so a comment quoting it shifts the slice and trips the "is the only definition in its own migration" guard.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -770,13 +825,15 @@ Expected: `verify-posting-sales  pass`, **20 database checks passed**; the jest 
 
 - [ ] **Step 6: Prove the test can fail**
 
-Mutation: post `-v_total_cents` to `4000` instead of `-v_gross_cents`. Expected: check 1 fails with `-7350 = tax booked as revenue`. Revert.
+Mutation: post `-v_total_cents` to `4000` instead of `-v_gross_cents`. Expected: check 1 fails — though **not** with `-7350 = tax booked as revenue` as first drafted. Booking the tax as revenue also unbalances the entry, so `post_journal_entry`'s own balance guard fires first and the actual message is `This entry does not balance: debits and credits differ by -350.` The check still reddens, which is the point. Revert.
 
 Mutation: build one lumped cash line instead of one per payment. Expected: check 2 fails with `2100 = both lumped into one account`. Revert.
 
-Mutation: drop the `and si.unit_cost_cents is not null` filter. Expected: check 1 still passes (null sums to the same total) but **check 4 fails** — the uncosted sale posts a zero COGS pair and the whole sale raises. This is why check 4 exists. Revert.
+Mutation: drop the `if v_cogs_cents > 0` guard, so the COGS pair is always appended. Expected: **check 4 fails** — the uncosted sale posts a zero COGS pair and `journal_lines`' `check (amount_cents <> 0)` refuses it, taking the whole sale down. This is why check 4 exists. Revert.
 
-Mutation: pass `'manual'` as `p_source`. Expected: check 5 fails — the cashier is refused. Revert.
+> Do **not** use "drop the `and si.unit_cost_cents is not null` filter" as this mutation. It was tried and it is a **no-op**: SQL `sum()` already ignores nulls, so `v_cogs_cents` is byte-identical with and without the filter and the suite stays fully green. A mutation that cannot redden its check proves nothing about the check.
+
+Mutation: pass `'manual'` as `p_source`. Expected: the run reddens at **check 1's `source` assertion** (`expected source=sale, got manual`), which fires before check 5 is reached because the fixture owner *does* hold `ledger.post`. To see check 5 itself fire, neutralise that one assertion and re-run: the cashier is then refused with `You do not have permission to post journal entries.` — the exact failure this whole phase exists to prevent. Revert.
 
 - [ ] **Step 7: Commit**
 

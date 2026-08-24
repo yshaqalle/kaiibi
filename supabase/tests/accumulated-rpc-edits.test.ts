@@ -78,6 +78,25 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   ['20260826000100', 'the promotion window is re-checked server-side', 'v_expected_discount'],
   ['20260831000100', 'a sale may be left part-paid on purpose', 'p_allow_balance'],
   ['20260831000100', 'a sale nobody paid reads as unpaid', "'unpaid'"],
+  // Introduced in 20260905000000, but it could not be guarded here until now:
+  // that migration rewrites complete_sale by TEXT SUBSTITUTION against the live
+  // pg_proc source rather than re-creating it, so until 20260908000200 the
+  // newest `create or replace` text -- the only thing this test can read -- did
+  // not contain the fix, and this entry would have failed against a database
+  // that HAD it. That is the blind spot: a text-substitution migration is
+  // invisible to this guard, and 20260908000200 duly reverted the fix on its
+  // first run. Now that the ORDER BY is written into the newest definition, it
+  // is guarded like every other edit.
+  ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
+  ['20260908000200', 'the sale posts a journal entry', "'sale')"],
+  ['20260908000200', 'COGS comes from the frozen line cost', 'v_cogs_cents'],
+  // Specific to the variable, not merely to account 1100. The plan for this
+  // migration said to post the receivable from `v_balance` -- which in this
+  // function is the customer's loyalty POINTS balance, assigned only inside the
+  // redemption branch. That would have posted a receivable denominated in
+  // points on a redeeming sale and none at all on a plain credit sale. Pinned
+  // here so a future copy-forward cannot quietly reintroduce the wrong one.
+  ['20260908000200', 'the receivable is money owed, not the points balance', 'v_owed_cents'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
