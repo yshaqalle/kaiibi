@@ -24,6 +24,25 @@
 -- ever wanted; cost layers would then be an upgrade rather than a prerequisite,
 -- and this migration's arithmetic is what they would replace.
 --
+-- ## The costs that already exist are not restated
+--
+-- Every products.cost_cents today is the price of whatever arrived last. It
+-- cannot be restated as a weighted average: that would need the quantity and
+-- price of every delivery behind the current stock, and stock_receipt_items
+-- only reaches back as far as receipts have been recorded -- which for stock
+-- predating the feature is nowhere at all.
+--
+-- So the existing figure is taken as the opening average and the formula runs
+-- from the next delivery forward. This is the ordinary treatment for a change
+-- in accounting estimate: applied prospectively, and disclosed rather than
+-- discovered. The disclosure is on the screens that show a stock value.
+--
+-- In practice it converges quickly. Each delivery pulls the average toward the
+-- true figure in proportion to its share of stock on hand, so a shop turning
+-- its stock every few weeks is on a real average within a month or two.
+--
+-- This is why there is no backfill statement below, and no data migration.
+--
 -- ## What is NOT changed
 --
 -- complete_sale, save_stock_count, refund_sale_items and transfer_stock are all
