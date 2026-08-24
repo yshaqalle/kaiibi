@@ -162,21 +162,7 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 
 ---
 
-**An expense recorded after this phase will not post, and that has to be said out loud.**
-
-Found while writing this plan, and it is a hole in the phase rather than a detail. The design's premise is *"every money move goes through an RPC, so the posting side is added inside the existing function and no call site changes."* That is true of all seven RPCs in scope — and **not true of expenses**, which are written by a plain `insert` from the client. There is no function to add a posting side to.
-
-So Task 8 backfills every historical expense, and then the next expense a shop records goes unposted. The P&L would be complete up to the backfill date and progressively wrong after it — the worst of the three possible states, because it looks right.
-
-Three ways out, in the order I would rank them:
-
-1. **An `AFTER INSERT` trigger on `expenses`** that posts the entry. Small, closes the hole in this phase, and it is where the seam actually is. Against it: this codebase has deliberately put money logic in RPCs rather than triggers, and a trigger that can raise makes every expense insert able to fail on a ledger problem.
-2. **Bring `create_bill` forward from phase 3** and route expense entry through it. Correct, and the design already wants it — but it is a new RPC plus a screen change, which is a phase-3-sized piece of work inside a phase-2b plan.
-3. **Ship the hole and state it**: the Expenses screen carries a `Caveat tone="context"` saying expenses reach the books when the period closes, and a nightly job posts them. Honest, but it invents a job.
-
-**Recommendation: (1), as a Task 7b.** It is roughly twenty lines, it uses the mapping Task 1 already builds, and it means the trial balance is complete on the day this phase ships rather than on the day phase 3 does.
-
-**This needs a decision before Task 8**, because whichever way it goes the backfill's expense replay has to agree with it.
+*An expense recorded after this phase would not post — an `AFTER INSERT` trigger on `expenses`. **Decided and shipped: see Task 7b.***
 
 ---
 
@@ -202,15 +188,17 @@ Three ways out, in the order I would rank them:
 | `supabase/migrations/20260908000600_post_stock_count.sql` | `save_stock_count`. |
 | `supabase/migrations/20260908000650_post_sale_edit.sql` | Task 5b. `edit_sale`, copied forward: reverse, re-post, re-point. |
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
+| `supabase/migrations/20260908000750_post_expenses.sql` | Task 7b. The `AFTER INSERT` trigger on `expenses`. Numbered after the backfill because it was added once the backfill's number was already claimed; neither depends on the other's objects, so the order they apply in does not matter. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
 | `supabase/tests/verify-posting-inventory.sql` | Receipt and stock-count entries. |
 | `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries. |
+| `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or bill-derived expense row posts nothing. |
 | `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. |
 | `supabase/tests/bench-complete-sale.sql` | Measured before/after on a 20-line basket. |
 
-`test:db` goes from **18** to **23**. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
+`test:db` goes from **18** to **24** (23 before Task 7b added `verify-posting-expenses.sql`). `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
 
 ---
 
@@ -2003,6 +1991,83 @@ git commit -m "feat(accounting): supplier payments and pay runs post to the ledg
 
 ---
 
+### Task 7b: an expense written by a plain `insert` posts
+
+**This was not in the original plan.** It exists because writing the plan exposed a hole in its own premise. The design's premise is *"every money move goes through an RPC, so the posting side is added inside the existing function and no call site changes."* That is true of all seven RPCs in Tasks 3–7. It is **not** true of expenses: `src/lib/expenses.ts:96` is a plain `.from('expenses').insert()`. There is no function to add a posting side to.
+
+Without this task, Task 8 backfills every historical expense and the very next expense a shop records goes unposted. The P&L would be complete up to the backfill date and progressively wrong after it — **the worst of the three possible states, because it looks right.**
+
+Three ways out were considered. **(1) an `AFTER INSERT` trigger on `expenses`** — small, and the seam is where the row is written. **(2) bring `create_bill` forward from phase 3** — correct, and what the design ultimately wants, but a new RPC plus a screen change is phase-3-sized work inside a phase-2b plan. **(3) ship the hole behind a `Caveat` on the Expenses screen** — honest, but it invents a nightly job that does not exist.
+
+**Decided: (1).** It reuses the mapping Task 1 already built, and it means the trial balance is complete on the day this phase ships rather than on the day phase 3 does. The cost of the choice, stated rather than hidden: this codebase has deliberately kept money logic in RPCs rather than triggers, and a trigger that can raise makes every expense insert able to fail on a ledger problem — which is why the closed-period redirect below is not optional.
+
+**Files:**
+- Create: `supabase/migrations/20260908000750_post_expenses.sql`
+- Create: `supabase/tests/verify-posting-expenses.sql`
+
+**Interfaces:**
+- Consumes: `expenses.journal_entry_id` (Task 2), `account_code_for_expense_category` and `account_code_for_payment_method` (Task 1), `shop_local_date()`.
+- Produces: `public.post_expense_to_ledger()` and the `expenses_post_to_ledger` `AFTER INSERT` row trigger. No signature change anywhere; no call site changes.
+
+**The mapping is what makes a balance sheet possible.** `inventory_purchase` maps to `1200 Inventory` (an **asset**, not a cost) and `owner_draw` to `3100 Owner's Draw` (**contra-equity**, not a cost). `NON_OPERATING_CATEGORIES` in `src/lib/expense-reporting.ts` reaches the right net profit today by *excluding* those two — the right answer by the wrong route, because a filter in a reporting helper cannot also produce a balance sheet. Once these entries exist the exclusion is a **consequence of where each account sits** rather than a list somebody has to remember to keep in step.
+
+#### The exclusion, which is what breaks this if it is missed
+
+**`post_payroll_run` writes BOTH a journal entry AND an `expenses` row** carrying `payroll_run_id` and category `salaries_wages` — which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`; that cost is recognised by the bill and its liability side by `receive_stock` (`Cr 2000`) and `record_invoice_payment` (`Dr 2000`).
+
+So a naive trigger double-posts. `6200 Salaries and Wages` and `1000 Cash` would each be counted **twice** for one pay run, and every stocked cost would be recognised twice — **with the trial balance still zero**, because both entries individually balance. Nothing else in the system catches that.
+
+**The trigger skips any row where `payroll_run_id is not null`, `invoice_id is not null`, or `journal_entry_id is not null`.** The third is the same guard Task 2's column exists for, and it is what stops a backfill running against a live trigger from posting twice. `log_recurring_bill` sets **neither** of the first two and is deliberately **not** excluded — nothing else posts for it, and it is a real cost the shop just incurred.
+
+#### Two decisions the brief left to the implementation
+
+**`p_source` is `'bill'`, not `'payment'`.** `'payment'` is already taken by `record_invoice_payment`, whose entry is `Dr 2000 / Cr a wallet` and touches no expense account at all. Reusing it would make `where source = 'payment'` return two structurally different entries, and any phase-3 report grouping by source would mix a liability settlement with a cost recognition. `'bill'` is the recognition of a cost the shop has incurred — `20260904000300`'s own comment on `entry_date` uses *"a bill entered on 3 September for August utilities"* as the example — and no other door uses it.
+
+**The credit is `account_code_for_payment_method(new.payment_method)`, not a hardcoded `1000 Cash`.** `expenses.payment_method` carries the same four values `invoice_payments.method` does, and Task 1's map already answers this. Hardcoding `1000` would make the till count disagree with the ledger for every zaad or eDahab expense and leave `1020`/`1021` permanently understated on the balance sheet this phase exists to make possible — the exact defect `verify-posting-bills.sql` check 2 catches on the supplier-payment side. For the common case (`payment_method` defaults to `'cash'`) this **is** `'1000'`.
+
+#### `p_entry_date` is `occurred_on`, and a closed month redirects
+
+`expenses.occurred_on` is already a `date` column, so it is **exempt from the `shop_local_date()` rule** — there is no moment in time to resolve against a server timezone, and wrapping it would be a no-op cast through a function that expects a `timestamptz`. It is the right date on its own terms: `20260804000200` makes the point that a receipt is often logged days after the purchase and it is the *purchase* date that decides the period.
+
+**But the expense editor has a free date field (`expense-editor-modal.tsx:101`), so back-dating is the ordinary way last week's receipt is entered — not an import edge case.** `open_period_for` raises for any non-open period, so without a redirect a plain expense insert (something that works today) would start failing outright the moment a shop closed a month. This applies Task 3b's Change 2 treatment: **read** the period's status and redate to `shop_local_date()`, never **catch** `open_period_for`'s exception — a handler around the post would also swallow an unbalanced entry, an unknown account code or a missing chart of accounts and retry them into the current month as though the only thing wrong were the date. The entry's description carries the true `occurred_on` and the status that pushed it, so the journal says why an old cost is sitting in this month.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `supabase/tests/verify-posting-expenses.sql`. Eight checks: an ordinary expense posts `Dr` its category's account / `Cr 1000` and sets `journal_entry_id`; a zaad expense credits `1020`; `inventory_purchase` debits `1200` and posts **no** expense-type line; `owner_draw` debits `3100` and the debit's account **type** is `equity`; a pay run posts exactly one entry and `6200` reads the run total shop-wide, not double it; a bill's mirrored expense row posts nothing; a row already carrying `journal_entry_id` is left alone; a back-dated expense in a closed month redirects.
+
+**Read `journal_entry_id` back with a `select`, never from `RETURNING`.** The trigger is `AFTER INSERT` and writes the column with its own `UPDATE`, so the `RETURNING` value is the pre-trigger `NULL` — an assertion on it fails a *correct* implementation. That is the shape of no-op this plan has hit seven times.
+
+**Measure `6200` shop-wide, not per entry.** A duplicate payroll entry is invisible to every per-entry assertion in `verify-posting-bills.sql`; the run points at one of the two and both balance.
+
+- [ ] **Step 2: Run it and verify it fails**
+
+Run: `npm run test:db -- --no-reset`
+Expected: `verify-posting-expenses  FAIL` — `an ordinary expense did not post -- expenses.journal_entry_id is null`.
+
+- [ ] **Step 3: Write the migration**
+
+Create `supabase/migrations/20260908000750_post_expenses.sql`. **`AFTER`, not `BEFORE`**, so the ledger only ever learns about an expense the table has already accepted (`amount_cents > 0`, the category `CHECK`, `enforce_shop_module`) — which means `new` is not writable and the pointer goes on with an `update ... where id = new.id` rather than an assignment. `security definer`, matching `sync_invoice_expense`'s posture, so the pointer write never meets the expense update policy.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test:db`
+Expected: `verify-posting-expenses  pass`, **24 database checks passed**.
+
+- [ ] **Step 5: Prove the test can fail**
+
+Twelve mutations, every one red. Notably: remove the `payroll_run_id` exclusion → `posting a pay run wrote 1 extra 'bill' entries`. Remove the `invoice_id` exclusion → `recording a bill wrote 1 journal entries via its mirrored expense row`. Hardcode the credit to `'1000'` → `expected Cr 1020 Zaad -4188, got 0`. Map `inventory_purchase` to `6900` → `expected Dr 1200 Inventory 52193, got 0`. Drop the closed-period redirect → the insert dies with `This period is closed — posting into it is refused`.
+
+The two `if exists (… a.type = 'expense')` guards need their **own** mutation to bite — an off-by-one in the map trips the amount assertion above them first. The mutation that reaches them adds a balanced `6900`/`1020` pair to the entry, leaving every amount check green.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add supabase/migrations/20260908000750_post_expenses.sql supabase/tests/verify-posting-expenses.sql
+git commit -m "feat(accounting): an expense recorded from the client posts to the ledger"
+```
+
+---
+
 ### Task 8: The historical backfill
 
 Every existing row replayed into the ledger. This is the task with real risk, and the one that must **not** call `post_journal_entry`.
@@ -2023,6 +2088,14 @@ Two reasons, both structural:
 2. **It opens periods one at a time.** `open_period_for` inserts a period on first use. Fine interactively; wasteful across three years of history, and it raises the moment it meets a month someone has already closed — which would abort a replay halfway through.
 
 The backfill therefore creates the periods it needs up front, generates references with a window function, and inserts `journal_entries` and `journal_lines` directly. **The deferred balance trigger still runs**, so the guarantee is unchanged — only the convenience wrapper is skipped.
+
+#### The expense replay must apply Task 7b's exclusion, for the same reason
+
+**The backfill's expense replay must skip every `expenses` row where `payroll_run_id is not null` or `invoice_id is not null`, exactly as `post_expense_to_ledger()` does** — and, being a replay, every row already carrying a `journal_entry_id`.
+
+The reason is Task 7b's reason, unchanged: `post_payroll_run` writes **both** a journal entry and an `expenses` row carrying `payroll_run_id` and category `salaries_wages`, which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`, and that cost's liability side is posted by `receive_stock` and settled by `record_invoice_payment`. Replaying either row would count `6200 Salaries and Wages` and every stocked cost **twice** — **with the trial balance still zero**, because both entries individually balance. Task 8's own tie-out compares the replay against the live path, so a replay that copies the trigger's exclusion wrongly and a trigger that has it right disagree by exactly the wages; a replay that copies it wrongly in the *same* way the trigger would have been wrong agrees perfectly and is wrong twice.
+
+Because a shop may be backfilled while the trigger is live, the `journal_entry_id is null` filter is not an optimisation — it is what stops the two paths posting the same expense.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -2417,7 +2490,7 @@ Add to `declare`: `v_offset integer;`.
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `npm run test:db`
-Expected: `verify-backfill  pass`, **23 database checks passed**.
+Expected: `verify-backfill  pass`, **25 database checks passed** (24 after Task 7b, plus `verify-backfill`).
 
 - [ ] **Step 5: Prove the test can fail**
 
@@ -2441,7 +2514,7 @@ git commit -m "feat(accounting): replay existing history into the ledger"
 - [ ] **Step 1: Full suite**
 
 Run: `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: clean; 139 suites / 2122 tests (plus the two new `accumulated-rpc-edits` assertions); 81 lint; **23** database checks.
+Expected: clean; 139 suites / 2122 tests (plus the two new `accumulated-rpc-edits` assertions); 81 lint; **25** database checks (24 after Task 7b, plus `verify-backfill`).
 
 - [ ] **Step 2: Confirm the weighted average survived**
 
