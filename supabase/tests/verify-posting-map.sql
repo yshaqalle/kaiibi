@@ -9,9 +9,11 @@ do $$
 declare
   v_user_id uuid := gen_random_uuid();
   v_shop_id uuid;
-  v_code    text;
-  v_value   text;
-  v_missing text := '';
+  v_code       text;
+  v_value      text;
+  v_missing    text := '';
+  v_constraint text;
+  v_iterations int := 0;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     values (v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -25,6 +27,16 @@ begin
   if public.account_code_for_payment_method('zaad')   <> '1020' then raise exception 'FAIL: zaad'; end if;
   if public.account_code_for_payment_method('edahab') <> '1021' then raise exception 'FAIL: edahab'; end if;
   if public.account_code_for_payment_method('other')  <> '1010' then raise exception 'FAIL: other'; end if;
+
+  -- 1b. An unmapped payment method RAISES rather than returning null -- the
+  --     same reasoning as check 4 below, for the function every posting site
+  --     actually calls.
+  begin
+    v_code := public.account_code_for_payment_method('bitcoin');
+    raise exception 'FAIL: an unknown payment method should raise, got %', v_code;
+  exception when others then
+    if sqlerrm !~ 'no account is mapped' then raise; end if;
+  end;
 
   -- 2. The three that were never operating expenses. These are the whole reason
   --    a balance sheet is possible -- NON_OPERATING_CATEGORIES in
@@ -67,13 +79,25 @@ begin
   -- 5. THE ONE THAT MATTERS. Read the twelve values out of the check constraint
   --    itself and assert each maps to an account that is seeded for this shop.
   --    A hand-written list here would go stale the moment someone adds a
-  --    category; this cannot.
+  --    category; this cannot. The constraint lookup is captured into a
+  --    variable and checked for null first: a scalar subquery that finds no
+  --    row makes regexp_matches on null return zero rows silently, the loop
+  --    body never runs, v_missing stays empty, and the script would print
+  --    ALL CHECKS PASSED having verified nothing -- the worst outcome in this
+  --    file, since this is the one check the header calls out as the one
+  --    that matters. `order by conname` alongside the `limit 1` keeps the
+  --    pick deterministic if a second matching constraint ever exists.
+  select pg_get_constraintdef(oid) into v_constraint from pg_constraint
+    where conrelid = 'public.expenses'::regclass and conname like '%category%'
+    order by conname limit 1;
+  if v_constraint is null then
+    raise exception 'FAIL: the expenses category constraint lookup found nothing -- check 5 cannot run';
+  end if;
+
   for v_value in
-    select unnest(regexp_matches(
-      (select pg_get_constraintdef(oid) from pg_constraint
-        where conrelid = 'public.expenses'::regclass and conname like '%category%' limit 1),
-      '''([a-z_]+)''', 'g'))
+    select unnest(regexp_matches(v_constraint, '''([a-z_]+)''', 'g'))
   loop
+    v_iterations := v_iterations + 1;
     begin
       v_code := public.account_code_for_expense_category(v_value);
     exception when others then
@@ -85,6 +109,9 @@ begin
       v_missing := v_missing || v_value || ' -> ' || v_code || ' (no such account) ';
     end if;
   end loop;
+  if v_iterations < 12 then
+    raise exception 'FAIL: check 5 only iterated % times -- the constraint regexp matched too few values to trust an empty v_missing', v_iterations;
+  end if;
   if v_missing <> '' then
     raise exception 'FAIL: expense categories with no usable account: %', v_missing;
   end if;

@@ -314,10 +314,15 @@ Create `supabase/migrations/20260908000000_posting_account_map.sql`:
 -- IMMUTABLE, so they can sit in an index or a generated column later without
 -- being re-planned. They read nothing.
 
+-- Raises rather than returning null: a null code reaches post_journal_entry
+-- as "No such account: " with nothing after it, which is a worse message at
+-- a later moment than this one.
 create or replace function public.account_code_for_payment_method(p_method text)
 returns text
-language sql immutable as $$
-  select case p_method
+language plpgsql immutable as $$
+declare v_code text;
+begin
+  v_code := case p_method
     when 'cash'   then '1000'
     when 'zaad'   then '1020'
     when 'edahab' then '1021'
@@ -325,16 +330,6 @@ language sql immutable as $$
     -- the drawer count disagree with the ledger for a reason nobody could find.
     when 'other'  then '1010'
   end;
-$$;
-
--- The raise lives in a wrapper because a plain SQL function cannot raise. A
--- null code would reach post_journal_entry as "No such account: " with nothing
--- after it, which is a worse message at a later moment than this one.
-create or replace function public.account_code_for_payment_method_checked(p_method text)
-returns text
-language plpgsql immutable as $$
-declare v_code text := public.account_code_for_payment_method(p_method);
-begin
   if v_code is null then
     raise exception 'no account is mapped to the payment method %', coalesce(p_method, '<null>')
       using errcode = 'P0001';
@@ -381,7 +376,6 @@ end;
 $$;
 
 grant execute on function public.account_code_for_payment_method(text) to authenticated;
-grant execute on function public.account_code_for_payment_method_checked(text) to authenticated;
 grant execute on function public.account_code_for_expense_category(text) to authenticated;
 ```
 
@@ -479,7 +473,7 @@ The hot path, and the one with real risk. Reproduce `complete_sale` verbatim fro
 - Modify: `supabase/tests/accumulated-rpc-edits.test.ts`
 
 **Interfaces:**
-- Consumes: `account_code_for_payment_method_checked(text)` (Task 1), `sales.journal_entry_id` (Task 2).
+- Consumes: `account_code_for_payment_method(text)` (Task 1), `sales.journal_entry_id` (Task 2).
 - Produces: a `journal_entries` row per sale with `source = 'sale'`.
 
 #### The entry, and why it balances
@@ -488,7 +482,7 @@ Using `complete_sale`'s own variables:
 
 | Line | Account | Amount |
 |---|---|---|
-| Dr | per payment, `account_code_for_payment_method_checked(method)` | that payment's `amount_cents` |
+| Dr | per payment, `account_code_for_payment_method(method)` | that payment's `amount_cents` |
 | Dr | `1100` Accounts Receivable | `v_balance`, when the sale is left part-paid |
 | Dr | `4200` Discounts Given | `v_discount_cents + v_redeem_cents` |
 | Cr | `4000` Sales Revenue | `v_gross_cents` |
@@ -706,7 +700,7 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
   -- single lumped line would make the drawer and the wallet impossible to
   -- reconcile separately, which is most of what a cash position is for.
   select coalesce(jsonb_agg(jsonb_build_object(
-           'code',         public.account_code_for_payment_method_checked(sp.method),
+           'code',         public.account_code_for_payment_method(sp.method),
            'amount_cents', sp.amount_cents,
            'memo',         'Payment by ' || sp.method)), '[]'::jsonb)
     into v_lines
@@ -1036,7 +1030,7 @@ In `refund_sale_items`, after the refund row and its items are written:
       'code', '1100', 'amount_cents', -v_refund_amount, 'memo', 'Reduced what is owed'));
   else
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', public.account_code_for_payment_method_checked(v_sale_method),
+      'code', public.account_code_for_payment_method(v_sale_method),
       'amount_cents', -v_refund_amount, 'memo', 'Refunded'));
   end if;
 
@@ -1059,7 +1053,7 @@ In `settle_sale_balance`, after each settlement payment row is inserted:
   v_entry_id := public.post_journal_entry(
     v_shop_id, now()::date, 'Balance settled',
     jsonb_build_array(
-      jsonb_build_object('code', public.account_code_for_payment_method_checked(v_method),
+      jsonb_build_object('code', public.account_code_for_payment_method(v_method),
                          'amount_cents',  v_amount, 'memo', 'Settlement received'),
       jsonb_build_object('code', '1100', 'amount_cents', -v_amount, 'memo', 'Cleared from receivables')),
     v_location_id, 'settlement');
@@ -1305,7 +1299,7 @@ git commit -m "feat(accounting): stock receipts and count variances post to the 
 - Create: `supabase/tests/verify-posting-bills.sql`
 
 **Interfaces:**
-- Consumes: `invoice_payments.journal_entry_id`, `payroll_runs.journal_entry_id` (Task 2), `account_code_for_payment_method_checked` (Task 1).
+- Consumes: `invoice_payments.journal_entry_id`, `payroll_runs.journal_entry_id` (Task 2), `account_code_for_payment_method` (Task 1).
 
 Paying a supplier is **Dr 2000 Accounts Payable, Cr the cash account**. A pay run is **Dr 6200 Salaries and Wages, Cr the cash account** — paid immediately, because `post_payroll_run` records a run that has been paid, not one that is owed. `2200 Wages Payable` stays unused until phase 3's accrual work.
 
@@ -1390,7 +1384,7 @@ In `record_invoice_payment`, after the payment row is inserted:
     v_shop_id, p_paid_on, 'Supplier paid',
     jsonb_build_array(
       jsonb_build_object('code', '2000', 'amount_cents',  p_amount_cents, 'memo', 'Bill paid'),
-      jsonb_build_object('code', public.account_code_for_payment_method_checked(p_method),
+      jsonb_build_object('code', public.account_code_for_payment_method(p_method),
                          'amount_cents', -p_amount_cents, 'memo', 'Paid by ' || p_method)),
     null, 'bill_payment');
   update public.invoice_payments set journal_entry_id = v_entry_id where id = v_payment_id;
@@ -1679,7 +1673,7 @@ begin
         -- Cash in, one line per method actually used. Settlements are excluded:
         -- they are their own entry, on the date the money arrived.
         select m.entry_id, m.location_id,
-               public.account_code_for_payment_method_checked(sp.method) as code,
+               public.account_code_for_payment_method(sp.method) as code,
                sum(sp.amount_cents)::bigint as amount_cents,
                'Payment by ' || sp.method as memo
           from _bf_map m

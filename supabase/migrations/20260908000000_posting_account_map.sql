@@ -9,10 +9,15 @@
 -- IMMUTABLE, so they can sit in an index or a generated column later without
 -- being re-planned. They read nothing.
 
+-- Raises rather than returning null: a null code reaches post_journal_entry
+-- as "No such account: " with nothing after it, which is a worse message at
+-- a later moment than this one.
 create or replace function public.account_code_for_payment_method(p_method text)
 returns text
-language sql immutable as $$
-  select case p_method
+language plpgsql immutable as $$
+declare v_code text;
+begin
+  v_code := case p_method
     when 'cash'   then '1000'
     when 'zaad'   then '1020'
     when 'edahab' then '1021'
@@ -20,16 +25,6 @@ language sql immutable as $$
     -- the drawer count disagree with the ledger for a reason nobody could find.
     when 'other'  then '1010'
   end;
-$$;
-
--- The raise lives in a wrapper because a plain SQL function cannot raise. A
--- null code would reach post_journal_entry as "No such account: " with nothing
--- after it, which is a worse message at a later moment than this one.
-create or replace function public.account_code_for_payment_method_checked(p_method text)
-returns text
-language plpgsql immutable as $$
-declare v_code text := public.account_code_for_payment_method(p_method);
-begin
   if v_code is null then
     raise exception 'no account is mapped to the payment method %', coalesce(p_method, '<null>')
       using errcode = 'P0001';
@@ -76,5 +71,4 @@ end;
 $$;
 
 grant execute on function public.account_code_for_payment_method(text) to authenticated;
-grant execute on function public.account_code_for_payment_method_checked(text) to authenticated;
 grant execute on function public.account_code_for_expense_category(text) to authenticated;
