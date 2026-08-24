@@ -1,8 +1,8 @@
 -- Every completed sale writes a balanced double-entry journal entry, in the
 -- same transaction that writes the sale.
 --
--- Eight things are asserted, and none of them can be checked from TypeScript
--- because all eight are facts about rows this database wrote for itself:
+-- Eleven things are asserted, and none of them can be checked from TypeScript
+-- because all eleven are facts about rows this database wrote for itself:
 --
 --   1. a cash sale posts one balanced entry, with the tax booked as a LIABILITY
 --      and only the merchandise as revenue, and COGS taken from the cost frozen
@@ -37,6 +37,18 @@
 --   8. the COGS figure is frozen on the line. products.cost_cents is changed to
 --      a clearly different value part-way through, and both the entry posted
 --      before the change and the one posted after read their own frozen cost.
+--   9. a sale dated into a CLOSED period still succeeds, and its entry lands in
+--      the CURRENT period with the true sale date written into its description.
+--      src/lib/sales-import.ts backdates every imported historical sale, so
+--      without this a shop that has closed any month cannot import into it.
+--  10. a sale dated into an OPEN month still posts to that month. Checks 9 and
+--      10 are a pair: neither is worth anything without the other, because an
+--      implementation that redated EVERYTHING would pass 9 alone.
+--  11. the entry date is the SHOP'S local date. Somalia is UTC+3, so a sale at
+--      22:30 UTC on the last day of a month is 01:30 on the FIRST of the next
+--      one locally, and that is the period it belongs to. Dated in UTC it
+--      disagreed permanently with src/lib/period.ts, which buckets the sales
+--      report in device-local time.
 --
 -- The figures are chosen so no two lines of check 1 share a value -- 7000, 350,
 -- 7350 and 2500 are all distinct -- so a check that reads the wrong account
@@ -76,6 +88,16 @@ declare
   v_ref_b          text;
   v_next_before    integer;
   v_next_after     integer;
+  -- Checks 9-11. All three months are computed RELATIVE to now() rather than
+  -- written as literals, so the script keeps meaning the same thing next year
+  -- and cannot accidentally pick the month it is being run in.
+  v_month_tz       date;   -- 4 months back: the timezone fixture's month
+  v_month_closed   date;   -- 2 months back: closed part-way through check 9
+  v_month_open     date;   -- 1 month back: stays open, the control
+  v_today_local    date;
+  v_date           date;
+  v_date_actual    date;
+  v_expected       date;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -431,6 +453,162 @@ begin
    where l.entry_id = v_entry_1 and a.code = '5000';
   if v_amount <> 2500 then
     raise exception 'FAIL: check 1''s COGS moved to % when products.cost_cents changed; it must stay 2500', v_amount;
+  end if;
+
+  -- 9. A sale dated into a CLOSED period posts to the CURRENT one, and the
+  --    entry says why.
+  --
+  --    open_period_for refuses any non-open period, and src/lib/sales-import.ts
+  --    passes p_created_at for every CSV-imported historical sale -- so before
+  --    20260908000300, a shop that had closed any month could not import a sale
+  --    into it: the whole row group failed with a ledger error on an import
+  --    screen. Redating is the correct accounting treatment, not a workaround.
+  --    A transaction that arrives after its month has closed posts to the open
+  --    period; that is what closing means.
+  --
+  --    MUTATION (proves this check): in complete_sale, change
+  --    `if v_period_status is not null and v_period_status <> 'open'` to
+  --    `if false` -- i.e. never redate. Expected: this check fails with
+  --    open_period_for's own `This period is closed` exception.
+  v_today_local  := (now() at time zone 'Africa/Mogadishu')::date;
+  v_month_closed := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '2 months')::date;
+  v_month_open   := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '1 month')::date;
+  v_month_tz     := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '4 months')::date;
+
+  -- First a sale into that month while it is still OPEN, which both creates the
+  -- period row for the update below to close and establishes the baseline: a
+  -- backdated sale posts to its own month. Without this the redating in the
+  -- next step could be nothing more than "backdating never works".
+  v_date := v_month_closed + 14;
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)),
+    null, null, null, null, 0, null,
+    (v_date + time '10:00') at time zone 'Africa/Mogadishu', v_loc_id);
+
+  select e.entry_date into v_date_actual
+    from public.journal_entries e
+    join public.sales s on s.journal_entry_id = e.id
+   where s.id = v_sale_id;
+  if v_date_actual <> v_date then
+    raise exception 'FAIL: a backdated sale into an OPEN month posted on %, expected its own date %',
+      v_date_actual, v_date;
+  end if;
+
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and starts_on = v_month_closed;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row for % to close -- the backdated sale did not open one',
+      v_month_closed;
+  end if;
+
+  -- Now the same month, closed. The sale must SUCCEED.
+  v_date := v_month_closed + 19;
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)),
+    null, null, null, null, 0, null,
+    (v_date + time '10:00') at time zone 'Africa/Mogadishu', v_loc_id);
+
+  select e.entry_date, e.description into v_date_actual, v_text
+    from public.journal_entries e
+    join public.sales s on s.journal_entry_id = e.id
+   where s.id = v_sale_id;
+  if v_date_actual is null then
+    raise exception 'FAIL: a sale backdated into a closed month posted no entry';
+  end if;
+  if v_date_actual <> v_today_local then
+    raise exception 'FAIL: a sale backdated into a CLOSED month posted on %, expected the current period (%)',
+      v_date_actual, v_today_local;
+  end if;
+
+  -- The reason has to live on the ENTRY. sales.created_at knows the true date,
+  -- but the journal is what an auditor reads, and an unexplained entry in the
+  -- current month is exactly the thing they will ask about.
+  if v_text not like '%' || to_char(v_date, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated entry''s description "%" does not name the true sale date %',
+      v_text, to_char(v_date, 'YYYY-MM-DD');
+  end if;
+
+  -- And the sale row itself keeps its true date. Only the recognition moves;
+  -- redating the source row would corrupt every sales report as well.
+  select (s.created_at at time zone 'Africa/Mogadishu')::date into v_date_actual
+    from public.sales s where s.id = v_sale_id;
+  if v_date_actual <> v_date then
+    raise exception 'FAIL: the sale row was redated to %; only the journal entry should move (%)',
+      v_date_actual, v_date;
+  end if;
+
+  -- 10. ...and a sale dated into a month that is still OPEN still posts to that
+  --     month. Without this, an implementation that redated EVERY backdated
+  --     sale to today would pass check 9 while destroying the one thing
+  --     p_created_at exists for.
+  --
+  --     MUTATION (proves this check): in complete_sale, change
+  --     `if v_period_status is not null and v_period_status <> 'open'` to
+  --     `if true` -- redate everything. It reddens with today's date where the
+  --     backdated one should be. Note it fires at check 9's own open-month
+  --     baseline a few lines up, which is the same assertion made earlier;
+  --     neutralise that one to watch this line fail on its own.
+  v_date := v_month_open + 9;
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)),
+    null, null, null, null, 0, null,
+    (v_date + time '10:00') at time zone 'Africa/Mogadishu', v_loc_id);
+
+  select e.entry_date into v_date_actual
+    from public.journal_entries e
+    join public.sales s on s.journal_entry_id = e.id
+   where s.id = v_sale_id;
+  if v_date_actual <> v_date then
+    raise exception 'FAIL: a sale dated into an OPEN month posted on %, expected % (% = everything is being redated)',
+      v_date_actual, v_date, v_today_local;
+  end if;
+
+  -- 11. The entry date is the SHOP'S local date, not the server's.
+  --
+  --     `coalesce(p_created_at, now())::date` resolves in the session's
+  --     timezone, which is UTC on Supabase. Every market kaiibi serves is UTC+3,
+  --     so a sale rung up at 01:30 local on the 1st is 22:30 UTC on the last day
+  --     of the previous month -- and posted into the wrong period, while
+  --     src/lib/period.ts put it in the right one on the sales report. The two
+  --     disagreed permanently, because a closed period's entry cannot be
+  --     re-dated.
+  --
+  --     22:30 UTC on the LAST day of a month is the deliberate choice: it is the
+  --     only shape where the UTC answer and the local answer are in different
+  --     months, so a wrong implementation cannot coincidentally pass.
+  --
+  --     MUTATION (proves this check): in complete_sale, put
+  --     `coalesce(p_created_at, now())::date` back in place of the
+  --     `at time zone 'Africa/Mogadishu'` cast. Expected: this check fails with
+  --     the last day of the previous month.
+  v_date     := (v_month_tz + interval '1 month - 1 day')::date;  -- last day of that month
+  v_expected := (v_month_tz + interval '1 month')::date;          -- the 1st of the next
+  -- Self-check: if these ever land in the same month the assertion below is
+  -- satisfied by both the right and the wrong answer and proves nothing.
+  if to_char(v_date, 'YYYY-MM') = to_char(v_expected, 'YYYY-MM') then
+    raise exception 'FAIL: the timezone fixture dates % and % are in the same month', v_date, v_expected;
+  end if;
+
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)),
+    null, null, null, null, 0, null,
+    (v_date + time '22:30') at time zone 'UTC', v_loc_id);
+
+  select e.entry_date into v_date_actual
+    from public.journal_entries e
+    join public.sales s on s.journal_entry_id = e.id
+   where s.id = v_sale_id;
+  if v_date_actual <> v_expected then
+    raise exception 'FAIL: a sale at 22:30 UTC on % posted on %, expected % (% = the entry date resolved in UTC, not shop-local)',
+      v_date, v_date_actual, v_expected, v_date;
   end if;
 
   raise notice 'ALL CHECKS PASSED';

@@ -169,10 +169,12 @@ Three ways out, in the order I would rank them:
 | `supabase/migrations/20260908000000_posting_account_map.sql` | The two mapping functions. Nothing else. |
 | `supabase/migrations/20260908000100_posting_idempotency.sql` | `journal_entry_id` on eight source tables. |
 | `supabase/migrations/20260908000200_post_complete_sale.sql` | `complete_sale`, copied forward with a posting side. |
-| `supabase/migrations/20260908000300_post_refund_and_settlement.sql` | `refund_sale_items`, `settle_sale_balance`. |
+| `supabase/migrations/20260908000300_sale_entry_date.sql` | Task 3b. The entry date is shop-local, and a closed month redates rather than refusing. |
+| `supabase/migrations/20260908000350_post_refund_and_settlement.sql` | `refund_sale_items`, `settle_sale_balance`. |
 | `supabase/migrations/20260908000400_post_receive_stock.sql` | `receive_stock`, copied forward from `20260907000000`. |
 | `supabase/migrations/20260908000500_post_bills_and_payroll.sql` | `record_invoice_payment`, `post_payroll_run`. |
 | `supabase/migrations/20260908000600_post_stock_count.sql` | `save_stock_count`. |
+| `supabase/migrations/20260908000650_post_sale_edit.sql` | Task 5b. `edit_sale`, copied forward: reverse, re-post, re-point. |
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
@@ -942,6 +944,154 @@ git commit -m "feat(accounting): a completed sale posts to the ledger"
 
 ---
 
+### Task 3b: the entry date is the shop's, and a closed month does not refuse a sale
+
+Two defects in what Task 3 shipped, both about **which date the entry carries**, and both fixed in **one** migration. `complete_sale` has now been copied forward nineteen times and this repo has already lost an edit that way — the loyalty maturation guard, unenforced for four migrations. Two migrations here would be two more ~400-line reproductions and two more chances to drop something.
+
+**Files:**
+- Create: `supabase/migrations/20260908000300_sale_entry_date.sql`
+- Modify: `supabase/tests/verify-posting-sales.sql`
+- Modify: `supabase/tests/accumulated-rpc-edits.test.ts`
+
+**Interfaces:**
+- Consumes: `accounting_periods.status` (`20260904000200`), `open_period_for` (same).
+- Produces: no signature change. `complete_sale`'s contract is identical; only `journal_entries.entry_date` and the entry description move.
+
+> **Renumbering note.** Task 5 originally claimed `20260908000300` for `post_refund_and_settlement.sql`. This task takes `20260908000300`, so **Task 5's migration is now `20260908000350_post_refund_and_settlement.sql`** — renamed throughout, including its Files list and its `git add`.
+
+#### Change 1 — the entry date is the shop's local date, not the server's
+
+`entry_date` was `coalesce(p_created_at, now())::date`. A bare `::date` resolves in the **database session's** timezone, which is **UTC** on Supabase. Somalia is UTC+3, so a sale rung up at 01:30 local on the 1st is 22:30 UTC on the last day of the *previous* month, and posted into the wrong period. `src/lib/period.ts` buckets the sales report in **device-local** time, so the ledger and the sales report disagreed for every late-night sale at a month boundary — **permanently**, because once that earlier period closes a posted entry cannot be re-dated.
+
+```sql
+  v_entry_date := (coalesce(p_created_at, now()) at time zone 'Africa/Mogadishu')::date;
+```
+
+**`'Africa/Mogadishu'` is a platform constant on purpose.** Every market kaiibi serves is UTC+3 — Somalia, Somaliland, Ethiopia, Djibouti, Kenya — so one constant is correct today for every shop on the system. There is deliberately **no `shops.timezone` column**: adding one means a migration, a settings screen, a default for every existing shop, and a second source of truth for `src/lib/period.ts` to learn about. That is a bigger change than this problem justifies right now. It was **considered and declined, not missed** — say so in the migration, so the next reader does not "fix" it as an oversight. When kaiibi sells into a market that is not UTC+3, this expression is the only place in `complete_sale` that has to change.
+
+#### Change 2 — a sale dated into a closed period posts to the current one
+
+`open_period_for` raises `This period is % — posting into it is refused` for any non-open period. `src/lib/sales-import.ts:126` passes `p_created_at` for **every** CSV-imported historical sale, so once a shop had closed any month, importing sales into it failed the whole row group with a ledger error on an import screen.
+
+**Redating is the correct accounting treatment, not a workaround.** A transaction that arrives after its month has closed posts to the open period; that is what closing *means*. The sale row keeps its true date in `sales.created_at`; only the recognition moves.
+
+**Check the status, do not catch the exception.** An exception handler around `post_journal_entry` would also swallow an unbalanced entry, an unknown account code, or a missing chart of accounts, and retry them into the current period as if the only thing wrong were the date.
+
+```sql
+  select status into v_period_status
+    from public.accounting_periods
+   where shop_id = p_shop_id and v_entry_date between starts_on and ends_on;
+
+  -- No row means open_period_for will create it open, so only an EXISTING
+  -- non-open period redirects. Getting this backwards -- treating a missing row
+  -- as shut -- redates every sale in a month nobody has traded in yet, which is
+  -- most backdated CSV imports.
+  if v_period_status is not null and v_period_status <> 'open' then
+    v_posted_date := (now() at time zone 'Africa/Mogadishu')::date;
+  else
+    v_posted_date := v_entry_date;
+  end if;
+```
+
+`v_posted_date` is what goes to `post_journal_entry`, and **when the two differ the description must say so** — carrying the sale's true date and the period's status, so a reader of the journal can see why an August sale is sitting in October without going back to the source row:
+
+```sql
+    'Sale ' || v_sale_id::text
+      || case when v_posted_date <> v_entry_date
+              then ' (sold ' || to_char(v_entry_date, 'YYYY-MM-DD')
+                   || '; that period is ' || coalesce(v_period_status, 'not open')
+                   || ', so it is recognised here)'
+              else '' end,
+```
+
+> The `coalesce` is not decoration. `||` with a NULL operand yields NULL for the **whole** expression, so if the branch above is ever edited into producing `v_posted_date <> v_entry_date` with a NULL status, the description becomes NULL and `post_journal_entry` refuses the sale with `A journal entry needs a description.` — an error about descriptions, for a bug about dates, on the hot path. This was found by mutation, not by reading.
+
+**If the CURRENT period is itself closed or locked, `post_journal_entry` still raises and the sale still fails. Do not add a fallback.** A shop with no open period at all is a genuinely broken state and should say so loudly; every alternative is a lie about where the money went.
+
+Three new declarations, and nothing else in the function changes:
+
+```sql
+  v_entry_date date;
+  v_period_status text;
+  v_posted_date date;
+```
+
+- [ ] **Step 1: Write the failing checks**
+
+Append checks 9, 10 and 11 to `supabase/tests/verify-posting-sales.sql`. All three months are computed **relative to `now()`** rather than written as literals, so the script keeps meaning the same thing next year and cannot accidentally pick the month it is being run in:
+
+```sql
+  v_today_local  := (now() at time zone 'Africa/Mogadishu')::date;
+  v_month_closed := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '2 months')::date;
+  v_month_open   := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '1 month')::date;
+  v_month_tz     := (date_trunc('month', (now() at time zone 'Africa/Mogadishu')) - interval '4 months')::date;
+```
+
+Check **9** sells into `v_month_closed` while it is still open — which both creates the period row and establishes that a backdated sale posts to its own month — then closes it with `update public.accounting_periods set status = 'closed' where shop_id = ... and starts_on = v_month_closed` (assert `found`, or the first sale never opened a row), then sells into it again and asserts three things: the sale **succeeds**, `entry_date = v_today_local` and **not** the closed month, and the description contains `to_char(v_date, 'YYYY-MM-DD')`. Plus: `sales.created_at` still holds the true date — only the recognition moves.
+
+Check **10** sells into `v_month_open`, which is untouched, and asserts `entry_date` is that backdated date. **Checks 9 and 10 are a pair and neither is worth anything alone**: an implementation that redated *everything* to today would pass 9 while destroying the one thing `p_created_at` exists for.
+
+Check **11** completes a sale with `p_created_at := (v_date + time '22:30') at time zone 'UTC'` where `v_date` is the **last day** of `v_month_tz`, and asserts `entry_date = (v_month_tz + interval '1 month')::date` — the 1st of the next month, which is what UTC+3 makes 22:30 UTC locally. 22:30 on a month's last day is the deliberate choice: it is the only shape where the UTC answer and the local answer fall in **different months**, so a wrong implementation cannot coincidentally pass. Guard it with a self-check that the two dates really are in different months, or the assertion is satisfiable by both answers.
+
+`v_month_tz` is four months back so that its *next* month (three back) is neither the closed month (two back) nor the open control (one back).
+
+- [ ] **Step 2: Run them and verify they fail**
+
+Run: `psql "$SUPABASE_DB_URL" -f supabase/tests/verify-posting-sales.sql` against a database reset **without** the new migration.
+Expected: `ERROR: This period is closed — posting into it is refused. Re-open it first.` — check 9, raised by `open_period_for` from inside `complete_sale`. Check 11 is not reached; it is proven by mutation in Step 5.
+
+- [ ] **Step 3: Write the migration**
+
+Create `supabase/migrations/20260908000300_sale_entry_date.sql`, copying `complete_sale` **verbatim** from `20260908000200_post_complete_sale.sql` and changing only the two things above.
+
+`20260908000200` is both the newest `create or replace` definition **and** the newest live state — it baked the `ORDER BY (value->>'product_id'), ord` from `20260905000000` in, so for the first time copying from the newest written definition is safe. Keep that `ORDER BY`; it is still guarded by its `COMPLETE_SALE_EDITS` entry, and `verify-sale-lock-order.sql` is still the only thing that catches its loss.
+
+Prove the copy: `diff 20260908000200_post_complete_sale.sql 20260908000300_sale_entry_date.sql | grep '^<'` must show **only** the header comment and the two lines of the `post_journal_entry` call.
+
+- [ ] **Step 4: Add the copy-forward guards**
+
+Modify `supabase/tests/accumulated-rpc-edits.test.ts`, adding to `COMPLETE_SALE_EDITS`:
+
+```ts
+  ['20260908000300', 'the entry date is the shop-local date, not the server timezone', "at time zone 'Africa/Mogadishu'"],
+  ['20260908000300', 'a sale whose period has closed is redated, not refused', 'v_period_status'],
+```
+
+The first token is the **timezone**, not a variable called `v_entry_date` — a rewrite that keeps the variable and drops the cast is exactly the regression.
+
+- [ ] **Step 5: Prove the checks can fail**
+
+Three new mutations, plus a re-run of Task 3's eight.
+
+Mutation A, for check 9: change `if v_period_status is not null and v_period_status <> 'open'` to `if false` — never redate. Expected: `ERROR: This period is closed — posting into it is refused. Re-open it first.` Revert.
+
+Mutation B, for check 10: change the same condition to `if true` — redate everything. Expected: `FAIL: a backdated sale into an OPEN month posted on <today>, expected its own date <date>`. It fires at check 9's own open-month baseline, which is the same assertion made a few lines earlier; neutralise that one to watch check 10 fail on its own. **This is the mutation that found the NULL-description trap** described above.
+
+Mutation C, for check 11: put `v_entry_date := coalesce(p_created_at, now())::date;` back. Expected: `FAIL: a sale at 22:30 UTC on <last day> posted on <last day>, expected <1st of next month> (... = the entry date resolved in UTC, not shop-local)`. Revert.
+
+**Then re-run all eight of Task 3's Step 6 mutations against the new copy.** A copy-forward that quietly broke one of them is exactly the failure this repo keeps having, and a mutation that stops reddening is a finding, not a formality.
+
+- [ ] **Step 6: Verify**
+
+```
+npm run test:db                                            # 20 scripts
+npx tsc --noEmit                                           # clean
+npm test                                                   # green
+npm run lint                                               # 81 problems
+psql "$SUPABASE_DB_URL" -f supabase/tests/verify-sale-lock-order.sql   # ALL CHECKS PASSED
+```
+
+`test:db` counts **scripts**, not assertions — this task adds three checks inside an existing `verify-*.sql` and no new file, so the count stays at 20.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add supabase/migrations/20260908000300_sale_entry_date.sql supabase/tests/verify-posting-sales.sql supabase/tests/accumulated-rpc-edits.test.ts
+git commit -m "fix(accounting): date entries in shop-local time, and redate a sale whose period has closed"
+```
+
+---
+
 ### Task 4: Measure what posting costs the sale
 
 The plan is required to say what this costs on the POS's hottest transaction — **measured, not assumed**. A 20-line sale already writes the sale, its items and its payments; it now also writes an entry and up to 25 lines.
@@ -1060,7 +1210,7 @@ After:  <median> ms median, <p95> ms p95"
 ### Task 5: `refund_sale_items` and `settle_sale_balance` post
 
 **Files:**
-- Create: `supabase/migrations/20260908000300_post_refund_and_settlement.sql`
+- Create: `supabase/migrations/20260908000350_post_refund_and_settlement.sql`
 - Modify: `supabase/tests/verify-posting-sales.sql`
 
 **Interfaces:**
@@ -1155,7 +1305,7 @@ Expected: `verify-posting-sales  FAIL` on check 6, `the refund did not post`.
 
 - [ ] **Step 3: Write the migration**
 
-Create `supabase/migrations/20260908000300_post_refund_and_settlement.sql`, reproducing both functions from `20260831000200_refund_goods_not_cash.sql` in full.
+Create `supabase/migrations/20260908000350_post_refund_and_settlement.sql`, reproducing both functions from `20260831000200_refund_goods_not_cash.sql` in full.
 
 In `refund_sale_items`, after the refund row and its items are written:
 
@@ -1235,8 +1385,235 @@ Mutation: in `settle_sale_balance`, add a `4000` credit line and a matching debi
 - [ ] **Step 6: Commit**
 
 ```bash
-git add supabase/migrations/20260908000300_post_refund_and_settlement.sql supabase/tests/verify-posting-sales.sql
+git add supabase/migrations/20260908000350_post_refund_and_settlement.sql supabase/tests/verify-posting-sales.sql
 git commit -m "feat(accounting): refunds and settlements post to the ledger"
+```
+
+---
+
+### Task 5b: an edited sale re-posts
+
+**`edit_sale` changes items, totals, tax and payments and never touches the posted entry.** The entry is immutable — `refuse_posted_entry_edit()` sees to that — so from the moment Task 3 ships, **every sale edit silently desynchronises the ledger from `sales`.** A cashier who fixes a mis-scanned quantity leaves revenue, COGS, tax and the receivable all reading the pre-edit figures, and nothing anywhere says so. This is a defect Task 3 *creates*; it is not optional cleanup.
+
+The design already mandates the treatment: *"Corrections are reversing entries, never edits."* And the tool already exists from phase 1 — `reverse_journal_entry(p_entry_id uuid, p_reason text) returns uuid`, `20260904000500_journal_rpcs.sql:123`. So `edit_sale` must:
+
+1. reverse the entry at `sales.journal_entry_id`,
+2. post a fresh entry from the **edited** figures, using the same line-building logic as `complete_sale`, and
+3. update `sales.journal_entry_id` to the new one.
+
+Three entries end up on the record — the original, its reversal, and the correction — which is the point. A book is added to, not amended.
+
+**Files:**
+- Create: `supabase/migrations/20260908000650_post_sale_edit.sql`
+- Modify: `supabase/tests/verify-posting-sales.sql`
+- Modify: `supabase/tests/accumulated-rpc-edits.test.ts`
+
+**Interfaces:**
+- Consumes: `reverse_journal_entry(uuid, text)`, `post_journal_entry(uuid, date, text, jsonb, uuid, text)`, `account_code_for_payment_method(text)`, `sales.journal_entry_id`.
+- Produces: no signature change to `edit_sale`. `journal_entries` gains a reversal (`source = 'manual'`, `reverses_entry_id` set) and a replacement with `source = 'sale'`.
+
+#### ⚠ The copy-forward trap, which is the same one Task 3 hit
+
+`edit_sale`'s newest `create or replace` ancestor is **`20260831000200_refund_goods_not_cash.sql`**. Copying it forward from there **silently reverts the lock-order fix from `20260905000000_complete_sale_lock_order.sql`**, which applies itself by string-substituting `pg_proc.prosrc` and therefore **exists in no migration text at all**:
+
+```sql
+execute format(
+  'create or replace function public.%I(%s) returns %s language plpgsql ... as %L',
+  v_fn.proname, v_fn.args, v_fn.result, replace(v_src, v_needle, v_fixed));
+```
+
+`accumulated-rpc-edits.test.ts` reads migration *text* and so is blind to it by construction. `20260908000200` reverted `complete_sale`'s half of exactly this fix on its first run, and only `verify-sale-lock-order.sql` caught it.
+
+**So Task 5b must bake the ordered loop into its copy.** In `edit_sale`, line 164 of the `20260831000200` body reads `for v_item in select * from jsonb_array_elements(p_items) loop`. It must become:
+
+```sql
+  -- CARRIED FORWARD FROM 20260905000000_complete_sale_lock_order.sql, which
+  -- patches this function by TEXT SUBSTITUTION against the live pg_proc source
+  -- rather than re-creating it -- so it appears in no CREATE OR REPLACE block
+  -- anywhere in this directory, and copying edit_sale forward from
+  -- 20260831000200 without it silently reverts a live deadlock fix. An edit
+  -- and a sale lock the same product_location_stock rows; unordered, they
+  -- deadlock against each other.
+  for v_item in
+    select value from jsonb_array_elements(p_items) with ordinality as t(value, ord)
+      order by (value->>'product_id'), ord
+  loop
+```
+
+and `EDIT_SALE_EDITS` gains the entry that guards it — possible for the first time, because until this migration the ORDER BY did not live in any definition this test can read:
+
+```ts
+  ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
+```
+
+Before starting, run `grep -rln "prosrc" supabase/migrations/` and read every hit. That is now part of the copy-forward ritual for this repo.
+
+#### Two things `reverse_journal_entry` will refuse, and what to do about each
+
+Neither is hypothetical; both fire on ordinary edits.
+
+**1. It requires `ledger.post`. `edit_sale` gates on `sales.edit`.** A cashier who may edit a sale does not hold `ledger.post` and never should — that is the whole finding behind Task 3's check 5. `reverse_journal_entry` raises `You do not have permission to reverse journal entries.` and the edit fails. **Do not grant cashiers `ledger.post`.** Do the reversal inline in `edit_sale`'s own security-definer body, mirroring `reverse_journal_entry`'s three writes (the negated lines, the `R`-suffixed reference, the `status = 'reversed'` update) — the same reasoning that has `complete_sale` pass `p_source => 'sale'` rather than gate the till on a ledger permission. If instead `reverse_journal_entry` is given a source parameter, that is a change to a phase-1 function and needs its own note in Global Constraints.
+
+**2. It dates the reversal to the ORIGINAL entry's date**, deliberately — a correction to August belongs in August. But if August is closed, `open_period_for` refuses it and the edit fails. That is Task 3b's problem again, in a place Task 3b did not reach. Resolve it the same way: check the period's status first and, when the original's month is shut, date **both** the reversal and the replacement into the current period, with the true date and the status in both descriptions. Do not catch `open_period_for`'s exception.
+
+- [ ] **Step 1: Write the failing checks**
+
+Append to `supabase/tests/verify-posting-sales.sql`. Reuse check 1's sale, whose entry is already held in `v_entry_1`: 7000 gross, 350 tax, 7350 total, 2500 COGS.
+
+```sql
+  -- 12. An edited sale reverses its entry and posts a new one. Three entries
+  --     survive: the original, its reversal, and the correction. `edit_sale`
+  --     changes items, totals, tax and payments, and the posted entry is
+  --     immutable -- so without this every edit leaves the ledger reading the
+  --     pre-edit figures with nothing anywhere saying so.
+  --
+  --     The edit drops the coffee: 2 @ 2000 = 4000 gross, tax 200, total 4200,
+  --     COGS 2*700 = 1400. Every figure differs from the original's, so an
+  --     implementation that re-posted the OLD figures fails rather than
+  --     coincidentally passing.
+  perform public.edit_sale(
+    v_sale_id_cash,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_a, 'quantity', 2, 'unit_price_cents', 2000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 4200)));
+
+  -- The sale points at a DIFFERENT entry now.
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id_cash;
+  if v_entry is null then
+    raise exception 'FAIL: the edited sale has no journal entry';
+  end if;
+  if v_entry = v_entry_1 then
+    raise exception 'FAIL: the edit left sales.journal_entry_id on the original entry -- the ledger now disagrees with the sale';
+  end if;
+
+  -- The original is reversed, not deleted, and the reversal is linked.
+  select status into v_text from public.journal_entries where id = v_entry_1;
+  if v_text <> 'reversed' then
+    raise exception 'FAIL: the original entry is %, expected reversed', v_text;
+  end if;
+  if not exists (select 1 from public.journal_entries where reverses_entry_id = v_entry_1) then
+    raise exception 'FAIL: no reversing entry points back at the original';
+  end if;
+
+  -- The three entries NET to the corrected figures. Asserted as a sum across
+  -- all three rather than on the new entry alone: that is the property the
+  -- trial balance actually reads, and it is the one a reversal that negates the
+  -- wrong lines would break.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.journal_entries e on e.id = l.entry_id
+    join public.accounts a on a.id = l.account_id
+   where a.code = '4000'
+     and e.id in (v_entry_1, v_entry,
+                  (select id from public.journal_entries where reverses_entry_id = v_entry_1));
+  if v_amount <> -4000 then
+    raise exception 'FAIL: 4000 Revenue nets to % across the three entries, expected -4000 (-7000 = the edit never re-posted)', v_amount;
+  end if;
+
+  -- And the new entry balances on its own.
+  select coalesce(sum(amount_cents), 0) into v_amount
+    from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the re-posted entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 13. A cashier holding sales.edit and NOT ledger.post can still edit a sale.
+  --     reverse_journal_entry requires ledger.post; edit_sale requires
+  --     sales.edit. If the reversal is done through that door, every edit in
+  --     every shop stops until someone grants cashiers a ledger permission
+  --     they must not have -- the same failure check 5 exists to prevent.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+  if public.has_shop_permission(v_shop_id, 'ledger.post') then
+    raise exception 'FAIL: the fixture cashier holds ledger.post, so check 13 would prove nothing';
+  end if;
+  perform public.edit_sale(
+    v_sale_id_cash,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_a, 'quantity', 1, 'unit_price_cents', 2000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2100)));
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+```
+
+> Check 13's fixture cashier needs `sales.edit` as well as `pos.access`. Widen the `Till Only` role's `permissions` array where it is created, and keep the `ledger.post` self-assertion — without it the check passes while proving nothing.
+
+- [ ] **Step 2: Run them and verify they fail**
+
+Run: `npm run test:db -- --no-reset`
+Expected: `verify-posting-sales  FAIL` on check 12, `the edit left sales.journal_entry_id on the original entry`.
+
+- [ ] **Step 3: Write the migration**
+
+Create `supabase/migrations/20260908000650_post_sale_edit.sql`, reproducing `edit_sale` **in full** from `20260831000200_refund_goods_not_cash.sql` with the ordered loop above and one posting block, after `update public.sales set ...` (line 352 of that body) and before the function returns:
+
+```sql
+  -- ── The posting side ────────────────────────────────────────────────────
+  --
+  -- A correction is a reversal plus a fresh entry, never an edit of the
+  -- original: journal_entries carries refuse_posted_entry_edit(), and a book is
+  -- added to rather than amended. Three rows survive an edit -- what was
+  -- posted, its undoing, and what is true now.
+  select journal_entry_id into v_old_entry_id from public.sales where id = p_sale_id;
+
+  -- A sale posted before Task 3 shipped has no entry. Reversing nothing is not
+  -- an error; it just means this edit posts the first entry the sale has ever
+  -- had. Task 8's backfill fills the rest in.
+  if v_old_entry_id is not null then
+    ... reverse inline, per "Two things reverse_journal_entry will refuse" ...
+  end if;
+
+  ... rebuild v_lines exactly as complete_sale does, from the EDITED figures ...
+
+  v_entry_id := public.post_journal_entry(
+    v_shop_id, v_posted_date, 'Sale ' || p_sale_id::text || ' (edited)',
+    v_lines, v_location_id, 'sale');
+
+  update public.sales set journal_entry_id = v_entry_id where id = p_sale_id;
+```
+
+> New declarations: `v_old_entry_id`, `v_entry_id`, `v_lines`, `v_cogs_cents`, `v_owed_cents`, `v_item_discount_cents`, plus Task 3b's `v_entry_date`, `v_period_status`, `v_posted_date`.
+>
+> **The line-building logic is duplicated from `complete_sale`, and that is a real cost.** Two copies of the discount arithmetic — the `v_gross_cents + v_item_discount_cents` asymmetry that Task 3's review caught once already — is two places to get it wrong. Consider extracting `sale_journal_lines(p_sale_id uuid) returns jsonb`, which reads `sale_items` and `sale_payments` back off the rows both functions have just written, and calling it from both. Both functions already read those tables for COGS and for the payment lines, so the extraction is smaller than it looks and it makes Task 8's backfill a third caller rather than a third copy.
+
+- [ ] **Step 4: Add the copy-forward guards**
+
+Modify `supabase/tests/accumulated-rpc-edits.test.ts`, adding to `EDIT_SALE_EDITS`:
+
+```ts
+  // Guardable for the first time: 20260905000000 patched edit_sale by text
+  // substitution against the live pg_proc source, so until this migration the
+  // ORDER BY lived in no `create or replace` text and this entry would have
+  // failed against a database that HAD the fix.
+  ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
+  ['20260908000650', 'an edit reverses the old entry rather than editing it', 'reverses_entry_id'],
+  ['20260908000650', 'an edit re-posts from the edited figures', 'post_journal_entry('],
+```
+
+Keep the migration's header comment free of the lowercase literal `create or replace function public.` — the test slices from the first occurrence of that string and a comment quoting it trips the "is the only definition in its own migration" guard.
+
+- [ ] **Step 5: Prove the checks can fail**
+
+Mutation A: skip the reversal — post the new entry and leave the old one `posted`. Expected: check 12 fails with `the original entry is posted, expected reversed`, and the `4000` net reads `-11000`. Revert.
+
+Mutation B: post the new entry but do not update `sales.journal_entry_id`. Expected: `the edit left sales.journal_entry_id on the original entry`. Revert.
+
+Mutation C: re-post from the sale's **pre-edit** totals (read `sales` before the update rather than after). Expected: `4000 Revenue nets to -7000 ... (-7000 = the edit never re-posted)`. Revert.
+
+Mutation D: call `public.reverse_journal_entry(...)` instead of reversing inline. Expected: check 13 fails with `You do not have permission to reverse journal entries.` — the permission trap, proven rather than asserted.
+
+Mutation E: drop the `ORDER BY (value->>'product_id'), ord` from the item loop. Expected: `verify-sale-lock-order` reddens. **`npm run test:db` must be the command here, not the single script** — this is the mutation that catches the copy-forward trap, and it is invisible to jest. Revert.
+
+- [ ] **Step 6: Verify**
+
+```
+npm run test:db                                                        # 20 scripts
+npx jest supabase/tests/accumulated-rpc-edits.test.ts                  # green
+psql "$SUPABASE_DB_URL" -f supabase/tests/verify-sale-lock-order.sql   # ALL CHECKS PASSED
+npx tsc --noEmit && npm test && npm run lint                           # clean / green / 81
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add supabase/migrations/20260908000650_post_sale_edit.sql supabase/tests/verify-posting-sales.sql supabase/tests/accumulated-rpc-edits.test.ts
+git commit -m "fix(accounting): an edited sale reverses its entry and re-posts"
 ```
 
 ---

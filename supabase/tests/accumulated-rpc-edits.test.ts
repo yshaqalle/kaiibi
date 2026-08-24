@@ -110,6 +110,17 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // points on a redeeming sale and none at all on a plain credit sale. Pinned
   // here so a future copy-forward cannot quietly reintroduce the wrong one.
   ['20260908000200', 'the receivable is money owed, not the points balance', 'v_owed_cents'],
+  // The TIMEZONE, not merely a variable called v_entry_date. A bare
+  // `coalesce(p_created_at, now())::date` resolves in the session's timezone --
+  // UTC on Supabase -- so a sale at 01:30 local on the 1st was dated into the
+  // previous month while src/lib/period.ts put it in this one on the sales
+  // report. The disagreement is permanent once that period closes.
+  ['20260908000300', 'the entry date is the shop-local date, not the server timezone', "at time zone 'Africa/Mogadishu'"],
+  // A sale dated into a closed period posts to the current one rather than
+  // failing. src/lib/sales-import.ts:126 backdates every imported historical
+  // sale, so without this a shop that has closed any month fails the whole row
+  // group with a ledger error on an import screen.
+  ['20260908000300', 'a sale whose period has closed is redated, not refused', 'v_period_status'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
