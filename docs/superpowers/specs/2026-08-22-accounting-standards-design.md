@@ -54,24 +54,38 @@ bug. The alternative considered and rejected was approximating a balance sheet f
 snapshot plus inventory value; it produces authoritative-looking numbers that are wrong, which is
 worse for a shop owner than not having them.
 
-**Cost layers are built, and the valuation method becomes a per-shop setting.** FIFO was requested.
-The layer table produces *both* FIFO and weighted average — weighted average is the layers averaged
-— so the expensive, risky work is done once and the method stops being an architecture commitment.
+**Stock is valued at a true moving weighted average.** *Revised 2026-08-24 — this replaces a decision to build FIFO cost layers.*
 
-**Weighted average is the default.** Every existing kaiibi shop is effectively on weighted average
-today, so nobody's COGS, margin or profit moves on migration day. It also taxes less while costs
-rise, and it is the model a shop owner already holds ("rice costs me $14.20"). FIFO is fully built
-and one setting away for shops whose accountant asks. LIFO is not offered — IAS 2 permits only FIFO
-and weighted average.
+Kaiibi does not currently use a permitted cost formula. `receive_stock` writes
+`update public.products set cost_cents = v_cost`, replacing the cost with the newest delivery's
+price — the migration's own comment calls it *"latest wins"*. Buy 200 bags at 14.10 and 10 at 14.90
+and all 210 are valued at 14.90. That is replacement cost, and **IAS 2 does not permit it** for
+assigning inventory cost.
 
-**Switching valuation basis is never retroactive.** It takes effect at the start of the next open
-month, never mid-month; history keeps the basis it was recorded under; every statement names the
-basis that produced it. The switch posts one adjusting entry to 5100 and appears in the Journals
-List like anything else.
+IAS 2.25 permits exactly two formulas for interchangeable goods: FIFO and weighted average cost.
+IFRS for SMEs §13.18 says the same. LIFO is permitted under US GAAP and banned under IFRS.
 
-**FIFO lands before ledger posting, not after.** If `complete_sale` starts posting COGS on a
-weighted-average basis and layers arrive later, the ledger carries a discontinuity nothing explains.
-This moves cost layers to phase 2a.
+**Weighted average is chosen over FIFO**, for a market reason rather than a convenience one. Under
+inflation FIFO draws COGS from the oldest and cheapest stock, which **raises reported profit and so
+raises tax**; a blended average does not. In a high-inflation, volatile-currency market that is a
+real cost, and the two formulas are equals under the standard so there is nothing to defend. It is
+also the conventional choice for fungible goods — for rice and cooking oil, "which physical bag
+left" is a fiction either way.
+
+**Cost layers are not built.** The earlier design specified them, with the method as a per-shop
+toggle. That was flexibility nobody had asked for: two tables, a rewrite of `complete_sale` and a
+concurrency test, to offer a choice with one taker. The design and plan are written and merged
+(#65, #68) and stay available — if FIFO is ever needed, layers become an upgrade rather than a
+prerequisite.
+
+**No basis setting is added either.** The only obligation is IAS 2.36(a), which requires disclosing
+the formula used. With one formula that is a constant string on the report, not a column, a toggle
+and a branch.
+
+**When FIFO would become needed**, so the decision can be revisited on evidence rather than feel:
+an external reader specifying it; slow-moving high-value stock in a volatile currency, where the
+gap between the formulas widens as turnover falls; per-batch expiry becoming a real requirement,
+which builds most of a layer table anyway; or a group parent imposing a uniform policy.
 
 **Months close automatically, 10 days after they end.** A shop owner will not remember to close, and
 a book that is never closed lets anyone edit any month forever — which is what closing exists to
@@ -206,7 +220,7 @@ shops, so nothing here is forced on a shop that does not need it.
 | Not doing | Why |
 |---|---|
 | Purchase Orders | Procurement workflow, not accounting. Own spec, after this. |
-| Batch / expiry tracking | Assumption above. Revisit before phase 2a if perishables matter. |
+| Batch / expiry tracking | Revisit if perishables matter. With cost layers dropped there is no longer a cheap place to hang it, so it becomes its own piece of work. |
 | LIFO | Not permitted under IAS 2. |
 | Restating history onto FIFO | No delivery history exists to build layers from. A change of basis is disclosed, not backdated. |
 | Multi-currency ledger | `shop_currencies` exists but one shop trades in one currency. Not raised, not assumed. |
@@ -260,14 +274,15 @@ Five phases. Each ships something usable and leaves the app working.
 | Phase | Ships | Outcome |
 |---|---|---|
 | **1 · Foundations** | Ledger tables, RLS, balanced-entry constraint, seeded chart of accounts, `post_journal_entry`, audit log | Chart of Accounts, General Journal Entry, Journals List, Audit Log, Trial Balance — manual entries only |
-| **2a · Cost layers** | `inventory_cost_layers`, `inventory_cost_consumption`, opening-balance migration, basis setting, concurrency work in `complete_sale` **and `save_stock_count`** | Inventory Valuation on either basis. COGS becomes the number the ledger will post |
+| **2a · A permitted cost formula** | `receive_stock` computes a true moving weighted average instead of overwriting with the latest price, plus the IAS 2.36(a) disclosure | Stock is valued on a formula IAS 2 allows. COGS becomes the number the ledger will post |
 | **2b · Auto-posting** | Posting side on seven RPCs, historical backfill | Trial balance reflects real trading. Cash becomes derived |
 | **3 · Statements** | Balance sheet, cash flow, income statement, period close, retained earnings, Create Bill, transfers, fixed assets, depreciation | Accounting hub complete; the three statements tie to each other |
 | **4 · Reports** | The remaining 16 reports. Sales and inventory groups first — they need no ledger and unblock the most people | Every requested report except Purchase Orders |
 | **5 · Small gaps** | `refunds.reason`, `tax_filings` | Discounts & Refunds and Sales Tax Liability become complete |
 
-**Phases 2a and 2b each need their own spec and their own verification script.** They are the only
-phases that touch the POS's hottest transaction.
+**Phase 2b needs its own spec and its own verification script.** It is the only phase that touches
+the POS's hottest transaction. 2a is now a single arithmetic change inside `receive_stock`, which
+already holds the row lock it needs — it neither adds a table nor touches `complete_sale`.
 
 ## Risks
 
@@ -343,4 +358,4 @@ None. The two remaining recommendations were accepted on 2026-08-23:
 
 Two things would reopen this document rather than the plan built from it: a **lender or tax
 authority** becoming a reader of the statements (changes disclosures, revisit before phase 3), or
-**FEFO** being wanted over FIFO (changes COGS semantics, revisit before phase 2a).
+**FIFO** being wanted after all — see "When FIFO would become needed" above. The design and plan are merged and waiting.
