@@ -57,7 +57,23 @@ Five rules the RPC enforces, each of which will reject a posting bug at write ti
 
 > `-- A posting phase's RPC will call this with p_source <> 'manual' from inside its own security definer function, where the caller has already been gated on the permission that door needs -- a cashier completing a sale holds pos.access and must not need ledger.post.`
 
-**Every posting call in this plan passes an explicit `p_source`.** Never `'manual'`. The values used here are `'sale'`, `'refund'`, `'settlement'`, `'receipt'`, `'bill_payment'`, `'payroll'`, `'count'`, `'backfill'`.
+**Every posting call in this plan passes an explicit `p_source`.** Never `'manual'`.
+
+`journal_entries.source` carries a CHECK constraint, and a value outside it fails the whole
+transaction. The permitted values are exactly:
+
+    manual, sale, refund, settlement, bill, payment, payroll, stock, count,
+    transfer, asset, depreciation, close, opening
+
+So this phase uses `'sale'`, `'refund'`, `'settlement'`, `'stock'` (receipts), `'count'`,
+`'payment'` (supplier payments) and `'payroll'`. Earlier drafts of this plan named
+`'receipt'`, `'bill_payment'` and `'backfill'` — **none of those exist** and each would have
+failed at the first call. Check the constraint before inventing a source.
+
+**Backfilled entries carry their TRUE source**, not a `'backfill'` marker: a P&L must not care
+whether an entry was posted live or replayed, and a report filtering on source would silently
+drop replayed history. The only exception is a genuine opening-balance entry, which is
+`'opening'`.
 
 **Every `p_entry_date` comes from `public.shop_local_date()` (`20260908000320_shop_local_date.sql`), never a bare `now()::date` or `current_date`.** A bare cast resolves in the database session's timezone — UTC on Supabase — and Somalia is UTC+3, so a transaction near midnight local posts into the wrong month, permanently, once that month closes. `complete_sale` (Task 3b) predates the function and keeps its inline `at time zone 'Africa/Mogadishu'` expression rather than being copied forward for a cosmetic change; every task below is new code and has no such excuse. The one exception is `record_invoice_payment`'s `p_paid_on` (Task 7), which arrives as a `date`, not a `timestamptz` — there is no timezone to resolve, so it passes through unchanged.
 
@@ -1937,7 +1953,7 @@ In `record_invoice_payment`, after the payment row is inserted:
       jsonb_build_object('code', '2000', 'amount_cents',  p_amount_cents, 'memo', 'Bill paid'),
       jsonb_build_object('code', public.account_code_for_payment_method(p_method),
                          'amount_cents', -p_amount_cents, 'memo', 'Paid by ' || p_method)),
-    null, 'bill_payment');
+    null, 'payment');
   update public.invoice_payments set journal_entry_id = v_entry_id where id = v_payment_id;
 ```
 
@@ -2209,7 +2225,7 @@ begin
            m.on_date,
            'JE-' || v_year || '-' ||
              lpad((v_offset + row_number() over (order by m.on_date, m.source_id))::text, 4, '0'),
-           'Sale (backfilled)', 'backfill', 'posted', m.location_id
+           'Sale (backfilled)', 'sale', 'posted', m.location_id
       from _bf_map m
      where m.source_kind = 'sale';
 
@@ -2307,7 +2323,7 @@ begin
          m.on_date,
          'JE-' || to_char(m.on_date, 'YYYY') || '-R' ||
            lpad(row_number() over (order by m.on_date, m.source_id)::text, 4, '0'),
-         'Stock received (backfilled)', 'backfill', 'posted', m.location_id
+         'Stock received (backfilled)', 'stock', 'posted', m.location_id
     from _bf_map m where m.source_kind = 'receipt';
 
   update public.stock_receipts r set journal_entry_id = m.entry_id
@@ -2351,7 +2367,7 @@ begin
          m.on_date,
          'JE-' || to_char(m.on_date, 'YYYY') || '-E' ||
            lpad(row_number() over (order by m.on_date, m.source_id)::text, 4, '0'),
-         'Expense (backfilled)', 'backfill', 'posted', m.location_id
+         'Expense (backfilled)', 'payment', 'posted', m.location_id
     from _bf_map m where m.source_kind = 'expense';
 
   update public.expenses e set journal_entry_id = m.entry_id
