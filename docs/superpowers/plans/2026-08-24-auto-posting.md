@@ -442,7 +442,11 @@ alter table public.stock_counts     add column if not exists journal_entry_id uu
 -- Partial, because the only question ever asked is "what is NOT yet posted".
 -- Once the backfill has run these indexes are nearly empty, which is the point.
 create index if not exists sales_unposted_idx            on public.sales(shop_id)          where journal_entry_id is null;
-create index if not exists refunds_unposted_idx          on public.refunds(shop_id)        where journal_entry_id is null;
+-- Keyed on sale_id, not shop_id: refunds has no shop_id column of its own --
+-- a shop is only reachable via refunds.sale_id -> sales.shop_id. sale_id is
+-- also the join key the backfill will use to get there, so it's the right
+-- column even though every sibling index here is keyed on shop_id directly.
+create index if not exists refunds_unposted_idx          on public.refunds(sale_id)        where journal_entry_id is null;
 create index if not exists stock_receipts_unposted_idx   on public.stock_receipts(shop_id) where journal_entry_id is null;
 create index if not exists expenses_unposted_idx         on public.expenses(shop_id)       where journal_entry_id is null;
 create index if not exists payroll_runs_unposted_idx     on public.payroll_runs(shop_id)   where journal_entry_id is null;
