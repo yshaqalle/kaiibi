@@ -2,7 +2,8 @@
 
 **Date:** 2026-08-23
 **Parent:** [`2026-08-22-accounting-standards-design.md`](2026-08-22-accounting-standards-design.md) — this is **phase 2a**
-**Depends on:** phase 1a ([#63](https://github.com/yshaqalle/kaiibi/pull/63), merged) and 1b ([#64](https://github.com/yshaqalle/kaiibi/pull/64))
+**Depends on:** phase 1a ([#63](https://github.com/yshaqalle/kaiibi/pull/63)) and 1b ([#64](https://github.com/yshaqalle/kaiibi/pull/64)) — both merged
+**Prerequisite shipped:** [#66](https://github.com/yshaqalle/kaiibi/pull/66), the `complete_sale` / `edit_sale` lock ordering
 
 ## The problem
 
@@ -23,11 +24,13 @@ The parent design settled that we build cost layers. This spec is how.
 | Refunds return goods | `refund_sale_items()` | Layer restoration |
 | Uncosted is null, never zero | `isUncosted()`, `product-costing.ts` | Provisional layers |
 | Per-location stock | `product_location_stock` | Layers are per location |
-| Deadlock-safe loop ordering | `receive_stock:131`, `transfer_stock:145`, `save_stock_count:189`, `refund_sale_items:148` | The pattern `complete_sale` must adopt — see below |
+| Deadlock-safe loop ordering | every stock RPC, and now `complete_sale`/`edit_sale` too (#66) | The ordering `consume_layers` extends to layer rows |
 
-## The finding that reshapes this phase
+## The finding that reshaped this phase — already shipped
 
-**`complete_sale` does not order its item loop, and every sibling RPC does.**
+> **Resolved in [#66](https://github.com/yshaqalle/kaiibi/pull/66), merged.** This section is kept because it explains why the fix exists and why it landed separately. The work below assumes it is already on main; **it is no longer a task of this phase.**
+
+**`complete_sale` did not order its item loop, and every sibling RPC does.**
 
 ```sql
 -- complete_sale, lines 225 and 644 — no ORDER BY
@@ -38,9 +41,11 @@ It then takes `select ... for update` on `product_location_stock` in **cart orde
 
 Every other stock RPC orders its loop and says why. `receive_stock:131` is explicit: *"Ordered by product id so two concurrent receipts touching the same products take their row locks in the same order and cannot deadlock — the same reason transfer_stock and refund_sale_items order their loops."*
 
-This is a **pre-existing latent bug**, not one layers introduce. But layers make it far likelier to fire: each line goes from locking one `product_location_stock` row to locking that plus every open layer it consumes, and holds them longer.
+This was a **pre-existing latent bug**, not one layers introduce. But layers make it far likelier to fire: each line goes from locking one `product_location_stock` row to locking that plus every open layer it consumes, and holds them longer.
 
-**Therefore: fixing `complete_sale`'s lock ordering is the first task of this phase, shipped and verified on its own, before any layer table exists.** It is independently correct, independently testable, and reviewable without the rest.
+**So it shipped on its own, ahead of everything here** — `20260905000000_complete_sale_lock_order.sql`, covering `edit_sale` too, since fixing only `complete_sale` would leave an edit able to deadlock against a sale. `verify-sale-lock-order.sql` pins it by asserting which product an insufficient-stock error names, because a real deadlock test needs genuine parallelism and would be flaky.
+
+That parallel test still has to be written, and it belongs here: see Verification.
 
 ## Decisions
 
