@@ -111,14 +111,13 @@ export function ChartOfAccountsView({
     <View style={styles.wrap}>
       <BentoCard title="Right now" scope="As of today">
         <View style={styles.tiles}>
-          <StatTile value={formatCompactCents(equation.assetsCents)} label="Assets" />
-          <StatTile value={formatCompactCents(equation.liabilitiesCents)} label="Liabilities" />
-          <StatTile value={formatCompactCents(equation.equityCents)} label="Equity" />
+          <StatTile value={formatCompactCents(equation.assetsCents)} label="Assets" variant="bento" />
+          <StatTile value={formatCompactCents(equation.liabilitiesCents)} label="Liabilities" variant="bento" />
+          <StatTile value={formatCompactCents(equation.equityCents)} label="Equity" variant="bento" />
           <StatTile
             value={equation.differenceCents === 0 ? 'A = L + E' : formatCompactCents(equation.differenceCents)}
             label="Check"
-            hint={equation.differenceCents === 0 ? 'the books balance' : 'they do not'}
-          />
+            hint={equation.differenceCents === 0 ? 'the books balance' : 'they do not'} variant="bento" />
         </View>
         {equation.differenceCents !== 0 && (
           <Caveat tone="wrong" action={{ label: 'Open the trial balance', onPress: () => onOpenView('trial') }}>
