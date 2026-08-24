@@ -1,8 +1,8 @@
--- Every completed sale writes a balanced double-entry journal entry, in the
--- same transaction that writes the sale.
+-- Every money-moving sale RPC writes a balanced double-entry journal entry, in
+-- the same transaction that writes the sale, the refund or the settlement.
 --
--- Eleven things are asserted, and none of them can be checked from TypeScript
--- because all eleven are facts about rows this database wrote for itself:
+-- Fifteen things are asserted, and none of them can be checked from TypeScript
+-- because all fifteen are facts about rows this database wrote for itself:
 --
 --   1. a cash sale posts one balanced entry, with the tax booked as a LIABILITY
 --      and only the merchandise as revenue, and COGS taken from the cost frozen
@@ -49,6 +49,22 @@
 --      one locally, and that is the period it belongs to. Dated in UTC it
 --      disagreed permanently with src/lib/period.ts, which buckets the sales
 --      report in device-local time.
+--  12. a refund posts to 4100 Sales Returns and leaves 4000 Sales Revenue
+--      alone, returns the tax in the same proportion the money goes back, and
+--      brings the cost of the returned goods back out of COGS and into stock at
+--      the cost FROZEN on the original sale line.
+--  13. settling a balance moves the receivable to cash and posts no revenue.
+--      The revenue was recognised when the sale was rung up; recognising it
+--      again when the money arrives is the classic double-count, so 4000 is
+--      asserted ABSENT rather than merely unchanged.
+--  14. a refund on a PART-PAID sale splits its credit between the cash actually
+--      handed over and the receivable that is cleared. Check 12 cannot see
+--      this: on a sale paid in full those two figures are the same number, so
+--      12 passes against a branch as readily as against a split.
+--  15. both refunds and settlements date their entry from shop_local_date().
+--      Asserted against the live function source, because a value comparison
+--      only bites for the three hours a day when the UTC date and the shop's
+--      date differ -- and neither RPC takes a date this script could choose.
 --
 -- The figures are chosen so no two lines of check 1 share a value -- 7000, 350,
 -- 7350 and 2500 are all distinct -- so a check that reads the wrong account
@@ -76,6 +92,14 @@ declare
   v_customer_id    uuid;
   v_staff_role_id  uuid;
   v_sale_id        uuid;
+  -- Check 1's sale and check 3's, kept because v_sale_id is overwritten by
+  -- every later check and checks 12 and 13 come back to these two specifically:
+  -- 12 needs a sale that was paid IN FULL (so the refund credits cash), 13 needs
+  -- one that was not (so there is a receivable to settle).
+  v_sale_id_cash   uuid;
+  v_sale_id_credit uuid;
+  v_item_a         uuid;
+  v_refund_id      uuid;
   v_entry          uuid;
   -- Check 1's entry, kept so check 8 can come back to it after the fixture has
   -- moved products.cost_cents underneath it.
@@ -98,6 +122,9 @@ declare
   v_date           date;
   v_date_actual    date;
   v_expected       date;
+  -- Check 15 reads function source, which is far too large to sit in v_text
+  -- alongside the short descriptions the other checks put there.
+  v_src            text;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -164,6 +191,7 @@ begin
     raise exception 'FAIL: the sale did not post a journal entry';
   end if;
   v_entry_1 := v_entry;
+  v_sale_id_cash := v_sale_id;
 
   -- The entry points BACK at its sale. sales.journal_entry_id gets you one way;
   -- without this every entry's description is the bare word 'Sale' and a
@@ -261,6 +289,7 @@ begin
     jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1500)),
     null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
   select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  v_sale_id_credit := v_sale_id;
 
   select coalesce(sum(l.amount_cents), 0) into v_amount
     from public.journal_lines l join public.accounts a on a.id = l.account_id
@@ -610,6 +639,279 @@ begin
     raise exception 'FAIL: a sale at 22:30 UTC on % posted on %, expected % (% = the entry date resolved in UTC, not shop-local)',
       v_date, v_date_actual, v_expected, v_date;
   end if;
+
+  -- 12. A refund posts RETURNS, not negative revenue. 4000 must not move: a
+  --     refund that reduced Sales Revenue would make a month's revenue depend
+  --     on when the return happened, and the Discounts & Refunds report would
+  --     have nothing to read.
+  --
+  --     Check 1's sale, which was paid IN FULL in cash: 2 @ 2000 (cost 700)
+  --     plus 1 @ 3000, gross 7000, tax 350, total 7350. One unit of product A
+  --     goes back, which is 2000 of the 7000 gross -- so 2100 of the 7350 the
+  --     customer handed over, of which 100 is tax and 2000 is merchandise, and
+  --     700 of cost comes back into stock. Every one of those five figures is
+  --     distinct, so a check reading the wrong account fails rather than
+  --     coincidentally passing.
+  --
+  --     Note products.cost_cents for product A was moved to 9999 by check 8.
+  --     The 700 asserted below is therefore also a second, independent proof
+  --     that the refund reads the cost FROZEN on the sale line.
+  select id into v_item_a from public.sale_items
+   where sale_id = v_sale_id_cash and product_id = v_prod_a;
+  if v_item_a is null then
+    raise exception 'FAIL: check 1''s sale has no product-A line for the refund fixture';
+  end if;
+
+  v_refund_id := public.refund_sale_items(
+    v_sale_id_cash,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 1)));
+  select journal_entry_id into v_entry from public.refunds where id = v_refund_id;
+  if v_entry is null then
+    raise exception 'FAIL: the refund did not post';
+  end if;
+
+  select source into v_text from public.journal_entries where id = v_entry;
+  if v_text <> 'refund' then
+    raise exception 'FAIL: expected source=refund, got % (manual would mean it gated on ledger.post)', v_text;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> 0 then
+    raise exception 'FAIL: a refund must not touch 4000 Sales Revenue, it moved by %', v_amount;
+  end if;
+
+  -- Dr 4100 Sales Returns 2000 -- the merchandise, net of the tax coming back.
+  -- 2100 here would mean the tax was booked as a return; 0 would mean the
+  -- return was netted into revenue instead.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4100';
+  if v_amount <> 2000 then
+    raise exception 'FAIL: expected Dr 4100 Sales Returns 2000, got % (2100 = the tax was returned as merchandise)', v_amount;
+  end if;
+
+  -- Dr 2100 Sales Tax Payable 100 -- the shop owes the tax authority less now.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2100';
+  if v_amount <> 100 then
+    raise exception 'FAIL: expected Dr 2100 Sales Tax Payable 100 coming back, got %', v_amount;
+  end if;
+
+  -- Cr 1000 Cash 2100 -- this sale was paid in full, so real money goes out.
+  -- Nothing lands on 1100: there is no receivable on a sale nobody owes for,
+  -- and crediting one would drive the customer's balance negative.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> -2100 then
+    raise exception 'FAIL: expected Cr 1000 Cash -2100 handed back, got %', v_amount;
+  end if;
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '1100') then
+    raise exception 'FAIL: a refund on a fully-paid sale must not touch 1100 Receivable';
+  end if;
+
+  -- The goods came back, so their cost comes out of COGS and back into stock.
+  -- One returned unit of product A: cost 700.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1200';
+  if v_amount <> 700 then
+    raise exception 'FAIL: expected Dr 1200 Inventory 700 for the returned unit, got % (9999 = today''s cost, not the frozen one)', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5000';
+  if v_amount <> -700 then
+    raise exception 'FAIL: expected Cr 5000 COGS -700 for the returned unit, got %', v_amount;
+  end if;
+
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the refund entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 13. Settling a balance moves receivable to cash and touches nothing else.
+  --     Posting revenue again here is the classic double-count, so 4000 is
+  --     asserted absent rather than merely unchanged.
+  --
+  --     Check 3's sale: total 4200, paid 1500, so 2700 is owed and 2700 was
+  --     debited to 1100 when it was rung up. Settling it in full must credit
+  --     exactly that back out.
+  perform public.settle_sale_balance(
+    v_sale_id_credit,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2700)));
+
+  select journal_entry_id into v_entry from public.sale_payments
+   where sale_id = v_sale_id_credit and is_settlement order by created_at desc limit 1;
+  if v_entry is null then
+    raise exception 'FAIL: the settlement did not post';
+  end if;
+
+  select source into v_text from public.journal_entries where id = v_entry;
+  if v_text <> 'settlement' then
+    raise exception 'FAIL: expected source=settlement, got % (manual would mean it gated on ledger.post)', v_text;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1100';
+  if v_amount <> -2700 then
+    raise exception 'FAIL: expected Cr 1100 Receivable -2700, got %', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> 2700 then
+    raise exception 'FAIL: expected Dr 1000 Cash 2700, got %', v_amount;
+  end if;
+
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '4000') then
+    raise exception 'FAIL: a settlement must not post revenue again';
+  end if;
+
+  -- Exactly two lines, so the entry is the whole of the movement and not a
+  -- balanced pair with something else quietly riding along.
+  select count(*) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 2 then
+    raise exception 'FAIL: expected a two-line settlement entry, got % lines', v_amount;
+  end if;
+
+  -- 14. A refund on a PART-PAID sale splits the credit between cash and the
+  --     receivable, and check 12 cannot see this.
+  --
+  --     Check 12 refunds a sale paid in full, where the cash going out and the
+  --     value coming back are the same figure -- so it passes against an
+  --     implementation that branches ("all to 1100 if anything is still owed,
+  --     otherwise all to cash") as readily as against one that splits. On a
+  --     part-paid sale the two figures differ and the branch is wrong in both
+  --     directions: it either hands over cash the shop never took, or drives
+  --     the customer's balance negative by refunding a debt that was never
+  --     incurred. refund_sale_items has capped the cash at what was collected
+  --     since 20260831000200 -- an entry that ignores that cap does not balance
+  --     against the refund row it is posted for.
+  --
+  --     2 @ 3000 (cost 1100 each) = 6000 gross, tax 300, total 6300. Paid 2000
+  --     in cash, so 4300 is owed. Both units go back, so the whole 6300 of
+  --     value returns -- but only the 2000 that was collected can be handed
+  --     over, and the other 4300 comes off what is owed.
+  --
+  --     Product B, not A: check 8 moved product A's cost to 9999, and 2200 of
+  --     COGS reads more plainly. Every figure is distinct -- 6000, 300, 2000,
+  --     4300, 2200 -- so a check reading the wrong account fails rather than
+  --     coincidentally passing.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
+
+  select id into v_item_a from public.sale_items
+   where sale_id = v_sale_id and product_id = v_prod_b;
+
+  v_refund_id := public.refund_sale_items(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 2)));
+  select journal_entry_id into v_entry from public.refunds where id = v_refund_id;
+  if v_entry is null then
+    raise exception 'FAIL: the part-paid refund did not post';
+  end if;
+
+  -- Asserted, not assumed: if refund_sale_items ever stopped capping the cash
+  -- at what was collected, the rest of this check would be measuring a refund
+  -- that is not the one this check exists for.
+  select total_cents into v_amount from public.refunds where id = v_refund_id;
+  if v_amount <> 2000 then
+    raise exception 'FAIL: the fixture refund handed back % in cash, expected 2000 -- the cap is gone', v_amount;
+  end if;
+  select goods_cents into v_amount from public.refunds where id = v_refund_id;
+  if v_amount <> 6300 then
+    raise exception 'FAIL: the fixture refund returned % of value, expected 6300', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> -2000 then
+    raise exception 'FAIL: expected Cr 1000 Cash -2000, the only money that came in, got % (-6300 = cash the shop never took)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1100';
+  if v_amount <> -4300 then
+    raise exception 'FAIL: expected Cr 1100 Receivable -4300, got % (-6300 = the balance is driven negative; 0 = the debt is never cleared)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4100';
+  if v_amount <> 6000 then
+    raise exception 'FAIL: expected Dr 4100 Sales Returns 6000, got %', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1200';
+  if v_amount <> 2200 then
+    raise exception 'FAIL: expected Dr 1200 Inventory 2200 for the two returned units, got %', v_amount;
+  end if;
+
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the part-paid refund entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 15. Both entry dates come from shop_local_date(), not from now()::date.
+  --
+  --     Asserted against the LIVE function source rather than by comparing the
+  --     posted entry_date to an expected day, because a value comparison only
+  --     bites for the three hours a day when the UTC date and the Mogadishu
+  --     date differ -- 21:00-24:00 UTC. A refund takes no p_created_at, so
+  --     unlike checks 9-11 this script cannot choose the moment: run at noon,
+  --     `now()::date` and `shop_local_date()` agree and a value check passes
+  --     while the bug is fully present. Confirmed by mutation: swapping every
+  --     shop_local_date() in the migration for now()::date left this whole
+  --     script green.
+  --
+  --     What that bug costs is why it is worth a source assertion. Somalia is
+  --     UTC+3, so a refund at 01:30 local on the 1st is 22:30 UTC on the last
+  --     day of the previous month -- it posts into the wrong period, and once
+  --     that period closes a posted entry cannot be re-dated. Permanent, and
+  --     invisible until someone reconciles a month.
+  --
+  --     Read from pg_get_functiondef, like check 7, rather than by grepping the
+  --     migration files: this repo has migrations that rewrite functions by
+  --     substituting pg_proc.prosrc at runtime, and a grep of the .sql files
+  --     would not see them.
+  foreach v_text in array array[
+    'public.refund_sale_items(uuid, jsonb)',
+    'public.settle_sale_balance(uuid, jsonb, uuid)'
+  ] loop
+    -- COMMENTS STRIPPED FIRST, and this is not tidiness. pg_get_functiondef
+    -- returns the body verbatim, comments included, and both functions carry a
+    -- comment reading "shop_local_date(), never now()::date" that explains the
+    -- very rule being checked. Searching the raw source therefore matched the
+    -- explanation rather than the code, and the check failed against a
+    -- perfectly correct function. Caught the first time it was run.
+    select regexp_replace(pg_get_functiondef(v_text::regprocedure), '--[^\n]*', '', 'g')
+      into v_src;
+
+    if position('shop_local_date' in v_src) = 0 then
+      raise exception 'FAIL: % does not call shop_local_date(); its entry date is not the shop''s local date', v_text;
+    end if;
+    -- The bare cast, specifically. Both functions use now() legitimately
+    -- elsewhere -- product_location_stock.updated_at, sales.settled_at -- so
+    -- the needle is the DATE cast, which has no legitimate use here.
+    if position('now()::date' in v_src) > 0 then
+      raise exception 'FAIL: % still dates an entry with now()::date, which resolves in UTC', v_text;
+    end if;
+  end loop;
 
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
