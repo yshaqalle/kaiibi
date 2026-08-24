@@ -170,9 +170,62 @@ const EDIT_SALE_EDITS: Edit[] = [
   ['20260908000650', 'every discount reaches 4200', 'v_item_discount_cents'],
 ];
 
+// receive_stock joins this file at three definitions, and it belongs here more
+// urgently than its line count suggests.
+//
+// 20260907000000 replaced "latest wins" -- where a delivery OVERWROTE a
+// product's cost with its own price -- with a moving weighted average, because
+// replacement cost is not one of the two formulas IAS 2.25 permits. Copying the
+// function forward from 20260902000000 instead restores an impermissible cost
+// basis, and it does so with NO test in verify-posting-inventory.sql going red,
+// because none of those checks reads products.cost_cents. Only
+// verify-weighted-average.sql catches it, and that needs a running database.
+//
+// This entry catches it in `npm test`, from the SQL text, before anyone applies
+// the migration -- which is the whole reason this file exists.
+const RECEIVE_STOCK_EDITS: Edit[] = [
+  // The token is the divisor of the average rather than a variable name: any
+  // implementation that still divides by (prior + received) is averaging, and
+  // "latest wins" has no divisor at all.
+  ['20260907000000', 'stock is valued at a moving weighted average, not the latest price paid', '/ (v_prior_qty + v_qty)'],
+  // Averaged against the quantity read BEFORE the upsert. Against the
+  // post-upsert figure the delivery is counted twice and the answer lands
+  // between the two costs -- wrong in a way nobody would spot.
+  // `v_prior_qty::numeric`, not a bare `v_prior_qty`: the bare name also appears
+  // in the SELECT that reads it, so it survived a faithful wrong-ancestor copy
+  // in testing while the two entries either side of it went red. The cast
+  // appears only inside the average itself.
+  ['20260907000000', 'the average is taken against shop-wide stock read before the upsert', 'v_prior_qty::numeric'],
+  // Null is not zero. Null means nobody priced this product, and averaging it
+  // as free would halve the cost of everything a shop had not got round to.
+  ['20260907000000', 'a null prior cost is replaced, not averaged as zero', 'v_product.cost_cents is null'],
+  ['20260908000400', 'a delivery posts to the ledger', 'post_journal_entry('],
+  // Payable, not cash. This RPC records goods ARRIVING and says nothing about
+  // whether they were paid for; crediting cash asserts a payment nobody made.
+  ['20260908000400', 'a delivery credits 2000 Accounts Payable', "'code', '2000'"],
+  // The PROPERTY, not a variable name -- the same discipline the edit_sale
+  // entry above applies. now()::date resolves in UTC and Somalia is UTC+3.
+  ['20260908000400', 'the entry is dated in shop-local time', 'shop_local_date'],
+];
+
+const SAVE_STOCK_COUNT_EDITS: Edit[] = [
+  ['20260908000600', 'a count variance posts to the ledger', 'post_journal_entry('],
+  // 5100 sits in COST OF SALES, above gross profit -- not in the 6000s, where
+  // the Count door's stock_loss expense category lands. A unit that is stolen
+  // or breaks is never sold, so its cost never enters COGS by any other path.
+  ['20260908000600', 'shrinkage is a cost of sales, not an operating expense', "'code', '5100'"],
+  // Two branches, not one signed one. The amounts are identical either way --
+  // the sign convention flips the direction for free -- so what the second
+  // branch buys is an entry that SAYS what happened.
+  ['20260908000600', 'an over-count reverses the entry rather than posting a negative shrinkage', 'Stock found'],
+  ['20260908000600', 'the entry is dated in shop-local time', 'shop_local_date'],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
+  ['receive_stock', RECEIVE_STOCK_EDITS],
+  ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 
