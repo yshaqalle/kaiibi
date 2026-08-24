@@ -1,9 +1,16 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
+import { AuditLogView } from '@/components/accounting/ledger/audit-log-view';
+import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
+import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-view';
+import { JournalsView } from '@/components/accounting/ledger/journals-view';
+import { LedgerCrumb } from '@/components/accounting/ledger/ledger-crumb';
+import { LedgerHub, LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { TrialBalanceView } from '@/components/accounting/ledger/trial-balance-view';
 import { BentoControlBar } from '@/components/ui/bento-control-bar';
 import { Colors } from '@/constants/theme';
 import { CashBudgetsTab } from '@/components/accounting/cash-budgets-tab';
@@ -15,7 +22,9 @@ import { ReceivablesTab } from '@/components/accounting/receivables-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
 import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
+import { useAuth } from '@/hooks/use-auth';
 import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
+import { listAccounts } from '@/lib/ledger';
 import type { TabRefresh } from '@/components/accounting/use-header-actions';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -29,7 +38,7 @@ const theme = Colors.light;
 // Tabs land incrementally (see the phased plan); only the ones that exist are
 // listed, so the bar never offers a destination that renders nothing.
 
-type AccountingTab = 'overview' | 'transactions' | 'receivables' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'reports';
+type AccountingTab = 'overview' | 'transactions' | 'receivables' | 'invoices' | 'expenses' | 'payroll' | 'cash' | 'accounting' | 'reports';
 
 // The blurb says what the tab is FOR. Seven tabs of money is a lot to hold in
 // your head, and "Bills" alone does not distinguish what you owe suppliers
@@ -44,6 +53,9 @@ const TAB_OPTIONS: { key: AccountingTab; label: string; blurb: string }[] = [
   { key: 'expenses', label: 'Expenses', blurb: 'What the shop spent, by category.' },
   { key: 'payroll', label: 'Payroll', blurb: 'Pay runs and what each one cost.' },
   { key: 'cash', label: 'Cash & Budgets', blurb: 'Cash on hand, recurring bills and category limits.' },
+  // Between the day-to-day tabs and Reports on purpose: the books are what the
+  // tabs above feed and what the reports below read.
+  { key: 'accounting', label: 'Accounting', blurb: 'The books themselves — accounts, entries and the trail behind them.' },
   { key: 'reports', label: 'Reports', blurb: 'Profit and loss, tax, labour and category breakdowns.' },
 ];
 
@@ -68,7 +80,7 @@ export default function AccountingScreen() {
   // overdue-bill row opens Bills rather than dropping the reader on Overview
   // to find it. Read once as the INITIAL value; state is authoritative while
   // mounted, so a tap never waits for the URL to catch up.
-  const { tab: tabParam, session: sessionParam } = useLocalSearchParams<{ tab?: string; session?: string }>();
+  const { tab: tabParam, view: viewParam, session: sessionParam } = useLocalSearchParams<{ tab?: string; view?: string; session?: string }>();
   const [tab, setTabState] = useState<AccountingTab>(
     TAB_OPTIONS.some((option) => option.key === tabParam) ? (tabParam as AccountingTab) : 'overview'
   );
@@ -87,6 +99,47 @@ export default function AccountingScreen() {
     },
     [router]
   );
+  // Which ledger screen is open inside the Accounting tab. A URL param for
+  // exactly the reason `tab` is one -- state does not survive the shell's
+  // remount at TABLET_BREAKPOINT, the URL does.
+  //
+  // Owned by the shell rather than by the tab, too. A tab component remounts on
+  // every switch, so a `view` held inside one would drop the reader back on the
+  // hub every time they came back from Reports. Unknown values resolve to the
+  // hub rather than rendering nothing.
+  const [view, setViewState] = useState<LedgerView>(
+    LEDGER_VIEWS.some((v) => v.key === viewParam) ? (viewParam as LedgerView) : 'hub'
+  );
+  const setView = useCallback(
+    (next: LedgerView) => {
+      setViewState(next);
+      router.setParams({ view: next });
+    },
+    [router]
+  );
+
+  // How many accounts the shop has, for the Chart of Accounts card's footer.
+  // Fetched by the SHELL rather than the hub: the hub is a list of links and
+  // giving it a query would make every one of its cards wait on data only one
+  // of them shows. Null until it lands, so the card falls back to its static
+  // scope rather than flashing "0 accounts".
+  const { shop } = useAuth();
+  const [accountCount, setAccountCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!shop || tab !== 'accounting') return;
+    let cancelled = false;
+    listAccounts(shop.id)
+      .then((rows) => {
+        if (!cancelled) setAccountCount(rows.filter((a) => a.archivedAt === null).length);
+      })
+      // A hub card's footnote is not worth an error state. The static scope is
+      // a correct thing to show when the count is unknown.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [shop, tab]);
+
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);
@@ -105,14 +158,24 @@ export default function AccountingScreen() {
   // null is the combined business view.
   const [locationFilter, setLocationFilter] = useState<string | null>(null);
 
+  // Inside a ledger screen the title row names the SCREEN, not the tab --
+  // otherwise all six of them are titled "Accounting" and the reader has no way
+  // to tell which one they opened.
+  const ledgerView = LEDGER_VIEWS.find((v) => v.key === view);
+  const inLedger = tab === 'accounting' && view !== 'hub';
+  const tabOption = TAB_OPTIONS.find((t) => t.key === tab);
+  const title = inLedger ? ledgerView?.label : tabOption?.label;
+  const blurb = inLedger ? ledgerView?.blurb : tabOption?.blurb;
+
   return (
     <SafeAreaView edges={['left', 'right', 'bottom']} style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content} refreshControl={pullToRefresh}>
         <View style={styles.headerRow}>
           <View style={styles.headerTitles}>
             <Text style={styles.eyebrow}>ACCOUNTING</Text>
-            <Text style={styles.title}>{TAB_OPTIONS.find((t) => t.key === tab)?.label}</Text>
-            <Text style={styles.blurb}>{TAB_OPTIONS.find((t) => t.key === tab)?.blurb}</Text>
+            {inLedger && <LedgerCrumb onBack={() => setView('hub')} />}
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.blurb}>{blurb}</Text>
           </View>
           {/* Rendered by the shell, not inside the tabs: moving either control
               into a tab would remount it on every tab switch and silently
@@ -156,6 +219,12 @@ export default function AccountingScreen() {
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
+            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} />}
+            {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
+            {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'entry' && <JournalEntryView onPosted={() => setView('journals')} setRefresh={setTabRefresh} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
