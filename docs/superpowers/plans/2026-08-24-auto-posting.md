@@ -1467,6 +1467,8 @@ Neither is hypothetical; both fire on ordinary edits.
 
 **2. It dates the reversal to the ORIGINAL entry's date**, deliberately — a correction to August belongs in August. But if August is closed, `open_period_for` refuses it and the edit fails. That is Task 3b's problem again, in a place Task 3b did not reach. Resolve it the same way: check the period's status first and, when the original's month is shut, date **both** the reversal and the replacement into the current period, with the true date and the status in both descriptions. Do not catch `open_period_for`'s exception.
 
+**3. `edit_sale` reads `sales.journal_entry_id` twice — once to fetch the sale, once lower down to find the entry to reverse — with nothing serialising the two reads.** The initial `select ... from public.sales where id = p_sale_id` must carry `for update`, held for the whole transaction, the same shape `settle_sale_balance` already uses (`20260908000360`) as its very first statement. Without it, two concurrent edits on the same sale — an ordinary POS double-tap, or a client retry after a dropped response — can both read the same old entry, both post a valid reversal and replacement, and race on the final `journal_entry_id` update: the loser's replacement is orphaned and the trial balance is reversed-and-replaced twice for a sale that names only one replacement.
+
 - [ ] **Step 1: Write the failing checks**
 
 Append to `supabase/tests/verify-posting-sales.sql`. Reuse check 1's sale, whose entry is already held in `v_entry_1`: 7000 gross, 350 tax, 7350 total, 2500 COGS.

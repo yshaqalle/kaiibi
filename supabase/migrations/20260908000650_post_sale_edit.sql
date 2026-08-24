@@ -209,11 +209,24 @@ declare
   v_period_status text;
   v_posted_date date;
 begin
+  -- Locked here, for the whole transaction: this function reads
+  -- sales.journal_entry_id TWICE, once above via this row and once again
+  -- lower down to find the entry it is about to reverse, with no other
+  -- serialisation between the two reads. Without the lock, two concurrent
+  -- edit_sale calls on the same sale -- an ordinary POS double-tap, or a
+  -- client retry after a dropped response -- can both read the same
+  -- v_old_entry_id, both build a valid reversal and a valid replacement, and
+  -- race on the final `update sales set journal_entry_id`. The loser's
+  -- replacement entry is then orphaned -- no sale points at it -- while its
+  -- reversal's back-link is dropped, and the trial balance reflects the
+  -- original being reversed and replaced TWICE for a sale that names only
+  -- one replacement. Same shape as settle_sale_balance's first statement
+  -- (20260908000360), which locks for exactly this reason.
   select shop_id, location_id, customer_id, points_earned, points_redeemed_cents,
          loyalty_points_per_usd, created_at
     into v_shop_id, v_location_id, v_old_customer_id, v_points_earned_old,
          v_points_redeemed_cents, v_sale_points_per_usd, v_created_at
-    from public.sales where id = p_sale_id;
+    from public.sales where id = p_sale_id for update;
   if v_shop_id is null then
     raise exception 'sale % not found', p_sale_id;
   end if;
