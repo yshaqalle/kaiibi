@@ -617,12 +617,15 @@ export default function InventoryScreen() {
               hint={showLocationFilter ? 'carried across your stores' : undefined}
             />
             <StatTile variant="bento" value={String(needsAttention)} label="Low stock" hint="at or below reorder level" />
-            {/* "what you paid for it" was a claim the figure cannot support:
-                cost_cents is shop-wide and latest-price-wins, so this values
-                every unit at the most recent price rather than at what it
-                cost. The hint states the basis, and the caveat below says what
-                that basis costs the reader. */}
-            <StatTile variant="bento" value={formatCompactCents(stockValue.costCents)} label="Stock at cost" hint="at the latest price paid" />
+            {/* IAS 2.36(a) requires the cost formula to be disclosed, and with
+                one formula that is a constant string rather than a column.
+
+                It said "at the latest price paid" until
+                20260907000000_moving_weighted_average.sql, which was accurate
+                then and is not now: receive_stock averaged the newest delivery
+                into the cost instead of replacing it with it. The hint states
+                the basis and the caveat below says what the basis means. */}
+            <StatTile variant="bento" value={formatCompactCents(stockValue.costCents)} label="Stock at cost" hint="at weighted average cost" />
             <StatTile
               variant="bento"
               value={formatCompactCents(stockValue.retailCents)}
@@ -652,19 +655,28 @@ export default function InventoryScreen() {
           </Caveat>
         )}
 
-        {/* What "Stock at cost" is actually counting. Restock writes
-            products.cost_cents on every priced delivery, latest price wins,
-            and that column is SHOP-WIDE — product_location_stock has no cost
-            of its own — so one branch's delivery re-prices every branch's
-            stock.
+        {/* What "Stock at cost" is actually counting, and the IAS 2.36(a)
+            disclosure of which cost formula it uses. Weighted average is one
+            of the two formulas IAS 2.25 permits; the other is FIFO.
+
+            This used to say the figure valued every unit at the most recent
+            price paid, which was true and was the problem — that is
+            replacement cost, which the standard does not permit at all.
+            20260907000000_moving_weighted_average.sql changed the arithmetic
+            and this text changed with it.
+
+            Still SHOP-WIDE, and still worth saying: products.cost_cents is one
+            column per product and product_location_stock has no cost of its
+            own, so a delivery to one branch moves every branch's cost. The
+            average is taken against shop-wide stock precisely so that the same
+            delivery cannot produce a different cost depending on where it
+            landed.
 
             'context', not 'wrong', and deliberately no action: the figure is
-            the honest answer to the question the app currently knows how to
-            ask, and there is nothing a shop can do about the basis from this
-            screen. A 'wrong' with no fix would train people to skip the whole
-            family — including the uncosted one above, which does have a fix.
-            Per-store cost and a weighted average are what change the number;
-            until then this says what it means.
+            computed on a permitted basis and there is nothing a shop can do
+            about it from this screen. A 'wrong' with no fix would train people
+            to skip the whole family — including the uncosted one above, which
+            does have a fix.
 
             Sits after the uncosted warning and before Stock at retail: the
             actionable one leads, then the two explanations follow their tiles
@@ -672,8 +684,8 @@ export default function InventoryScreen() {
         {products.length > 0 && !costBasisNote.dismissed && (
           <Caveat tone="context" onDismiss={costBasisNote.dismiss}>
             {showLocationFilter
-              ? 'Stock at cost values every unit at the most recent price you paid for it, not what each unit actually cost. Restocking at a new price re-values what you already hold — across all your stores, including ones the delivery didn’t go to.'
-              : 'Stock at cost values every unit at the most recent price you paid for it, not what each unit actually cost. Restocking at a new price re-values what you already hold.'}
+              ? 'Stock is valued at weighted average cost. Each delivery moves a product’s cost part of the way toward what you just paid — by how much depends on how much you already held — rather than replacing it outright. That average is one figure per product across all your stores, so a delivery to one store moves the cost everywhere.'
+              : 'Stock is valued at weighted average cost. Each delivery moves a product’s cost part of the way toward what you just paid — by how much depends on how much you already held — rather than replacing it outright.'}
           </Caveat>
         )}
 

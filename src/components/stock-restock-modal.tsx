@@ -1363,11 +1363,27 @@ function SheetTab({
                   anything is written", and nothing rendered it: the whole
                   change arrived as a pill reading "2 costs updated". This is
                   the highest-risk write the sheet makes -- products.cost_cents
-                  is what stock at cost and gross profit are built from, it has
-                  no history, and a delivery overwrites it for good. */}
+                  is what stock at cost and gross profit are built from, and it
+                  has no history.
+
+                  It said "→ 4.80" flatly until
+                  20260907000000_moving_weighted_average.sql, which was true
+                  while receive_stock replaced the cost with the delivery's
+                  price. It averages now, so the cost lands BETWEEN the two and
+                  a flat arrow would have promised a figure the commit does not
+                  produce.
+
+                  "toward", not a computed figure, deliberately: the true
+                  result needs the shop-wide quantity at commit time, and
+                  reimplementing the weighted average here would be a second
+                  copy of the formula free to drift a cent from the one in the
+                  migration. An honest direction beats a precise number that
+                  can be wrong. The exception is stated in the note below --
+                  with no cost recorded, or none in stock, there is nothing to
+                  average against and the delivery's price lands exactly. */}
               {changes.length > 0 && (
                 <>
-                  <Text style={[styles.label, styles.labelSpaced]}>COSTS THAT WILL CHANGE</Text>
+                  <Text style={[styles.label, styles.labelSpaced]}>COSTS THIS DELIVERY WILL MOVE</Text>
                   <View style={styles.receipt}>
                     {changes.map((change) => (
                       <View key={`${change.productId}|${change.locationName}`} style={styles.receiptItem}>
@@ -1376,17 +1392,23 @@ function SheetTab({
                           {plan.receipts.length > 1 ? ` · ${change.locationName}` : ''}
                         </Text>
                         <Text style={[styles.costChange, change.conflicting && styles.costChangeClash]}>
-                          {change.previousCostCents === null ? 'no cost' : formatCents(change.previousCostCents)} →{' '}
-                          {formatCents(change.costCents)}
+                          {change.previousCostCents === null
+                            ? `no cost → ${formatCents(change.costCents)}`
+                            : `${formatCents(change.previousCostCents)} → toward ${formatCents(change.costCents)}`}
                         </Text>
                       </View>
                     ))}
                   </View>
+                  <Text style={styles.costBasisNote}>
+                    Stock is valued at weighted average cost, so each delivery moves a product&apos;s cost part of the way
+                    toward what you paid — by how much depends on how much you already hold. A product with no cost
+                    recorded, or none in stock, takes the delivery&apos;s price exactly.
+                  </Text>
                   {/* Said in words as well as coloured, because the rows on
                       their own look like two ordinary updates. There is one
                       cost column per product and no store dimension in it, so
-                      both figures are written and whichever store commits last
-                      is the one the shop is left with. */}
+                      both figures are averaged into the same column rather
+                      than one of them winning. */}
                   {clashes.map((clash) => (
                     <Text key={clash.productId} style={styles.oversized}>
                       {clash.productName} is priced two ways in this sheet:{' '}
@@ -1394,8 +1416,8 @@ function SheetTab({
                         .filter((c) => c.productId === clash.productId)
                         .map((c) => `${formatCents(c.costCents)} at ${c.locationName}`)
                         .join(', ')}
-                      . Only one cost is kept per product, so the last store to go through is the one that sticks — fix
-                      the sheet if that isn&apos;t what you meant.
+                      . There is one cost per product, so both are averaged into it and the product ends up on a blend of
+                      the two rather than on either — fix the sheet if that isn&apos;t what you meant.
                     </Text>
                   ))}
                 </>
@@ -1549,6 +1571,10 @@ const styles = StyleSheet.create({
   // The same amber the oversized warning uses, so "look at this one" means one
   // thing on this screen.
   costChangeClash: { color: '#8A5806' },
+  // Quiet, and below the rows rather than beside them: it qualifies every row
+  // at once, and the IAS 2.36(a) disclosure of which formula is in use belongs
+  // wherever a cost is shown, not only on Inventory's stock value.
+  costBasisNote: { fontSize: 12, color: '#5E5D65', marginTop: 8, lineHeight: 17 },
   oversized: { fontSize: 12.5, fontWeight: '700', color: '#8A5806', backgroundColor: '#FDF1DA', borderRadius: 10, padding: 10, marginTop: 8, lineHeight: 18 },
   rejectRow: { paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F2F2F2' },
   rejectNumber: { fontSize: 11, fontWeight: '800', color: '#A3202F', letterSpacing: 0.4 },

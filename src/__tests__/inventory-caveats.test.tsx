@@ -87,7 +87,7 @@ async function costBasisCaveat() {
   const tree = await render();
   return tree.root
     .findAllByType(Caveat)
-    .find((node) => String(node.props.children).startsWith('Stock at cost values every unit'));
+    .find((node) => String(node.props.children).startsWith('Stock is valued at weighted average cost'));
 }
 
 describe('Inventory — the Stock at cost basis caveat', () => {
@@ -98,15 +98,27 @@ describe('Inventory — the Stock at cost basis caveat', () => {
     ];
   });
 
-  it('says what the figure is actually counting', async () => {
+  // IAS 2.36(a) requires the cost formula to be disclosed wherever a stock
+  // value is reported. This asserts the formula is NAMED, not merely that the
+  // figure is qualified -- "weighted average" is the disclosure, and a caveat
+  // that only said the number was approximate would not satisfy it.
+  //
+  // It asserted 'most recent price you paid' until
+  // 20260907000000_moving_weighted_average.sql. That was an accurate
+  // description of replacement cost, which is what the standard does not
+  // permit; the arithmetic changed and this moved with it.
+  it('names the cost formula, which is what IAS 2.36(a) asks for', async () => {
     const caveat = await costBasisCaveat();
     expect(caveat).toBeDefined();
-    expect(String(caveat!.props.children)).toContain('most recent price you paid');
+    expect(String(caveat!.props.children)).toContain('weighted average cost');
+    // The old basis must not still be claimed anywhere in the sentence.
+    expect(String(caveat!.props.children)).not.toContain('most recent price you paid');
   });
 
-  // The expensive half of the truth: cost_cents is shop-wide, so a delivery at
-  // one branch re-prices every other branch's stock. A multi-store shop has to
-  // be told, because nothing on the other store's screen says so.
+  // The expensive half of the truth, and it survived the change to weighted
+  // average: cost_cents is still shop-wide, so a delivery at one branch still
+  // moves every other branch's cost. A multi-store shop has to be told,
+  // because nothing on the other store's screen says so.
   it('warns a multi-store shop that a delivery re-values the other stores too', async () => {
     const caveat = await costBasisCaveat();
     expect(String(caveat!.props.children)).toContain('across all your stores');
@@ -120,7 +132,7 @@ describe('Inventory — the Stock at cost basis caveat', () => {
     expect(caveat).toBeDefined();
     const copy = String(caveat!.props.children);
     expect(copy).not.toContain('across all your stores');
-    expect(copy).toContain('re-values what you already hold.');
+    expect(copy).toContain('rather than replacing it outright.');
   });
 
   // THE LOAD-BEARING ONE. tone="context" means the number is right and here is
@@ -144,12 +156,14 @@ describe('Inventory — the Stock at cost basis caveat', () => {
 
 describe('Inventory — the Stock at cost tile', () => {
   // "what you paid for it" was a claim the number cannot support. The hint is
-  // the first telling of the basis; the caveat is the second.
+  // the first telling of the basis; the caveat is the second. Both name the
+  // formula, so a reader who dismisses the caveat is not left without the
+  // IAS 2.36(a) disclosure.
   it('states the basis in its hint', async () => {
     const tree = await render();
     const { StatTile } = jest.requireActual('@/components/stat-tile');
     const tile = tree.root.findAllByType(StatTile).find((node) => node.props.label === 'Stock at cost');
     expect(tile).toBeDefined();
-    expect(tile!.props.hint).toBe('at the latest price paid');
+    expect(tile!.props.hint).toBe('at weighted average cost');
   });
 });

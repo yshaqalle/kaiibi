@@ -7,10 +7,18 @@
 --
 --   1. the count is INCREMENTED, not replaced. A restock that overwrote would
 --      be a Count, and the two are the whole reason the Stock door exists.
---   2. a filled unit cost overwrites products.cost_cents and a blank one leaves
---      it alone -- the "latest wins" rule. Getting this backwards silently
---      rewrites the shop's stock-at-cost and gross profit. (2b pins which of
---      two lines for one product is the latest.)
+--   2. a filled unit cost is AVERAGED into products.cost_cents and a blank one
+--      leaves it alone. Getting this backwards silently rewrites the shop's
+--      stock-at-cost and gross profit. (2b pins that two lines for one product
+--      compound rather than one of them winning.)
+--
+--      These checks used to assert the opposite -- "latest wins", the filled
+--      cost overwriting outright. That was replacement cost, which IAS 2.25
+--      does not permit; 20260907000000_moving_weighted_average.sql replaced it
+--      with a moving weighted average and these assertions moved with it. The
+--      arithmetic itself is proved in verify-weighted-average.sql; what is
+--      proved HERE is that the surrounding behaviour -- blank costs, two lines
+--      for one product, the counts -- survived the change.
 --   3. a zero or negative quantity is refused with a sentence, not skipped.
 --   4. a receiving location belonging to another shop is refused.
 --   5. a product belonging to another shop is refused, by its own guard.
@@ -87,11 +95,18 @@ begin
     raise exception 'FAIL: expected 2 receipt items, got %', v_rows;
   end if;
 
-  -- 2. Latest cost wins, and only where a cost was given.
+  -- 2. The received cost is averaged in, and only where a cost was given.
+  --
+  -- The serum had 11 units at 450 and took 6 more at 480:
+  -- (11*450 + 6*480)/17 = 7830/17 = 461. Not 480, which is what this check
+  -- asserted while receive_stock replaced the cost instead of averaging it.
   select cost_cents into v_cost from public.products where id = v_serum;
-  if v_cost <> 480 then
-    raise exception 'FAIL: a filled unit cost should overwrite 450 with 480, got %', v_cost;
+  if v_cost <> 461 then
+    raise exception 'FAIL: 11 @ 450 plus 6 @ 480 should average to 461, got % (480 = the old "latest wins")', v_cost;
   end if;
+  -- The balm had no cost and no stock, so the delivery is the whole basis and
+  -- there is nothing to average against. Null is not zero: averaging an
+  -- unpriced product as free would halve its cost.
   select cost_cents into v_cost from public.products where id = v_balm;
   if v_cost <> 210 then
     raise exception 'FAIL: an uncosted product should take the received cost, got %', v_cost;
@@ -103,7 +118,7 @@ begin
     null, null, null
   );
   select cost_cents into v_cost from public.products where id = v_serum;
-  if v_cost <> 480 then
+  if v_cost <> 461 then
     raise exception 'FAIL: a blank unit cost must leave the cost alone, got %', v_cost;
   end if;
   select stock into v_stock from public.product_location_stock
@@ -112,21 +127,46 @@ begin
     raise exception 'FAIL: a second receipt should take 17 to 20, got %', v_stock;
   end if;
 
-  -- 2b. Two lines for the same product in one delivery: ordering by product id
-  --     alone is not a total order, so which line's cost "wins" would be
-  --     arbitrary without a tiebreaker. The later line -- higher position in
-  --     the array -- is "latest" and must win, every time this runs.
+  -- 2b. Two lines for the same product in one delivery must COMPOUND -- each
+  --     line averaging against the result of the one before -- so that a sheet
+  --     listing a product twice gives the same answer as two separate
+  --     receipts. Neither line may be lost or overwrite the other.
+  --
+  --     Under "latest wins" this check pinned which line was "latest", and the
+  --     ordinality tiebreaker in receive_stock's loop was what decided it.
+  --     Averaging is commutative up to rounding, so order no longer changes the
+  --     answer -- which is a better property, not a weaker one. What is still
+  --     worth pinning is that BOTH lines land.
+  --
+  --     The balm has 12 units at 210. Taking 1 @ 111 then 100 @ 900:
+  --       line 1: (12*210 + 1*111)/13   = 2631/13    = 202
+  --       line 2: (13*202 + 100*900)/113 = 92626/113 = 820
+  --
+  --     The quantities are lopsided on purpose, so every way of getting this
+  --     wrong gives a visibly different figure:
+  --       820  correct
+  --       900  "latest wins", the bug that was fixed
+  --       826  only the second line counted
+  --       202  only the first line counted
+  --       825  v_prior_qty hoisted out of the loop, so line 2 averaged against
+  --            the count from before line 1 landed
+  --       530  averaged against post-upsert stock
   perform public.receive_stock(
     v_shop_id, v_location_id,
     jsonb_build_array(
       jsonb_build_object('product_id', v_balm, 'quantity', 1, 'unit_cost_cents', 111),
-      jsonb_build_object('product_id', v_balm, 'quantity', 1, 'unit_cost_cents', 222)
+      jsonb_build_object('product_id', v_balm, 'quantity', 100, 'unit_cost_cents', 900)
     ),
     null, null, null
   );
   select cost_cents into v_cost from public.products where id = v_balm;
-  if v_cost <> 222 then
-    raise exception 'FAIL: two lines for one product should leave the later line''s cost, got %', v_cost;
+  if v_cost <> 820 then
+    raise exception 'FAIL: two lines for one product should compound to 820, got % (900 = latest wins, 826 = only the second line, 202 = only the first, 825 = v_prior_qty hoisted out of the loop)', v_cost;
+  end if;
+  select stock into v_stock from public.product_location_stock
+    where product_id = v_balm and location_id = v_location_id;
+  if v_stock <> 113 then
+    raise exception 'FAIL: both lines'' units should land, expected 12 + 1 + 100 = 113, got %', v_stock;
   end if;
 
   -- 3. Zero and negative quantities are refused, not silently skipped, and a

@@ -1,0 +1,396 @@
+<title>Kaiibi &mdash; Weighted average: what actually shipped</title>
+
+<style>
+  :root{
+    --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+           --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  :root[data-theme="dark"]{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94;
+    --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  :root[data-theme="light"]{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f;
+    --ln:#e4e4ea; --sf:#ffffff; --blue:#2f6bff; }
+
+  /* Frames stay light in both themes: the app pins Colors.light (theme.ts).
+     Every value below is the token of the same name in src/constants/theme.ts. */
+  .doc{
+    --d-pg:#f4f4f5; --d-sf:#ffffff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e;
+    --d-mut:#5e5d65; --d-mut2:#717078; --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+    --d-profit:#008340; --d-loss:#d72b3e;
+    --d-accwash:#e6edff; --d-accink:#1b47b8; --d-warnwash:#fdf1da; --d-warnink:#8a5806;
+    --d-losswash:#fdeaec; --d-upwash:#d9efe4; --d-upink:#007a38;
+  }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1240px;margin:0 auto;padding:44px 22px 90px;}
+  .num{font-variant-numeric:tabular-nums;}
+  :focus-visible{outline:2px solid var(--blue);outline-offset:2px;border-radius:6px;}
+
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;text-wrap:balance;}
+  .lede{font-size:17px;color:var(--ink2);max-width:66ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;text-wrap:balance;}
+  h3{font-size:15px;font-weight:800;margin:24px 0 6px;}
+  section{margin-top:54px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:74ch;}
+  .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;
+    background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .toc{border:1px solid var(--ln);border-radius:14px;padding:16px 18px;background:var(--sf);margin-top:28px;}
+  .toc b{font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);display:block;margin-bottom:8px;}
+  .toc ol{margin:0;padding-left:20px;font-size:14px;}
+  .toc li{margin:4px 0;}
+  .toc a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--ln);}
+  .toc a:hover{border-bottom-color:var(--blue);color:var(--blue);}
+  .toc em{font-style:normal;color:var(--mut);font-size:13px;}
+
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:14px;}
+  .tableWrap{overflow-x:auto;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--ln);vertical-align:top;}
+  th{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}
+  tr.hi td{background:var(--pg2);}
+  td b.right{color:var(--d-upink);}
+  td b.wrong{color:#a3202f;}
+
+  .frameHead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;}
+  .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:16px;
+    color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .pair{display:grid;gap:20px;margin-top:16px;}
+  @media(min-width:960px){ .pair.two{grid-template-columns:1fr 1fr;align-items:start;} }
+  .stamp{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;
+    padding:3px 8px;border-radius:999px;margin-bottom:8px;}
+  .stamp.was{background:var(--d-losswash);color:#a3202f;}
+  .stamp.now{background:var(--d-upwash);color:var(--d-upink);}
+
+  /* app chrome, from the real style objects */
+  .d-card{background:var(--d-sf);border-radius:26px;padding:18px;}
+  .d-modal{background:var(--d-sf);border-radius:18px;padding:18px;}
+  .d-title{font-size:16px;font-weight:800;color:var(--d-ink);margin-bottom:12px;}
+  .d-metrics{display:flex;gap:10px;flex-wrap:wrap;}
+  .d-tile{flex:1;min-width:132px;background:var(--d-soft);border-radius:14px;padding:12px 13px;}
+  .d-tile .v{font-size:21px;font-weight:800;letter-spacing:-.4px;font-variant-numeric:tabular-nums;color:var(--d-ink);}
+  .d-tile .l{font-size:11px;font-weight:800;letter-spacing:.4px;color:var(--d-mut);margin-top:3px;text-transform:uppercase;}
+  .d-tile .h{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-tile .h.flag{color:#a3202f;font-weight:700;}
+  .d-tile .h.ok{color:var(--d-upink);font-weight:700;}
+  /* Caveat: src/components/ui/caveat.tsx */
+  .d-cav{border-radius:14px;padding:13px 15px;margin-top:12px;display:flex;gap:11px;align-items:flex-start;}
+  .d-cav.context{background:var(--d-accwash);}
+  .d-cav.wrong{background:var(--d-warnwash);}
+  .d-cav .dot{width:7px;height:7px;border-radius:99px;margin-top:6px;flex:none;}
+  .d-cav.context .dot{background:var(--d-accink);}
+  .d-cav.wrong .dot{background:var(--d-warnink);}
+  .d-cav p{margin:0;font-size:12.5px;line-height:1.55;}
+  .d-cav.context p{color:var(--d-accink);}
+  .d-cav.wrong p{color:var(--d-warnink);}
+  .d-cav .x{margin-left:auto;font-size:12px;font-weight:800;opacity:.55;flex:none;}
+  .d-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;
+    border-bottom:1px solid #f2f2f2;}
+  .d-row:last-child{border-bottom:0;}
+  .d-nm{font-size:13px;font-weight:700;color:var(--d-ink);}
+  .d-mt{font-size:11.5px;color:#9ca3af;margin-top:2px;}
+  .d-amt{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--d-ink);white-space:nowrap;}
+  .d-lbl{color:#999999;font-size:10px;font-weight:800;letter-spacing:.6px;margin:14px 0 6px;}
+  .d-lbl:first-child{margin-top:0;}
+  .d-note{font-size:12px;color:#9ca3af;margin-top:9px;}
+  .d-sheet{background:var(--d-soft);border-radius:12px;padding:4px 12px;}
+  .d-calc{background:var(--d-soft);border-radius:12px;padding:11px 13px;margin-top:8px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:var(--d-ink2);line-height:1.7;}
+  .d-calc b{color:var(--d-ink);}
+
+  .q{border:1px solid var(--ln);border-left:4px solid var(--blue);border-radius:12px;padding:14px 16px;
+    background:var(--sf);margin-top:16px;}
+  .q b{display:block;font-size:13.5px;margin-bottom:4px;}
+  .q p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .q p + p{margin-top:9px;}
+
+  .vx{border:1px solid var(--ln);border-left-width:4px;border-radius:12px;padding:14px 16px;background:var(--sf);}
+  .vx.good{border-left-color:#0f9d58;} .vx.bad{border-left-color:#d92d3f;} .vx.mid{border-left-color:#c8791a;}
+  .vx b{display:block;font-size:14px;margin-bottom:3px;}
+  .vx p{margin:0;font-size:13.5px;color:var(--ink2);}
+  .verdict{display:grid;gap:12px;margin-top:18px;}
+</style>
+
+<div class="wrap doc">
+
+<p class="eyebrow">Kaiibi &middot; Inventory &middot; shipped &middot; PR #73</p>
+<h1>Weighted average: what actually shipped</h1>
+<p class="lede">The companion to <b>&ldquo;What stock costs, and in what order to fix it&rdquo;</b>, which proposed this as step&nbsp;3. This is the built thing: one arithmetic change inside <code>receive_stock</code>, the two screens whose words it falsified, and the numbers that prove it. Every frame below is the real rendered copy, not a sketch.</p>
+
+<div class="toc">
+  <b>What's in here</b>
+  <ol>
+    <li><a href="#why">Why it had to change</a> &mdash; <em>replacement cost is not a permitted basis</em></li>
+    <li><a href="#math">The arithmetic</a> &mdash; <em>and the two ways to get it subtly wrong</em></li>
+    <li><a href="#inv">Inventory &mdash; the disclosure</a></li>
+    <li><a href="#restock">Restock &mdash; the preview that started lying</a></li>
+    <li><a href="#edges">The four edges</a></li>
+    <li><a href="#proof">How it is proved</a> &mdash; <em>four mutations, four predicted figures</em></li>
+    <li><a href="#untouched">What did not change</a></li>
+  </ol>
+</div>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="why">
+<h2>1 &middot; Why it had to change</h2>
+
+<p class="note"><code>receive_stock</code> line 173 <b>replaced</b> the cost with the newest line's price. The migration's own comment called it <i>&ldquo;latest wins&rdquo;</i>:</p>
+
+<div class="d-calc" style="max-width:74ch">update public.products set cost_cents = <b>v_cost</b>, updated_at = now() where id = v_product.id;</div>
+
+<p class="note" style="margin-top:14px">Buy 200 bags at $14.10 and 10 at $14.90, and all 210 are valued at $14.90. Every subsequent sale's COGS is the most recent price paid, whatever the units actually cost.</p>
+
+<div class="q">
+  <b>That is replacement cost.</b>
+  <p><b>IAS 2.25 permits exactly two formulas</b> for interchangeable goods &mdash; FIFO and weighted average &mdash; and this was neither. IFRS for SMEs &sect;13.18 says the same. So it was not a refinement; it was the difference between a permitted basis and an impermissible one.</p>
+  <p><b>Weighted average rather than FIFO</b> because under inflation FIFO draws COGS from the oldest and cheapest stock, raising reported profit and so raising tax. The two are equals under the standard. The FIFO design and plan are merged (#65, #68) and stay available if it is ever wanted.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="math">
+<h2>2 &middot; The arithmetic</h2>
+
+<p class="note">The formula is ordinary. What makes it non&#8209;trivial is <i>which quantity</i> it averages against &mdash; and there are two ways to get that wrong that both produce a plausible number.</p>
+
+<div class="d-calc" style="max-width:74ch">new_cost = round( (old_qty &times; old_cost + received_qty &times; received_cost) / (old_qty + received_qty) )</div>
+
+<h3>Trap one &mdash; the stock is already updated</h3>
+<p class="note"><code>receive_stock</code> upserts the stock at line 164 and writes the cost at line 173. So by the time the cost is computed, <code>product_location_stock.stock</code> <b>already includes this delivery</b>. Averaging against it counts the received quantity twice and lands between the two costs &mdash; wrong in a way nobody would spot. The fix reads the prior quantity <b>before</b> the upsert.</p>
+
+<h3>Trap two &mdash; the cost is shop-wide, the stock is not</h3>
+<p class="note"><code>products.cost_cents</code> is one figure per product across the whole shop, but stock lives per location. So the average is taken against <code>sum(stock)</code> over <b>every</b> location. Averaging against one branch's stock would let the same delivery produce a different cost depending on where it landed.</p>
+
+<h3>All four answers, separated</h3>
+<p class="note">The test's quantities are chosen so every candidate is visibly different. 300 units at $10.00, then a delivery of 100 at $20.00:</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>Result</th><th class="num">Cost</th><th>What produced it</th></tr></thead>
+  <tbody>
+    <tr class="hi"><td><b class="right">Correct</b></td><td class="num"><b>1250</b></td><td>(300&times;1000 + 100&times;2000) / 400</td></tr>
+    <tr><td><b class="wrong">Wrong</b></td><td class="num">1200</td><td>Averaged against <b>post&#8209;upsert</b> stock &mdash; the delivery counted twice</td></tr>
+    <tr><td><b class="wrong">Wrong</b></td><td class="num">2000</td><td>&ldquo;Latest wins&rdquo; &mdash; the bug being fixed</td></tr>
+    <tr><td><b class="wrong">Wrong</b></td><td class="num">1500</td><td>A plain mean of the two costs, ignoring quantity</td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note" style="margin-top:14px">This took two attempts. The first draft used 200 @ 1410 then 10 @ 1490 &mdash; where the correct answer <b>and</b> the post&#8209;upsert bug both give 1414, so the most likely implementation error would have sailed straight through a green test.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="inv">
+<h2>3 &middot; Inventory &mdash; the disclosure</h2>
+
+<p class="note"><b>IAS 2.36(a)</b> requires disclosing the cost formula used. With one formula that is a constant string, not a column or a toggle. Inventory is the only screen in the app that shows a stock value &mdash; and its old words were not merely undisclosed, they were <i>accurate about an impermissible basis</i>, which made them wrong the moment the arithmetic changed.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp was">Before</span>
+    <div class="frameHead"><b>Stock at a glance</b> <i>inventory.tsx</i></div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Stock at a glance</div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">9</div><div class="l">Products</div><div class="h">carried across your stores</div></div>
+          <div class="d-tile"><div class="v">$257</div><div class="l">Stock at cost</div><div class="h flag">at the latest price paid</div></div>
+        </div>
+        <div class="d-cav context">
+          <span class="dot"></span>
+          <p>Stock at cost values every unit at the <b>most recent price you paid</b> for it, not what each unit actually cost. Restocking at a new price re&#8209;values what you already hold &mdash; across all your stores, including ones the delivery didn't go to.</p>
+          <span class="x">&times;</span>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">An honest description of a basis the standard does not permit.</p>
+  </div>
+
+  <div>
+    <span class="stamp now">After</span>
+    <div class="frameHead"><b>Stock at a glance</b> <i>inventory.tsx</i></div>
+    <div class="frame">
+      <div class="d-card">
+        <div class="d-title">Stock at a glance</div>
+        <div class="d-metrics">
+          <div class="d-tile"><div class="v">9</div><div class="l">Products</div><div class="h">carried across your stores</div></div>
+          <div class="d-tile"><div class="v">$257</div><div class="l">Stock at cost</div><div class="h ok">at weighted average cost</div></div>
+        </div>
+        <div class="d-cav context">
+          <span class="dot"></span>
+          <p><b>Stock is valued at weighted average cost.</b> Each delivery moves a product's cost part of the way toward what you just paid &mdash; by how much depends on how much you already held &mdash; rather than replacing it outright. That average is one figure per product across all your stores, so a delivery to one store moves the cost everywhere.</p>
+          <span class="x">&times;</span>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:10px">The formula is <b>named</b> in the hint and again in the caveat, so dismissing the caveat does not lose the disclosure.</p>
+  </div>
+</div>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>Tone stays <code>context</code>, and still carries no action.</b>
+    <p>The house rule: <code>wrong</code> means the number is wrong until the reader fixes something and <b>must</b> carry an action. There is nothing a shop can do about the costing basis from Inventory, and a <code>wrong</code> with no fix would train people to skip the whole family &mdash; including the uncosted warning above it, which does have one.</p>
+  </div>
+  <div class="vx mid">
+    <b>The shop&#8209;wide clause survived the change.</b>
+    <p><code>products.cost_cents</code> is still one column per product with no store dimension, so a delivery at one branch still moves every branch's cost. That is now a <i>consequence of the design</i> rather than an accident: the average is taken shop&#8209;wide precisely so the same delivery cannot produce a different cost depending on where it landed.</p>
+  </div>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="restock">
+<h2>4 &middot; Restock &mdash; the preview that started lying</h2>
+
+<p class="note">This one was not in the plan. The Restock sheet previews the cost write before committing it &mdash; <i>&ldquo;so the preview can say 4.50 &rarr; 4.80 before anything is written&rdquo;</i>. That arrow was true while <code>receive_stock</code> replaced the cost. The moment it averaged, the preview <b>promised a figure the commit does not produce</b>.</p>
+
+<div class="pair two">
+  <div>
+    <span class="stamp was">Before</span>
+    <div class="frameHead"><b>Costs that will change</b> <i>stock-restock-modal.tsx</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">COSTS THAT WILL CHANGE</div>
+        <div class="d-sheet">
+          <div class="d-row"><div class="d-nm">daily facial</div><div class="d-amt">$4.00 &rarr; $9.00</div></div>
+          <div class="d-row"><div class="d-nm">test</div><div class="d-amt">$4.00 &rarr; $8.50</div></div>
+        </div>
+        <p class="d-note" style="color:#a3202f;font-weight:700">Neither product ends up on that figure.</p>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <span class="stamp now">After</span>
+    <div class="frameHead"><b>Costs this delivery will move</b> <i>stock-restock-modal.tsx</i></div>
+    <div class="frame">
+      <div class="d-modal">
+        <div class="d-lbl">COSTS THIS DELIVERY WILL MOVE</div>
+        <div class="d-sheet">
+          <div class="d-row"><div class="d-nm">daily facial</div><div class="d-amt">$4.00 &rarr; toward $9.00</div></div>
+          <div class="d-row"><div class="d-nm">test</div><div class="d-amt">$4.00 &rarr; toward $8.50</div></div>
+        </div>
+        <p class="d-note">Stock is valued at weighted average cost, so each delivery moves a product's cost part of the way toward what you paid &mdash; by how much depends on how much you already hold. A product with no cost recorded, or none in stock, takes the delivery's price exactly.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="q">
+  <b>Why &ldquo;toward&rdquo;, and not the computed average.</b>
+  <p>The true result needs the <b>shop&#8209;wide</b> quantity at commit time, and reimplementing the weighted average in TypeScript would be a second copy of the formula &mdash; free to drift a cent from the one in the migration, on the one screen whose whole job is to promise what is about to happen. <b>An honest direction beats a precise number that can be wrong.</b></p>
+  <p>The exception is stated rather than hidden: with <b>no cost recorded</b>, or <b>none in stock</b>, there is nothing to average against and the delivery's price lands exactly &mdash; so that row still renders a flat <code>no cost &rarr; $9.00</code>.</p>
+</div>
+
+<h3>The clash warning, which was also falsified</h3>
+<p class="note">A sheet that prices one product two ways used to warn that <i>&ldquo;the last store to go through is the one that sticks&rdquo;</i>. Under an average, both are blended into the one column and store order no longer decides the answer &mdash; averaging is commutative up to rounding. It now says that instead, and is still worth flagging, because a product deliberately priced two ways in one sheet is usually a mistake in the sheet.</p>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="edges">
+<h2>5 &middot; The four edges</h2>
+
+<p class="note">Each has a right answer that differs from the obvious one.</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>Case</th><th>Answer</th><th>Why</th></tr></thead>
+  <tbody>
+    <tr><td><code>old_qty = 0</code></td><td><b>New cost = received cost</b></td><td>Averaging against nothing is a division by zero. The delivery <i>is</i> the whole basis.</td></tr>
+    <tr><td><code>old_cost</code> is null</td><td><b>New cost = received cost</b></td><td>Null means unknown, not zero. Averaging an unknown as zero would halve the cost of a product somebody simply never priced.</td></tr>
+    <tr><td><code>received_cost</code> is null</td><td><b>Leave the cost alone</b></td><td>The previous behaviour, and correct: a delivery with no stated price is no evidence about cost.</td></tr>
+    <tr><td>Stock negative or absent</td><td><b>Treat <code>old_qty</code> as 0</b></td><td><code>product_location_stock</code> refuses negatives, so this is belt&#8209;and&#8209;braces.</td></tr>
+  </tbody>
+</table>
+</div>
+
+<div class="vx bad" style="margin-top:18px">
+  <b>Null is not zero, and the test makes that expensive to get wrong.</b>
+  <p>The fixture gives a product <b>40 units on the shelf with no cost recorded</b>, then receives 5 at $8.00. Correct is <b>800</b>. A <code>coalesce(cost_cents, 0)</code> implementation gives <b>89</b> &mdash; visibly, damningly different, rather than a near miss that reads as rounding.</p>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="proof">
+<h2>6 &middot; How it is proved</h2>
+
+<p class="note">A new database check, <code>verify-weighted-average.sql</code>, takes the suite from <b>17</b> to <b>18</b>. Every test step names the mutation that must turn it red &mdash; and all four were applied, watched to fail, and reverted. Each produced exactly the figure predicted before it was run:</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th>Mutation applied</th><th>Reddens</th><th class="num">Reported</th></tr></thead>
+  <tbody>
+    <tr><td>Restore <code>v_new_cost := v_cost</code> unconditionally</td><td>Check 2</td><td class="num"><b>2000</b></td></tr>
+    <tr class="hi"><td>Read <code>v_prior_qty</code> <b>after</b> the upsert</td><td>Check 2</td><td class="num"><b>1200</b></td></tr>
+    <tr><td>Sum only the receiving location's stock</td><td>Check 4</td><td class="num"><b>2000</b></td></tr>
+    <tr><td>Treat a null prior cost as <code>0</code></td><td>Check 5</td><td class="num"><b>89</b></td></tr>
+  </tbody>
+</table>
+</div>
+
+<p class="note" style="margin-top:14px">The highlighted row is the one the plan's <i>first</i> fixture could not catch. That is why the quantities are what they are.</p>
+
+<h3>The existing suite disagreed, and had to move</h3>
+<p class="note"><code>verify-stock-receipts.sql</code> checks 2 and 2b asserted &ldquo;latest wins&rdquo; <b>as the correct behaviour</b>. They were rewritten rather than deleted. Check 2b is the interesting one: it used to pin <i>which of two lines for one product was latest</i>, and that question no longer has meaning. It now pins that both lines <b>compound</b> &mdash; with lopsided quantities so every wrong implementation separates:</p>
+
+<div class="tableWrap">
+<table>
+  <thead><tr><th class="num">Cost</th><th>What produced it</th></tr></thead>
+  <tbody>
+    <tr class="hi"><td class="num"><b class="right">820</b></td><td>Correct &mdash; 12 @ 210, then 1 @ 111 (&rarr; 202), then 100 @ 900</td></tr>
+    <tr><td class="num">900</td><td>&ldquo;Latest wins&rdquo;</td></tr>
+    <tr><td class="num">826</td><td>Only the second line counted</td></tr>
+    <tr><td class="num">202</td><td>Only the first line counted</td></tr>
+    <tr><td class="num">825</td><td><code>v_prior_qty</code> hoisted out of the loop</td></tr>
+    <tr><td class="num">530</td><td>Averaged against post&#8209;upsert stock</td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<!-- ─────────────────────────────────────────── -->
+<section id="untouched">
+<h2>7 &middot; What did not change</h2>
+
+<div class="verdict">
+  <div class="vx good">
+    <b>No past margin moves.</b>
+    <p><code>costOfGoodsSold()</code> and every item&#8209;margin figure read <code>sale_items.unit_cost_cents</code>, frozen at sale time, never <code>products.cost_cents</code>. This migration writes only the latter. Historical margins <b>cannot</b> move; only sales made after it lands freeze the averaged cost.</p>
+  </div>
+  <div class="vx good">
+    <b>The delivery's own price is preserved.</b>
+    <p><code>stock_receipt_items.unit_cost_cents</code> keeps what <i>that delivery</i> cost, not the new average. Rewriting it would destroy the only evidence the average was computed from.</p>
+  </div>
+  <div class="vx mid">
+    <b>Existing costs are not restated.</b>
+    <p>There is no way to restate them: that needs the quantity and price of every delivery behind the current stock, and <code>stock_receipt_items</code> only reaches back as far as receipts have been recorded &mdash; for stock predating the feature, nowhere at all. So the existing figure becomes the <b>opening average</b> and the formula runs from the next delivery forward: applied prospectively, and disclosed rather than discovered.</p>
+    <p style="margin-top:9px">It converges quickly. Each delivery pulls the average toward the true figure in proportion to its share of stock on hand, so a shop turning its stock every few weeks is on a real average within a month or two.</p>
+  </div>
+  <div class="vx good">
+    <b>Nothing else in the database.</b>
+    <p>No new table, no cost layers, no basis toggle, and no change to <code>complete_sale</code>, <code>save_stock_count</code>, <code>refund_sale_items</code> or <code>transfer_stock</code>. The migration defines exactly one function.</p>
+  </div>
+</div>
+
+<h3>What this unblocks</h3>
+<p class="note"><b>Phase 2b &mdash; posting to the ledger</b> becomes the next work, and it can now post a COGS figure computed on a formula IAS&nbsp;2 permits. That was the real blocker; it was never FIFO specifically.</p>
+
+<div class="q">
+  <b>One thing still outstanding.</b>
+  <p>The migration exists <b>locally only</b>. Until it is deployed, the live app still does &ldquo;latest wins&rdquo; &mdash; and the plan's end&#8209;to&#8209;end check (receive the same product twice, watch the cost land between the two) could not be run in the app for exactly that reason. The arithmetic is proved at the RPC level against the local stack instead.</p>
+</div>
+</section>
+
+</div>

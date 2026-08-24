@@ -359,9 +359,16 @@ export type CostChange = {
   /**
    * True when the same product is given a DIFFERENT cost somewhere else in this
    * plan. products.cost_cents is one column per product with no store dimension,
-   * so both writes land on it and the last store through the commit loop is the
-   * one that sticks -- silently, and in a store order the shop never chose. A
-   * neutral pair of rows would show that as two ordinary updates.
+   * so both writes land on it.
+   *
+   * Until 20260907000000_moving_weighted_average.sql that meant the last store
+   * through the commit loop was the one that stuck -- silently, and in a store
+   * order the shop never chose. receive_stock averages now, so both costs are
+   * blended into the one column instead and the store order no longer decides
+   * the answer (averaging is commutative up to rounding). Still worth flagging:
+   * a product deliberately priced two ways in one sheet is usually a mistake in
+   * the sheet, and a neutral pair of rows would show it as two ordinary
+   * updates.
    */
   conflicting: boolean;
 };
