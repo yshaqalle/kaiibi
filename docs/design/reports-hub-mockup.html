@@ -1,0 +1,404 @@
+<meta charset="utf-8" />
+<title>Kaiibi Reports — the hub, and the seven that need no ledger</title>
+
+<style>
+  :root{ --pg:#fbfbfc; --pg2:#f1f1f4; --ink:#101014; --ink2:#3d3d46; --mut:#77777f; --ln:#e4e4ea; --sf:#fff; --blue:#2f6bff; }
+  @media (prefers-color-scheme: dark){
+    :root{ --pg:#0d0d10; --pg2:#141418; --ink:#f2f2f5; --ink2:#c2c2cc; --mut:#8a8a94; --ln:#26262e; --sf:#17171c; --blue:#6f97ff; }
+  }
+  .doc{ --d-pg:#f4f4f5; --d-sf:#fff; --d-ink:#0b0b0d; --d-ink2:#1a1a1e; --d-mut:#5e5d65; --d-mut2:#717078;
+        --d-ln:#ececf0; --d-rule:#dcdce4; --d-soft:#f6f6f7;
+        --c1:#2f6bff; --c2:#00a396; --c3:#c8791a; --c4:#d4457e; --profit:#008340; --loss:#d72b3e; }
+
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--pg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.6;}
+  .wrap{max-width:1344px;margin:0 auto;padding:44px 22px 90px;}
+  .eyebrow{font-size:11.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--mut);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4.6vw,40px);line-height:1.1;letter-spacing:-.028em;margin:0 0 14px;font-weight:800;}
+  .lede{font-size:17px;color:var(--ink2);max-width:68ch;margin:0 0 26px;}
+  h2{font-size:21px;font-weight:800;letter-spacing:-.018em;margin:0 0 6px;}
+  .h2sub{font-size:13.5px;color:var(--mut);margin:0 0 16px;}
+  section{margin-top:52px;}
+  .note{font-size:13.5px;color:var(--ink2);max-width:72ch;} .note + .note{margin-top:12px;}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:var(--pg2);padding:1px 5px;border-radius:4px;}
+
+  .dtbl{width:100%;border-collapse:collapse;margin-top:14px;font-size:13.5px;display:block;overflow-x:auto;}
+  .dtbl th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);
+    font-weight:800;padding:0 14px 9px 0;border-bottom:1px solid var(--ln);white-space:nowrap;}
+  .dtbl td{padding:11px 14px 11px 0;border-bottom:1px solid var(--ln);vertical-align:top;color:var(--ink2);}
+  .dtbl td:first-child{color:var(--ink);font-weight:650;}
+  .tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:999px;white-space:nowrap;}
+  .tag.now{background:rgba(0,131,64,.13);color:#0b7a44;}
+  .tag.later{background:rgba(119,119,127,.16);color:#5e5d65;}
+  .tag.gap{background:rgba(200,121,26,.16);color:#a3620f;}
+
+  .switch{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:16px;position:sticky;top:0;background:var(--pg);padding:12px 0;z-index:5;border-bottom:1px solid var(--ln);}
+  .switch button{border:1px solid var(--ln);background:var(--sf);color:var(--ink2);border-radius:999px;padding:8px 15px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;}
+  .switch button[aria-selected="true"]{background:var(--ink);color:var(--pg);border-color:var(--ink);}
+  .frameHead{display:flex;align-items:baseline;gap:12px;margin:0 0 10px;}
+  .frameHead b{font-size:14px;font-weight:800;} .frameHead i{font-style:normal;font-size:12.5px;color:var(--mut);font-family:ui-monospace,Menlo,monospace;}
+  .scroller{overflow-x:auto;padding-bottom:8px;border-radius:16px;}
+  .frame{background:var(--d-pg);border:1px solid var(--ln);border-radius:16px;padding:18px;color:var(--d-ink);font-size:14px;line-height:1.5;}
+  .frame.w1280{width:1280px;} .frame.w380{width:380px;}
+  .pair{display:grid;gap:28px;} .pair > div{min-width:0;}
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:12px;flex-wrap:wrap;}
+  .head .eyebrow{margin:0 0 2px;color:var(--d-mut);}
+  .head h3{margin:0;font-size:26px;font-weight:800;letter-spacing:-.024em;}
+  .head p{margin:3px 0 0;font-size:13px;color:var(--d-mut);}
+  .btn{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:8px 15px;font-size:12.5px;font-weight:700;color:var(--d-ink2);}
+  .tabrow{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;margin-bottom:4px;}
+  .tabrow span{border:1px solid var(--d-ln);background:var(--d-sf);border-radius:999px;padding:7px 14px;font-size:12.5px;font-weight:700;color:var(--d-mut);white-space:nowrap;}
+  .tabrow span.on{background:var(--d-ink);color:#fff;border-color:var(--d-ink);}
+  .crumb{font-size:12px;color:var(--d-mut);margin:0 0 10px;font-weight:600;}
+
+  .grid{display:grid;gap:14px;} .grid.wide{grid-template-columns:repeat(12,1fr);} .grid.narrow{grid-template-columns:1fr;}
+  .cardx{background:var(--d-sf);border-radius:26px;padding:18px;min-width:0;}
+  .cardx.tight{padding:18px 10px;} .cardx.tight .crow,.cardx.tight .ctitle{margin-left:8px;margin-right:8px;}
+  .ctitle{font-size:15px;font-weight:800;margin:0 0 12px;letter-spacing:-.01em;}
+  .crow{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px;flex-wrap:wrap;}
+  .crow .ctitle{margin:0;}
+  .pill{border:1px solid var(--d-ln);border-radius:999px;padding:6px 13px;font-size:12px;font-weight:700;color:var(--d-ink2);white-space:nowrap;}
+
+  .kpis{display:grid;gap:10px;} .w1280 .kpis{grid-template-columns:repeat(4,1fr);} .w1280 .kpis.k3{grid-template-columns:repeat(3,1fr);} .w380 .kpis{grid-template-columns:repeat(2,1fr);}
+  .kpi{background:var(--d-soft);border-radius:16px;padding:13px;}
+  .kpi .l{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);}
+  .kpi .n{font-size:19px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums;}
+  .kpi .h{font-size:10.5px;color:var(--d-mut2);margin-top:3px;}
+
+  /* hub cards — matching the shipped Accounting hub */
+  .hubgrid{display:grid;gap:12px;} .w1280 .hubgrid{grid-template-columns:repeat(4,1fr);} .w380 .hubgrid{grid-template-columns:1fr;}
+  .hubcard{background:var(--d-sf);border-radius:26px;padding:18px;display:flex;flex-direction:column;}
+  .hubcard .ic{width:30px;height:30px;border-radius:9px;background:var(--d-soft);display:flex;align-items:center;justify-content:center;font-size:14px;margin-bottom:10px;}
+  .hubcard b{font-size:13.5px;font-weight:800;line-height:1.3;}
+  .hubcard span.d{font-size:11.5px;color:var(--d-mut);margin-top:4px;line-height:1.45;flex:1;}
+  .hubcard .act{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:14px;}
+  .hubcard .when{font-size:11px;color:var(--d-mut2);}
+  .hubcard .go{font-size:11.5px;font-weight:800;padding:6px 12px;border-radius:999px;background:var(--d-soft);color:var(--d-ink2);}
+  .hubcard.soon{opacity:.5;}
+  .grpttl{font-size:12.5px;font-weight:800;margin:4px 0 10px;}
+  .grpttl .sub2{font-weight:500;color:var(--d-mut);font-size:11.5px;}
+
+  table.t{width:100%;border-collapse:collapse;min-width:520px;}
+  .tbl{overflow-x:auto;}
+  table.t th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--d-mut);text-align:left;padding:0 10px 9px 0;border-bottom:1px solid var(--d-ln);white-space:nowrap;}
+  table.t th.r,table.t td.r{text-align:right;padding-right:0;}
+  table.t td{padding:11px 10px 11px 0;border-bottom:1px solid var(--d-ln);font-size:13px;vertical-align:top;}
+  table.t tr:last-child td{border-bottom:none;}
+  table.t tr.totalrow td{border-top:2px solid var(--d-ink);border-bottom:none;font-weight:800;padding-top:12px;}
+  td .p{font-weight:700;} td .m{display:block;font-size:11px;color:var(--d-mut);margin-top:2px;}
+  td.r .p{font-variant-numeric:tabular-nums;} .muted{color:var(--d-mut);font-variant-numeric:tabular-nums;}
+  .chip{font-size:10.5px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--d-soft);color:var(--d-ink2);white-space:nowrap;text-transform:uppercase;letter-spacing:.03em;}
+  .chip.hot{background:var(--loss);color:#fff;} .chip.warn{background:#fdf0e0;color:#8a530f;} .chip.ok{background:#e7f5ed;color:#0b6b3c;}
+  .bar{height:6px;border-radius:3px;background:var(--d-ln);margin-top:6px;overflow:hidden;} .bar i{display:block;height:100%;border-radius:3px;}
+  .rw{display:flex;align-items:center;gap:11px;padding:10px 0;border-bottom:1px solid var(--d-ln);} .rw:last-child{border-bottom:none;}
+  .rw .bd{flex:1;min-width:0;} .rw .t1{font-size:13.5px;font-weight:700;} .rw .t2{font-size:11.5px;color:var(--d-mut);margin-top:2px;}
+  .rw .amt{font-size:13.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .cav{display:flex;gap:10px;align-items:flex-start;border-radius:16px;padding:12px 15px;font-size:12.5px;line-height:1.5;}
+  .cav.wrong{background:#fff8e6;border:1px solid #f0d99a;color:#7a6320;}
+  .cav.context{background:#eef4ff;border:1px solid #cfdefc;color:#31507f;}
+  .cav a{color:inherit;font-weight:700;}
+  a{color:var(--blue);}
+</style>
+
+<div class="wrap doc">
+  <p class="eyebrow">Design mockup · Reports</p>
+  <h1>The Reports hub, and the seven that need no ledger</h1>
+  <p class="lede">Reports is still the P&amp;L / tax / category tab it has always been. This turns it
+  into a hub like Accounting's, and builds the reports that read tables kaiibi <b>already has</b> —
+  no ledger, no cost layers, no migration. The statements stay where they are until the posting
+  phase gives them something real to read.</p>
+
+<section>
+  <h2>What is buildable today, and what is not</h2>
+  <p class="h2sub">The split is not a preference. It is which tables exist.</p>
+
+  <table class="dtbl">
+    <thead><tr><th>Report</th><th>Reads</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Sales Reports</td><td><code>sales</code>, <code>sale_items</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Item Performance</td><td><code>sale_items</code>, <code>products</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Sales by Employee</td><td><code>sales.cashier_name</code>, <code>created_by</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Sales by Category</td><td><code>sale_items</code> → <code>products.category</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Inventory Balance Summary</td><td><code>product_location_stock</code>, <code>products.cost_cents</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Low Stock &amp; Reorder</td><td><code>product_location_stock.reorder_level</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Stock Movement Log</td><td><code>stock_receipts</code>, <code>stock_transfers</code>, <code>stock_counts</code></td><td><span class="tag now">build now</span></td></tr>
+      <tr><td>Profit &amp; Loss · Balance Sheet · Cash Flow · Trial Balance</td><td>the ledger</td><td><span class="tag later">needs posting (2b)</span></td></tr>
+      <tr><td>Customer Balances · Aging Receivables · Vendor Balances · Aging Payables</td><td>the ledger</td><td><span class="tag later">needs posting (2b)</span></td></tr>
+      <tr><td>Inventory Valuation (FIFO)</td><td>cost layers</td><td><span class="tag later">needs 2a</span></td></tr>
+      <tr><td>Discounts &amp; Refunds by reason</td><td>—</td><td><span class="tag gap">needs <code>refunds.reason</code></span></td></tr>
+      <tr><td>Sales Tax Liability (remitted half)</td><td>—</td><td><span class="tag gap">needs <code>tax_filings</code></span></td></tr>
+      <tr><td>Purchase Order Report</td><td>—</td><td><span class="tag gap">no data at all</span></td></tr>
+    </tbody>
+  </table>
+
+  <p class="note" style="margin-top:16px;"><b>The seven are the whole of this project.</b> Everything
+  else on the hub renders as a card that says what it is waiting for, rather than a link to an empty
+  screen. A card that opens nothing is worse than a card that explains itself.</p>
+</section>
+
+<section>
+  <h2>The screens</h2>
+  <p class="h2sub">Bento throughout: grey page, borderless 26px cards, tables full-width and out of the grid.</p>
+
+  <div class="switch" id="switch">
+    <button type="button" data-go="hub" aria-selected="true">Hub</button>
+    <button type="button" data-go="sales">Sales Reports</button>
+    <button type="button" data-go="item">Item Performance</button>
+    <button type="button" data-go="emp">Sales by Employee</button>
+    <button type="button" data-go="cat">Sales by Category</button>
+    <button type="button" data-go="inv">Inventory Balance</button>
+    <button type="button" data-go="low">Low Stock &amp; Reorder</button>
+    <button type="button" data-go="move">Stock Movement</button>
+  </div>
+
+  <div class="pair">
+    <div><div class="frameHead"><b>Desktop</b><i>1280px</i></div><div class="scroller"><div class="frame w1280" id="fWide"></div></div></div>
+    <div><div class="frameHead"><b>Phone</b><i>380px</i></div><div class="frame w380" id="fNarrow"></div></div>
+  </div>
+</section>
+
+<template data-tab="hub" data-label="Reports" data-blurb="Sales, stock and the statements — everything the shop can be asked about.">
+  <div class="cardx" data-w="12">
+    <p class="grpttl">Sales</p>
+    <div class="hubgrid">
+      <div class="hubcard"><div class="ic">◔</div><b>Sales Reports</b><span class="d">Revenue by day, payment method and store.</span><div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="hubcard"><div class="ic">▦</div><b>Item Performance</b><span class="d">Top and bottom sellers by units and margin.</span><div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="hubcard"><div class="ic">☺</div><b>Sales by Employee</b><span class="d">Revenue and baskets per cashier.</span><div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+      <div class="hubcard"><div class="ic">◕</div><b>Sales by Category</b><span class="d">Revenue and margin by product category.</span><div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Inventory</p>
+    <div class="hubgrid">
+      <div class="hubcard"><div class="ic">▣</div><b>Inventory Balance</b><span class="d">Stock on hand, and what it is worth at cost.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="hubcard"><div class="ic">⚠</div><b>Low Stock &amp; Reorder</b><span class="d">Items at or below their reorder point.</span><div class="act"><span class="when">As of today</span><span class="go">Run report</span></div></div>
+      <div class="hubcard"><div class="ic">⇄</div><b>Stock Movement</b><span class="d">Deliveries, transfers and stock-takes.</span><div class="act"><span class="when">7 days</span><span class="go">Run report</span></div></div>
+    </div>
+
+    <p class="grpttl">Financial statements <span class="sub2">— waiting on the posting phase</span></p>
+    <div class="hubgrid">
+      <div class="hubcard soon"><div class="ic">＄</div><b>Profit &amp; Loss</b><span class="d">Available once sales and bills post to the ledger.</span><div class="act"><span class="when">Not yet</span></div></div>
+      <div class="hubcard soon"><div class="ic">⌂</div><b>Balance Sheet</b><span class="d">Available once sales and bills post to the ledger.</span><div class="act"><span class="when">Not yet</span></div></div>
+      <div class="hubcard soon"><div class="ic">◈</div><b>Cash Flow</b><span class="d">Available once sales and bills post to the ledger.</span><div class="act"><span class="when">Not yet</span></div></div>
+      <div class="hubcard soon"><div class="ic">⚖</div><b>Inventory Valuation</b><span class="d">Available once cost layers land.</span><div class="act"><span class="when">Not yet</span></div></div>
+    </div>
+  </div>
+
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>The dimmed cards are deliberate.</b> They say what
+      they are waiting for rather than opening an empty screen — and they are the only place in the
+      app that explains why a statement is missing. Delete them and the question just moves to
+      support.</div></div>
+  </div>
+</template>
+
+<template data-tab="sales" data-label="Sales Reports" data-crumb="Reports" data-blurb="Takings by day, payment method and store.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Net revenue</div><div class="n">$78,149.93</div><div class="h">after discounts and refunds</div></div>
+      <div class="kpi"><div class="l">Sales</div><div class="n">1,842</div><div class="h">avg basket $42.43</div></div>
+      <div class="kpi"><div class="l">Gross margin</div><div class="n">38.7%</div><div class="h">from unit_cost_cents</div></div>
+      <div class="kpi"><div class="l">Refunds</div><div class="n">$1,882.40</div><div class="h">2.3% of gross</div></div>
+    </div>
+  </div>
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">By payment method</h4>
+    <div class="rw"><div class="bd"><div class="t1">Cash</div><div class="bar"><i style="width:44%;background:var(--c1);"></i></div></div><div class="amt">$34,386</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Zaad</div><div class="bar"><i style="width:31%;background:var(--c2);"></i></div></div><div class="amt">$24,226</div></div>
+    <div class="rw"><div class="bd"><div class="t1">eDahab</div><div class="bar"><i style="width:16%;background:var(--c3);"></i></div></div><div class="amt">$12,504</div></div>
+    <div class="rw"><div class="bd"><div class="t1">On credit</div><div class="bar"><i style="width:9%;background:var(--c4);"></i></div></div><div class="amt">$7,034</div></div>
+  </div>
+  <div class="cardx" data-w="6">
+    <h4 class="ctitle">By store</h4>
+    <div class="rw"><div class="bd"><div class="t1">Hodan Store</div><div class="t2">1,204 sales · 39.1% margin</div></div><div class="amt">$51,882</div></div>
+    <div class="rw"><div class="bd"><div class="t1">Bakaara Branch</div><div class="t2">638 sales · 37.9% margin</div></div><div class="amt">$26,268</div></div>
+  </div>
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By day</h4><div><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Date</th><th class="r">Sales</th><th class="r">Gross</th><th class="r">Discounts</th><th class="r">Refunds</th><th class="r">Net</th><th class="r">Margin</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">Thu 21 Aug</td><td class="r muted">96</td><td class="r"><span class="p">4,204.10</span></td><td class="r muted">198.00</td><td class="r muted">88.00</td><td class="r"><span class="p">3,918.22</span></td><td class="r"><span class="p">39.1%</span></td></tr>
+        <tr><td class="muted">Wed 20 Aug</td><td class="r muted">104</td><td class="r"><span class="p">4,551.80</span></td><td class="r muted">220.56</td><td class="r muted">0.00</td><td class="r"><span class="p">4,331.24</span></td><td class="r"><span class="p">37.9%</span></td></tr>
+        <tr><td class="muted">Tue 19 Aug</td><td class="r muted">88</td><td class="r"><span class="p">3,802.40</span></td><td class="r muted">178.50</td><td class="r muted">142.00</td><td class="r"><span class="p">3,481.90</span></td><td class="r"><span class="p">39.2%</span></td></tr>
+        <tr class="totalrow"><td>7 days</td><td class="r">612</td><td class="r">28,441.20</td><td class="r">1,204.00</td><td class="r">612.40</td><td class="r">26,624.80</td><td class="r">38.7%</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+</template>
+
+<template data-tab="item" data-label="Item Performance" data-crumb="Reports" data-blurb="Which products earn their shelf space.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Products sold</div><div class="n">418</div><div class="h">of 612 in the catalogue</div></div>
+      <div class="kpi"><div class="l">Never sold</div><div class="n">194</div><div class="h">$8,204 of stock value</div></div>
+      <div class="kpi"><div class="l">Top 20 share</div><div class="n">41%</div><div class="h">of net revenue</div></div>
+      <div class="kpi"><div class="l">Below 15% margin</div><div class="n">37</div><div class="h">worth repricing</div></div>
+    </div>
+  </div>
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Products</h4><div><button class="btn" type="button">Sort: revenue ⌄</button> <button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Product</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Cost</th><th class="r">Gross profit</th><th class="r">Margin</th><th class="r">On hand</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Basmati rice 5kg</span><span class="m">Staples</span></td><td class="r muted">412</td><td class="r"><span class="p">8,240.00</span></td><td class="r muted">5,974.00</td><td class="r"><span class="p">2,266.00</span></td><td class="r"><span class="p">27.5%</span></td><td class="r muted">86</td></tr>
+        <tr><td><span class="p">Powdered milk 900g</span><span class="m">Dairy</span></td><td class="r muted">241</td><td class="r"><span class="p">5,302.00</span></td><td class="r muted">3,133.00</td><td class="r"><span class="p">2,169.00</span></td><td class="r"><span class="p">40.9%</span></td><td class="r muted">54</td></tr>
+        <tr><td><span class="p">Soft drink 1.5L</span><span class="m">Drinks</span></td><td class="r muted">904</td><td class="r"><span class="p">4,520.00</span></td><td class="r muted">3,842.00</td><td class="r"><span class="p">678.00</span></td><td class="r"><span class="p">15.0%</span></td><td class="r muted">311</td></tr>
+        <tr><td><span class="p">Phone charger</span><span class="m">Electronics</span></td><td class="r muted">58</td><td class="r"><span class="p">1,160.00</span></td><td class="r"><span class="p muted">— no cost</span></td><td class="r muted">—</td><td class="r muted">—</td><td class="r muted">24</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav wrong"><span>⚠</span><div><b>14 products have no cost recorded</b>, so their margin
+      is blank and $2,204 of revenue sits outside the gross-profit figures above.
+      <a href="#">Set costs in Inventory</a></div></div>
+  </div>
+</template>
+
+<template data-tab="emp" data-label="Sales by Employee" data-crumb="Reports" data-blurb="Revenue and baskets per cashier.">
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By cashier</h4><div><button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Cashier</th><th class="r">Sales</th><th class="r">Net revenue</th><th class="r">Avg basket</th><th class="r">Discounts given</th><th class="r">Refunds</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Amina H</span><span class="m">Hodan Store</span></td><td class="r muted">312</td><td class="r"><span class="p">18,158.40</span></td><td class="r"><span class="p">58.20</span></td><td class="r muted">402.00</td><td class="r muted">402.00</td></tr>
+        <tr><td><span class="p">Yusuf A</span><span class="m">Hodan Store</span></td><td class="r muted">388</td><td class="r"><span class="p">16,238.40</span></td><td class="r"><span class="p">41.85</span></td><td class="r muted">288.00</td><td class="r muted">614.40</td></tr>
+        <tr><td><span class="p">Fadumo M</span><span class="m">Bakaara Branch</span></td><td class="r muted">294</td><td class="r"><span class="p">11,466.00</span></td><td class="r"><span class="p">39.00</span></td><td class="r muted">140.00</td><td class="r muted">188.00</td></tr>
+        <tr class="totalrow"><td>Team</td><td class="r">1,842</td><td class="r">78,149.93</td><td class="r">42.43</td><td class="r">2,410.20</td><td class="r">1,882.40</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Not a leaderboard, and not framed as one.</b> Ranking
+      by total revenue mostly tells you who worked the most shifts. Discounts given sits beside the
+      revenue on purpose — it is the column that makes a big number worth a second look.</div></div>
+  </div>
+</template>
+
+<template data-tab="cat" data-label="Sales by Category" data-crumb="Reports" data-blurb="Revenue and margin by product category.">
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By category</h4><span class="pill">7 days</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Category</th><th class="r">Units</th><th class="r">Revenue</th><th class="r">Cost</th><th class="r">Margin</th><th>Share</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Staples</span></td><td class="r muted">5,204</td><td class="r"><span class="p">28,441.20</span></td><td class="r muted">18,960.00</td><td class="r"><span class="p">33.3%</span></td><td><div class="bar"><i style="width:100%;background:var(--c1);"></i></div></td></tr>
+        <tr><td><span class="p">Drinks</span></td><td class="r muted">4,188</td><td class="r"><span class="p">18,204.00</span></td><td class="r muted">12,378.00</td><td class="r"><span class="p">32.0%</span></td><td><div class="bar"><i style="width:64%;background:var(--c2);"></i></div></td></tr>
+        <tr><td><span class="p">Household</span></td><td class="r muted">2,044</td><td class="r"><span class="p">14,102.00</span></td><td class="r muted">7,276.00</td><td class="r"><span class="p">48.4%</span></td><td><div class="bar"><i style="width:50%;background:var(--c3);"></i></div></td></tr>
+        <tr><td><span class="p">Uncategorised</span><span class="m">175 products with no category</span></td><td class="r muted">1,226</td><td class="r"><span class="p">3,402.73</span></td><td class="r muted">1,470.00</td><td class="r"><span class="p">56.8%</span></td><td><div class="bar"><i style="width:12%;background:var(--d-rule);"></i></div></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Uncategorised is a row, not a gap.</b> 175 products
+      have no category, and hiding them would make the percentages add to less than the shop took.
+      It is shown in grey so it reads as a bucket rather than a category.</div></div>
+  </div>
+</template>
+
+<template data-tab="inv" data-label="Inventory Balance" data-crumb="Reports" data-blurb="Stock on hand, and what it is worth at cost.">
+  <div class="cardx" data-w="12">
+    <div class="kpis">
+      <div class="kpi"><div class="l">Stock value</div><div class="n">$28,411.27</div><div class="h">at products.cost_cents</div></div>
+      <div class="kpi"><div class="l">Units on hand</div><div class="n">14,882</div><div class="h">612 products</div></div>
+      <div class="kpi"><div class="l">Out of stock</div><div class="n">28</div><div class="h">products at zero</div></div>
+      <div class="kpi"><div class="l">Unvalued</div><div class="n">14</div><div class="h">no cost recorded</div></div>
+    </div>
+  </div>
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">By store</h4><div><button class="btn" type="button">By category</button> <button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t" style="min-width:0;">
+      <thead><tr><th>Store</th><th class="r">Products</th><th class="r">Units</th><th class="r">Value at cost</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Hodan Store</span></td><td class="r muted">488</td><td class="r muted">9,844</td><td class="r"><span class="p">18,902.14</span></td></tr>
+        <tr><td><span class="p">Bakaara Branch</span></td><td class="r muted">341</td><td class="r muted">4,608</td><td class="r"><span class="p">8,844.13</span></td></tr>
+        <tr class="totalrow"><td>Total</td><td class="r">612</td><td class="r">14,882</td><td class="r">28,411.27</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Valued at the current cost per product</b>, which is
+      a weighted average that each delivery overwrites. Once cost layers land this becomes a choice
+      between that and FIFO — and the two will differ. Saying so here means the number nobody
+      questions today does not become the number nobody trusts tomorrow.</div></div>
+  </div>
+</template>
+
+<template data-tab="low" data-label="Low Stock &amp; Reorder" data-crumb="Reports" data-blurb="Items at or below their reorder point, worst first.">
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Needs reordering</h4><span class="pill">As of today</span></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Product</th><th>Store</th><th class="r">On hand</th><th class="r">Reorder at</th><th class="r">Short by</th><th>Urgency</th></tr></thead>
+      <tbody>
+        <tr><td><span class="p">Powdered milk 900g</span></td><td class="muted">Hodan</td><td class="r"><span class="p">0</span></td><td class="r muted">20</td><td class="r"><span class="p">20</span></td><td><span class="chip hot">Out</span></td></tr>
+        <tr><td><span class="p">Cooking oil 3L</span></td><td class="muted">Bakaara</td><td class="r"><span class="p">4</span></td><td class="r muted">25</td><td class="r"><span class="p">21</span></td><td><span class="chip warn">Critical</span></td></tr>
+        <tr><td><span class="p">Detergent 2kg</span></td><td class="muted">Hodan</td><td class="r"><span class="p">18</span></td><td class="r muted">20</td><td class="r"><span class="p">2</span></td><td><span class="chip ok">Low</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Only products with a reorder level set appear.</b>
+      <code>reorder_level</code> is nullable and most shops leave it blank, so an empty report means
+      "nothing is configured", not "nothing is low" — and the empty state says which.</div></div>
+  </div>
+</template>
+
+<template data-tab="move" data-label="Stock Movement" data-crumb="Reports" data-blurb="Every reason stock changed hands.">
+  <div class="cardx" data-w="12">
+    <div class="kpis k3">
+      <div class="kpi"><div class="l">Received</div><div class="n">+8,204</div><div class="h">14 deliveries</div></div>
+      <div class="kpi"><div class="l">Transferred</div><div class="n">430</div><div class="h">3 movements</div></div>
+      <div class="kpi"><div class="l">Counted away</div><div class="n">−284</div><div class="h">2 stock-takes</div></div>
+    </div>
+  </div>
+  <div class="cardx tight" data-w="12">
+    <div class="crow"><h4 class="ctitle">Movements</h4><div><button class="btn" type="button">All types ⌄</button> <button class="btn" type="button">Export CSV</button></div></div>
+    <div class="tbl"><table class="t">
+      <thead><tr><th>Date</th><th>Type</th><th>What</th><th>Where</th><th>By</th><th class="r">Units</th></tr></thead>
+      <tbody>
+        <tr><td class="muted">21 Aug</td><td><span class="chip hot">Count</span></td><td><span class="p">Flood damage</span><span class="m">reason: damaged</span></td><td class="muted">Hodan</td><td class="muted">Yusef S</td><td class="r"><span class="p">−284</span></td></tr>
+        <tr><td class="muted">20 Aug</td><td><span class="chip ok">Received</span></td><td><span class="p">Juba Traders</span><span class="m">GRN-0087</span></td><td class="muted">→ Hodan</td><td class="muted">Amina H</td><td class="r"><span class="p">+142</span></td></tr>
+        <tr><td class="muted">18 Aug</td><td><span class="chip">Transfer</span></td><td><span class="p">Soft drinks, detergent</span></td><td class="muted">Hodan → Bakaara</td><td class="muted">Yusuf A</td><td class="r"><span class="p">430</span></td></tr>
+      </tbody>
+    </table></div>
+  </div>
+  <div class="cardx" data-w="12">
+    <div class="cav context"><span>ℹ</span><div><b>Three tables, one list.</b> Receipts, transfers and
+      stock-takes are separate records with different shapes; this is the only screen that reads them
+      as one sequence, which is what "what happened to my stock" actually asks.</div></div>
+  </div>
+</template>
+
+<script>
+  const tabs = Array.from(document.querySelectorAll('template[data-tab]'));
+  const sw = document.getElementById('switch'), wide = document.getElementById('fWide'), narrow = document.getElementById('fNarrow');
+  const NAV = ['Overview','Transactions','Bills','Expenses','Payroll','Cash & Budgets','Accounting','Reports'];
+  let active = 'hub';
+
+  const shell = (tpl, compact) => `
+    <div class="tabrow">${NAV.map(n => `<span class="${n === 'Reports' ? 'on' : ''}">${n}</span>`).join('')}</div>
+    ${tpl.dataset.crumb ? `<p class="crumb">← <b>${tpl.dataset.crumb}</b></p>` : ''}
+    <div class="head">
+      <div><p class="eyebrow">Accounting</p><h3>${tpl.dataset.label}</h3><p>${tpl.dataset.blurb}</p></div>
+      ${compact ? '' : '<div><button class="btn" type="button">7 days ⌄</button> <button class="btn" type="button">All stores ⌄</button></div>'}
+    </div>`;
+
+  function render() {
+    const tpl = tabs.find(t => t.dataset.tab === active);
+    [[wide, 'wide', false], [narrow, 'narrow', true]].forEach(([host, mode, compact]) => {
+      host.innerHTML = shell(tpl, compact);
+      const grid = document.createElement('div');
+      grid.className = 'grid ' + mode;
+      tpl.content.querySelectorAll('.cardx').forEach(card => {
+        const el = card.cloneNode(true);
+        if (mode === 'wide') el.style.gridColumn = 'span ' + el.dataset.w;
+        grid.appendChild(el);
+      });
+      host.appendChild(grid);
+    });
+    sw.querySelectorAll('button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.go === active)));
+  }
+
+  sw.addEventListener('click', e => { const b = e.target.closest('button[data-go]'); if (!b) return; active = b.dataset.go; render(); });
+  render();
+</script>
