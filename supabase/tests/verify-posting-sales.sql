@@ -155,6 +155,15 @@ declare
   v_date_tz1       date;
   v_date_tz2       date;
   v_tz_saved       text;
+  -- Checks 19-22. The sale being edited, the entry it was posted with before
+  -- the edit, and the reversal of that entry. Kept apart from v_entry/v_sale_id
+  -- because all three have to be compared with each other after the edit has
+  -- moved sales.journal_entry_id on.
+  v_sale_id_edit   uuid;
+  v_entry_orig     uuid;
+  v_entry_rev      uuid;
+  v_entry_settle   uuid;
+  v_line_count     bigint;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -190,12 +199,18 @@ begin
   insert into public.customers (shop_id, first_name, last_name)
     values (v_shop_id, 'Ayaan', 'Jama') returning id into v_customer_id;
 
-  -- The cashier of check 5: pos.access and nothing else. Written as a plain
-  -- roles row plus a membership, which is what verify-inventory-permissions.sql
-  -- does -- there is no grant_role_permissions() helper in this database.
-  -- Created BEFORE the JWT is switched, while raw inserts are still possible.
+  -- The cashier of checks 5 and 20: the two till permissions and nothing else.
+  -- Written as a plain roles row plus a membership, which is what
+  -- verify-inventory-permissions.sql does -- there is no
+  -- grant_role_permissions() helper in this database. Created BEFORE the JWT is
+  -- switched, while raw inserts are still possible.
+  --
+  -- 'sales.edit' is here for check 20, and it is the whole point of that check:
+  -- a manager correcting a mis-rung sale holds sales.edit and must never need
+  -- ledger.post as well. Neither permission is a ledger permission, which is
+  -- what both checks assert against.
   insert into public.roles (shop_id, name, permissions)
-    values (v_shop_id, 'Till Only', array['pos.access'])
+    values (v_shop_id, 'Till Only', array['pos.access', 'sales.edit'])
     returning id into v_staff_role_id;
   insert into public.shop_members (shop_id, user_id, role_id, active)
     values (v_shop_id, v_staff_id, v_staff_role_id, true);
@@ -1174,6 +1189,370 @@ begin
   if v_date_tz1 <> public.shop_local_date() then
     raise exception 'FAIL: the refund posted on %, but the shop''s local date is %',
       v_date_tz1, public.shop_local_date();
+  end if;
+
+  -- 19. An EDITED sale reverses its entry and posts a new one from the edited
+  --     figures. Three entries survive: what was posted, its undoing, and what
+  --     is true now.
+  --
+  --     edit_sale changes items, totals, tax and payments, and a posted entry is
+  --     immutable -- refuse_posted_entry_edit() sees to that. So without this,
+  --     every sale edit leaves the ledger reading the PRE-edit figures with
+  --     nothing anywhere saying so, which is the exact disagreement between the
+  --     books and their source that phase 1 was built to make impossible.
+  --
+  --     Tax goes back ON for this check and the three after it. Check 17 turned
+  --     it off to make 600 reachable and said it stays off "for the rest of the
+  --     script"; that was written when 17 and 18 were the rest of the script.
+  --     Nothing between here and the end depends on it being off, and an edit
+  --     that silently dropped the tax line would otherwise be invisible.
+  --
+  --     2 @ 3000 (cost 1100) = 6000 gross, tax 300, total 6300, COGS 2200.
+  --     Edited down to 1 @ 3000: 3000 gross, tax 150, total 3150, COGS 1100.
+  --     EVERY figure differs from the original's, so an implementation that
+  --     re-posted the pre-edit figures fails rather than coincidentally passing.
+  update public.shops set tax_enabled = true where id = v_shop_id;
+
+  v_sale_id_edit := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 6300)),
+    null, null, null, null, 0, null, null, v_loc_id);
+
+  select journal_entry_id into v_entry_orig from public.sales where id = v_sale_id_edit;
+  if v_entry_orig is null then
+    raise exception 'FAIL: the sale to be edited posted no entry to begin with';
+  end if;
+
+  -- Asserted, not assumed: if the fixture sale were not the 6000/300/2200 one
+  -- described above, every net below would be measuring something else.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry_orig and a.code = '4000';
+  if v_amount <> -6000 then
+    raise exception 'FAIL: the pre-edit entry credits 4000 with %, expected -6000 -- the tax is still off', v_amount;
+  end if;
+
+  perform public.edit_sale(
+    v_sale_id_edit,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)));
+
+  -- The sale points at a DIFFERENT entry now.
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id_edit;
+  if v_entry is null then
+    raise exception 'FAIL: the edited sale has no journal entry';
+  end if;
+  if v_entry = v_entry_orig then
+    raise exception 'FAIL: the edit left sales.journal_entry_id on the original entry -- the ledger now disagrees with the sale';
+  end if;
+
+  -- The original is REVERSED, not deleted and not edited, and the reversal
+  -- points back at it. A book is added to, not amended.
+  select status into v_text from public.journal_entries where id = v_entry_orig;
+  if v_text <> 'reversed' then
+    raise exception 'FAIL: the original entry is %, expected reversed', v_text;
+  end if;
+
+  select id into v_entry_rev from public.journal_entries
+   where reverses_entry_id = v_entry_orig and id <> v_entry_orig;
+  if v_entry_rev is null then
+    raise exception 'FAIL: no reversing entry points back at the original';
+  end if;
+  if v_entry_rev = v_entry then
+    raise exception 'FAIL: the reversal and the replacement are the same entry';
+  end if;
+
+  -- The link runs both ways, which is what makes neither entry readable without
+  -- finding the other.
+  select reverses_entry_id into v_entry_a from public.journal_entries where id = v_entry_orig;
+  if v_entry_a is distinct from v_entry_rev then
+    raise exception 'FAIL: the original points at % rather than at its reversal %', v_entry_a, v_entry_rev;
+  end if;
+
+  -- The reference convention reverse_journal_entry established: the original's
+  -- with an R, so the pair reads as a pair in the journals list.
+  select e.reference into v_text from public.journal_entries e where e.id = v_entry_rev;
+  select r.reference || 'R' into v_ref_a from public.journal_entries r where r.id = v_entry_orig;
+  if v_text is distinct from v_ref_a then
+    raise exception 'FAIL: the reversal is referenced %, expected % (the original''s with an R)', v_text, v_ref_a;
+  end if;
+
+  -- The reversal negates the original LINE FOR LINE. Asserted per account
+  -- rather than in total, because a reversal that negated the wrong lines can
+  -- still sum to zero overall.
+  if exists (
+    select 1 from public.journal_lines l
+     where l.entry_id in (v_entry_orig, v_entry_rev)
+     group by l.account_id
+    having coalesce(sum(l.amount_cents), 0) <> 0
+  ) then
+    raise exception 'FAIL: the reversal does not negate the original account for account';
+  end if;
+  select count(*) into v_line_count from public.journal_lines where entry_id = v_entry_orig;
+  select count(*) into v_amount    from public.journal_lines where entry_id = v_entry_rev;
+  if v_amount <> v_line_count then
+    raise exception 'FAIL: the original has % lines and its reversal %', v_line_count, v_amount;
+  end if;
+
+  -- The replacement is a SALE entry, not a manual one, and it names its sale.
+  select source, description into v_text, v_src from public.journal_entries where id = v_entry;
+  if v_text <> 'sale' then
+    raise exception 'FAIL: the re-posted entry has source % (manual would mean it gated on ledger.post)', v_text;
+  end if;
+  if v_src not like '%' || v_sale_id_edit::text || '%' then
+    raise exception 'FAIL: the re-posted entry description "%" does not name its sale %', v_src, v_sale_id_edit;
+  end if;
+
+  -- The three entries NET to the corrected figures. Asserted as a sum across
+  -- all three rather than on the new entry alone: that is the property a trial
+  -- balance actually reads, and it is the one a reversal that negated the wrong
+  -- lines would break.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '4000' and l.entry_id in (v_entry_orig, v_entry_rev, v_entry);
+  if v_amount <> -3000 then
+    raise exception 'FAIL: 4000 Revenue nets to % across the three entries, expected -3000 (-6000 = the edit never re-posted)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '2100' and l.entry_id in (v_entry_orig, v_entry_rev, v_entry);
+  if v_amount <> -150 then
+    raise exception 'FAIL: 2100 Sales Tax nets to % across the three entries, expected -150 (-300 = the old tax survived the edit)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '1000' and l.entry_id in (v_entry_orig, v_entry_rev, v_entry);
+  if v_amount <> 3150 then
+    raise exception 'FAIL: 1000 Cash nets to % across the three entries, expected 3150', v_amount;
+  end if;
+
+  -- COGS follows the goods, and from the cost FROZEN on the re-written line.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '5000' and l.entry_id in (v_entry_orig, v_entry_rev, v_entry);
+  if v_amount <> 1100 then
+    raise exception 'FAIL: 5000 COGS nets to % across the three entries, expected 1100 (2200 = the returned unit''s cost is still expensed)', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '1200' and l.entry_id in (v_entry_orig, v_entry_rev, v_entry);
+  if v_amount <> -1100 then
+    raise exception 'FAIL: 1200 Inventory nets to % across the three entries, expected -1100', v_amount;
+  end if;
+
+  -- And each of the two new entries balances on its own.
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the re-posted entry does not balance, off by %', v_amount;
+  end if;
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry_rev;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the reversing entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 20. A cashier holding sales.edit and NOT ledger.post can still edit a sale.
+  --
+  --     reverse_journal_entry requires ledger.post; edit_sale requires
+  --     sales.edit. If the reversal is done through that door, every edit in
+  --     every shop stops until someone grants till staff a ledger permission
+  --     they must not have -- which is the same failure check 5 exists to
+  --     prevent on the selling side. So the reversal is done INLINE inside
+  --     edit_sale's own security-definer body, exactly as complete_sale posts
+  --     with p_source => 'sale' rather than gating the till on ledger.post.
+  --
+  --     Edited back UP to 2 @ 3000: 6000 gross, tax 300, total 6300. Going up
+  --     rather than down so the second edit cannot pass by doing nothing.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_staff_id)::text, true);
+  -- Asserted, not assumed, twice over: without the first the check passes while
+  -- proving nothing, and without the second it would fail for the wrong reason.
+  if public.has_shop_permission(v_shop_id, 'ledger.post') then
+    raise exception 'FAIL: the fixture cashier holds ledger.post, so check 20 would prove nothing';
+  end if;
+  if not public.has_shop_permission(v_shop_id, 'sales.edit') then
+    raise exception 'FAIL: the fixture cashier does not hold sales.edit, so check 20 cannot run';
+  end if;
+
+  perform public.edit_sale(
+    v_sale_id_edit,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 6300)));
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+
+  -- The second edit reversed the FIRST edit's entry in its turn. Six entries
+  -- after two edits -- three postings and three reversals -- is correct, not
+  -- noise.
+  select status into v_text from public.journal_entries where id = v_entry;
+  if v_text <> 'reversed' then
+    raise exception 'FAIL: the second edit left the first edit''s entry %, expected reversed', v_text;
+  end if;
+  select journal_entry_id into v_entry_a from public.sales where id = v_sale_id_edit;
+  if v_entry_a is null or v_entry_a = v_entry then
+    raise exception 'FAIL: the cashier''s edit did not re-post the sale';
+  end if;
+
+  -- 21. Editing a sale whose period has CLOSED redates both the reversal and
+  --     the replacement into the current period, and both say why.
+  --
+  --     A reversal belongs in the period of the entry it undoes -- that is what
+  --     reverse_journal_entry's own comment says and why it dates itself to the
+  --     original. But open_period_for refuses any non-open period, so an edit
+  --     to a sale whose month has since been closed would fail outright at the
+  --     reversal, and a manager correcting last quarter's mis-rung sale would
+  --     be told the ledger would not have it. That is 20260908000300's problem
+  --     in a place 20260908000300 did not reach, and it gets the same answer: a
+  --     correction that arrives after its month has closed is recognised in the
+  --     open period. Redating is what closing MEANS.
+  --
+  --     MUTATION (proves this check): in edit_sale, drop the period-status test
+  --     and date the reversal at the original entry's date unconditionally.
+  --     Expected: this check fails with open_period_for's own
+  --     `This period is closed`.
+  v_date := v_month_open + 15;
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 3150)),
+    null, null, null, null, 0, null,
+    (v_date + time '10:00') at time zone 'Africa/Mogadishu', v_loc_id);
+
+  select journal_entry_id into v_entry_orig from public.sales where id = v_sale_id;
+  select entry_date into v_date_actual from public.journal_entries where id = v_entry_orig;
+  if v_date_actual <> v_date then
+    raise exception 'FAIL: the fixture sale for check 21 posted on % rather than into the month about to be closed (%)',
+      v_date_actual, v_date;
+  end if;
+
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and starts_on = v_month_open;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row for % to close', v_month_open;
+  end if;
+
+  perform public.edit_sale(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 6300)));
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select entry_date, description into v_date_actual, v_src
+    from public.journal_entries where id = v_entry;
+  if v_date_actual <> v_today_local then
+    raise exception 'FAIL: the replacement entry for a closed-period sale posted on %, expected the current period (%)',
+      v_date_actual, v_today_local;
+  end if;
+  if v_src not like '%' || to_char(v_date, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated replacement "%" does not name the sale''s true date %',
+      v_src, to_char(v_date, 'YYYY-MM-DD');
+  end if;
+
+  select id, entry_date, description into v_entry_rev, v_date_actual, v_src
+    from public.journal_entries where reverses_entry_id = v_entry_orig and id <> v_entry_orig;
+  if v_entry_rev is null then
+    raise exception 'FAIL: the closed-period edit posted no reversal';
+  end if;
+  if v_date_actual <> v_today_local then
+    raise exception 'FAIL: the reversal of a closed-period entry posted on %, expected the current period (%)',
+      v_date_actual, v_today_local;
+  end if;
+  if v_src not like '%' || to_char(v_date, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated reversal "%" does not name the original entry''s date %',
+      v_src, to_char(v_date, 'YYYY-MM-DD');
+  end if;
+  -- The STATUS as well as the date, and this is the null trap 20260908000300
+  -- was caught by: `||` with a NULL operand yields NULL for the whole
+  -- expression, so a status read back as NULL nulls the entire description and
+  -- post_journal_entry then refuses the edit with "A journal entry needs a
+  -- description" -- an error about descriptions for a bug about dates.
+  if v_src not like '%closed%' then
+    raise exception 'FAIL: the redated reversal "%" does not say the original period was closed', v_src;
+  end if;
+
+  -- 22. An edit does NOT re-debit money that arrived as a SETTLEMENT.
+  --
+  --     edit_sale deletes and re-inserts the till's own payments and leaves
+  --     settlements alone (20260831000100) -- so sale_payments after an edit
+  --     holds both, and a posting block that debits cash for every row on it
+  --     books the settled money a second time. The settlement already has its
+  --     own entry (Dr Cash / Cr Receivable, check 13), and reversing the SALE's
+  --     entry does not touch it. So the replacement carries the till's payments
+  --     only, and puts the whole of the rest on 1100 -- which nets, against the
+  --     settlement entry still standing, to exactly what is owed.
+  --
+  --     2 @ 3000 = 6000 gross, tax 300, total 6300, of which 2000 is paid at
+  --     the till and 1500 settled later, leaving 2800 owed. Edited down to
+  --     1 @ 3000: 3000 gross, tax 150, total 3150, till payment 1000. Collected
+  --     is then 2500 and 650 is owed. Every figure is distinct.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
+  select journal_entry_id into v_entry_orig from public.sales where id = v_sale_id;
+
+  perform public.settle_sale_balance(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1500)));
+  select journal_entry_id into v_entry_settle from public.sale_payments
+   where sale_id = v_sale_id and is_settlement order by created_at desc limit 1;
+  if v_entry_settle is null then
+    raise exception 'FAIL: the fixture settlement for check 22 did not post';
+  end if;
+
+  perform public.edit_sale(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)),
+    null, null, null, 0, v_customer_id, true);
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  select id into v_entry_rev from public.journal_entries
+   where reverses_entry_id = v_entry_orig and id <> v_entry_orig;
+  if v_entry is null or v_entry_rev is null then
+    raise exception 'FAIL: the edit of a part-settled sale did not reverse and re-post';
+  end if;
+
+  -- Asserted, not assumed: if the settlement had been deleted by the edit the
+  -- nets below would be describing a different sale from the one this check is
+  -- about.
+  select coalesce(sum(amount_cents), 0) into v_amount from public.sale_payments
+   where sale_id = v_sale_id;
+  if v_amount <> 2500 then
+    raise exception 'FAIL: the part-settled sale has % collected against it, expected 2500', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '1000'
+     and l.entry_id in (v_entry_orig, v_entry_rev, v_entry_settle, v_entry);
+  if v_amount <> 2500 then
+    raise exception 'FAIL: 1000 Cash nets to % over this sale''s four entries, expected 2500, the money actually collected (4000 = the settlement was debited twice)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '1100'
+     and l.entry_id in (v_entry_orig, v_entry_rev, v_entry_settle, v_entry);
+  if v_amount <> 650 then
+    raise exception 'FAIL: 1100 Receivable nets to % over this sale''s four entries, expected 650, what is still owed (-850 = the settlement cleared a debt the edit then never re-raised)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '4000'
+     and l.entry_id in (v_entry_orig, v_entry_rev, v_entry_settle, v_entry);
+  if v_amount <> -3000 then
+    raise exception 'FAIL: 4000 Revenue nets to % over this sale''s four entries, expected -3000', v_amount;
   end if;
 
   raise notice 'ALL CHECKS PASSED';

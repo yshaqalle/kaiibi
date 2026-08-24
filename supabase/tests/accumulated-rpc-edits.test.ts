@@ -134,6 +134,40 @@ const EDIT_SALE_EDITS: Edit[] = [
   // what the client sent. Lossless while every payment arrived at the till at
   // once, destructive the moment money can arrive days later.
   ['20260831000100', 'an edit does not erase a settlement', 'and not is_settlement'],
+  // Guardable for the first time, and for exactly the reason the complete_sale
+  // entry above gives: 20260905000000 patched edit_sale by TEXT SUBSTITUTION
+  // against the live pg_proc source, so until 20260908000650 the ORDER BY lived
+  // in no `create or replace` text and this entry would have FAILED against a
+  // database that HAD the fix. complete_sale's half of that same fix was duly
+  // reverted by a copy-forward and only verify-sale-lock-order caught it;
+  // edit_sale's half was unguarded here until now.
+  ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
+  // A correction is a reversal plus a fresh entry, never an edit: a posted
+  // entry is immutable, and without this an edit left revenue, COGS, tax and
+  // the receivable all reading the pre-edit figures.
+  ['20260908000650', 'an edit reverses the old entry rather than editing it', 'reverses_entry_id'],
+  ['20260908000650', 'an edit re-posts from the edited figures', 'post_journal_entry('],
+  // The PROPERTY, not a variable name. The entry date must be the shop's local
+  // date; a bare now()::date resolves in UTC and every market kaiibi serves is
+  // UTC+3, so a late-night correction lands in the wrong month permanently.
+  ['20260908000650', 'the replacement is dated in shop-local time', 'shop_local_date'],
+  // A correction to a month that has since CLOSED is recognised in the open
+  // period rather than refused by open_period_for. Without it a manager
+  // correcting last quarter's mis-rung sale is stopped by a ledger error on a
+  // POS screen.
+  ['20260908000650', 'a correction whose period has closed is redated, not refused', 'v_old_period_status'],
+  // The replacement debits the TILL's payments only. A settlement already
+  // carries its own Dr Cash / Cr Receivable entry, which reversing the sale's
+  // entry does not touch, so re-debiting it here books the same money twice.
+  ['20260908000650', 'the replacement does not re-debit a settlement', 'not sp.is_settlement'],
+  // Specific to the variable, not merely to account 1100 -- the same trap
+  // complete_sale's entry above pins. v_balance in this function is a loyalty
+  // POINTS balance, assigned only inside the clamping branches.
+  ['20260908000650', 'the receivable is money owed, not the points balance', 'v_owed_cents'],
+  // Line and promotion discounts reach 4200 and revenue is credited at LIST.
+  // The item loop folds each line's discount into v_line before adding it to
+  // v_gross_cents, so v_gross_cents is already NET of them.
+  ['20260908000650', 'every discount reaches 4200', 'v_item_discount_cents'],
 ];
 
 describe.each([
