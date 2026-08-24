@@ -6,8 +6,9 @@
 -- edits listed below. edit_sale and settle_sale_balance are NOT redefined here,
 -- so 20260831000100 remains their newest definition.
 --
--- Four declarations and one block:
---   1. v_cogs_cents, v_owed_cents, v_entry_id, v_lines in the DECLARE section
+-- Five declarations and one block:
+--   1. v_cogs_cents, v_owed_cents, v_item_discount_cents, v_entry_id, v_lines
+--      in the DECLARE section
 --   2. a posting block after the sale, its items and its payments are written,
 --      and before `return v_sale_id`
 --
@@ -86,6 +87,10 @@ declare
   -- redemption branch above, so reading it as money would post a receivable in
   -- points on a redeeming sale and none at all on a plain credit sale.
   v_owed_cents integer := 0;
+  -- The line-level and promotion discounts, summed off the rows this sale just
+  -- wrote. NOT derivable from v_gross_cents, which is already net of them --
+  -- see the posting block for what that cost.
+  v_item_discount_cents integer := 0;
   v_entry_id uuid;
   v_lines jsonb;
 begin
@@ -493,6 +498,21 @@ begin
     from public.sale_items si
    where si.sale_id = v_sale_id and si.unit_cost_cents is not null;
 
+  -- Every discount taken on a LINE -- a cashier's typed amount and, far more
+  -- often, a promotion. Read back off sale_items because there is no running
+  -- total of it in this function: the item loop folds each line's discount
+  -- straight into v_line (`price_cents * qty - v_line_discount`) before adding
+  -- it to v_gross_cents, so by the time control reaches here v_gross_cents is
+  -- already NET of it and the figure is unrecoverable from the variables.
+  --
+  -- sale_items.discount_cents is the per-line discount as written six lines
+  -- into the loop's insert; it is 0, never null (0013 added it `not null
+  -- default 0`), so no coalesce is needed inside the sum.
+  select coalesce(sum(si.discount_cents), 0)
+    into v_item_discount_cents
+    from public.sale_items si
+   where si.sale_id = v_sale_id;
+
   -- One debit line per payment, against the account that method maps to. A
   -- single lumped line would make the drawer and the wallet impossible to
   -- reconcile separately, which is most of what a cash position is for.
@@ -514,22 +534,54 @@ begin
       'code', '1100', 'amount_cents', v_owed_cents, 'memo', 'Left on account'));
   end if;
 
-  -- Discounts and redeemed points are shown GROSS: revenue at list, the
-  -- reduction as its own debit. Netting them into 4000 would hide what the
-  -- shop gave away, which is the one number a discount report exists to show.
+  -- ALL THREE discounts are shown GROSS: revenue is credited at list price and
+  -- every reduction is its own debit to 4200. Netting a discount into 4000
+  -- would hide what the shop gave away, which is the one number a discount
+  -- report exists to show.
   --
-  -- A redemption lands in 4200 alongside the discount rather than drawing down
+  -- The three are not symmetrical in this function, and the first version of
+  -- this block got that wrong:
+  --
+  --   * v_discount_cents  -- the ORDER-level discount. Subtracted from
+  --     v_gross_cents further down, so v_gross_cents is gross with respect to
+  --     it and it has to be added back here.
+  --   * v_redeem_cents    -- loyalty points spent. Same: subtracted after
+  --     v_gross_cents is final.
+  --   * v_item_discount_cents -- LINE and PROMOTION discounts. NOT the same.
+  --     The item loop computes `v_line := price_cents * qty - v_line_discount`
+  --     and accumulates THAT, so v_gross_cents is already net of it.
+  --
+  -- Crediting 4000 with a bare v_gross_cents therefore understated revenue by
+  -- every promotion the shop ran and left 4200 reading zero for a shop whose
+  -- discounts are all promotions -- which is the app's main discount
+  -- mechanism. One item at 5000 with a 1000 promotion, no tax, 4000 cash,
+  -- posted `Dr 1000 4000 / Cr 4000 4000` and no 4200 line at all.
+  --
+  -- So: revenue at list is v_gross_cents + v_item_discount_cents, and the
+  -- contra is all three discounts together.
+  --
+  -- Still balanced by construction, and this is the whole proof. Writing D for
+  -- v_discount_cents, R for v_redeem_cents, I for v_item_discount_cents, G for
+  -- v_gross_cents and T for v_tax_cents, the function computes
+  --     v_total_cents = G - D - R + T
+  -- and the debits are the money in (payments + receivable = v_total_cents)
+  -- plus the contra (D + R + I), which is G + T + I. The credits are revenue
+  -- (G + I) plus tax (T), which is the same figure. The COGS pair below is a
+  -- self-balancing debit/credit of one amount and does not disturb it.
+  --
+  -- A redemption lands in 4200 alongside the discounts rather than drawing down
   -- 2300 Loyalty Points Liability: posting the redemption as a liability
   -- drawdown without also posting the earn side would drive 2300 negative on
   -- the very first redemption. The earn side is a later phase's work.
-  if (v_discount_cents + v_redeem_cents) > 0 then
+  if (v_discount_cents + v_redeem_cents + v_item_discount_cents) > 0 then
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', '4200', 'amount_cents', v_discount_cents + v_redeem_cents, 'memo', 'Discount and points'));
+      'code', '4200', 'amount_cents', v_discount_cents + v_redeem_cents + v_item_discount_cents,
+      'memo', 'Discounts and points'));
   end if;
 
-  if v_gross_cents > 0 then
+  if (v_gross_cents + v_item_discount_cents) > 0 then
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', '4000', 'amount_cents', -v_gross_cents, 'memo', 'Sale'));
+      'code', '4000', 'amount_cents', -(v_gross_cents + v_item_discount_cents), 'memo', 'Sale at list'));
   end if;
 
   if v_tax_cents > 0 then
@@ -545,10 +597,16 @@ begin
       jsonb_build_object('code', '1200', 'amount_cents', -v_cogs_cents, 'memo', 'Stock sold'));
   end if;
 
+  -- The description carries the sale id, so the link is readable in both
+  -- directions. sales.journal_entry_id gets you from the sale to the entry; a
+  -- bare 'Sale' got you nowhere back, and a journals list of four hundred rows
+  -- all reading 'Sale' is not a journal anybody can audit. Task 8's backfill
+  -- has to reconcile replayed entries against their source rows and wants the
+  -- same link.
   v_entry_id := public.post_journal_entry(
     p_shop_id,
     coalesce(p_created_at, now())::date,
-    'Sale',
+    'Sale ' || v_sale_id::text,
     v_lines,
     v_location_id,
     'sale');

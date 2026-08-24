@@ -1,8 +1,8 @@
 -- Every completed sale writes a balanced double-entry journal entry, in the
 -- same transaction that writes the sale.
 --
--- Five things are asserted, and none of them can be checked from TypeScript
--- because all five are facts about rows this database wrote for itself:
+-- Eight things are asserted, and none of them can be checked from TypeScript
+-- because all eight are facts about rows this database wrote for itself:
 --
 --   1. a cash sale posts one balanced entry, with the tax booked as a LIABILITY
 --      and only the merchandise as revenue, and COGS taken from the cost frozen
@@ -23,6 +23,20 @@
 --      the 'manual' source on ledger.post. If this ever goes red, every sale in
 --      every shop stops until someone grants a permission cashiers should not
 --      need.
+--   6. a LINE-level discount credits 4000 at LIST and debits 4200. The first
+--      version of the posting block credited 4000 with v_gross_cents, which the
+--      item loop has already netted every line and promotion discount out of --
+--      so a shop whose discounts are all promotions (the app's main discount
+--      mechanism) read 4200 Discounts Given as zero while Sales Revenue was
+--      understated by the same amount. An ORDER-level discount would not have
+--      caught it; only a line-level one does.
+--   7. two entries posted back to back get two different references, and the
+--      per-shop-per-year counter they come from advanced by exactly two. Plus a
+--      direct assertion that the old count(*)-based formula is GONE from
+--      post_journal_entry's source.
+--   8. the COGS figure is frozen on the line. products.cost_cents is changed to
+--      a clearly different value part-way through, and both the entry posted
+--      before the change and the one posted after read their own frozen cost.
 --
 -- The figures are chosen so no two lines of check 1 share a value -- 7000, 350,
 -- 7350 and 2500 are all distinct -- so a check that reads the wrong account
@@ -51,8 +65,17 @@ declare
   v_staff_role_id  uuid;
   v_sale_id        uuid;
   v_entry          uuid;
+  -- Check 1's entry, kept so check 8 can come back to it after the fixture has
+  -- moved products.cost_cents underneath it.
+  v_entry_1        uuid;
+  v_entry_a        uuid;
+  v_entry_b        uuid;
   v_amount         bigint;
   v_text           text;
+  v_ref_a          text;
+  v_ref_b          text;
+  v_next_before    integer;
+  v_next_after     integer;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -117,6 +140,15 @@ begin
   select journal_entry_id into v_entry from public.sales where id = v_sale_id;
   if v_entry is null then
     raise exception 'FAIL: the sale did not post a journal entry';
+  end if;
+  v_entry_1 := v_entry;
+
+  -- The entry points BACK at its sale. sales.journal_entry_id gets you one way;
+  -- without this every entry's description is the bare word 'Sale' and a
+  -- journals list of four hundred of them names no sale at all.
+  select description into v_text from public.journal_entries where id = v_entry;
+  if v_text not like '%' || v_sale_id::text || '%' then
+    raise exception 'FAIL: the entry description % does not name its sale %', v_text, v_sale_id;
   end if;
 
   select source into v_text from public.journal_entries where id = v_entry;
@@ -247,6 +279,159 @@ begin
     raise exception 'FAIL: a cashier without ledger.post could not post a sale';
   end if;
   perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+
+  -- 6. A LINE-level discount credits 4000 at LIST and debits 4200.
+  --
+  --    Deliberately a line discount and NOT an order-level one. The first
+  --    version of the posting block credited 4000 with v_gross_cents, and the
+  --    item loop computes `v_line := price_cents * qty - v_line_discount`
+  --    before accumulating it -- so v_gross_cents is already net of every line
+  --    and promotion discount. An order-level discount is subtracted later and
+  --    would have passed against the broken code; a line-level one is the only
+  --    shape that catches it. Promotions are the app's main discount mechanism
+  --    and take exactly this path, so a shop using them read 4200 Discounts
+  --    Given as flat zero with Sales Revenue understated by the same amount.
+  --
+  --    1 @ 2000 less 500 = 1500 net. Tax 5% of 1500 = 75. Total 1575.
+  --    Correct:  Cr 4000 -2000 (list), Dr 4200 500.
+  --    Broken:   Cr 4000 -1500 (net),  no 4200 line at all.
+  --    Every figure here is distinct -- 1575, 2000, 500, 75, 700 -- so a check
+  --    reading the wrong account fails rather than coincidentally passing.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object(
+      'product_id', v_prod_a, 'quantity', 1, 'unit_price_cents', 2000, 'discount_cents', 500)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1575)),
+    null, null, null, null, 0, null, null, v_loc_id);
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+
+  -- Asserted, not assumed: if the line discount never reached sale_items the
+  -- rest of this check would be measuring an undiscounted sale.
+  select coalesce(sum(si.discount_cents), 0) into v_amount
+    from public.sale_items si where si.sale_id = v_sale_id;
+  if v_amount <> 500 then
+    raise exception 'FAIL: the fixture line discount did not land on sale_items, got %', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4000';
+  if v_amount <> -2000 then
+    raise exception 'FAIL: expected Cr 4000 Revenue -2000 at LIST, got % (-1500 = the discount netted into revenue)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '4200';
+  if v_amount <> 500 then
+    raise exception 'FAIL: expected Dr 4200 Discounts Given 500, got % (0 = line discounts never reach 4200)', v_amount;
+  end if;
+
+  -- Still balances, which is the other half of the fix: adding the discount to
+  -- both the revenue credit and the 4200 debit cannot move the total.
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the discounted entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 7. Two entries in a row take two different references, from a counter.
+  --
+  --    A genuine two-session race CANNOT be exercised from this harness -- one
+  --    DO block is one session, and the collision needs two overlapping
+  --    transactions in READ COMMITTED. So this asserts the MECHANISM instead:
+  --    that references come from a per-shop-per-year counter which advances
+  --    once per post, and that the count(*)-based formula that raced is gone.
+  --
+  --    What it replaced: post_journal_entry used to build its reference as
+  --    `count(*) + 1` over the shop's entries for the year and insert against
+  --    unique (shop_id, reference). Two tills posting at once both counted N,
+  --    both built the same reference, and the second died with a raw
+  --    "duplicate key value violates unique constraint" -- which src/lib/sales.ts
+  --    rethrows and src/lib/checkout-errors.ts passes through verbatim, so the
+  --    cashier saw the constraint name and lost the basket.
+  select next_number into v_next_before
+    from public.journal_entry_sequences
+   where shop_id = v_shop_id and year = to_char(now(), 'YYYY');
+  if v_next_before is null then
+    raise exception 'FAIL: no journal_entry_sequences row for this shop and year -- references are not coming from the counter';
+  end if;
+
+  v_entry_a := public.post_journal_entry(
+    v_shop_id, now()::date, 'Sequence probe A',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents', 100),
+      jsonb_build_object('code', '4000', 'amount_cents', -100)),
+    v_loc_id);
+  v_entry_b := public.post_journal_entry(
+    v_shop_id, now()::date, 'Sequence probe B',
+    jsonb_build_array(
+      jsonb_build_object('code', '1000', 'amount_cents', 100),
+      jsonb_build_object('code', '4000', 'amount_cents', -100)),
+    v_loc_id);
+
+  select reference into v_ref_a from public.journal_entries where id = v_entry_a;
+  select reference into v_ref_b from public.journal_entries where id = v_entry_b;
+  if v_ref_a is null or v_ref_b is null then
+    raise exception 'FAIL: a posted entry has no reference (% and %)', v_ref_a, v_ref_b;
+  end if;
+  if v_ref_a = v_ref_b then
+    raise exception 'FAIL: two entries posted in a row share the reference % -- the allocator does not advance', v_ref_a;
+  end if;
+
+  select next_number into v_next_after
+    from public.journal_entry_sequences
+   where shop_id = v_shop_id and year = to_char(now(), 'YYYY');
+  if v_next_after <> v_next_before + 2 then
+    raise exception 'FAIL: the reference counter went % -> % over two posts, expected +2', v_next_before, v_next_after;
+  end if;
+
+  -- And directly: the racing formula is not in the function any more. Asserted
+  -- against the LIVE definition rather than against migration text, because
+  -- this repo has migrations that rewrite functions by text substitution and a
+  -- grep of the .sql files would not see them.
+  select pg_get_functiondef(
+           'public.post_journal_entry(uuid, date, text, jsonb, uuid, text)'::regprocedure)
+    into v_text;
+  if position('count(*) + 1' in v_text) > 0 then
+    raise exception 'FAIL: post_journal_entry still allocates its reference with count(*) + 1, which races two concurrent sales in one shop';
+  end if;
+  if position('journal_entry_sequences' in v_text) = 0 then
+    raise exception 'FAIL: post_journal_entry does not read journal_entry_sequences';
+  end if;
+
+  -- 8. COGS is FROZEN on the line, never re-read from products.cost_cents.
+  --
+  --    The fixture now moves products.cost_cents to a clearly different value
+  --    part-way through, which is what the earlier version of this check was
+  --    missing: with the cost constant for the whole script, an implementation
+  --    reading products.cost_cents produced the identical 2500 and the check
+  --    whose comment said "never products.cost_cents" could not fail.
+  --
+  --    Two assertions, and both are needed. The new sale must cost 9999 -- so
+  --    the fixture really did change and a stale-cost read would show 700 --
+  --    and check 1's entry, posted before the change, must still read 2500.
+  update public.products set cost_cents = 9999 where id = v_prod_a;
+
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_a, 'quantity', 1, 'unit_price_cents', 2000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2100)),
+    null, null, null, null, 0, null, null, v_loc_id);
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5000';
+  if v_amount <> 9999 then
+    raise exception 'FAIL: expected Dr 5000 COGS 9999 from the new cost, got % (700 = the old one)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry_1 and a.code = '5000';
+  if v_amount <> 2500 then
+    raise exception 'FAIL: check 1''s COGS moved to % when products.cost_cents changed; it must stay 2500', v_amount;
+  end if;
 
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';

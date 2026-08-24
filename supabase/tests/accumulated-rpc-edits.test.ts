@@ -88,8 +88,21 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // first run. Now that the ORDER BY is written into the newest definition, it
   // is guarded like every other edit.
   ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
-  ['20260908000200', 'the sale posts a journal entry', "'sale')"],
-  ['20260908000200', 'COGS comes from the frozen line cost', 'v_cogs_cents'],
+  // The call itself, not the string 'sale' in a trailing argument position:
+  // "'sale')" was satisfiable by any stray comment or unrelated literal that
+  // happened to end that way, which is not a guard.
+  ['20260908000200', 'the sale posts a journal entry', 'post_journal_entry('],
+  // The PROPERTY, not the variable name. `v_cogs_cents` survives a rewrite that
+  // sums products.cost_cents into it, which is the exact mistake the frozen
+  // cost exists to prevent -- 20260804000000 froze the cost on the line so a
+  // restock tomorrow cannot rewrite a closed month's gross profit.
+  ['20260908000200', 'COGS comes from the frozen line cost', 'si.unit_cost_cents'],
+  // Line and promotion discounts reach 4200. The item loop folds each line's
+  // discount into v_line before adding it to v_gross_cents, so v_gross_cents is
+  // already NET of them -- crediting 4000 with a bare v_gross_cents left 4200
+  // reading zero for a shop whose discounts are all promotions, with revenue
+  // understated by the same amount.
+  ['20260908000200', 'every discount reaches 4200', 'v_item_discount_cents'],
   // Specific to the variable, not merely to account 1100. The plan for this
   // migration said to post the receivable from `v_balance` -- which in this
   // function is the customer's loyalty POINTS balance, assigned only inside the

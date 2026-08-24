@@ -88,6 +88,14 @@ This repo re-creates `complete_sale` and `edit_sale` **in full** in every migrat
 
 **Task 3 must add an entry to `COMPLETE_SALE_EDITS`.** A migration that copies `complete_sale` forward and drops the posting side is exactly the failure that test exists to catch — it caught a lost loyalty guard that was unenforced for four migrations.
 
+### References come from `journal_entry_sequences`, not from `count(*)`
+
+`20260908000150_journal_entry_sequence.sql` replaced `post_journal_entry`'s reference allocation. It used to be `'JE-'||year||'-'||lpad(count(*)+1)` over the shop's entries for that year, which under READ COMMITTED handed two concurrent posters the same reference — the second died on `unique (shop_id, reference)` with a raw constraint name, and there is no application-layer retry (`src/lib/sales.ts` does `if (error) throw error`). Tolerable while only the manual-entry screen posted; not once every sale does.
+
+It is now a per-shop-per-year counter row taken with one `insert ... on conflict do update ... returning`, which serialises on a row lock and is O(1) instead of a sequential scan over every entry the shop ever posted.
+
+**Task 8's backfill must allocate from the same source.** It bypasses `post_journal_entry` deliberately, so it has to bump `journal_entry_sequences` itself — reading `count(*)` there would hand replayed entries references that a live sale is about to reuse.
+
 ### Test conventions
 
 - DB checks live in `supabase/tests/verify-*.sql`, **auto-discovered by glob**, and must print **`ALL CHECKS PASSED`**.
@@ -472,6 +480,7 @@ git commit -m "feat(accounting): record which journal entry each source row post
 The hot path, and the one with real risk. Reproduce `complete_sale` verbatim from `20260831000100_complete_sale_allows_credit.sql` with **one addition** — a posting block after the sale, its items and its payments are written.
 
 **Files:**
+- Create: `supabase/migrations/20260908000150_journal_entry_sequence.sql`
 - Create: `supabase/migrations/20260908000200_post_complete_sale.sql`
 - Create: `supabase/tests/verify-posting-sales.sql`
 - Modify: `supabase/tests/accumulated-rpc-edits.test.ts`
@@ -488,11 +497,20 @@ Using `complete_sale`'s own variables:
 |---|---|---|
 | Dr | per payment, `account_code_for_payment_method(method)` | that payment's `amount_cents` |
 | Dr | `1100` Accounts Receivable | `v_owed_cents` (= `v_total_cents - v_payments_total`), when the sale is left part-paid |
-| Dr | `4200` Discounts Given | `v_discount_cents + v_redeem_cents` |
-| Cr | `4000` Sales Revenue | `v_gross_cents` |
+| Dr | `4200` Discounts Given | `v_discount_cents + v_redeem_cents + v_item_discount_cents` |
+| Cr | `4000` Sales Revenue | `v_gross_cents + v_item_discount_cents` — revenue at **list** |
 | Cr | `2100` Sales Tax Payable | `v_tax_cents` |
 
-Debits total `v_total_cents + discount`, and since `v_total_cents = v_gross_cents - discount + v_tax_cents`, that is `v_gross_cents + v_tax_cents` — which is the credit total. It balances by construction, not by hope.
+**`v_item_discount_cents` is not optional and is not derivable from the variables.** The three discounts are not symmetrical in this function. `v_discount_cents` (order-level) and `v_redeem_cents` (points) are subtracted *after* `v_gross_cents` is final, so `v_gross_cents` is gross with respect to them. Line and promotion discounts are not: the item loop computes `v_line := price_cents * qty - v_line_discount` and accumulates **that**, so `v_gross_cents` is already net of them. Credit `4000` with a bare `v_gross_cents` and a shop whose discounts are all promotions — the app's main discount mechanism — reads `4200 Discounts Given` as flat zero with Sales Revenue understated by the same amount, and no `4200` line is written at all. Read the figure back off the rows:
+
+```sql
+  select coalesce(sum(si.discount_cents), 0)
+    into v_item_discount_cents
+    from public.sale_items si
+   where si.sale_id = v_sale_id;
+```
+
+Writing D for `v_discount_cents`, R for `v_redeem_cents`, I for `v_item_discount_cents`, G for `v_gross_cents` and T for `v_tax_cents`: the function computes `v_total_cents = G - D - R + T`, so the debits (money in `= v_total_cents`, plus the contra `D + R + I`) total `G + T + I`, and the credits (revenue `G + I`, plus tax `T`) are the same figure. It balances by construction, not by hope.
 
 Then, separately:
 
@@ -671,10 +689,56 @@ Create `supabase/tests/verify-posting-sales.sql`. Fixture: a shop, one location,
 >
 > Both inserts must happen **before** the JWT claim is switched, while raw inserts are still possible.
 
+Three further checks, added after review:
+
+- **Check 6 — a LINE-level discount.** 1 @ 2000 less **500**, tax 5% of 1500 = 75, total 1575. Assert `Cr 4000 = -2000` (list) and `Dr 4200 = 500`. It must be a *line* discount: an order-level one is subtracted after `v_gross_cents` is final and passes against the broken code, so only this shape catches the bug. Assert the 500 actually landed on `sale_items` first, or the check measures an undiscounted sale.
+- **Check 7 — the reference allocator.** See Step 2a. Asserts the mechanism, not a collision.
+- **Check 8 — the COGS freeze, with teeth.** The earlier version asserted `5000 = 2500` while `products.cost_cents` never moved, so an implementation reading `products.cost_cents` gave the identical 2500 and the check whose comment said "never `products.cost_cents`" could not fail. Now: `update products set cost_cents = 9999`, post a new sale of that product and assert its `5000` line is **9999** (proving the fixture really changed), then re-assert check 1's entry still reads **2500**. Keep check 1's entry id in its own variable — `v_entry` is overwritten by every later check.
+- The entry's description must name its sale (`'Sale ' || v_sale_id`), asserted in check 1. A journals list of four hundred rows all reading `Sale` points back at nothing.
+
 - [ ] **Step 2: Run it and verify it fails**
 
 Run: `npm run test:db -- --no-reset`
 Expected: `verify-posting-sales  FAIL` on check 1, `the sale did not post a journal entry`.
+
+- [ ] **Step 2a: Serialise the reference allocator — before anything calls it per sale**
+
+Create `supabase/migrations/20260908000150_journal_entry_sequence.sql`. The number sorts **after** `20260908000100` and **before** `20260908000200`.
+
+`post_journal_entry` allocated its reference by counting the shop's entries for the year and adding one, then inserted against `unique (shop_id, reference)`. Under READ COMMITTED two overlapping transactions in the same shop count the same N, build the same `JE-YYYY-000(N+1)`, and the second raises `unique_violation` when the first commits. The function's own comment claimed the loser "retries at the application layer" — **there is no such retry**: `src/lib/sales.ts` does `if (error) throw error` and `src/lib/checkout-errors.ts` passes an unknown message through verbatim, so the cashier is shown `duplicate key value violates unique constraint "journal_entries_shop_id_reference_key"` and loses the basket. Survivable while only the manual-entry screen posted; not once **every sale** does.
+
+```sql
+create table if not exists public.journal_entry_sequences (
+  shop_id uuid not null references public.shops(id) on delete cascade,
+  year text not null,
+  next_number integer not null default 1,
+  primary key (shop_id, year)
+);
+
+-- Seed for shops that already have entries, or numbering restarts at 1 and the
+-- next sale collides with an entry posted months ago.
+insert into public.journal_entry_sequences (shop_id, year, next_number)
+select shop_id, to_char(entry_date, 'YYYY'), count(*) + 1
+  from public.journal_entries group by shop_id, to_char(entry_date, 'YYYY')
+on conflict do nothing;
+
+alter table public.journal_entry_sequences enable row level security;
+revoke all on public.journal_entry_sequences from anon, authenticated;
+```
+
+Then `create or replace function public.post_journal_entry(...)` **in full**, copied verbatim from `20260904000500` with only the allocation changed:
+
+```sql
+  insert into public.journal_entry_sequences (shop_id, year, next_number)
+    values (p_shop_id, v_year, 2)
+    on conflict (shop_id, year) do update set next_number = public.journal_entry_sequences.next_number + 1
+    returning next_number - 1 into v_seq;
+  v_ref := 'JE-' || v_year || '-' || lpad(v_seq::text, 4, '0');
+```
+
+One statement, so the upsert's row lock serialises concurrent posters. A real `SEQUENCE` would also be race-free but is shared across shops — it would leak one tenant's trading volume into another's numbering and leave gaps on rollback; a table rolls its number back with the transaction and stays gapless. It also removes a per-call sequential scan that grew with every entry the shop had ever posted.
+
+`verify-posting-sales.sql` gets check 7 for this. **A genuine two-session race cannot be exercised from a `do` block** — one block is one session — so the check asserts the *mechanism*: post twice in a row, assert the two references differ and that `journal_entry_sequences.next_number` advanced by exactly 2, then assert `pg_get_functiondef` for `post_journal_entry` no longer contains `count(*) + 1`.
 
 - [ ] **Step 3: Write the migration**
 
@@ -700,6 +764,9 @@ Add to `declare`:
   -- reading it as money would post a receivable denominated in points on a
   -- redeeming sale, and none at all on a plain credit sale.
   v_owed_cents integer := 0;
+  -- Line and promotion discounts. NOT derivable from v_gross_cents, which the
+  -- item loop has already netted them out of.
+  v_item_discount_cents integer := 0;
   v_entry_id uuid;
   v_lines jsonb;
 ```
@@ -760,17 +827,27 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
       'code', '1100', 'amount_cents', v_owed_cents, 'memo', 'Left on account'));
   end if;
 
-  -- Discounts and redeemed points are shown GROSS: revenue at list, the
-  -- reduction as its own debit. Netting them into 4000 would hide what the
-  -- shop gave away, which is the one number a discount report exists to show.
-  if (v_discount_cents + v_redeem_cents) > 0 then
+  -- Line and promotion discounts, read back off the rows this sale just wrote.
+  -- v_gross_cents is already NET of them (the item loop folds each line's
+  -- discount into v_line before accumulating it), so the figure is
+  -- unrecoverable from the variables and 4200 was reading zero without this.
+  select coalesce(sum(si.discount_cents), 0)
+    into v_item_discount_cents
+    from public.sale_items si
+   where si.sale_id = v_sale_id;
+
+  -- ALL THREE discounts are shown GROSS: revenue at LIST, every reduction as
+  -- its own debit to 4200. Netting any of them into 4000 hides what the shop
+  -- gave away, which is the one number a discount report exists to show.
+  if (v_discount_cents + v_redeem_cents + v_item_discount_cents) > 0 then
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', '4200', 'amount_cents', v_discount_cents + v_redeem_cents, 'memo', 'Discount and points'));
+      'code', '4200', 'amount_cents', v_discount_cents + v_redeem_cents + v_item_discount_cents,
+      'memo', 'Discounts and points'));
   end if;
 
-  if v_gross_cents > 0 then
+  if (v_gross_cents + v_item_discount_cents) > 0 then
     v_lines := v_lines || jsonb_build_array(jsonb_build_object(
-      'code', '4000', 'amount_cents', -v_gross_cents, 'memo', 'Sale'));
+      'code', '4000', 'amount_cents', -(v_gross_cents + v_item_discount_cents), 'memo', 'Sale at list'));
   end if;
 
   if v_tax_cents > 0 then
@@ -786,10 +863,15 @@ Insert **after** the `sale_payments` insert loop and **before** `return v_sale_i
       jsonb_build_object('code', '1200', 'amount_cents', -v_cogs_cents, 'memo', 'Stock sold'));
   end if;
 
+  -- The description carries the sale id, so the link reads in both directions.
+  -- sales.journal_entry_id gets you from the sale to the entry; a bare 'Sale'
+  -- got you nowhere back, and a journals list of four hundred rows all reading
+  -- 'Sale' is not a journal anybody can audit. Task 8's reconciliation wants
+  -- the same link.
   v_entry_id := public.post_journal_entry(
     p_shop_id,
     coalesce(p_created_at, now())::date,
-    'Sale',
+    'Sale ' || v_sale_id::text,
     v_lines,
     v_location_id,
     'sale');
@@ -809,8 +891,14 @@ Modify `supabase/tests/accumulated-rpc-edits.test.ts`, adding to `COMPLETE_SALE_
   // all this test can read -- did not contain the fix. That is the blind
   // spot, and 20260908000200 duly reverted the fix on its first run.
   ['20260905000000', 'locks are taken in product order, not cart order', 'with ordinality'],
-  ['20260908000200', 'the sale posts a journal entry', "'sale')"],
-  ['20260908000200', 'COGS comes from the frozen line cost', 'v_cogs_cents'],
+  // The call, not a string literal that happens to end in `'sale')` -- a stray
+  // comment could satisfy that one, which is not a guard.
+  ['20260908000200', 'the sale posts a journal entry', 'post_journal_entry('],
+  // The PROPERTY, not the variable name: `v_cogs_cents` survives a rewrite that
+  // sums products.cost_cents into it, which is the exact mistake the frozen
+  // cost exists to prevent.
+  ['20260908000200', 'COGS comes from the frozen line cost', 'si.unit_cost_cents'],
+  ['20260908000200', 'every discount reaches 4200', 'v_item_discount_cents'],
   // Specific to the variable, not merely to account 1100 -- this plan
   // originally said `v_balance`, which is the loyalty POINTS balance.
   ['20260908000200', 'the receivable is money owed, not the points balance', 'v_owed_cents'],
@@ -825,20 +913,30 @@ Expected: `verify-posting-sales  pass`, **20 database checks passed**; the jest 
 
 - [ ] **Step 6: Prove the test can fail**
 
-Mutation: post `-v_total_cents` to `4000` instead of `-v_gross_cents`. Expected: check 1 fails — though **not** with `-7350 = tax booked as revenue` as first drafted. Booking the tax as revenue also unbalances the entry, so `post_journal_entry`'s own balance guard fires first and the actual message is `This entry does not balance: debits and credits differ by -350.` The check still reddens, which is the point. Revert.
+**Eight mutations. Two of them exist because the first four proved less than they claimed** — an *unbalanced* mutation is caught by `post_journal_entry`'s balance guard before any assertion about a particular account is reached, so it reddens the run without ever exercising the check it was aimed at. A mutation aimed at one line must keep the entry balanced.
 
-Mutation: build one lumped cash line instead of one per payment. Expected: check 2 fails with `2100 = both lumped into one account`. Revert.
+Mutation 1: post `-v_total_cents` to `4000` instead of the revenue line. Expected: check 1 fails — though **not** with `-7350 = tax booked as revenue` as first drafted. Booking the tax as revenue also unbalances the entry, so `post_journal_entry`'s own balance guard fires first and the actual message is `This entry does not balance: debits and credits differ by -350.` The check reddens, but the revenue-vs-tax split is **not** proven by this one — mutation 5 is what proves it. Revert.
 
-Mutation: drop the `if v_cogs_cents > 0` guard, so the COGS pair is always appended. Expected: **check 4 fails** — the uncosted sale posts a zero COGS pair and `journal_lines`' `check (amount_cents <> 0)` refuses it, taking the whole sale down. This is why check 4 exists. Revert.
+Mutation 2: build one lumped cash line instead of one per payment. Expected: check 2 fails with `expected Dr 1000 Cash 1300 of the split, got 2100`. Revert.
+
+Mutation 3: drop the `if v_cogs_cents > 0` guard, so the COGS pair is always appended. Expected: **check 4 fails** — the uncosted sale posts a zero COGS pair and `journal_lines`' `check (amount_cents <> 0)` refuses it, taking the whole sale down. This is why check 4 exists. Revert.
 
 > Do **not** use "drop the `and si.unit_cost_cents is not null` filter" as this mutation. It was tried and it is a **no-op**: SQL `sum()` already ignores nulls, so `v_cogs_cents` is byte-identical with and without the filter and the suite stays fully green. A mutation that cannot redden its check proves nothing about the check.
 
-Mutation: pass `'manual'` as `p_source`. Expected: the run reddens at **check 1's `source` assertion** (`expected source=sale, got manual`), which fires before check 5 is reached because the fixture owner *does* hold `ledger.post`. To see check 5 itself fire, neutralise that one assertion and re-run: the cashier is then refused with `You do not have permission to post journal entries.` — the exact failure this whole phase exists to prevent. Revert.
+Mutation 4: pass `'manual'` as `p_source`. Expected: the run reddens at **check 1's `source` assertion** (`expected source=sale, got manual`), which fires before check 5 is reached because the fixture owner *does* hold `ledger.post`. To see check 5 itself fire, neutralise that one assertion and re-run: the cashier is then refused with `You do not have permission to post journal entries.` — the exact failure this whole phase exists to prevent. Revert.
+
+Mutation 5 — **balanced**, and the one that actually proves the revenue-vs-tax split: post `-v_total_cents` to `4000` **and** drop the `2100` line. Debits and credits still tie, so the balance guard stays quiet and the assertion on account `4000` is finally reached. Expected: `FAIL: expected Cr 4000 Revenue -7000, got -7350 (-7350 = tax booked as revenue)`. Revert.
+
+Mutation 6 — **balanced**, for check 3's `1100` amount, which no earlier mutation exercised: post the receivable to `1000` Cash instead of `1100` Accounts Receivable. Same amount, same total, wrong account — which is the realistic bug (money still owed counted as money in the drawer). Expected: `FAIL: expected Dr 1100 Receivable 2700, got 0`. Revert.
+
+Mutation 7, for the new check 6: credit `4000` with a bare `v_gross_cents` and drop `v_item_discount_cents` from the `4200` line — i.e. put the discount bug back. Expected: `FAIL: expected Cr 4000 Revenue -2000 at LIST, got -1500 (-1500 = the discount netted into revenue)`. Revert.
+
+Mutation 8, for the new check 7: put `count(*) + 1` back into `post_journal_entry` in `20260908000150`. Expected: `FAIL: no journal_entry_sequences row for this shop and year -- references are not coming from the counter`. Revert.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add supabase/migrations/20260908000200_post_complete_sale.sql supabase/tests/verify-posting-sales.sql supabase/tests/accumulated-rpc-edits.test.ts
+git add supabase/migrations/20260908000150_journal_entry_sequence.sql supabase/migrations/20260908000200_post_complete_sale.sql supabase/tests/verify-posting-sales.sql supabase/tests/accumulated-rpc-edits.test.ts
 git commit -m "feat(accounting): a completed sale posts to the ledger"
 ```
 
