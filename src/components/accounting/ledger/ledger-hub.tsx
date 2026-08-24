@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '@/components/card';
+import { BentoCell, BentoGrid } from '@/components/ui/bento';
 import { Colors } from '@/constants/theme';
 
 const theme = Colors.light;
@@ -111,9 +112,15 @@ export function LedgerHub({
       {Object.entries(groups).map(([group, views]) => (
         <View key={group}>
           <Text style={styles.group}>{group}</Text>
-          <View style={styles.row}>
+          {/* BentoGrid, not a flex-wrap row. A wrapping row gives every card
+              flexGrow, so a group holding ONE card stretched it across the
+              whole band -- Audit Log rendered 1344px wide beside four 327px
+              siblings. A cell takes its span and no more, however few there
+              are in the row. */}
+          <BentoGrid>
             {views.map((view) => (
-              <Pressable key={view.key} style={styles.cell} onPress={() => onOpen(view.key)} role="button">
+              <BentoCell key={view.key} span={3}>
+              <Pressable style={styles.cell} onPress={() => onOpen(view.key)} role="button">
                 <Card variant="bento" style={styles.card}>
                   <View style={styles.iconTile}>
                     <Ionicons name={view.icon} size={15} color={theme.bentoInk2} />
@@ -134,8 +141,9 @@ export function LedgerHub({
                   </View>
                 </Card>
               </Pressable>
+              </BentoCell>
             ))}
-          </View>
+          </BentoGrid>
         </View>
       ))}
     </View>
@@ -145,11 +153,10 @@ export function LedgerHub({
 const styles = StyleSheet.create({
   wrap: { gap: 18 },
   group: { fontSize: 12.5, fontWeight: '800', color: theme.bentoInk, marginBottom: 10 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  // 240 rather than a fraction: the cards wrap to one column on a phone and to
-  // as many as fit on a tablet, without the screen having to know which it is.
-  // Matches MIN_CARD, the width every bento card is held readable to.
-  cell: { flexGrow: 1, flexBasis: 240 },
+  // The cell owns the width now -- span={3} is a quarter of the band, widened
+  // to a third, a half and then the full row as the screen narrows, which is
+  // BentoCell's own rule. The Pressable just fills whatever it is given.
+  cell: { width: '100%' },
   // The Pressable owns the width, the Card owns the surface. Full height so
   // cards in a row line up when one blurb wraps to three lines and another
   // takes two.
