@@ -394,7 +394,9 @@ Expected: `verify-posting-map  pass`, **19 database checks passed**.
 
 Mutation: change `'inventory_purchase'` to return `'6900'`. Expected: check 2 fails with `must be an ASSET, got 6900`. Revert.
 
-Mutation: delete the `when 'fees_charges'` line. Expected: **check 5** fails with `fees_charges (unmapped)` — proving the constraint-reading loop works, which is the only check here that survives someone adding a category. Revert.
+Mutation: widen the `expenses.category` check constraint to add a thirteenth value the function does not map — simulating a future migration that adds a category without giving it an account. Find the constraint's name and exact definition first (`select conname, pg_get_constraintdef(oid) from pg_constraint where conrelid = 'public.expenses'::regclass and conname like '%category%'`), then drop and re-add it with `'bank_charges'` appended. Expected: **check 5** fails with `FAIL: expense categories with no usable account: bank_charges (unmapped)` — proving the constraint-reading loop works, which is the only check here that survives someone adding a category. Revert the constraint to its exact original definition.
+
+Deleting the `when 'fees_charges'` line instead does NOT prove this: `account_code_for_expense_category` raises rather than returning null, so check 3's hand-written `if ... <> '6700'` line — which calls the function directly on `'fees_charges'` — raises first and aborts the script before check 5's loop ever runs.
 
 - [ ] **Step 6: Commit**
 
