@@ -79,13 +79,12 @@ export function TrialBalanceView({
     <View style={styles.wrap}>
       <BentoCard title="As of today" scope="Every posted entry">
         <View style={styles.tiles}>
-          <StatTile value={formatCompactCents(totals.debitCents)} label="Total debits" />
-          <StatTile value={formatCompactCents(totals.creditCents)} label="Total credits" />
+          <StatTile value={formatCompactCents(totals.debitCents)} label="Total debits" variant="bento" />
+          <StatTile value={formatCompactCents(totals.creditCents)} label="Total credits" variant="bento" />
           <StatTile
             value={differenceCents === 0 ? 'Balanced' : formatCompactCents(differenceCents)}
             label="Difference"
-            hint={differenceCents === 0 ? 'debits = credits' : 'this should be impossible'}
-          />
+            hint={differenceCents === 0 ? 'debits = credits' : 'this should be impossible'} variant="bento" />
         </View>
       </BentoCard>
 

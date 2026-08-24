@@ -71,9 +71,9 @@ export function JournalsView({ dateRange, setRefresh }: { dateRange: DateRange; 
     <View style={styles.wrap}>
       <BentoCard title="In this range">
         <View style={styles.tiles}>
-          <StatTile value={String(entries.length)} label="Entries" />
-          <StatTile value={String(manual)} label="Entered by hand" hint="the rest post themselves" />
-          <StatTile value={String(reversed)} label="Reversed" hint="each linked to its mirror" />
+          <StatTile value={String(entries.length)} label="Entries" variant="bento" />
+          <StatTile value={String(manual)} label="Entered by hand" hint="the rest post themselves" variant="bento" />
+          <StatTile value={String(reversed)} label="Reversed" hint="each linked to its mirror" variant="bento" />
         </View>
       </BentoCard>
 
