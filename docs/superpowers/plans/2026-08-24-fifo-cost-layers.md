@@ -174,7 +174,7 @@ create table public.inventory_cost_layers (
   unit_cost_cents integer check (unit_cost_cents is null or unit_cost_cents >= 0),
   quantity_received integer not null check (quantity_received > 0),
   quantity_remaining integer not null check (quantity_remaining >= 0),
-  source text not null check (source in ('receipt','opening','count','return','transfer','provisional')),
+  source text not null check (source in ('receipt','opening','count','return','transfer')),
   source_id uuid,
   -- Neither is read by any accounting. products.expiry_date has the same
   -- one-value-per-product defect cost_cents has -- two deliveries of milk with
@@ -185,10 +185,6 @@ create table public.inventory_cost_layers (
   -- still reads the product column.
   expires_on date,
   batch_number text,
-  -- Created by a sale that outran the stock record. Trued up when stock next
-  -- arrives; until then the value it carries is a guess, and Inventory
-  -- Valuation says how much of the total is guessed.
-  is_provisional boolean not null default false,
   received_at timestamptz not null default now(),
   constraint layer_not_over_consumed check (quantity_remaining <= quantity_received)
 );
@@ -297,15 +293,25 @@ Add to `verify-cost-layers.sql`. Fixture: two layers on the costed product — 1
     raise exception 'FAIL: the newer layer is not at 7';
   end if;
 
-  -- 8. Running past the end creates a PROVISIONAL layer rather than failing or
-  -- silently costing at zero. 7 remain; asking for 10 must yield 7 real and 3
-  -- provisional at the product's last known cost.
-  perform public.consume_layers(v_shop_id, v_costed, v_loc_id, 10);
-  if not exists (
-    select 1 from public.inventory_cost_layers
-     where product_id = v_costed and is_provisional and quantity_received = 3
-  ) then
-    raise exception 'FAIL: a shortfall did not create a provisional layer';
+  -- 8. Running past the end RAISES. complete_sale refuses a line it cannot
+  -- cover (20260831000100:242) and product_location_stock carries
+  -- check (stock >= 0), so a sale cannot outrun stock. Layers running short
+  -- therefore means layers and stock have drifted -- a broken invariant, and
+  -- the single condition most worth hearing about. Inventing a cost for the
+  -- shortfall would hide it.
+  --
+  -- 7 remain; asking for 10 must refuse and leave those 7 untouched.
+  v_raised := false;
+  begin
+    perform public.consume_layers(v_shop_id, v_costed, v_loc_id, 10);
+  exception when others then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: consuming past the end of the layers was accepted';
+  end if;
+  if (select coalesce(sum(quantity_remaining), 0) from public.inventory_cost_layers
+        where product_id = v_costed and location_id = v_loc_id) <> 7 then
+    raise exception 'FAIL: a refused consumption still drew stock down';
   end if;
 
   -- 9. An UNCOSTED product yields a null cost, not zero. Zero would report the
@@ -354,7 +360,7 @@ Create `supabase/migrations/20260906000100_consume_layers.sql`. Header explains 
 2. Loop open layers `where quantity_remaining > 0` for that shop/product/location, **`order by received_at, id`**, `for update`.
 3. Take `least(remaining, still_needed)` from each; `update ... set quantity_remaining = quantity_remaining - taken`.
 4. `return next` a row per layer drawn.
-5. If need remains after the loop, `create_layer(..., p_source => 'provisional', ...)` at `products.cost_cents` for the shortfall, consume it fully, and return that row too.
+5. If need remains after the loop, **raise**. Do not invent a layer. The whole transaction rolls back, so the partial draw-down in step 3 is undone — which is what makes check 8's second assertion hold.
 
 `restore_layers(sale_item, qty)` reads `inventory_cost_consumption` for that sale item **most-recent-first** and adds quantity back to the layers it names, capped at each row's recorded quantity. It does **not** create a layer: the units physically are the ones that left, and a new layer at today's cost would let sell-then-refund reprice stock.
 
@@ -367,9 +373,9 @@ Expected: `verify-cost-layers  pass`.
 
 Mutation: change `order by received_at, id` to `order by received_at desc, id`. Expected: check 5 fails, reporting 1490. Revert.
 
-Mutation: drop the provisional-layer branch and let the loop end short. Expected: check 8 fails. Revert.
+Mutation: let the loop end short and return normally instead of raising. Expected: check 8 fails. Revert.
 
-Mutation: in the provisional branch, use `coalesce(products.cost_cents, 0)`. Expected: check 9 fails — it produces 0 rather than null. Revert.
+Mutation: in `consume_layers`, return `coalesce(unit_cost_cents, 0)`. Expected: check 9 fails — it produces 0 rather than null. Revert.
 
 - [ ] **Step 6: Commit**
 
@@ -408,7 +414,7 @@ git commit -m "feat(inventory): draw stock oldest-first, under one lock order"
 
   -- 13. A line with NO cost still creates a layer, with a null cost. Refusing
   -- would leave stock on the shelf with no layer behind it, and the next sale
-  -- would invent a provisional one for units that really did arrive.
+  -- would have no cost to draw on for units that really did arrive.
   v_receipt := public.receive_stock(v_shop_id, v_loc_id,
     jsonb_build_array(jsonb_build_object('product_id', v_uncosted, 'quantity', 4)));
   if not exists (
@@ -626,8 +632,8 @@ Fixture: a second location, and stock at the first in two layers of different co
 ```sql
   -- 23. Transferring moves quantity AND cost. Layers are per location, so a
   -- transfer that only moved the count would leave the destination with stock
-  -- and no layer -- and the next sale there would invent a provisional cost
-  -- for units the shop has had all along.
+  -- and no layer -- and the next sale there would fail outright, on stock the
+  -- shop has had all along.
   perform public.transfer_stock(v_shop_id, v_loc_id, v_loc2,
     jsonb_build_array(jsonb_build_object('product_id', v_costed, 'quantity', 4)));
   if (select coalesce(sum(quantity_remaining), 0) from public.inventory_cost_layers
@@ -669,7 +675,7 @@ git commit -m "feat(inventory): moving stock between branches carries its cost"
 
 ```sql
   -- 25. Every product with stock has a layer covering it. A product with stock
-  -- and no layer is the state that makes the first sale invent a provisional
+  -- and no layer is the state that makes the first sale fail on a shortfall
   -- cost for units that were really there.
   if exists (
     select 1 from public.product_location_stock pls
@@ -774,6 +780,10 @@ Nothing in this phase writes to the ledger. If a task here starts calling `post_
 
 ## Open, and worth confirming before starting
 
-**Provisional layers** (Task 2, step 3). The most intricate thing in this plan. They exist so a sale that outruns the stock record still records a cost. The alternative is refusing the sale, which is simpler but unacceptable in a shop selling off a shelf the app has not caught up with. Recommended as designed; if a reviewer wants them gone, that decision belongs before Task 2 rather than after.
+**Both settled on 2026-08-24**, and both toward less machinery:
 
-**Mixed costed/uncosted layers on one line** (Task 4). What `sale_items.unit_cost_cents` should be when a line draws from both. Recommended: blend the costed part and record the null layers in the consumption rows, so the report can say the figure is partial. Decide it in Task 4 and write it down — do not leave it to whichever branch happens to run.
+**Provisional layers are gone.** `complete_sale` refuses a line it cannot cover and `product_location_stock.stock` carries `check (stock >= 0)`, so a sale cannot outrun stock — the shop owner has confirmed that is the wanted behaviour. Layers running short therefore means layers and stock have drifted, which is a bug. `consume_layers` raises.
+
+**A line touching any uncosted layer costs `null`**, not a partial blend of the costed part. A partial blend looks complete and is not, and would silently understate COGS.
+
+**One open, and larger than either.** Whether to build this phase at all. Weighted average is already implemented and is accepted under IAS 2; the only reason 2a had to precede 2b was to avoid posting weighted-average COGS and then switching, and if the switch never happens there is no discontinuity. See the design's Open section.

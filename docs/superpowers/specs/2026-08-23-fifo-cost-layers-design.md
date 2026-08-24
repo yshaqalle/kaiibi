@@ -65,6 +65,8 @@ New to this spec:
 
 **`sale_items.unit_cost_cents` becomes the weighted average of the layers that line consumed.** It stays a single integer, because every existing report reads it and the column's meaning — "what this line cost" — is unchanged. A line spanning two layers at 14.50 and 14.90 records the blend. The per-layer detail lives in the consumption table for anyone who needs it.
 
+**If any layer on the line is uncosted, the line's cost is `null`** — *decided 2026-08-24*. Not a partial blend of the costed part. A partial blend is a number that looks complete and is not, and it would silently understate COGS. Null means "we do not know what this cost", which is true, and every report already handles it — `isUncosted()`, and the uncosted-products caveat.
+
 **Rounding lands on the last layer of a line.** Splitting 3 units across layers can leave a cent unallocated. It goes to the final layer consumed rather than being spread, so the consumption rows always sum exactly to the line's cost and nothing has to reconcile a rounding drift later.
 
 **A count that finds MORE stock creates a layer at the frozen `unit_cost_cents`.** Not at current cost: the count froze a cost for exactly this reason, and using today's would value found stock at a price it was never bought for.
@@ -77,11 +79,10 @@ inventory_cost_layers
   unit_cost_cents      integer, null when the product is uncosted
   quantity_received    integer > 0
   quantity_remaining   integer >= 0, <= quantity_received
-  source               'receipt' | 'opening' | 'count' | 'return' | 'transfer' | 'provisional'
+  source               'receipt' | 'opening' | 'count' | 'return' | 'transfer'
   source_id            uuid, nullable
   expires_on           date, nullable — accounting never reads it
   batch_number         text, nullable — accounting never reads it
-  is_provisional       boolean
   received_at          timestamptz
 ```
 
@@ -104,18 +105,22 @@ consume_layers(shop, product, location, qty) returns (unit_cost_cents, [(layer, 
 
 1. Select open layers for that product and location, `order by received_at, id`, **`for update`**.
 2. Draw from each in turn until the quantity is met.
-3. If layers run dry before the quantity is met, create a **provisional layer** for the shortfall.
+3. If layers run dry before the quantity is met, **raise** — see below.
 4. Return the blended unit cost and the per-layer breakdown.
 
 **The lock order is `received_at, id` and must be identical in every caller.** `id` is the tiebreaker for two layers received in the same microsecond — `received_at` alone is not a total order, and without a tiebreaker two concurrent sales can order the same two layers differently and deadlock. This is the same reasoning `receive_stock:131` gives for adding ordinality behind product id.
 
-### Selling stock with no layer
+### Running short is a bug, and must raise — *decided 2026-08-24*
 
-Kaiibi lets a sale through when stock is zero or unknown, so consumption can find nothing to draw from. Silently using zero cost would overstate profit on exactly the sales nobody is watching.
+An earlier version of this section specified **provisional layers**: consume what exists, invent a layer for the shortfall, true it up later. It was justified by "kaiibi lets a sale through when stock is zero or unknown."
 
-Instead: consume what exists, then create a **provisional layer** for the shortfall at the product's last known `cost_cents`, flagged `is_provisional`. When stock next arrives, the provisional is trued up and the difference posts to `5100`. Inventory Valuation shows how much of the value is provisional, because a figure that is partly a guess should say so.
+**That justification was wrong.** `complete_sale` refuses a line it cannot cover — `insufficient stock for % at this location` (`20260831000100:242` and `:661`) — and `product_location_stock.stock` carries `check (stock >= 0)`. A sale cannot outrun the stock record, and the shop owner has confirmed that is the behaviour they want.
 
-Where the product's cost is **null** — genuinely uncosted — the layer is created with a null cost and the sale line records no cost, matching `isUncosted()`'s position that null and zero are different answers.
+So layers can only run short if **layers and `product_location_stock` have drifted**, which is an invariant violation, not a business case. A provisional layer would silently paper over the one condition most worth knowing about.
+
+**`consume_layers` raises if it cannot satisfy the quantity from real layers.** No `is_provisional` column, no truing-up, no partial-value reporting. Simpler, and it fails loudly where it should.
+
+Where the product's cost is **null** — genuinely uncosted — the layer still exists and carries a null cost; that is not a shortfall.
 
 ## The four writers
 
@@ -175,7 +180,9 @@ Products with null cost get a null-cost opening layer, not a zero one.
 
 ## Open
 
-**Nothing blocking.** Two things to confirm before the plan is written:
+**Both settled on 2026-08-24**, and both in the direction of less machinery:
 
-- **Provisional layers are worth their complexity.** The alternative is refusing a sale with no stock, which is not acceptable in a shop that sells from a shelf the app has not caught up with. Recommended as designed, but it is the piece a reviewer is most likely to want simplified.
-- **Whether `sale_items.unit_cost_cents` staying a single blended integer is right.** It keeps every existing report working. The alternative — making the consumption table the only truth — means touching every report that reads that column. Recommended as designed.
+- **Provisional layers are gone.** A sale cannot outrun stock, so running short is a bug; `consume_layers` raises. See "Running short is a bug".
+- **A line touching any uncosted layer costs `null`**, not a partial blend.
+
+**One open, and it is larger than either:** whether to build cost layers at all. Weighted average is already implemented and is accepted under IAS 2. The only reason 2a had to precede 2b was to avoid posting weighted-average COGS and then switching — and if the switch never happens there is no discontinuity. Dropping this phase would bring the balance sheet and cash flow weeks closer at the cost of valuing stock at a blend rather than by delivery.
