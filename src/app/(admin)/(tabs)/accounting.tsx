@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,7 +22,9 @@ import { ReceivablesTab } from '@/components/accounting/receivables-tab';
 import { ReportsTab } from '@/components/accounting/reports-tab';
 import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
+import { useAuth } from '@/hooks/use-auth';
 import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
+import { listAccounts } from '@/lib/ledger';
 import type { TabRefresh } from '@/components/accounting/use-header-actions';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -116,6 +118,28 @@ export default function AccountingScreen() {
     [router]
   );
 
+  // How many accounts the shop has, for the Chart of Accounts card's footer.
+  // Fetched by the SHELL rather than the hub: the hub is a list of links and
+  // giving it a query would make every one of its cards wait on data only one
+  // of them shows. Null until it lands, so the card falls back to its static
+  // scope rather than flashing "0 accounts".
+  const { shop } = useAuth();
+  const [accountCount, setAccountCount] = useState<number | null>(null);
+  useEffect(() => {
+    if (!shop || tab !== 'accounting') return;
+    let cancelled = false;
+    listAccounts(shop.id)
+      .then((rows) => {
+        if (!cancelled) setAccountCount(rows.filter((a) => a.archivedAt === null).length);
+      })
+      // A hub card's footnote is not worth an error state. The static scope is
+      // a correct thing to show when the count is unknown.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [shop, tab]);
+
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.
   const [headerActions, setHeaderActions] = useState<ReactNode>(null);
@@ -195,7 +219,7 @@ export default function AccountingScreen() {
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
-            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} />}
+            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} />}
             {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}

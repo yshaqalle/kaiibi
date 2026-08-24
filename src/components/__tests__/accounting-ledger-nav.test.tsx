@@ -19,6 +19,29 @@ describe('the ledger hub catalogue', () => {
     }
   });
 
+  it('gives every card on the hub a scope and an action, because the footer renders both', () => {
+    for (const view of LEDGER_VIEWS) {
+      // The hub is not one of its own cards -- it has no group, so no footer.
+      if (view.group === null) continue;
+      expect(view.scope.length).toBeGreaterThan(0);
+      expect(view.action.length).toBeGreaterThan(0);
+      expect(view.icon.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('marks exactly the views that create something, so only those get the filled button', () => {
+    // The distinction the footer's two button styles rest on. Reading a report
+    // and writing to the ledger should not look like the same act.
+    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry']);
+  });
+
+  it('starts a creating action with a plus and a reading action without one', () => {
+    for (const view of LEDGER_VIEWS) {
+      if (view.group === null) continue;
+      expect(view.action.startsWith('+')).toBe(view.creates);
+    }
+  });
+
   it('resolves an unknown view back to the hub rather than rendering nothing', () => {
     const resolve = (raw: string | undefined): LedgerView =>
       LEDGER_VIEWS.some((v) => v.key === raw) ? (raw as LedgerView) : 'hub';
