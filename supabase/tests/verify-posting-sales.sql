@@ -1,8 +1,8 @@
 -- Every money-moving sale RPC writes a balanced double-entry journal entry, in
 -- the same transaction that writes the sale, the refund or the settlement.
 --
--- Fifteen things are asserted, and none of them can be checked from TypeScript
--- because all fifteen are facts about rows this database wrote for itself:
+-- Eighteen things are asserted, and none of them can be checked from TypeScript
+-- because all eighteen are facts about rows this database wrote for itself:
 --
 --   1. a cash sale posts one balanced entry, with the tax booked as a LIABILITY
 --      and only the merchandise as revenue, and COGS taken from the cost frozen
@@ -65,6 +65,20 @@
 --      Asserted against the live function source, because a value comparison
 --      only bites for the three hours a day when the UTC date and the shop's
 --      date differ -- and neither RPC takes a date this script could choose.
+--  16. a settlement's entry carries the location of the till that TOOK the
+--      money, not of the branch that rang the sale. 20260831000300 already
+--      fixed the drawer side of this; a ledger stamped with the sale's branch
+--      puts the same cash in two branches that can never be reconciled.
+--  17. a refund on a SPLIT-TENDER sale credits every tender it came in on, in
+--      proportion. One lumped line against the biggest method disagrees with
+--      register_session_expected, which pro-rates the same refund across the
+--      same tenders -- so the drawer count and the ledger drift apart with
+--      nothing to explain the difference.
+--  18. the behavioural half of 15, which 15 cannot do: the same refund issued
+--      under two session timezones 26 hours apart gets the SAME entry date, and
+--      it is shop_local_date(). 15 reads the function text and would pass on a
+--      body that said `now() :: date` or that called shop_local_date() for
+--      something other than the entry date.
 --
 -- The figures are chosen so no two lines of check 1 share a value -- 7000, 350,
 -- 7350 and 2500 are all distinct -- so a check that reads the wrong account
@@ -125,6 +139,22 @@ declare
   -- Check 15 reads function source, which is far too large to sit in v_text
   -- alongside the short descriptions the other checks put there.
   v_src            text;
+  -- Check 16: a second branch, with a till of its own, to settle a Branch-A
+  -- sale at.
+  v_loc_b          uuid;
+  v_register_b     uuid;
+  v_session_b      uuid;
+  v_member_id      uuid;
+  v_loc_actual     uuid;
+  -- Check 17's split-tender product, priced so the review's exact figures
+  -- (600 = 100 cash + 500 zaad, refund 200) are reachable.
+  v_prod_split     uuid;
+  -- Check 18's two refunds, one per session timezone.
+  v_entry_tz1      uuid;
+  v_entry_tz2      uuid;
+  v_date_tz1       date;
+  v_date_tz2       date;
+  v_tz_saved       text;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -912,6 +942,239 @@ begin
       raise exception 'FAIL: % still dates an entry with now()::date, which resolves in UTC', v_text;
     end if;
   end loop;
+
+  -- 16. A settlement's entry belongs to the till that TOOK the money, not to
+  --     the branch that rang the sale.
+  --
+  --     A balance is settled days later at whatever till happens to be open,
+  --     and that till may be at another branch.
+  --     20260831000300_settlement_cash_belongs_to_its_till.sql fixed the DRAWER
+  --     side of exactly this -- register_session_expected now attributes a
+  --     payment through coalesce(sp.register_session_id, s.register_session_id)
+  --     -- because the till that took the cash was closing with a surplus
+  --     variance it could not explain. Stamping the journal entry with the
+  --     SALE's location re-opens the same bug one layer down: Branch B's till
+  --     is credited with the cash while Branch A's 1000 Cash is debited with
+  --     it, the two views disagree permanently, and a per-branch P&L is wrong
+  --     in both branches.
+  --
+  --     Check 13 cannot see this: it settles a sale with no session at all, so
+  --     the sale's location is also the right answer there.
+  insert into public.shop_locations (shop_id, name) values (v_shop_id, 'Branch B')
+    returning id into v_loc_b;
+  insert into public.registers (shop_id, location_id, name)
+    values (v_shop_id, v_loc_b, 'Counter B') returning id into v_register_b;
+  -- The session is inserted directly rather than through
+  -- open_register_session(): that RPC needs a shop_members row for the CALLER,
+  -- and this fixture's owner deliberately has none (only the check-5 cashier
+  -- does). Nothing under test here is the opening path.
+  select id into v_member_id from public.shop_members
+   where shop_id = v_shop_id and user_id = v_staff_id;
+  insert into public.register_sessions (shop_id, location_id, register_id, shop_member_id, opened_by)
+    values (v_shop_id, v_loc_b, v_register_b, v_member_id, v_user_id)
+    returning id into v_session_b;
+
+  -- Rung at Branch A: 1 @ 3000, tax 150, total 3150, of which 1000 is paid.
+  -- 2150 is left owed and is what gets settled at Branch B.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 1, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1000)),
+    null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
+
+  -- Asserted, not assumed. If the sale ever stopped being rung at Branch A the
+  -- two locations would coincide and everything below would pass while saying
+  -- nothing.
+  select location_id into v_loc_actual from public.sales where id = v_sale_id;
+  if v_loc_actual is distinct from v_loc_id or v_loc_b = v_loc_id then
+    raise exception 'FAIL: the fixture sale is not at a different branch from the settling till';
+  end if;
+
+  perform public.settle_sale_balance(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2150)),
+    v_session_b);
+
+  select journal_entry_id into v_entry from public.sale_payments
+   where sale_id = v_sale_id and is_settlement order by created_at desc limit 1;
+  if v_entry is null then
+    raise exception 'FAIL: the cross-branch settlement did not post';
+  end if;
+
+  select location_id into v_loc_actual from public.journal_entries where id = v_entry;
+  if v_loc_actual is distinct from v_loc_b then
+    raise exception 'FAIL: the settlement entry is stamped with location %, expected the settling till''s % (% = the branch that rang the sale)',
+      v_loc_actual, v_loc_b, v_loc_id;
+  end if;
+
+  -- The LINE too, not just the entry. post_journal_entry defaults each line's
+  -- location_id from the entry's, so a line reading the sale's branch would
+  -- mean the entry header was right and the money still landed in the wrong
+  -- branch's cash column -- which is the figure a per-branch P&L reads.
+  select l.location_id into v_loc_actual
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_loc_actual is distinct from v_loc_b then
+    raise exception 'FAIL: the settlement''s 1000 Cash line is at location %, expected the settling till''s % (% = the branch that rang the sale)',
+      v_loc_actual, v_loc_b, v_loc_id;
+  end if;
+
+  -- 17. A refund on a SPLIT-TENDER sale credits every tender it came in on, in
+  --     proportion to what that tender brought in.
+  --
+  --     complete_sale posts one debit line per payment method and check 2 pins
+  --     that -- "two lines against two accounts is the whole reason the drawer
+  --     and the wallet can be reconciled separately". A refund that credits the
+  --     single largest method undoes it on the way out, and it disagrees with
+  --     register_session_expected (20260831000300:44-59), which pro-rates the
+  --     same refund across the same tenders. The drawer count and the ledger
+  --     then differ with nothing anywhere to explain why.
+  --
+  --     The review's exact scenario: a sale of 600 paid 100 cash + 500 zaad,
+  --     refunded 200. The cash share is 200 x 100/600 = 33 and the zaad share
+  --     200 x 500/600 = 167 -- and 33 is exactly what register_session_expected
+  --     takes out of the cash drawer for this refund. The lump posted 1020 Zaad
+  --     -200 and 1000 Cash 0, so every figure below is visibly different under
+  --     it.
+  --
+  --     TAX IS SWITCHED OFF FIRST, and it stays off for the rest of the script.
+  --     A 5% tax cannot produce a total of exactly 600, and the review's
+  --     figures are worth keeping literal -- 33 and 167 are the numbers the
+  --     drawer will show. Every check that depends on tax (1, 3, 12, 14, 16)
+  --     has already run by here; 18 below does not care.
+  update public.shops set tax_enabled = false where id = v_shop_id;
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Posting Split', 200, 60) returning id into v_prod_split;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod_split, v_loc_id, 100);
+
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_split, 'quantity', 3, 'unit_price_cents', 200)),
+    jsonb_build_array(
+      jsonb_build_object('method', 'cash', 'amount_cents', 100),
+      jsonb_build_object('method', 'zaad', 'amount_cents', 500)),
+    null, null, null, null, 0, null, null, v_loc_id);
+
+  select total_cents into v_amount from public.sales where id = v_sale_id;
+  if v_amount <> 600 then
+    raise exception 'FAIL: the split-tender fixture sale totals %, expected 600 -- the tax is still on', v_amount;
+  end if;
+
+  select id into v_item_a from public.sale_items
+   where sale_id = v_sale_id and product_id = v_prod_split;
+  v_refund_id := public.refund_sale_items(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 1)));
+  select journal_entry_id into v_entry from public.refunds where id = v_refund_id;
+  if v_entry is null then
+    raise exception 'FAIL: the split-tender refund did not post';
+  end if;
+
+  select total_cents into v_amount from public.refunds where id = v_refund_id;
+  if v_amount <> 200 then
+    raise exception 'FAIL: the fixture refund handed back %, expected 200 -- the scenario is not the one this check is about', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1000';
+  if v_amount <> -33 then
+    raise exception 'FAIL: expected Cr 1000 Cash -33, the cash tender''s share of the 200 refunded, got % (0 = the whole refund went out of one method)', v_amount;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1020';
+  if v_amount <> -167 then
+    raise exception 'FAIL: expected Cr 1020 Zaad -167, the zaad tender''s share of the 200 refunded, got % (-200 = the whole refund went out of one method)', v_amount;
+  end if;
+
+  -- The two together are the cash actually handed back, to the cent. Rounding
+  -- 33.33 and 166.67 independently and posting both would be 200 here too, but
+  -- 33 + 167 is the only pair that is both exact and never over-credits a
+  -- tender -- and if the allocation ever loses or invents a cent, the entry
+  -- stops balancing rather than quietly paying it out.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code in ('1000', '1020');
+  if v_amount <> -200 then
+    raise exception 'FAIL: the tender lines sum to % , expected exactly -200, the cash the refund handed back', v_amount;
+  end if;
+
+  -- Paid in full, so nothing lands on the receivable.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '1100') then
+    raise exception 'FAIL: a refund on a fully-paid split-tender sale must not touch 1100 Receivable';
+  end if;
+
+  select coalesce(sum(amount_cents), 0) into v_amount from public.journal_lines where entry_id = v_entry;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the split-tender refund entry does not balance, off by %', v_amount;
+  end if;
+
+  -- 18. The behavioural half of check 15: the entry date is the SHOP's local
+  --     date whatever the session's timezone is.
+  --
+  --     Check 15 reads the function text, which is all it can do for a value
+  --     that only differs from now()::date for three hours a day -- and a body
+  --     that wrote `now() :: date` with a spare shop_local_date() call
+  --     elsewhere would sail through it. This is the deterministic version.
+  --
+  --     shop_local_date() is (p_at at time zone 'Africa/Mogadishu')::date and
+  --     does not read the session's TimeZone at all. now()::date resolves
+  --     against it -- and `set search_path = public` on these functions pins
+  --     search_path, not TimeZone, so a value set here reaches inside them.
+  --
+  --     Etc/GMT+12 is UTC-12 and Pacific/Kiritimati is UTC+14: 26 hours apart,
+  --     so their local dates differ at EVERY instant, and this check reddens at
+  --     any hour of any day rather than only between 21:00 and 24:00 UTC.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_split, 'quantity', 2, 'unit_price_cents', 200)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 400)),
+    null, null, null, null, 0, null, null, v_loc_id);
+  select id into v_item_a from public.sale_items
+   where sale_id = v_sale_id and product_id = v_prod_split;
+
+  -- Self-check: if the two zones could ever agree, the assertion below would be
+  -- satisfied by the bug as readily as by the fix.
+  if (now() at time zone 'Etc/GMT+12')::date = (now() at time zone 'Pacific/Kiritimati')::date then
+    raise exception 'FAIL: the two fixture timezones agree on today''s date, so this check proves nothing';
+  end if;
+
+  v_tz_saved := current_setting('timezone');
+
+  perform set_config('timezone', 'Etc/GMT+12', true);
+  v_refund_id := public.refund_sale_items(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 1)));
+  select journal_entry_id into v_entry_tz1 from public.refunds where id = v_refund_id;
+
+  perform set_config('timezone', 'Pacific/Kiritimati', true);
+  v_refund_id := public.refund_sale_items(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 1)));
+  select journal_entry_id into v_entry_tz2 from public.refunds where id = v_refund_id;
+
+  -- Restored before the assertions, so a failure message is not itself printed
+  -- under a fixture timezone.
+  perform set_config('timezone', v_tz_saved, true);
+
+  if v_entry_tz1 is null or v_entry_tz2 is null then
+    raise exception 'FAIL: one of the two timezone refunds did not post';
+  end if;
+  select entry_date into v_date_tz1 from public.journal_entries where id = v_entry_tz1;
+  select entry_date into v_date_tz2 from public.journal_entries where id = v_entry_tz2;
+
+  if v_date_tz1 <> v_date_tz2 then
+    raise exception 'FAIL: the same refund dated % under Etc/GMT+12 and % under Pacific/Kiritimati -- the entry date is resolving in the session timezone',
+      v_date_tz1, v_date_tz2;
+  end if;
+  if v_date_tz1 <> public.shop_local_date() then
+    raise exception 'FAIL: the refund posted on %, but the shop''s local date is %',
+      v_date_tz1, public.shop_local_date();
+  end if;
 
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';

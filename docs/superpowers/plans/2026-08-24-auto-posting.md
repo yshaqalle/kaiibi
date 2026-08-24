@@ -164,6 +164,12 @@ Three ways out, in the order I would rank them:
 
 ---
 
+**`customer_balances` and the ledger's `1100` diverge after a partial return of a part-paid sale.** `customer_balances.owed_cents` (`20260831000200:334`) and `settle_sale_balance`'s `v_owed` both compute `total − goods_returned − paid`; neither adds back the cash actually handed over on the refund. The journal is correct (`(T−P)` less `(G−C)`); the app is not. Worked example: total 6300, paid 2000, one unit returned worth 3150 with 2000 cash out — the journal reads `1100 = 3150`, `customer_balances` says `1150`, and `settle_sale_balance` refuses more than 1150 and then sets `settled_at`, stranding 2000 in Accounts Receivable that nothing will ever collect. The two formulas coincide only on a full return, which is what the tests exercise. Root cause is upstream of this phase; Task 8's verification must not read the resulting difference as a backfill defect.
+
+**This needs an owner.** It is an upstream defect that this phase turns into a balance-sheet number, so it stops being an app-only inconsistency the moment the ledger is trusted.
+
+---
+
 ## File Structure
 
 | File | Responsibility |
@@ -174,6 +180,7 @@ Three ways out, in the order I would rank them:
 | `supabase/migrations/20260908000300_sale_entry_date.sql` | Task 3b. The entry date is shop-local, and a closed month redates rather than refusing. |
 | `supabase/migrations/20260908000320_shop_local_date.sql` | `public.shop_local_date()`. One definition of the shop's local date, for every task below to call instead of copying the `at time zone 'Africa/Mogadishu'` expression again. Not itself a task — created ahead of Task 5 so it exists before its first caller. |
 | `supabase/migrations/20260908000350_post_refund_and_settlement.sql` | `refund_sale_items`, `settle_sale_balance`. |
+| `supabase/migrations/20260908000360_settle_at_its_till_and_split_a_refund.sql` | Task 5's review fixes, copied forward from `20260908000350`: a settlement's entry carries the settling till's location, and a refund credits every tender it came in on. |
 | `supabase/migrations/20260908000400_post_receive_stock.sql` | `receive_stock`, copied forward from `20260907000000`. |
 | `supabase/migrations/20260908000500_post_bills_and_payroll.sql` | `record_invoice_payment`, `post_payroll_run`. |
 | `supabase/migrations/20260908000600_post_stock_count.sql` | `save_stock_count`. |
@@ -1970,6 +1977,8 @@ git commit -m "feat(accounting): supplier payments and pay runs post to the ledg
 ### Task 8: The historical backfill
 
 Every existing row replayed into the ledger. This is the task with real risk, and the one that must **not** call `post_journal_entry`.
+
+**Two transient states this task's verification must not read as defects.** First: a refund or a settlement taken against a sale rung **before** Task 3 shipped posts **one-sided** — `refund_sale_items` credits `1100 Accounts Receivable` and `settle_sale_balance` clears it, but the debit that put the receivable there was never posted, because the sale predates posting. Until the backfill runs, those shops' `1100` reads negative and the trial balance still nets to zero only because each individual entry balances. That is expected, it resolves the moment `backfill_shop_ledger` replays the originating sale, and it is not something to "fix" in the RPCs. Second: the `customer_balances` divergence recorded in the **Open** section above — the app's `owed_cents` and the ledger's `1100` legitimately differ after a partial return of a part-paid sale, and the difference is the app's, not the backfill's.
 
 **Files:**
 - Create: `supabase/migrations/20260908000700_backfill_ledger.sql`
