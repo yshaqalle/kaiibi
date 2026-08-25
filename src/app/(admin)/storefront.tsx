@@ -82,7 +82,7 @@ function messageOf(err: unknown, fallback: string): string {
 }
 
 export default function StorefrontEditor() {
-  const { shop } = useAuth();
+  const { shop, locations } = useAuth();
   const shopId = shop?.id ?? null;
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
@@ -110,6 +110,11 @@ export default function StorefrontEditor() {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [focusRequest, setFocusRequest] = useState<ContentDrawerFocusRequest | null>(null);
+  // A counter, not Date.now(): two Publish presses inside the same
+  // millisecond would otherwise mint identical tokens, and ContentDrawer's
+  // effect keys off the token changing -- the second focus would silently
+  // no-op.
+  const focusTokenRef = useRef(0);
   const scrollRef = useRef<ScrollView>(null);
 
   // Step 1 of the editor's own load: getMyStorefront tells apart "this shop
@@ -233,8 +238,9 @@ export default function StorefrontEditor() {
 
   function focusBlocker(first: PublishBlocker) {
     if (!isWide) setDrawerOpen(true);
-    if (first === 'no_slug') setFocusRequest({ field: 'slug', token: Date.now() });
-    else if (first === 'no_whatsapp') setFocusRequest({ field: 'whatsapp', token: Date.now() });
+    focusTokenRef.current += 1;
+    if (first === 'no_slug') setFocusRequest({ field: 'slug', token: focusTokenRef.current });
+    else if (first === 'no_whatsapp') setFocusRequest({ field: 'whatsapp', token: focusTokenRef.current });
     // no_products has no field in this drawer to jump to -- PublishBar's own
     // caveat already names the fix (add a product marked to sell online),
     // which lives in Inventory, not here.
@@ -345,9 +351,15 @@ export default function StorefrontEditor() {
     });
   }
 
+  // Matches get_public_storefront's own left join on shop_locations
+  // (is_primary) -- supabase/migrations/20260924000100_storefront_public_read.sql.
+  // No primary location is exactly what a LEFT JOIN with no match yields
+  // there too, so `null` here is correct, not a fallback.
+  const primaryCity = locations.find((location) => location.isPrimary)?.city ?? null;
+
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
-    city: null,
+    city: primaryCity,
     slug: draft.slug ?? '',
     whatsappE164: draft.whatsappE164,
     theme: draft.theme,

@@ -23,11 +23,15 @@ jest.mock('@/lib/storefront', () => ({
 }));
 // `useAuth()` throws outside an `<AuthProvider>` (src/hooks/use-auth.tsx),
 // and this screen owns no fetch of its own for WHICH shop it is editing --
-// that comes from context, same as every other (admin) route.
+// that comes from context, same as every other (admin) route. Mocked as a
+// jest.fn so individual tests can override `locations` (e.g. to prove the
+// preview's city comes from the primary location) without disturbing the
+// rest.
 jest.mock('@/hooks/use-auth', () => ({
-  useAuth: () => ({ shop: { id: 's1', name: 'Xamdi Electronics' } }),
+  useAuth: jest.fn(() => ({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] })),
 }));
 
+import { useAuth } from '@/hooks/use-auth';
 import { ensureStorefront, getMyStorefront, saveStorefront } from '@/lib/storefront-admin';
 import StorefrontEditor from '@/app/(admin)/storefront';
 
@@ -63,7 +67,13 @@ const BASE = {
 };
 
 describe('storefront editor', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Reinstated every test -- `mockReturnValue` (unlike `mockReturnValueOnce`)
+    // survives `clearAllMocks()`, so the city test's override would otherwise
+    // leak into whichever test runs after it.
+    (useAuth as jest.Mock).mockReturnValue({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] });
+  });
 
   it('previews the real page, not a mock of it', async () => {
     (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
@@ -108,5 +118,41 @@ describe('storefront editor', () => {
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts.join(' ')).toContain('Fresh produce, delivered daily.');
     expect(saveStorefront).not.toHaveBeenCalled();
+  });
+
+  // The preview IS the real page (this file's opening test), and
+  // get_public_storefront left-joins shop_locations on is_primary to fill in
+  // `city` (supabase/migrations/20260924000100_storefront_public_read.sql).
+  // The preview must derive it the same way -- from the primary location --
+  // rather than hardcoding it away.
+  it('shows the primary location city in the preview, like the live page does', async () => {
+    (useAuth as jest.Mock).mockReturnValue({
+      shop: { id: 's1', name: 'Xamdi Electronics' },
+      locations: [
+        {
+          id: 'loc-1', shopId: 's1', name: 'Branch', code: null,
+          city: 'Berbera', neighborhood: null, address: null, contactPhone: null,
+          openingHours: {}, monthlyRevenueGoalCents: null,
+          barcodeScanningEnabled: true, hardwareScannerEnabled: false,
+          zaadMerchantId: null, edahabMerchantId: null, requireOpenRegister: false,
+          isPrimary: false, active: true, createdAt: '2026-01-01', updatedAt: '2026-01-01',
+        },
+        {
+          id: 'loc-2', shopId: 's1', name: 'Main', code: null,
+          city: 'Hargeisa', neighborhood: null, address: null, contactPhone: null,
+          openingHours: {}, monthlyRevenueGoalCents: null,
+          barcodeScanningEnabled: true, hardwareScannerEnabled: false,
+          zaadMerchantId: null, edahabMerchantId: null, requireOpenRegister: false,
+          isPrimary: true, active: true, createdAt: '2026-01-01', updatedAt: '2026-01-01',
+        },
+      ],
+    });
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
+    expect(texts.join(' ')).toContain('Hargeisa');
+    expect(texts.join(' ')).not.toContain('Berbera');
   });
 });
