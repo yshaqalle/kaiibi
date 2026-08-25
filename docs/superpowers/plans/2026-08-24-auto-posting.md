@@ -154,7 +154,8 @@ Stated so a reviewer can see the edges rather than infer them.
 | `refunds.reason`, `tax_filings` | Phase 5. |
 | Removing the `sync_invoice_expense` trigger | The design calls for it, but it changes what `expenses` contains, which the backfill reads. Removing it in the same phase that replays history means the replay input changes underneath the verification. Do it in phase 3, once the ledger is the source of truth. |
 | Loyalty liability (2300) | See **Open** below. |
-| Editing or voiding a posted entry | `reverse_journal_entry` already exists from phase 1. Nothing here needs it. |
+| The *manual-journal screen's* void button | `reverse_journal_entry` already exists from phase 1 and keeps its `ledger.post` gate. **The posting doors do not use it** — every one of them writes its mirror inline, because a cashier or a shopkeeper holds a till or an expense permission, never a ledger one. See Tasks 5b, 5c and 7c. |
+| `deleteInvoice` reversing a bill **and its payments** together | `invoice_payments` cascades off `invoices` alongside the mirrored `expenses` row, so undoing a bill correctly means reversing *both* kinds at once. Reversing one of them is worse than reversing neither. Phase 3, with the `invoices`↔`stock_receipts` link. The limit is asserted by `verify-posting-expenses.sql` check 17 so it cannot drift into an accident. |
 
 ---
 
@@ -175,6 +176,8 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 ---
 
 *An expense recorded after this phase would not post — an `AFTER INSERT` trigger on `expenses`. **Decided and shipped: see Task 7b.***
+
+*An expense **edited or deleted** after posting, and an invoice payment **undone** after posting, left the ledger stale — Task 7b's own report named the first, Task 7's carried concern 3 named the second. **Decided and shipped: see Task 7c.*** The residue it does **not** close is `deleteInvoice`, now stated in *What is NOT in this plan* rather than left open.
 
 ---
 
@@ -202,17 +205,18 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
 | `supabase/migrations/20260908000750_post_expenses.sql` | Task 7b. The `AFTER INSERT` trigger on `expenses`. Numbered after the backfill because it was added once the backfill's number was already claimed; neither depends on the other's objects, so the order they apply in does not matter. |
 | `supabase/migrations/20260908000800_expense_source_links.sql` | The final review's C1/C2 fix. Adds `expenses.stock_receipt_id` and `expenses.stock_count_id` and replaces `post_expense_to_ledger()` with the six-way branch. See the correction under Task 7b. |
+| `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` | Task 7c. `reverse_expense_entry()` — a `BEFORE UPDATE` / `AFTER DELETE` trigger on `expenses` — plus `post_expense_to_ledger` attached a second time as `AFTER UPDATE` so the replacement goes through the same seven-way branch, and `delete_invoice_payment` copied forward with a reversal. |
 | `supabase/migrations/20260908000900_post_sale_delete.sql` | Task 5c, the final review's C3 fix. `delete_sale`, copied forward from `20260820000100`: reverse the sale's entry, its refunds' and its settlements', then delete. Numbered after the backfill for the same reason `20260908000750` is — the number was already claimed — and it depends on nothing either of them creates. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
 | `supabase/tests/verify-posting-inventory.sql` | Receipt and stock-count entries. |
-| `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries. |
-| `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or bill-derived expense row posts nothing. |
+| `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries; entering a bill recognises its cost; **undoing a payment reverses it** (Task 7c). |
+| `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or count-derived expense row posts nothing; **editing or deleting one reverses what it posted** (Task 7c). |
 | `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. |
 | `supabase/tests/bench-complete-sale.sql` | Measured before/after on a 20-line basket. |
 
-`test:db` goes from **18** to **24** (23 before Task 7b added `verify-posting-expenses.sql`). `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
+`test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Task 7c adds **no** script — its seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
 
 ---
 
@@ -2163,6 +2167,50 @@ The two `if exists (… a.type = 'expense')` guards need their **own** mutation 
 git add supabase/migrations/20260908000750_post_expenses.sql supabase/tests/verify-posting-expenses.sql
 git commit -m "feat(accounting): an expense recorded from the client posts to the ledger"
 ```
+
+---
+
+### Task 7c: an edited or deleted expense, and an undone payment, reverse what they posted
+
+*(Added after Task 7b's own report named the hole, and after Task 7's carried concern 3. Both were on the open list; both are closed here.)*
+
+**Files:** `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` (new), `supabase/tests/verify-posting-expenses.sql`, `supabase/tests/verify-posting-bills.sql`, `supabase/tests/accumulated-rpc-edits.test.ts`.
+
+**Interfaces:** `public.reverse_expense_entry() returns trigger` (new), and `public.delete_invoice_payment(p_payment_id uuid) returns void` — unchanged signature, copied forward **in full** from `20260804000600`, its only previous definition. Neither is patched by `20260905000000_complete_sale_lock_order.sql`, which string-replaces `pg_proc.prosrc` for `complete_sale` and `edit_sale` only.
+
+#### The hole
+
+Task 7b made an `expenses` INSERT post; nothing touched the two doors that **mutate or destroy** the row afterwards, and both are live buttons (`expenses-tab.tsx:265,273` → `expenses.ts:116,125`).
+
+- **`updateExpense`** is a plain `.update()`. Change the amount and the ledger keeps the old one; change the **category** and it keeps debiting the account the *old* category mapped to.
+- **`deleteExpense`** is a plain `.delete()`. `expenses.journal_entry_id` carries no `ON DELETE` (Task 2, deliberately — the *entry* is what is protected), so the entry outlives the row: still `posted`, described by a uuid resolving to nothing, the cost on the P&L for ever, and **no source row left for the backfill to replay**.
+- **`delete_invoice_payment`** deletes the payment and recomputes `paid_cents` and leaves its `Dr 2000 / Cr wallet` entry standing, so the bill reads unpaid while the ledger says the payable was cleared — `2000` **understated** by the undone amount for ever.
+
+Every one leaves entries that individually balance, so the trial balance goes on zeroing.
+
+#### The treatment
+
+Task 5b's for the edit (reverse, re-post, re-point) and Task 5c's for the two deletes (reverse only). **Inline, not `reverse_journal_entry`** — that gates on `ledger.post` and these doors gate on `expenses.manage` and `invoices.manage`. **Each reversal carries the source of the entry it reverses**, read off the original. **The closed-period redirect** with `coalesce(v_old_period_status, 'not open')`, read rather than caught.
+
+**A trigger for the expenses half, not two new RPCs** — `expenses` is the one money move in this phase with no RPC to bolt onto, which is why the insert side is a trigger already. Four reasons, written out at the function: (1) **the re-post goes through `post_expense_to_ledger` itself**, attached as a second `AFTER UPDATE` trigger, so the seven-way branch has exactly one implementation and cannot drift from a re-derivation; (2) `updateExpense` sends a **sparse patch**, and a trigger reads `NEW`, which is already the merged row; (3) **RLS stays the only gate** — the `update`/`delete expenses` policies already carry `expenses.manage` plus the bar on all four generated-row links, and a `security definer` RPC would bypass and have to re-implement both; (4) **the row lock is free**, because the statement has already locked the tuple its own trigger fires for.
+
+**The `WHEN` clause on both update triggers is load-bearing, not an optimisation.** `post_expense_to_ledger`'s last statement stamps `journal_entry_id` back onto the row, so an unconditional `AFTER UPDATE` recurses for ever. Listing exactly the columns the entry is derived from — and pointedly *not* `journal_entry_id` — makes the stamp invisible to both triggers, and is also right on its own terms: retyping a `note` must not churn a reversal pair through the ledger.
+
+**Three rows the trigger leaves alone**, each for a different reason: a row that **posted nothing** (count-linked, payroll-linked, an `inventory_purchase` bill, or a pre-Task-7b row the backfill has not reached) — reversing nothing is a clean no-op, not an error; **a shop being deleted**, because `shops` is the cascade root and inserting a mirror that references a row already gone violates the foreign key and aborts the whole deletion; and **on DELETE only**, a row generated from a bill, a pay run, a delivery or a stock-take.
+
+**That last one is the stated limit of this task.** `invoice_payments` cascades off the same parent as the bill's mirrored `expenses` row, so reversing the cost alone when a bill is deleted would leave the payments' `Dr 2000` entries standing and put Accounts Payable **in debit** by the whole bill — strictly worse than doing nothing, which at least leaves *"the rent was paid"*, which is what happened. **`deleteInvoice` (`src/lib/invoices.ts:151`, a plain client delete) reversing a bill together with its payments is not closed here** and belongs with the `invoices`↔`stock_receipts` link in phase 3. It is asserted (expenses check 17) so it stays a decision.
+
+**The backfill needs no change.** It is driven by `journal_entry_id is null`, and a reversed-and-deleted row is gone; a reversed-and-re-posted row carries the *new* entry's id. Nothing it replays moves.
+
+#### Checks and mutations
+
+`verify-posting-expenses.sql` gains **14** (a deleted expense's entry reads `reversed`, every line mirrored *and negated*, same source on both halves, the affected accounts netting to zero shop-wide), **15** (an edit reverses and re-posts from the edited figures — the **category** changes as well as the amount, so a re-post that kept the old account fails; plus a `note`-only edit churns nothing), **16a/16b** (deleting a row that posted nothing is a clean no-op — both a count-linked row and a standalone row with no entry, because a mutation removing one arm is invisible to the other), **17** (the cascade limit above) and **18** (a reversal whose month has since closed is redated, with the original date and the status in the description).
+
+`verify-posting-bills.sql` gains **14** (undoing a payment reverses its entry and check 13's `2000`-against-outstanding identity holds again) and **15** (a payment whose month has since closed is redated, not refused).
+
+Thirteen mutations. Twelve redden. **`G8` — dropping the `coalesce` on the period status inside the redated description — survives green, and is a no-op by construction**, exactly as `C12-Y4` was: the branch above cannot leave `v_old_period_status` NULL while the dates differ, so the `coalesce` guards a state only a future edit up there could produce. `G7` (never redate at all) is its load-bearing half and reddens. The identical `coalesce` in `edit_sale`, `delete_sale` and `post_expense_to_ledger` is unreachable for the same reason and is kept for the same reason.
+
+Add `REVERSE_EXPENSE_ENTRY_EDITS` and `DELETE_INVOICE_PAYMENT_EDITS` to `accumulated-rpc-edits.test.ts`, taking it from twelve guarded functions to fourteen.
 
 ---
 

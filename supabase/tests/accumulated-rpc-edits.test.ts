@@ -489,6 +489,74 @@ const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
   ['20260908000700', 'the replay is serialised per shop', 'pg_advisory_xact_lock(74921'],
 ];
 
+// The two doors that MUTATE or DESTROY a row which has already posted, added by
+// 20260908001000. Both write a reversal INLINE rather than through
+// reverse_journal_entry -- which gates on ledger.post, a permission neither
+// door's user holds -- so every property of a correct reversal lives in their
+// own bodies and a copy-forward from an older ancestor takes it out silently.
+// Losing any one of these leaves entries that still balance individually, so
+// the trial balance goes on zeroing and nothing else in the system goes red.
+const REVERSE_EXPENSE_ENTRY_EDITS: Edit[] = [
+  // A row that posted NOTHING -- count-linked, payroll-linked, an
+  // inventory_purchase bill, or an expense entered before 20260908000750
+  // shipped -- has a null pointer. Reversing nothing must be a clean no-op, or
+  // deleting a stock-take's write-off row starts failing outright.
+  ['20260908001000', 'a row that posted nothing is a no-op, not an error', 'if old.journal_entry_id is null then'],
+  // `shops` is the cascade root and BOTH expenses and journal_entries hang off
+  // it. A cascade is an AFTER DELETE trigger on the parent, so the shops row is
+  // already gone by the time this fires and inserting a reversal that references
+  // it violates the foreign key -- taking the whole shop deletion with it.
+  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
+  // ON DELETE ONLY. A bill's mirrored row cascades away with the bill while its
+  // PAYMENTS' entries stay standing; reversing the cost there leaves 2000
+  // Accounts Payable in debit by the whole bill. The exclusion is deliberately
+  // not applied to UPDATE -- an edited bill's cost belongs to the edited bill.
+  ['20260908001000', 'a cascaded generated row is not reversed on delete', "if tg_op = 'DELETE'"],
+  // The mirror's lines are NEGATED. A reversal that copied them unchanged nets
+  // to double rather than to nothing, and every per-entry check still passes.
+  ['20260908001000', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  // Read off the original, never written as a literal: a reversal files under
+  // the same source as the entry it reverses.
+  ['20260908001000', 'the reversal is filed under the source it reverses', "v_old.source, 'posted'"],
+  ['20260908001000', 'the original is marked reversed and linked to its mirror',
+    "set status = 'reversed', reverses_entry_id = v_reversal_id"],
+  // THE OTHER HALF OF AN EDIT. Clearing the pointer is what lets
+  // post_expense_to_ledger -- whose first act is to skip any row that already
+  // carries an entry -- post the replacement on the AFTER trigger. Without it an
+  // edit reverses and never re-posts, which is strictly worse than doing
+  // nothing: the cost leaves the books while the receipt stays on the screen.
+  ['20260908001000', 'an edit clears the pointer so the replacement can post', 'new.journal_entry_id := null'],
+  ['20260908001000', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
+  // The NULL-description trap 20260908000300 found the hard way: `||` with a
+  // NULL operand yields NULL for the whole expression and post_journal_entry
+  // then refuses the entry for having no description -- an error about
+  // descriptions for a bug about dates.
+  ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
+];
+
+const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
+  // Recomputed from the surviving rows rather than by subtracting the deleted
+  // amount, so a double-undo cannot drive the total negative.
+  ['20260804000600', 'the total is recomputed from what survives, not by subtraction',
+    'select coalesce(sum(amount_cents), 0) into v_remaining'],
+  // The parent is locked before either table is touched, so a concurrent
+  // record_invoice_payment cannot slip between the delete and the recount -- and
+  // two concurrent undos cannot both write a mirror of the same entry.
+  ['20260804000600', 'the parent bill is locked before either table is touched',
+    'from public.invoices where id = v_invoice_id for update'],
+  ['20260804000600', 'the door gates on invoices.manage', "'invoices.manage'"],
+  // BEFORE the delete, and it has to be: once the invoice_payments row is gone
+  // there is nothing left to read the entry id from and the entry is
+  // unreachable for ever.
+  ['20260908001000', 'the entry id is read before the row is deleted',
+    'select invoice_id, journal_entry_id into v_invoice_id, v_entry_id'],
+  ['20260908001000', 'undoing a payment reverses its entry', 'reverses_entry_id'],
+  ['20260908001000', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  ['20260908001000', 'the reversal is filed under the source it reverses', "v_old.source, 'posted'"],
+  ['20260908001000', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
+  ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
@@ -501,6 +569,8 @@ describe.each([
   ['receive_stock', RECEIVE_STOCK_EDITS],
   ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
   ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
+  ['reverse_expense_entry', REVERSE_EXPENSE_ENTRY_EDITS],
+  ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);

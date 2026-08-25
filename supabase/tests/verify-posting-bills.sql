@@ -48,6 +48,15 @@
 --  12. THE ONE WHOSE ABSENCE LET THAT THROUGH. A bill entered and then paid IN
 --      FULL leaves 2000 at exactly zero, measured across the bill's entry and
 --      its payments' together. Per entry both halves look perfect.
+--  14. UNDOING A PAYMENT REVERSES ITS ENTRY. delete_invoice_payment deleted the
+--      row and recomputed paid_cents and left the Dr 2000 / Cr wallet entry
+--      standing, so the bill read unpaid while the ledger said the payable had
+--      been cleared -- 2000 understated by the undone amount for ever. Closed by
+--      re-asserting check 13's identity after an undo, which is the view it is
+--      visible in.
+--  15. AND A PAYMENT WHOSE MONTH HAS SINCE CLOSED IS REDATED, NOT REFUSED --
+--      check 9 one step on: a payment that posted perfectly well at the time and
+--      is undone after its month was shut.
 --  13. And shop-wide, 2000 equals what `invoices` says is still outstanding --
 --      asserted against amount_cents less paid_cents, columns no journal-line
 --      statement reads, rather than re-derived from the ledger itself.
@@ -91,6 +100,13 @@ declare
   v_was_2000   bigint;
   v_was_6100   bigint;
   v_outstanding bigint;
+  -- Checks 14-15: undoing a payment.
+  v_first_payment uuid;   -- check 1's 4300 zaad payment, undone by check 14.
+  v_ctrl_payment  uuid;   -- check 9's control payment, undone by check 15.
+  v_ctrl_on       date;   -- and the month it was recognised in, closed there.
+  v_was_1020      bigint;
+  v_rev           uuid;
+  v_status        text;
 begin
   -- shops.owner_id and shop_members.user_id both reference auth.users(id), so
   -- the fixture "people" need real rows there before anything else.
@@ -132,6 +148,10 @@ begin
   v_paid_on := public.shop_local_date() - 2;
 
   v_payment_id := public.record_invoice_payment(v_invoice_id, 4300, v_paid_on, 'zaad');
+  -- Kept for check 14, which undoes this payment. Paid by ZAAD deliberately:
+  -- 1020 is touched by nothing else in this fixture, so the reversal's credit
+  -- side can be read by account rather than only by amount.
+  v_first_payment := v_payment_id;
   select journal_entry_id into v_entry from public.invoice_payments where id = v_payment_id;
   if v_entry is null then raise exception 'FAIL: the invoice payment did not post'; end if;
 
@@ -411,6 +431,11 @@ begin
   -- month nobody has traded in, and open_period_for creates it open on demand.
   v_date := (date_trunc('month', public.shop_local_date()::timestamp) - interval '4 months')::date + 9;
   v_payment_id := public.record_invoice_payment(v_invoice_id, 700, v_date, 'cash');
+  -- Kept for check 15. Its ENTRY is dated four months back in a month that is
+  -- open right now -- which is exactly the state check 15 needs before it closes
+  -- that month and undoes the payment.
+  v_ctrl_payment := v_payment_id;
+  v_ctrl_on := v_date;
   select journal_entry_id into v_entry from public.invoice_payments where id = v_payment_id;
   select entry_date into v_paid_on from public.journal_entries where id = v_entry;
   if v_paid_on <> v_date then
@@ -590,6 +615,175 @@ begin
   -- that paid every bill it entered.
   if v_outstanding <= 0 then
     raise exception 'FAIL: the fixture owes % -- check 13 is comparing zero against zero', v_outstanding;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 14. UNDOING A PAYMENT REVERSES ITS ENTRY, AND 2000 GOES BACK UP.
+  ---------------------------------------------------------------------------
+  -- delete_invoice_payment (20260804000600) is a live button on the Bills
+  -- screen (invoices-tab.tsx:257). It deleted the payment row and recomputed
+  -- invoices.paid_cents -- and left the Dr 2000 / Cr wallet entry standing. So
+  -- the bill went back to reading unpaid while the ledger went on saying the
+  -- payable had been cleared, and 2000 was UNDERSTATED by the undone amount for
+  -- ever. Every entry balanced; the trial balance zeroed.
+  --
+  -- Check 13's identity -- shop-wide 2000 against what `invoices` says is
+  -- outstanding -- is the assertion that sees it, and until this check nothing
+  -- exercised the door, so check 13 was measuring a fixture where no payment had
+  -- ever been undone.
+  --
+  -- MUTATION (proves this check): delete the `if v_entry_id is not null then`
+  -- reversal block from delete_invoice_payment. Expected: FAIL: undoing a
+  -- payment left its entry posted -- 2000 Accounts Payable is understated by the
+  -- amount that was undone.
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1020
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  select journal_entry_id into v_entry from public.invoice_payments where id = v_first_payment;
+  if v_entry is null then
+    raise exception 'FAIL: check 14''s payment has no entry -- it is not testing anything';
+  end if;
+
+  perform public.delete_invoice_payment(v_first_payment);
+
+  -- The original is marked, not deleted: a book is added to, not amended.
+  select status into v_status from public.journal_entries where id = v_entry;
+  if v_status is null then
+    raise exception 'FAIL: undoing a payment deleted its journal entry -- a posted entry is a permanent record';
+  end if;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: undoing a payment left its entry %, expected reversed -- 2000 Accounts Payable is understated by the amount that was undone', v_status;
+  end if;
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_entry and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: no reversal entry points at the undone payment''s entry';
+  end if;
+  -- EVERY line mirrored, not merely a balancing pair.
+  select count(*) into v_rows
+    from public.journal_lines o
+   where o.entry_id = v_entry
+     and not exists (select 1 from public.journal_lines r
+                      where r.entry_id = v_rev
+                        and r.account_id = o.account_id
+                        and r.amount_cents = -o.amount_cents);
+  if v_rows <> 0 then
+    raise exception 'FAIL: % line(s) of the undone payment''s entry have no negated twin on the reversal', v_rows;
+  end if;
+  -- A reversal carries the SAME SOURCE as the entry it reverses -- 'payment'
+  -- here, read off the original rather than written as a literal.
+  select source into v_text from public.journal_entries where id = v_rev;
+  if v_text <> 'payment' then
+    raise exception 'FAIL: the reversal of a payment is filed under %, expected payment', v_text;
+  end if;
+
+  -- THE PAYABLE GOES BACK UP by exactly what was undone, and the wallet is put
+  -- back. 4300 was paid by zaad, and 1020 is touched by nothing else here.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount - v_was_2000 <> -4300 then
+    raise exception 'FAIL: 2000 Accounts Payable moved % when a 4300 payment was undone, expected -4300 (0 = the entry was left standing and the shop''s payables read 4300 less than it owes)',
+      v_amount - v_was_2000;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  if v_amount - v_was_1020 <> 4300 then
+    raise exception 'FAIL: 1020 Zaad moved % when a 4300 zaad payment was undone, expected 4300', v_amount - v_was_1020;
+  end if;
+
+  -- AND CHECK 13'S IDENTITY HOLDS AGAIN. This is the one that matters: 2000
+  -- shop-wide equals what `invoices` says is outstanding, read from columns
+  -- delete_invoice_payment maintains and no journal-line statement touches.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after undoing a payment, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero after a reversal, off by %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 15. UNDOING A PAYMENT WHOSE MONTH HAS SINCE CLOSED IS REDATED, NOT REFUSED.
+  ---------------------------------------------------------------------------
+  -- The mirror of check 9, one step further on. Check 9 covers a payment
+  -- back-dated INTO a month that was already shut; this covers a payment that
+  -- posted perfectly well at the time and is undone after its month was closed.
+  -- reverse_journal_entry dates a reversal to the ORIGINAL entry's date on
+  -- purpose, and open_period_for RAISES for any non-open period -- so without the
+  -- redirect the Bills screen's Undo button starts failing outright the moment a
+  -- shop closes a month, for a payment it recorded correctly.
+  --
+  -- Check 9's control payment is the fixture: 700, four months back, in a month
+  -- that open_period_for created OPEN. Closing it now is what makes this
+  -- different from check 14.
+  --
+  -- MUTATION (proves this check): change the redirect's condition in
+  -- delete_invoice_payment to `if false`. Expected: ERROR: This period is
+  -- closed — posting into it is refused. Re-open it first.
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and v_ctrl_on between starts_on and ends_on;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row covering % to close', v_ctrl_on;
+  end if;
+  select journal_entry_id into v_entry from public.invoice_payments where id = v_ctrl_payment;
+  select entry_date into v_date from public.journal_entries where id = v_entry;
+  if v_date <> v_ctrl_on then
+    raise exception 'FAIL: check 15''s fixture entry is dated %, expected % -- it is not sitting in the month about to be closed', v_date, v_ctrl_on;
+  end if;
+
+  perform public.delete_invoice_payment(v_ctrl_payment);
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_entry and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: undoing a payment in a closed month wrote no reversal';
+  end if;
+  select entry_date, description into v_date, v_text from public.journal_entries where id = v_rev;
+  if v_date <> public.shop_local_date() then
+    raise exception 'FAIL: the reversal of a payment in a closed month is dated %, expected the current period (%)',
+      v_date, public.shop_local_date();
+  end if;
+  -- The journal has to SAY why an old undoing is sitting in this month. Without
+  -- it the journal -- which is what an auditor reads -- shows an unexplained
+  -- entry. This is also the assertion that catches the NULL-description trap:
+  -- `||` with a NULL operand yields NULL for the WHOLE expression, so a missing
+  -- coalesce on the period status fails the undo with "A journal entry needs a
+  -- description" -- an error about descriptions for a bug about dates.
+  if v_text not like '%that period is closed%' then
+    raise exception 'FAIL: the redated reversal does not say why it moved: %', v_text;
+  end if;
+  if v_text not like '%' || to_char(v_ctrl_on, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated reversal does not carry the original entry''s date: %', v_text;
+  end if;
+  -- And the identity still holds, with the 700 back on the bill.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after a redated undo, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
   end if;
 
   perform set_config('request.jwt.claims', null, true);

@@ -69,6 +69,28 @@
 --      `with check` half let a client set or clear either link on an existing
 --      row, flipping what the backfill does with it after the live path had
 --      already posted under the old value.
+--  14. DELETING A POSTED EXPENSE REVERSES ITS ENTRY. deleteExpense is a plain
+--      `.delete()` behind a live button, and expenses.journal_entry_id carries
+--      no ON DELETE, so the entry outlived the row: still posted, described by a
+--      uuid resolving to nothing, the cost on the P&L for ever, and no source
+--      row left for the backfill to replay. Asserted as the original reading
+--      `reversed`, EVERY line mirrored and negated, the same source on both
+--      halves, and the affected accounts netting to zero shop-wide.
+--  15. EDITING ONE REVERSES AND RE-POSTS FROM THE EDITED FIGURES. The CATEGORY
+--      is changed as well as the amount, because the category decides which
+--      account is debited -- a re-post that kept the old account passes any
+--      amount-only check. The payment method moves too, so the credit has to
+--      follow. Plus: an edit that touches only the `note` churns nothing.
+--  16. DELETING AN EXPENSE THAT POSTED NOTHING IS A CLEAN NO-OP -- both the
+--      count-linked row (caught by the delete-side link exclusion) and a
+--      standalone row with no entry at all (caught only by the null-pointer
+--      arm), because a mutation removing one is invisible to the other.
+--  17. A BILL'S MIRRORED ROW CASCADING AWAY DOES **NOT** REVERSE. The
+--      deliberate limit of 20260908001000: `invoice_payments` cascades off the
+--      same parent carrying its own Dr 2000 entries, so reversing the cost alone
+--      leaves 2000 in debit by the whole bill -- worse than doing nothing.
+--  18. A REVERSAL WHOSE MONTH HAS SINCE CLOSED IS REDATED, NOT REFUSED, with the
+--      original date and the period's status in the description.
 --  12. A STANDALONE stock_loss debits 5100 and credits 1200 -- NOT A WALLET.
 --      This is wrong today even with the double-post gone: losing stock costs
 --      the shop the stock, not the till, and crediting cash balances perfectly
@@ -124,6 +146,15 @@ declare
   v_was_1200   bigint;
   v_was_2000   bigint;
   v_was_5100   bigint;
+  -- Checks 14-17: the reverse-on-edit / reverse-on-delete doors.
+  v_bill_one   uuid;   -- check 6's rent bill, kept for check 17's cascade.
+  v_noop_id    uuid;   -- check 10's count-linked row, kept for check 16.
+  v_entry_two  uuid;   -- the replacement entry an edit posts.
+  v_rev        uuid;
+  v_status     text;
+  v_was_6300   bigint;
+  v_was_6700   bigint;
+  v_was_6900   bigint;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
   select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -420,6 +451,9 @@ begin
     values (v_shop_id, v_loc_id, 'Expenses Vendor', 'EXP-1', 'rent',
             v_on, public.shop_local_date() + 10, 61437)
     returning id into v_invoice_id;
+  -- Kept for check 17, which deletes this bill and reads what the cascade did
+  -- to the entry its mirrored expense row posted. v_invoice_id is reused by 6b.
+  v_bill_one := v_invoice_id;
 
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
   if v_rows - v_before <> 1 then
@@ -709,6 +743,9 @@ begin
     values (v_shop_id, v_loc_id, public.shop_local_date(), 5172, 'stock_loss', 'cash',
             'Stock-take', v_user_id, v_count_id)
     returning id into v_expense_id;
+  -- Kept for check 16: this is the row that posted NOTHING, and deleting it has
+  -- to be a clean no-op rather than an error.
+  v_noop_id := v_expense_id;
 
   -- ONE new entry, the count's. Not two.
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
@@ -870,6 +907,410 @@ begin
       raise exception 'FAIL: the "delete expenses" policy does not bar % -- deleting the row leaves its journal entry standing over nothing', v_text;
     end if;
   end loop;
+
+  ---------------------------------------------------------------------------
+  -- 14. DELETING A POSTED EXPENSE REVERSES ITS ENTRY.
+  ---------------------------------------------------------------------------
+  -- deleteExpense (src/lib/expenses.ts:125) is a plain `.delete()` behind a live
+  -- button on the Expenses screen. expenses.journal_entry_id carries no
+  -- ON DELETE -- 20260908000100 protects the ENTRY deliberately -- so before
+  -- 20260908001000 the entry outlived the row: still `status = 'posted'`,
+  -- described by a uuid that resolved to nothing, with the cost on the P&L for
+  -- ever and no source row left for the backfill to replay.
+  --
+  -- 'fees_charges' -> 6700, which nothing else in this script touches, so the
+  -- account can be read as well as the amount. 9137 is prime and is reached by
+  -- no other figure or pair of figures here.
+  --
+  -- MUTATION (proves this check): make reverse_expense_entry() `return null`
+  -- immediately on DELETE. Expected: FAIL: deleting a posted expense left its
+  -- entry posted.
+  select coalesce(sum(l.amount_cents), 0) into v_was_6700
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6700';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 9137, 'fees_charges', 'cash',
+            'Bank charge', v_user_id)
+    returning id into v_expense_id;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is null then
+    raise exception 'FAIL: the fees_charges expense did not post -- check 14 has nothing to reverse';
+  end if;
+
+  delete from public.expenses where id = v_expense_id;
+
+  -- The original is marked, not deleted: a book is added to, not amended.
+  select status into v_status from public.journal_entries where id = v_entry;
+  if v_status is null then
+    raise exception 'FAIL: deleting an expense deleted its journal entry -- a posted entry is a permanent record';
+  end if;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a posted expense left its entry %, expected reversed -- 6700 now carries a cost with no source row to explain it', v_status;
+  end if;
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_entry and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: no reversal entry points at the deleted expense''s entry';
+  end if;
+
+  -- EVERY line mirrored, not merely a balancing pair. A "reversal" that posted
+  -- one line for the total against a suspense account would net the two
+  -- assertions below to zero and be invisible to them.
+  select count(*) into v_rows
+    from public.journal_lines o
+   where o.entry_id = v_entry
+     and not exists (select 1 from public.journal_lines r
+                      where r.entry_id = v_rev
+                        and r.account_id = o.account_id
+                        and r.amount_cents = -o.amount_cents);
+  if v_rows <> 0 then
+    raise exception 'FAIL: % line(s) of the deleted expense''s entry have no negated twin on the reversal', v_rows;
+  end if;
+  select count(*) into v_rows from public.journal_lines where entry_id = v_rev;
+  select count(*) - v_rows into v_rows from public.journal_lines where entry_id = v_entry;
+  if v_rows <> 0 then
+    raise exception 'FAIL: the reversal has a different number of lines from the entry it mirrors (off by %)', v_rows;
+  end if;
+
+  -- A reversal carries the SAME SOURCE as the entry it reverses -- the
+  -- convention pinned phase-wide. 'bill' here, read off the original.
+  select source into v_text from public.journal_entries where id = v_rev;
+  select source into v_status from public.journal_entries where id = v_entry;
+  if v_text is distinct from v_status then
+    raise exception 'FAIL: the reversal is filed under % but reverses an entry that is % -- a report grouping by source shows one half of the pair', v_text, v_status;
+  end if;
+
+  -- AND THE ACCOUNTS NET TO ZERO. Measured shop-wide, which is the only view a
+  -- reversal that copied the lines WITHOUT negating them is visible in: it
+  -- balances on its own and every per-entry assertion above would still pass.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6700';
+  if v_amount - v_was_6700 <> 0 then
+    raise exception 'FAIL: 6700 Fees and charges reads % after the expense was deleted, expected the % it started at (9137 = the cost is still on the P&L; 18274 = the reversal did not negate its lines)',
+      v_amount, v_was_6700;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount - v_was_1000 <> 0 then
+    raise exception 'FAIL: 1000 Cash moved % across an expense that was posted and then deleted, expected 0', v_amount - v_was_1000;
+  end if;
+  if exists (select 1 from public.expenses where id = v_expense_id) then
+    raise exception 'FAIL: the expense row survived its own delete';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero after a reversal, off by %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 15. EDITING A POSTED EXPENSE REVERSES AND RE-POSTS FROM THE EDITED FIGURES.
+  ---------------------------------------------------------------------------
+  -- updateExpense (src/lib/expenses.ts:116) is a plain `.update()`. A posted
+  -- entry is immutable (refuse_posted_entry_edit), so from the moment posting
+  -- shipped EVERY expense edit left the ledger reading the pre-edit figures with
+  -- nothing anywhere saying so.
+  --
+  -- THE CATEGORY IS CHANGED AS WELL AS THE AMOUNT, and that is the point: the
+  -- category decides WHICH ACCOUNT is debited, so a re-post that kept the old
+  -- account -- or an "edit" that merely rewrote the amount on the old entry --
+  -- fails here and passes an amount-only check. 'marketing' is 6300 and 'other'
+  -- is 6900; the payment method moves cash -> zaad so the CREDIT has to follow
+  -- as well. Nothing else in this script touches 6300 or 6900.
+  --
+  -- MUTATION (proves this check): drop `new.journal_entry_id := null` from
+  -- reverse_expense_entry()'s UPDATE arm. Expected: FAIL: editing an expense
+  -- did not re-post -- the row still points at the entry that was just reversed.
+  select coalesce(sum(l.amount_cents), 0) into v_was_6300
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6300';
+  select coalesce(sum(l.amount_cents), 0) into v_was_6900
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6900';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1020
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 21400, 'marketing', 'cash',
+            'Radio advert', v_user_id)
+    returning id into v_expense_id;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is null then
+    raise exception 'FAIL: the marketing expense did not post -- check 15 has nothing to edit';
+  end if;
+
+  update public.expenses
+     set amount_cents = 5062, category = 'other', payment_method = 'zaad',
+         note = 'Actually a bank transfer', updated_at = now()
+   where id = v_expense_id;
+
+  select journal_entry_id into v_entry_two from public.expenses where id = v_expense_id;
+  if v_entry_two is null then
+    raise exception 'FAIL: editing an expense left the row with no journal entry at all -- the cost vanished from the books while the receipt is still on the Expenses screen';
+  end if;
+  if v_entry_two = v_entry then
+    raise exception 'FAIL: editing an expense did not re-post -- the row still points at the entry that was just reversed';
+  end if;
+  select status into v_status from public.journal_entries where id = v_entry;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: editing a posted expense left its original entry %, expected reversed', v_status;
+  end if;
+
+  -- THE REPLACEMENT READS THE EDITED FIGURES, on the edited ACCOUNTS.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry_two and a.code = '6900';
+  if v_amount <> 5062 then
+    raise exception 'FAIL: expected the replacement to debit 6900 Other 5062, got % (21400 = it re-posted the pre-edit amount)', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry_two and a.code = '1020';
+  if v_amount <> -5062 then
+    raise exception 'FAIL: expected the replacement to credit 1020 Zaad -5062, got % -- the edited payment method did not reach the ledger', v_amount;
+  end if;
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry_two and a.code in ('6300', '1000')) then
+    raise exception 'FAIL: the replacement still names the PRE-EDIT account -- the re-post did not go through the category and payment-method maps again';
+  end if;
+
+  -- Shop-wide: the old pair nets to nothing and only the new pair survives. This
+  -- is the view a reversal that fired without a re-post (or a re-post without a
+  -- reversal) is visible in.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6300';
+  if v_amount - v_was_6300 <> 0 then
+    raise exception 'FAIL: 6300 Marketing moved % across an expense that was re-categorised away from it, expected 0', v_amount - v_was_6300;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6900';
+  if v_amount - v_was_6900 <> 5062 then
+    raise exception 'FAIL: 6900 Other moved % across the edit, expected the edited 5062', v_amount - v_was_6900;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount - v_was_1000 <> 0 then
+    raise exception 'FAIL: 1000 Cash moved % across an expense whose payment method was edited to zaad, expected 0', v_amount - v_was_1000;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  if v_amount - v_was_1020 <> -5062 then
+    raise exception 'FAIL: 1020 Zaad moved % across the edit, expected -5062', v_amount - v_was_1020;
+  end if;
+
+  -- AND AN EDIT THAT CHANGES NOTHING THE ENTRY IS MADE OF CHURNS NOTHING.
+  -- `note` reaches no journal line, so retyping one must not push a reversal and
+  -- a replacement through the ledger for every typo. This is also the half that
+  -- keeps post_expense_to_ledger's own `update ... set journal_entry_id` from
+  -- re-entering the pair for ever.
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  update public.expenses set note = 'Retyped', updated_at = now() where id = v_expense_id;
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  if v_rows <> v_before then
+    raise exception 'FAIL: retyping an expense''s note wrote % journal entries, expected 0', v_rows - v_before;
+  end if;
+  if (select journal_entry_id from public.expenses where id = v_expense_id) is distinct from v_entry_two then
+    raise exception 'FAIL: retyping an expense''s note repointed it at a different journal entry';
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero after an edit, off by %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 16. DELETING AN EXPENSE THAT POSTED NOTHING IS A CLEAN NO-OP.
+  ---------------------------------------------------------------------------
+  -- Check 10's row: linked to a stock-take, journal_entry_id NULL, because
+  -- save_stock_count already posted both sides. The same shape covers a
+  -- payroll-linked row, an inventory_purchase bill and any expense entered
+  -- before 20260908000750 shipped and not yet backfilled. Reversing nothing is
+  -- not an error -- and it must not be, or a shop tidying up its Expenses screen
+  -- meets a ledger error on a row the ledger never heard of.
+  --
+  -- TWO ROWS, because they take DIFFERENT arms of the same function and a
+  -- mutation that removes one is invisible to the other:
+  --
+  --   16a the count-linked row, which the DELETE link exclusion (check 17)
+  --       catches before the null-pointer arm is ever reached;
+  --   16b a STANDALONE row with no entry, which ONLY the null-pointer arm
+  --       catches. This is the pre-20260908000750 expense the backfill has not
+  --       reached yet, and it is the load-bearing half.
+  --
+  -- MUTATION (proves 16b): remove the `old.journal_entry_id is null` arm from
+  -- reverse_expense_entry(). Expected: ERROR: the journal entry for this expense
+  -- is missing, so it cannot be reversed. The same mutation leaves 16a green,
+  -- which is why 16b exists.
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  if (select journal_entry_id from public.expenses where id = v_noop_id) is not null then
+    raise exception 'FAIL: check 16a''s fixture row carries an entry -- it is not testing the no-op path';
+  end if;
+  delete from public.expenses where id = v_noop_id;
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  if v_rows <> v_before then
+    raise exception 'FAIL: deleting a count-linked expense wrote % journal entries', v_rows - v_before;
+  end if;
+  if exists (select 1 from public.expenses where id = v_noop_id) then
+    raise exception 'FAIL: the count-linked expense row survived its own delete';
+  end if;
+
+  -- 16b. The posting trigger is switched off for one insert, which is the only
+  -- honest way to reproduce a row written before 20260908000750 shipped -- the
+  -- state every expense in every existing shop is in until the backfill reaches
+  -- it. A row with no entry that is not linked to anything is precisely what the
+  -- null-pointer arm exists for, and nothing else in this script has one.
+  alter table public.expenses disable trigger expenses_post_to_ledger;
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 4417, 'fees_charges', 'cash',
+            'Entered before posting shipped', v_user_id)
+    returning id into v_noop_id;
+  alter table public.expenses enable trigger expenses_post_to_ledger;
+  if (select journal_entry_id from public.expenses where id = v_noop_id) is not null then
+    raise exception 'FAIL: check 16b''s fixture row posted -- it is not testing the no-op path';
+  end if;
+
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  delete from public.expenses where id = v_noop_id;
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  if v_rows <> v_before then
+    raise exception 'FAIL: deleting a standalone expense that never posted wrote % journal entries', v_rows - v_before;
+  end if;
+  if exists (select 1 from public.expenses where id = v_noop_id) then
+    raise exception 'FAIL: the never-posted expense row survived its own delete';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 17. A BILL'S MIRRORED ROW CASCADING AWAY DOES **NOT** REVERSE.
+  ---------------------------------------------------------------------------
+  -- The deliberate limit of 20260908001000, asserted so it stays a decision.
+  --
+  -- `expenses.invoice_id` is `on delete cascade`, so deleting a bill takes its
+  -- mirrored expense row with it -- and `invoice_payments` cascades off the same
+  -- parent, carrying its OWN Dr 2000 / Cr wallet entries. Reversing the bill's
+  -- Dr 6000 / Cr 2000 while those payments stay standing would leave 2000
+  -- Accounts Payable in DEBIT by the whole bill and the cash gone with no cost
+  -- against it -- strictly worse than doing nothing, which at least leaves "the
+  -- rent was paid", which is what happened. Deleting a bill and its payments
+  -- together is a different door (src/lib/invoices.ts:151) and a gap this file
+  -- does not claim to close.
+  --
+  -- The `delete expenses` policy bars all four link columns (check 13), so a
+  -- cascade is the ONLY way a linked row reaches the trigger at all.
+  --
+  -- MUTATION (proves this check): drop the tg_op = 'DELETE' link exclusion from
+  -- reverse_expense_entry(). Expected: FAIL: deleting a bill reversed its
+  -- mirrored expense's entry.
+  select journal_entry_id into v_entry from public.expenses where invoice_id = v_bill_one;
+  if v_entry is null then
+    raise exception 'FAIL: check 17''s bill has no entry -- it is not testing anything';
+  end if;
+  delete from public.invoices where id = v_bill_one;
+  if exists (select 1 from public.expenses where invoice_id = v_bill_one) then
+    raise exception 'FAIL: deleting a bill did not cascade its mirrored expense row away';
+  end if;
+  select status into v_status from public.journal_entries where id = v_entry;
+  if v_status <> 'posted' then
+    raise exception 'FAIL: deleting a bill reversed its mirrored expense''s entry (now %) -- its payments'' entries are not reversed with it, so 2000 Accounts Payable is left in debit', v_status;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 18. A REVERSAL WHOSE MONTH HAS SINCE CLOSED IS REDATED, NOT REFUSED.
+  ---------------------------------------------------------------------------
+  -- reverse_journal_entry dates a reversal to the ORIGINAL entry's date on
+  -- purpose -- a correction to August belongs in August. Right for a human at
+  -- the ledger screen; wrong at this door, because open_period_for RAISES for
+  -- any non-open period, so without the redirect deleting a receipt from a
+  -- closed month fails with a ledger error on the Expenses screen for an
+  -- operation that worked before this branch.
+  --
+  -- Check 8's closed month cannot be used: an expense back-dated into it is
+  -- already redated to today, so its ENTRY sits in an open period and reversing
+  -- it exercises nothing. This needs a month that was OPEN when the cost posted
+  -- and was closed afterwards -- which is the ordinary sequence, because that is
+  -- what closing a month IS.
+  --
+  -- MUTATION (proves this check): change the redirect's condition in
+  -- reverse_expense_entry() to `if false`. Expected: ERROR: This period is
+  -- closed — posting into it is refused. Re-open it first.
+  v_on := (date_trunc('month', public.shop_local_date()::timestamp) - interval '3 months')::date + 14;
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, v_on, 5533, 'fees_charges', 'cash', 'Old bank charge', v_user_id)
+    returning id into v_expense_id;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  select entry_date into v_date from public.journal_entries where id = v_entry;
+  if v_date <> v_on then
+    raise exception 'FAIL: check 18''s fixture entry is dated %, expected % -- the month was not open when it posted', v_date, v_on;
+  end if;
+
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and v_on between starts_on and ends_on;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row covering % to close', v_on;
+  end if;
+
+  delete from public.expenses where id = v_expense_id;
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_entry and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: deleting an expense whose month has closed wrote no reversal';
+  end if;
+  select entry_date, description into v_date, v_text from public.journal_entries where id = v_rev;
+  if v_date <> public.shop_local_date() then
+    raise exception 'FAIL: the reversal of an entry in a closed month is dated %, expected the current period (%)',
+      v_date, public.shop_local_date();
+  end if;
+  -- The journal has to SAY why an old undoing is sitting in this month. This is
+  -- also the assertion that catches the NULL-description trap: `||` with a NULL
+  -- operand yields NULL for the WHOLE expression, so a missing coalesce on the
+  -- period status fails the delete with "A journal entry needs a description" --
+  -- an error about descriptions for a bug about dates.
+  if v_text not like '%that period is closed%' then
+    raise exception 'FAIL: the redated reversal does not say why it moved: %', v_text;
+  end if;
+  if v_text not like '%' || to_char(v_on, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated reversal does not carry the original entry''s date: %', v_text;
+  end if;
+  -- The pair still nets to nothing, in a different month from the one it posted.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l where l.entry_id in (v_entry, v_rev);
+  if v_amount <> 0 then
+    raise exception 'FAIL: a redated reversal and its original do not net to zero, off by %', v_amount;
+  end if;
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
