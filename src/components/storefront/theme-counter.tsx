@@ -3,7 +3,8 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import {
-  CartButton, EmptyState, ProductActions, WhatsAppButton, useStorefrontCart, type ThemeProps,
+  CartButton, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, ProductActions, WhatsAppButton,
+  useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
@@ -23,13 +24,48 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
   return [...groups.entries()];
 }
 
-export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
+export function ThemeCounter({ storefront, products, colors, areas = [] }: ThemeProps) {
   // The basket is keyed by shop slug, not by theme (see theme-shared.tsx's
   // useStorefrontCart) -- a customer can still arrive here with items a
   // grid theme already put in it, or a shop can switch themes with a basket
   // still in progress. Either way this entry point has to be here too.
-  const { cart, addProduct, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  const checkout = useCheckoutFlow({
+    slug: storefront.slug,
+    shopName: storefront.shopName,
+    whatsappE164: storefront.whatsappE164,
+    onOrderPlaced: clearCart,
+  });
+
+  // See theme-market.tsx's comment on this same branch -- browse -> cart ->
+  // checkout -> confirmation, no route change, checkout/confirmation shared
+  // verbatim across every theme.
+  if (checkout.stage === 'checkout') {
+    return (
+      <CheckoutScreen
+        storefront={storefront}
+        cart={cart}
+        areas={areas}
+        colors={colors}
+        submitting={checkout.submitting}
+        error={checkout.error}
+        onBack={checkout.backToBrowse}
+        onSubmit={(details) => checkout.submit(cart, details)}
+      />
+    );
+  }
+
+  if (checkout.stage === 'confirmation' && checkout.order) {
+    return (
+      <ConfirmationScreen
+        order={checkout.order}
+        shopName={storefront.shopName}
+        colors={colors}
+        onDone={checkout.backToBrowse}
+      />
+    );
+  }
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
@@ -99,6 +135,8 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
         colors={colors}
         onChangeQuantity={changeQuantity}
       />
+
+      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
     </View>
   );
 }

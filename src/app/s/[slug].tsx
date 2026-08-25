@@ -4,8 +4,8 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { StorefrontView } from '@/components/storefront/storefront-view';
-import { getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import { getPublicDeliveryAreas, getPublicStorefront, getPublicStorefrontProducts } from '@/lib/storefront';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
 
 // A DRAFT SHOP AND A NONEXISTENT SHOP RENDER THE SAME PAGE.
 //
@@ -17,7 +17,9 @@ import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 export default function StorefrontScreen() {
   const { slug } = useLocalSearchParams<{ slug: string }>();
   const [state, setState] = useState<
-    { status: 'loading' } | { status: 'missing' } | { status: 'ready'; shop: PublicStorefront; products: StorefrontProduct[] }
+    | { status: 'loading' }
+    | { status: 'missing' }
+    | { status: 'ready'; shop: PublicStorefront; products: StorefrontProduct[]; areas: PublicDeliveryArea[] }
   >({ status: 'loading' });
 
   useEffect(() => {
@@ -31,8 +33,16 @@ export default function StorefrontScreen() {
           setState({ status: 'missing' });
           return;
         }
-        const products = await getPublicStorefrontProducts(String(slug));
-        if (!cancelled) setState({ status: 'ready', shop, products });
+        // Areas are only read when the shop actually offers delivery -- a
+        // shop that doesn't has none to show and checkout (Task 6) already
+        // treats an empty list the same as collection-only, so there is
+        // nothing to gain from asking every collection-only shop's page load
+        // to also pay for this RPC.
+        const [products, areas] = await Promise.all([
+          getPublicStorefrontProducts(String(slug)),
+          shop.offersDelivery ? getPublicDeliveryAreas(String(slug)) : Promise.resolve([]),
+        ]);
+        if (!cancelled) setState({ status: 'ready', shop, products, areas });
       } catch {
         // A failed read is indistinguishable from an unknown shop on purpose --
         // an error page would confirm the shop exists.
@@ -65,7 +75,7 @@ export default function StorefrontScreen() {
   return (
     <>
       <StorefrontHead shop={state.shop} />
-      <StorefrontView storefront={state.shop} products={state.products} />
+      <StorefrontView storefront={state.shop} products={state.products} areas={state.areas} />
     </>
   );
 }

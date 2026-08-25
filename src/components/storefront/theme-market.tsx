@@ -4,14 +4,53 @@ import { FlatList, StyleSheet, Text, View, useWindowDimensions } from 'react-nat
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
-  CartButton, EmptyState, WhatsAppButton, gridColumnsForWidth, useStorefrontCart, type ThemeProps,
+  CartButton, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
+  gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 
-export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
+export function ThemeMarket({ storefront, products, colors, areas = [] }: ThemeProps) {
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
-  const { cart, addProduct, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  const checkout = useCheckoutFlow({
+    slug: storefront.slug,
+    shopName: storefront.shopName,
+    whatsappE164: storefront.whatsappE164,
+    onOrderPlaced: clearCart,
+  });
+
+  // Browse -> cart -> checkout -> confirmation all live on this one screen --
+  // no route change, so a flaky connection mid-checkout never loses the
+  // basket. `cart` (open/close) is CartSheet's own modal, layered over the
+  // browsing return below; `checkout.stage` swaps the WHOLE screen, since
+  // checkout and confirmation are the same for every theme (see
+  // CheckoutScreen/ConfirmationScreen in theme-shared.tsx).
+  if (checkout.stage === 'checkout') {
+    return (
+      <CheckoutScreen
+        storefront={storefront}
+        cart={cart}
+        areas={areas}
+        colors={colors}
+        submitting={checkout.submitting}
+        error={checkout.error}
+        onBack={checkout.backToBrowse}
+        onSubmit={(details) => checkout.submit(cart, details)}
+      />
+    );
+  }
+
+  if (checkout.stage === 'confirmation' && checkout.order) {
+    return (
+      <ConfirmationScreen
+        order={checkout.order}
+        shopName={storefront.shopName}
+        colors={colors}
+        onDone={checkout.backToBrowse}
+      />
+    );
+  }
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
@@ -66,6 +105,8 @@ export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
         colors={colors}
         onChangeQuantity={changeQuantity}
       />
+
+      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
     </View>
   );
 }

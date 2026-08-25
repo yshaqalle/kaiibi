@@ -4,17 +4,53 @@ import { FlatList, Image, StyleSheet, Text, View, useWindowDimensions } from 're
 import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
 import {
-  CartButton, EmptyState, WhatsAppButton, gridColumnsForWidth, useStorefrontCart, type ThemeProps,
+  CartButton, CheckoutBar, CheckoutScreen, ConfirmationScreen, EmptyState, WhatsAppButton,
+  gridColumnsForWidth, useCheckoutFlow, useStorefrontCart, type ThemeProps,
 } from '@/components/storefront/theme-shared';
 
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
 // That is the test every theme in this set had to pass.
-export function ThemeWindow({ storefront, products, colors }: ThemeProps) {
+export function ThemeWindow({ storefront, products, colors, areas = [] }: ThemeProps) {
   const { width } = useWindowDimensions();
   const numColumns = gridColumnsForWidth(width);
-  const { cart, addProduct, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const { cart, addProduct, changeQuantity, clearCart, itemCount, subtotalCents } = useStorefrontCart(storefront.slug);
   const [cartOpen, setCartOpen] = useState(false);
+  const checkout = useCheckoutFlow({
+    slug: storefront.slug,
+    shopName: storefront.shopName,
+    whatsappE164: storefront.whatsappE164,
+    onOrderPlaced: clearCart,
+  });
+
+  // See theme-market.tsx's comment on this same branch -- browse -> cart ->
+  // checkout -> confirmation, no route change, checkout/confirmation shared
+  // verbatim across every theme.
+  if (checkout.stage === 'checkout') {
+    return (
+      <CheckoutScreen
+        storefront={storefront}
+        cart={cart}
+        areas={areas}
+        colors={colors}
+        submitting={checkout.submitting}
+        error={checkout.error}
+        onBack={checkout.backToBrowse}
+        onSubmit={(details) => checkout.submit(cart, details)}
+      />
+    );
+  }
+
+  if (checkout.stage === 'confirmation' && checkout.order) {
+    return (
+      <ConfirmationScreen
+        order={checkout.order}
+        shopName={storefront.shopName}
+        colors={colors}
+        onDone={checkout.backToBrowse}
+      />
+    );
+  }
 
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
@@ -68,6 +104,8 @@ export function ThemeWindow({ storefront, products, colors }: ThemeProps) {
         colors={colors}
         onChangeQuantity={changeQuantity}
       />
+
+      <CheckoutBar colors={colors} itemCount={itemCount} subtotalCents={subtotalCents} onPress={checkout.openCheckout} />
     </View>
   );
 }

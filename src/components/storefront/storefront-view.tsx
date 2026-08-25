@@ -5,7 +5,7 @@ import {
   DEFAULT_PALETTE, DEFAULT_THEME, paletteColors,
   type StorefrontPalette, type StorefrontTheme,
 } from '@/lib/storefront-catalog';
-import type { PublicStorefront, StorefrontProduct } from '@/types/models';
+import type { PublicDeliveryArea, PublicStorefront, StorefrontProduct } from '@/types/models';
 
 const RENDERERS = {
   market: ThemeMarket,
@@ -17,16 +17,22 @@ const RENDERERS = {
 // unknown value should be impossible. Falling back anyway costs one line and is
 // the difference between a page that looks slightly different from what the shop
 // chose and a page that renders unstyled in front of their customers.
+//
+// `areas` is optional and defaults to `[]` -- a caller with nothing to offer
+// (every pre-Task-8 test of this component) still gets a collection-only
+// checkout rather than a missing required prop.
 export function StorefrontView({
   storefront,
   products,
+  areas = [],
 }: {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
+  areas?: PublicDeliveryArea[];
 }) {
   const hasTheme = Object.prototype.hasOwnProperty.call(RENDERERS, storefront.theme);
   const themeKey = (hasTheme ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
   const Renderer = RENDERERS[themeKey];
   const colors = paletteColors((storefront.palette ?? DEFAULT_PALETTE) as StorefrontPalette);
-  return <Renderer storefront={storefront} products={products} colors={colors} />;
+  return <Renderer storefront={storefront} products={products} colors={colors} areas={areas} />;
 }
