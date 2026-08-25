@@ -4,6 +4,11 @@
 -- is packaged into. `free` and `standard` do not get it -- a public page is
 -- part of what moving up from Standard buys.
 --
+-- Timestamped 20260923 rather than anywhere in the 20260908-20260909 window:
+-- that window is fully occupied by the unmerged accounting branch
+-- (20260908000000_posting_account_map.sql onward), and two migrations sharing a
+-- prefix only reveal themselves when the branches meet.
+--
 -- A fresh migration rather than an edit to 20260818000000's seed: that seed
 -- already ran in every environment that has this schema, and its `insert ...
 -- on conflict do nothing` would make an edit to it silently do nothing there.

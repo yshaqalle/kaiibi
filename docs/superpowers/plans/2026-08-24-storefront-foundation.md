@@ -66,15 +66,19 @@ Plan 1 ships a page a shop cannot yet edit — seeded by SQL — which is delibe
 
 ---
 
-### Task 1: The `storefront` module
+### Task 1: The `storefront` module, in the catalogue *and* in a plan
+
+Adding a module to `entitlements.ts` grants it to nobody. `plans.modules` is a seeded `text[]` (`20260818000000_plans_and_subscriptions.sql:195-219`) and the module gate reads that array — so without the migration below, every `insert into public.storefronts` raises `module_not_included`, including the one in Task 6's DB test.
 
 **Files:**
 - Modify: `src/lib/entitlements.ts:20-64`
+- Create: `supabase/migrations/20260923000000_storefront_module_grant.sql`
+- Create: `supabase/tests/verify-storefront-module-grant.sql`
 - Test: `src/lib/__tests__/entitlements.test.ts`
 
 **Interfaces:**
 - Consumes: nothing.
-- Produces: `Module` union gains `'storefront'`; `MODULES` gains an entry with that key.
+- Produces: `Module` union gains `'storefront'`; `MODULES` gains an entry with that key; the `trial` and `pro` plans grant it.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -131,11 +135,86 @@ npm test -- entitlements
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write the failing DB check**
+
+Create `supabase/tests/verify-storefront-module-grant.sql`:
+
+```sql
+-- Adding a module to entitlements.ts grants it to nobody. plans.modules is a
+-- seeded array, and the module gate reads that array.
+
+\set ON_ERROR_STOP on
+
+do $$
+begin
+  if not (select 'storefront' = any(modules) from public.plans where key = 'trial') then
+    raise exception 'FAIL: the trial plan does not grant storefront, but its description promises full access';
+  end if;
+
+  if not (select 'storefront' = any(modules) from public.plans where key = 'pro') then
+    raise exception 'FAIL: the pro plan does not grant storefront, but its description promises every module';
+  end if;
+
+  if (select 'storefront' = any(modules) from public.plans where key = 'free') then
+    raise exception 'FAIL: the free plan grants storefront';
+  end if;
+
+  raise notice 'PASS: storefront module is granted where it should be';
+end $$;
+```
+
+- [ ] **Step 6: Run it and watch it fail**
 
 ```bash
-git add src/lib/entitlements.ts src/lib/__tests__/entitlements.test.ts
-git commit -m "feat(storefront): add the storefront module to the catalog"
+npm run test:db
+```
+
+Expected: FAIL — `the trial plan does not grant storefront`.
+
+- [ ] **Step 7: Write the grant migration**
+
+Create `supabase/migrations/20260923000000_storefront_module_grant.sql`. **Use exactly this filename.** The `20260908*` and `20260909*` slots are taken on an unmerged branch; picking a timestamp in that window produces two migrations with the same prefix when the branches meet.
+
+```sql
+-- Granting the new module to the plans whose own copy already promises it.
+--
+-- trial says "Full access while you evaluate Kaiibi." and pro says "Every
+-- branch, every module, no caps." Leaving storefront out of either would make
+-- the description a lie we charge money for, so these two are not a pricing
+-- decision -- they are forced by text already shipped.
+--
+-- standard is DELIBERATELY EXCLUDED, and that is the pricing decision. The
+-- asymmetry decides it: adding storefront to standard later is one more line
+-- like these, while removing it after shops have built and published pages is
+-- taking away something they are using and may have printed on a card.
+--
+-- free is excluded for the reason free excludes everything past a till and a
+-- product list.
+--
+-- Idempotent, because array_append would duplicate on a re-run and
+-- shop_has_module would still pass -- hiding the bug rather than failing.
+
+update public.plans
+set modules = array_append(modules, 'storefront')
+where key in ('trial', 'pro')
+  and not ('storefront' = any(modules));
+```
+
+- [ ] **Step 8: Run both suites and watch them pass**
+
+```bash
+npm test -- entitlements && npm run test:db
+```
+
+Expected: both PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/lib/entitlements.ts src/lib/__tests__/entitlements.test.ts \
+        supabase/migrations/20260923000000_storefront_module_grant.sql \
+        supabase/tests/verify-storefront-module-grant.sql
+git commit -m "feat(storefront): add the storefront module and grant it to trial and pro"
 ```
 
 ---
@@ -1510,24 +1589,29 @@ npm test -- storefront-view
 
 Expected: FAIL — `Cannot find module '@/components/storefront/storefront-view'`.
 
-- [ ] **Step 3: Write the shared header and Market**
+- [ ] **Step 3: Write the shared parts**
 
-Create `src/components/storefront/theme-market.tsx`:
+Create `src/components/storefront/theme-shared.tsx`:
 
 ```tsx
-import { FlatList, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text } from 'react-native';
 
-import { ProductTile } from '@/components/storefront/product-tile';
-import { WHATSAPP_GREEN, type PaletteColors } from '@/lib/storefront-catalog';
 import { waLink } from '@/lib/storefront';
+import { WHATSAPP_GREEN, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
+// The parts every theme needs. Kept out of any one theme so that Market is a
+// theme and nothing else -- Counter importing its empty state from Market would
+// make deleting or rewriting Market a change to the other two.
 export type ThemeProps = {
   storefront: PublicStorefront;
   products: StorefrontProduct[];
   colors: PaletteColors;
 };
 
+// Returns null when the shop has no number. Publishing requires one, so this is
+// the belt to that braces -- a page rendered from a row written before that rule
+// existed should lose the button, not render one that opens a chat with nobody.
 export function WhatsAppButton({ storefront }: { storefront: PublicStorefront }) {
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
@@ -1541,6 +1625,24 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
 export function EmptyState({ colors }: { colors: PaletteColors }) {
   return <Text style={[styles.empty, { color: colors.ink }]}>Nothing listed yet.</Text>;
 }
+
+const styles = StyleSheet.create({
+  // Fixed green in every palette: a recognised affordance, not a brand colour.
+  wa: { backgroundColor: WHATSAPP_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
+  waText: { color: '#ffffff', fontSize: 12.5, fontWeight: '800' },
+  empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
+});
+```
+
+- [ ] **Step 4: Write Market**
+
+Create `src/components/storefront/theme-market.tsx`:
+
+```tsx
+import { FlatList, StyleSheet, Text, View } from 'react-native';
+
+import { ProductTile } from '@/components/storefront/product-tile';
+import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
 
 export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
   return (
@@ -1587,13 +1689,10 @@ const styles = StyleSheet.create({
   grid: { padding: 14, gap: 12 },
   row: { gap: 12 },
   cell: { flex: 1 },
-  wa: { backgroundColor: WHATSAPP_GREEN, borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  waText: { color: '#ffffff', fontSize: 12.5, fontWeight: '800' },
-  empty: { fontSize: 14, fontWeight: '700', padding: 24, textAlign: 'center' },
 });
 ```
 
-- [ ] **Step 4: Write Counter**
+- [ ] **Step 5: Write Counter**
 
 Create `src/components/storefront/theme-counter.tsx`:
 
