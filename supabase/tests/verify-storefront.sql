@@ -174,6 +174,25 @@ begin
     raise exception 'FAIL: delivery areas leaked for a shop whose storefront module was revoked';
   end if;
 
+  -- ------------------------------------------------ 10. reserved slugs are rejected at the DB, not just the client
+  -- validateSlug in src/lib/storefront-slug.ts has no production caller that
+  -- runs before a write, so a reserved name like 'api' must be unreachable
+  -- through PostgREST too, or a shop can permanently squat a subdomain the
+  -- platform needs. See 20260924000200_storefront_reserved_slugs.sql.
+  v_raised := false;
+  begin
+    update public.shops set slug = 'api' where id = v_other_id;
+  exception when check_violation then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a reserved slug was accepted';
+  end if;
+
+  update public.shops set slug = 'ordinary-shop-name' where id = v_other_id;
+  if (select slug from public.shops where id = v_other_id) <> 'ordinary-shop-name' then
+    raise exception 'FAIL: an ordinary slug was rejected';
+  end if;
+
   raise notice 'PASS: storefront schema';
   raise exception 'rollback_marker';
 exception
