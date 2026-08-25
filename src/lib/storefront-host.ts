@@ -9,10 +9,9 @@
 // resolved a shop would put a public storefront in front of a developer
 // expecting the admin app, and worse, would do it on staging data.
 
-import { RESERVED_SLUGS } from '@/lib/storefront-slug';
+import { validateSlug } from '@/lib/storefront-slug';
 
 const APP_DOMAIN = 'kaiibi.com';
-const RESERVED = new Set<string>(RESERVED_SLUGS);
 
 export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAIN): string | null {
   if (typeof hostname !== 'string') return null;
@@ -24,6 +23,11 @@ export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAI
   // Exactly one label. `a.b.kaiibi.com` is not a shop; guessing which half is
   // the slug is how you serve the wrong shop's prices.
   if (!label || label.includes('.')) return null;
-  if (RESERVED.has(label)) return null;
+  // The label is untrusted input from the network, not a value we minted. Run
+  // it through the same rules a slug must pass to be written in the first
+  // place (length, characters, edge hyphens, reserved names) so this function
+  // never hands a caller something that merely looks dot-free. Fails closed:
+  // an unparseable label behaves exactly like an unknown host.
+  if (validateSlug(label) !== null) return null;
   return label;
 }

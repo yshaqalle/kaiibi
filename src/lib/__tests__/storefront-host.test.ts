@@ -34,4 +34,14 @@ describe('slugFromHostname', () => {
   it('takes the domain as an argument so tests and staging can differ', () => {
     expect(slugFromHostname('xamdi.kaiibi.test', 'kaiibi.test')).toBe('xamdi');
   });
+
+  it('rejects a label longer than the 63-character DNS limit', () => {
+    const tooLong = 'a'.repeat(64);
+    expect(slugFromHostname(`${tooLong}.kaiibi.com`)).toBeNull();
+  });
+
+  it('rejects a label with a leading or trailing hyphen', () => {
+    expect(slugFromHostname('-xamdi.kaiibi.com')).toBeNull();
+    expect(slugFromHostname('xamdi-.kaiibi.com')).toBeNull();
+  });
 });
