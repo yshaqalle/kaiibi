@@ -1,8 +1,12 @@
-import { LEDGER_VIEWS, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import { backfillFooter, LEDGER_VIEWS, visibleLedgerViews, type LedgerView } from '@/components/accounting/ledger/ledger-hub';
+import type { Permission } from '@/lib/permissions';
+
+/** A `can` that grants exactly the permissions named. */
+const holding = (...granted: Permission[]) => (permission: Permission) => granted.includes(permission);
 
 describe('the ledger hub catalogue', () => {
-  it('lists exactly the six views the shell can route to', () => {
-    expect(LEDGER_VIEWS.map((v) => v.key)).toEqual(['hub', 'accounts', 'entry', 'journals', 'trial', 'audit']);
+  it('lists exactly the seven views the shell can route to', () => {
+    expect(LEDGER_VIEWS.map((v) => v.key)).toEqual(['hub', 'accounts', 'entry', 'journals', 'trial', 'backfill', 'audit']);
   });
 
   it('gives every non-hub view a group, so none can be added without a home on the hub', () => {
@@ -32,7 +36,8 @@ describe('the ledger hub catalogue', () => {
   it('marks exactly the views that create something, so only those get the filled button', () => {
     // The distinction the footer's two button styles rest on. Reading a report
     // and writing to the ledger should not look like the same act.
-    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry']);
+    // Post History joins it: replaying a shop's history writes to the books.
+    expect(LEDGER_VIEWS.filter((v) => v.creates).map((v) => v.key)).toEqual(['entry', 'backfill']);
   });
 
   it('starts a creating action with a plus and a reading action without one', () => {
@@ -46,7 +51,71 @@ describe('the ledger hub catalogue', () => {
     const resolve = (raw: string | undefined): LedgerView =>
       LEDGER_VIEWS.some((v) => v.key === raw) ? (raw as LedgerView) : 'hub';
     expect(resolve('trial')).toBe('trial');
+    expect(resolve('backfill')).toBe('backfill');
     expect(resolve('nonsense')).toBe('hub');
     expect(resolve(undefined)).toBe('hub');
+  });
+});
+
+describe('Post History is gated on ledger.close', () => {
+  // backfill_shop_ledger refuses anyone without ledger.close, in its own first
+  // ten lines: replaying a whole history is heavier than posting one entry.
+  // A card that offers a button which raises is worse than no card.
+  it('shows the card to a user holding ledger.close', () => {
+    expect(visibleLedgerViews(holding('ledger.close')).map((v) => v.key)).toContain('backfill');
+  });
+
+  it('hides it from a user who holds ledger.post but not ledger.close', () => {
+    // The near miss, and the one an implementation is most likely to get wrong:
+    // a bookkeeper who may write manual entries still may not rewrite history.
+    expect(visibleLedgerViews(holding('ledger.post')).map((v) => v.key)).not.toContain('backfill');
+  });
+
+  it('hides it from a user holding nothing at all', () => {
+    expect(visibleLedgerViews(holding()).map((v) => v.key)).not.toContain('backfill');
+  });
+
+  it('hides only that card, leaving the rest of the hub intact', () => {
+    // A gate that took the group with it would strip Chart of Accounts, the
+    // journals and the trial balance from every reader who is not an owner.
+    expect(visibleLedgerViews(holding()).map((v) => v.key)).toEqual([
+      'hub',
+      'accounts',
+      'entry',
+      'journals',
+      'trial',
+      'audit',
+    ]);
+  });
+
+  it('names ledger.close on the card itself, so the gate and the RPC cannot drift apart', () => {
+    expect(LEDGER_VIEWS.find((v) => v.key === 'backfill')?.requires).toBe('ledger.close');
+  });
+
+  it('leaves every other card ungated', () => {
+    expect(LEDGER_VIEWS.filter((v) => v.requires !== null).map((v) => v.key)).toEqual(['backfill']);
+  });
+});
+
+describe("Post History's footer", () => {
+  it('falls back to the static scope while the count is unknown', () => {
+    // Never a guessed "Nothing unposted": a shop with two years outside its
+    // books would read that as "nothing to do" and close the card.
+    expect(backfillFooter(null)).toEqual({ scope: 'Past trading', action: '+ Post history', creates: true });
+  });
+
+  it('states the count, and keeps the filled create button, when rows are waiting', () => {
+    const footer = backfillFooter(3973);
+    expect(footer.scope).toBe('3,973 unposted');
+    expect(footer.creates).toBe(true);
+    expect(footer.action.startsWith('+')).toBe(true);
+  });
+
+  it('goes quiet and drops the plus when there is nothing to post', () => {
+    // The common case after the first run. Opening it then creates nothing, so
+    // it must not look like it does.
+    const footer = backfillFooter(0);
+    expect(footer).toEqual({ scope: 'Nothing unposted', action: 'Check', creates: false });
+    expect(footer.action.startsWith('+')).toBe(false);
   });
 });

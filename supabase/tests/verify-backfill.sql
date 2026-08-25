@@ -127,6 +127,10 @@ declare
   v_rows      integer;
   v_text      text;
   v_date      date;
+  -- Checks 14 and 15: what the Post History door says is waiting, read off
+  -- unposted_ledger_counts() before and after the replay.
+  v_bf_kinds  integer;
+  v_bf_oldest date;
   -- The old sale's day in the shop's own time, and the UTC instant that lands
   -- on it. 22:30 UTC is 01:30 the NEXT day in Mogadishu (UTC+3), so
   -- shop_local_date() and a bare ::date differ by one and any replay that
@@ -587,7 +591,55 @@ begin
   -- cost is recognised by the bill" -- and nothing on this branch posts when an
   -- `invoices` row is inserted, so excluding the mirror row excluded the whole
   -- recognition. Replayed history reproduced the live defect to the cent.
+
+  ---------------------------------------------------------------------------
+  -- 14. THE DOOR AND THE REPLAY AGREE ON WHAT "UNPOSTED" MEANS -- BEFORE.
+  ---------------------------------------------------------------------------
+  -- The Post History screen has to say how many rows are waiting, and of what
+  -- kind, BEFORE the replay runs. public.unposted_ledger_sources is where that
+  -- answer comes from, and it carries a second copy of the eight per-kind
+  -- predicates. Two copies of a definition is how a door comes to promise
+  -- entries the replay will not write -- a number that is plausible and wrong,
+  -- which is worse than no number.
+  --
+  -- So the view's total is asserted against what backfill_shop_ledger is about
+  -- to RETURN, taken dynamically rather than restated, and the per-kind
+  -- breakdown is asserted against the figures check 2's own comment names. The
+  -- two sharpest rows:
+  --
+  --   settlement = 0. Every sale_payments row in this fixture that is NOT a
+  --   settlement keeps journal_entry_id null for ever, because complete_sale
+  --   folds a sale's own tenders into the sale's entry -- and the fixture's one
+  --   real settlement was already posted by settle_sale_balance. A view driven
+  --   off `journal_entry_id is null` without `is_settlement` reads 5 here.
+  --
+  --   expense = 4, not 6. The payroll-derived row and the count-derived
+  --   stock_loss row are excluded PERMANENTLY by design (see check 5's two
+  --   exemptions). A view that forgot either over-counts by exactly one.
+  --
+  -- And sale = 4, not 5: sale E carries no money and is never replayed, so a
+  -- view missing the six-term "carries money" disjunction reads 5.
+  select sum(rows_unposted), min(oldest_on) into v_rows, v_bf_oldest
+    from public.unposted_ledger_counts(v_shop_id);
+
+  select string_agg(kind || '=' || rows_unposted, ' ' order by kind) into v_text
+    from public.unposted_ledger_counts(v_shop_id);
+  if v_text <> 'count=1 expense=4 invoice_payment=1 payroll=1 receipt=1 refund=2 sale=4 settlement=0' then
+    raise exception 'FAIL: unposted_ledger_counts disagrees with the replay, got: %', v_text;
+  end if;
+
+  -- All eight kinds come back even at zero: "nothing to do" is the state this
+  -- door is in for ever after its first run, and a list that drops its empty
+  -- rows cannot be told apart from one that failed to look.
+  select count(*) into v_bf_kinds from public.unposted_ledger_counts(v_shop_id);
+  if v_bf_kinds <> 8 then
+    raise exception 'FAIL: unposted_ledger_counts returned % kinds, expected all 8 including the zeroes', v_bf_kinds;
+  end if;
+
   v_posted := public.backfill_shop_ledger(v_shop_id);
+  if v_rows <> v_posted then
+    raise exception 'FAIL: the door said % rows were unposted, the replay wrote % entries', v_rows, v_posted;
+  end if;
   if v_posted <> 14 then
     raise exception 'FAIL: expected 14 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 3 expenses incl. the bill, 1 delivery payment), got %', v_posted;
   end if;
@@ -1248,6 +1300,32 @@ begin
   if v_rows <> 0 then raise exception 'FAIL: % expenses are still unposted', v_rows; end if;
 
   ---------------------------------------------------------------------------
+  -- 15. THE DOOR AND THE REPLAY AGREE -- AFTER, AND ON THE DATES.
+  ---------------------------------------------------------------------------
+  -- The other direction of check 14, and the one the empty state rests on:
+  -- every kind now reads 0. This is not a restatement of check 5 -- check 5
+  -- asks the eight BASE TABLES directly and exempts the permanently-unposted
+  -- rows by hand; this asks THE VIEW, which must reach the same answer through
+  -- its own copy of the predicates. A view whose exclusions are wrong reads
+  -- non-zero here on rows check 5 has already excused.
+  select coalesce(sum(rows_unposted), 0) into v_rows from public.unposted_ledger_counts(v_shop_id);
+  if v_rows <> 0 then
+    select string_agg(kind || '=' || rows_unposted, ' ' order by kind) into v_text
+      from public.unposted_ledger_counts(v_shop_id) where rows_unposted <> 0;
+    raise exception 'FAIL: the door still shows % rows unposted after a complete replay: %', v_rows, v_text;
+  end if;
+
+  -- And the date the door promised is the date the replay used. The view
+  -- carries its own copy of shop_local_date(created_at) / occurred_on /
+  -- paid_on, so a door reading a bare ::date would tell a shop its history
+  -- starts a day earlier than the ledger says it does -- the same off-by-one
+  -- check 7 exists for, on the other side of the glass.
+  select min(entry_date) into v_date from public.journal_entries where shop_id = v_shop_id;
+  if v_date <> v_bf_oldest then
+    raise exception 'FAIL: the door said the oldest unposted row was %, the replay dated the oldest entry %', v_bf_oldest, v_date;
+  end if;
+
+  ---------------------------------------------------------------------------
   -- 6. IDEMPOTENT.
   ---------------------------------------------------------------------------
   v_posted := public.backfill_shop_ledger(v_shop_id);
@@ -1625,6 +1703,32 @@ begin
   if v_text not like '%update public.expenses e set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''expense'' and m.source_id = e.id and e.journal_entry_id is null;%' then
     raise exception 'FAIL: the expenses back-link does not re-check journal_entry_id is null';
   end if;
+
+  ---------------------------------------------------------------------------
+  -- 16. THE DOOR GATES ON THE SAME PERMISSION THE REPLAY DOES.
+  ---------------------------------------------------------------------------
+  -- backfill_shop_ledger requires ledger.close, not ledger.post -- rewriting a
+  -- shop's whole history is heavier than posting one entry, and only the Owner
+  -- role carries it. unposted_ledger_counts must require the same thing: a
+  -- counts function that answered freely would show a role a number it can
+  -- never act on, and would leak one shop's trading volume to anyone who could
+  -- guess a shop id.
+  --
+  -- Asserted with a user who is a member of NOTHING, which is the strongest
+  -- form available here without building a second role: has_shop_permission is
+  -- false for them on every permission, so a function with no gate at all
+  -- returns eight rows and this check reddens.
+  perform set_config('request.jwt.claims', json_build_object('sub', gen_random_uuid())::text, true);
+  begin
+    select count(*) into v_bf_kinds from public.unposted_ledger_counts(v_shop_id);
+    raise exception 'FAIL: a non-member read % rows of unposted counts -- the ledger.close gate is missing', v_bf_kinds;
+  exception when others then
+    if sqlerrm like 'FAIL:%' then raise; end if;
+    if sqlerrm not like '%ledger.close%' then
+      raise exception 'FAIL: unposted_ledger_counts should refuse a caller without ledger.close by name, got: %', sqlerrm;
+    end if;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';

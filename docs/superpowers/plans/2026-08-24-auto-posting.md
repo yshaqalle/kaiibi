@@ -213,10 +213,13 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/tests/verify-posting-inventory.sql` | Receipt and stock-count entries. |
 | `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries; entering a bill recognises its cost; **undoing a payment reverses it** (Task 7c). |
 | `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or count-derived expense row posts nothing; **editing or deleting one reverses what it posted** (Task 7c). |
-| `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. |
+| `supabase/migrations/20260908001100_unposted_ledger_sources.sql` | Task 10. `unposted_ledger_sources` (view) and `unposted_ledger_counts(uuid)` — the read-only companion the Post History door reads, carrying the same eight predicates the replay does. |
+| `src/lib/ledger-backfill.ts` | Task 10. `summariseUnposted()` — eight database words into eight lines a shopkeeper reads. Pure, no Supabase import. |
+| `src/components/accounting/ledger/backfill-view.tsx` | Task 10. The Post History screen: what is unposted, the confirmation, the result, and the empty case. |
+| `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. Checks 14–16 (Task 10) pin the door's counts against the replay in both directions and assert its `ledger.close` gate. |
 | `supabase/tests/bench-complete-sale.sql` | Measured before/after on a 20-line basket. |
 
-`test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Task 7c adds **no** script — its seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
+`test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Tasks 7c and 10 add **no** script — 7c's seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, and 10's three extend `verify-backfill.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
 
 ---
 
@@ -2695,7 +2698,7 @@ git commit -m "feat(accounting): replay existing history into the ledger"
 - [ ] **Step 1: Full suite**
 
 Run: `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: clean; 139 suites / 2122 tests (plus the two new `accumulated-rpc-edits` assertions); 81 lint; **25** database checks (24 after Task 7b, plus `verify-backfill`).
+Expected: clean; **140 suites / 2271 tests** after Task 10 (139 / 2249 before it); **81** lint; **25** database checks (24 after Task 7b, plus `verify-backfill`).
 
 - [ ] **Step 2: Confirm the weighted average survived**
 
@@ -2717,6 +2720,59 @@ Take a sale through POS, then open Accounting → Trial Balance and confirm debi
 Not against production itself. Restore a dump locally, run `backfill_shop_ledger` for the largest shop, and run `verify-backfill`'s check 3 against the real figures. Record the entry count and the wall time.
 
 If it does not tie to the cent, **the mapping is wrong, not the tolerance**. Do not add one.
+
+---
+
+### Task 10: A door for the backfill — SHIPPED
+
+*Numbered after Task 8 but built last, because it is the gap Task 8's own report named: `backfill_shop_ledger` existed, tied to the cent, was idempotent, took a per-shop advisory lock — and **nothing called it**. A dormant RPC leaves a shop's ledger holding only what has happened since this branch shipped, with years of trading outside it.*
+
+**Design:** `docs/design/ledger-backfill-mockup.html` — the card in place among the four existing "Ledger & journals" cards, the idle state, the confirmation, the result, the empty case, and the permission-denied case.
+
+**Files:**
+- Create: `supabase/migrations/20260908001100_unposted_ledger_sources.sql`
+- Create: `src/lib/ledger-backfill.ts`, `src/lib/__tests__/ledger-backfill.test.ts`
+- Create: `src/components/accounting/ledger/backfill-view.tsx`
+- Modify: `src/components/accounting/ledger/ledger-hub.tsx`, `src/app/(admin)/(tabs)/accounting.tsx`, `src/components/__tests__/accounting-ledger-nav.test.tsx`, `src/lib/ledger.ts`, `supabase/tests/verify-backfill.sql`
+
+**Interfaces:**
+- Produces: `public.unposted_ledger_sources` (view), `public.unposted_ledger_counts(uuid) returns table(kind text, rows_unposted bigint, oldest_on date)`.
+- Consumes: `backfill_shop_ledger(uuid)` (Task 8), `has_shop_permission` (`ledger.close`).
+
+#### The one decision that matters
+
+**The counts are a database companion, not eight queries in TypeScript.** "Unposted" is not `journal_entry_id is null` — it is that plus eight per-kind money predicates, and every one of them is a trap. A sale's own tenders keep a null pointer **for ever** (`complete_sale` folds them into the sale's entry), so counting off the column alone over-reports by every till payment the shop has ever taken. A zero-valued sale is deliberately never replayed. A payroll-derived or count-derived expense stays unposted permanently by design. A second copy of that in the client is a door and an RPC disagreeing about the one word the screen is built on.
+
+So the predicates live once, in the view, and `verify-backfill.sql` pins the two together in both directions.
+
+#### What is deliberately not built
+
+| Not doing | Why |
+|---|---|
+| Running it automatically on deploy | A migration has no user, so it cannot be gated on `ledger.close`, and a shop gets no moment at which to see 3,973 entries appear. |
+| Per-kind or per-date selection | "Post the sales but not the expenses" ties to nothing; "post from January" leaves receivables with no origin. `backfill_shop_ledger` takes one argument for the same reason. |
+| A preview of the entries before writing | It would mean a second copy of the mapping, which is exactly what Task 1's account-map functions exist to prevent. The Journals list afterwards is the real thing rather than a promise about it. |
+| Undo | Reversing thousands of entries is a different feature with a different permission. Half of it is worse than none. |
+| `lib/confirm.ts` | It raises a real `window.confirm` on web, which a Playwright check cannot dismiss. The confirmation is a state of the card instead — which also avoids a stacked modal, which iOS drops. |
+
+- [x] **Step 1: The mockup** — `docs/design/ledger-backfill-mockup.html`.
+- [x] **Step 2: The view and the counts function**, plus checks 14–16 in `verify-backfill.sql`.
+- [x] **Step 3: `summariseUnposted()` and its 13 unit tests.**
+- [x] **Step 4: The hub card**, gated on `ledger.close` via `visibleLedgerViews()`, with a live footer.
+- [x] **Step 5: The screen**, and the six mutations below.
+
+#### The six mutations, each with the figure it produced
+
+| Mutation | Reddens | Reported |
+|---|---|---|
+| Drop `where sp.is_settlement` from the settlement arm | Check 14 | `settlement=6` (every till payment counted) |
+| Drop the sale arm's six-term "carries money" disjunction | Check 14 | `sale=5` (the zero-valued sale included) |
+| Drop `and e.stock_count_id is null` | Check 14 | `expense=5` |
+| Drop `where e.journal_entry_id is null` from the expense arm | Check 15 | `the door still shows 4 rows unposted after a complete replay: expense=4` |
+| `s.created_at::date` in place of `shop_local_date(s.created_at)` | Check 15 | `door said 2026-05-14, replay dated 2026-05-15` |
+| Remove the `has_shop_permission` gate from `unposted_ledger_counts` | Check 16 | `a non-member read 8 rows of unposted counts` |
+
+All six were applied, watched to fail, and reverted. **None was a no-op.**
 
 ---
 

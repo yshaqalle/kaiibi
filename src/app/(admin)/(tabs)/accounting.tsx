@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountingTabBar } from '@/components/accounting/accounting-tab-bar';
 import { AuditLogView } from '@/components/accounting/ledger/audit-log-view';
+import { BackfillView } from '@/components/accounting/ledger/backfill-view';
 import { ChartOfAccountsView } from '@/components/accounting/ledger/chart-of-accounts-view';
 import { JournalEntryView } from '@/components/accounting/ledger/journal-entry-view';
 import { JournalsView } from '@/components/accounting/ledger/journals-view';
@@ -24,7 +25,7 @@ import { TransactionsTab } from '@/components/accounting/transactions-tab';
 import { type DateRange, type RangePreset } from '@/components/range-selector';
 import { useAuth } from '@/hooks/use-auth';
 import { usePullToRefresh } from '@/hooks/use-pull-to-refresh';
-import { listAccounts } from '@/lib/ledger';
+import { listAccounts, listUnpostedLedgerCounts } from '@/lib/ledger';
 import type { TabRefresh } from '@/components/accounting/use-header-actions';
 
 // Pinned to the light palette for now — no dark-mode switching yet.
@@ -123,7 +124,7 @@ export default function AccountingScreen() {
   // giving it a query would make every one of its cards wait on data only one
   // of them shows. Null until it lands, so the card falls back to its static
   // scope rather than flashing "0 accounts".
-  const { shop } = useAuth();
+  const { shop, can } = useAuth();
   const [accountCount, setAccountCount] = useState<number | null>(null);
   useEffect(() => {
     if (!shop || tab !== 'accounting') return;
@@ -139,6 +140,32 @@ export default function AccountingScreen() {
       cancelled = true;
     };
   }, [shop, tab]);
+
+  // How many rows are waiting to reach the ledger, for Post History's footer.
+  // Fetched here for the same reason the account count is: the hub is a list of
+  // links, and giving it a query would make every card wait on data one of them
+  // shows.
+  //
+  // Only for someone who could act on it. unposted_ledger_counts gates on
+  // ledger.close exactly as backfill_shop_ledger does, so asking without it is
+  // a guaranteed error — and the card is hidden from that reader anyway.
+  const canCloseLedger = can('ledger.close');
+  const [unpostedRows, setUnpostedRows] = useState<number | null>(null);
+  useEffect(() => {
+    if (!shop || tab !== 'accounting' || !canCloseLedger) return;
+    let cancelled = false;
+    listUnpostedLedgerCounts(shop.id)
+      .then((summary) => {
+        if (!cancelled) setUnpostedRows(summary.totalRows);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // `view` is a dependency so the count is re-read when the reader comes back
+    // to the hub from Post History, rather than still claiming the rows it just
+    // posted are waiting.
+  }, [shop, tab, view, canCloseLedger]);
 
   // Published by whichever tab is showing, so its buttons share the title row
   // rather than sitting in a band of their own below the filters.
@@ -219,12 +246,13 @@ export default function AccountingScreen() {
             {tab === 'expenses' && <ExpensesTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'payroll' && <PayrollTab dateRange={dateRange} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
             {tab === 'cash' && <CashBudgetsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} focusSessionId={sessionParam ?? null} />}
-            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} />}
+            {tab === 'accounting' && view === 'hub' && <LedgerHub onOpen={setView} accountCount={accountCount} unpostedRows={unpostedRows} can={can} />}
             {tab === 'accounting' && view === 'accounts' && <ChartOfAccountsView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'trial' && <TrialBalanceView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'accounting' && view === 'journals' && <JournalsView dateRange={dateRange} setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'audit' && <AuditLogView setRefresh={setTabRefresh} />}
             {tab === 'accounting' && view === 'entry' && <JournalEntryView onPosted={() => setView('journals')} setRefresh={setTabRefresh} />}
+            {tab === 'accounting' && view === 'backfill' && <BackfillView setRefresh={setTabRefresh} onOpenView={setView} />}
             {tab === 'reports' && <ReportsTab dateRange={dateRange} locationFilter={locationFilter} setHeaderActions={setHeaderActions} setRefresh={setTabRefresh} />}
           </>
         ) : null}
