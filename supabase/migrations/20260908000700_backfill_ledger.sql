@@ -68,18 +68,24 @@
 -- ## THE FOUR WAYS THIS DOUBLE-COUNTS, AND WHAT STOPS EACH
 --
 -- 1. EXPENSES MIRRORING SOMETHING ALREADY POSTED. post_payroll_run writes BOTH
---    a journal entry AND an expenses row carrying payroll_run_id;
---    sync_invoice_expense mirrors every bill into expenses carrying invoice_id,
---    and that cost's liability side is posted by receive_stock and settled by
---    record_invoice_payment. The Count sheet writes a stock_loss row carrying
---    stock_count_id on top of a save_stock_count that already posted Dr 5100 /
---    Cr 1200. Replaying any of the three would count 6200 Salaries and Wages,
---    every stocked cost, or the shop's whole shrinkage TWICE -- with the trial
---    balance still zero, because both entries individually balance, so nothing
---    else would catch it. The expense replay below applies exactly the
---    exclusions post_expense_to_ledger() applies (20260908000750, extended by
+--    a journal entry AND an expenses row carrying payroll_run_id. The Count
+--    sheet writes a stock_loss row carrying stock_count_id on top of a
+--    save_stock_count that already posted Dr 5100 / Cr 1200. Replaying either
+--    would count 6200 Salaries and Wages or the shop's whole shrinkage TWICE --
+--    with the trial balance still zero, because both entries individually
+--    balance, so nothing else would catch it. And an inventory_purchase BILL
+--    would recognise goods receive_stock already put into 1200 against 2000.
+--    The expense replay below applies exactly the exclusions
+--    post_expense_to_ledger() applies (20260908000750, extended by
 --    20260908000800), for exactly their reasons -- and takes the same branch it
 --    takes for the rows it does replay.
+--
+--    A BILL'S MIRROR ROW IS NOT ONE OF THEM, whatever the exclusion here used
+--    to say. Nothing on this branch posts when an invoice is inserted, so the
+--    row being skipped was the only place the cost was ever going to be
+--    recognised; skipping it left the replay reproducing the live defect
+--    exactly -- Accounts Payable driven negative by every non-stock bill in the
+--    shop's history, with the trial balance ties all green.
 --
 -- 2. sale_payments.journal_entry_id IS NULL DOES NOT MEAN "UNPOSTED". Only
 --    SETTLEMENT rows ever carry their own entry; complete_sale folds the
@@ -413,15 +419,30 @@ begin
    where r.shop_id = p_shop_id and r.journal_entry_id is null
      and r.status = 'posted' and r.total_cents > 0;
 
-  -- Expenses. THE FOUR EXCLUSIONS, copied from post_expense_to_ledger() for its
+  -- Expenses. THE EXCLUSIONS, copied from post_expense_to_ledger() for its
   -- reasons -- see 1 in this file's header, and the exclusion blocks in
   -- 20260908000750 (which names post_payroll_run by name) and 20260908000800.
   --
-  -- stock_count_id is the fourth, added by 20260908000800: save_stock_count
-  -- posts Dr 5100 / Cr 1200 for the whole variance itself and nothing was paid,
-  -- so a count's stock_loss expense row has no entry of its own. It is the ONLY
-  -- exclusion here that leaves a row permanently unposted by design --
-  -- verify-backfill.sql check 5 excludes it for that reason.
+  -- stock_count_id: save_stock_count posts Dr 5100 / Cr 1200 for the whole
+  -- variance itself and nothing was paid, so a count's stock_loss expense row
+  -- has no entry of its own. With the inventory_purchase half of the invoice
+  -- clause below, it is one of the two exclusions here that leave a row
+  -- permanently unposted by design -- verify-backfill.sql check 5 exempts both
+  -- for that reason.
+  --
+  -- INVOICE-LINKED ROWS ARE NO LONGER EXCLUDED WHOLESALE, and that is the
+  -- correction this replay carries alongside 20260908000800's. The old filter
+  -- said `e.invoice_id is null` on the strength of "the bill recognised the
+  -- cost" -- and no migration on this branch posts anything when an invoice is
+  -- inserted, so nothing recognised it and the mirror row being skipped WAS the
+  -- recognition. Replayed history reproduced the live defect exactly: a bill
+  -- posted nothing, its payment posted Dr 2000, and Accounts Payable went
+  -- negative by every non-stock bill the shop had ever entered.
+  --
+  -- inventory_purchase stays out, for the reason 20260908000800 gives at
+  -- length: the delivery already debited 1200 against 2000, and pairing a bill
+  -- with a receipt is the app's own unpaid-delivery flow rather than a
+  -- double-entry a shop should have avoided.
   --
   -- FORWARD REFERENCE, AND IT IS SAFE. stock_count_id and stock_receipt_id are
   -- added by 20260908000800, which applies AFTER this file. A plpgsql body is
@@ -436,7 +457,9 @@ begin
   -- incurred.
   --
   -- occurred_on, not created_at: a receipt is often logged days after the
-  -- purchase and it is the purchase that decides the period.
+  -- purchase and it is the purchase that decides the period. For a bill's
+  -- mirror row that is issued_on, which sync_invoice_expense copies across --
+  -- a bill dated last month is last month's cost however late it is entered.
   insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
   select 'expense', e.id, gen_random_uuid(), e.occurred_on,
          e.location_id, 'Expense ' || e.id::text, 'bill'
@@ -444,8 +467,8 @@ begin
    where e.shop_id = p_shop_id
      and e.journal_entry_id is null
      and e.payroll_run_id is null
-     and e.invoice_id is null
      and e.stock_count_id is null
+     and not (e.invoice_id is not null and e.category = 'inventory_purchase')
      and e.amount_cents <> 0;
 
   select count(*) into v_written from _bf_map;
@@ -910,10 +933,10 @@ begin
   -- Supplier payments -- Dr 2000 Accounts Payable, Cr the wallet.
   ---------------------------------------------------------------------------
   --
-  -- NO expense line. The cost was recognised when the bill arrived; this moves
-  -- money against the liability that recognition created. Posting 6xxx again
-  -- here would double every cost the shop has -- the other half of the
-  -- invoice_id exclusion on the expense replay.
+  -- NO expense line. The cost was recognised when the bill arrived -- by the
+  -- bill's own mirror row, Dr the category's account / Cr 2000, replayed above.
+  -- This statement moves money against the liability that recognition created.
+  -- Posting 6xxx again here would double every cost the shop has.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
   select x.entry_id,
          coalesce(a.id, public.backfill_missing_account(x.code, x.src)),
@@ -965,7 +988,7 @@ begin
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
-  -- Expenses -- THE SAME THREE-WAY BRANCH THE LIVE TRIGGER TAKES.
+  -- Expenses -- THE SAME FOUR-WAY BRANCH THE LIVE TRIGGER TAKES.
   ---------------------------------------------------------------------------
   --
   -- 20260908000800 gave post_expense_to_ledger a branch, and this replay
@@ -973,12 +996,22 @@ begin
   -- live behaviour disagree, and the whole of Task 8 turns on their not doing
   -- so -- verify-backfill.sql exists to hold them together.
   --
+  --   invoice_id set        -> Dr the category's account / Cr 2000 Payable
   --   stock_receipt_id set  -> Dr 2000 Accounts Payable / Cr the wallet
   --   standalone stock_loss -> Dr 5100 Inventory Shrinkage / Cr 1200 Inventory
   --   anything else         -> Dr the category's account / Cr the wallet
   --
   -- (Rows carrying stock_count_id never reach here -- step 1 excluded them,
-  -- because save_stock_count posted the whole entry itself.)
+  -- because save_stock_count posted the whole entry itself. Nor do
+  -- inventory_purchase bills, excluded by the same statement for the reason
+  -- 20260908000800 sets out: the delivery already recognised them.)
+  --
+  -- A BILL'S MIRROR ROW IS WHERE ITS COST IS RECOGNISED, and the credit is 2000
+  -- rather than the wallet the row names. sync_invoice_expense writes the
+  -- literal 'other' into payment_method because a bill has no payment method --
+  -- routing that through account_code_for_payment_method credits 1010 Bank for
+  -- a bill nobody has paid, and leaves the supplier payment's Dr 2000 with
+  -- nothing to clear. This is the exact mirror of the receipt branch below.
   --
   -- A receipt-linked row SETTLES the payable receive_stock raised; it does not
   -- buy the goods again. Its category is 'inventory_purchase', which the map
@@ -1026,7 +1059,8 @@ begin
          x.amount_cents, x.location_id, x.memo
     from (
       select m.entry_id, m.location_id, 'expense ' || m.source_id::text as src,
-             case when e.stock_receipt_id is not null then '2000'
+             case when e.invoice_id is not null       then public.account_code_for_expense_category(e.category)
+                  when e.stock_receipt_id is not null then '2000'
                   when e.category = 'stock_loss'      then '5100'
                   else public.account_code_for_expense_category(e.category)
              end as code,
@@ -1038,11 +1072,13 @@ begin
        where m.source_kind = 'expense'
       union all
       select m.entry_id, m.location_id, 'expense ' || m.source_id::text,
-             case when e.stock_receipt_id is null and e.category = 'stock_loss' then '1200'
+             case when e.invoice_id is not null then '2000'
+                  when e.stock_receipt_id is null and e.category = 'stock_loss' then '1200'
                   else public.account_code_for_payment_method(e.payment_method)
              end,
              -e.amount_cents::bigint,
-             case when e.stock_receipt_id is null and e.category = 'stock_loss' then 'Written off'
+             case when e.invoice_id is not null then 'Owed to supplier'
+                  when e.stock_receipt_id is null and e.category = 'stock_loss' then 'Written off'
                   else 'Paid by ' || e.payment_method
              end
         from _bf_map m join public.expenses e on e.id = m.source_id

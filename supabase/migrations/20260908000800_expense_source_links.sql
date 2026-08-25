@@ -92,18 +92,80 @@ alter table public.expenses
   check (num_nonnulls(invoice_id, payroll_run_id, stock_receipt_id, stock_count_id) <= 1);
 
 -- ---------------------------------------------------------------------------
--- The six-way branch. Read 20260908000750's exclusion block before changing it.
+-- A BILL RECOGNISES ITS OWN COST. The exclusion that used to sit here was the
+-- one wrong member of the set, and it was wrong in the most expensive
+-- direction available.
+-- ---------------------------------------------------------------------------
+--
+-- 20260908000750's exclusion block said an invoice-linked row posts nothing
+-- because "the bill recognised the cost". NOTHING ON THIS BRANCH POSTS ANYTHING
+-- WHEN AN INVOICE IS INSERTED -- grep every migration for post_journal_entry
+-- and no invoices trigger appears. What sync_invoice_expense (20260804000300)
+-- does on insert is mirror the bill into `expenses` carrying invoice_id, and
+-- that mirror row was exactly the row being skipped. The recognition the
+-- comment appealed to was the row it was refusing to post.
+--
+-- Meanwhile record_invoice_payment posts Dr 2000 Accounts Payable / Cr the
+-- wallet (20260908000500). So: a shop enters a 5,000 rent bill and NOTHING
+-- posts. It pays it, and Dr 2000 5,000 / Cr 1000 5,000 posts. The balance sheet
+-- reads Accounts Payable MINUS 5,000 -- a liability in debit -- and the P&L
+-- shows no rent at all. Every non-stock bill compounds it, for ever. Every
+-- entry balances and the trial balance zeroes throughout, which is why nothing
+-- caught it.
+--
+-- An invoice-linked row now posts
+--   Dr the category's account / Cr 2000 Accounts Payable
+-- which is the exact mirror of the stock_receipt_id branch below (Dr 2000 /
+-- Cr wallet) and gives record_invoice_payment's Dr 2000 something to clear.
+-- The cost is recognised when the BILL IS ENTERED; the payment SETTLES it.
+--
+-- ## The one category that still posts nothing, and why that is not the same
+-- ## mistake wearing a different hat
+--
+-- inventory_purchase maps to 1200 Inventory, and 1200 is what receive_stock
+-- already debits (against Cr 2000) when the goods land. A bill for goods that
+-- arrived through Restock would debit 1200 and credit 2000 a SECOND time:
+-- stock overstated by the whole delivery, a phantom payable beside the real
+-- one, and record_invoice_payment's Dr 2000 clearing only half of it.
+--
+-- And that pairing is not a coincidence a shop has to avoid -- IT IS THE ONLY
+-- ROUTE THE APP OFFERS. receive_stock deliberately credits a payable and says
+-- nothing about payment (20260908000400's "Payable, not cash"). The only door
+-- that draws that payable back down is record_invoice_payment, which needs an
+-- invoice. So "receive the delivery, then enter the supplier's bill for it" is
+-- the app's own unpaid-delivery flow, and it is the flow this branch must not
+-- break.
+--
+-- Inventory is therefore recognised WHERE IT ARRIVES, and a bill for it adds
+-- nothing to the ledger. Nothing is lost from the P&L either: 1200 is an asset,
+-- and its cost reaches the P&L as COGS when the goods sell -- unlike rent,
+-- which has no other door at all. That is the whole difference between the two
+-- and the reason one posts and the other does not.
+--
+-- THE RESIDUE, STATED RATHER THAN HIDDEN: an inventory_purchase bill with no
+-- delivery behind it raises no payable, so paying it drives 2000 negative by
+-- that amount. It cannot be told apart from the paired case -- `invoices` has
+-- no link to `stock_receipts` and this phase does not add one -- and it is a
+-- shop whose stock records are already wrong, because the units it bought never
+-- entered inventory by any door. Matching a bill to a delivery (a GRNI account,
+-- or a receipt id on the invoice) is phase 3's work.
+--
+-- ---------------------------------------------------------------------------
+-- The seven-way branch. Read 20260908000750's exclusion block before changing
+-- it -- and read the correction above it before trusting what it says about
+-- bills.
 -- ---------------------------------------------------------------------------
 --
 --   payroll_run_id set   -> nothing   (post_payroll_run posted its own entry)
---   invoice_id set       -> nothing   (the bill recognised the cost)
 --   journal_entry_id set -> nothing   (already posted; the backfill sets this)
 --   stock_count_id set   -> nothing   (save_stock_count posted both sides)
+--   invoice_id, inventory_purchase -> nothing (receive_stock recognised it)
+--   invoice_id, anything else      -> Dr the category's account / Cr 2000
 --   stock_receipt_id set -> Dr 2000 / Cr wallet
 --   standalone stock_loss        -> Dr 5100 / Cr 1200
 --   standalone anything else     -> Dr the category's account / Cr wallet
 --
--- The first four all `return null` and are kept as four separate statements
+-- The three unconditional `return null`s are kept as three separate statements
 -- rather than one `or`: each is skipped for a DIFFERENT reason, and a reader
 -- deciding whether one can be removed needs to see which.
 create or replace function public.post_expense_to_ledger() returns trigger
@@ -118,17 +180,37 @@ declare
   v_entry_id     uuid;
 begin
   -- See the exclusion block in 20260908000750. Do not remove these without
-  -- reading it; post_payroll_run is named there by name.
+  -- reading it; post_payroll_run is named there by name. The invoice_id
+  -- exclusion that used to stand alongside them has been REMOVED -- see the
+  -- correction above this function; it recognised nothing.
   if new.payroll_run_id is not null then return null; end if;
-  if new.invoice_id is not null then return null; end if;
   if new.journal_entry_id is not null then return null; end if;
-  -- The fourth exclusion, and the one this migration adds. save_stock_count
-  -- posts Dr 5100 / Cr 1200 for the whole variance in the same transaction that
-  -- moved the units, and nothing was paid for -- so there is no second entry to
-  -- write. Posting one here doubled 5100 and credited a till that never opened.
+  -- save_stock_count posts Dr 5100 / Cr 1200 for the whole variance in the same
+  -- transaction that moved the units, and nothing was paid for -- so there is no
+  -- second entry to write. Posting one here doubled 5100 and credited a till
+  -- that never opened.
   if new.stock_count_id is not null then return null; end if;
 
-  if new.stock_receipt_id is not null then
+  if new.invoice_id is not null then
+    -- A BILL IS AN UNPAID EXPENSE (20260804000300), and this is where that
+    -- sentence becomes an entry. Cr 2000, never a wallet: no money has moved,
+    -- and the mirror row's payment_method is the literal 'other' that
+    -- sync_invoice_expense writes because a bill has no payment method at all --
+    -- so routing it through account_code_for_payment_method would credit 1010
+    -- Bank for a bill nobody has paid. record_invoice_payment then debits 2000
+    -- back down when the money really does leave, and what is left in 2000 is
+    -- what the shop actually owes.
+    --
+    -- inventory_purchase is the one category that still posts nothing: the
+    -- delivery already debited 1200 against 2000, and the ONLY way to settle
+    -- that payable is a bill, so the pair is the app's flow rather than a
+    -- mistake. See the long note above this function.
+    if new.category = 'inventory_purchase' then return null; end if;
+    v_debit_code  := public.account_code_for_expense_category(new.category);
+    v_credit_code := '2000';
+    v_debit_memo  := replace(new.category, '_', ' ');
+    v_credit_memo := 'Owed to supplier';
+  elsif new.stock_receipt_id is not null then
     -- SETTLING THE PAYABLE THE RECEIPT RAISED, not buying the goods again.
     -- receive_stock has already put the delivery into 1200 against 2000; this
     -- row is the money going out. Hardcoded '2000' rather than routed through
@@ -252,7 +334,43 @@ end;
 $$;
 
 comment on function public.post_expense_to_ledger() is
-  'AFTER INSERT on expenses. Posts nothing for a row carrying payroll_run_id, invoice_id, stock_count_id or an existing journal_entry_id -- something else already posted that event. A row carrying stock_receipt_id posts Dr 2000 Accounts Payable / Cr the wallet, settling the payable receive_stock raised. A standalone stock_loss posts Dr 5100 / Cr 1200. Everything else posts Dr the category''s account / Cr the payment method''s wallet.';
+  'AFTER INSERT on expenses. Posts nothing for a row carrying payroll_run_id, stock_count_id or an existing journal_entry_id -- something else already posted that event. A row carrying invoice_id posts Dr the category''s account / Cr 2000 Accounts Payable, which is how a bill recognises its cost and what record_invoice_payment''s Dr 2000 later clears; an inventory_purchase bill is the exception and posts nothing, because receive_stock already debited 1200 against 2000 for the same goods. A row carrying stock_receipt_id posts Dr 2000 / Cr the wallet, settling the payable receive_stock raised. A standalone stock_loss posts Dr 5100 / Cr 1200. Everything else posts Dr the category''s account / Cr the payment method''s wallet.';
+
+-- ---------------------------------------------------------------------------
+-- The two new links get the same read-only bar the other two already have.
+-- ---------------------------------------------------------------------------
+--
+-- 20260804000300:145-148 and 20260804000400:98-107 make invoice- and
+-- payroll-generated rows read-only from the Expenses screen, because "the total
+-- and its source drift apart" otherwise. stock_receipt_id and stock_count_id
+-- arrived without that bar, and the gap is not cosmetic:
+--
+--   * DELETING a receipt-linked row from the Expenses screen removes the source
+--     of a Dr 2000 / Cr wallet settlement and leaves the entry standing over
+--     nothing. The delivery's payable reads as cleared with no record of who
+--     cleared it, and the backfill can never repair it -- there is no row left
+--     to replay.
+--   * The `with check` half is the sharper one. Without these clauses a client
+--     can SET or CLEAR either link column on an existing row: clearing
+--     stock_receipt_id turns a settlement into a standalone purchase and the
+--     replay debits 1200 for goods already on the books; setting stock_count_id
+--     on a hand-typed write-off makes the replay skip it entirely. In both
+--     directions the live posting has already happened under the OLD value and
+--     only the replay moves -- which is the one property this phase is built on.
+--
+-- Recreated in full rather than altered, matching 0024's convention and the two
+-- migrations above. The four columns are listed in the order they were added.
+drop policy "update expenses" on public.expenses;
+create policy "update expenses" on public.expenses for update
+  using (has_shop_permission(shop_id, 'expenses.manage') and invoice_id is null and payroll_run_id is null
+         and stock_receipt_id is null and stock_count_id is null)
+  with check (has_shop_permission(shop_id, 'expenses.manage') and invoice_id is null and payroll_run_id is null
+              and stock_receipt_id is null and stock_count_id is null);
+
+drop policy "delete expenses" on public.expenses;
+create policy "delete expenses" on public.expenses for delete
+  using (has_shop_permission(shop_id, 'expenses.manage') and invoice_id is null and payroll_run_id is null
+         and stock_receipt_id is null and stock_count_id is null);
 
 -- Unchanged from 20260908000750, restated because the function was replaced and
 -- a reader of this file should not have to open the last one to learn where the

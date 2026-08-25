@@ -63,10 +63,13 @@
 --      the backfill writes 'JE-YYYY-10000'; check 12 then posts live from the
 --      same counter. lpad(n::text, 4, '0') cuts a longer string, so entry
 --      10000 used to take entry 1000's reference.
---  10. THE DOUBLE-COUNTS. A settlement is not re-posted; the expenses row
---      post_payroll_run writes is not replayed on top of the run's own entry;
---      the expenses row sync_invoice_expense mirrors from a bill is not
---      replayed on top of the bill's liability.
+--  10. THE DOUBLE-COUNTS. A settlement is not re-posted, and the expenses row
+--      post_payroll_run writes is not replayed on top of the run's own entry.
+--      (The bill's mirrored row used to be listed here too, and it did not
+--      belong: nothing on this branch posts when an `invoices` row is
+--      inserted, so that row is where a bill's cost is recognised. Excluding it
+--      excluded the recognition, and 2000 went negative by every bill the shop
+--      ever paid. See 3f and 3k.)
 --  11. Backfilled entries carry their TRUE source, never a 'backfill' marker.
 --  3j. THE TWO CLIENT PAIRS REPLAY EXACTLY AS THE LIVE PATH POSTS THEM, which
 --      is the deliverable this whole phase turns on. The Restock sheet writes
@@ -77,6 +80,10 @@
 --      asserts the REPLAY reaches the same figures, because a backfill that
 --      posted history one way while the trigger posts new rows another way
 --      would leave a shop's books changing shape on the date it was migrated.
+--  3k. THE SAME EQUIVALENCE FOR A BILL AND ITS PAYMENT. Entering the bill
+--      recognises Dr the category's account / Cr 2000; paying it debits 2000;
+--      and what is left in 2000 across the pair is what the bill still owes.
+--      verify-posting-bills.sql checks 11-13 assert the live half.
 --
 -- Deliberately NOT `set role authenticated`, for the reason
 -- verify-posting-expenses.sql is not: this script stays superuser so RLS never
@@ -355,6 +362,26 @@ begin
   insert into public.invoice_payments (invoice_id, amount_cents, paid_on, method, created_by)
     values (v_invoice, 3000, public.shop_local_date() - 6, 'edahab', v_user_id);
 
+  -- AND AN inventory_purchase BILL, which is the one bill that posts NOTHING.
+  -- receive_stock already debited 1200 against 2000 for goods that arrive, and
+  -- pairing a delivery with the supplier's bill for it is the app's own
+  -- unpaid-delivery flow -- record_invoice_payment is the only door that draws
+  -- that payable down and it needs an invoice. Replaying this row would put the
+  -- delivery into 1200 twice and raise a second payable beside the real one.
+  --
+  -- IT IS HERE BECAUSE WITHOUT IT THAT BRANCH IS UNTESTED. With only the
+  -- 'supplies' bill above, deleting the inventory_purchase clause from the
+  -- replay's filter changed nothing anywhere and the mutation survived green --
+  -- a finding about this file, not about the migration, and the same one the
+  -- standalone stock_loss row below was added for. Left UNPAID and at 1300, so
+  -- it cannot be confused with the 5000 bill, the 2000 delivery or the 3000
+  -- payment, and so it moves no tender.
+  insert into public.invoices
+      (shop_id, location_id, vendor_name, invoice_number, category, issued_on, due_on,
+       amount_cents, created_by)
+    values (v_shop_id, v_loc_id, 'Berbera Wholesale', 'BW-1002', 'inventory_purchase',
+            public.shop_local_date() - 9, public.shop_local_date() + 21, 1300, v_user_id);
+
   ---------------------------------------------------------------------------
   -- A POSTED PAY RUN and its expenses row. THE FIRST DOUBLE-COUNT TRAP.
   ---------------------------------------------------------------------------
@@ -549,14 +576,20 @@ begin
   ---------------------------------------------------------------------------
   -- 2. The backfill posts every unposted row and says how many.
   ---------------------------------------------------------------------------
-  -- Thirteen: four sales, two refunds, one receipt, one count, one supplier
-  -- payment, one pay run, one rent expense, one standalone stock_loss, and the
-  -- delivery's payment. NOT the settlement (already posted), NOT the payroll
-  -- expense row, NOT the invoice's mirrored expense row, and NOT the count's
-  -- stock_loss row -- save_stock_count already posted both sides of that one.
+  -- Fourteen: four sales, two refunds, one receipt, one count, one supplier
+  -- payment, one pay run, one rent expense, one standalone stock_loss, the
+  -- delivery's payment, and THE BILL'S OWN MIRRORED EXPENSE ROW. NOT the
+  -- settlement (already posted), NOT the payroll expense row, and NOT the
+  -- count's stock_loss row -- save_stock_count already posted both sides of
+  -- that one.
+  --
+  -- The bill's row was excluded until the final review, on the strength of "the
+  -- cost is recognised by the bill" -- and nothing on this branch posts when an
+  -- `invoices` row is inserted, so excluding the mirror row excluded the whole
+  -- recognition. Replayed history reproduced the live defect to the cent.
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 13 then
-    raise exception 'FAIL: expected 13 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 2 expenses, 1 delivery payment), got %', v_posted;
+  if v_posted <> 14 then
+    raise exception 'FAIL: expected 14 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 3 expenses incl. the bill, 1 delivery payment), got %', v_posted;
   end if;
 
   ---------------------------------------------------------------------------
@@ -690,8 +723,14 @@ begin
   -- The report side is every expenses row the replay is responsible for -- the
   -- exclusions applied -- plus the wages, which reach 6200 through the pay
   -- RUN's entry rather than through its expenses row. If the payroll row were
-  -- replayed, 6200 would read 14000 and this is 7000 out; if the invoice's
-  -- mirrored row were replayed, 6400 would read 5000 and this is 5000 out.
+  -- replayed, 6200 would read 14000 and this is 7000 out.
+  --
+  -- THE BILL'S MIRRORED ROW IS ON BOTH SIDES, and it used to be on neither.
+  -- It is a real cost the shop incurred and nothing else posts it, so the
+  -- replay writes Dr 6400 Supplies / Cr 2000 for it and this total counts it.
+  -- Excluding it -- which is what `and e2.invoice_id is null` did here, and
+  -- what the replay itself did -- left the shop's supplies cost missing from
+  -- the P&L while the payment against it debited 2000.
   --
   -- The two stock-linked rows come out of the report side as well, and for a
   -- reason that is NOT the exclusions: neither one lands on an account of type
@@ -715,7 +754,7 @@ begin
   -- to filter them -- and this total is about OPERATING expenses. 3i pins 5100.
   select coalesce((select sum(e2.amount_cents) from public.expenses e2
                     where e2.shop_id = v_shop_id
-                      and e2.payroll_run_id is null and e2.invoice_id is null
+                      and e2.payroll_run_id is null
                       and e2.stock_receipt_id is null and e2.stock_count_id is null
                       and e2.category not in ('inventory_purchase', 'owner_draw', 'stock_loss')), 0)
        + coalesce((select sum(pr.total_cents) from public.payroll_runs pr
@@ -741,8 +780,8 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '6400';
-  if v_ledger <> 0 then
-    raise exception 'FAIL: 6400 Supplies is % -- the expenses row sync_invoice_expense mirrors from the bill was replayed, doubling a stocked cost', v_ledger;
+  if v_ledger <> 5000 then
+    raise exception 'FAIL: 6400 Supplies is % for a 5000 bill -- 0 means the bill''s mirrored expense row was skipped and its cost reached no account at all, 10000 means it was posted twice', v_ledger;
   end if;
 
   -- And the one expense the replay IS responsible for landed on the account its
@@ -761,19 +800,30 @@ begin
   ---------------------------------------------------------------------------
   -- 3f. THE SUPPLIER SIDE. 2000 Accounts Payable.
   ---------------------------------------------------------------------------
-  -- The delivery raises 2000 by its costed value and TWO things draw it back
-  -- down: the supplier payment recorded against the bill, and the Restock
-  -- sheet's expense row settling the delivery it was written for. 2000
-  -- received, 3000 paid on the bill, 2000 paid on delivery, so 2000 nets to
-  -- +3000 (a DEBIT balance on a liability account, because this fixture pays a
-  -- bill for goods that arrived on a different delivery -- which is exactly
-  -- what a real shop's two tables look like).
+  -- 2000 MUST READ WHAT THE SHOP ACTUALLY OWES, and it is written that way --
+  -- as a statement about the four source tables -- rather than as the sum of
+  -- the credits and debits the replay wrote, which would be the replay's own
+  -- arithmetic restated. Two things raise the payable and two draw it down:
   --
-  -- The third term is the one this check gained. Without it -- i.e. with the
-  -- replay debiting 1200 for a receipt-linked expense, as it did before
-  -- 20260908000800 -- the ledger reads +1000, the report side reads +3000, and
-  -- this is 2000 out in the direction that says the shop still owes a supplier
-  -- it paid on the doorstep.
+  --   raised by   a BILL being entered   (Dr the category / Cr 2000)
+  --               a DELIVERY arriving    (Dr 1200 / Cr 2000)
+  --   drawn down  a payment on the bill  (Dr 2000 / Cr the wallet)
+  --               the Restock sheet's expense row for the delivery it paid
+  --
+  -- The bill is 5000 with 3000 paid, so 2000 is owed on it. The delivery is
+  -- 2000 and was paid in full on the doorstep, so nothing is owed on it. 2000
+  -- therefore reads -2000, a credit, which is what a liability looks like.
+  --
+  -- THE BILL TERM IS THE ONE THIS CHECK GAINED, and its absence was the whole
+  -- of the defect: with the bill's mirror row skipped, the ledger read +1000 --
+  -- a liability in DEBIT, saying suppliers owed the shop money -- and the
+  -- report side was written to expect exactly that. Both sides quoted the same
+  -- missing recognition, so this tie-out passed.
+  --
+  -- inventory_purchase bills are excluded from the bill term for the reason
+  -- 20260908000800 gives: receive_stock's Cr 2000 IS their payable, and there
+  -- is none in this fixture, so the exclusion is written out rather than
+  -- silently true.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
@@ -781,6 +831,8 @@ begin
    where e.shop_id = v_shop_id and a.code = '2000';
   select coalesce((select sum(ip.amount_cents) from public.invoice_payments ip
                      join public.invoices i on i.id = ip.invoice_id where i.shop_id = v_shop_id), 0)
+       - coalesce((select sum(i.amount_cents) from public.invoices i
+                    where i.shop_id = v_shop_id and i.category <> 'inventory_purchase'), 0)
        + coalesce((select sum(e2.amount_cents) from public.expenses e2
                     where e2.shop_id = v_shop_id and e2.stock_receipt_id is not null), 0)
        - coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
@@ -789,8 +841,14 @@ begin
                     where r.shop_id = v_shop_id and ri.unit_cost_cents is not null), 0)
     into v_report;
   if v_ledger <> v_report then
-    raise exception 'FAIL: 2000 Accounts Payable is % but the receipts, bill payments and delivery payments say % -- off by %',
+    raise exception 'FAIL: 2000 Accounts Payable is % but the bills, receipts, bill payments and delivery payments say % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
+  end if;
+  -- Not vacuous, and not accidentally zero: this fixture owes 2000 on a bill it
+  -- has part-paid. A ledger and a report side that were both blind to the bill
+  -- would agree at +1000 -- the sign this assertion exists to notice.
+  if v_ledger >= 0 then
+    raise exception 'FAIL: 2000 Accounts Payable is % -- a liability in DEBIT means the shop''s bills were paid without ever being recognised', v_ledger;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1022,6 +1080,84 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
+  -- 3k. A HISTORICAL BILL AND ITS PAYMENT REPLAY TO THE SAME FIGURES THE LIVE
+  --     PATH POSTS. verify-posting-bills.sql checks 11-13 are its other half.
+  ---------------------------------------------------------------------------
+  -- Written per ENTRY for the reason 3j is: 3e and 3f tie the totals, and a
+  -- total cannot tell "the bill recognised 5000 of supplies against a payable"
+  -- from "something else moved the same amount".
+  --
+  -- The bill is 5000 with 3000 paid by eDahab. Live, that is
+  --   Dr 6400 Supplies 5000 / Cr 2000 Payable 5000   when it is entered
+  --   Dr 2000 Payable  3000 / Cr 1021 eDahab 3000    when it is paid
+  -- and the replay must reach exactly those two entries, leaving 2000 across
+  -- the pair at -2000: the part of the bill still outstanding. Before this fix
+  -- the first entry did not exist at all, and 2000 across the pair read +3000 --
+  -- a supplier apparently owing the shop money it had just been paid.
+  select journal_entry_id into v_entry from public.expenses where invoice_id = v_invoice;
+  if v_entry is null then
+    raise exception 'FAIL: the bill''s mirrored expense row was not replayed -- nothing else posts a bill, so its cost is nowhere in the replayed books';
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '6400';
+  if v_ledger <> 5000 then
+    raise exception 'FAIL: the replayed bill debits % to 6400 Supplies, expected 5000', v_ledger;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2000';
+  if v_ledger <> -5000 then
+    raise exception 'FAIL: the replayed bill credits % to 2000 Accounts Payable, expected -5000', v_ledger;
+  end if;
+  -- And no wallet. The mirror row's payment_method is the literal 'other'
+  -- sync_invoice_expense writes for a bill that has no payment method, and
+  -- 'other' maps to 1010 Bank -- so a replay that fell through to the generic
+  -- branch would credit the shop's bank for a bill nobody has paid. 3g's 1010
+  -- assertion catches it too; this says which statement did it.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code in ('1000', '1010', '1020', '1021')) then
+    raise exception 'FAIL: the replayed bill credited a wallet -- entering a bill moves no money, and payment_method ''other'' lands in 1010 Bank';
+  end if;
+
+  -- The pair, and what it leaves outstanding. Read from `invoices` rather than
+  -- re-derived from the lines this assertion is about.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where a.code = '2000'
+     and (l.entry_id = v_entry
+          or l.entry_id in (select journal_entry_id from public.invoice_payments
+                             where invoice_id = v_invoice));
+  select i.amount_cents - coalesce((select sum(ip.amount_cents) from public.invoice_payments ip
+                                     where ip.invoice_id = i.id), 0)
+    into v_report
+    from public.invoices i where i.id = v_invoice;
+  if v_ledger <> -v_report then
+    raise exception 'FAIL: the replayed bill and its payment leave 2000 Accounts Payable at %, but % of the bill is unpaid (+3000 = the bill never raised the payable the payment cleared)',
+      v_ledger, v_report;
+  end if;
+
+  -- And the inventory_purchase bill was NOT replayed. Asserted on the row
+  -- rather than on a total, for the reason 3j(c) gives about the count's
+  -- write-off: this is the statement that the row is DELIBERATELY left unposted
+  -- for ever, not one the replay happened to miss. receive_stock already put
+  -- those goods into 1200 against 2000.
+  select count(*) into v_rows
+    from public.expenses e join public.invoices i on i.id = e.invoice_id
+   where e.shop_id = v_shop_id and i.category = 'inventory_purchase'
+     and e.journal_entry_id is not null;
+  if v_rows <> 0 then
+    raise exception 'FAIL: % inventory_purchase bills were replayed -- the delivery already debited 1200 against 2000 for those goods', v_rows;
+  end if;
+  -- Not vacuous: the fixture holds exactly one such bill.
+  select count(*) into v_rows from public.invoices
+   where shop_id = v_shop_id and category = 'inventory_purchase';
+  if v_rows <> 1 then
+    raise exception 'FAIL: the fixture holds % inventory_purchase bills, expected 1 -- the assertion above is looking at nothing', v_rows;
+  end if;
+
+  ---------------------------------------------------------------------------
   -- 4. EVERY entry balances, and the trial balance is zero.
   ---------------------------------------------------------------------------
   -- SET CONSTRAINTS IMMEDIATE, because journal_entry_balances is DEFERRABLE
@@ -1095,15 +1231,20 @@ begin
    where shop_id = v_shop_id and status = 'posted' and journal_entry_id is null;
   if v_rows <> 0 then raise exception 'FAIL: % posted pay runs are still unposted', v_rows; end if;
 
-  -- stock_count_id is excluded here and nowhere else in check 5: it is the one
-  -- exclusion that leaves a row with journal_entry_id null FOR EVER by design.
-  -- save_stock_count posted both sides of that write-off itself, so there is no
-  -- entry for the row to point at and never will be. Dropping the clause would
-  -- make this check red on a correct replay -- the exact shape of no-op-in-
-  -- reverse this suite has been bitten by before.
+  -- Two exemptions here, and both leave a row with journal_entry_id null FOR
+  -- EVER by design. stock_count_id: save_stock_count posted both sides of that
+  -- write-off itself. An inventory_purchase BILL: receive_stock already put the
+  -- goods into 1200 against 2000. Dropping either clause would make this check
+  -- red on a correct replay -- the exact shape of no-op-in-reverse this suite
+  -- has been bitten by before.
+  --
+  -- invoice_id is NOT exempt on its own, and that is the change: an ordinary
+  -- bill's mirrored row is replayed like any other cost, so leaving it unposted
+  -- is now a failure this check catches rather than the behaviour it demanded.
   select count(*) into v_rows from public.expenses
    where shop_id = v_shop_id and journal_entry_id is null
-     and payroll_run_id is null and invoice_id is null and stock_count_id is null;
+     and payroll_run_id is null and stock_count_id is null
+     and not (invoice_id is not null and category = 'inventory_purchase');
   if v_rows <> 0 then raise exception 'FAIL: % expenses are still unposted', v_rows; end if;
 
   ---------------------------------------------------------------------------
@@ -1122,8 +1263,8 @@ begin
     raise exception 'FAIL: revenue is % after a second run, expected 27000', v_ledger;
   end if;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
-  if v_rows <> 14 then
-    raise exception 'FAIL: a second run left % entries, expected 14', v_rows;
+  if v_rows <> 15 then
+    raise exception 'FAIL: a second run left % entries, expected 15', v_rows;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1282,7 +1423,7 @@ begin
   -- pay runs clears 9,999 inside a busy year, and this is exactly where a shop
   -- crosses it for the first time.
   --
-  -- Set to 9998, so the thirteen entries this run writes span 9998, 9999 and then
+  -- Set to 9998, so the fourteen entries this run writes span 9998, 9999 and then
   -- five digits. The assertion is on the reference TEXT, not on the unique
   -- index: 'JE-YYYY-1000' does not collide with anything in this fixture, so a
   -- truncating build would write it, look fine, and collide only on the shop
@@ -1291,8 +1432,8 @@ begin
    where shop_id = v_shop_id and year = to_char(public.shop_local_date(), 'YYYY');
 
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 13 then
-    raise exception 'FAIL: a closed period stopped the backfill, only % of 13 entries written', v_posted;
+  if v_posted <> 14 then
+    raise exception 'FAIL: a closed period stopped the backfill, only % of 14 entries written', v_posted;
   end if;
 
   if not exists (select 1 from public.journal_entries

@@ -3,10 +3,26 @@
 -- ## Paying a supplier is not an expense
 --
 -- `Dr 2000 Accounts Payable / Cr the wallet it was paid from`, and NOTHING
--- else. The cost was recognised the moment the bill was recorded --
--- 20260804000300 makes a bill an unpaid expense and mirrors it into `expenses`
--- on insert, and 20260908000400 has receive_stock credit 2000 when goods
--- arrive. A payment only settles what that recognition created.
+-- else. A payment only settles a liability something else already raised.
+--
+-- WHAT RECOGNISES THE COST, precisely -- the vaguer version of this sentence
+-- that stood here until the final review was false, and false in a way that
+-- left Accounts Payable negative for every non-stock bill a shop entered:
+--
+--   * FOR AN ORDINARY BILL -- rent, utilities, marketing -- the recognition is
+--     the expenses row sync_invoice_expense mirrors from the invoice on insert
+--     (20260804000300). post_expense_to_ledger posts THAT row as
+--     Dr the category's account / Cr 2000 Accounts Payable (20260908000800).
+--     No migration posts anything on the `invoices` insert itself; the mirror
+--     row is the whole of it, and until 20260908000800 that row was skipped --
+--     so the bill posted nothing at all while this function debited 2000.
+--   * FOR A BILL FOR GOODS the recognition is receive_stock, which debits 1200
+--     Inventory and credits 2000 when the delivery lands (20260908000400).
+--     The bill's mirror row is deliberately silent in that case, or the goods
+--     would be recognised twice; see 20260908000800.
+--
+-- Either way the credit to 2000 exists BEFORE this function runs, and what is
+-- left in 2000 afterwards is what the shop still owes.
 --
 -- Posting a 6xxx line here as well would double EVERY cost the shop has. It is
 -- the single most common double-count in a first ledger, and it is invisible
@@ -143,9 +159,12 @@ begin
     set paid_cents = paid_cents + p_amount_cents, updated_at = now(), updated_by = auth.uid()
     where id = p_invoice_id;
 
-  -- No expense line. The expense was recognised when the bill arrived; this
-  -- moves money against the liability that recognition created. Posting 6xxx
-  -- again here would double every cost the shop has.
+  -- No expense line. The cost was recognised when the bill was ENTERED -- by
+  -- the bill's own mirrored expenses row, which posts Dr the category's account
+  -- / Cr 2000 (20260908000800), or by receive_stock's Dr 1200 / Cr 2000 for a
+  -- bill for goods. This statement moves money against the liability that
+  -- recognition created. Posting 6xxx again here would double every cost the
+  -- shop has.
   --
   -- Dated p_paid_on, which is the date the payment row itself carries -- so
   -- the ledger and the bill's payment history cannot disagree about when the
@@ -218,7 +237,7 @@ end;
 $$;
 
 comment on function public.record_invoice_payment(uuid, integer, date, text, text) is
-  'Records a payment against a vendor bill and posts Dr 2000 Accounts Payable / Cr the account the payment method maps to. Deliberately posts NO expense: the cost was recognised when the bill was raised.';
+  'Records a payment against a vendor bill and posts Dr 2000 Accounts Payable / Cr the account the payment method maps to. Deliberately posts NO expense: the cost was recognised when the bill was ENTERED, by its mirrored expenses row (Dr the category''s account / Cr 2000) or, for a bill for goods, by receive_stock''s Dr 1200 / Cr 2000.';
 
 grant execute on function public.record_invoice_payment(uuid, integer, date, text, text) to authenticated;
 

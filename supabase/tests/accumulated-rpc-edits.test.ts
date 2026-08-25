@@ -399,6 +399,96 @@ const SAVE_STOCK_COUNT_EDITS: Edit[] = [
   ['20260908000600', 'the entry is dated in shop-local time', 'shop_local_date'],
 ];
 
+// The last two functions in this file that carried posting code and were not
+// guarded, added at the final re-review.
+//
+// post_expense_to_ledger has been re-created IN FULL twice already
+// (20260908000750, then 20260908000800) and its entire value is a branch: WHICH
+// account code each of seven arms picks. A copy-forward from 20260908000750
+// silently restores the C1 and C2 double-posts -- inventory recognised twice on
+// every delivery, shrinkage doubled on every stock-take -- and the C4 hole where
+// a bill's cost reaches no account at all. Every entry balances in all three
+// cases, so the trial balance stays at zero and nothing else in the system goes
+// red. Only verify-posting-expenses.sql catches it, and that needs a running
+// database; this catches it in `npm test`, from the SQL text.
+//
+// Every token below was checked against the COMMENT-STRIPPED body before being
+// written down: this function explains each of its branches at length, so a
+// token that matched the prose would survive the defect it was meant to catch.
+const POST_EXPENSE_TO_LEDGER_EDITS: Edit[] = [
+  ['20260908000750', 'a payroll-linked row posts nothing', 'new.payroll_run_id is not null then return null'],
+  ['20260908000750', 'a row already carrying an entry posts nothing', 'new.journal_entry_id is not null then return null'],
+  // The wallet the money actually left, not 1000 Cash for everything.
+  ['20260908000750', "the credit is the payment method's wallet", 'public.account_code_for_payment_method(new.payment_method)'],
+  // occurred_on, not today: a receipt logged days late is still the purchase
+  // date's cost. And a month that has since closed redirects rather than
+  // raising, or an ordinary back-dated expense insert starts failing outright.
+  ['20260908000750', 'the entry is dated occurred_on', 'new.occurred_on'],
+  ['20260908000750', 'an expense whose period has closed is redated, not refused', 'select status into v_period_status'],
+  // 'bill', not 'payment' -- record_invoice_payment owns 'payment' for a
+  // structurally different entry (Dr 2000, no expense line at all).
+  ['20260908000750', "the entry's source is 'bill'", "'bill');"],
+  // AFTER INSERT, so `new` is not writable and the pointer goes on with an
+  // UPDATE. An assignment here is silently discarded.
+  ['20260908000750', 'the row is pointed at its entry', 'update public.expenses set journal_entry_id = v_entry_id where id = new.id;'],
+  ['20260908000800', 'a count-linked row posts nothing', 'new.stock_count_id is not null then return null'],
+  // C1. A receipt-linked row SETTLES the payable receive_stock raised. Debiting
+  // 1200 again recognises the goods twice and never clears the liability.
+  ['20260908000800', 'a receipt-linked row settles the payable rather than buying the goods again', 'elsif new.stock_receipt_id is not null then'],
+  ['20260908000800', 'the receipt-linked entry says the delivery was paid', "'Delivery paid'"],
+  // C2. A standalone write-off comes out of INVENTORY, never a wallet: losing
+  // stock costs the shop the stock, not the till.
+  ['20260908000800', 'a standalone stock_loss credits 1200, never a wallet', "elsif new.category = 'stock_loss' then"],
+  ['20260908000800', 'the stock_loss contra is 1200 Inventory', ":= '1200';"],
+  // C4, the final re-review. A bill's mirrored row is where its cost is
+  // recognised -- nothing on this branch posts when an `invoices` row is
+  // inserted. Skipping it left Accounts Payable negative by every non-stock
+  // bill the shop entered, with the P&L short by the same amount.
+  ['20260908000800', 'a bill recognises its cost against 2000 Accounts Payable', 'if new.invoice_id is not null then'],
+  ['20260908000800', "the bill's credit is 2000, not the wallet its 'other' method maps to", "'Owed to supplier'"],
+  // ...and the one bill that still posts nothing, because receive_stock already
+  // debited 1200 against 2000 for the same goods.
+  ['20260908000800', 'an inventory_purchase bill posts nothing', "new.category = 'inventory_purchase' then return null"],
+];
+
+// backfill_shop_ledger is guarded for the same reason and one stronger: THE
+// REPLAY AND THE LIVE PATH MUST AGREE, which is the property the whole of phase
+// 2b turns on. Every branch below has a twin in post_expense_to_ledger or in one
+// of the posting RPCs, and a copy-forward that loses one of them makes a shop's
+// books change shape on the day it is migrated -- while both paths still balance
+// and the trial balance still zeroes.
+const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
+  // References come from the counter, never from count(*), or replayed entries
+  // take numbers a live sale is about to reuse.
+  ['20260908000700', 'references come from journal_entry_sequences', 'public.journal_entry_sequences'],
+  // journal_entry_reference, not an inline lpad: lpad(n, 4, '0') TRUNCATES past
+  // 9999, and a backfill is exactly where a shop crosses it for the first time.
+  ['20260908000700', 'references go through journal_entry_reference, not an inline lpad', 'public.journal_entry_reference(v_year'],
+  // A missing account raises BY NAME rather than silently dropping a line and
+  // leaving an entry that still balances with its COGS at zero.
+  ['20260908000700', 'a missing account stops the replay by name', 'public.backfill_missing_account('],
+  // Only SETTLEMENT rows carry their own entry; complete_sale folds a sale's
+  // till payments into the sale's entry and leaves those rows null for ever.
+  ['20260908000700', 'only settlements are replayed from sale_payments', 'and sp.is_settlement'],
+  ['20260908000700', 'entries are dated on the source row in shop-local time', 'public.shop_local_date(s.created_at)'],
+  ['20260908000700', 'a payroll-linked expense row is not replayed', 'and e.payroll_run_id is null'],
+  ['20260908000800', 'a count-linked expense row is not replayed', 'and e.stock_count_id is null'],
+  ['20260908000800', 'a receipt-linked expense row settles 2000 rather than debiting 1200', "when e.stock_receipt_id is not null then '2000'"],
+  ['20260908000800', 'a standalone stock_loss debits 5100', "then '5100'"],
+  ['20260908000800', 'a standalone stock_loss credits 1200, never a wallet', "when e.stock_receipt_id is null and e.category = 'stock_loss' then '1200'"],
+  ['20260908000800', "the credit is the row's own wallet, not 1000 for everything", 'public.account_code_for_payment_method(e.payment_method)'],
+  // The C4 pair, and the two halves must move together: the row is replayed
+  // (the filter) AND it credits 2000 rather than the 1010 Bank its literal
+  // 'other' payment_method maps to (the branch).
+  ['20260908000700', "a bill's mirrored expense row IS replayed", "and not (e.invoice_id is not null and e.category = 'inventory_purchase')"],
+  ['20260908000700', 'a replayed bill credits 2000 Accounts Payable, not a wallet', "when e.invoice_id is not null then '2000'"],
+  // The per-shop lock and the eight back-link re-checks are asserted from the
+  // LIVE function source by verify-backfill.sql check 14, which is the stronger
+  // home for them. This one entry is here because it is the cheapest to lose in
+  // a copy-forward and the most expensive to be without.
+  ['20260908000700', 'the replay is serialised per shop', 'pg_advisory_xact_lock(74921'],
+];
+
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
@@ -410,6 +500,8 @@ describe.each([
   ['unpost_payroll_run', UNPOST_PAYROLL_RUN_EDITS],
   ['receive_stock', RECEIVE_STOCK_EDITS],
   ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
+  ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
+  ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {
   const { file, body } = newestDefinitionOf(fn);
 

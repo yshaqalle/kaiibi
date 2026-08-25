@@ -60,6 +60,13 @@
 -- The exclusion. Read this before changing anything below it.
 -- ---------------------------------------------------------------------------
 --
+-- SUPERSEDED IN PART BY 20260908000800, AND ONE CLAIM BELOW IS FALSE. The
+-- invoice_id exclusion is gone: this block says "the cost is recognised by the
+-- bill", and no migration on this branch posts anything when an invoice is
+-- inserted -- the mirror row this function was skipping was the recognition.
+-- The payroll_run_id and journal_entry_id exclusions below are sound and
+-- survive. Read 20260908000800's header before acting on anything here.
+--
 -- WHICH RPCs WRITE `expenses` ROWS, and what each one sets:
 --
 --   * post_payroll_run (newest definition: 20260908000500) writes an expenses

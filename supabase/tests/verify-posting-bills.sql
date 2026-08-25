@@ -38,6 +38,19 @@
 --   8. Both function bodies are read from pg_get_functiondef and checked for
 --      current_date / now()::date. Somalia is UTC+3, so a value comparison
 --      only separates the two answers for three hours a day.
+--  11. ENTERING a bill recognises its cost: Dr the category's account /
+--      Cr 2000, posted by the expenses row sync_invoice_expense mirrors from
+--      the invoice. Nothing on this branch posts when an `invoices` row is
+--      inserted, so that row is the whole of the recognition -- and until the
+--      final review it was skipped, which made every check 1-10 above green
+--      while a rent bill reached no expense account and paying it drove
+--      Accounts Payable negative.
+--  12. THE ONE WHOSE ABSENCE LET THAT THROUGH. A bill entered and then paid IN
+--      FULL leaves 2000 at exactly zero, measured across the bill's entry and
+--      its payments' together. Per entry both halves look perfect.
+--  13. And shop-wide, 2000 equals what `invoices` says is still outstanding --
+--      asserted against amount_cents less paid_cents, columns no journal-line
+--      statement reads, rather than re-derived from the ledger itself.
 --
 -- Deliberately NOT `set role authenticated`, for the same reason
 -- verify-posting-inventory.sql is not: this script stays superuser so RLS never
@@ -72,6 +85,12 @@ declare
   v_paid_on    date;
   v_src        text;
   v_raised     boolean;
+  -- Checks 11-13: the bill that is entered and then paid off in full.
+  v_bill_two   uuid;
+  v_bill_entry uuid;
+  v_was_2000   bigint;
+  v_was_6100   bigint;
+  v_outstanding bigint;
 begin
   -- shops.owner_id and shop_members.user_id both reference auth.users(id), so
   -- the fixture "people" need real rows there before anything else.
@@ -425,6 +444,152 @@ begin
    where rev.shop_id = v_shop_id and rev.status = 'posted' and rev.source = 'payroll';
   if v_rows <> 1 then
     raise exception 'FAIL: % payroll reversals exist, expected 1 from check 7 -- check 10 is not looking at anything', v_rows;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 11. ENTERING A BILL RECOGNISES ITS COST. Dr the category / Cr 2000.
+  ---------------------------------------------------------------------------
+  -- THE HOLE THIS FILE HAD. Every assertion above check 11 reads 2000 on ONE
+  -- entry -- the payment's own -- and asserts the amount that entry moved.
+  -- Nothing read 2000 across the pair, and nothing read it against what the
+  -- shop actually owes. So while `post_expense_to_ledger` skipped a bill's
+  -- mirrored expenses row, this file was green with:
+  --
+  --   enter a 50000 rent bill  -> nothing posts at all
+  --   pay it                   -> Dr 2000 50000 / Cr 1000 50000
+  --   balance sheet            -> Accounts Payable MINUS 50000, and no rent
+  --                               anywhere in the P&L
+  --
+  -- Every entry balanced, the trial balance zeroed, and every check above
+  -- passed. The comment at the top of 20260908000500 asserted the cost was
+  -- "recognised the moment the bill was recorded" -- and no migration on this
+  -- branch posts anything when an `invoices` row is inserted. The mirror row
+  -- sync_invoice_expense writes was the recognition, and it was the row being
+  -- skipped.
+  --
+  -- 'utilities' -> 6100, which nothing else in this fixture touches, so the
+  -- recognition can be read by account as well as by amount. 27700 is reached
+  -- by no other figure or pair of figures here.
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_6100
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6100';
+
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Posting Vendor', 'BILLS-2', 'utilities',
+            public.shop_local_date() - 3, public.shop_local_date() + 12, 27700)
+    returning id into v_bill_two;
+
+  select journal_entry_id into v_bill_entry from public.expenses where invoice_id = v_bill_two;
+  if v_bill_entry is null then
+    raise exception 'FAIL: entering a bill posted nothing -- its cost reaches no account and the payment below has no payable to settle';
+  end if;
+
+  -- THE P&L SIDE, BEFORE A SINGLE CENT HAS MOVED. This is the half that was
+  -- missing outright: a bill is an unpaid EXPENSE, so the cost lands when it is
+  -- incurred and the payment never touches the P&L again.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6100';
+  if v_amount - v_was_6100 <> 27700 then
+    raise exception 'FAIL: 6100 Utilities moved % when a 27700 utilities bill was entered, expected 27700 (0 = the bill''s cost reaches no expense account at all)',
+      v_amount - v_was_6100;
+  end if;
+
+  -- ...and the liability side, which is what the payment will clear.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount - v_was_2000 <> -27700 then
+    raise exception 'FAIL: 2000 Accounts Payable moved % when an unpaid 27700 bill was entered, expected -27700', v_amount - v_was_2000;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 12. ENTER A BILL, PAY IT IN FULL, AND 2000 IS BACK AT EXACTLY ZERO.
+  ---------------------------------------------------------------------------
+  -- THE CHECK WHOSE ABSENCE LET THE DEFECT THROUGH. Measured across the pair --
+  -- the bill's own entry and every payment entry against it -- because that is
+  -- the only view in which a recognition that never happened is visible. Per
+  -- entry, both halves look perfect: the payment moves 2000 by exactly what was
+  -- paid, and the bill (posting nothing) has no entry to look at.
+  --
+  -- Paid in TWO parts, 9200 then 18500, so the part-payment path is exercised
+  -- and neither figure is half of the other or of the bill.
+  perform public.record_invoice_payment(v_bill_two, 9200, public.shop_local_date() - 1, 'cash');
+
+  -- Half-way: 2000 across the pair reads what is still owed, and that figure is
+  -- read from `invoices`, which record_invoice_payment maintains in a column --
+  -- not re-derived from the journal lines the assertion is about.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where a.code = '2000'
+     and (l.entry_id = v_bill_entry
+          or l.entry_id in (select journal_entry_id from public.invoice_payments
+                             where invoice_id = v_bill_two));
+  select amount_cents - paid_cents into v_outstanding from public.invoices where id = v_bill_two;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: 2000 Accounts Payable reads % over a part-paid bill, but the bill says % is still outstanding',
+      v_amount, v_outstanding;
+  end if;
+
+  perform public.record_invoice_payment(v_bill_two, 18500, public.shop_local_date(), 'cash');
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where a.code = '2000'
+     and (l.entry_id = v_bill_entry
+          or l.entry_id in (select journal_entry_id from public.invoice_payments
+                             where invoice_id = v_bill_two));
+  if v_amount <> 0 then
+    raise exception 'FAIL: a bill entered and then paid IN FULL leaves 2000 Accounts Payable at %, expected 0 (+27700 = the bill never raised the payable the payments cleared)', v_amount;
+  end if;
+
+  -- And the payments did not recognise the cost a second time. 6100 has not
+  -- moved since check 11 -- the whole reason record_invoice_payment posts no
+  -- 6xxx line.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6100';
+  if v_amount - v_was_6100 <> 27700 then
+    raise exception 'FAIL: 6100 Utilities reads % after the bill was paid, expected the 27700 the bill recognised -- paying it recognised the cost again',
+      v_amount - v_was_6100;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 13. AND SHOP-WIDE, 2000 IS WHAT THE SHOP ACTUALLY OWES.
+  ---------------------------------------------------------------------------
+  -- The whole-shop form of check 12, and the one that cannot be satisfied by a
+  -- pair that happens to cancel. Every bill in this fixture is here: BILLS-1 at
+  -- 50000 with 6000 paid across checks 1 and 9, and BILLS-2 paid off. So 2000
+  -- must read -44000, derived from `invoices` rather than written as a constant
+  -- -- amount_cents and paid_cents are columns the RPCs maintain, and neither
+  -- is read by anything that writes a journal line.
+  --
+  -- Nothing in this fixture receives stock, so `stock_receipts` contributes
+  -- nothing to the payable and the bills are the whole of it.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: 2000 Accounts Payable reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+  -- Not vacuous: a shop that owes nothing would pass the line above with both
+  -- sides at zero, which is exactly the state the defect produced for a shop
+  -- that paid every bill it entered.
+  if v_outstanding <= 0 then
+    raise exception 'FAIL: the fixture owes % -- check 13 is comparing zero against zero', v_outstanding;
   end if;
 
   perform set_config('request.jwt.claims', null, true);

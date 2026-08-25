@@ -2073,11 +2073,11 @@ Three ways out were considered. **(1) an `AFTER INSERT` trigger on `expenses`** 
 
 #### The exclusion, which is what breaks this if it is missed
 
-**`post_payroll_run` writes BOTH a journal entry AND an `expenses` row** carrying `payroll_run_id` and category `salaries_wages` — which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`; that cost is recognised by the bill and its liability side by `receive_stock` (`Cr 2000`) and `record_invoice_payment` (`Dr 2000`).
+**`post_payroll_run` writes BOTH a journal entry AND an `expenses` row** carrying `payroll_run_id` and category `salaries_wages` — which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`; **that mirror row is where a bill's cost is recognised, and the sentence that used to stand here — "the cost is recognised by the bill" — was false.** See the C4 correction below.
 
 So a naive trigger double-posts. `6200 Salaries and Wages` and `1000 Cash` would each be counted **twice** for one pay run, and every stocked cost would be recognised twice — **with the trial balance still zero**, because both entries individually balance. Nothing else in the system catches that.
 
-**The trigger skips any row where `payroll_run_id is not null`, `invoice_id is not null`, or `journal_entry_id is not null`.** The third is the same guard Task 2's column exists for, and it is what stops a backfill running against a live trigger from posting twice. `log_recurring_bill` sets **neither** of the first two and is deliberately **not** excluded — nothing else posts for it, and it is a real cost the shop just incurred.
+**The trigger skips any row where `payroll_run_id is not null` or `journal_entry_id is not null`.** (`invoice_id` was in that list and should never have been — see C4 below.) The third is the same guard Task 2's column exists for, and it is what stops a backfill running against a live trigger from posting twice. `log_recurring_bill` sets **neither** of the first two and is deliberately **not** excluded — nothing else posts for it, and it is a real cost the shop just incurred.
 
 #### CORRECTED after the final whole-branch review: three exclusions is not enough, and one branch is not enough
 
@@ -2090,13 +2090,28 @@ The review found two Criticals no per-task review could see, because each looked
 | Row | Posts |
 |---|---|
 | `payroll_run_id` set | nothing — `post_payroll_run` wrote its own entry |
-| `invoice_id` set | nothing — the bill recognised the cost |
 | `journal_entry_id` set | nothing — already posted; the backfill sets this |
 | `stock_count_id` set | nothing — `save_stock_count` posted both sides |
+| `invoice_id` set, category `inventory_purchase` | nothing — `receive_stock` already debited `1200` against `2000` for those goods |
+| `invoice_id` set, any other category | `Dr <the category's account> / Cr 2000 Accounts Payable` — **the bill recognising its cost**, and what `record_invoice_payment`'s `Dr 2000` later clears |
 | `stock_receipt_id` set | `Dr 2000 Accounts Payable / Cr <the payment method's wallet>` |
 | standalone `inventory_purchase` | `Dr 1200 / Cr <wallet>` — bought and paid for in one step |
 | standalone `stock_loss` | `Dr 5100 / Cr 1200` — **not** a wallet |
 | any other category | `Dr <the category's account> / Cr <wallet>` |
+
+#### CORRECTED AGAIN at the final re-review: C4 — recording a bill posted nothing, but paying it debited `2000`
+
+The `invoice_id` row of the table above read *"nothing — the bill recognised the cost"*, and **no migration on this branch posts anything when an `invoices` row is inserted.** Grep every file for `post_journal_entry`: there is no trigger on `invoices`. What `sync_invoice_expense` (`20260804000300:107`) does on insert is mirror the bill into `expenses` carrying `invoice_id` — **and that mirror row was exactly the row being skipped.** The recognition the exclusion appealed to was the row it was refusing to post.
+
+Meanwhile `record_invoice_payment` posts `Dr 2000 Accounts Payable / Cr <wallet>`. So a shop entered a 5,000 rent bill and **nothing posted**; it paid it and `Dr 2000 5,000 / Cr 1000 5,000` posted. The balance sheet read **Accounts Payable −5,000** — a liability in debit — and the P&L showed **no rent at all**. Every non-stock bill compounded it. Every entry balanced and the trial balance zeroed throughout, which is why nothing caught it: no check anywhere read `2000` against what was actually outstanding, only against the entry that had just written it. The backfill's expense map carried the identical exclusion, so replayed history was wrong the same way.
+
+**An `invoice_id`-linked row now posts `Dr account_code_for_expense_category(category) / Cr 2000` —** the exact mirror of the `stock_receipt_id` branch. The credit is `2000`, never the wallet map: `sync_invoice_expense` writes the literal `'other'` into `payment_method` because a bill *has* no payment method, and `'other'` maps to `1010 Bank`, so the generic branch would credit the shop's bank for a bill nobody has paid.
+
+**`inventory_purchase` is the one category that still posts nothing, and that is not the same mistake wearing a different hat.** The map sends it to `1200 Inventory`, which `receive_stock` already debits against `Cr 2000` when the goods land — and **pairing a delivery with the supplier's bill for it is the app's only unpaid-delivery flow**, because `record_invoice_payment` is the sole door that draws `receive_stock`'s payable down and it needs an invoice. Posting the bill too would put the delivery into `1200` twice and raise a second payable beside the real one. Nothing is lost from the P&L: `1200` is an asset and its cost arrives as COGS when the goods sell — unlike rent, which has no other door at all. **Residue, stated rather than hidden:** an `inventory_purchase` bill with no delivery behind it raises no payable, so paying it drives `2000` negative; it cannot be told from the paired case because `invoices` has no link to `stock_receipts`, and matching the two (a GRNI account, or a receipt id on the invoice) is phase 3's work.
+
+`verify-posting-bills.sql` gains checks 11–13 — entering a bill recognises `Dr <category> / Cr 2000`; **a bill entered and then paid IN FULL leaves `2000` at exactly zero**, measured across the bill's entry and its payments' together; and shop-wide `2000` equals `sum(amount_cents - paid_cents)` over `invoices`, columns no journal-line statement reads. `verify-posting-expenses.sql` check 6 is **inverted** (it asserted the defect) and gains 6b for the `inventory_purchase` bill, and check 13 for the policies below. `verify-backfill.sql` gains an `inventory_purchase` bill to the fixture — without one, deleting that clause from the replay survived green — plus check 3k for the replayed bill-and-payment pair, and its `3f` payable tie-out is rewritten against what the shop actually owes rather than against the credits the replay itself wrote.
+
+**And the two link columns joined the read-only policies.** `invoice_id` and `payroll_run_id` have been barred from `update expenses` and `delete expenses` since `20260804000400`, because "the total and its source drift apart" otherwise; `stock_receipt_id` and `stock_count_id` arrived without that bar. Deleting a receipt-linked row left its `Dr 2000 / Cr wallet` settlement standing over nothing, and the `with check` half let a client **set or clear** either link on an existing row — flipping what the backfill does with it *after* the live path had already posted under the old value.
 
 **Standalone `stock_loss` crediting `1200` is a second fix, not a restatement of the first.** It was wrong before the double-post existed and would still be wrong with the double-post gone: losing stock costs the shop the stock, not the till, and crediting cash balances perfectly while leaving `1200` carrying units that are not on the shelf.
 
@@ -2138,7 +2153,7 @@ Expected: `verify-posting-expenses  pass`, **24 database checks passed**.
 
 - [ ] **Step 5: Prove the test can fail**
 
-Twelve mutations, every one red. Notably: remove the `payroll_run_id` exclusion → `posting a pay run wrote 1 extra 'bill' entries`. Remove the `invoice_id` exclusion → `recording a bill wrote 1 journal entries via its mirrored expense row`. Hardcode the credit to `'1000'` → `expected Cr 1020 Zaad -4188, got 0`. Map `inventory_purchase` to `6900` → `expected Dr 1200 Inventory 52193, got 0`. Drop the closed-period redirect → the insert dies with `This period is closed — posting into it is refused`.
+Twelve mutations, every one red. Notably: remove the `payroll_run_id` exclusion → `posting a pay run wrote 1 extra 'bill' entries`. (The `invoice_id`-exclusion mutation is **gone** — that exclusion was the C4 defect. Its replacement puts it back: `entering a bill posted nothing -- its cost reaches no account and the payment below has no payable to settle`.) Hardcode the credit to `'1000'` → `expected Cr 1020 Zaad -4188, got 0`. Map `inventory_purchase` to `6900` → `expected Dr 1200 Inventory 52193, got 0`. Drop the closed-period redirect → the insert dies with `This period is closed — posting into it is refused`.
 
 The two `if exists (… a.type = 'expense')` guards need their **own** mutation to bite — an off-by-one in the map trips the amount assertion above them first. The mutation that reaches them adds a balanced `6900`/`1020` pair to the entry, leaving every amount check green.
 
@@ -2174,9 +2189,9 @@ The backfill therefore creates the periods it needs up front, generates referenc
 
 #### The expense replay must apply Task 7b's exclusion, for the same reason
 
-**The backfill's expense replay must skip every `expenses` row where `payroll_run_id is not null` or `invoice_id is not null`, exactly as `post_expense_to_ledger()` does** — and, being a replay, every row already carrying a `journal_entry_id`.
+**The backfill's expense replay must apply exactly the exclusions `post_expense_to_ledger()` applies, and take exactly the branch it takes** — `payroll_run_id is not null`, `stock_count_id is not null`, an `inventory_purchase` bill, and (being a replay) every row already carrying a `journal_entry_id`. An ordinary bill's mirrored row **is** replayed, `Dr <the category's account> / Cr 2000`.
 
-The reason is Task 7b's reason, unchanged: `post_payroll_run` writes **both** a journal entry and an `expenses` row carrying `payroll_run_id` and category `salaries_wages`, which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`, and that cost's liability side is posted by `receive_stock` and settled by `record_invoice_payment`. Replaying either row would count `6200 Salaries and Wages` and every stocked cost **twice** — **with the trial balance still zero**, because both entries individually balance. Task 8's own tie-out compares the replay against the live path, so a replay that copies the trigger's exclusion wrongly and a trigger that has it right disagree by exactly the wages; a replay that copies it wrongly in the *same* way the trigger would have been wrong agrees perfectly and is wrong twice.
+The reason is Task 7b's reason, unchanged: `post_payroll_run` writes **both** a journal entry and an `expenses` row carrying `payroll_run_id` and category `salaries_wages`, which the map sends to `6200`. Replaying that row would count `6200 Salaries and Wages` **twice** — **with the trial balance still zero**, because both entries individually balance. **A bill's mirrored row is not one of them** (C4, above): nothing posts when an `invoices` row is inserted, so skipping the mirror skipped the whole recognition, and the replay drove `2000 Accounts Payable` negative by every non-stock bill in the shop's history while every tie-out in `verify-backfill.sql` stayed green — both sides quoted the same missing entry. Task 8's own tie-out compares the replay against the live path, so a replay that copies the trigger's exclusion wrongly and a trigger that has it right disagree by exactly the wages; a replay that copies it wrongly in the *same* way the trigger would have been wrong agrees perfectly and is wrong twice.
 
 Because a shop may be backfilled while the trigger is live, the `journal_entry_id is null` filter is not an optimisation — it is what stops the two paths posting the same expense.
 

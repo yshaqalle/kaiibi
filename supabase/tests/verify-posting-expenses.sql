@@ -28,10 +28,20 @@
 --      reads double the wages actually paid -- WITH THE TRIAL BALANCE STILL
 --      ZERO, because both entries individually balance, so nothing else in the
 --      system catches it.
---   6. Same shape for a BILL. sync_invoice_expense mirrors every invoice into
---      expenses carrying invoice_id; the cost is recognised by the bill and
---      the liability by receive_stock / record_invoice_payment. Posting here
---      too would double every stocked cost the shop has.
+--   6. NOT the same shape for a BILL, and this check asserted the opposite
+--      until the final review. sync_invoice_expense mirrors every invoice into
+--      expenses carrying invoice_id, and NOTHING ELSE ON THIS BRANCH POSTS WHEN
+--      AN INVOICE IS INSERTED -- so that mirror row is the only place a bill's
+--      cost can be recognised, and skipping it meant a rent bill posted nothing
+--      while paying it posted Dr 2000. It posts Dr the category's account /
+--      Cr 2000 Accounts Payable, and credits NO wallet: the mirror row's
+--      payment_method is the literal 'other' sync_invoice_expense writes for a
+--      bill that has none, which maps to 1010 Bank.
+--  6b. The one bill that still posts nothing is an inventory_purchase one:
+--      receive_stock already debited 1200 against 2000 for the goods, and
+--      pairing a delivery with a bill is the app's own unpaid-delivery flow
+--      rather than a double entry. 1200 is an asset, so nothing is lost from
+--      the P&L -- the cost arrives as COGS when the goods sell.
 --   7. An expense that already carries a journal_entry_id is left alone --
 --      which is the state Task 8's backfill leaves every replayed row in.
 --   8. A back-dated expense whose month has CLOSED posts to the open month
@@ -52,6 +62,13 @@
 --      1200 and must NOT touch 2000. Check 3 owns the 1200 half; the 2000 half
 --      is asserted there too, because a trigger that took check 9's branch for
 --      every inventory_purchase would leave stock never entering the books.
+--  13. AND ALL FOUR generated-row links are read-only from the Expenses
+--      screen, asserted against pg_policies. The two 20260908000800 added
+--      arrived without the bar the other two have, so a receipt-linked row
+--      could be deleted out from under its own settlement entry -- and the
+--      `with check` half let a client set or clear either link on an existing
+--      row, flipping what the backfill does with it after the live path had
+--      already posted under the old value.
 --  12. A STANDALONE stock_loss debits 5100 and credits 1200 -- NOT A WALLET.
 --      This is wrong today even with the double-post gone: losing stock costs
 --      the shop the stock, not the till, and crediting cash balances perfectly
@@ -377,26 +394,104 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
-  -- 6. A bill-derived expense row posts nothing either.
+  -- 6. A BILL-DERIVED EXPENSE ROW IS WHERE THE BILL'S COST IS RECOGNISED.
   ---------------------------------------------------------------------------
-  -- sync_invoice_expense (20260816000000) mirrors every invoice into expenses
-  -- carrying invoice_id. The cost is recognised by the bill; receive_stock
-  -- credits 2000 when the goods arrive and record_invoice_payment debits it
-  -- when the money moves. Posting 6xxx here as well would double every stocked
-  -- cost the shop has -- the most common double-count in a first ledger.
+  -- THIS CHECK USED TO ASSERT THE OPPOSITE, and it was wrong. It said "a bill
+  -- posts nothing, because the cost is recognised by the bill" -- and no
+  -- migration on this branch posts anything when an `invoices` row is inserted.
+  -- sync_invoice_expense (20260804000300) mirrors the bill into `expenses`
+  -- carrying invoice_id, and THAT MIRROR ROW was the row being skipped. So a
+  -- 61437 rent bill posted nothing at all, record_invoice_payment then posted
+  -- Dr 2000 / Cr the wallet when it was paid, Accounts Payable read MINUS 61437
+  -- and the P&L showed no rent. Every entry balanced. The trial balance zeroed.
+  -- Every assertion in this file passed.
+  --
+  -- The bill now posts Dr the category's account / Cr 2000 Accounts Payable --
+  -- the exact mirror of check 9's receipt-linked row (Dr 2000 / Cr the wallet)
+  -- and the thing record_invoice_payment's Dr 2000 exists to clear.
+  -- verify-posting-bills.sql check 11 is the one that closes the loop, by
+  -- entering a bill and PAYING it and asserting 2000 lands back at zero.
+  --
+  -- 'rent' -> 6000, which nothing else in this script touches.
   select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  v_on := public.shop_local_date() - 5;
   insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
                                category, issued_on, due_on, amount_cents)
     values (v_shop_id, v_loc_id, 'Expenses Vendor', 'EXP-1', 'rent',
-            public.shop_local_date() - 5, public.shop_local_date() + 10, 61437)
+            v_on, public.shop_local_date() + 10, 61437)
+    returning id into v_invoice_id;
+
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  if v_rows - v_before <> 1 then
+    raise exception 'FAIL: recording a bill wrote % journal entries, expected exactly 1 (0 = the cost of the bill reaches no account at all)', v_rows - v_before;
+  end if;
+  select journal_entry_id into v_entry from public.expenses where invoice_id = v_invoice_id;
+  if v_entry is null then
+    raise exception 'FAIL: the bill''s mirrored expense row did not post -- nothing else posts for a bill, so its cost is nowhere in the books';
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '6000';
+  if v_amount <> 61437 then
+    raise exception 'FAIL: expected Dr 6000 Rent 61437 when the bill was entered, got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2000';
+  if v_amount <> -61437 then
+    raise exception 'FAIL: expected Cr 2000 Accounts Payable -61437 for an unpaid bill, got % -- a payment has nothing to settle without it', v_amount;
+  end if;
+
+  -- AND NO WALLET AT ALL. This is the assertion that separates a correct
+  -- implementation from the obvious wrong one rather than from doing nothing:
+  -- sync_invoice_expense writes the literal 'other' into payment_method because
+  -- a bill HAS no payment method, and 'other' maps to 1010 Bank. A trigger that
+  -- fell through to the generic branch would credit 1010 for a bill nobody has
+  -- paid -- the shop's bank balance down by every unpaid bill it holds, with
+  -- the entry balancing and 6000 reading correctly above.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code in ('1000', '1010', '1020', '1021')) then
+    raise exception 'FAIL: entering a bill credited a wallet -- no money has moved yet, and 1010 Bank is where payment_method ''other'' lands';
+  end if;
+
+  -- issued_on, not today: a bill dated last month is last month's cost.
+  select source, entry_date into v_text, v_date from public.journal_entries where id = v_entry;
+  if v_text <> 'bill' then
+    raise exception 'FAIL: expected source ''bill'' for a bill, got %', v_text;
+  end if;
+  if v_date <> v_on then
+    raise exception 'FAIL: the bill''s entry should be dated % (issued_on), got %', v_on, v_date;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 6b. AN inventory_purchase BILL IS THE ONE THAT POSTS NOTHING.
+  ---------------------------------------------------------------------------
+  -- The map sends 'inventory_purchase' to 1200 Inventory, and 1200 is exactly
+  -- what receive_stock already debits (against Cr 2000) when the delivery
+  -- lands. And that pairing is not a mistake a shop should have avoided: it is
+  -- the app's ONLY unpaid-delivery flow, because record_invoice_payment is the
+  -- one door that draws receive_stock's payable back down and it needs a bill.
+  -- So a bill for goods adds nothing -- posting it would put the delivery into
+  -- 1200 twice and raise a second payable beside the real one, with the entry
+  -- balancing and the trial balance still at zero.
+  --
+  -- Nothing is lost from the P&L: 1200 is an asset, and its cost reaches the
+  -- P&L as COGS when the goods sell. That is the whole difference between this
+  -- row and check 6's rent, which has no other door at all.
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Expenses Vendor', 'EXP-2', 'inventory_purchase',
+            public.shop_local_date() - 5, public.shop_local_date() + 10, 47119)
     returning id into v_invoice_id;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
   if v_rows <> v_before then
-    raise exception 'FAIL: recording a bill wrote % journal entries via its mirrored expense row', v_rows - v_before;
+    raise exception 'FAIL: a bill for goods wrote % journal entries -- receive_stock already put the delivery into 1200 against 2000', v_rows - v_before;
   end if;
   select journal_entry_id into v_entry from public.expenses where invoice_id = v_invoice_id;
   if v_entry is not null then
-    raise exception 'FAIL: the bill-derived expense row carries a journal entry of its own';
+    raise exception 'FAIL: an inventory_purchase bill carries a journal entry of its own -- the goods would be recognised twice';
   end if;
 
   ---------------------------------------------------------------------------
@@ -726,6 +821,55 @@ begin
   if v_amount <> 0 then
     raise exception 'FAIL: the trial balance does not zero, off by %', v_amount;
   end if;
+
+  ---------------------------------------------------------------------------
+  -- 13. A GENERATED EXPENSE ROW IS READ-ONLY FROM THE EXPENSES SCREEN --
+  --     ALL FOUR LINKS, NOT JUST THE TWO THAT HAD THE BAR.
+  ---------------------------------------------------------------------------
+  -- 20260804000300 and 20260804000400 made invoice- and payroll-linked rows
+  -- read-only because "the total and its source drift apart" otherwise. The two
+  -- link columns 20260908000800 added arrived without that bar, and the gap is
+  -- not cosmetic:
+  --
+  --   * DELETING a receipt-linked row from the Expenses screen removes the
+  --     source of a Dr 2000 / Cr wallet settlement and leaves the entry
+  --     standing over nothing. The backfill can never repair it -- there is no
+  --     row left to replay.
+  --   * The `with check` half is sharper. Without it a client can SET or CLEAR
+  --     either link on an existing row: clearing stock_receipt_id turns a
+  --     settlement into a standalone purchase and the replay debits 1200 for
+  --     goods already on the books; setting stock_count_id on a hand-typed
+  --     write-off makes the replay skip it entirely. The live posting already
+  --     happened under the OLD value, so only the replay moves -- and the two
+  --     paths agreeing is the one property this whole phase turns on.
+  --
+  -- ASSERTED AGAINST pg_policies, never by attempting the operation: this
+  -- script runs as the postgres superuser and RLS does not apply to it, so a
+  -- DELETE here would succeed however the policies are written and the check
+  -- would be reporting on nothing. Same trap verify-ledger.sql documents.
+  --
+  -- Both halves of the UPDATE policy are read. `qual` alone passes a policy that
+  -- refuses to update a LINKED row while happily letting a client attach a link
+  -- to an unlinked one, which is the direction that flips what the backfill does.
+  for v_text in
+    select unnest(array['invoice_id', 'payroll_run_id', 'stock_receipt_id', 'stock_count_id'])
+  loop
+    if not exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'expenses' and policyname = 'update expenses'
+         and qual like '%' || v_text || ' IS NULL%'
+         and with_check like '%' || v_text || ' IS NULL%'
+    ) then
+      raise exception 'FAIL: the "update expenses" policy does not bar % on both halves -- a generated row can be edited, or a link set or cleared on an existing one', v_text;
+    end if;
+    if not exists (
+      select 1 from pg_policies
+       where schemaname = 'public' and tablename = 'expenses' and policyname = 'delete expenses'
+         and qual like '%' || v_text || ' IS NULL%'
+    ) then
+      raise exception 'FAIL: the "delete expenses" policy does not bar % -- deleting the row leaves its journal entry standing over nothing', v_text;
+    end if;
+  end loop;
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
