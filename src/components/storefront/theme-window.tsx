@@ -1,17 +1,29 @@
-import { FlatList, Image, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { FlatList, Image, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { CartSheet } from '@/components/storefront/cart-sheet';
 import { ProductTile } from '@/components/storefront/product-tile';
-import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
+import {
+  CartButton, EmptyState, WhatsAppButton, gridColumnsForWidth, useStorefrontCart, type ThemeProps,
+} from '@/components/storefront/theme-shared';
 
 // The only theme that reads hero_image_url. When there isn't one the hero falls
 // back to a flat panel carrying the headline -- which still looks intentional.
 // That is the test every theme in this set had to pass.
 export function ThemeWindow({ storefront, products, colors }: ThemeProps) {
+  const { width } = useWindowDimensions();
+  const numColumns = gridColumnsForWidth(width);
+  const { cart, addProduct, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const [cartOpen, setCartOpen] = useState(false);
+
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
       <View style={styles.nav}>
         <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName.toUpperCase()}</Text>
-        <WhatsAppButton storefront={storefront} />
+        <View style={styles.navActions}>
+          <WhatsAppButton storefront={storefront} />
+          <CartButton colors={colors} count={itemCount} onPress={() => setCartOpen(true)} />
+        </View>
       </View>
 
       <View style={[styles.hero, { backgroundColor: colors.soft }]}>
@@ -29,23 +41,40 @@ export function ThemeWindow({ storefront, products, colors }: ThemeProps) {
       ) : (
         <FlatList
           data={products}
-          numColumns={2}
+          // See theme-market.tsx's comment on this same pattern.
+          key={numColumns}
+          numColumns={numColumns}
           keyExtractor={(p) => p.id}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.grid}
           renderItem={({ item }) => (
             <View style={styles.cell}>
-              <ProductTile product={item} colors={colors} />
+              <ProductTile
+                product={item}
+                colors={colors}
+                shopName={storefront.shopName}
+                whatsappE164={storefront.whatsappE164}
+                onAdd={addProduct}
+              />
             </View>
           )}
         />
       )}
+
+      <CartSheet
+        visible={cartOpen}
+        onClose={() => setCartOpen(false)}
+        cart={cart}
+        colors={colors}
+        onChangeQuantity={changeQuantity}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, gap: 12 },
+  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   shopName: { fontSize: 15, fontWeight: '800', letterSpacing: 2 },
   hero: { marginHorizontal: 16, borderRadius: 20, padding: 24, overflow: 'hidden' },
   heroImage: { ...StyleSheet.absoluteFill },

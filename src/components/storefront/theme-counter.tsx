@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { EmptyState, WhatsAppButton, type ThemeProps } from '@/components/storefront/theme-shared';
+import { CartSheet } from '@/components/storefront/cart-sheet';
+import { CartButton, EmptyState, WhatsAppButton, useStorefrontCart, type ThemeProps } from '@/components/storefront/theme-shared';
 import { formatCents } from '@/lib/currency';
 import type { StorefrontProduct } from '@/types/models';
 
@@ -20,6 +22,14 @@ function groupByCategory(products: StorefrontProduct[]): [string, StorefrontProd
 }
 
 export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
+  // Counter has no product grid and so no Add button of its own, but the
+  // basket is keyed by shop slug, not by theme (see theme-shared.tsx's
+  // useStorefrontCart) -- a customer can still arrive here with items a
+  // grid theme already put in it, or a shop can switch themes with a basket
+  // still in progress. Either way this entry point has to be here too.
+  const { cart, changeQuantity, itemCount } = useStorefrontCart(storefront.slug);
+  const [cartOpen, setCartOpen] = useState(false);
+
   return (
     <View style={{ backgroundColor: colors.ground, flex: 1 }}>
       <View style={[styles.nav, { borderBottomColor: colors.ink }]}>
@@ -27,7 +37,10 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
           <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
           {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
         </View>
-        <WhatsAppButton storefront={storefront} />
+        <View style={styles.navActions}>
+          <WhatsAppButton storefront={storefront} />
+          <CartButton colors={colors} count={itemCount} onPress={() => setCartOpen(true)} />
+        </View>
       </View>
 
       {/* A plain View never scrolls on native, and Expo Router's web reset sets
@@ -62,12 +75,21 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
           ))
         )}
       </ScrollView>
+
+      <CartSheet
+        visible={cartOpen}
+        onClose={() => setCartOpen(false)}
+        cart={cart}
+        colors={colors}
+        onChangeQuantity={changeQuantity}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
+  navActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 24 },
   shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
