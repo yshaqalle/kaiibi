@@ -1,5 +1,6 @@
 import { DEFAULT_PALETTE, DEFAULT_THEME } from '@/lib/storefront-catalog';
 import { supabase } from '@/lib/supabase';
+import { whatsappLink } from '@/lib/whatsapp';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 
 // Reads the public page. Every one of these calls the RPCs in
@@ -46,7 +47,14 @@ export async function getPublicStorefrontProducts(slug: string): Promise<Storefr
   }));
 }
 
-// wa.me takes bare digits -- a leading plus produces a chat with nobody.
+// wa.me takes bare digits -- a leading plus produces a chat with nobody. This
+// is whatsappLink (@/lib/whatsapp) under the name storefront screens already
+// import: `e164` here is expected pre-normalised (a shop's stored
+// whatsapp_e164), so the strict-normaliser round trip is a no-op for every
+// real caller. The fallback is the ORIGINAL naive implementation, kept for
+// byte-for-byte behaviour on the one input class where it would differ --
+// something that fails the strict normaliser (not a real E.164 number) --
+// rather than silently swapping in a different, empty-looking link.
 export function waLink(e164: string, message: string): string {
-  return `https://wa.me/${e164.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
+  return whatsappLink(e164, message) ?? `https://wa.me/${e164.replace(/^\+/, '')}?text=${encodeURIComponent(message)}`;
 }

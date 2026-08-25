@@ -1,8 +1,14 @@
 import { openExternalUrl } from '@/lib/external-url';
+import { toE164 } from '@/lib/phone-e164';
 
 // wa.me only accepts digits. Somaliland numbers are written locally as
 // 063 xxx xxxx, so a leading 0 is dropped and the 252 country code assumed
 // when none is given -- otherwise every link would silently open an empty chat.
+// The strict half of that -- what counts as a dialable number at all -- lives
+// once in toE164 (phone-e164.ts); this is the one place that turns a
+// normalised number into a wa.me link, for loose caller input and already-
+// normalised E.164 alike (see waLink in storefront.ts, which is this
+// function under an older name kept for its own callers).
 //
 // This normalization started life in platform.ts for the operator portal's
 // "message this shop" button; it lives here now so customers, staff and
@@ -10,11 +16,9 @@ import { openExternalUrl } from '@/lib/external-url';
 // idea of what a phone number looks like. platform.ts re-exports it.
 export function whatsappLink(phone: string | null | undefined, message?: string): string | null {
   if (!phone) return null;
-  let digits = phone.replace(/[^\d+]/g, '').replace(/^\+/, '');
-  if (digits.startsWith('00')) digits = digits.slice(2);
-  if (digits.startsWith('0')) digits = `252${digits.slice(1)}`;
-  else if (!digits.startsWith('252') && digits.length <= 9) digits = `252${digits}`;
-  if (digits.length < 9) return null;
+  const e164 = toE164(phone);
+  if (!e164) return null;
+  const digits = e164.slice(1);
   return `https://wa.me/${digits}${message ? `?text=${encodeURIComponent(message)}` : ''}`;
 }
 
