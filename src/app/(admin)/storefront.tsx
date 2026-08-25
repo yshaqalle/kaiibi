@@ -15,7 +15,6 @@ import { TABLET_BREAKPOINT } from '@/constants/layout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { describePlanError } from '@/lib/entitlements';
-import { getPublicStorefrontProducts } from '@/lib/storefront';
 import { uploadImage } from '@/lib/storage';
 import {
   checkSlug,
@@ -25,12 +24,13 @@ import {
   discardDraft,
   ensureStorefront,
   getMyStorefront,
+  getStorefrontPreviewProducts,
   listDeliveryAreas,
   publishBlockers,
   publishDraft,
   saveDeliveryArea,
   saveDraft,
-  setPublished,
+  unpublish,
   type DeliveryArea,
   type EditableFields,
   type PublishBlocker,
@@ -170,17 +170,20 @@ export default function StorefrontEditor() {
     load();
   }, [load]);
 
-  // The preview's products, straight from the same RPC a customer's browser
-  // calls -- see storefront.ts. No second products query exists in this
-  // file: this is the only place the editor asks what a customer would see.
+  // The preview's products, read admin-side rather than through the public
+  // RPC a customer's browser calls (storefront.ts) -- that RPC deliberately
+  // returns nothing until the page is published, which would make the
+  // preview show an empty catalogue on exactly the run this screen exists
+  // for: a shop's first visit, before it has ever published. Keyed on
+  // shopId, not on working.slug -- unlike the public page, this preview is
+  // the shop looking at its OWN catalogue and needs no address to do it.
   useEffect(() => {
-    const slug = working?.slug;
-    if (!slug) {
+    if (!shopId) {
       setPreviewProducts([]);
       return;
     }
     let cancelled = false;
-    getPublicStorefrontProducts(slug)
+    getStorefrontPreviewProducts(shopId)
       .then((products) => {
         if (!cancelled) setPreviewProducts(products ?? []);
       })
@@ -190,7 +193,7 @@ export default function StorefrontEditor() {
     return () => {
       cancelled = true;
     };
-  }, [working?.slug]);
+  }, [shopId]);
 
   // Debounced slug availability check as a shopkeeper types -- never fired
   // for the slug already on the row, which is trivially available to them.
@@ -223,22 +226,27 @@ export default function StorefrontEditor() {
   // Sends whatever is queued to saveDraft right now, bypassing the debounce.
   // Publish calls this first so the very last keystroke -- typed inside the
   // debounce window, before its own timer fired -- is not left behind on a
-  // page that just went live without it.
-  const flushAutosave = useCallback(async () => {
+  // page that just went live without it. Returns whether the flush actually
+  // landed (or there was nothing to flush): Publish must treat `false` as a
+  // hard stop, never proceed to publishDraft, or a shop could be told it
+  // published a page that in fact shipped without its last edit.
+  const flushAutosave = useCallback(async (): Promise<boolean> => {
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
     const pending = pendingDraftPatchRef.current;
-    if (!shopId || Object.keys(pending).length === 0) return;
+    if (!shopId || Object.keys(pending).length === 0) return true;
     pendingDraftPatchRef.current = {};
     try {
       await saveDraft(shopId, pending);
+      return true;
     } catch {
       // An autosave failing silently would strand real work with nothing on
       // screen to explain it -- put the patch back so the next debounce
-      // tick, or Publish's own flush, tries again rather than dropping it.
+      // tick, or Publish's own retry, tries again rather than dropping it.
       pendingDraftPatchRef.current = { ...pending, ...pendingDraftPatchRef.current };
+      return false;
     }
   }, [shopId]);
 
@@ -250,7 +258,20 @@ export default function StorefrontEditor() {
     }, AUTOSAVE_DEBOUNCE_MS);
   }
 
-  useEffect(() => () => cancelPendingAutosave(), []);
+  // Flushes -- never cancels -- any pending autosave on unmount. Task 7b's
+  // whole justification for the debounce above is "losing the network or
+  // navigating away costs nothing" (AUTOSAVE_DEBOUNCE_MS's own comment);
+  // cancelling here instead would silently drop up to AUTOSAVE_DEBOUNCE_MS
+  // of typing every time a shopkeeper navigates away mid-pause, the exact
+  // hole that property was meant to close. Fire-and-forget: a component that
+  // has already unmounted has nowhere left to show a failure, which is the
+  // same reason flushAutosave itself re-queues on failure rather than
+  // throwing -- the next mount's own autosave (or Publish) gets another try.
+  // cancelPendingAutosave is kept for the one place that genuinely wants a
+  // discard -- see its own comment below.
+  useEffect(() => () => {
+    flushAutosave();
+  }, [flushAutosave]);
 
   // Every edit does two things: shows immediately in `working` (and so in
   // the preview), and queues an autosave into the server-side draft. Never a
@@ -323,9 +344,15 @@ export default function StorefrontEditor() {
   // flushAutosave runs first so the very last keystroke, still sitting in
   // the debounce window, is in the server's draft before that copy happens
   // -- otherwise a shopkeeper who types and immediately presses Publish
-  // would ship everything except their last edit. The row is refetched
-  // afterward rather than guessed at client-side: it is the one place that
-  // actually knows what publish_storefront just did to shops.whatsapp_e164.
+  // would ship everything except their last edit. Its result is checked,
+  // not just awaited: a failed flush leaves that last edit sitting only in
+  // pendingDraftPatchRef, never in the server's draft, so publishing anyway
+  // would copy an older draft live, refetch it as the new truth, and tell
+  // the shop it published something it did not -- the edit would then sit
+  // orphaned with nothing on screen still asking to be saved. The row is
+  // refetched afterward rather than guessed at client-side: it is the one
+  // place that actually knows what publish_storefront just did to
+  // shops.whatsapp_e164.
   async function handlePublish() {
     if (!shopId || !working) return;
     if (blockers.length > 0) {
@@ -335,7 +362,11 @@ export default function StorefrontEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      await flushAutosave();
+      const flushed = await flushAutosave();
+      if (!flushed) {
+        setPublishError('Could not save your last changes. Try again before publishing.');
+        return;
+      }
       await publishDraft(shopId);
       const fresh = await getMyStorefront(shopId);
       if (fresh) {
@@ -353,7 +384,7 @@ export default function StorefrontEditor() {
     if (!shopId) return;
     setPublishError(null);
     try {
-      await setPublished(shopId, false);
+      await unpublish(shopId);
       setWorking((w) => (w ? { ...w, publishedAt: null } : w));
     } catch (err) {
       setPublishError(describePlanError(err) ?? messageOf(err, 'Could not unpublish. Try again.'));
@@ -509,7 +540,13 @@ export default function StorefrontEditor() {
       <DesignStrip
         theme={working.theme}
         palette={working.palette}
-        neverPublished={working.publishedAt === null}
+        // firstPublishedAt (T3), not publishedAt: publishedAt goes back to
+        // null the moment a shop unpublishes, which would resurface "Chosen
+        // for you" for a shop that has already published once -- exactly
+        // backwards from "once a shop has published, it has chosen".
+        // firstPublishedAt is set once, by publish_storefront's own first
+        // publish, and unpublish never touches it.
+        neverPublished={working.firstPublishedAt === null}
         onThemeChange={(key) => patchDraft({ theme: key })}
         onPaletteChange={(key) => patchDraft({ palette: key })}
       />
@@ -542,7 +579,8 @@ export default function StorefrontEditor() {
   const preview = (
     <BentoCard title="Preview" style={styles.previewCard} bodyStyle={styles.previewBody}>
       <Caveat tone="context">
-        This shows your unsaved changes. Customers keep seeing the page you last published, until you press Publish.
+        This shows your unsaved changes. Customers keep seeing the page you last published, until you press Publish
+        — except delivery areas, which save straight to your live page as soon as you add or edit them.
       </Caveat>
       <View style={styles.previewFrame}>
         <StorefrontView storefront={previewStorefront} products={previewProducts} />

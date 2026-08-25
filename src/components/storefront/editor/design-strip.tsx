@@ -32,10 +32,13 @@ export function DesignStrip({
   theme: StorefrontTheme;
   palette: StorefrontPalette;
   /**
-   * `storefront.publishedAt === null` -- the real signal for "this shop has
-   * never chosen a design", handed down by the editor screen. Depends on
-   * nothing else: a shop that deliberately returns to Market/Ink after
-   * customising has published, so it has chosen, whatever it chose.
+   * `storefront.firstPublishedAt === null` -- the real signal for "this
+   * shop has never chosen a design", handed down by the editor screen.
+   * Deliberately NOT `publishedAt === null`: that goes back to null the
+   * moment a shop unpublishes, which would tell a shop that has already
+   * published -- and so already chosen, whatever it chose -- that its
+   * design was picked for it all over again. firstPublishedAt is set once,
+   * on a shop's first publish, and never cleared by unpublishing.
    */
   neverPublished: boolean;
   onThemeChange: (key: StorefrontTheme) => void;

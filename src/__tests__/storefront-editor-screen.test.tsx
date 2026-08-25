@@ -17,10 +17,6 @@ Dimensions.set({
 
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 jest.mock('@/lib/storefront-admin');
-jest.mock('@/lib/storefront', () => ({
-  getPublicStorefrontProducts: jest.fn().mockResolvedValue([]),
-  waLink: (e: string, m: string) => `https://wa.me/${e.replace(/^\+/, '')}?text=${encodeURIComponent(m)}`,
-}));
 // `useAuth()` throws outside an `<AuthProvider>` (src/hooks/use-auth.tsx),
 // and this screen owns no fetch of its own for WHICH shop it is editing --
 // that comes from context, same as every other (admin) route. Mocked as a
@@ -33,9 +29,11 @@ jest.mock('@/hooks/use-auth', () => ({
 
 import { useAuth } from '@/hooks/use-auth';
 import {
+  countOnlineProducts,
   discardDraft,
   ensureStorefront,
   getMyStorefront,
+  getStorefrontPreviewProducts,
   publishDraft,
   saveDraft,
 } from '@/lib/storefront-admin';
@@ -70,6 +68,7 @@ const BASE = {
   theme: 'market' as const, palette: 'ink' as const,
   headline: 'Everything for the house and the phone.', about: null,
   heroImageUrl: null, offersDelivery: false, publishedAt: null,
+  firstPublishedAt: null,
   draft: null,
 };
 
@@ -81,6 +80,10 @@ describe('storefront editor', () => {
     // survives `clearAllMocks()`, so the city test's override would otherwise
     // leak into whichever test runs after it.
     (useAuth as jest.Mock).mockReturnValue({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] });
+    // Every test renders the preview, which now fetches admin-side (B3) --
+    // default to empty so a test that doesn't care about products isn't
+    // left with an unresolved automock jest.fn() (undefined has no .then).
+    (getStorefrontPreviewProducts as jest.Mock).mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -174,6 +177,105 @@ describe('storefront editor', () => {
 
     expect(saveDraft).toHaveBeenCalledWith('s1', { headline: 'Fresh produce, delivered daily.' });
     expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  // B1: a shop must never be told it published something it did not.
+  // handlePublish flushes the last keystroke first; if that flush fails, the
+  // edit is stuck client-side only (flushAutosave re-queued it), so
+  // publishing anyway would ship an older draft and refetch it as truth --
+  // the shop would see "published" while its last edit sat nowhere durable.
+  it('refuses to publish when the last edit fails to save, and says why', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (countOnlineProducts as jest.Mock).mockResolvedValue(3);
+    (saveDraft as jest.Mock).mockRejectedValue(new Error('network down'));
+    const tree = await renderScreen();
+
+    const headlineInput = tree.root
+      .findAllByType(TextInput)
+      .find((node) => node.props.placeholder === 'What should a customer see first?');
+    await act(async () => {
+      headlineInput!.props.onChangeText('Last-second edit');
+    });
+
+    const publishButton = tree.root.findAll((node) => node.props.testID === 'publish-bar-publish')[0];
+    await act(async () => {
+      publishButton.props.onPress();
+    });
+
+    expect(saveDraft).toHaveBeenCalledWith('s1', { headline: 'Last-second edit' });
+    expect(publishDraft).not.toHaveBeenCalled();
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toMatch(/try again|could not/i);
+  });
+
+  // B2: Task 7b's whole justification for the debounce is "losing the
+  // network or navigating away costs nothing" -- unmounting mid-debounce (a
+  // shopkeeper backing out of the screen right after typing) must flush the
+  // pending patch, not cancel it. cancelPendingAutosave stays reserved for
+  // the deliberate discard path, covered separately below.
+  it('flushes a pending edit on unmount instead of dropping it', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (saveDraft as jest.Mock).mockResolvedValue(undefined);
+    const tree = await renderScreen();
+
+    const headlineInput = tree.root
+      .findAllByType(TextInput)
+      .find((node) => node.props.placeholder === 'What should a customer see first?');
+    await act(async () => {
+      headlineInput!.props.onChangeText('Typed right before navigating away');
+    });
+    expect(saveDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      tree.unmount();
+    });
+
+    expect(saveDraft).toHaveBeenCalledWith('s1', { headline: 'Typed right before navigating away' });
+  });
+
+  // B3: get_public_storefront_products (the RPC a customer's browser calls)
+  // deliberately returns nothing until published_at is set -- exactly right
+  // for a customer, wrong for this screen's own preview, which exists to
+  // show a shop what its page will look like on its FIRST publish. A shop
+  // that has never published (BASE.publishedAt is null) with real products
+  // marked to sell online must still see them in the preview.
+  it('shows real products in the preview for a shop that has never published', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (getStorefrontPreviewProducts as jest.Mock).mockResolvedValue([
+      { id: 'p1', name: 'Roasted coffee beans', description: null, category: null, priceCents: 1200, stock: 5, imageUrl: null },
+    ]);
+    const tree = await renderScreen();
+
+    expect(getStorefrontPreviewProducts).toHaveBeenCalledWith('s1');
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Roasted coffee beans');
+  });
+
+  // T3: "Chosen for you" must not resurface for a shop that has already
+  // published once and later unpublished -- the plan's own wording is "once
+  // a shop has published, it has chosen". publishedAt alone can't carry
+  // this: unpublish sets it back to null. firstPublishedAt (set once, by
+  // publish_storefront, never cleared) is the sticky signal.
+  it('shows "Chosen for you" for a shop that has never published', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Chosen for you');
+  });
+
+  it('does not resurface "Chosen for you" once a shop has ever published, even after unpublishing', async () => {
+    const row = { ...BASE, publishedAt: null, firstPublishedAt: '2026-01-01T00:00:00.000Z' };
+    (getMyStorefront as jest.Mock).mockResolvedValue(row);
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).not.toContain('Chosen for you');
   });
 
   // Property 7: discarding a draft is possible and returns the editor to the
