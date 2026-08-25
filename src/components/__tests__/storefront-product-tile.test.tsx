@@ -43,10 +43,10 @@ const base: StorefrontProduct = {
   imageUrl: null,
 };
 
-function renderTile(product: StorefrontProduct) {
+function renderTile(product: StorefrontProduct, extra?: { whatsappE164?: string; shopName?: string }) {
   let tree!: ReturnType<typeof create>;
   act(() => {
-    tree = create(<ProductTile product={product} colors={colors} />);
+    tree = create(<ProductTile product={product} colors={colors} {...extra} />);
   });
   return textsIn(tree.toJSON() as ReactTestRendererJSON);
 }
@@ -101,14 +101,15 @@ describe('ProductTile', () => {
   // The shop may be restocking, and that enquiry is a sale -- an out-of-stock
   // tile loses Add but must never lose Ask or disappear.
   it('loses Add but keeps Ask when out of stock', () => {
-    const texts = renderTile({ ...base, stock: 0 });
+    // The shop may be restocking, and that enquiry is a sale.
+    const texts = renderTile({ ...base, stock: 0 }, { whatsappE164: '+252634418820' });
     expect(texts).not.toContain('Add');
     expect(texts).toContain('Ask');
     expect(texts).toContain('Out of stock — ask us');
   });
 
   it('shows Ask alongside Add when in stock', () => {
-    const texts = renderTile(base);
+    const texts = renderTile(base, { whatsappE164: '+252634418820' });
     expect(texts).toContain('Ask');
     expect(texts).toContain('Add');
   });
@@ -129,13 +130,18 @@ describe('ProductTile', () => {
 
   // No number to reach means nothing to open, but the property is that Ask
   // stays VISIBLE regardless (asserted above) -- it just becomes inert here.
-  it('Ask does nothing when the shop has no WhatsApp number', () => {
+  it('does not render Ask at all when the shop has no WhatsApp number', () => {
+    // Matches WhatsAppButton in theme-shared: lose the button rather than
+    // render one that opens a chat with nobody. An Ask that renders and
+    // silently does nothing is the worse half of both options -- the customer
+    // taps and the app shrugs. Publishing requires a number, so this is the
+    // belt to that braces.
     let tree!: ReturnType<typeof create>;
     act(() => {
       tree = create(<ProductTile product={base} colors={colors} />);
     });
     const askButtons = tree.root.findAll((node) => node.props?.testID === 'product-tile-ask');
-    act(() => askButtons[0].props.onPress());
+    expect(askButtons).toHaveLength(0);
     expect(openMock).not.toHaveBeenCalled();
   });
 });

@@ -53,13 +53,21 @@ type ProductActionsProps = {
 // The Add/Ask pair every theme with per-product actions needs. Originally
 // lived only in ProductTile (Market, Window); Counter has its own row layout
 // and so cannot reuse ProductTile itself, only the two rules its actions
-// follow -- Add only in stock, Ask always rendered but inert without a
-// number. Extracted here rather than copied a third time, so those rules
-// have exactly one place to drift out of sync.
+// follow. Extracted here rather than copied a third time, so those rules have
+// exactly one place to drift out of sync.
+//
+// The rules: Add only in stock -- an out-of-stock product keeps Ask, because
+// the shop may be restocking and that enquiry is a sale. And Ask only when
+// there is a number to ask, for the reason WhatsAppButton above states: lose
+// the button rather than render one that opens a chat with nobody. An earlier
+// version rendered Ask always and made it silently do nothing, which is the
+// worse half of both options -- the customer taps and the app shrugs.
 export function ProductActions({ product, colors, shopName, whatsappE164, onAdd, compact }: ProductActionsProps) {
   const outOfStock = product.stock <= 0;
 
   function handleAsk() {
+    // Unreachable now that Ask does not render without a number; kept as the
+    // type narrow that lets waLink take a string.
     if (!whatsappE164) return;
     const message = shopName
       ? `Hi ${shopName}, is ${product.name} available?`
@@ -83,15 +91,17 @@ export function ProductActions({ product, colors, shopName, whatsappE164, onAdd,
           <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: colors.ground }]}>Add</Text>
         </Pressable>
       )}
-      {/* Ask always renders -- WhatsApp's own fixed brand colours. */}
-      <Pressable
-        testID="product-tile-ask"
-        accessibilityRole="button"
-        style={[styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
-        onPress={handleAsk}
-      >
-        <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
-      </Pressable>
+      {/* WhatsApp's own fixed brand colours -- never the shop's palette. */}
+      {whatsappE164 ? (
+        <Pressable
+          testID="product-tile-ask"
+          accessibilityRole="button"
+          style={[styles.button, compact && styles.buttonCompact, { backgroundColor: WHATSAPP_BUTTON_GREEN }]}
+          onPress={handleAsk}
+        >
+          <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: WHATSAPP_INK }]}>Ask</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }

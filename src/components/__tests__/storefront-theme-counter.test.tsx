@@ -120,11 +120,12 @@ describe('ThemeCounter', () => {
   // No number to reach means nothing to open, but the property is that Ask
   // stays VISIBLE regardless -- same as ProductTile -- it just becomes
   // inert. Add still works without a WhatsApp number.
-  it('Ask does nothing when the shop has no WhatsApp number, but Add still works', () => {
+  it('drops Ask when the shop has no WhatsApp number, but Add still works', () => {
+    // Same rule as WhatsAppButton in theme-shared: lose the button rather than
+    // render one that opens a chat with nobody. Selling is unaffected -- only
+    // the question channel disappears.
     const tree = renderCounter({ ...shop, whatsappE164: null });
-    const askButtons = findByTestId(tree, 'product-tile-ask');
-    expect(askButtons).toHaveLength(1);
-    act(() => askButtons[0].props.onPress());
+    expect(findByTestId(tree, 'product-tile-ask')).toHaveLength(0);
     expect(openMock).not.toHaveBeenCalled();
 
     const addButtons = findByTestId(tree, 'product-tile-add');
