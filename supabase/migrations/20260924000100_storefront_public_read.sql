@@ -92,6 +92,7 @@ as $$
   where s.slug = lower(p_slug)
     and f.published_at is not null
     and f.offers_delivery
+    and public.shop_has_module(s.id, 'storefront')
   order by a.sort_order, a.name;
 $$;
 

@@ -10,6 +10,7 @@ declare
   v_user_id uuid := gen_random_uuid();
   v_shop_id uuid;
   v_other_id uuid;
+  v_free_id uuid;
   v_raised boolean;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
@@ -111,14 +112,26 @@ begin
     raise exception 'FAIL: the public product list did not honour is_listed_online';
   end if;
 
+  -- Postgres does not register a function's RETURNS TABLE columns in
+  -- information_schema.columns -- there is no table there to register them
+  -- under. They show up in information_schema.parameters instead, as OUT
+  -- parameters. A check against .columns for a function name is silently
+  -- vacuous: it always finds zero rows and always "passes". This checks the
+  -- view that actually holds the declaration, for both money-bearing public
+  -- functions, so a future `returns table` edit that widens either one to
+  -- include a cost column is caught before it ships.
   if exists (
     select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'get_public_storefront_products'
-      and column_name like '%cost%'
+    from information_schema.routines r
+    join information_schema.parameters p
+      on p.specific_schema = r.specific_schema
+     and p.specific_name = r.specific_name
+    where r.routine_schema = 'public'
+      and r.routine_name in ('get_public_storefront_products', 'get_public_delivery_areas')
+      and p.parameter_mode = 'OUT'
+      and p.parameter_name like '%cost%'
   ) then
-    raise exception 'FAIL: the public product function exposes a cost column';
+    raise exception 'FAIL: a public storefront function declares a cost column';
   end if;
 
   -- The belt-and-braces version: whatever the function returns, cost must not be
@@ -129,6 +142,36 @@ begin
     where (to_jsonb(pp) ? 'cost_cents')
   ) then
     raise exception 'FAIL: cost_cents leaked into the public product payload';
+  end if;
+
+  -- ------------------------------------------------ 9. delivery areas are gated by the storefront module too
+  -- get_public_storefront and get_public_storefront_products both end their
+  -- where clause with shop_has_module(s.id, 'storefront'). If
+  -- get_public_delivery_areas skips that gate, a shop whose module is
+  -- revoked or downgraded away -- but whose storefront row is still
+  -- published with offers_delivery true -- turns invisible through the
+  -- first two functions while its delivery areas keep leaking through the
+  -- third. That is a cost/data leak, and it is also an enumeration oracle:
+  -- it tells a caller apart a de-entitled-but-published shop from a
+  -- genuinely nonexistent one, which is exactly what the silence in 6/7
+  -- above exists to prevent.
+  update public.storefronts set offers_delivery = true where shop_id = v_shop_id;
+
+  if not exists (select 1 from public.get_public_delivery_areas('xamdi')) then
+    raise exception 'FAIL: a published shop offering delivery did not expose its delivery areas';
+  end if;
+
+  select id into v_free_id from public.plans where key = 'free';
+  update public.shop_subscriptions
+  set plan_id = v_free_id, current_period_end = now() + interval '30 days'
+  where shop_id = v_shop_id;
+
+  if public.shop_has_module(v_shop_id, 'storefront') then
+    raise exception 'FAIL: a shop on Free still has the storefront module';
+  end if;
+
+  if exists (select 1 from public.get_public_delivery_areas('xamdi')) then
+    raise exception 'FAIL: delivery areas leaked for a shop whose storefront module was revoked';
   end if;
 
   raise notice 'PASS: storefront schema';
