@@ -29,13 +29,48 @@ export function DeliveryEditor({
   offersDelivery: boolean;
   areas: DeliveryArea[];
   onToggle: (value: boolean) => void;
-  onSave: (area: SavedArea) => void;
-  onDelete: (id: string) => void;
+  // Both write straight to the live page, not to the draft (B4's own
+  // caveat text below explains why to the shopkeeper) -- so a rejection
+  // here (most likely the `unique (shop_id, name)` constraint,
+  // 20260924000000, which storefront-admin.ts deliberately lets surface
+  // rather than pre-checking) is a real failure the row silently never
+  // appearing would otherwise hide. Typed to return a promise specifically
+  // so nothing downstream can drop it the way a bare `void` return once let
+  // happen -- both are awaited below, and a rejection is always routed into
+  // `error`, never left as an unhandled promise.
+  onSave: (area: SavedArea) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   // Focused by the "no areas" caveat's action -- see the comment above that
   // Caveat below for why a `wrong` tone needs a real fix, not just a sentence.
   const addNameRef = useRef<TextInput>(null);
   const sorted = [...areas].sort((a, b) => a.sortOrder - b.sortOrder);
+  const [error, setError] = useState<string | null>(null);
+
+  // Wraps the caller's onSave: awaits it (the actual fix -- AreaRow and
+  // AddAreaRow used to fire this and move on, dropping the promise and with
+  // it any rejection) and reports success back so the row calling it knows
+  // whether to leave edit mode. `false` means the shopkeeper is still
+  // looking at exactly what they typed, with a reason it didn't take.
+  async function handleSave(area: SavedArea): Promise<boolean> {
+    setError(null);
+    try {
+      await onSave(area);
+      return true;
+    } catch {
+      setError('Could not save this delivery area — a name here may already be taken, or something went wrong. Try again.');
+      return false;
+    }
+  }
+
+  async function handleDelete(id: string): Promise<void> {
+    setError(null);
+    try {
+      await onDelete(id);
+    } catch {
+      setError('Could not remove this delivery area. Try again.');
+    }
+  }
 
   return (
     <BentoCard title="Delivery">
@@ -56,6 +91,12 @@ export function DeliveryEditor({
         />
       </View>
 
+      {error ? (
+        <Caveat tone="wrong" onDismiss={() => setError(null)}>
+          {error}
+        </Caveat>
+      ) : null}
+
       {/* Property 1: delivery OFF renders no area fields at all -- not a
           disabled list, which would suggest delivery is available when it
           is not. Nothing below this point mounts unless offersDelivery. */}
@@ -72,12 +113,12 @@ export function DeliveryEditor({
           ) : (
             <View style={styles.list}>
               {sorted.map((area) => (
-                <AreaRow key={area.id} area={area} onSave={onSave} onDelete={onDelete} />
+                <AreaRow key={area.id} area={area} onSave={handleSave} onDelete={handleDelete} />
               ))}
             </View>
           )}
 
-          <AddAreaRow nextSortOrder={sorted.length} onSave={onSave} nameInputRef={addNameRef} />
+          <AddAreaRow nextSortOrder={sorted.length} onSave={handleSave} nameInputRef={addNameRef} />
         </>
       ) : null}
     </BentoCard>
@@ -95,8 +136,8 @@ function AreaRow({
   onDelete,
 }: {
   area: DeliveryArea;
-  onSave: (area: SavedArea) => void;
-  onDelete: (id: string) => void;
+  onSave: (area: SavedArea) => Promise<boolean>;
+  onDelete: (id: string) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(area.name);
@@ -108,7 +149,7 @@ function AreaRow({
     setEditing(true);
   }
 
-  function commit() {
+  async function commit() {
     const name = draftName.trim();
     if (!name) {
       // Nothing usable typed -- drop back to the last saved name rather
@@ -121,8 +162,11 @@ function AreaRow({
     // it clamps anything with a "-" in it to 0, so a negative number cannot
     // be saved regardless of what was typed, on top of the "-" filter on the
     // input itself below.
-    onSave({ id: area.id, name, feeCents: toCents(draftFee), sortOrder: area.sortOrder });
-    setEditing(false);
+    const saved = await onSave({ id: area.id, name, feeCents: toCents(draftFee), sortOrder: area.sortOrder });
+    // A failed save (B4) leaves editing open, showing exactly what the
+    // shopkeeper typed, rather than closing the row on a write that never
+    // actually landed.
+    if (saved) setEditing(false);
   }
 
   if (editing) {
@@ -178,18 +222,22 @@ function AddAreaRow({
   nameInputRef,
 }: {
   nextSortOrder: number;
-  onSave: (area: SavedArea) => void;
+  onSave: (area: SavedArea) => Promise<boolean>;
   nameInputRef: React.RefObject<TextInput | null>;
 }) {
   const [name, setName] = useState('');
   const [fee, setFee] = useState('');
 
-  function commit() {
+  async function commit() {
     const trimmed = name.trim();
     if (!trimmed) return; // Nothing typed -- there is no area to add yet.
-    onSave({ name: trimmed, feeCents: toCents(fee), sortOrder: nextSortOrder });
-    setName('');
-    setFee('');
+    const saved = await onSave({ name: trimmed, feeCents: toCents(fee), sortOrder: nextSortOrder });
+    // A failed save (B4) leaves what was typed in place, rather than
+    // clearing fields for a row that never actually got added.
+    if (saved) {
+      setName('');
+      setFee('');
+    }
   }
 
   const disabled = !name.trim();

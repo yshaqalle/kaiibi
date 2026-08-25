@@ -13,12 +13,15 @@ function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string 
 // Not a spec -- a harness, same shape as ContentDrawer's renderDrawer. Wires
 // the flat shape each assertion wants onto the real
 // <DeliveryEditor offersDelivery areas onToggle onSave onDelete /> props.
+// onSave/onDelete are awaited by the component itself (B4) so both default
+// to a resolved promise here, the same as any other write that is expected
+// to succeed.
 function renderEditor(overrides: {
   offersDelivery: boolean;
   areas: DeliveryArea[];
   onToggle?: (value: boolean) => void;
-  onSave?: (area: { id?: string; name: string; feeCents: number; sortOrder: number }) => void;
-  onDelete?: (id: string) => void;
+  onSave?: (area: { id?: string; name: string; feeCents: number; sortOrder: number }) => Promise<void>;
+  onDelete?: (id: string) => Promise<void>;
 }): string[] {
   let tree: ReturnType<typeof create> | undefined;
   act(() => {
@@ -27,8 +30,8 @@ function renderEditor(overrides: {
         offersDelivery={overrides.offersDelivery}
         areas={overrides.areas}
         onToggle={overrides.onToggle ?? jest.fn()}
-        onSave={overrides.onSave ?? jest.fn()}
-        onDelete={overrides.onDelete ?? jest.fn()}
+        onSave={overrides.onSave ?? jest.fn().mockResolvedValue(undefined)}
+        onDelete={overrides.onDelete ?? jest.fn().mockResolvedValue(undefined)}
       />
     );
   });
@@ -61,12 +64,12 @@ describe('DeliveryEditor', () => {
   // produce a negative feeCents -- and the "-" character itself must not
   // survive being typed, which is why "-5.00" becomes 500 (the digits, sign
   // dropped) rather than 0 (the sign reaching toCents and getting clamped).
-  it('never saves a negative fee no matter what is typed', () => {
-    const onSave = jest.fn();
+  it('never saves a negative fee no matter what is typed', async () => {
+    const onSave = jest.fn().mockResolvedValue(undefined);
     let tree: ReturnType<typeof create> | undefined;
     act(() => {
       tree = create(
-        <DeliveryEditor offersDelivery areas={[]} onToggle={jest.fn()} onSave={onSave} onDelete={jest.fn()} />
+        <DeliveryEditor offersDelivery areas={[]} onToggle={jest.fn()} onSave={onSave} onDelete={jest.fn().mockResolvedValue(undefined)} />
       );
     });
 
@@ -81,7 +84,7 @@ describe('DeliveryEditor', () => {
       feeInput[0].props.onChangeText('-5.00');
     });
     const addButton = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-add-button');
-    act(() => {
+    await act(async () => {
       addButton[0].props.onPress();
     });
 
@@ -91,8 +94,8 @@ describe('DeliveryEditor', () => {
   });
 
   // The point of the component: an existing area can be removed.
-  it('removes an area through onDelete', () => {
-    const onDelete = jest.fn();
+  it('removes an area through onDelete', async () => {
+    const onDelete = jest.fn().mockResolvedValue(undefined);
     let tree: ReturnType<typeof create> | undefined;
     act(() => {
       tree = create(
@@ -100,14 +103,14 @@ describe('DeliveryEditor', () => {
           offersDelivery
           areas={[{ id: 'area-1', name: 'Ahmed Dhagah', feeCents: 500, sortOrder: 0 }]}
           onToggle={jest.fn()}
-          onSave={jest.fn()}
+          onSave={jest.fn().mockResolvedValue(undefined)}
           onDelete={onDelete}
         />
       );
     });
 
     const deleteButton = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-delete-area-1');
-    act(() => {
+    await act(async () => {
       deleteButton[0].props.onPress();
     });
 
@@ -121,7 +124,13 @@ describe('DeliveryEditor', () => {
     let tree: ReturnType<typeof create> | undefined;
     act(() => {
       tree = create(
-        <DeliveryEditor offersDelivery={false} areas={[]} onToggle={onToggle} onSave={jest.fn()} onDelete={jest.fn()} />
+        <DeliveryEditor
+          offersDelivery={false}
+          areas={[]}
+          onToggle={onToggle}
+          onSave={jest.fn().mockResolvedValue(undefined)}
+          onDelete={jest.fn().mockResolvedValue(undefined)}
+        />
       );
     });
 
@@ -131,5 +140,65 @@ describe('DeliveryEditor', () => {
     });
 
     expect(onToggle).toHaveBeenCalledWith(true);
+  });
+
+  // B4: onSave's returned promise used to be dropped entirely (the prop was
+  // typed `(area) => void`), so the `unique (shop_id, name)` violation
+  // storefront-admin.ts deliberately lets surface (its own comment on
+  // saveDeliveryArea) surfaced nowhere -- an unhandled rejection, and the
+  // row just never appeared. A rejected save must now show a visible error,
+  // and must not clear what the shopkeeper typed.
+  it('shows a visible error when adding an area is rejected, and keeps what was typed', async () => {
+    const onSave = jest.fn().mockRejectedValue(new Error('duplicate key value violates unique constraint'));
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <DeliveryEditor offersDelivery areas={[]} onToggle={jest.fn()} onSave={onSave} onDelete={jest.fn().mockResolvedValue(undefined)} />
+      );
+    });
+
+    const nameInput = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-add-name');
+    act(() => {
+      nameInput[0].props.onChangeText('Outside town');
+    });
+    const addButton = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-add-button');
+    await act(async () => {
+      addButton[0].props.onPress();
+    });
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ name: 'Outside town' }));
+    const texts = textsIn(tree!.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toMatch(/could not save|error|try again/i);
+    // The field was not cleared -- a shopkeeper who did not see a toast can
+    // still see their own typed name still sitting there, unsaved.
+    const nameInputAfter = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-add-name');
+    expect(nameInputAfter[0].props.value).toBe('Outside town');
+  });
+
+  // Same failure mode on the delete path -- a rejected delete must also be
+  // visible, not a row that silently stays (or silently vanishes from the
+  // screen while still existing on the server).
+  it('shows a visible error when deleting an area is rejected', async () => {
+    const onDelete = jest.fn().mockRejectedValue(new Error('boom'));
+    let tree: ReturnType<typeof create> | undefined;
+    act(() => {
+      tree = create(
+        <DeliveryEditor
+          offersDelivery
+          areas={[{ id: 'area-1', name: 'Ahmed Dhagah', feeCents: 500, sortOrder: 0 }]}
+          onToggle={jest.fn()}
+          onSave={jest.fn().mockResolvedValue(undefined)}
+          onDelete={onDelete}
+        />
+      );
+    });
+
+    const deleteButton = tree!.root.findAll((node) => node.props?.testID === 'delivery-editor-delete-area-1');
+    await act(async () => {
+      deleteButton[0].props.onPress();
+    });
+
+    const texts = textsIn(tree!.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toMatch(/could not remove|error|try again/i);
   });
 });
