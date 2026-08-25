@@ -583,9 +583,24 @@ const REVERSE_INVOICE_PAYMENT_ENTRY_EDITS: Edit[] = [
   ['20260908001000', 'an entry already reversed is a no-op, not an error', "if v_old.status = 'reversed' then return null"],
   // A payment recorded before 20260908000500 shipped posted nothing.
   ['20260908001000', 'a payment that posted nothing is a no-op', 'if old.journal_entry_id is null then return null'],
-  // Read off the ENTRY: invoice_payments has no shop_id, and on a cascade from
-  // `shops` its invoice has gone too.
-  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = v_old.shop_id'],
+  // A SHOP BEING DELETED WRITES NO MIRROR ENTRY. The edit is 20260908001000's
+  // and stays; only the row it reads the shop from moved. It used to read the
+  // ENTRY (`v_old.shop_id`), because invoice_payments had no shop_id of its own
+  // -- and that is precisely what broke delete_shop in production: on a cascade
+  // from `shops` the entry is destroyed BEFORE this trigger runs, so the guard
+  // was reading a row that was no longer there and the function raised about a
+  // missing entry instead of standing down. 20260908001600 gave
+  // invoice_payments its own shop_id so the guard reads the row being deleted.
+  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
+  // AND IT COMES BEFORE THE ENTRY IS READ, which is the whole of the fix -- a
+  // guard below the lookup never gets to run, because the lookup is what fails.
+  // Pinned as the join between the two, not as either one alone: both halves
+  // were present in the broken version, in the wrong order.
+  [
+    '20260908001600',
+    'the shop guard runs before the entry is looked up',
+    'where id = old.shop_id) then\n    return null;\n  end if;\n\n  select * into v_old',
+  ],
   ['20260908001000', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];

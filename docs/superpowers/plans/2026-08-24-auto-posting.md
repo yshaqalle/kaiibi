@@ -2859,3 +2859,85 @@ Fixing that surfaced two more defects in the same cascade, both older than this 
 - `ON DELETE SET NULL` is itself an `UPDATE`, and `refuse_posted_entry_edit()` / `refuse_posted_line_change()` refuse any update to a posted row except the one reversal transition. Both gained a second permitted transition: `location_id` moving from not-null to null, nothing else changing.
 
 `supabase/migrations/20260908001200_delete_shop_fk_ordering.sql`. `supabase/tests/verify-ledger.sql` checks 22 (`delete_shop` survives a shop that has traded) and 22b (deleting one branch via `deleteLocation()` nulls `location_id` on a posted entry and its lines rather than losing either). `test:db` 25 → 25 (same count; both checks landed in the existing file). `npx tsc --noEmit` clean, `npm test` 141/2294 green, `npm run lint` unchanged at 82.
+
+---
+
+## Post-merge fix 2: `delete_shop` on a shop that has PAID A BILL (PR #74)
+
+The fix above stopped the foreign keys refusing a `delete_shop`. It did not stop
+the **triggers** hanging off them, and the reversal trigger `20260908001000`
+added to `invoice_payments` — shipped in the same PR, pushed with
+`supabase db push` — refused every one:
+
+```
+NOTICE:  seeded: bill entered and paid, entries written
+NOTICE:  RESULT: FAILED -- the journal entry for this payment is missing, so it cannot be reversed
+```
+
+A platform operator could not delete any shop that had ever recorded a supplier
+payment. `journal_entries.shop_id` and `invoices.shop_id` both cascade from
+`shops`; the journal branch runs first, so by the time `invoice_payments`'
+`AFTER DELETE` trigger fires the entry it points at is already gone, and
+`reverse_invoice_payment_entry()` raised about an inconsistency that was not one.
+The same class as `20260908001200` one layer up: a rule about single-row
+correctness that the cascade makes wrong.
+
+**The distinction the fix has to preserve:** a missing entry while the shop still
+exists is a real books-do-not-tie bug and must still raise loudly; a missing
+entry while the shop is being deleted is expected and must be a silent no-op.
+Telling those apart needs the shop — *before* the entry is read, because a guard
+below the lookup never runs.
+
+`invoice_payments` had no `shop_id`, and a diagnostic trigger showed **both** the
+parents it could reach one through are already gone at that moment: an RI cascade
+is an `AFTER` trigger on the parent, so the `invoices` row is deleted in the
+invoice-only case too. So the row was given the answer:
+`invoice_payments.shop_id`, `not null`, `on delete cascade`, derived from the
+bill by `set_invoice_payment_shop()` so none of its three writers
+(`record_invoice_payment`, a client insert under the `for all` policy, a test
+fixture) can get it wrong. The guard then reads the row being deleted, exactly as
+`reverse_stock_receipt_entry()` (`20260908001500`) already does.
+
+**All four trigger-driven reversals were audited, not just the one that
+reproduced.** `reverse_expense_entry()` (both the `BEFORE UPDATE` and
+`AFTER DELETE` legs) and `reverse_stock_receipt_entry()` were already correct —
+both tables carry a `shop_id` and both guards already sat above the lookup — and
+are now held there by tests rather than by reading. Everything else that reverses
+(`edit_sale`, `delete_sale`, `delete_invoice_payment`, `unpost_payroll_run`) is an
+RPC a human calls, which a cascade never reaches.
+
+`supabase/migrations/20260908001600_reversals_stand_down_for_a_deleted_shop.sql`.
+`verify-ledger.sql` gains checks **23** (delete a shop that has paid a bill),
+**24** (delete a shop that has taken a delivery, paid a bill, recorded an
+expense, rung a sale and run payroll, with a real `vendors` row so the
+`SET NULL` → `invoices` `UPDATE` branch is in the cascade too) and **25** (one
+payment deleted on a live shop still reverses, and a genuinely missing entry
+there still raises).
+
+#### The six mutations, each with the message it produced
+
+| Mutation | Reddens | Reported |
+|---|---|---|
+| Re-apply `20260908001000`'s `reverse_invoice_payment_entry` (guard *after* the lookup, reading `v_old.shop_id`) | Check 23 | `the journal entry for this payment is missing, so it cannot be reversed` |
+| Delete the shop guard from `reverse_invoice_payment_entry` | Check 23 | `the journal entry for this payment is missing, so it cannot be reversed` |
+| Delete skip 2 from `reverse_expense_entry` | Check **23**, not 24 | `the journal entry for this expense is missing, so it cannot be reversed` |
+| Delete the shop guard from `reverse_stock_receipt_entry` | Check 24 | `the journal entry for this delivery is missing, so it cannot be reversed` |
+| `return null` instead of raising on a missing entry | Check 25 | `FAIL: a payment whose entry is genuinely missing was deleted in silence` |
+| Drop the `invoice_payments_reverse_on_delete` trigger | Check 25 | `FAIL: deleting a payment on a live shop left its entry posted` |
+
+All six were applied, watched to fail, and reverted. **None was a no-op.**
+
+**One of them landed somewhere other than where the comment predicted, and that
+is recorded rather than tidied away:** removing the expense guard reddens check
+**23**, not 24. Entering a bill mirrors an `expenses` row through
+`sync_invoice_expense` (`20260804000300`) and that row posts its own entry, so a
+shop that has merely paid a bill already exercises two of the three triggers.
+Check 24's own hand-entered expense is extra coverage; what separates it from
+check 23 is the **delivery**, and the stock-receipt mutation is the one that
+proves it.
+
+`npm run test:db` **25 → 25** (all three checks landed in the existing file).
+`npx tsc --noEmit` clean, `npm test` 142 suites / **2315** tests (2314 → 2315: the
+copy-forward guard in `accumulated-rpc-edits.test.ts` gained an entry pinning
+that the shop guard sits *above* the entry lookup, since the wrong order is what
+shipped). `npm run lint` unchanged at 81 problems (49 errors, 32 warnings).
