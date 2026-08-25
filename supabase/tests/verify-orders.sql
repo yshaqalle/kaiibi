@@ -25,6 +25,10 @@
 --        nothing, authenticated gets select+insert on both tables, and (belt
 --        and braces, matching verify-storefront.sql's own check 8) anon is
 --        actually refused by Postgres, not merely un-granted on paper.
+--   16.  orders_module (20260926000050_orders.sql) refuses an insert for a
+--        shop whose plan does not include the storefront module -- otherwise
+--        the trigger's existence is only implied by every test shop here
+--        happening to be on a plan that carries it.
 
 \set ON_ERROR_STOP on
 
@@ -38,6 +42,7 @@ declare
   v_number     integer;
   v_payment_mode text;
   v_raised     boolean;
+  v_free_id    uuid;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
     values (v_user_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -243,6 +248,45 @@ begin
   end if;
   if not has_table_privilege('authenticated', 'public.order_items', 'INSERT') then
     raise exception 'FAIL: authenticated cannot insert into order_items';
+  end if;
+
+  -- ------------------------------------------------ 16. an order is refused for a shop whose plan lacks storefront
+  -- Move the second shop off whatever plan the seed put it on and onto Free,
+  -- which 20260923000000_storefront_module_grant.sql deliberately does not
+  -- grant storefront to. shop_has_module is asserted directly first so the
+  -- setup is proven, not assumed -- if Free ever gained the module the insert
+  -- below would silently succeed and this check would pass for the wrong
+  -- reason.
+  select id into v_free_id from public.plans where key = 'free';
+  update public.shop_subscriptions
+  set plan_id = v_free_id, current_period_end = now() + interval '30 days'
+  where shop_id = v_shop2_id;
+
+  if public.shop_has_module(v_shop2_id, 'storefront') then
+    raise exception 'FAIL: a shop moved to the Free plan still has the storefront module';
+  end if;
+
+  -- The trigger raises a fixed message ('module_not_included', see
+  -- enforce_shop_module in 20260818000400_module_write_gates.sql) rather than
+  -- a distinct SQLSTATE, so catching `others` and checking sqlerrm is how
+  -- this check tells the trigger's refusal apart from any other failure --
+  -- a bare `when others` here would pass just as well if the insert failed
+  -- for an unrelated reason, which is exactly the gap this check exists to
+  -- close.
+  v_raised := false;
+  begin
+    insert into public.orders (shop_id, customer_name, customer_phone, fulfilment, subtotal_cents, total_cents)
+      values (v_shop2_id, 'Blocked', '+252634000010', 'collect', 100, 100);
+  exception
+    when others then
+      if sqlerrm = 'module_not_included' then
+        v_raised := true;
+      else
+        raise;
+      end if;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: an order was inserted for a shop whose plan does not include the storefront module';
   end if;
 
   raise notice 'PASS: orders schema';
