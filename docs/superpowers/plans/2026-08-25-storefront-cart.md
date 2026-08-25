@@ -22,7 +22,7 @@ Plans 1 and 2 shipped ten defects between them. Every Critical and Important cam
 - **The public storefront is NOT bento.** It renders the shop's own palette from `src/lib/storefront-catalog.ts`. Only admin screens are bento — read `.claude/skills/building-bento-screens/SKILL.md` before touching one.
 - **`security definer` functions must `revoke execute … from public` BEFORE granting.** Postgres grants EXECUTE to PUBLIC by default. House convention: `supabase/migrations/20260924000100_storefront_public_read.sql:103-109`.
 - **Any new table needs an explicit grant.** There is no `alter default privileges` making it automatic — `supabase/migrations/20260925000100_storefront_table_grants.sql` exists because plan 1 forgot.
-- Migrations are `YYYYMMDDHHMMSS_name.sql`; this plan uses the `20260926*` series.
+- Migrations are `YYYYMMDDHHMMSS_name.sql`. **This plan uses the `20260927*` series.** An earlier draft said `20260926*`, which was wrong: plan 2's final fix wave had already taken `20260926000000` (`storefront_reserved_slugs_fn`) and `20260926000100` (`storefront_first_published_at`). Task 1 shipped as `20260926000050`, which slots between them without colliding; everything after it uses `20260927*`. The Supabase CLI keys migrations by numeric timestamp, so a duplicate is a hard `duplicate key` failure on reset, not a warning.
 - **Unit tests:** `npm test`. **DB tests:** `npm run test:db` (`--no-reset` while iterating; the local stack is shared with other sessions and they reset it often).
 - **Component tests use `react-test-renderer`** with a `textsIn` flattening helper. `@testing-library/react-native` is NOT a dependency. Pattern: `src/components/__tests__/list-card.test.tsx:1-11`.
 - Money is `formatCents` (`src/lib/currency.ts:9`) and `toCents` (`:1`). Never a third path; `formatCompactCents` drops cents and is for stat tiles.
@@ -68,8 +68,8 @@ A sale line keeps the name and price it was sold at, and survives the product be
 | `src/components/storefront/checkout-form.tsx` | Name, phone, collect/deliver, area, landmark, note. |
 | `src/components/storefront/order-placed.tsx` | Confirmation with the order number. |
 | `src/app/(admin)/orders.tsx` | A read-only list so orders are not invisible. |
-| `supabase/migrations/20260926000000_orders.sql` | `orders`, `order_items`, grants. |
-| `supabase/migrations/20260926000100_place_order.sql` | The anonymous insert RPC. |
+| `supabase/migrations/20260926000050_orders.sql` | `orders`, `order_items`, grants. |
+| `supabase/migrations/20260927000000_place_order.sql` | The anonymous insert RPC. |
 | `supabase/tests/verify-orders.sql` | DB checks. |
 
 **Modified**
@@ -84,7 +84,7 @@ A sale line keeps the name and price it was sold at, and survives the product be
 
 ### Task 1: `orders` and `order_items`
 
-**Files:** Create `supabase/migrations/20260926000000_orders.sql`, `supabase/tests/verify-orders.sql`
+**Files:** Create `supabase/migrations/20260926000050_orders.sql`, `supabase/tests/verify-orders.sql`
 
 **Properties:**
 
@@ -110,7 +110,7 @@ A sale line keeps the name and price it was sold at, and survives the product be
 
 This is the first unauthenticated write in the application. Everything else in this plan is ordinary product work; this task is not.
 
-**Files:** Create `supabase/migrations/20260926000100_place_order.sql`; modify `supabase/tests/verify-orders.sql`
+**Files:** Create `supabase/migrations/20260927000000_place_order.sql`; modify `supabase/tests/verify-orders.sql`
 
 **Interfaces:** Produces `public.place_storefront_order(p_slug text, p_customer jsonb, p_items jsonb) returns jsonb` — returning at minimum the order `number` and the computed total.
 
