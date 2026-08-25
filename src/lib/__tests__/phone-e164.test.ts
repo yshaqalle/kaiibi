@@ -33,6 +33,29 @@ describe('toE164', () => {
   });
 });
 
+describe('toE164 — malformed international input', () => {
+  it('collapses a 00 prefix even when the user also typed a plus', () => {
+    expect(toE164('+00252634456789')).toBe('+252634456789');
+  });
+
+  it('rejects a plus followed by a trunk zero, because no country code starts with zero', () => {
+    expect(toE164('+0634456789')).toBeNull();
+  });
+
+  it('still passes through a genuine international number untouched', () => {
+    expect(toE164('+447700900123')).toBe('+447700900123');
+  });
+
+  it('prefixes a local number that merely starts with the country digits', () => {
+    // A 9-digit local subscriber number beginning 252 is NOT already international.
+    expect(toE164('252456789')).toBe('+252252456789');
+  });
+
+  it('still recognises a real international number typed without its plus', () => {
+    expect(toE164('252634456789')).toBe('+252634456789');
+  });
+});
+
 describe('formatE164ForDisplay', () => {
   it('groups a Somali number readably', () => {
     expect(formatE164ForDisplay('+252634456789')).toBe('+252 63 4456789');
