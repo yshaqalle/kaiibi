@@ -32,7 +32,13 @@ jest.mock('@/hooks/use-auth', () => ({
 }));
 
 import { useAuth } from '@/hooks/use-auth';
-import { ensureStorefront, getMyStorefront, saveStorefront } from '@/lib/storefront-admin';
+import {
+  discardDraft,
+  ensureStorefront,
+  getMyStorefront,
+  publishDraft,
+  saveDraft,
+} from '@/lib/storefront-admin';
 import StorefrontEditor from '@/app/(admin)/storefront';
 
 function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
@@ -64,15 +70,24 @@ const BASE = {
   theme: 'market' as const, palette: 'ink' as const,
   headline: 'Everything for the house and the phone.', about: null,
   heroImageUrl: null, offersDelivery: false, publishedAt: null,
+  draft: null,
 };
 
 describe('storefront editor', () => {
   beforeEach(() => {
+    jest.useFakeTimers();
     jest.clearAllMocks();
     // Reinstated every test -- `mockReturnValue` (unlike `mockReturnValueOnce`)
     // survives `clearAllMocks()`, so the city test's override would otherwise
     // leak into whichever test runs after it.
     (useAuth as jest.Mock).mockReturnValue({ shop: { id: 's1', name: 'Xamdi Electronics' }, locations: [] });
+  });
+
+  afterEach(() => {
+    // Uninstalls the fake timer implementation, which discards any autosave
+    // timer a test left pending rather than letting it fire against an
+    // unmounted tree in a later test.
+    jest.useRealTimers();
   });
 
   it('previews the real page, not a mock of it', async () => {
@@ -95,13 +110,25 @@ describe('storefront editor', () => {
     expect(texts.join(' ')).toMatch(/plan|upgrade/i);
   });
 
-  // Property 2: the preview is UNSAVED edits. Typing a new headline must
-  // reach the live StorefrontView preview immediately, and must NOT trigger
-  // a write -- saveStorefront only runs as part of Publish (see
-  // storefront-admin.ts: a shop's storefronts row is both its draft AND,
-  // once published_at is set, the row the public page itself reads. Writing
-  // on every keystroke would leak an unsaved edit onto a live page.)
-  it('reaches the preview with an unsaved edit, without saving it', async () => {
+  // Property 5: on load, the editor shows the draft overlaid on the live
+  // values -- that IS what "your unsaved changes" means. A headline staged
+  // in the server-side draft from a previous, interrupted session must win
+  // over the live (last published) headline the moment the editor opens,
+  // with no edit required to surface it.
+  it('shows a leftover draft overlaid on the live values on load', async () => {
+    const row = { ...BASE, headline: 'Live headline', draft: { headline: 'Half-written headline' } };
+    (getMyStorefront as jest.Mock).mockResolvedValue(row);
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    const tree = await renderScreen();
+
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Half-written headline');
+    expect(texts).not.toContain('Live headline');
+  });
+
+  // Property 2/4: the preview reflects an edit immediately, and that must
+  // not itself be a publish -- typing a headline is staging, not shipping.
+  it('reaches the preview with an unsaved edit, without publishing it', async () => {
     (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
     (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
     const tree = await renderScreen();
@@ -117,7 +144,66 @@ describe('storefront editor', () => {
 
     const texts = textsIn(tree.toJSON() as ReactTestRendererJSON);
     expect(texts.join(' ')).toContain('Fresh produce, delivered daily.');
-    expect(saveStorefront).not.toHaveBeenCalled();
+    expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  // Property 4: the editor autosaves into the draft on a debounce. Losing
+  // the network or navigating away right after typing must cost nothing --
+  // which only holds if the edit actually reaches saveDraft once the
+  // shopkeeper pauses, not only once they press Publish.
+  it('autosaves an edit into the draft after a pause, without publishing', async () => {
+    (getMyStorefront as jest.Mock).mockResolvedValue(BASE);
+    (ensureStorefront as jest.Mock).mockResolvedValue(BASE);
+    (saveDraft as jest.Mock).mockResolvedValue(undefined);
+    const tree = await renderScreen();
+
+    const headlineInput = tree.root
+      .findAllByType(TextInput)
+      .find((node) => node.props.placeholder === 'What should a customer see first?');
+
+    await act(async () => {
+      headlineInput!.props.onChangeText('Fresh produce, delivered daily.');
+    });
+    expect(saveDraft).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(saveDraft).toHaveBeenCalledWith('s1', { headline: 'Fresh produce, delivered daily.' });
+    expect(publishDraft).not.toHaveBeenCalled();
+  });
+
+  // Property 7: discarding a draft is possible and returns the editor to the
+  // live page.
+  it('discards a leftover draft back to the live page', async () => {
+    const row = { ...BASE, headline: 'Live headline', draft: { headline: 'Half-written headline' } };
+    (getMyStorefront as jest.Mock).mockResolvedValueOnce(row).mockResolvedValueOnce({ ...BASE, headline: 'Live headline', draft: null });
+    (ensureStorefront as jest.Mock).mockResolvedValue(row);
+    (discardDraft as jest.Mock).mockResolvedValue(undefined);
+    const tree = await renderScreen();
+
+    expect(textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ')).toContain('Half-written headline');
+
+    // RN 0.86's `Pressable` is `React.memo(...)`, and React 19's
+    // react-test-renderer collapses a memo's fiber `.type` to the inner
+    // function, so `node.type === Pressable` silently matches zero nodes --
+    // see search-row.test.tsx. Duck-type on the testID prop instead.
+    const discardButton = tree.root.findAll(
+      (node) => node.props.testID === 'storefront-discard-draft',
+    )[0];
+    expect(discardButton).toBeDefined();
+
+    await act(async () => {
+      discardButton.props.onPress();
+    });
+
+    expect(discardDraft).toHaveBeenCalledWith('s1');
+    const texts = textsIn(tree.toJSON() as ReactTestRendererJSON).join(' ');
+    expect(texts).toContain('Live headline');
+    expect(texts).not.toContain('Half-written headline');
   });
 
   // The preview IS the real page (this file's opening test), and

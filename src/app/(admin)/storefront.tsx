@@ -22,14 +22,17 @@ import {
   claimSlug,
   countOnlineProducts,
   deleteDeliveryArea,
+  discardDraft,
   ensureStorefront,
   getMyStorefront,
   listDeliveryAreas,
   publishBlockers,
+  publishDraft,
   saveDeliveryArea,
-  saveStorefront,
+  saveDraft,
   setPublished,
   type DeliveryArea,
+  type EditableFields,
   type PublishBlocker,
   type ShopStorefront,
 } from '@/lib/storefront-admin';
@@ -40,15 +43,12 @@ import type { PublicStorefront, StorefrontProduct } from '@/types/models';
 // palette, whatever that is.
 const theme = Colors.light;
 
-// The fields a shopkeeper can edit before Publish. Everything here is staged
-// entirely in memory and only reaches `saveStorefront` as part of a publish
-// attempt -- see the comment on `handlePublish` for why: `storefronts` has
-// no separate draft/live copy, so a write-on-every-keystroke would leak an
-// unsaved edit onto a page customers are already looking at.
-type EditableFields = Pick<
-  ShopStorefront,
-  'theme' | 'palette' | 'headline' | 'about' | 'heroImageUrl' | 'offersDelivery' | 'whatsappE164'
->;
+// How long a pause in typing has to last before an edit reaches the server's
+// `draft` column (saveDraft, storefront-admin.ts). Long enough that a
+// keystroke never fires its own round trip, short enough that "losing the
+// network or navigating away costs nothing" (Task 7b property 4) is true in
+// practice, not just in principle.
+const AUTOSAVE_DEBOUNCE_MS = 800;
 
 function editableFieldsOf(s: ShopStorefront): EditableFields {
   return {
@@ -91,12 +91,24 @@ export default function StorefrontEditor() {
   const [planError, setPlanError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // `draft` is what's on screen, edited freely. `saved` is the last state
-  // actually written to the database (on load, and again after every
-  // successful publish) -- comparing the two is the only source `dirty`
-  // needs, and it is never anything saveStorefront itself computes.
-  const [draft, setDraft] = useState<ShopStorefront | null>(null);
-  const [saved, setSaved] = useState<EditableFields | null>(null);
+  // `working` is what's on screen, edited freely -- the live row overlaid
+  // with its server-side draft (property 5), then with whatever the
+  // shopkeeper has typed since. `livePublished` is the actual published
+  // state (on load, and again after every successful publish or discard) --
+  // comparing the two is the only source `dirty` needs, and it is never
+  // anything saveDraft itself computes. Neither field ever writes on its
+  // own: patchDraft below queues an autosave, and Publish/Discard each
+  // refetch the row afterward rather than guessing at the server's new
+  // shape client-side.
+  const [working, setWorking] = useState<ShopStorefront | null>(null);
+  const [livePublished, setLivePublished] = useState<EditableFields | null>(null);
+
+  // Patches not yet sent to saveDraft, and the timer that will flush them.
+  // Refs, not state: queuing an autosave must never itself trigger a
+  // re-render, and flushAutosave needs the latest pending patch synchronously
+  // (from handlePublish, from unmount) rather than through a stale closure.
+  const pendingDraftPatchRef = useRef<Partial<EditableFields>>({});
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [slugDraft, setSlugDraft] = useState('');
   const [slugState, setSlugState] = useState<SlugState>('idle');
@@ -131,8 +143,12 @@ export default function StorefrontEditor() {
     try {
       const existing = await getMyStorefront(shopId);
       const row = existing ?? (await ensureStorefront(shopId));
-      setDraft(row);
-      setSaved(editableFieldsOf(row));
+      setLivePublished(editableFieldsOf(row));
+      // Overlay: the live row, with any leftover draft from a previous,
+      // interrupted session on top. This IS what "your unsaved changes"
+      // means the moment the editor opens, with no edit required to surface
+      // it (property 5).
+      setWorking({ ...row, ...(row.draft ?? {}) });
       setSlugDraft(row.slug ?? '');
 
       const [areasResult, countResult] = await Promise.allSettled([
@@ -158,7 +174,7 @@ export default function StorefrontEditor() {
   // calls -- see storefront.ts. No second products query exists in this
   // file: this is the only place the editor asks what a customer would see.
   useEffect(() => {
-    const slug = draft?.slug;
+    const slug = working?.slug;
     if (!slug) {
       setPreviewProducts([]);
       return;
@@ -174,13 +190,13 @@ export default function StorefrontEditor() {
     return () => {
       cancelled = true;
     };
-  }, [draft?.slug]);
+  }, [working?.slug]);
 
   // Debounced slug availability check as a shopkeeper types -- never fired
   // for the slug already on the row, which is trivially available to them.
   useEffect(() => {
     const trimmed = slugDraft.trim();
-    if (!trimmed || trimmed === draft?.slug) {
+    if (!trimmed || trimmed === working?.slug) {
       setSlugState('idle');
       return;
     }
@@ -191,17 +207,67 @@ export default function StorefrontEditor() {
         .catch(() => setSlugState('idle'));
     }, 400);
     return () => clearTimeout(handle);
-  }, [slugDraft, draft?.slug]);
+  }, [slugDraft, working?.slug]);
 
+  // Cancels any pending autosave timer without flushing it -- used on
+  // unmount and right before a discard, where sending a now-stale patch
+  // would just resurrect the draft the shopkeeper is throwing away.
+  function cancelPendingAutosave() {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    pendingDraftPatchRef.current = {};
+  }
+
+  // Sends whatever is queued to saveDraft right now, bypassing the debounce.
+  // Publish calls this first so the very last keystroke -- typed inside the
+  // debounce window, before its own timer fired -- is not left behind on a
+  // page that just went live without it.
+  const flushAutosave = useCallback(async () => {
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+    const pending = pendingDraftPatchRef.current;
+    if (!shopId || Object.keys(pending).length === 0) return;
+    pendingDraftPatchRef.current = {};
+    try {
+      await saveDraft(shopId, pending);
+    } catch {
+      // An autosave failing silently would strand real work with nothing on
+      // screen to explain it -- put the patch back so the next debounce
+      // tick, or Publish's own flush, tries again rather than dropping it.
+      pendingDraftPatchRef.current = { ...pending, ...pendingDraftPatchRef.current };
+    }
+  }, [shopId]);
+
+  function queueAutosave(patch: Partial<EditableFields>) {
+    pendingDraftPatchRef.current = { ...pendingDraftPatchRef.current, ...patch };
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => {
+      flushAutosave();
+    }, AUTOSAVE_DEBOUNCE_MS);
+  }
+
+  useEffect(() => () => cancelPendingAutosave(), []);
+
+  // Every edit does two things: shows immediately in `working` (and so in
+  // the preview), and queues an autosave into the server-side draft. Never a
+  // write to a live column -- see saveDraft's own comment for why a
+  // read-then-write from here would race two autosaves against each other,
+  // and publish_storefront's own comment for the atomic copy that is the
+  // only path a live column changes through at all.
   function patchDraft(patch: Partial<EditableFields>) {
-    setDraft((d) => (d ? { ...d, ...patch } : d));
+    setWorking((w) => (w ? { ...w, ...patch } : w));
+    queueAutosave(patch);
   }
 
   async function handleClaimSlug(rawSlug: string) {
     if (!shopId) return;
     try {
       const claimed = await claimSlug(shopId, rawSlug);
-      setDraft((d) => (d ? { ...d, slug: claimed } : d));
+      setWorking((w) => (w ? { ...w, slug: claimed } : w));
       setSlugDraft(claimed);
       setSlugState('idle');
     } catch (err) {
@@ -232,8 +298,8 @@ export default function StorefrontEditor() {
     setDeliveryAreas((await listDeliveryAreas(shopId)) ?? []);
   }
 
-  const blockers: PublishBlocker[] = draft
-    ? publishBlockers({ slug: draft.slug, whatsappE164: draft.whatsappE164, onlineProductCount }) ?? []
+  const blockers: PublishBlocker[] = working
+    ? publishBlockers({ slug: working.slug, whatsappE164: working.whatsappE164, onlineProductCount }) ?? []
     : [];
 
   function focusBlocker(first: PublishBlocker) {
@@ -250,8 +316,18 @@ export default function StorefrontEditor() {
   // (PublishBar's own doc comment), so pressing it with blockers present
   // must not silently no-op -- it opens the drawer and focuses the first
   // one, in the fixed order publishBlockers reports them.
+  // publish_storefront (20260925000200) is the one atomic write: it copies
+  // the draft into the live columns, sets published_at, and clears the
+  // draft, all inside one function body -- a failure partway through cannot
+  // leave a new headline live under the old WhatsApp number, or vice versa.
+  // flushAutosave runs first so the very last keystroke, still sitting in
+  // the debounce window, is in the server's draft before that copy happens
+  // -- otherwise a shopkeeper who types and immediately presses Publish
+  // would ship everything except their last edit. The row is refetched
+  // afterward rather than guessed at client-side: it is the one place that
+  // actually knows what publish_storefront just did to shops.whatsapp_e164.
   async function handlePublish() {
-    if (!shopId || !draft) return;
+    if (!shopId || !working) return;
     if (blockers.length > 0) {
       focusBlocker(blockers[0]);
       return;
@@ -259,11 +335,13 @@ export default function StorefrontEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      const patch = editableFieldsOf(draft);
-      await saveStorefront(shopId, patch);
-      await setPublished(shopId, true);
-      setSaved(patch);
-      setDraft((d) => (d ? { ...d, publishedAt: new Date().toISOString() } : d));
+      await flushAutosave();
+      await publishDraft(shopId);
+      const fresh = await getMyStorefront(shopId);
+      if (fresh) {
+        setLivePublished(editableFieldsOf(fresh));
+        setWorking({ ...fresh, ...(fresh.draft ?? {}) });
+      }
     } catch (err) {
       setPublishError(describePlanError(err) ?? messageOf(err, 'Could not publish. Try again.'));
     } finally {
@@ -276,9 +354,29 @@ export default function StorefrontEditor() {
     setPublishError(null);
     try {
       await setPublished(shopId, false);
-      setDraft((d) => (d ? { ...d, publishedAt: null } : d));
+      setWorking((w) => (w ? { ...w, publishedAt: null } : w));
     } catch (err) {
       setPublishError(describePlanError(err) ?? messageOf(err, 'Could not unpublish. Try again.'));
+    }
+  }
+
+  // Property 7: discarding a draft is possible and returns the editor to the
+  // live page. Cancels any autosave still queued first -- sending a
+  // now-stale patch after discardDraft has cleared the column would just
+  // resurrect what the shopkeeper is throwing away.
+  async function handleDiscardDraft() {
+    if (!shopId) return;
+    cancelPendingAutosave();
+    setPublishError(null);
+    try {
+      await discardDraft(shopId);
+      const fresh = await getMyStorefront(shopId);
+      if (fresh) {
+        setLivePublished(editableFieldsOf(fresh));
+        setWorking({ ...fresh, ...(fresh.draft ?? {}) });
+      }
+    } catch (err) {
+      setPublishError(messageOf(err, 'Could not discard your draft. Try again.'));
     }
   }
 
@@ -311,7 +409,7 @@ export default function StorefrontEditor() {
     );
   }
 
-  if (loadError || !draft) {
+  if (loadError || !working) {
     return (
       <SafeAreaView style={styles.page} edges={['bottom', 'left', 'right']}>
         <ScreenHeader title="Storefront" />
@@ -326,15 +424,15 @@ export default function StorefrontEditor() {
     );
   }
 
-  const dirty = saved ? !sameEditableFields(editableFieldsOf(draft), saved) : false;
-  const status: 'draft' | 'live' = draft.publishedAt === null ? 'draft' : 'live';
+  const dirty = livePublished ? !sameEditableFields(editableFieldsOf(working), livePublished) : false;
+  const status: 'draft' | 'live' = working.publishedAt === null ? 'draft' : 'live';
 
   const contentValue: ContentDrawerValue = {
     slug: slugDraft,
-    headline: draft.headline ?? '',
-    about: draft.about ?? '',
-    heroImageUrl: draft.heroImageUrl,
-    whatsappE164: draft.whatsappE164,
+    headline: working.headline ?? '',
+    about: working.about ?? '',
+    heroImageUrl: working.heroImageUrl,
+    whatsappE164: working.whatsappE164,
   };
 
   function handleContentChange(patch: Partial<ContentDrawerValue>) {
@@ -360,14 +458,14 @@ export default function StorefrontEditor() {
   const previewStorefront: PublicStorefront = {
     shopName: shop?.name ?? '',
     city: primaryCity,
-    slug: draft.slug ?? '',
-    whatsappE164: draft.whatsappE164,
-    theme: draft.theme,
-    palette: draft.palette,
-    headline: draft.headline,
-    about: draft.about,
-    heroImageUrl: draft.heroImageUrl,
-    offersDelivery: draft.offersDelivery,
+    slug: working.slug ?? '',
+    whatsappE164: working.whatsappE164,
+    theme: working.theme,
+    palette: working.palette,
+    headline: working.headline,
+    about: working.about,
+    heroImageUrl: working.heroImageUrl,
+    offersDelivery: working.offersDelivery,
     paymentMode: 'on_collection',
   };
 
@@ -396,11 +494,22 @@ export default function StorefrontEditor() {
       />
       {publishing ? <Caveat tone="context">Publishing your page…</Caveat> : null}
       {publishError ? <Caveat tone="wrong">{publishError}</Caveat> : null}
+      {dirty ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Discard unsaved changes"
+          testID="storefront-discard-draft"
+          onPress={handleDiscardDraft}
+          style={styles.discardButton}
+        >
+          <Text style={styles.discardButtonText}>Discard unsaved changes</Text>
+        </Pressable>
+      ) : null}
 
       <DesignStrip
-        theme={draft.theme}
-        palette={draft.palette}
-        neverPublished={draft.publishedAt === null}
+        theme={working.theme}
+        palette={working.palette}
+        neverPublished={working.publishedAt === null}
         onThemeChange={(key) => patchDraft({ theme: key })}
         onPaletteChange={(key) => patchDraft({ palette: key })}
       />
@@ -421,7 +530,7 @@ export default function StorefrontEditor() {
       )}
 
       <DeliveryEditor
-        offersDelivery={draft.offersDelivery}
+        offersDelivery={working.offersDelivery}
         areas={deliveryAreas}
         onToggle={(value) => patchDraft({ offersDelivery: value })}
         onSave={handleSaveArea}
@@ -502,6 +611,9 @@ const styles = StyleSheet.create({
   drawerEntryHint: { fontSize: 12.5, color: theme.bentoMuted2, marginBottom: 10 },
   drawerEntryButton: { alignSelf: 'flex-start' },
   drawerEntryButtonText: { fontSize: 13, fontWeight: '800', color: theme.bentoAccentInk },
+
+  discardButton: { alignSelf: 'flex-start' },
+  discardButtonText: { fontSize: 12.5, fontWeight: '700', color: theme.bentoDownInk },
 
   sheet: { flex: 1, backgroundColor: theme.bentoPage },
   sheetHeader: {

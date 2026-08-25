@@ -1,4 +1,3 @@
-import { toE164 } from '@/lib/phone-e164';
 import { DEFAULT_PALETTE, DEFAULT_THEME, type StorefrontPalette, type StorefrontTheme } from '@/lib/storefront-catalog';
 import { normalizeSlug, validateSlug, type SlugProblem } from '@/lib/storefront-slug';
 import { supabase } from '@/lib/supabase';
@@ -20,7 +19,28 @@ export type ShopStorefront = {
   heroImageUrl: string | null;
   offersDelivery: boolean;
   publishedAt: string | null;
+  // Unpublished edits, staged server-side (20260925000200_storefront_draft.sql)
+  // so a shop that writes its page and taps Back loses nothing. Null means
+  // "nothing staged" -- every field the shop has touched but not published is
+  // a key here, in the same camelCase shape as EditableFields below (it is
+  // NOT a mirror of the table's own snake_case columns). Absent from
+  // get_public_storefront by construction: that function selects named live
+  // columns and this is never one of them.
+  draft: Partial<EditableFields> | null;
 };
+
+// The fields a shopkeeper can edit before Publish -- staged into `draft`
+// above rather than written to a live column immediately, until Publish
+// copies them over (publish_storefront, same migration). `slug` and
+// `payment_mode` are deliberately excluded: a slug is claimed immediately
+// via claimSlug because it is globally unique and cannot be provisionally
+// reserved, and payment_mode has exactly one permitted value today. Lives
+// here, not on the editor screen, because it is a shape the data layer
+// itself now owns -- `ShopStorefront.draft` is typed against it directly.
+export type EditableFields = Pick<
+  ShopStorefront,
+  'theme' | 'palette' | 'headline' | 'about' | 'heroImageUrl' | 'offersDelivery' | 'whatsappE164'
+>;
 
 export type DeliveryArea = { id: string; name: string; feeCents: number; sortOrder: number };
 
@@ -52,6 +72,7 @@ function mapStorefrontRow(
     hero_image_url?: string | null;
     offers_delivery?: boolean | null;
     published_at?: string | null;
+    draft?: Record<string, unknown> | null;
   }
 ): ShopStorefront {
   return {
@@ -65,6 +86,7 @@ function mapStorefrontRow(
     heroImageUrl: sf.hero_image_url ?? null,
     offersDelivery: Boolean(sf.offers_delivery),
     publishedAt: sf.published_at ?? null,
+    draft: (sf.draft as Partial<EditableFields> | null) ?? null,
   };
 }
 
@@ -74,7 +96,7 @@ function mapStorefrontRow(
 export async function getMyStorefront(shopId: string): Promise<ShopStorefront | null> {
   const { data, error } = await supabase
     .from('shops')
-    .select('id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at)')
+    .select('id, slug, whatsapp_e164, storefronts(theme, palette, headline, about, hero_image_url, offers_delivery, published_at, draft)')
     .eq('id', shopId)
     .maybeSingle();
   if (error) throw error;
@@ -102,44 +124,44 @@ export async function ensureStorefront(shopId: string): Promise<ShopStorefront> 
   return created;
 }
 
-// whatsappE164 is re-normalized here (not just typed as the E.164 shape)
-// because it is the one field on this patch that a caller may hand over as
-// whatever a shopkeeper typed -- toE164 is what turns that into the form the
-// `shops_whatsapp_is_e164` CHECK (20260924000000) and the wa.me link both
-// require. An unparseable number fails here with a clear message rather than
-// as a raw constraint violation from Postgres.
-export async function saveStorefront(
-  shopId: string,
-  patch: Partial<Omit<ShopStorefront, 'shopId' | 'slug' | 'publishedAt'>>
-): Promise<void> {
-  const shopPatch: Record<string, unknown> = {};
-  if (Object.prototype.hasOwnProperty.call(patch, 'whatsappE164')) {
-    const raw = patch.whatsappE164;
-    if (raw == null) {
-      shopPatch.whatsapp_e164 = null;
-    } else {
-      const e164 = toE164(raw);
-      if (!e164) throw new Error('invalid_whatsapp');
-      shopPatch.whatsapp_e164 = e164;
-    }
-  }
+// Stages a patch into the draft -- never writes a live column, and never
+// replaces the draft outright. save_storefront_draft (20260925000200) does
+// `draft = coalesce(draft, '{}') || p_patch` in one UPDATE, which is why this
+// is a single RPC call rather than a read-then-write from here: two
+// back-to-back saves (headline, then about) would otherwise race, each
+// reading before the other's write landed, and whichever wrote last would
+// silently drop the other's field. A DB-side merge has no such window.
+//
+// whatsappE164 arrives already normalized -- ContentDrawer's commitPhone
+// calls toE164 itself before this is ever reached, the same validation
+// saveStorefront used to run here. There is nothing else in EditableFields
+// that needs translating: this stores exactly the camelCase shape it is
+// given, because `draft` is not a mirror of any table's columns.
+export async function saveDraft(shopId: string, patch: Partial<EditableFields>): Promise<void> {
+  const { error } = await supabase.rpc('save_storefront_draft', { p_shop_id: shopId, p_patch: patch });
+  if (error) throw error;
+}
 
-  const storefrontPatch: Record<string, unknown> = {};
-  if (Object.prototype.hasOwnProperty.call(patch, 'theme')) storefrontPatch.theme = patch.theme;
-  if (Object.prototype.hasOwnProperty.call(patch, 'palette')) storefrontPatch.palette = patch.palette;
-  if (Object.prototype.hasOwnProperty.call(patch, 'headline')) storefrontPatch.headline = patch.headline;
-  if (Object.prototype.hasOwnProperty.call(patch, 'about')) storefrontPatch.about = patch.about;
-  if (Object.prototype.hasOwnProperty.call(patch, 'heroImageUrl')) storefrontPatch.hero_image_url = patch.heroImageUrl;
-  if (Object.prototype.hasOwnProperty.call(patch, 'offersDelivery')) storefrontPatch.offers_delivery = patch.offersDelivery;
+// The one atomic publish: publish_storefront (20260925000200) copies the
+// draft into the live columns (and shops.whatsapp_e164), sets published_at,
+// and clears the draft, all inside one function body -- a failure partway
+// through (most likely the shops_whatsapp_is_e164 CHECK, if a draft somehow
+// held an unnormalized number) rolls the whole thing back rather than
+// leaving a new headline live under the old WhatsApp number, or vice versa.
+export async function publishDraft(shopId: string): Promise<void> {
+  const { error } = await supabase.rpc('publish_storefront', { p_shop_id: shopId });
+  if (error) throw error;
+}
 
-  if (Object.keys(shopPatch).length > 0) {
-    const { error } = await supabase.from('shops').update(shopPatch).eq('id', shopId);
-    if (error) throw error;
-  }
-  if (Object.keys(storefrontPatch).length > 0) {
-    const { error } = await supabase.from('storefronts').update(storefrontPatch).eq('shop_id', shopId);
-    if (error) throw error;
-  }
+// Property 7: discarding a draft is possible and returns the editor to the
+// live page. Unlike saveDraft this replaces the whole column rather than
+// merging into it -- there is nothing to preserve, the shop is throwing the
+// staged edits away -- so a plain literal update is correct and no RPC is
+// needed; storefronts_member_all and storefronts_module_gate already cover
+// an ordinary write to this table.
+export async function discardDraft(shopId: string): Promise<void> {
+  const { error } = await supabase.from('storefronts').update({ draft: null }).eq('shop_id', shopId);
+  if (error) throw error;
 }
 
 // validateSlug runs before any round trip -- a structurally bad slug (too

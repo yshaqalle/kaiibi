@@ -164,6 +164,133 @@ begin
     raise exception 'FAIL: anon can read the storefronts table directly, routing around the public read functions';
   end if;
 
+  -- ------------------------------------------------ 7. a draft the shop cannot lose, and cannot leak
+  -- Nothing above ever created a storefronts row for v_shop_id -- claiming a
+  -- slug only ever touches shops. This is the first check that needs one.
+  insert into public.storefronts (shop_id) values (v_shop_id);
+
+  -- Check 6 left role/jwt.claims reset to postgres/none; restore the owner's
+  -- session so save_storefront_draft (invoker-rights, RLS-gated) and
+  -- publish_storefront's own is_shop_member check both run as the party they
+  -- are meant to authorize.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+
+  -- 7a. draft never reaches a customer, even while the row is published
+  update public.storefronts
+     set draft = '{"headline":"HALF WRITTEN, NOT FOR CUSTOMERS"}'::jsonb,
+         published_at = now(),
+         headline = 'The published headline'
+   where shop_id = v_shop_id;
+
+  if exists (
+    select 1 from public.get_public_storefront('xamdi-editor') g
+    where to_jsonb(g)::text like '%HALF WRITTEN%'
+  ) then
+    raise exception 'FAIL: an unpublished draft leaked into the public storefront payload';
+  end if;
+
+  if (select headline from public.get_public_storefront('xamdi-editor')) <> 'The published headline' then
+    raise exception 'FAIL: the public page stopped showing the published headline once a draft existed';
+  end if;
+
+  -- 7b. saveDraft (save_storefront_draft) merges into the draft, never replaces it --
+  -- editing the headline then the about text must not clobber the headline.
+  update public.storefronts set draft = null where shop_id = v_shop_id;
+  perform public.save_storefront_draft(v_shop_id, '{"headline":"Merged headline"}'::jsonb);
+  perform public.save_storefront_draft(v_shop_id, '{"about":"Merged about"}'::jsonb);
+
+  if (select draft->>'headline' from public.storefronts where shop_id = v_shop_id) <> 'Merged headline' then
+    raise exception 'FAIL: a second draft save clobbered the first field instead of merging with it';
+  end if;
+  if (select draft->>'about' from public.storefronts where shop_id = v_shop_id) <> 'Merged about' then
+    raise exception 'FAIL: the second draft save did not persist';
+  end if;
+
+  -- 7c. publishing copies the draft into the live columns (and onto shops.whatsapp_e164,
+  -- which storefronts_module_gate never sees) and clears the draft, atomically
+  update public.storefronts
+     set draft = jsonb_build_object(
+           'headline', 'Fresh headline from draft',
+           'about', 'Fresh about from draft',
+           'offersDelivery', true,
+           'whatsappE164', '+252611222333'
+         ),
+         headline = 'Old headline',
+         about = 'Old about',
+         offers_delivery = false,
+         published_at = null
+   where shop_id = v_shop_id;
+
+  perform public.publish_storefront(v_shop_id);
+
+  if (select headline from public.storefronts where shop_id = v_shop_id) <> 'Fresh headline from draft' then
+    raise exception 'FAIL: publish did not move the draft headline into the live column';
+  end if;
+  if (select about from public.storefronts where shop_id = v_shop_id) <> 'Fresh about from draft' then
+    raise exception 'FAIL: publish did not move the draft about text into the live column';
+  end if;
+  if (select offers_delivery from public.storefronts where shop_id = v_shop_id) is not true then
+    raise exception 'FAIL: publish did not move offers_delivery from the draft';
+  end if;
+  if (select whatsapp_e164 from public.shops where id = v_shop_id) <> '+252611222333' then
+    raise exception 'FAIL: publish did not move the draft WhatsApp number onto the shop';
+  end if;
+  if (select draft from public.storefronts where shop_id = v_shop_id) is not null then
+    raise exception 'FAIL: publish left the draft in place instead of clearing it';
+  end if;
+  if (select published_at from public.storefronts where shop_id = v_shop_id) is null then
+    raise exception 'FAIL: publish did not set published_at';
+  end if;
+
+  -- 7d. a failed publish leaves neither half applied -- an unpublishable WhatsApp
+  -- number in the draft must not leave a new headline live with the old number,
+  -- or vice versa.
+  update public.storefronts
+     set draft = jsonb_build_object(
+           'headline', 'New headline should not stick',
+           'whatsappE164', 'not-a-number'
+         ),
+         headline = 'Headline before the failed publish'
+   where shop_id = v_shop_id;
+  update public.shops set whatsapp_e164 = '+252611222333' where id = v_shop_id;
+
+  v_raised := false;
+  begin
+    perform public.publish_storefront(v_shop_id);
+  exception when others then
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: publish succeeded despite an unpublishable WhatsApp number in the draft';
+  end if;
+  if (select headline from public.storefronts where shop_id = v_shop_id) <> 'Headline before the failed publish' then
+    raise exception 'FAIL: a failed publish changed the live headline anyway';
+  end if;
+  if (select draft from public.storefronts where shop_id = v_shop_id) is null then
+    raise exception 'FAIL: a failed publish cleared the draft anyway';
+  end if;
+  if (select whatsapp_e164 from public.shops where id = v_shop_id) <> '+252611222333' then
+    raise exception 'FAIL: a failed publish changed the live WhatsApp number anyway';
+  end if;
+
+  -- 7e. publish_storefront is security definer and so bypasses storefronts_member_all
+  -- entirely -- it must check membership itself, the same reasoning as
+  -- claim_shop_slug above.
+  v_raised := false;
+  begin
+    perform set_config('request.jwt.claims', json_build_object('sub', v_outsider_id)::text, true);
+    perform set_config('role', 'authenticated', true);
+    perform public.publish_storefront(v_shop_id);
+  exception when others then
+    v_raised := true;
+  end;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id)::text, true);
+  perform set_config('role', 'authenticated', true);
+  if not v_raised then
+    raise exception 'FAIL: a non-member published another shop''s storefront';
+  end if;
+
   raise notice 'PASS: storefront slug claim';
   raise exception 'rollback_marker';
 exception
