@@ -34,6 +34,23 @@ export type UnpostedLine = {
   count: number;
 };
 
+/** One already-shut status and what the replay would put into it. */
+export type PeriodExposureRow = {
+  /** 'closed' or 'locked'. Both always come back, zeroes included. */
+  status: string;
+  months: number;
+  entries: number;
+};
+
+export type PeriodExposure = {
+  closedMonths: number;
+  lockedMonths: number;
+  /** Entries that would land in an already-closed month. */
+  closedEntries: number;
+  /** Entries that would land in an already-locked month. */
+  lockedEntries: number;
+};
+
 export type UnpostedSummary = {
   totalRows: number;
   /** All eight kinds, in reading order, zeroes included. */
@@ -42,6 +59,12 @@ export type UnpostedSummary = {
   kindsWithRows: number;
   /** The earliest date anything waiting would be posted on, or null. */
   oldestOn: string | null;
+  /**
+   * Which already-shut months the replay would write into. Zeroes throughout
+   * when nothing is waiting, or when everything waiting lands in a month that
+   * is open or does not exist yet.
+   */
+  exposure: PeriodExposure;
 };
 
 // The order the screen reads down, and the only place the database's vocabulary
@@ -72,7 +95,7 @@ const KINDS: { kind: string; label: string; note: string }[] = [
  * the reader is asked to confirm, even before anyone gets round to naming it
  * here; silently omitting it would make the button post more than it promised.
  */
-export function summariseUnposted(rows: UnpostedCountRow[]): UnpostedSummary {
+export function summariseUnposted(rows: UnpostedCountRow[], exposureRows: PeriodExposureRow[] = []): UnpostedSummary {
   const byKind = new Map<string, UnpostedCountRow>();
   for (const row of rows) {
     const existing = byKind.get(row.kind);
@@ -106,12 +129,53 @@ export function summariseUnposted(rows: UnpostedCountRow[]): UnpostedSummary {
     if (row.rowsUnposted > 0) oldestOn = earlier(oldestOn, row.oldestOn);
   }
 
+  const shut = (status: string) => exposureRows.find((row) => row.status === status);
+
   return {
     totalRows: lines.reduce((sum, line) => sum + line.count, 0),
     lines,
     kindsWithRows: lines.filter((line) => line.count > 0).length,
     oldestOn,
+    exposure: {
+      closedMonths: shut('closed')?.months ?? 0,
+      lockedMonths: shut('locked')?.months ?? 0,
+      closedEntries: shut('closed')?.entries ?? 0,
+      lockedEntries: shut('locked')?.entries ?? 0,
+    },
   };
+}
+
+/**
+ * The sentence that names the shut months a replay would write into, or null
+ * when there are none.
+ *
+ * A PURE FUNCTION AND NOT A JSX FRAGMENT, so the wording is testable without a
+ * renderer -- the same split the rest of this file draws. It is the only place
+ * that decides what the reader is told about closed and locked months, and it
+ * must not soften it: the replay does not re-open a closed month, does not
+ * re-close it, does not touch `closed_at` and writes no audit row. `locked` is
+ * documented as "nothing posts, ever", and this walks straight through it.
+ *
+ * Months, not entries, lead the sentence. "3 months" is a thing an owner can go
+ * and look at; "412 entries" is a number they can only nod at.
+ */
+export function describeShutMonths(exposure: PeriodExposure): string | null {
+  const parts: string[] = [];
+  if (exposure.closedMonths > 0) parts.push(`${exposure.closedMonths} you have closed`);
+  if (exposure.lockedMonths > 0) parts.push(`${exposure.lockedMonths} you have locked`);
+  if (parts.length === 0) return null;
+
+  const months = exposure.closedMonths + exposure.lockedMonths;
+  const entries = exposure.closedEntries + exposure.lockedEntries;
+  return (
+    `${months === 1 ? 'One month' : `${months} months`} that ${months === 1 ? 'is' : 'are'} no longer open — ` +
+    // "1 of these entries" is right, so no singular form is needed here.
+    `${parts.join(' and ')} — will receive ${entries.toLocaleString()} of these entries. ` +
+    `Posting does not re-open ${months === 1 ? 'it' : 'them'}, does not close ${months === 1 ? 'it' : 'them'} again and leaves nothing on the record to say why ` +
+    `${months === 1 ? 'its' : 'their'} figures moved` +
+    (exposure.lockedMonths > 0 ? ', and a locked month is meant to be final.' : '.') +
+    ' Check them before you press.'
+  );
 }
 
 // Date columns are 'YYYY-MM-DD', so a string compare is a date compare. Never

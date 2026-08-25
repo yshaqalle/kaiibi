@@ -10,7 +10,7 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/hooks/use-auth';
 import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 import { backfillShopLedger, listUnpostedLedgerCounts } from '@/lib/ledger';
-import type { UnpostedSummary } from '@/lib/ledger-backfill';
+import { describeShutMonths, type UnpostedSummary } from '@/lib/ledger-backfill';
 import { fromDateColumn } from '@/lib/period';
 
 const theme = Colors.light;
@@ -124,6 +124,11 @@ export function BackfillView({
   }
 
   const total = summary?.totalRows ?? 0;
+  // Named BEFORE the button, never after. The replay walks straight through a
+  // month the owner shut -- no re-open, no re-close, no audit row -- and `locked`
+  // is documented as final, so this is the last moment anyone can decline.
+  // Null when nothing waiting lands in a shut month, which is the ordinary case.
+  const shutMonths = summary === null ? null : describeShutMonths(summary.exposure);
 
   return (
     <View style={styles.wrap}>
@@ -180,6 +185,21 @@ export function BackfillView({
           </Caveat>
         ) : null}
 
+        {/* The exposure, above the explanation and above the button. `wrong`
+            rather than `context` because a locked month receiving entries IS
+            wrong — accounting_periods calls it final and the replay does not
+            check — and the reader can still remove the cause by not pressing.
+            It carries an action for the same reason the failure above does:
+            Journals is the only place in the app a month can be looked at, and
+            a `wrong` with nothing to do about it trains people to skip the
+            whole family. Held back once the replay has run: it is then a fact
+            about the past, and the `done` caveat is the one that matters. */}
+        {shutMonths && total > 0 && phase !== 'done' ? (
+          <Caveat tone="wrong" action={{ label: 'Look at those months in Journals', onPress: () => onOpenView('journals') }}>
+            {shutMonths}
+          </Caveat>
+        ) : null}
+
         {phase === 'done' ? (
           <Caveat tone="context" action={{ label: 'See them in Journals', onPress: () => onOpenView('journals') }}>
             {written === 0
@@ -188,9 +208,10 @@ export function BackfillView({
           </Caveat>
         ) : total > 0 ? (
           <Caveat tone="context">
-            Each entry is dated when the thing happened, not today — so a sale rung two years ago lands two years ago, and a
-            month you have already closed is re-opened to receive it. Your Trial Balance and every report that reads the
-            ledger will change.
+            Each entry is dated when the thing happened, not today — so a sale rung two years ago lands two years ago. A
+            month you have never traded in is created for it, open. A month that already exists keeps whatever status it
+            has: a closed or locked one is not re-opened and not closed again, it simply receives the entries. Your Trial
+            Balance and every report that reads the ledger will change.
           </Caveat>
         ) : (
           <Caveat tone="context" action={{ label: 'See the ledger in Journals', onPress: () => onOpenView('journals') }}>

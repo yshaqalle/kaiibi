@@ -155,7 +155,9 @@ Stated so a reviewer can see the edges rather than infer them.
 | Removing the `sync_invoice_expense` trigger | The design calls for it, but it changes what `expenses` contains, which the backfill reads. Removing it in the same phase that replays history means the replay input changes underneath the verification. Do it in phase 3, once the ledger is the source of truth. |
 | Loyalty liability (2300) | See **Open** below. |
 | The *manual-journal screen's* void button | `reverse_journal_entry` already exists from phase 1 and keeps its `ledger.post` gate. **The posting doors do not use it** — every one of them writes its mirror inline, because a cashier or a shopkeeper holds a till or an expense permission, never a ledger one. See Tasks 5b, 5c and 7c. |
-| `deleteInvoice` reversing a bill **and its payments** together | `invoice_payments` cascades off `invoices` alongside the mirrored `expenses` row, so undoing a bill correctly means reversing *both* kinds at once. Reversing one of them is worse than reversing neither. Phase 3, with the `invoices`↔`stock_receipts` link. The limit is asserted by `verify-posting-expenses.sql` check 17 so it cannot drift into an accident. |
+| ~~`deleteInvoice` reversing a bill **and its payments** together~~ | **No longer out — shipped in Task 7d.** This row said reversing one half was worse than reversing neither, which was true *only* for a bill paid in full and left an unpaid one stranding its whole cost for ever. `reverse_invoice_payment_entry()` reverses the payments on the same cascade, so both halves come off together. Asserted by `verify-posting-bills.sql` checks 16–20 and `verify-posting-expenses.sql` check 17. |
+| Matching a bill to the delivery it pays for | The `invoices`↔`stock_receipts` link, and the whole `inventory_purchase` residue that turns on it — **in both directions**, see Task 7b. Phase 3. |
+| Re-opening a closed period for the backfill, or refusing a locked one | `backfill_shop_ledger` creates only the periods that do not exist and creates those open; an existing month keeps its status and receives entries anyway. A per-row `open_period_for` is what would abort a shop's replay half-way and leave it with half a ledger. **The door names the exposure instead** — see Task 10. |
 
 ---
 
@@ -205,21 +207,21 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
 | `supabase/migrations/20260908000750_post_expenses.sql` | Task 7b. The `AFTER INSERT` trigger on `expenses`. Numbered after the backfill because it was added once the backfill's number was already claimed; neither depends on the other's objects, so the order they apply in does not matter. |
 | `supabase/migrations/20260908000800_expense_source_links.sql` | The final review's C1/C2 fix. Adds `expenses.stock_receipt_id` and `expenses.stock_count_id` and replaces `post_expense_to_ledger()` with the six-way branch. See the correction under Task 7b. |
-| `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` | Task 7c. `reverse_expense_entry()` — a `BEFORE UPDATE` / `AFTER DELETE` trigger on `expenses` — plus `post_expense_to_ledger` attached a second time as `AFTER UPDATE` so the replacement goes through the same seven-way branch, and `delete_invoice_payment` copied forward with a reversal. |
+| `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` | Tasks 7c and 7d. `reverse_expense_entry()` — a `BEFORE UPDATE` / `AFTER DELETE` trigger on `expenses` — plus `post_expense_to_ledger` attached a second time as `AFTER UPDATE` so the replacement goes through the same seven-way branch; `delete_invoice_payment` copied forward with a reversal; and **`reverse_invoice_payment_entry()`, an `AFTER DELETE` trigger on `invoice_payments`**, so both halves of a deleted bill reverse together. |
 | `supabase/migrations/20260908000900_post_sale_delete.sql` | Task 5c, the final review's C3 fix. `delete_sale`, copied forward from `20260820000100`: reverse the sale's entry, its refunds' and its settlements', then delete. Numbered after the backfill for the same reason `20260908000750` is — the number was already claimed — and it depends on nothing either of them creates. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
 | `supabase/tests/verify-posting-inventory.sql` | Receipt and stock-count entries. |
-| `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries; entering a bill recognises its cost; **undoing a payment reverses it** (Task 7c). |
-| `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or count-derived expense row posts nothing; **editing or deleting one reverses what it posted** (Task 7c). |
-| `supabase/migrations/20260908001100_unposted_ledger_sources.sql` | Task 10. `unposted_ledger_sources` (view) and `unposted_ledger_counts(uuid)` — the read-only companion the Post History door reads, carrying the same eight predicates the replay does. |
-| `src/lib/ledger-backfill.ts` | Task 10. `summariseUnposted()` — eight database words into eight lines a shopkeeper reads. Pure, no Supabase import. |
+| `supabase/tests/verify-posting-bills.sql` | Invoice payment and pay run entries; entering a bill recognises its cost; **undoing a payment reverses it** (Task 7c); **deleting a bill reverses its cost and its payments together, in all three payment states** (Task 7d, checks 16–20). |
+| `supabase/tests/verify-posting-expenses.sql` | An expense written by a plain `insert` posts; a payroll- or count-derived expense row posts nothing; **editing or deleting one reverses what it posted** (Task 7c); a bill's mirrored row cascading away reverses too, and moving a receipt between shops moves its entry (Task 7d, checks 17 and 19). |
+| `supabase/migrations/20260908001100_unposted_ledger_sources.sql` | Task 10. `unposted_ledger_sources` (view), `unposted_ledger_counts(uuid)` and `unposted_ledger_period_exposure(uuid)` — the read-only companions the Post History door reads, carrying the same eight predicates the replay does, and naming the already-closed and already-locked months it would write into. |
+| `src/lib/ledger-backfill.ts` | Task 10. `summariseUnposted()` — eight database words into eight lines a shopkeeper reads — and `describeShutMonths()`, the sentence that names the months a replay would write into. Pure, no Supabase import. |
 | `src/components/accounting/ledger/backfill-view.tsx` | Task 10. The Post History screen: what is unposted, the confirmation, the result, and the empty case. |
-| `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. Checks 14–16 (Task 10) pin the door's counts against the replay in both directions and assert its `ledger.close` gate. |
+| `supabase/tests/verify-backfill.sql` | The backfill ties to the cent, and is idempotent. Checks 14–16 (Task 10) pin the door's counts against the replay in both directions and assert its `ledger.close` gate; **8b** pins the closed/locked exposure and that the replay leaves both statuses untouched. |
 | `supabase/tests/bench-complete-sale.sql` | Measured before/after on a 20-line basket. |
 
-`test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Tasks 7c and 10 add **no** script — 7c's seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, and 10's three extend `verify-backfill.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
+`test:db` goes from **18** to **25** (23 before Task 7b added `verify-posting-expenses.sql`; 24 before Task 8 added `verify-backfill.sql`). Tasks 7c, 7d and 10 add **no** script — 7c's seven new checks extend `verify-posting-expenses.sql` and `verify-posting-bills.sql`, and 10's three extend `verify-backfill.sql`, so the count stays at 25. `bench-complete-sale.sql` carries `@no-verdict` so the runner skips it — it prints timings, it does not assert.
 
 ---
 
@@ -2114,7 +2116,7 @@ Meanwhile `record_invoice_payment` posts `Dr 2000 Accounts Payable / Cr <wallet>
 
 **An `invoice_id`-linked row now posts `Dr account_code_for_expense_category(category) / Cr 2000` —** the exact mirror of the `stock_receipt_id` branch. The credit is `2000`, never the wallet map: `sync_invoice_expense` writes the literal `'other'` into `payment_method` because a bill *has* no payment method, and `'other'` maps to `1010 Bank`, so the generic branch would credit the shop's bank for a bill nobody has paid.
 
-**`inventory_purchase` is the one category that still posts nothing, and that is not the same mistake wearing a different hat.** The map sends it to `1200 Inventory`, which `receive_stock` already debits against `Cr 2000` when the goods land — and **pairing a delivery with the supplier's bill for it is the app's only unpaid-delivery flow**, because `record_invoice_payment` is the sole door that draws `receive_stock`'s payable down and it needs an invoice. Posting the bill too would put the delivery into `1200` twice and raise a second payable beside the real one. Nothing is lost from the P&L: `1200` is an asset and its cost arrives as COGS when the goods sell — unlike rent, which has no other door at all. **Residue, stated rather than hidden:** an `inventory_purchase` bill with no delivery behind it raises no payable, so paying it drives `2000` negative; it cannot be told from the paired case because `invoices` has no link to `stock_receipts`, and matching the two (a GRNI account, or a receipt id on the invoice) is phase 3's work.
+**`inventory_purchase` is the one category that still posts nothing, and that is not the same mistake wearing a different hat.** The map sends it to `1200 Inventory`, which `receive_stock` already debits against `Cr 2000` when the goods land — and **pairing a delivery with the supplier's bill for it is the app's only unpaid-delivery flow**, because `record_invoice_payment` is the sole door that draws `receive_stock`'s payable down and it needs an invoice. Posting the bill too would put the delivery into `1200` twice and raise a second payable beside the real one. Nothing is lost from the P&L: `1200` is an asset and its cost arrives as COGS when the goods sell — unlike rent, which has no other door at all. **Residue, stated rather than hidden — and it runs both ways.** One root cause, no link between `invoices` and `stock_receipts`, and two opposite errors depending on which way a shop miscategorises. **Under-stated:** an `inventory_purchase` bill with *no* delivery behind it raises no payable, so paying it drives `2000` negative; it cannot be told from the paired case, and it describes a shop whose stock records are already wrong. **Over-stated:** a bill *for goods* entered under `supplies` or `other` — one wrong tap on the category picker — takes the generic arm and posts `Dr 6xxx / Cr 2000` **on top of** `receive_stock`'s `Dr 1200 / Cr 2000` for the same delivery. **The payable is doubled**: the shop appears to owe the supplier twice, the cost sits on the P&L while the goods also sit on the balance sheet as an asset, and paying the bill once clears half of what it thinks it owes. The category exclusion cannot see it — the category is exactly what is wrong — and both entries balance, so the trial balance zeroes throughout. Matching a bill to a delivery (a GRNI account, or a receipt id on the invoice) is phase 3's work; until then the only defence is the category picker itself. Written out at `20260908000800`.
 
 `verify-posting-bills.sql` gains checks 11–13 — entering a bill recognises `Dr <category> / Cr 2000`; **a bill entered and then paid IN FULL leaves `2000` at exactly zero**, measured across the bill's entry and its payments' together; and shop-wide `2000` equals `sum(amount_cents - paid_cents)` over `invoices`, columns no journal-line statement reads. `verify-posting-expenses.sql` check 6 is **inverted** (it asserted the defect) and gains 6b for the `inventory_purchase` bill, and check 13 for the policies below. `verify-backfill.sql` gains an `inventory_purchase` bill to the fixture — without one, deleting that clause from the replay survived green — plus check 3k for the replayed bill-and-payment pair, and its `3f` payable tie-out is rewritten against what the shop actually owes rather than against the credits the replay itself wrote.
 
@@ -2199,9 +2201,9 @@ Task 5b's for the edit (reverse, re-post, re-point) and Task 5c's for the two de
 
 **The `WHEN` clause on both update triggers is load-bearing, not an optimisation.** `post_expense_to_ledger`'s last statement stamps `journal_entry_id` back onto the row, so an unconditional `AFTER UPDATE` recurses for ever. Listing exactly the columns the entry is derived from — and pointedly *not* `journal_entry_id` — makes the stamp invisible to both triggers, and is also right on its own terms: retyping a `note` must not churn a reversal pair through the ledger.
 
-**Three rows the trigger leaves alone**, each for a different reason: a row that **posted nothing** (count-linked, payroll-linked, an `inventory_purchase` bill, or a pre-Task-7b row the backfill has not reached) — reversing nothing is a clean no-op, not an error; **a shop being deleted**, because `shops` is the cascade root and inserting a mirror that references a row already gone violates the foreign key and aborts the whole deletion; and **on DELETE only**, a row generated from a bill, a pay run, a delivery or a stock-take.
+**Two rows the trigger leaves alone**, each for a different reason: a row that **posted nothing** (count-linked, payroll-linked, an `inventory_purchase` bill, or a pre-Task-7b row the backfill has not reached) — reversing nothing is a clean no-op, not an error; and **a shop being deleted**, because `shops` is the cascade root and inserting a mirror that references a row already gone violates the foreign key and aborts the whole deletion.
 
-**That last one is the stated limit of this task.** `invoice_payments` cascades off the same parent as the bill's mirrored `expenses` row, so reversing the cost alone when a bill is deleted would leave the payments' `Dr 2000` entries standing and put Accounts Payable **in debit** by the whole bill — strictly worse than doing nothing, which at least leaves *"the rent was paid"*, which is what happened. **`deleteInvoice` (`src/lib/invoices.ts:151`, a plain client delete) reversing a bill together with its payments is not closed here** and belongs with the `invoices`↔`stock_receipts` link in phase 3. It is asserted (expenses check 17) so it stays a decision.
+> **There was a third, and Task 7d removed it.** On DELETE, a row generated from a bill, a pay run, a delivery or a stock-take returned early, argued from the paid-in-full case: reversing the cost alone would leave the payments' `Dr 2000` standing and put Accounts Payable in debit. **That argument never covered an unpaid bill**, which has no payment entries at all and simply stranded its whole cost for ever — and the other three links carry a NULL `journal_entry_id`, so skip 1 had already returned for them. See Task 7d.
 
 **The backfill needs no change.** It is driven by `journal_entry_id is null`, and a reversed-and-deleted row is gone; a reversed-and-re-posted row carries the *new* entry's id. Nothing it replays moves.
 
@@ -2214,6 +2216,49 @@ Task 5b's for the edit (reverse, re-post, re-point) and Task 5c's for the two de
 Thirteen mutations. Twelve redden. **`G8` — dropping the `coalesce` on the period status inside the redated description — survives green, and is a no-op by construction**, exactly as `C12-Y4` was: the branch above cannot leave `v_old_period_status` NULL while the dates differ, so the `coalesce` guards a state only a future edit up there could produce. `G7` (never redate at all) is its load-bearing half and reddens. The identical `coalesce` in `edit_sale`, `delete_sale` and `post_expense_to_ledger` is unreachable for the same reason and is kept for the same reason.
 
 Add `REVERSE_EXPENSE_ENTRY_EDITS` and `DELETE_INVOICE_PAYMENT_EDITS` to `accumulated-rpc-edits.test.ts`, taking it from twelve guarded functions to fourteen.
+
+---
+
+### Task 7d: deleting a bill takes everything it put in the ledger with it
+
+*(Added after review of Task 7c. It is the regression Task 7b's C4 fix created and Task 7c's third skip then pinned.)*
+
+**Files:** `supabase/migrations/20260908001000_reverse_on_expense_and_payment_delete.sql` (edited in place), `supabase/tests/verify-posting-bills.sql`, `supabase/tests/verify-posting-expenses.sql`, `supabase/tests/accumulated-rpc-edits.test.ts`.
+
+**Interfaces:** `public.reverse_invoice_payment_entry() returns trigger` (new), attached as `AFTER DELETE` on `invoice_payments`.
+
+#### The regression, and why it was invisible
+
+Before C4, entering a bill posted nothing, so `deleteInvoice` (`src/lib/invoices.ts:151`, from `invoices-tab.tsx:238`, a plain client `.delete()`) was a clean ledger no-op. C4 made the mirrored `expenses` row post `Dr <category> / Cr 2000` on insert — and Task 7c's third skip returned `null` for **any** invoice-linked row on DELETE, unconditionally. So one tap on Delete left the entry `posted` with no source row anywhere: rent on the P&L that was never incurred, money owed to nobody on the balance sheet, `invoices` reading zero outstanding, `verify-posting-bills` check 13's invariant permanently violated — and **no in-app remedy**, because `reverse_journal_entry` (`src/lib/ledger.ts:118`) has no caller in `src/` at all. Every entry balanced, so nothing went red.
+
+**The justification was sound and over-applied.** Leaving Accounts Payable in debit is what happens for a bill paid **in full**. An **unpaid** bill has no payment entries to leave standing; a **part-paid** one was left carrying its whole cost when a fraction had been settled. And the other three links in that skip — payroll, stock count, `inventory_purchase` bill — all carry a NULL `journal_entry_id`, so skip 1 had already returned for them; the only row the skip ever actually caught was an ordinary bill's mirror, which is exactly the row that must reverse.
+
+#### The symmetric fix
+
+An `AFTER DELETE` trigger on `invoice_payments`, and the third skip removed entirely. Both halves of a cascaded bill reverse together and `2000` returns to what the shop actually owes.
+
+The trigger is on `invoice_payments` rather than more code in `delete_invoice_payment` because **that RPC never sees a cascade** — the rows vanish underneath it. The trigger fires for every route a payment row can leave by: the RPC, the cascade from `deleteInvoice`, the cascade from a shop being deleted, and a client `.delete()`, which the `write invoice_payments` policy (`for all`) permits and which nothing else covered.
+
+**Two things it must treat as a no-op rather than an error.** An entry already `status = 'reversed'` — `delete_invoice_payment` reverses inline and *then* deletes, so this fires on an already-mirrored entry and raising would break the Undo button outright. And a payment with a NULL `journal_entry_id`, which is every payment in every existing shop until the backfill reaches it.
+
+**Cascade order is not relied on, and does not need to be.** Deleting an `invoices` row cascades to both `expenses` and `invoice_payments`, and Postgres fires those RI actions as AFTER triggers on the parent in constraint-creation order — which this migration does not control. It does not have to: the two reversals are independent inserts against two different journal entries, neither reads the other's row, neither reads `invoices`, and addition commutes. The only ordering fact that *is* load-bearing is the shop-deletion skip, which needs the `shops` row already gone — guaranteed by cascades being AFTER triggers on the parent at all.
+
+#### Also in this task
+
+- **`shop_id` added to both `WHEN` clauses.** `post_journal_entry` takes a shop id, so the entry is derived from `shop_id` as surely as from the amount, and the `update expenses` policy gates on `has_shop_permission(shop_id, …)` — which an owner of two shops satisfies for both. Without it, moving a receipt between them left the entry in the old shop with no reversal and no re-post.
+- **`20260908000700`'s stale note corrected.** It still claimed the expense trigger was AFTER INSERT only and that nothing posted an adjustment on edit or delete. Task 7c closed that; the paragraph now says the two paths agree, and says what would make it true again.
+
+#### Checks and mutations
+
+`verify-posting-expenses` **17 is inverted** — it asserted the defect, using check 6's 61,437 rent bill, which **is never paid anywhere in that script**, so its failure message described payment entries that did not exist. It now asserts the reversal, the negated mirror, the source, `6000` back to zero and a zeroing trial balance. New **19**: moving a receipt between two shops the same owner manages reverses in the old shop and re-posts in the new one (`location_id` is cleared in a separate statement first, so the check isolates `shop_id`).
+
+`verify-posting-bills` gains **16** (an unpaid bill deleted), **17** (a part-paid one — both halves, or check 13's identity goes red either way), **18** (paid in full, by **two different wallets**, so a reversal firing once per bill rather than once per payment is visible), **19** (a bill deleted after its month was closed is redated, not refused — the cascade path, which is a different function from check 15's), and **20** (deleting a payment that posted nothing is a clean no-op — the mirror of expenses 16b). Check 13's invariant is re-asserted after each.
+
+**Twelve new mutations, twelve red.** Guard 3 restored (against both suites); the trigger dropped; the trigger function a no-op; the `reversed` no-op removed; the null-pointer arm removed; the mirror not negated; the reversal filed `manual`; the redate disabled; `shop_id` out of both `WHEN` clauses; the exposure function's status join dropped; and its containment join broken.
+
+**Two prior mutations are now obsolete.** `G4` removed the third skip — there is nothing left to remove, and `N1a`/`N1b` are its inverse. `G9` and `G13` (delete_invoice_payment stops reversing / reads the entry id too late) now **survive green**, because the trigger reverses on the same delete: the RPC's inline reversal has become belt-and-braces rather than load-bearing. The behaviour is pinned by `N2`/`N3` instead. `G8` remains the documented no-op.
+
+`REVERSE_INVOICE_PAYMENT_ENTRY_EDITS` added to `accumulated-rpc-edits.test.ts` (fifteen guarded functions). The `if tg_op = 'DELETE'` entry is removed from `REVERSE_EXPENSE_ENTRY_EDITS` — the only entry ever removed from that file — with a comment recording what it was and why it is not to be put back.
 
 ---
 
@@ -2698,7 +2743,7 @@ git commit -m "feat(accounting): replay existing history into the ledger"
 - [ ] **Step 1: Full suite**
 
 Run: `npx tsc --noEmit && npm test && npm run lint && npm run test:db`
-Expected: clean; **140 suites / 2271 tests** after Task 10 (139 / 2249 before it); **81** lint; **25** database checks (24 after Task 7b, plus `verify-backfill`).
+Expected: clean; **141 suites / 2294 tests** after Tasks 7d and 10's follow-up (140 / 2271 after Task 10; 139 / 2249 before it); **82** lint — the one added warning is `import/first` on the new component test, which every mocking test in this repo carries because `jest.mock()` is hoisted above the import; **25** database checks (24 after Task 7b, plus `verify-backfill`).
 
 - [ ] **Step 2: Confirm the weighted average survived**
 
@@ -2773,6 +2818,22 @@ So the predicates live once, in the view, and `verify-backfill.sql` pins the two
 | Remove the `has_shop_permission` gate from `unposted_ledger_counts` | Check 16 | `a non-member read 8 rows of unposted counts` |
 
 All six were applied, watched to fail, and reverted. **None was a no-op.**
+
+#### Follow-up: the card said the opposite of what the replay does
+
+*(Found in the same review as Task 7d.)*
+
+The pre-press copy claimed *"a month you have already closed is re-opened to receive it"*. **It is not re-opened — in either direction.** `backfill_shop_ledger`'s period insert is `on conflict (shop_id, starts_on) do nothing`, so it creates only the months that do **not** exist and creates those open; a month that already exists keeps its status and receives the entries anyway, with no re-open, no re-close, no `closed_at` change and no audit row. `accounting_periods` documents `locked` as *"nothing posts, ever. Manual, deliberate, final"*, and the replay walks straight through it.
+
+**The RPC's behaviour is not changed** — a per-row `open_period_for` is precisely what would abort a shop's replay half-way. The door changed:
+
+- **`public.unposted_ledger_period_exposure(uuid) returns table(status text, months bigint, entries bigint)`**, over the same view, gated on the same `ledger.close`. Both statuses always, zeroes included. It joins by **containment** (`on_date between starts_on and ends_on`), never `date_trunc` — a period is stored as a range so a future non-calendar period needs no migration, and `journal_entries.period_id` is resolved the same way. A source row landing in no existing period contributes nothing, which is right: the replay creates that one, open.
+- **`describeShutMonths()`** in `ledger-backfill.ts` — a pure function, so the wording is testable without a renderer — surfaced as a `Caveat tone="wrong"` with an action. `wrong` rather than `context` because a locked month receiving entries **is** wrong, and the reader can still remove the cause by not pressing; Journals is the only place in the app a month can be looked at, and a `wrong` with nothing to do about it trains people to skip the whole family.
+- The dating caveat now says what actually happens.
+
+`verify-backfill.sql` gains **8b**: with one month closed and one **locked**, the door reports one of each with a non-zero entry count; after the replay both statuses are **unchanged** and the locked month provably received entries. Check 16 extends to the new function's gate. `src/__tests__/backfill-shut-months.test.tsx` (8 tests) renders the card and asserts the warning is there when shut months will receive entries and **absent** when none will — a warning shown on every visit is one nobody reads.
+
+**Five mutations, five red:** the status join dropped (`2 closed months, expected 1`); the containment join broken (`0 closed months`); plus the three copy assertions, which are jest rather than SQL.
 
 ---
 

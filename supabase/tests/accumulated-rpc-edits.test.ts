@@ -507,11 +507,15 @@ const REVERSE_EXPENSE_ENTRY_EDITS: Edit[] = [
   // already gone by the time this fires and inserting a reversal that references
   // it violates the foreign key -- taking the whole shop deletion with it.
   ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
-  // ON DELETE ONLY. A bill's mirrored row cascades away with the bill while its
-  // PAYMENTS' entries stay standing; reversing the cost there leaves 2000
-  // Accounts Payable in debit by the whole bill. The exclusion is deliberately
-  // not applied to UPDATE -- an edited bill's cost belongs to the edited bill.
-  ['20260908001000', 'a cascaded generated row is not reversed on delete', "if tg_op = 'DELETE'"],
+  // THE ONE ENTRY THAT WAS DELETED, AND THE ONLY ONE. 20260908001000 originally
+  // carried a third skip -- `if tg_op = 'DELETE'` and any of the four link
+  // columns set -- so a bill's mirrored row cascading away left its Dr 6xxx /
+  // Cr 2000 standing for ever with no source row. That was sound only for a
+  // bill paid IN FULL, and it is not sound at all now that
+  // reverse_invoice_payment_entry reverses the payments on the same cascade.
+  // It is recorded here rather than silently dropped so the next reader does not
+  // put it back: the pairing below is what replaced it.
+  //
   // The mirror's lines are NEGATED. A reversal that copied them unchanged nets
   // to double rather than to nothing, and every per-entry check still passes.
   ['20260908001000', 'the reversal mirrors the lines, negated', '-amount_cents'],
@@ -531,6 +535,27 @@ const REVERSE_EXPENSE_ENTRY_EDITS: Edit[] = [
   // NULL operand yields NULL for the whole expression and post_journal_entry
   // then refuses the entry for having no description -- an error about
   // descriptions for a bug about dates.
+  ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
+];
+
+const REVERSE_INVOICE_PAYMENT_ENTRY_EDITS: Edit[] = [
+  // The other half of a deleted bill. Without it, deleting a bill reverses the
+  // cost and leaves the payments' Dr 2000 / Cr wallet standing -- which is the
+  // exact state the third skip removed from reverse_expense_entry used to be
+  // justified by. The two only make sense as a pair.
+  ['20260908001000', 'a deleted payment reverses the entry it posted', 'reverses_entry_id = v_reversal_id'],
+  ['20260908001000', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  ['20260908001000', 'the reversal is filed under the source it reverses', "v_old.source, 'posted'"],
+  // ALREADY REVERSED IS A NO-OP. delete_invoice_payment reverses inline and then
+  // deletes, so this trigger fires on an entry that is already mirrored. Raising
+  // there would break the Bills screen's Undo button outright.
+  ['20260908001000', 'an entry already reversed is a no-op, not an error', "if v_old.status = 'reversed' then return null"],
+  // A payment recorded before 20260908000500 shipped posted nothing.
+  ['20260908001000', 'a payment that posted nothing is a no-op', 'if old.journal_entry_id is null then return null'],
+  // Read off the ENTRY: invoice_payments has no shop_id, and on a cascade from
+  // `shops` its invoice has gone too.
+  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = v_old.shop_id'],
+  ['20260908001000', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];
 
@@ -570,6 +595,7 @@ describe.each([
   ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
   ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
   ['reverse_expense_entry', REVERSE_EXPENSE_ENTRY_EDITS],
+  ['reverse_invoice_payment_entry', REVERSE_INVOICE_PAYMENT_ENTRY_EDITS],
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {

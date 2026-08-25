@@ -107,6 +107,14 @@ declare
   v_was_1020      bigint;
   v_rev           uuid;
   v_status        text;
+  -- Checks 16-18: deleting a bill, in each of its three payment states.
+  v_bill_del      uuid;
+  v_bill_del_e    uuid;   -- the entry the bill's mirrored expense row posted.
+  v_pay_one       uuid;
+  v_pay_two       uuid;
+  v_pay_one_e     uuid;
+  v_pay_two_e     uuid;
+  v_was_1000      bigint;
 begin
   -- shops.owner_id and shop_members.user_id both reference auth.users(id), so
   -- the fixture "people" need real rows there before anything else.
@@ -784,6 +792,395 @@ begin
   if v_amount <> -v_outstanding then
     raise exception 'FAIL: after a redated undo, 2000 reads % but the bills say % is outstanding -- off by %',
       v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 16-18. DELETING A BILL TAKES EVERYTHING IT PUT IN THE LEDGER WITH IT.
+  ---------------------------------------------------------------------------
+  -- deleteInvoice (src/lib/invoices.ts:151, from invoices-tab.tsx:238) is a
+  -- plain `.delete()` on `invoices`. Before a bill recognised its own cost this
+  -- was a clean ledger no-op; the moment the mirrored `expenses` row started
+  -- posting Dr <category> / Cr 2000 on insert, one tap on Delete began stranding
+  -- that entry `posted` with no source row anywhere. A shopkeeper who enters a
+  -- bill against the wrong vendor and deletes it leaves a cost on the P&L for
+  -- ever, money owed to nobody on the balance sheet, `invoices` reading zero
+  -- outstanding -- and no way back, because reverse_journal_entry has no caller
+  -- in src/ at all. Every entry balances throughout, so nothing goes red.
+  --
+  -- THREE CHECKS, NOT ONE, BECAUSE THE THREE PAYMENT STATES FAIL DIFFERENTLY.
+  -- The exclusion that used to sit in reverse_expense_entry was argued from the
+  -- paid-in-full case (reversing the cost while the payments' Dr 2000 stood
+  -- would leave Accounts Payable in debit). That argument never covered 16 --
+  -- an unpaid bill has no payment entries at all -- and 18 is the case it did
+  -- cover, which the payment-side trigger is what finally answers. 17 is the
+  -- one where a half-fix shows: reverse the cost and not the payment, or the
+  -- payment and not the cost, and check 13's identity goes red either way.
+  --
+  -- The identity is re-asserted after each, because it is the view all of this
+  -- is visible in and it reads `invoices.amount_cents - paid_cents`, columns no
+  -- journal-line statement touches.
+
+  ---------------------------------------------------------------------------
+  -- 16. AN UNPAID BILL.
+  ---------------------------------------------------------------------------
+  -- MUTATION (proves this check): put the tg_op = 'DELETE' link exclusion back
+  -- into reverse_expense_entry(). Expected: FAIL: deleting an unpaid bill left
+  -- its entry posted.
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+
+  -- 'supplies' -> 6400, which nothing else in this script touches.
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Delete Vendor', 'BILLS-DEL-1', 'supplies',
+            public.shop_local_date(), public.shop_local_date() + 20, 12345)
+    returning id into v_bill_del;
+  select journal_entry_id into v_bill_del_e from public.expenses where invoice_id = v_bill_del;
+  if v_bill_del_e is null then
+    raise exception 'FAIL: check 16''s bill posted nothing -- it is not testing anything';
+  end if;
+
+  delete from public.invoices where id = v_bill_del;
+
+  select status into v_status from public.journal_entries where id = v_bill_del_e;
+  if v_status is null then
+    raise exception 'FAIL: deleting a bill deleted its journal entry -- a posted entry is a permanent record';
+  end if;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting an unpaid bill left its entry % -- 6400 carries a cost nobody incurred and 2000 carries money owed to nobody, for ever', v_status;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6400';
+  if v_amount <> 0 then
+    raise exception 'FAIL: 6400 Supplies reads % after the only bill that touched it was deleted, expected 0', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount <> v_was_2000 then
+    raise exception 'FAIL: 2000 Accounts Payable reads % after an unpaid bill was deleted, expected the % it read before it was ever entered',
+      v_amount, v_was_2000;
+  end if;
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after deleting an unpaid bill, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 17. A PART-PAID BILL -- BOTH HALVES COME OFF, OR NEITHER IS RIGHT.
+  ---------------------------------------------------------------------------
+  -- The case a half-fix cannot survive. `invoice_payments` cascades off the same
+  -- parent as the mirrored expense row, so deleting the bill destroys both
+  -- source rows; reversing one entry and not the other leaves 2000 wrong by the
+  -- part that was paid AND the wallet wrong by the same amount.
+  --
+  -- MUTATION (proves this check): drop the invoice_payments_reverse_on_delete
+  -- trigger. Expected: FAIL: after deleting a part-paid bill, 2000 reads ... but
+  -- the bills say ... is outstanding.
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+
+  -- 'transport_delivery' -> 6500, untouched by anything else here.
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Delete Vendor', 'BILLS-DEL-2', 'transport_delivery',
+            public.shop_local_date(), public.shop_local_date() + 20, 20000)
+    returning id into v_bill_del;
+  select journal_entry_id into v_bill_del_e from public.expenses where invoice_id = v_bill_del;
+  v_pay_one := public.record_invoice_payment(v_bill_del, 7000, public.shop_local_date(), 'cash');
+  select journal_entry_id into v_pay_one_e from public.invoice_payments where id = v_pay_one;
+  if v_bill_del_e is null or v_pay_one_e is null then
+    raise exception 'FAIL: check 17''s bill or its payment posted nothing -- it is not testing anything';
+  end if;
+  -- Genuinely part-paid, or this is check 18 wearing a different number.
+  select amount_cents - paid_cents into v_outstanding from public.invoices where id = v_bill_del;
+  if v_outstanding <> 13000 then
+    raise exception 'FAIL: check 17''s bill has % outstanding, expected 13000 -- it is not part-paid', v_outstanding;
+  end if;
+
+  delete from public.invoices where id = v_bill_del;
+
+  select status into v_status from public.journal_entries where id = v_bill_del_e;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a part-paid bill left its COST entry % -- the whole 20000 stays on the P&L for a bill that is gone', v_status;
+  end if;
+  select status into v_status from public.journal_entries where id = v_pay_one_e;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a part-paid bill left its PAYMENT entry % -- 2000 Accounts Payable is left in debit by 7000 and the cash is gone with no cost against it', v_status;
+  end if;
+  -- EVERY line of the payment's entry mirrored, not merely a balancing pair.
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_pay_one_e and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: no reversal entry points at the cascaded payment''s entry';
+  end if;
+  select count(*) into v_rows
+    from public.journal_lines o
+   where o.entry_id = v_pay_one_e
+     and not exists (select 1 from public.journal_lines r
+                      where r.entry_id = v_rev
+                        and r.account_id = o.account_id
+                        and r.amount_cents = -o.amount_cents);
+  if v_rows <> 0 then
+    raise exception 'FAIL: % line(s) of the cascaded payment''s entry have no negated twin on the reversal', v_rows;
+  end if;
+  -- The reversal carries the source of the entry it reverses, cascade or not.
+  select source into v_text from public.journal_entries where id = v_rev;
+  if v_text <> 'payment' then
+    raise exception 'FAIL: the reversal of a cascaded payment is filed under %, expected payment', v_text;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6500';
+  if v_amount <> 0 then
+    raise exception 'FAIL: 6500 Transport reads % after the only bill that touched it was deleted, expected 0', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount <> v_was_1000 then
+    raise exception 'FAIL: 1000 Cash reads % after a part-paid bill was deleted, expected the % it read before the payment -- the payment row is gone but the ledger still says the till paid it',
+      v_amount, v_was_1000;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after deleting a part-paid bill, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 18. A BILL PAID IN FULL -- THE CASE THE OLD EXCLUSION WAS ARGUED FROM.
+  ---------------------------------------------------------------------------
+  -- Two payments, by two different wallets, so a reversal that fires once per
+  -- BILL rather than once per PAYMENT is visible: 1000 and 1020 must each go
+  -- back independently.
+  --
+  -- MUTATION (proves this check): make reverse_invoice_payment_entry() return
+  -- null unconditionally. Expected: FAIL: deleting a bill paid in full left a
+  -- payment entry posted.
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1020
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+
+  -- 'marketing' -> 6300, untouched by anything else here.
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Delete Vendor', 'BILLS-DEL-3', 'marketing',
+            public.shop_local_date(), public.shop_local_date() + 20, 15000)
+    returning id into v_bill_del;
+  select journal_entry_id into v_bill_del_e from public.expenses where invoice_id = v_bill_del;
+  v_pay_one := public.record_invoice_payment(v_bill_del, 9000, public.shop_local_date(), 'cash');
+  v_pay_two := public.record_invoice_payment(v_bill_del, 6000, public.shop_local_date(), 'zaad');
+  select journal_entry_id into v_pay_one_e from public.invoice_payments where id = v_pay_one;
+  select journal_entry_id into v_pay_two_e from public.invoice_payments where id = v_pay_two;
+  select amount_cents - paid_cents into v_outstanding from public.invoices where id = v_bill_del;
+  if v_outstanding <> 0 then
+    raise exception 'FAIL: check 18''s bill has % outstanding, expected 0 -- it is not paid in full', v_outstanding;
+  end if;
+
+  delete from public.invoices where id = v_bill_del;
+
+  select status into v_status from public.journal_entries where id = v_bill_del_e;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a bill paid in full left its cost entry %', v_status;
+  end if;
+  select count(*) into v_rows from public.journal_entries
+   where id in (v_pay_one_e, v_pay_two_e) and status <> 'reversed';
+  if v_rows <> 0 then
+    raise exception 'FAIL: deleting a bill paid in full left % of its 2 payment entries posted -- 2000 Accounts Payable is left in debit and the wallets short', v_rows;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6300';
+  if v_amount <> 0 then
+    raise exception 'FAIL: 6300 Marketing reads % after the only bill that touched it was deleted, expected 0', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount <> v_was_1000 then
+    raise exception 'FAIL: 1000 Cash reads % after a fully paid bill was deleted, expected %', v_amount, v_was_1000;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  if v_amount <> v_was_1020 then
+    raise exception 'FAIL: 1020 Zaad reads % after a fully paid bill was deleted, expected % -- one wallet went back and the other did not, so the reversal fired once per bill rather than once per payment',
+      v_amount, v_was_1020;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount <> v_was_2000 then
+    raise exception 'FAIL: 2000 Accounts Payable reads % after a fully paid bill was deleted, expected the % it read before it was entered', v_amount, v_was_2000;
+  end if;
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after deleting a fully paid bill, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+  -- Still not vacuous: BILLS-1 is still outstanding, so the identity above is
+  -- comparing a real number against a real number rather than zero to zero.
+  if v_outstanding <= 0 then
+    raise exception 'FAIL: the fixture owes % after checks 16-18 -- the identity is comparing zero against zero', v_outstanding;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero after three bills were deleted, off by %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 19. A BILL DELETED AFTER ITS MONTH WAS CLOSED IS REDATED, NOT REFUSED.
+  ---------------------------------------------------------------------------
+  -- Check 15 is this for the RPC path. This is the CASCADE path, which is a
+  -- different function: reverse_invoice_payment_entry carries its own copy of
+  -- the redirect, and without it the Bills screen's Delete button starts failing
+  -- outright the moment a shop closes a month -- open_period_for RAISES for any
+  -- non-open period, and a reversal is dated to the ORIGINAL entry's date by
+  -- default. Both halves of the bill are exercised at once: the expense mirror
+  -- and the payment both sit in the month that is closed underneath them.
+  --
+  -- THREE months back, which is the only month this fixture has not already
+  -- shut: check 9 closed the two-months-back month and check 15 the
+  -- four-months-back one. It has to be a month that is OPEN when the money moves
+  -- and closed afterwards -- record_invoice_payment redirects a payment INTO a
+  -- shut month (check 9), so the entry would never land there to begin with, and
+  -- the assertion below catches exactly that if this month is ever shut too.
+  -- Open when it posts, closed when it is deleted, which is the ordinary
+  -- sequence, because that is what closing a month IS.
+  --
+  -- MUTATION (proves this check): change the redirect's condition in
+  -- reverse_invoice_payment_entry() to `if false`. Expected: ERROR: This period
+  -- is closed — posting into it is refused. Re-open it first.
+  v_paid_on := (date_trunc('month', public.shop_local_date()::timestamp) - interval '3 months')::date + 14;
+  insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                               category, issued_on, due_on, amount_cents)
+    values (v_shop_id, v_loc_id, 'Delete Vendor', 'BILLS-DEL-4', 'fees_charges',
+            v_paid_on, v_paid_on + 20, 8800)
+    returning id into v_bill_del;
+  select journal_entry_id into v_bill_del_e from public.expenses where invoice_id = v_bill_del;
+  v_pay_one := public.record_invoice_payment(v_bill_del, 8800, v_paid_on, 'cash');
+  select journal_entry_id into v_pay_one_e from public.invoice_payments where id = v_pay_one;
+  select entry_date into v_date from public.journal_entries where id = v_pay_one_e;
+  if v_date <> v_paid_on then
+    raise exception 'FAIL: check 19''s payment entry is dated %, expected % -- its month was not open when it posted', v_date, v_paid_on;
+  end if;
+
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and v_paid_on between starts_on and ends_on;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row covering % to close', v_paid_on;
+  end if;
+
+  delete from public.invoices where id = v_bill_del;
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_pay_one_e and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: deleting a bill whose payment sits in a closed month wrote no payment reversal';
+  end if;
+  select entry_date, description into v_date, v_text from public.journal_entries where id = v_rev;
+  if v_date <> public.shop_local_date() then
+    raise exception 'FAIL: the cascaded payment reversal is dated %, expected the current period (%)', v_date, public.shop_local_date();
+  end if;
+  -- The journal has to SAY why an old undoing is sitting in this month -- and
+  -- this is also the assertion that catches the NULL-description trap: `||` with
+  -- a NULL operand yields NULL for the WHOLE expression, so a missing coalesce
+  -- on the period status fails the delete with "A journal entry needs a
+  -- description", an error about descriptions for a bug about dates.
+  if v_text not like '%that period is closed%' then
+    raise exception 'FAIL: the redated payment reversal does not say why it moved: %', v_text;
+  end if;
+  if v_text not like '%' || to_char(v_paid_on, 'YYYY-MM-DD') || '%' then
+    raise exception 'FAIL: the redated payment reversal does not carry the original entry''s date: %', v_text;
+  end if;
+  -- And the expense half made the same journey.
+  select status into v_status from public.journal_entries where id = v_bill_del_e;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a bill in a closed month left its cost entry %', v_status;
+  end if;
+  select coalesce(sum(amount_cents - paid_cents), 0) into v_outstanding
+    from public.invoices where shop_id = v_shop_id;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount <> -v_outstanding then
+    raise exception 'FAIL: after a redated bill deletion, 2000 reads % but the bills say % is outstanding -- off by %',
+      v_amount, v_outstanding, v_amount + v_outstanding;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 20. DELETING A PAYMENT THAT POSTED NOTHING IS A CLEAN NO-OP.
+  ---------------------------------------------------------------------------
+  -- The mirror of expenses check 16b, and it exists for the same reason: every
+  -- invoice_payments row in every existing shop carries a NULL journal_entry_id
+  -- until 20260908000500 shipped and the backfill reached it, and
+  -- reverse_invoice_payment_entry must treat that as nothing to do rather than
+  -- as a missing entry. Without this, a shop tidying up its bills meets a ledger
+  -- error on a payment the ledger never heard of -- and the backfill can never
+  -- repair it either, because the source row is gone.
+  --
+  -- The row is inserted DIRECTLY rather than through record_invoice_payment,
+  -- which is the only honest way to reproduce a pre-posting payment. It is
+  -- deleted again immediately and never touches paid_cents, so check 13's
+  -- identity is not disturbed -- which is why this sits last.
+  --
+  -- MUTATION (proves this check): remove the `old.journal_entry_id is null` arm
+  -- from reverse_invoice_payment_entry(). Expected: ERROR: the journal entry for
+  -- this payment is missing, so it cannot be reversed.
+  insert into public.invoice_payments (invoice_id, amount_cents, paid_on, method, created_by)
+    values (v_invoice_id, 250, public.shop_local_date(), 'cash', v_user_id)
+    returning id into v_payment_id;
+  if (select journal_entry_id from public.invoice_payments where id = v_payment_id) is not null then
+    raise exception 'FAIL: check 20''s fixture payment posted -- it is not testing the no-op path';
+  end if;
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  delete from public.invoice_payments where id = v_payment_id;
+  select count(*) into v_amount from public.journal_entries where shop_id = v_shop_id;
+  if v_amount <> v_rows then
+    raise exception 'FAIL: deleting a payment that never posted wrote % journal entries', v_amount - v_rows;
+  end if;
+  if exists (select 1 from public.invoice_payments where id = v_payment_id) then
+    raise exception 'FAIL: the never-posted payment row survived its own delete';
   end if;
 
   perform set_config('request.jwt.claims', null, true);

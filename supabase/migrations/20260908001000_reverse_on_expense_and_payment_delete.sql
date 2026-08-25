@@ -32,6 +32,18 @@
 -- is outstanding) is the assertion that would have caught it if anything had
 -- ever exercised the door.
 --
+--   * deleteInvoice (src/lib/invoices.ts:151, from invoices-tab.tsx:238) is a
+--     plain `.delete()` on `invoices`, and BOTH the mirrored `expenses` row and
+--     every `invoice_payments` row cascade off it. Before 20260908000800 a bill
+--     posted nothing, so this door was a clean ledger no-op; the moment the
+--     mirror row started posting Dr <category> / Cr 2000 on insert, deleting the
+--     bill began stranding that entry `posted` with no source row anywhere. The
+--     P&L then carries rent that was never incurred, the balance sheet carries
+--     money owed to nobody, `invoices` says the shop owes zero, and check 13's
+--     invariant is violated permanently. Nothing goes red: every entry balances.
+--     There is no in-app remedy either -- reverse_journal_entry has no caller in
+--     src/ at all.
+--
 -- Every one of these leaves entries that individually balance, so the trial
 -- balance still zeroes and nothing anywhere goes red.
 --
@@ -141,7 +153,7 @@ declare
   v_reversal_date date;
   v_reversal_id uuid;
 begin
-  -- ── The three rows this trigger must leave alone ────────────────────────
+  -- ── The two rows this trigger must leave alone ──────────────────────────
   --
   -- 1. A ROW THAT POSTED NOTHING. Count-linked (save_stock_count posted both
   --    sides), payroll-linked (post_payroll_run posted its own entry) and an
@@ -168,34 +180,53 @@ begin
     return null;
   end if;
 
-  -- 3. ON DELETE ONLY: a row generated from a bill, a pay run, a delivery or a
-  --    stock-take. The `delete expenses` policy bars all four from this door
-  --    (20260908000800), so the ONLY way one reaches here is a cascade from its
-  --    own source -- and reversing on that cascade would make the books WORSE,
-  --    not better. Deleting a 27,700 bill that has been paid in full cascades
-  --    the mirrored expenses row away; reversing its Dr 6100 / Cr 2000 while the
-  --    payments' Dr 2000 / Cr 1000 entries stay standing leaves 2000 Accounts
-  --    Payable in DEBIT by the whole bill and the cash gone with no cost against
-  --    it. Doing nothing leaves "27,700 of utilities was paid", which is what
-  --    actually happened. Deleting a bill and its payments together is a
-  --    different door (src/lib/invoices.ts:151, a plain client delete with no
-  --    RPC behind it) and a gap this migration does not close -- it is named
-  --    here so it is a decision rather than an oversight.
+  -- THERE IS NO THIRD SKIP. There used to be: on DELETE, a row generated from a
+  -- bill, a pay run, a delivery or a stock-take returned early, on the argument
+  -- that reversing a paid bill's Dr 6100 / Cr 2000 while its payments' Dr 2000 /
+  -- Cr 1000 entries stayed standing would leave Accounts Payable in DEBIT by the
+  -- whole bill.
   --
-  --    UPDATE is deliberately NOT excluded. sync_invoice_expense
-  --    (20260816000000) rewrites the mirrored row whenever the bill's amount,
-  --    category or issue date changes, and re-posting from the corrected figures
-  --    is exactly right -- an edited bill's cost belongs to the edited bill.
-  --    Recording a PAYMENT does not reach here at all: invoices_sync_expense
-  --    fires `update of amount_cents, category, issued_on, description,
-  --    vendor_id, invoice_number` and paid_cents is not in that list, and the
-  --    WHEN clauses below would refuse it a second time.
-  if tg_op = 'DELETE'
-     and (old.invoice_id is not null or old.payroll_run_id is not null
-          or old.stock_receipt_id is not null or old.stock_count_id is not null) then
-    return null;
-  end if;
-
+  -- THE ARGUMENT WAS SOUND AND THE SKIP WAS OVER-APPLIED. It is true only for a
+  -- bill that has been paid IN FULL. An UNPAID bill has no payment entries at
+  -- all, so nothing was left standing and the skip simply stranded the cost for
+  -- ever; a PART-PAID one was left carrying its whole cost when only a fraction
+  -- had been settled. And the premise itself is now false: the payments no
+  -- longer stay standing, because reverse_invoice_payment_entry() below reverses
+  -- them on the same cascade. Both halves of a deleted bill come off together,
+  -- 2000 returns to zero for that bill, and check 13's invariant holds.
+  --
+  -- THE OTHER THREE LINKS NEVER NEEDED THE SKIP. A payroll-linked row, a
+  -- count-linked row and an inventory_purchase bill all carry a NULL
+  -- journal_entry_id -- post_expense_to_ledger returns early for each
+  -- (20260908000800's seven-way branch) -- so skip 1 above has already returned
+  -- for them before this point is reached. The one link that DID reach here with
+  -- an entry is an ordinary bill's mirror, which is exactly the row that must
+  -- reverse. A delivery-linked row (Dr 2000 / Cr wallet, the delivery's payment)
+  -- does post, but `stock_receipts` has no delete policy and no client delete --
+  -- grep src/lib for one -- so the only cascade that can reach it is from
+  -- `shops`, which skip 2 already returns for. If a delete door for deliveries
+  -- is ever added it will need the receipt's OWN entry reversed alongside, the
+  -- same pairing this migration builds for bills.
+  --
+  -- CASCADE ORDER IS NOT RELIED ON. Deleting an `invoices` row cascades to both
+  -- `expenses` and `invoice_payments`, and Postgres fires those RI actions as
+  -- AFTER triggers on the parent in constraint-creation order -- which this file
+  -- does not control and must not depend on. It does not have to: the two
+  -- reversals are independent inserts against two different journal entries.
+  -- Neither reads the other's row, neither reads `invoices`, and addition
+  -- commutes -- so whichever fires first, the ledger ends in the same place.
+  -- The only ordering fact that IS load-bearing is skip 2 above, which needs the
+  -- `shops` row to be gone by the time a cascade from `shops` reaches here, and
+  -- that is guaranteed by cascades being AFTER triggers on the parent at all.
+  --
+  -- UPDATE never had the exclusion. sync_invoice_expense (20260816000000)
+  -- rewrites the mirrored row whenever the bill's amount, category or issue date
+  -- changes, and re-posting from the corrected figures is exactly right -- an
+  -- edited bill's cost belongs to the edited bill. Recording a PAYMENT does not
+  -- reach here at all: invoices_sync_expense fires `update of amount_cents,
+  -- category, issued_on, description, vendor_id, invoice_number` and paid_cents
+  -- is not in that list, and the WHEN clauses below would refuse it a second
+  -- time.
   select * into v_old from public.journal_entries where id = old.journal_entry_id;
 
   -- Loud rather than quiet. An expense pointing at a draft or an
@@ -277,7 +308,7 @@ end;
 $$;
 
 comment on function public.reverse_expense_entry() is
-  'BEFORE UPDATE / AFTER DELETE on expenses. Reverses the entry the row posted, inline rather than through reverse_journal_entry (which gates on ledger.post; this door gates on expenses.manage). The reversal carries the source of the entry it reverses and is redated into the open period if the original''s month has closed. On UPDATE it clears journal_entry_id so post_expense_to_ledger re-posts from the edited figures. A no-op for a row that posted nothing, for a shop being deleted, and on DELETE for a row generated from a bill, a pay run, a delivery or a stock-take.';
+  'BEFORE UPDATE / AFTER DELETE on expenses. Reverses the entry the row posted, inline rather than through reverse_journal_entry (which gates on ledger.post; this door gates on expenses.manage). The reversal carries the source of the entry it reverses and is redated into the open period if the original''s month has closed. On UPDATE it clears journal_entry_id so post_expense_to_ledger re-posts from the edited figures. A no-op for a row that posted nothing and for a shop being deleted -- and nothing else: a bill''s mirrored row cascading away DOES reverse, paired with reverse_invoice_payment_entry() reversing the same bill''s payments.';
 
 -- ---------------------------------------------------------------------------
 -- The triggers, and the WHEN clause that is load-bearing
@@ -297,13 +328,23 @@ comment on function public.reverse_expense_entry() is
 -- changing them: what a row posts turns on the links, so if that bar were ever
 -- relaxed the posting would follow rather than silently keep the old branch.
 --
+-- shop_id IS LISTED, and it is the one that was missing. post_journal_entry
+-- takes a shop id, so the entry is derived from it as surely as from the amount.
+-- The `update expenses` policy gates both halves on has_shop_permission(shop_id,
+-- 'expenses.manage'), which a user who manages two shops satisfies for both --
+-- so moving a receipt from one to the other is reachable, and without shop_id in
+-- the clause it would leave the entry in the OLD shop with no reversal and no
+-- re-post. One shop's P&L keeps a cost it no longer has a receipt for and the
+-- other never learns of it.
+--
 -- Both triggers carry the identical clause. If they ever diverge, one half of
 -- reverse-and-re-post fires without the other.
 drop trigger if exists expenses_reverse_on_edit on public.expenses;
 create trigger expenses_reverse_on_edit
   before update on public.expenses
   for each row
-  when (old.amount_cents    is distinct from new.amount_cents
+  when (old.shop_id         is distinct from new.shop_id
+     or old.amount_cents    is distinct from new.amount_cents
      or old.category        is distinct from new.category
      or old.payment_method  is distinct from new.payment_method
      or old.occurred_on     is distinct from new.occurred_on
@@ -329,7 +370,8 @@ drop trigger if exists expenses_post_to_ledger_on_edit on public.expenses;
 create trigger expenses_post_to_ledger_on_edit
   after update on public.expenses
   for each row
-  when (old.amount_cents    is distinct from new.amount_cents
+  when (old.shop_id         is distinct from new.shop_id
+     or old.amount_cents    is distinct from new.amount_cents
      or old.category        is distinct from new.category
      or old.payment_method  is distinct from new.payment_method
      or old.occurred_on     is distinct from new.occurred_on
@@ -348,13 +390,132 @@ create trigger expenses_reverse_on_delete
   for each row execute function public.reverse_expense_entry();
 
 -- ---------------------------------------------------------------------------
+-- THE OTHER HALF OF A DELETED BILL: its payments
+-- ---------------------------------------------------------------------------
+--
+-- A bill's cost and a bill's payments are one fact in two tables, and the only
+-- honest treatment of `delete from invoices` is that BOTH come off. The expense
+-- half is above; this is the payment half.
+--
+-- WHY A TRIGGER AND NOT MORE CODE IN delete_invoice_payment. That RPC is the
+-- Undo button on the Bills screen and it never sees a cascade at all -- the rows
+-- vanish underneath it. The trigger is on `invoice_payments` itself, so it fires
+-- for every route a payment row can leave by: the RPC, the cascade from
+-- deleteInvoice, the cascade from a shop being deleted, and a client `.delete()`
+-- (which the `write invoice_payments` policy, being `for all`, permits and which
+-- nothing else covered).
+--
+-- WHY delete_invoice_payment KEEPS ITS INLINE REVERSAL ANYWAY. Undoing a payment
+-- is one decision -- reverse the entry, drop the row, recompute paid_cents --
+-- and a reader of that door should find all three in the function they are
+-- reading, under the lock it already takes. The two never both write: the RPC
+-- marks the original `reversed` before its own delete, and the first thing this
+-- trigger does with a `reversed` entry is return.
+--
+-- No `for update` here. The DELETE statement has already row-locked the tuple
+-- its own trigger is firing for, so the race the RPC's parent lock exists for
+-- cannot happen -- the same reason reverse_expense_entry needs none.
+create or replace function public.reverse_invoice_payment_entry() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_old public.journal_entries%rowtype;
+  v_old_period_status text;
+  v_reversal_date date;
+  v_reversal_id uuid;
+begin
+  -- A payment recorded before 20260908000500 shipped, or one the backfill has
+  -- not reached, posted nothing. Reversing nothing is a clean no-op.
+  if old.journal_entry_id is null then return null; end if;
+
+  select * into v_old from public.journal_entries where id = old.journal_entry_id;
+  -- The foreign key on invoice_payments.journal_entry_id makes this unreachable,
+  -- which is exactly why it is loud rather than plausible.
+  if v_old.id is null then
+    raise exception 'the journal entry for this payment is missing, so it cannot be reversed'
+      using errcode = 'P0001';
+  end if;
+
+  -- ALREADY REVERSED IS A NO-OP, NOT AN ERROR -- and it is the ordinary case.
+  -- delete_invoice_payment reverses inline and then deletes, so this trigger
+  -- fires immediately afterwards on an entry that is already mirrored. Raising
+  -- here would break the Bills screen's Undo button outright. The manual ledger
+  -- screen's void (reverse_journal_entry) reaches the same state by a different
+  -- route and must be equally harmless.
+  if v_old.status = 'reversed' then return null; end if;
+
+  -- The shop itself being deleted -- reverse_expense_entry's skip 2, for the same
+  -- reason: `shops` is the cascade root, a cascade is an AFTER trigger on the
+  -- parent, and a mirror entry referencing a shops row that is already gone
+  -- violates the foreign key and aborts the whole deletion. Read off the ENTRY,
+  -- because invoice_payments has no shop_id and its invoice has gone too.
+  if not exists (select 1 from public.shops where id = v_old.shop_id) then
+    return null;
+  end if;
+
+  if v_old.status <> 'posted' then
+    raise exception 'the journal entry for this payment is %, so it cannot be reversed',
+      v_old.status using errcode = 'P0001';
+  end if;
+
+  -- READ, not caught -- see this migration's header. A bill deleted after its
+  -- month was closed must not meet a ledger error on the Bills screen.
+  select status into v_old_period_status
+    from public.accounting_periods
+   where shop_id = v_old.shop_id and v_old.entry_date between starts_on and ends_on;
+  if v_old_period_status is not null and v_old_period_status <> 'open' then
+    v_reversal_date := public.shop_local_date();
+  else
+    v_reversal_date := v_old.entry_date;
+  end if;
+
+  -- v_old.source ('payment'), read off the original rather than written as a
+  -- literal, so the pair reads as a pair under the same filter.
+  insert into public.journal_entries
+      (shop_id, period_id, entry_date, reference, description, source, status,
+       location_id, reverses_entry_id, created_by)
+    values (
+      v_old.shop_id,
+      public.open_period_for(v_old.shop_id, v_reversal_date),
+      v_reversal_date,
+      v_old.reference || 'R',
+      'Reversal of ' || coalesce(v_old.reference, 'an unreferenced entry')
+        || ' — payment ' || old.id::text || ' was deleted'
+        || case when v_reversal_date <> v_old.entry_date
+                then ' (originally dated ' || to_char(v_old.entry_date, 'YYYY-MM-DD')
+                     || '; that period is ' || coalesce(v_old_period_status, 'not open')
+                     || ', so the reversal is recognised here)'
+                else '' end,
+      v_old.source, 'posted', v_old.location_id, v_old.id, auth.uid())
+    returning id into v_reversal_id;
+
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+    select v_reversal_id, account_id, -amount_cents, location_id, memo
+      from public.journal_lines where entry_id = v_old.id;
+
+  update public.journal_entries
+     set status = 'reversed', reverses_entry_id = v_reversal_id
+   where id = v_old.id;
+
+  return null;
+end;
+$$;
+
+comment on function public.reverse_invoice_payment_entry() is
+  'AFTER DELETE on invoice_payments. Reverses the Dr 2000 / Cr wallet entry the payment posted, whichever door removed the row -- delete_invoice_payment, the cascade from deleting a bill, or a client delete. Written inline rather than through reverse_journal_entry, which gates on ledger.post. A no-op for a payment that posted nothing, for an entry already reversed (delete_invoice_payment does it inline first), and for a shop being deleted. Paired with reverse_expense_entry so both halves of a deleted bill come off together.';
+
+drop trigger if exists invoice_payments_reverse_on_delete on public.invoice_payments;
+create trigger invoice_payments_reverse_on_delete
+  after delete on public.invoice_payments
+  for each row execute function public.reverse_invoice_payment_entry();
+
+-- ---------------------------------------------------------------------------
 -- delete_invoice_payment
 -- ---------------------------------------------------------------------------
 --
 -- CARRIED FORWARD IN FULL from 20260804000600, which a grep of the migrations
 -- for this function's own `create or replace` line shows is its only previous
 -- definition. (The incantation is described rather than written out: this file
--- defines two functions, and accumulated-rpc-edits.test.ts slices a function's
+-- defines three functions, and accumulated-rpc-edits.test.ts slices a function's
 -- body from the first occurrence of its signature to the next `$$;` -- a
 -- signature quoted in a comment above the real one moves that slice and makes
 -- every token in it match for the wrong reason.)

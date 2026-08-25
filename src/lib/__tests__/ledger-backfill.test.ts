@@ -1,4 +1,4 @@
-import { summariseUnposted, type UnpostedCountRow } from '@/lib/ledger-backfill';
+import { describeShutMonths, summariseUnposted, type UnpostedCountRow } from '@/lib/ledger-backfill';
 
 // The Post History door has to say how many rows are waiting and of what kind
 // BEFORE anyone presses anything. The counting is the database's -- these cover
@@ -131,5 +131,66 @@ describe('summariseUnposted — a source this app has no name for', () => {
     const summary = summariseUnposted([row('asset_disposal', 7), ...NOTHING_TO_DO]);
     expect(summary.lines[0].kind).toBe('sale');
     expect(summary.lines[8].kind).toBe('asset_disposal');
+  });
+});
+
+// ── The months that are no longer open ──────────────────────────────────────
+//
+// The replay creates only the periods that do not exist, and creates those
+// open. A period that ALREADY exists keeps its status and receives the entries
+// anyway -- no re-open, no re-close, no closed_at change, no audit row -- and
+// `accounting_periods` documents `locked` as "nothing posts, ever. Manual,
+// deliberate, final". unposted_ledger_period_exposure counts that exposure off
+// the same view the counts come from; these cover the folding and the sentence.
+
+describe('summariseUnposted — folding in the period exposure', () => {
+  it('reads zero for both statuses when the database sent nothing', () => {
+    // The old shape of the RPC pair, and any caller that only has counts. It
+    // must not read as "one shut month" by accident.
+    const summary = summariseUnposted(NOTHING_TO_DO);
+    expect(summary.exposure).toEqual({ closedMonths: 0, lockedMonths: 0, closedEntries: 0, lockedEntries: 0 });
+  });
+
+  it('keeps closed and locked apart, because only one of them is meant to be final', () => {
+    const summary = summariseUnposted(NOTHING_TO_DO, [
+      { status: 'closed', months: 3, entries: 41 },
+      { status: 'locked', months: 1, entries: 9 },
+    ]);
+    expect(summary.exposure).toEqual({ closedMonths: 3, lockedMonths: 1, closedEntries: 41, lockedEntries: 9 });
+  });
+});
+
+describe('describeShutMonths', () => {
+  it('says nothing when nothing lands in a shut month', () => {
+    // The ordinary state. A warning that shows on every visit is one nobody
+    // reads, and this one has to survive being read.
+    expect(describeShutMonths({ closedMonths: 0, lockedMonths: 0, closedEntries: 0, lockedEntries: 0 })).toBeNull();
+  });
+
+  it('counts months across both statuses and entries across both', () => {
+    const copy = describeShutMonths({ closedMonths: 3, lockedMonths: 1, closedEntries: 41, lockedEntries: 9 })!;
+    expect(copy).toContain('4 months');
+    expect(copy).toContain('3 you have closed');
+    expect(copy).toContain('1 you have locked');
+    expect(copy).toContain('50');
+  });
+
+  it('reads as one month rather than "1 months"', () => {
+    const copy = describeShutMonths({ closedMonths: 1, lockedMonths: 0, closedEntries: 2, lockedEntries: 0 })!;
+    expect(copy).toContain('One month that is no longer open');
+    expect(copy).toContain('does not re-open it');
+  });
+
+  it('does not mention locking when nothing is locked', () => {
+    // Naming a state the shop is not in is how a warning becomes boilerplate.
+    const copy = describeShutMonths({ closedMonths: 2, lockedMonths: 0, closedEntries: 5, lockedEntries: 0 })!;
+    expect(copy).not.toContain('you have locked');
+    expect(copy).not.toContain('final');
+  });
+
+  it('never claims the months are re-opened, which is what the card used to say', () => {
+    const copy = describeShutMonths({ closedMonths: 2, lockedMonths: 2, closedEntries: 5, lockedEntries: 5 })!;
+    expect(copy).toContain('does not re-open them');
+    expect(copy).not.toContain('re-opened');
   });
 });

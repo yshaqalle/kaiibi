@@ -143,15 +143,30 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
  * tenders keep a null `journal_entry_id` for ever).
  */
 export async function listUnpostedLedgerCounts(shopId: string): Promise<UnpostedSummary> {
-  const { data, error } = await supabase.rpc('unposted_ledger_counts', { p_shop_id: shopId });
-  if (error) throw error;
+  // TWO CALLS, IN PARALLEL, AND BOTH MUST SUCCEED. The exposure is not a nicety
+  // bolted on after the counts: showing "412 entries" without "and 3 of your
+  // shut months receive them" is the screen that was there before, and it told
+  // the reader the opposite of the truth. If the second call fails the card
+  // shows its failure caveat rather than a number with a silent omission behind
+  // it. Both gate on ledger.close, so they fail together or not at all.
+  const [counts, exposure] = await Promise.all([
+    supabase.rpc('unposted_ledger_counts', { p_shop_id: shopId }),
+    supabase.rpc('unposted_ledger_period_exposure', { p_shop_id: shopId }),
+  ]);
+  if (counts.error) throw counts.error;
+  if (exposure.error) throw exposure.error;
   return summariseUnposted(
-    (data ?? []).map((row: any) => ({
+    (counts.data ?? []).map((row: any) => ({
       kind: row.kind,
       // bigint arrives as a string over PostgREST, so a bare `+` on it would
       // concatenate rather than add.
       rowsUnposted: Number(row.rows_unposted ?? 0),
       oldestOn: row.oldest_on ?? null,
+    })),
+    (exposure.data ?? []).map((row: any) => ({
+      status: row.status,
+      months: Number(row.months ?? 0),
+      entries: Number(row.entries ?? 0),
     }))
   );
 }

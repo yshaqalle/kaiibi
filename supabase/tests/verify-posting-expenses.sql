@@ -155,6 +155,8 @@ declare
   v_was_6300   bigint;
   v_was_6700   bigint;
   v_was_6900   bigint;
+  -- Check 19: a second shop the same owner manages, to move a receipt into.
+  v_shop_two   uuid;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
   select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -1213,37 +1215,98 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
-  -- 17. A BILL'S MIRRORED ROW CASCADING AWAY DOES **NOT** REVERSE.
+  -- 17. A BILL'S MIRRORED ROW CASCADING AWAY **DOES** REVERSE.
   ---------------------------------------------------------------------------
-  -- The deliberate limit of 20260908001000, asserted so it stays a decision.
+  -- THIS CHECK USED TO ASSERT THE OPPOSITE, and it was wrong in the same shape
+  -- check 6 was. It said "deleting a bill leaves its entry posted, because its
+  -- payments' entries are not reversed with it" -- and check 6's bill, the very
+  -- fixture it used, IS NEVER PAID ANYWHERE IN THIS SCRIPT. There were no
+  -- payment entries to be left standing. The failure message described a
+  -- situation that did not exist, and what the check actually pinned was a
+  -- 61,437 rent cost surviving for ever with no source row to explain it: the
+  -- P&L carrying rent nobody incurred, the balance sheet carrying money owed to
+  -- nobody, `invoices` saying the shop owes zero, and no in-app way to undo it
+  -- (reverse_journal_entry has no caller in src/ at all).
   --
-  -- `expenses.invoice_id` is `on delete cascade`, so deleting a bill takes its
-  -- mirrored expense row with it -- and `invoice_payments` cascades off the same
-  -- parent, carrying its OWN Dr 2000 / Cr wallet entries. Reversing the bill's
-  -- Dr 6000 / Cr 2000 while those payments stay standing would leave 2000
-  -- Accounts Payable in DEBIT by the whole bill and the cash gone with no cost
-  -- against it -- strictly worse than doing nothing, which at least leaves "the
-  -- rent was paid", which is what happened. Deleting a bill and its payments
-  -- together is a different door (src/lib/invoices.ts:151) and a gap this file
-  -- does not claim to close.
+  -- The exclusion was sound ONLY for a bill paid in full, and it is not sound
+  -- even then any more: reverse_invoice_payment_entry (20260908001000) reverses
+  -- the payments on the SAME cascade, so both halves of a deleted bill come off
+  -- together. verify-posting-bills checks 16-18 are the three payment states --
+  -- unpaid, part-paid, paid in full -- each asserting check 13's invariant
+  -- afterwards. This check is the expense half, on an UNPAID bill, which is the
+  -- case the old exclusion could never have been right about.
   --
   -- The `delete expenses` policy bars all four link columns (check 13), so a
   -- cascade is the ONLY way a linked row reaches the trigger at all.
   --
-  -- MUTATION (proves this check): drop the tg_op = 'DELETE' link exclusion from
-  -- reverse_expense_entry(). Expected: FAIL: deleting a bill reversed its
-  -- mirrored expense's entry.
+  -- MUTATION (proves this check): put the tg_op = 'DELETE' link exclusion back
+  -- into reverse_expense_entry(). Expected: FAIL: deleting a bill left its
+  -- mirrored expense's entry posted.
   select journal_entry_id into v_entry from public.expenses where invoice_id = v_bill_one;
   if v_entry is null then
     raise exception 'FAIL: check 17''s bill has no entry -- it is not testing anything';
   end if;
+  -- Not vacuous in the other direction either: if this bill had been paid, the
+  -- check below would be measuring the payment reversal as well.
+  if exists (select 1 from public.invoice_payments where invoice_id = v_bill_one) then
+    raise exception 'FAIL: check 17''s bill has been paid -- it is no longer the unpaid case it exists to cover';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_before
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6000';
+  if v_before <> 61437 then
+    raise exception 'FAIL: 6000 Rent reads % before check 17, expected the 61437 the bill recognised', v_before;
+  end if;
+
   delete from public.invoices where id = v_bill_one;
+
   if exists (select 1 from public.expenses where invoice_id = v_bill_one) then
     raise exception 'FAIL: deleting a bill did not cascade its mirrored expense row away';
   end if;
   select status into v_status from public.journal_entries where id = v_entry;
-  if v_status <> 'posted' then
-    raise exception 'FAIL: deleting a bill reversed its mirrored expense''s entry (now %) -- its payments'' entries are not reversed with it, so 2000 Accounts Payable is left in debit', v_status;
+  if v_status is null then
+    raise exception 'FAIL: deleting a bill deleted its journal entry -- a posted entry is a permanent record';
+  end if;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: deleting a bill left its mirrored expense''s entry % -- 6000 Rent carries a cost with no bill and no expense row behind it, and nothing in the app can reverse it', v_status;
+  end if;
+
+  select id into v_rev from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id = v_entry and status = 'posted';
+  if v_rev is null then
+    raise exception 'FAIL: no reversal entry points at the deleted bill''s entry';
+  end if;
+  -- EVERY line mirrored, not merely a balancing pair.
+  select count(*) into v_rows
+    from public.journal_lines o
+   where o.entry_id = v_entry
+     and not exists (select 1 from public.journal_lines r
+                      where r.entry_id = v_rev
+                        and r.account_id = o.account_id
+                        and r.amount_cents = -o.amount_cents);
+  if v_rows <> 0 then
+    raise exception 'FAIL: % line(s) of the deleted bill''s entry have no negated twin on the reversal', v_rows;
+  end if;
+  -- A reversal carries the SAME SOURCE as the entry it reverses -- 'bill' here.
+  select source into v_text from public.journal_entries where id = v_rev;
+  if v_text <> 'bill' then
+    raise exception 'FAIL: the reversal of a deleted bill is filed under %, expected bill', v_text;
+  end if;
+
+  -- THE COST IS OFF THE P&L. 6000 is touched by nothing else in this script.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '6000';
+  if v_amount <> 0 then
+    raise exception 'FAIL: 6000 Rent reads % after the bill that recognised it was deleted, expected 0', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero after a bill was deleted, off by %', v_amount;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1310,6 +1373,72 @@ begin
     from public.journal_lines l where l.entry_id in (v_entry, v_rev);
   if v_amount <> 0 then
     raise exception 'FAIL: a redated reversal and its original do not net to zero, off by %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 19. MOVING A RECEIPT BETWEEN TWO SHOPS MOVES ITS ENTRY WITH IT.
+  ---------------------------------------------------------------------------
+  -- post_journal_entry takes a SHOP ID, so the entry is derived from shop_id as
+  -- surely as from the amount -- and shop_id was missing from both WHEN clauses
+  -- on the reverse-and-re-post pair. The `update expenses` policy gates both
+  -- halves on has_shop_permission(shop_id, 'expenses.manage'), which an owner of
+  -- two shops satisfies for both, so this update is reachable from the app. With
+  -- shop_id absent from the clause neither trigger fires: the entry stays in the
+  -- OLD shop, unreversed, and the new shop never learns of the cost. One P&L
+  -- keeps a receipt it does not have and the other is missing one it does.
+  --
+  -- location_id IS CLEARED FIRST, in a separate statement, so this check
+  -- isolates shop_id. location_id was already in the clause; changing both at
+  -- once would fire the triggers for the wrong reason and pass against a build
+  -- that never learned about shop_id at all.
+  --
+  -- MUTATION (proves this check): remove `old.shop_id is distinct from
+  -- new.shop_id` from both WHEN clauses. Expected: FAIL: moving an expense to
+  -- another shop left its entry in the old shop.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Posting Expenses Shop Two')
+    returning id into v_shop_two;
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 3311, 'fees_charges', 'cash',
+            'Bank charge filed against the wrong shop', v_user_id)
+    returning id into v_expense_id;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is null then
+    raise exception 'FAIL: check 19''s fixture row posted nothing -- it is not testing anything';
+  end if;
+  update public.expenses set location_id = null where id = v_expense_id;
+  -- The clearing re-posted (location_id is in the clause), so re-read the
+  -- pointer: the entry under test is the CURRENT one, not the first.
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+
+  update public.expenses set shop_id = v_shop_two where id = v_expense_id;
+
+  select status into v_status from public.journal_entries where id = v_entry;
+  if v_status <> 'reversed' then
+    raise exception 'FAIL: moving an expense to another shop left its entry % in the old shop -- % keeps a cost it no longer has a receipt for', v_status, 'Posting Expenses Shop';
+  end if;
+  select journal_entry_id into v_entry_two from public.expenses where id = v_expense_id;
+  if v_entry_two is null or v_entry_two = v_entry then
+    raise exception 'FAIL: moving an expense to another shop did not re-post it -- the new shop never learns of the cost';
+  end if;
+  select shop_id into v_rev from public.journal_entries where id = v_entry_two;
+  if v_rev <> v_shop_two then
+    raise exception 'FAIL: the replacement entry was posted into shop % rather than the shop the receipt moved to', v_rev;
+  end if;
+  -- The old shop is left exactly where it was, and the new one carries the cost.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the old shop''s trial balance does not zero after a receipt moved out, off by %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_two and a.code = '6700';
+  if v_amount <> 3311 then
+    raise exception 'FAIL: 6700 in the shop the receipt moved to reads %, expected 3311', v_amount;
   end if;
 
   perform set_config('request.jwt.claims', null, true);

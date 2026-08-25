@@ -476,10 +476,26 @@ begin
     return 0;
   end if;
 
-  -- ── 2. Every period the replay needs, created UP FRONT and left OPEN ─────
+  -- ── 2. Every MISSING period the replay needs, created OPEN ──────────────
   --
   -- This is the statement that makes a closed month survivable. Doing it per
   -- row through open_period_for is what would abort the replay half-way.
+  --
+  -- READ THE CONFLICT CLAUSE BEFORE BELIEVING THE HEADING. This creates the
+  -- months that DO NOT EXIST, open. A month that already exists is left exactly
+  -- as it is -- and then receives entries anyway, because step 4 inserts
+  -- journal_entries directly and never consults open_period_for. A closed month
+  -- is NOT re-opened. A LOCKED month -- documented at 20260904000200 as "nothing
+  -- posts, ever. Manual, deliberate, final" -- is not re-opened either, and is
+  -- posted into all the same, with no closed_at change and no audit row.
+  --
+  -- That is deliberate and is not being revisited: a per-row gate is precisely
+  -- what would leave a shop with half a ledger and no way to finish. What it is
+  -- not is invisible. public.unposted_ledger_period_exposure (20260908001100)
+  -- counts the shut months a replay would write into, off the same view the
+  -- counts come from, and the Post History card names them before the button is
+  -- pressed. If you change the semantics here, that function and the copy on
+  -- backfill-view.tsx are what stop being true.
   insert into public.accounting_periods (shop_id, starts_on, ends_on)
   select distinct p_shop_id,
          date_trunc('month', m.on_date)::date,
@@ -1042,17 +1058,22 @@ begin
   -- Hardcoding 1000 would make the till count disagree with the ledger for
   -- every zaad or eDahab expense.
   --
-  -- THE REPLAY READS THE ROW AS IT STANDS TODAY, AND THAT IS A KNOWN HOLE IT
-  -- INHERITS RATHER THAN CREATES. Task 7b's expenses_post_to_ledger is AFTER
-  -- INSERT only (20260908000750:211-213) -- nothing posts an adjustment when an
-  -- expense is edited or deleted afterwards, so a live-posted expense keeps its
-  -- ORIGINAL figure in the ledger while the row moves on. A replayed one gets
-  -- the row's current figure, because the original is not recorded anywhere.
-  -- The two paths therefore disagree for any expense edited after it was first
-  -- recorded, and the backfill has nothing to read that would let it agree.
-  -- Closing it means posting on UPDATE and DELETE too, which is Task 7b's to
-  -- fix; it is named here so the next reader does not mistake it for a defect
-  -- introduced by the replay.
+  -- THE REPLAY READS THE ROW AS IT STANDS TODAY, AND THAT IS NOW THE RIGHT
+  -- ANSWER RATHER THAN A HOLE. This block used to say the opposite -- that
+  -- expenses_post_to_ledger was AFTER INSERT only, so a live-posted expense kept
+  -- its ORIGINAL figure while the row moved on, and the two paths disagreed for
+  -- every edited expense. 20260908001000 closed that: an edit reverses and
+  -- re-posts through post_expense_to_ledger itself, and a delete reverses. So a
+  -- live-posted expense now carries its CURRENT figure too, which is exactly
+  -- what the replay writes, and a deleted one has no surviving journal effect
+  -- for the replay to disagree with. The two paths agree.
+  --
+  -- KEPT AS A NOTE RATHER THAN DELETED because the comment was cited as evidence
+  -- once already: the next reader who finds "the replay reads the row as it
+  -- stands today" should not go and re-solve a solved problem. If a future
+  -- migration re-creates post_expense_to_ledger it must carry
+  -- expenses_post_to_ledger_on_edit forward with it (20260908001000 says so at
+  -- the trigger), or this paragraph becomes true again.
   insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
   select x.entry_id,
          coalesce(a.id, public.backfill_missing_account(x.code, x.src)),

@@ -139,6 +139,9 @@ declare
                         - interval '3 months')::date + 13;
   v_old_at    timestamptz;
   v_old_local date;
+  -- Check 8b: a month LOCKED as well as one closed, found from the view rather
+  -- than named so it does not go stale when the fixture's dates move.
+  v_lock_month date;
   -- Everything the ledger already held before the backfill ran -- which is the
   -- settlement's entry and nothing else. Check 8 tears down what the backfill
   -- wrote and must leave the live entry standing, or it would be testing a
@@ -1483,14 +1486,80 @@ begin
   update public.accounting_periods set status = 'closed'
    where shop_id = v_shop_id and starts_on = date_trunc('month', v_old_local)::date;
 
-  -- open_period_for raises on that month now. Asserted, so this check cannot
-  -- quietly become a no-op if the period never actually closed.
+  -- AND A SECOND MONTH IS LOCKED, which is the stronger half. `closed` is at
+  -- least reversible and audited; `locked` is documented at 20260904000200 as
+  -- "nothing posts, ever. Manual, deliberate, final" -- and the replay posts
+  -- into it regardless.
+  --
+  -- IT HAS TO BE THE CURRENT MONTH, because this fixture spans exactly two:
+  -- v_old_local's, three months back, which the line above just closed, and this
+  -- one, which everything else sits in. It is put back to 'open' immediately
+  -- after the replay's status assertions below -- checks 12 and 13 ring live
+  -- sales, and a locked current month would refuse them. That restore is a
+  -- fixture step, not a claim about the replay: the assertions that matter all
+  -- read the period BEFORE it happens.
+  v_lock_month := date_trunc('month', public.shop_local_date()::timestamp)::date;
+  if v_lock_month = date_trunc('month', v_old_local)::date then
+    raise exception 'FIXTURE: the closed month and the locked month are the same month, so check 8b proves nothing';
+  end if;
+  update public.accounting_periods set status = 'locked'
+   where shop_id = v_shop_id and starts_on = v_lock_month;
+  if not found then
+    raise exception 'FIXTURE: no accounting_periods row starting % to lock', v_lock_month;
+  end if;
+
+  -- open_period_for raises on both months now. Asserted, so this check cannot
+  -- quietly become a no-op if the periods never actually shut.
   begin
     perform public.open_period_for(v_shop_id, v_old_local);
     raise exception 'FIXTURE: the month of % is not actually closed, so check 8 proves nothing', v_old_local;
   exception when others then
     if sqlerrm like 'FIXTURE:%' then raise; end if;
   end;
+  begin
+    perform public.open_period_for(v_shop_id, v_lock_month);
+    raise exception 'FIXTURE: the month of % is not actually locked, so check 8b proves nothing', v_lock_month;
+  exception when others then
+    if sqlerrm like 'FIXTURE:%' then raise; end if;
+  end;
+
+  ---------------------------------------------------------------------------
+  -- 8b. AND THE DOOR SAYS SO BEFORE ANYONE PRESSES ANYTHING.
+  ---------------------------------------------------------------------------
+  -- The replay walking through a shut month is deliberate -- a per-row
+  -- open_period_for is what would abort a shop's history half-way -- but until
+  -- this function existed the screen said the opposite of what happens ("a month
+  -- you have already closed is re-opened to receive it": it is not re-opened,
+  -- not re-closed, and no audit row is written). An owner who locked a month on
+  -- purpose is entitled to know before they press, not afterwards.
+  --
+  -- Both statuses always come back, zeroes included, for the reason the eight
+  -- kinds do: "we looked and found none" and "we did not look" must not render
+  -- the same.
+  --
+  -- MUTATION (proves this check): drop the `ap.status` join condition from
+  -- unposted_ledger_period_exposure so every landing row counts as closed.
+  -- Expected: FAIL: the door reports 0 locked months, expected 1.
+  select count(*) into v_rows from public.unposted_ledger_period_exposure(v_shop_id);
+  if v_rows <> 2 then
+    raise exception 'FAIL: unposted_ledger_period_exposure returned % statuses, expected both closed and locked including the zeroes', v_rows;
+  end if;
+  select months, entries into v_bf_kinds, v_rows
+    from public.unposted_ledger_period_exposure(v_shop_id) where status = 'closed';
+  if v_bf_kinds <> 1 then
+    raise exception 'FAIL: the door reports % closed months, expected 1 -- the replay is about to write into one', v_bf_kinds;
+  end if;
+  if v_rows <= 0 then
+    raise exception 'FAIL: the door reports % entries landing in a closed month -- it found the month but not what lands in it', v_rows;
+  end if;
+  select months, entries into v_bf_kinds, v_rows
+    from public.unposted_ledger_period_exposure(v_shop_id) where status = 'locked';
+  if v_bf_kinds <> 1 then
+    raise exception 'FAIL: the door reports % locked months, expected 1 -- a locked month is documented as final and the replay posts into it anyway', v_bf_kinds;
+  end if;
+  if v_rows <= 0 then
+    raise exception 'FAIL: the door reports % entries landing in a locked month -- it found the month but not what lands in it', v_rows;
+  end if;
 
   -- AND THE RE-RUN IS PUSHED PAST 9,999, which is the second thing this block
   -- now proves. lpad(n::text, 4, '0') TRUNCATES a longer string:
@@ -1513,6 +1582,32 @@ begin
   if v_posted <> 14 then
     raise exception 'FAIL: a closed period stopped the backfill, only % of 14 entries written', v_posted;
   end if;
+
+  -- AND NEITHER SHUT MONTH MOVED. This is the behaviour the door now has to
+  -- describe, pinned so a future change to the replay's period handling breaks
+  -- the copy's test rather than quietly making the copy false again: the entries
+  -- landed, and the periods were not re-opened, not re-closed and not stamped.
+  select status into v_text from public.accounting_periods
+   where shop_id = v_shop_id and starts_on = date_trunc('month', v_old_local)::date;
+  if v_text <> 'closed' then
+    raise exception 'FAIL: the replay left the closed month reading % -- the card says its status is untouched', v_text;
+  end if;
+  select status into v_text from public.accounting_periods
+   where shop_id = v_shop_id and starts_on = v_lock_month;
+  if v_text <> 'locked' then
+    raise exception 'FAIL: the replay left the locked month reading % -- the card says its status is untouched', v_text;
+  end if;
+  -- And it really did write into them, or the two lines above pass vacuously.
+  if not exists (select 1 from public.journal_entries e
+                  join public.accounting_periods ap on ap.id = e.period_id
+                 where e.shop_id = v_shop_id and ap.starts_on = v_lock_month) then
+    raise exception 'FAIL: nothing landed in the locked month, so check 8b measured an exposure that does not exist';
+  end if;
+
+  -- FIXTURE RESTORE, not a claim. The locked month is the current one (see
+  -- above) and checks 12 and 13 ring live sales into it.
+  update public.accounting_periods set status = 'open'
+   where shop_id = v_shop_id and starts_on = v_lock_month;
 
   if not exists (select 1 from public.journal_entries
                   where shop_id = v_shop_id
@@ -1726,6 +1821,18 @@ begin
     if sqlerrm like 'FAIL:%' then raise; end if;
     if sqlerrm not like '%ledger.close%' then
       raise exception 'FAIL: unposted_ledger_counts should refuse a caller without ledger.close by name, got: %', sqlerrm;
+    end if;
+  end;
+  -- The exposure function is the same door onto the same view and must gate the
+  -- same way -- which months a shop has locked, and how much trading is waiting
+  -- in them, is the same leak as the counts.
+  begin
+    select count(*) into v_bf_kinds from public.unposted_ledger_period_exposure(v_shop_id);
+    raise exception 'FAIL: a non-member read % rows of period exposure -- the ledger.close gate is missing', v_bf_kinds;
+  exception when others then
+    if sqlerrm like 'FAIL:%' then raise; end if;
+    if sqlerrm not like '%ledger.close%' then
+      raise exception 'FAIL: unposted_ledger_period_exposure should refuse a caller without ledger.close by name, got: %', sqlerrm;
     end if;
   end;
   perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);

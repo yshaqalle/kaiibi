@@ -142,13 +142,31 @@ alter table public.expenses
 -- which has no other door at all. That is the whole difference between the two
 -- and the reason one posts and the other does not.
 --
--- THE RESIDUE, STATED RATHER THAN HIDDEN: an inventory_purchase bill with no
--- delivery behind it raises no payable, so paying it drives 2000 negative by
--- that amount. It cannot be told apart from the paired case -- `invoices` has
--- no link to `stock_receipts` and this phase does not add one -- and it is a
--- shop whose stock records are already wrong, because the units it bought never
--- entered inventory by any door. Matching a bill to a delivery (a GRNI account,
--- or a receipt id on the invoice) is phase 3's work.
+-- THE RESIDUE, STATED RATHER THAN HIDDEN -- AND IT RUNS BOTH WAYS. One root
+-- cause, no link between `invoices` and `stock_receipts`, and two opposite
+-- errors depending on which way a shop miscategorises.
+--
+--   UNDER-STATED. An inventory_purchase bill with NO delivery behind it raises
+--   no payable, so paying it drives 2000 negative by that amount. It cannot be
+--   told apart from the paired case, and it describes a shop whose stock records
+--   are already wrong, because the units it bought entered inventory by no door.
+--
+--   OVER-STATED, the direction this note used to omit. A bill FOR GOODS entered
+--   under `supplies` or `other` -- which is one wrong tap on the category picker,
+--   and the categories a shopkeeper reaches for when `inventory_purchase` does
+--   not sound like what the paper in their hand says -- takes the generic arm
+--   and posts Dr 6400 / Cr 2000 ON TOP OF receive_stock's Dr 1200 / Cr 2000 for
+--   the same delivery. THE PAYABLE IS DOUBLED: the shop appears to owe the
+--   supplier twice, the cost is on the P&L as an expense while the goods are
+--   also on the balance sheet as an asset, and paying the bill once clears only
+--   half the payable it thinks it has. The category exclusion above cannot see
+--   this -- the category is exactly what is wrong -- and neither entry is
+--   unbalanced, so the trial balance zeroes throughout, the same way every other
+--   defect in this phase did.
+--
+-- Both are unclosable without a link between a bill and a delivery (a GRNI
+-- account, or a receipt id on the invoice). That is a schema change and phase
+-- 3's work. Until then the only defence is the category picker itself.
 --
 -- ---------------------------------------------------------------------------
 -- The seven-way branch. Read 20260908000750's exclusion block before changing
