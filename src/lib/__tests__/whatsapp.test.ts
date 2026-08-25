@@ -36,6 +36,25 @@ describe('whatsappLink', () => {
     expect(whatsappLink('+44 7700 900123')).toBe('https://wa.me/447700900123');
   });
 
+  // Pins three behaviours at once, against a regression that over-corrected
+  // toE164's guessing bug into refusing every unmarked foreign number:
+  // a local number still gets 252 prefixed, an explicitly international
+  // number still passes through untouched, and a long bare-digit number --
+  // typed with no + and no leading 00 or 0 -- is used exactly as typed
+  // rather than 252-prefixed (toE164's old bug) or refused (toE164's own,
+  // correct behaviour for a value about to be stored).
+  it('still prefixes a local number with 252', () => {
+    expect(whatsappLink('0634456789')).toBe('https://wa.me/252634456789');
+  });
+
+  it('still passes an explicitly international number through untouched', () => {
+    expect(whatsappLink('+447700900123')).toBe('https://wa.me/447700900123');
+  });
+
+  it('uses a long bare-digit foreign number exactly as typed, neither guessing nor refusing', () => {
+    expect(whatsappLink('447700900123')).toBe('https://wa.me/447700900123');
+  });
+
   it('returns null for a missing number', () => {
     expect(whatsappLink(null)).toBeNull();
     expect(whatsappLink(undefined)).toBeNull();
