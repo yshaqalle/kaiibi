@@ -1193,3 +1193,27 @@ export type JournalLine = {
   locationId: string | null;
   memo: string | null;
 };
+
+export type PublicStorefront = {
+  shopName: string;
+  city: string | null;
+  slug: string;
+  whatsappE164: string | null;
+  theme: string;
+  palette: string;
+  headline: string | null;
+  about: string | null;
+  heroImageUrl: string | null;
+  offersDelivery: boolean;
+  paymentMode: 'on_collection';
+};
+
+export type StorefrontProduct = {
+  id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  priceCents: number;
+  stock: number;
+  imageUrl: string | null;
+};

@@ -222,7 +222,7 @@ own column from the first migration or the split is unrecoverable.
 | Change | Notes |
 |---|---|
 | `shops.slug` | Globally unique, nullable until set. Reserved list blocks `www`, `app`, `api`, `admin`, `platform`. |
-| `shops.whatsapp_e164` | `contact_phone` is free text and cannot be dialled. Required to publish, not to exist. |
+| `shops.whatsapp_e164` | The shop's phone lives on `shop_locations.contact_phone` as free text (20260811000000 moved address and phone off `shops`), which cannot be dialled by a `wa.me` link. A shop messages customers as one business, not per branch, so the number belongs on `shops`. Required to publish, not to exist. |
 | `storefronts` | One per shop: `theme`, `palette`, headline, about, hero image, `offers_delivery`, `payment_mode`, `published_at`. |
 | `storefront_delivery_areas` | Name, `fee_cents >= 0`, sort order. |
 | `orders` | Per-shop sequential `number`, customer name, E.164 phone, `fulfilment`, area, landmark, note, `payment_mode`, `status`, `subtotal_cents`, `delivery_fee_cents`, `total_cents`. No customer account. |

@@ -299,3 +299,18 @@ describe('FREE_FALLBACK', () => {
     expect(FREE_FALLBACK.modules.length).toBeLessThan(ALL_MODULES.length);
   });
 });
+
+describe('storefront module', () => {
+  it('is in the catalog', () => {
+    expect(ALL_MODULES).toContain('storefront');
+    expect(MODULES.find((m) => m.key === 'storefront')?.label).toBe('Online storefront');
+  });
+
+  it('is not in the free fallback', () => {
+    expect(FREE_FALLBACK.modules).not.toContain('storefront');
+  });
+
+  it('survives a round trip through expandModules', () => {
+    expect(expandModules(['storefront', 'not_a_module'])).toEqual(['storefront']);
+  });
+});
