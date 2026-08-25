@@ -138,6 +138,32 @@ begin
   perform set_config('role', 'postgres', true);
   perform set_config('request.jwt.claims', null, true);
 
+  -- ------------------------------- N. the tables are actually reachable
+  -- RLS narrows what a role may see; it does not grant the role reach. A table
+  -- with policies but no grant fails with 42501 for every caller, and neither a
+  -- security definer function nor a superuser-run test can see that happen.
+  if not has_table_privilege('authenticated', 'public.storefronts', 'SELECT') then
+    raise exception 'FAIL: authenticated cannot select storefronts -- RLS policies without a table grant are decorative';
+  end if;
+  if not has_table_privilege('authenticated', 'public.storefronts', 'INSERT') then
+    raise exception 'FAIL: authenticated cannot insert storefronts';
+  end if;
+  if not has_table_privilege('authenticated', 'public.storefronts', 'UPDATE') then
+    raise exception 'FAIL: authenticated cannot update storefronts';
+  end if;
+  if not has_table_privilege('authenticated', 'public.storefront_delivery_areas', 'SELECT') then
+    raise exception 'FAIL: authenticated cannot select storefront_delivery_areas';
+  end if;
+  if not has_table_privilege('authenticated', 'public.storefront_delivery_areas', 'DELETE') then
+    raise exception 'FAIL: authenticated cannot delete storefront_delivery_areas';
+  end if;
+
+  -- anon must NOT get direct table reach; it reads only through the
+  -- explicit-column-list functions that keep products.cost_cents unreachable.
+  if has_table_privilege('anon', 'public.storefronts', 'SELECT') then
+    raise exception 'FAIL: anon can read the storefronts table directly, routing around the public read functions';
+  end if;
+
   raise notice 'PASS: storefront slug claim';
   raise exception 'rollback_marker';
 exception
