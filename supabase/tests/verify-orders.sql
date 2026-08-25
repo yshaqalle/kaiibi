@@ -25,50 +25,63 @@
 --        nothing, authenticated gets select+insert on both tables, and (belt
 --        and braces, matching verify-storefront.sql's own check 8) anon is
 --        actually refused by Postgres, not merely un-granted on paper.
---   16.  orders_module (20260926000050_orders.sql) refuses an insert for a
+--   16.  anon holds no privilege at all on order_number_counters -- the same
+--        class of gap as 14/15, for the table backing the order number that
+--        Task 2's rate-limit lock (20260927000000_place_order.sql) now takes
+--        BEFORE anything else touches this shop's row.
+--   17.  to_e164 is granted to nobody, not even anon or authenticated --
+--        place_storefront_order calls it as the function's owner and no
+--        caller needs a grant of its own. This is the exact class of bug
+--        that has shipped twice on this feature: a future
+--        `drop function ... ` and recreate silently restores PUBLIC EXECUTE,
+--        and nothing else here would notice.
+--   18.  orders_module (20260926000050_orders.sql) refuses an insert for a
 --        shop whose plan does not include the storefront module -- otherwise
 --        the trigger's existence is only implied by every test shop here
 --        happening to be on a plan that carries it.
 --
 -- ── place_storefront_order (20260927000000_place_order.sql) ──────────────
 --
--- Checks 17-31 cover the application's FIRST UNAUTHENTICATED WRITE, so they
+-- Checks 19-33 cover the application's FIRST UNAUTHENTICATED WRITE, so they
 -- are written as attacks rather than as feature demos. Each one is a
 -- defence, and the thing it defends against is named in its comment.
 --
---   17.  anon holds EXECUTE on the function -- the whole anonymous path is
+--   19.  anon holds EXECUTE on the function -- the whole anonymous path is
 --        that one grant, and Postgres's default is to hand EXECUTE to PUBLIC,
 --        so a `grant ... to anon` with no `revoke ... from public` in front of
 --        it is a no-op that looks like a grant. This check is what goes red
 --        when the grant is removed; if it does not, the revoke is missing.
---   18.  the happy path, priced by the SERVER: the returned figures and the
+--   20.  the happy path, priced by the SERVER: the returned figures and the
 --        stored row are computed from products, and the phone is normalised.
---   19.  a client-supplied price is ignored, not honoured -- otherwise anyone
+--   21.  a client-supplied price is ignored, not honoured -- otherwise anyone
 --        can grant themselves any discount they like.
---   20.  a product from ANOTHER shop fails the whole order, and writes
+--   22.  a product from ANOTHER shop fails the whole order, and writes
 --        nothing. Not "is skipped": a silently shortened order is a customer
 --        charged for something they did not receive.
---   21.  an unlisted product fails the whole order the same way.
---   22.  a quantity of zero or less, and an empty cart, are refused.
---   23.  an unknown delivery area is REJECTED, never defaulted to a zero fee.
+--   23.  an unlisted product fails the whole order the same way.
+--   24.  a quantity of zero or less, and an empty cart, are refused.
+--   25.  an unknown delivery area is REJECTED, never defaulted to a zero fee.
 --        Free delivery nobody authorised is a real loss.
---   24.  a known area's fee is looked up at order time and snapshotted, and
---        the total is subtotal + that fee.
---   25.  an unpublished shop and an unknown slug are refused with the SAME
+--   26.  a known area's fee is looked up at order time and snapshotted, and
+--        the total is subtotal + that fee -- and the area name stored on the
+--        order is the SHOP's own (a.name), not the string the client sent to
+--        find it, so a future case-insensitive lookup cannot store a casing
+--        the shop never published.
+--   27.  an unpublished shop and an unknown slug are refused with the SAME
 --        message -- distinguishing them turns checkout into a slug oracle,
 --        which is the thing 20260924000100's header refuses to build.
---   26.  a phone that will not normalise is refused; it is the only way the
+--   28.  a phone that will not normalise is refused; it is the only way the
 --        shop reaches this customer.
---   27.  stock is neither reserved nor decremented, and ordering more than
+--   29.  stock is neither reserved nor decremented, and ordering more than
 --        the shop holds is allowed (Plan 4 owns fulfilment). The alternative
 --        lets anyone empty a shop's shelves from a browser.
---   28.  the rate limit trips.
---   29.  and it is a WINDOW, not a lifetime cap -- orders older than the
+--   30.  the rate limit trips.
+--   31.  and it is a WINDOW, not a lifetime cap -- orders older than the
 --        window do not count, so a shop that succeeds is not locked out of
 --        its own storefront forever.
---   30.  an internal failure surfaces as a fixed, generic message: no
+--   32.  an internal failure surfaces as a fixed, generic message: no
 --        constraint name, no shop id, nothing the customer cannot act on.
---   31.  a de-entitled shop stops taking orders, refused identically to 25.
+--   33.  a de-entitled shop stops taking orders, refused identically to 27.
 --        Left last because it moves the storefront shop onto the Free plan.
 
 \set ON_ERROR_STOP on
@@ -84,7 +97,7 @@ declare
   v_payment_mode text;
   v_raised     boolean;
   v_free_id    uuid;
-  -- place_storefront_order fixtures (checks 17-31)
+  -- place_storefront_order fixtures (checks 19-33)
   v_store_id    uuid;   -- published, entitled, offers delivery
   v_draft_id    uuid;   -- has a slug, never published
   v_burst_id    uuid;   -- for the rate limit
@@ -94,14 +107,14 @@ declare
   v_prod_hidden uuid;   -- listed = false, same shop
   v_prod_other  uuid;   -- listed = true, DIFFERENT shop
   v_prod_extra  uuid;   -- the rate-limit shops' one listed product
-  v_prod_bulk   uuid;   -- check 27's, touched by nothing else
+  v_prod_bulk   uuid;   -- check 29's, touched by nothing else
   v_result      jsonb;
   v_order_id    uuid;
   v_count       integer;
   v_before      integer;
   v_stock       integer;
   v_i           integer;
-  v_msg_unknown  text;  -- check 25's shared "this shop is not taking orders"
+  v_msg_unknown  text;  -- check 27's shared "this shop is not taking orders"
   v_msg_draft    text;
   v_msg_internal text;
   -- Keep in step with the constants of the same name in
@@ -316,7 +329,63 @@ begin
     raise exception 'FAIL: authenticated cannot insert into order_items';
   end if;
 
-  -- ------------------------------------------------ 16. an order is refused for a shop whose plan lacks storefront
+  -- ------------------------------------------------ 16. anon holds no privilege at all on order_number_counters
+  -- The same class of gap 14/15 closed for orders and order_items, for the
+  -- table finding 1's rate-limit lock (20260927000000_place_order.sql) now
+  -- takes a row lock on before anything else runs. A lock is only a boundary
+  -- if the table underneath it stays shut to the caller it is meant to slow
+  -- down.
+  if has_table_privilege('anon', 'public.order_number_counters', 'SELECT')
+     or has_table_privilege('anon', 'public.order_number_counters', 'INSERT')
+     or has_table_privilege('anon', 'public.order_number_counters', 'UPDATE')
+     or has_table_privilege('anon', 'public.order_number_counters', 'DELETE') then
+    raise exception 'FAIL: anon holds a table privilege on order_number_counters';
+  end if;
+
+  -- Belt and braces, the same technique as check 14: prove Postgres itself
+  -- refuses anon at the table, not merely that no grant exists on paper.
+  set local role anon;
+  v_raised := false;
+  begin
+    perform 1 from public.order_number_counters limit 1;
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  reset role;
+  if not v_raised then
+    raise exception 'FAIL: anon could read order_number_counters directly';
+  end if;
+
+  -- ------------------------------------------------ 17. to_e164 is granted to nobody
+  -- Not anon, not authenticated -- place_storefront_order calls it as the
+  -- function's own owner, so no caller needs a grant of its own
+  -- (20260927000000_place_order.sql's grants comment). This is the exact
+  -- class of bug that has shipped twice on this feature already: a future
+  -- `drop function ... ` and recreate silently restores PUBLIC EXECUTE, and
+  -- nothing else in this file would notice. Checked against both roles, not
+  -- just anon, because an accidental grant to authenticated would slip past
+  -- a check that only asked about anon.
+  if has_function_privilege('anon', 'public.to_e164(text)', 'EXECUTE') then
+    raise exception 'FAIL: anon can execute to_e164 directly';
+  end if;
+  if has_function_privilege('authenticated', 'public.to_e164(text)', 'EXECUTE') then
+    raise exception 'FAIL: authenticated can execute to_e164 directly';
+  end if;
+
+  -- Belt and braces, same technique as check 14 and this section's check 16:
+  -- a grant that exists on paper but is somehow ineffective would still pass
+  -- the has_function_privilege checks above.
+  set local role anon;
+  v_raised := false;
+  begin
+    perform public.to_e164('0634000000');
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  reset role;
+  if not v_raised then
+    raise exception 'FAIL: anon could call to_e164 directly, not only through place_storefront_order';
+  end if;
+
+  -- ------------------------------------------------ 18. an order is refused for a shop whose plan lacks storefront
   -- Move the second shop off whatever plan the seed put it on and onto Free,
   -- which 20260923000000_storefront_module_grant.sql deliberately does not
   -- grant storefront to. shop_has_module is asserted directly first so the
@@ -358,7 +427,7 @@ begin
   -- ══ place_storefront_order ══════════════════════════════════════════════
   --
   -- A shop of its very own for these checks. Not v_shop_id: checks 1-13 left
-  -- orders on that shop, and check 28's rate limit counts rows per shop, so
+  -- orders on that shop, and check 30's rate limit counts rows per shop, so
   -- sharing would make this section's results depend on how many checks
   -- happen to run above it.
   insert into public.shops (owner_id, name) values (v_user_id, 'Hargeisa Online')
@@ -393,7 +462,7 @@ begin
   insert into public.storefront_delivery_areas (shop_id, name, fee_cents)
     values (v_store_id, 'Koodbuur', 2000);
 
-  -- ------------------------------------------------ 17. anon may call it, and it is the only thing anon may do
+  -- ------------------------------------------------ 19. anon may call it, and it is the only thing anon may do
   if not has_function_privilege('anon', 'public.place_storefront_order(text,jsonb,jsonb)', 'EXECUTE') then
     raise exception 'FAIL: anon cannot execute place_storefront_order -- the storefront has no checkout at all';
   end if;
@@ -404,7 +473,7 @@ begin
     raise exception 'FAIL: anon can write the order tables directly, so the function is not the only anonymous path';
   end if;
 
-  -- ------------------------------------------------ 18. the happy path, priced by the server
+  -- ------------------------------------------------ 20. the happy path, priced by the server
   set local role anon;
   v_result := public.place_storefront_order(
     'hargeisa-online',
@@ -452,7 +521,7 @@ begin
     raise exception 'FAIL: a line total was not unit price x quantity';
   end if;
 
-  -- ------------------------------------------------ 19. a client-supplied price is ignored
+  -- ------------------------------------------------ 21. a client-supplied price is ignored
   -- Every money key a hopeful client might send, in BOTH payloads, at one
   -- cent. Both halves matter: a function that priced its lines from products
   -- and then took the customer payload's word for the delivery fee or the
@@ -481,7 +550,7 @@ begin
     raise exception 'FAIL: a client-supplied unit price was written to order_items';
   end if;
 
-  -- ------------------------------------------------ 20. a product from another shop fails the WHOLE order
+  -- ------------------------------------------------ 22. a product from another shop fails the WHOLE order
   select count(*) into v_before from public.orders where shop_id = v_store_id;
   set local role anon;
   v_raised := false;
@@ -506,7 +575,7 @@ begin
     raise exception 'FAIL: the rejected order still wrote a row -- the good line was kept and the bad one dropped';
   end if;
 
-  -- ------------------------------------------------ 21. an unlisted product fails the whole order too
+  -- ------------------------------------------------ 23. an unlisted product fails the whole order too
   set local role anon;
   v_raised := false;
   begin
@@ -530,7 +599,7 @@ begin
     raise exception 'FAIL: an order holding an unlisted product wrote a row anyway';
   end if;
 
-  -- ------------------------------------------------ 22. a nonsense quantity, and an empty cart
+  -- ------------------------------------------------ 24. a nonsense quantity, and an empty cart
   set local role anon;
   v_raised := false;
   begin
@@ -563,7 +632,7 @@ begin
     raise exception 'FAIL: an empty cart was accepted as an order';
   end if;
 
-  -- ------------------------------------------------ 23. an unknown delivery area is rejected, not free
+  -- ------------------------------------------------ 25. an unknown delivery area is rejected, not free
   set local role anon;
   v_raised := false;
   begin
@@ -584,7 +653,7 @@ begin
     raise exception 'FAIL: an order for an unknown delivery area was stored';
   end if;
 
-  -- ------------------------------------------------ 24. a known area's fee is looked up and snapshotted
+  -- ------------------------------------------------ 26. a known area's fee is looked up and snapshotted
   set local role anon;
   v_result := public.place_storefront_order(
     'hargeisa-online',
@@ -607,6 +676,19 @@ begin
   if (select delivery_area from public.orders where id = v_order_id) <> 'Koodbuur' then
     raise exception 'FAIL: the delivery area name was not snapshotted onto the order';
   end if;
+  -- The stored name is asserted against the delivery area's OWN name column,
+  -- read fresh here rather than only against the literal the client
+  -- happened to send: 20260927000000_place_order.sql selects a.name into
+  -- v_area alongside the fee, not the client's v_area_in. Byte-equal to what
+  -- the client sent today, because the lookup above is an exact match --
+  -- this is the check that would go red the day that lookup is loosened to
+  -- a case-insensitive one and a client's own casing is stored instead of
+  -- the shop's.
+  if (select delivery_area from public.orders where id = v_order_id)
+     is distinct from (select a.name from public.storefront_delivery_areas a
+                        where a.shop_id = v_store_id and a.name = 'Koodbuur') then
+    raise exception 'FAIL: the stored delivery area is not the shop''s own name for it';
+  end if;
   -- Snapshot, not a live join: re-pricing the area must not rewrite an order
   -- the customer already agreed to.
   update public.storefront_delivery_areas set fee_cents = 9999
@@ -617,7 +699,7 @@ begin
   update public.storefront_delivery_areas set fee_cents = 2000
     where shop_id = v_store_id and name = 'Koodbuur';
 
-  -- ------------------------------------------------ 25. a draft shop and an unknown slug are indistinguishable
+  -- ------------------------------------------------ 27. a draft shop and an unknown slug are indistinguishable
   insert into public.shops (owner_id, name) values (v_user_id, 'Not Open Yet')
     returning id into v_draft_id;
   update public.shops set slug = 'not-open-yet' where id = v_draft_id;
@@ -665,7 +747,7 @@ begin
     raise exception 'FAIL: a shop that is not taking orders answers with % rather than shop_unavailable', v_msg_unknown;
   end if;
 
-  -- ------------------------------------------------ 26. a phone that will not normalise is refused
+  -- ------------------------------------------------ 28. a phone that will not normalise is refused
   set local role anon;
   v_raised := false;
   begin
@@ -701,7 +783,7 @@ begin
     raise exception 'FAIL: to_e164 has drifted from toE164 in src/lib/phone-e164.ts';
   end if;
 
-  -- ------------------------------------------------ 27. stock is neither reserved nor decremented
+  -- ------------------------------------------------ 29. stock is neither reserved nor decremented
   -- v_prod_bulk holds 5. Ordering 99 must succeed and must leave the 5 alone --
   -- Plan 4 decrements on fulfilment. Reserving here would let anyone empty a
   -- shop's shelves from a browser without ever collecting anything.
@@ -739,7 +821,7 @@ begin
       v_stock, (select stock from public.products where id = v_prod_bulk);
   end if;
 
-  -- ------------------------------------------------ 28. the rate limit trips
+  -- ------------------------------------------------ 30. the rate limit trips
   insert into public.shops (owner_id, name) values (v_user_id, 'Burst Shop')
     returning id into v_burst_id;
   update public.shops set slug = 'burst-shop' where id = v_burst_id;
@@ -772,7 +854,7 @@ begin
       c_rate_limit + 1;
   end if;
 
-  -- ------------------------------------------------ 29. and it is a window, not a lifetime cap
+  -- ------------------------------------------------ 31. and it is a window, not a lifetime cap
   insert into public.shops (owner_id, name) values (v_user_id, 'Busy Last Week')
     returning id into v_aged_id;
   update public.shops set slug = 'busy-last-week' where id = v_aged_id;
@@ -809,7 +891,7 @@ begin
       v_result->>'total_cents';
   end if;
 
-  -- ------------------------------------------------ 30. an internal failure says nothing useful to an attacker
+  -- ------------------------------------------------ 32. an internal failure says nothing useful to an attacker
   -- Forced with the same disable-trigger technique as checks 3 and 8: without
   -- orders_assign_number the insert hits a NOT NULL on `number`. The customer
   -- must get a fixed phrase, never the column, the constraint or the shop id.
@@ -833,8 +915,8 @@ begin
     raise exception 'FAIL: an internal failure reached the customer verbatim (%)', v_msg_internal;
   end if;
 
-  -- ------------------------------------------------ 31. a de-entitled shop stops taking orders
-  -- Same move as check 16, and last on purpose: it takes the storefront shop
+  -- ------------------------------------------------ 33. a de-entitled shop stops taking orders
+  -- Same move as check 18, and last on purpose: it takes the storefront shop
   -- off the plan every check above depends on.
   update public.shop_subscriptions
   set plan_id = v_free_id, current_period_end = now() + interval '30 days'
@@ -858,7 +940,7 @@ begin
   if v_msg_draft is null then
     raise exception 'FAIL: a shop whose plan no longer includes storefront went on taking orders';
   end if;
-  -- Refused with check 25's message, word for word: a customer learns nothing
+  -- Refused with check 27's message, word for word: a customer learns nothing
   -- about the shop's billing from a checkout page.
   if v_msg_draft <> v_msg_unknown then
     raise exception 'FAIL: a de-entitled shop answers with its own distinct message (% vs %)',

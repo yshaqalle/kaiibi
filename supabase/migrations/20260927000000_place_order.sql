@@ -162,13 +162,32 @@ $$;
 -- to serve. `orders` is storefront-only (the POS writes `sales`), so every row
 -- it counts really did come through this door or the shop's own hands.
 --
--- HONEST LIMITATION, because the count is of COMMITTED rows: N checkouts
--- running concurrently each read the same count and can each pass it, so this
--- bounds a sustained flood and not a simultaneous burst of N. Closing that
--- needs a row lock on a per-shop counter taken BEFORE the check -- which
--- serialises every checkout for a shop against every other, to defend against
--- a burst that a 30-per-hour ceiling makes pointless anyway. The wrong trade
--- at this volume; revisit if a real flood ever arrives.
+-- CONCURRENT BURSTS, because the count is of COMMITTED rows: N checkouts
+-- running concurrently would each read the same count and could each pass it,
+-- bounding a sustained flood but not a simultaneous burst of N -- UNLESS the
+-- gap is closed by taking a row lock on this shop's own counter BEFORE the
+-- count is read, which the body below does.
+--
+-- That is not a new critical section. `assign_order_number`
+-- (20260926000050_orders.sql) already does
+-- `insert into order_number_counters ... on conflict (shop_id) do update
+-- ... returning` on every insert into `orders`, which takes a row-exclusive
+-- lock on that shop's counter row and holds it to commit -- so a second
+-- same-shop checkout already blocks there, milliseconds after this function
+-- would otherwise have read the rate-limit count. Locking the same row a few
+-- lines earlier, before the count, only moves the start of a queue that was
+-- always going to form; it adds no contention beyond what every same-shop
+-- checkout already pays at insert time. Two different shops touch two
+-- different rows and never wait on each other.
+--
+-- One case that lock does not cover on its own: a shop's very first order
+-- ever has no counter row yet, and `for update` against a WHERE clause that
+-- matches no row locks nothing. So the row is upserted (`on conflict (shop_id)
+-- do nothing`) immediately before the lock is taken, guaranteeing something
+-- exists to lock even on a shop's first checkout. That insert is a no-op
+-- after the first order (assign_order_number's own upsert then finds the row
+-- already there) and rolls back with everything else in this function if the
+-- request is later refused.
 --
 -- THE NUMBER: 30 orders per shop per hour. One every two minutes, sustained,
 -- from a single small shop's public page -- comfortably above what these shops
@@ -259,6 +278,17 @@ begin
   end if;
 
   -- ── 2. Rate limit, before any real work ───────────────────────────────
+  -- Lock this shop's counter row FIRST, before the count is read -- see the
+  -- comment above this function for why that closes the concurrent-burst gap
+  -- for free. The upsert guarantees a row exists to lock even on a shop's
+  -- very first order, when assign_order_number has not created one yet.
+  insert into public.order_number_counters (shop_id) values (v_shop_id)
+    on conflict (shop_id) do nothing;
+
+  perform 1 from public.order_number_counters
+  where shop_id = v_shop_id
+  for update;
+
   select count(*) into v_recent
   from public.orders o
   where o.shop_id = v_shop_id
@@ -318,15 +348,21 @@ begin
     -- Matched exactly as sent, because the client sends back a name this shop
     -- published; there is no coalesce to a default fee and no fallback branch
     -- on this path, deliberately. `not found` is the only other outcome.
-    select a.fee_cents into v_fee
+    --
+    -- v_area is set from a.name, not v_area_in: this row is the shop's own
+    -- record of the area, and every other recomputed value in this function
+    -- comes from the row it was looked up in, not from what the client typed
+    -- to find it. Byte-equal to v_area_in today because the match above is
+    -- exact, but that stops being true the day the lookup is loosened to a
+    -- case-insensitive match, and this is the one place that would then have
+    -- stored the client's casing instead of the shop's.
+    select a.fee_cents, a.name into v_fee, v_area
     from public.storefront_delivery_areas a
     where a.shop_id = v_shop_id and a.name = v_area_in;
 
     if not found then
       raise exception 'unknown_delivery_area' using errcode = 'P0001';
     end if;
-
-    v_area := v_area_in;
   else
     -- A collect order carries neither, whatever the client sent. The server
     -- decides this, so orders_delivery_matches_fulfilment can never be the
