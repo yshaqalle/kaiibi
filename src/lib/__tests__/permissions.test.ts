@@ -103,6 +103,14 @@ describe('permissionForPath', () => {
     expect(permissionForPath('/product/abc-123')).toEqual(['inventory.edit']);
   });
 
+  // Reached from Settings -> Orders (Task 9), gated the same way Settings
+  // itself and the Storefront editor are: a staff member who cannot open
+  // Settings must not be able to reach a customer's phone number and order
+  // history by typing the URL.
+  it('gates /orders on settings.access, reached from Settings -> Orders', () => {
+    expect(permissionForPath('/orders')).toEqual(['settings.access']);
+  });
+
   it('leaves routes outside the catalog ungated, including /me (self-service HR)', () => {
     expect(permissionForPath('/marketplace-coming-soon')).toBeNull();
     expect(permissionForPath('/login')).toBeNull();

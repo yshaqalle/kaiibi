@@ -89,6 +89,7 @@ export default function AdminLayout() {
       <Stack.Screen name="product/[id]" />
       <Stack.Screen name="settings" />
       <Stack.Screen name="storefront" />
+      <Stack.Screen name="orders" />
     </Stack>
   );
 }

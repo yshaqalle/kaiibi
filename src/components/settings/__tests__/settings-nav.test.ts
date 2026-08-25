@@ -36,3 +36,23 @@ describe('storefront nav entry', () => {
     expect(isSettingsNavId('storefront')).toBe(true);
   });
 });
+
+// Task 9: an order that lands in a table nobody can see is a lost sale --
+// this is the one door onto it, gated exactly like the editor entry above
+// since both are storefront-module screens.
+describe('orders nav entry', () => {
+  const item = SETTINGS_NAV.flatMap((g) => g.items).find((i) => i.id === 'orders');
+
+  it('exists and is labelled for a shopkeeper', () => {
+    expect(item).toBeDefined();
+    expect(item!.label).toBe('Orders');
+  });
+
+  it('is gated on the storefront module, so an unentitled shop never sees it', () => {
+    expect(item!.module).toBe('storefront');
+  });
+
+  it('passes the id guard, which is written out by hand and easy to forget', () => {
+    expect(isSettingsNavId('orders')).toBe(true);
+  });
+});
