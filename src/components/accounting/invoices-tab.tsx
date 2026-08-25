@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
@@ -9,9 +10,13 @@ import type { DateRange } from '@/components/range-selector';
 import { StatTile } from '@/components/stat-tile';
 import { BentoFlow } from '@/components/ui/bento';
 import { BentoCard } from '@/components/ui/bento-card';
+import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
+import { listAccounts, listPostedLines } from '@/lib/ledger';
+import { payableDebitCents } from '@/lib/ledger-math';
+import { toDateColumn } from '@/lib/period';
 import {
   balanceCents,
   INVOICE_STATUS_LABELS,
@@ -75,6 +80,14 @@ export function InvoicesTab({
   // position, and the values update underneath. First found in inventory.tsx.
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // How far 2000 Accounts Payable has gone into DEBIT, which is the wrong way
+  // round for a liability. See the caveat below and payableDebitCents().
+  //
+  // Shop-wide and as of today, deliberately unaffected by `locationFilter` and
+  // by the date range: a liability that has gone negative is a fact about the
+  // books as they stand, and slicing it by branch or by window would let the
+  // reader make it disappear by changing a picker.
+  const [payableDebit, setPayableDebit] = useState(0);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -90,6 +103,25 @@ export function InvoicesTab({
       setError(extractErrorMessage(err));
     } finally {
       setLoaded(true);
+    }
+
+    // SEPARATE FROM THE FETCH ABOVE, AND ITS FAILURE IS NOT THIS SCREEN'S
+    // ERROR. Reading the ledger needs `ledger.view`, which somebody who holds
+    // `invoices.manage` may well not have -- RLS on journal_entries and
+    // journal_lines then returns no rows rather than an error, which reads as a
+    // payable of zero and simply shows no caveat. That is the right
+    // degradation: a bookkeeper who cannot open the trial balance is not the
+    // person this note is for. Anything that DOES throw is swallowed for the
+    // same reason -- a qualification failing to load must not blank the list of
+    // bills it was meant to qualify.
+    try {
+      const [accounts, lines] = await Promise.all([
+        listAccounts(shop.id),
+        listPostedLines(shop.id, toDateColumn(new Date())),
+      ]);
+      setPayableDebit(payableDebitCents(accounts, lines));
+    } catch {
+      setPayableDebit(0);
     }
   }, [shop, dateRange]);
 
@@ -168,6 +200,42 @@ export function InvoicesTab({
         <Text style={styles.subtitle}>
           Bills you owe suppliers. Totals cover every unpaid bill, not just this date range.
         </Text>
+        {/* A NEGATIVE ACCOUNTS PAYABLE, SAID OUT LOUD.
+
+            `tone="wrong"`, not `context`. The figure really is wrong -- a
+            liability in debit says suppliers owe the shop money, which is not
+            a surprising-but-correct number, it is a number no reading of the
+            business supports. `context` would be the app claiming the balance
+            sheet is fine, and the first person to see a negative Accounts
+            Payable on their first balance sheet would conclude kaiibi cannot
+            add up. They would be right.
+
+            AND `wrong` CARRIES A FIX, because there is one and it is the same
+            thing the shop should be doing anyway. The cause is a bill for goods
+            that has no delivery behind it: `receive_stock` is what raises the
+            payable (Cr 2000 when stock lands), so a bill categorised
+            inventory_purchase deliberately posts nothing -- posting it too would
+            raise the payable twice. Pay that bill and Dr 2000 comes off a
+            balance nothing ever put there. Recording the missing delivery in
+            Inventory credits 2000 by exactly the delivery's value and the
+            account comes back; it also corrects stock records that were already
+            wrong, which is why this is a real remedy rather than a gesture. A
+            `wrong` with no fix is what trains people to ignore the whole family,
+            and this one is not that.
+
+            NOT DISMISSIBLE. `onDismiss` on a `wrong` leaves the app knowingly
+            showing a bad number with nothing to say so, and this one persists
+            until the delivery is entered -- there is no reading of it that
+            becomes stale. The proper fix is the invoices<->stock_receipts link
+            in phase 3; until then this is the whole defence. */}
+        {payableDebit > 0 ? (
+          <Caveat
+            tone="wrong"
+            action={{ label: 'Record the delivery in Inventory', onPress: () => router.push('/inventory') }}
+          >
+            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payableDebit)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself.`}
+          </Caveat>
+        ) : null}
       </BentoCard>
 
       {error ? <Text style={styles.error}>{error}</Text> : null}

@@ -35,6 +35,38 @@ export function isBalanced(lines: { amountCents: number }[]): boolean {
 
 export type PostedLine = { accountId: string; amountCents: number };
 
+export const ACCOUNTS_PAYABLE_CODE = '2000';
+
+// How far Accounts Payable has gone the WRONG WAY, in cents. Zero whenever it
+// sits where a liability belongs (in credit) or has never moved.
+//
+// A liability in debit means the books are claiming suppliers owe the shop
+// money. They do not. It happens for one reason, documented as residue in
+// docs/superpowers/plans/2026-08-24-auto-posting.md: `receive_stock` is what
+// raises the payable for goods (Cr 2000 when the delivery lands), so a bill
+// categorised `inventory_purchase` deliberately posts NOTHING -- posting it too
+// would raise the same payable twice. If the delivery was never recorded in
+// Inventory, nothing ever credited 2000, and `record_invoice_payment`'s
+// Dr 2000 then takes the account below zero.
+//
+// Debit positive, matching the sign convention every journal line is stored in
+// (see JournalLine in src/types/models.ts). So a POSITIVE net balance on a
+// liability account is the defect, and it is returned rather than a boolean
+// because the sentence has to name the amount -- "your books are 412.50 the
+// wrong way round" is actionable and "something is wrong" is not.
+//
+// Pure, and here rather than in the screen, for the reason this whole module
+// exists: `ledger.ts` imports the Supabase client and cannot load under Jest.
+export function payableDebitCents(accounts: Account[], lines: PostedLine[]): number {
+  const payable = accounts.find((a) => a.code === ACCOUNTS_PAYABLE_CODE);
+  if (!payable) return 0;
+  // Net across every line first. Summing debits alone would report an ordinary
+  // shop -- which debits 2000 on every supplier payment it has ever made -- as
+  // permanently broken.
+  const balance = lines.reduce((sum, line) => (line.accountId === payable.id ? sum + line.amountCents : sum), 0);
+  return balance > 0 ? balance : 0;
+}
+
 export type TrialBalanceRow = {
   accountId: string;
   code: string;
