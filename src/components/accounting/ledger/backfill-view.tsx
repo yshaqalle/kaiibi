@@ -231,10 +231,22 @@ export function BackfillView({
             ) : null}
           </>
         ) : (
+          // "NOTHING LEFT TO POST", NOT "YOUR OPENING STOCK IS RECORDED". The two
+          // are not the same sentence, and the difference is a whole class of
+          // shop. `opening` is a count of ZERO here whether the opening balance
+          // was posted or whether there was never one to post -- and a shop whose
+          // stock is entirely uncosted is in the second case: opening_inventory_gap()
+          // is 0 for it because the ledger has no honest figure for stock nobody
+          // has priced (20260908001300). Telling that shop its opening stock is
+          // recorded would be the app claiming to have done something it
+          // deliberately did not do, on the one screen whose whole job is saying
+          // what has and has not reached the books. What is true in both cases is
+          // that there is nothing waiting, which is also the only thing this door
+          // can act on.
           <Caveat tone="context" action={{ label: 'See the ledger in Journals', onPress: () => onOpenView('journals') }}>
             Every sale, refund, delivery, stock count, supplier payment, pay run and expense has reached the ledger, and
-            your opening stock is recorded. New ones post as they happen, so there is nothing here to press — this door
-            is only for history.
+            there is no opening balance left to post. New ones post as they happen, so there is nothing here to press —
+            this door is only for history.
           </Caveat>
         )}
 

@@ -1192,6 +1192,89 @@ begin
       end if;
       raise notice 'OK: the stranded 2000 is collectable again; the other two are left alone';
     end;
+
+    ----------------------------------------------------------------
+    raise notice '=== 36. And on a shop the platform has SUSPENDED ===';
+    ----------------------------------------------------------------
+    -- Check 35 runs the migration's UPDATE against a shop whose plan includes
+    -- `pos` -- as every shop this suite builds does. So it can never see the one
+    -- thing that stops the statement: `sales_module` (20260818000400) fires
+    -- BEFORE INSERT OR UPDATE on `sales` and raises `module_not_included`
+    -- whenever shop_has_module(shop, 'pos') is false, which it is OUTRIGHT for a
+    -- shop a platform admin has suspended (20260818000200, and
+    -- supabase/functions/platform-admin is the live switch).
+    --
+    -- ONE such shop holding ONE part-paid, part-cash-refunded settled sale would
+    -- abort the migration on its first row and roll the whole `supabase db push`
+    -- back, taking every later migration with it. 20260908001400 therefore
+    -- disables the trigger around the statement -- the same repair 20260819000000
+    -- makes on `products`, for the same reason -- and this check is what holds
+    -- the disable there. Take it out and this reddens with `module_not_included`
+    -- while check 35 stays green, which is exactly why the two are separate.
+    declare
+      v_suspended_sale uuid;
+    begin
+      -- Built BEFORE the suspension: complete_sale is gated on the same module,
+      -- so the shape the migration has to repair can only be made while the shop
+      -- still trades. Which is the real world's order too.
+      select public.complete_sale(v_shop_id,
+        jsonb_build_array(jsonb_build_object('product_id', v_rice, 'quantity', 2, 'discount_cents', 0)),
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',2000,'tendered_cents',2000)),
+        'Bilan Warsame', null, null, null, 0, v_customer_id, null, v_location_id, 0, null, true) into v_suspended_sale;
+      select id into v_rice_item from public.sale_items where sale_id = v_suspended_sale;
+      perform public.refund_sale_items(v_suspended_sale,
+        jsonb_build_array(jsonb_build_object('sale_item_id', v_rice_item, 'quantity', 1)));
+      perform public.settle_sale_balance(v_suspended_sale,
+        jsonb_build_array(jsonb_build_object('method','cash','amount_cents',1150)));
+      update public.sales set settled_at = now() where id = v_suspended_sale;
+
+      -- The operator's suspend switch, same mechanism as verify-entitlements'
+      -- kill-switch check and verify-stock-receipts 6c.
+      perform set_config('role', 'postgres', true);
+      update public.shop_subscriptions set manual_status = 'suspended' where shop_id = v_shop_id;
+      -- The fixture, asserted. If suspension ever stops closing the pos module
+      -- this check would pass for the wrong reason and go on passing for ever.
+      if public.shop_has_module(v_shop_id, 'pos') then
+        raise exception 'FIXTURE: a suspended shop still holds the pos module, so this proves nothing';
+      end if;
+
+      -- ── 20260908001400's statement, with its trigger disable, verbatim ────
+      alter table public.sales disable trigger sales_module;
+
+      update public.sales s
+         set settled_at = null
+       where s.settled_at is not null
+         and s.customer_id is not null
+         and exists (select 1 from public.refunds r where r.sale_id = s.id and r.total_cents > 0)
+         and (s.total_cents
+              - coalesce((select sum(r.goods_cents) from public.refunds r where r.sale_id = s.id), 0)
+              - coalesce((select sum(p.amount_cents) from public.sale_payments p where p.sale_id = s.id), 0)
+              + coalesce((select sum(r.total_cents) from public.refunds r where r.sale_id = s.id), 0)) > 0;
+
+      alter table public.sales enable trigger sales_module;
+
+      select settled_at into v_settled from public.sales where id = v_suspended_sale;
+      if v_settled is not null then
+        raise exception 'FAIL: the suspended shop''s stranded sale is still stamped settled';
+      end if;
+      select owed_cents into v_owed from public.customer_balances where sale_id = v_suspended_sale;
+      if v_owed is distinct from 2000 then
+        raise exception 'FAIL: re-opened owing %, expected the 2000 that 1100 was holding', v_owed;
+      end if;
+
+      -- The gate is back on afterwards, or the migration would leave every shop
+      -- on the system able to write in a module it does not pay for.
+      begin
+        update public.sales set settled_at = now() where id = v_suspended_sale;
+        raise exception 'FAIL: sales_module was left disabled, so a suspended shop can still write';
+      exception when others then
+        if sqlerrm <> 'module_not_included' then raise; end if;
+      end;
+
+      -- (No restoring the subscription. Nothing below reads it, and the
+      -- VERIFY_ROLLBACK two statements down takes the whole fixture away.)
+      raise notice 'OK: a suspended shop''s stranded 2000 is collectable again, and the gate is back on';
+    end;
   end;
 
   raise notice '';

@@ -322,6 +322,31 @@ grant execute on function public.settle_sale_balance(uuid, jsonb, uuid) to authe
 -- total_cents > 0 -- which forces goods_cents > 0, since the cash is
 -- `least(goods, ...)`. No points were awarded when these settled and none will
 -- be when they settle again.
+--
+-- THE TRIGGER DISABLE IS LOAD-BEARING, NOT DEFENSIVE. This is the same trap
+-- 20260819000000 documents for `products`, one table over. `sales_module`
+-- (20260818000400) fires BEFORE INSERT OR UPDATE and raises
+-- `module_not_included` for any shop that may not write in `pos` -- and
+-- shop_has_module() returns false OUTRIGHT for a suspended shop
+-- (20260818000200), which is a live platform-admin switch
+-- (supabase/functions/platform-admin). So one suspended shop holding one
+-- part-paid, part-cash-refunded settled sale would abort this UPDATE on its
+-- first row, roll the whole `supabase db push` back, and take every migration
+-- after it with it.
+--
+-- This is a data repair performed by the system, not a write by a shop, so the
+-- plan gate does not apply to it: the shop is not being allowed to do anything,
+-- it is having money it was already owed handed back to it. Refusing that
+-- because an invoice lapsed would be the billing status deciding what the books
+-- say -- and 20260818000200 is explicit that a lapsed shop keeps full access to
+-- its own records.
+--
+-- `sales_monthly_limit` is BEFORE INSERT, so it is not reachable from an UPDATE;
+-- `sales_module` is the only trigger on this table that needs disabling. DO NOT
+-- REMOVE THIS -- verify-balances check 36 re-opens a stranded sale on a shop
+-- that has been suspended, and reddens with `module_not_included` if it goes.
+alter table public.sales disable trigger sales_module;
+
 update public.sales s
    set settled_at = null
  where s.settled_at is not null
@@ -331,6 +356,8 @@ update public.sales s
         - coalesce((select sum(r.goods_cents) from public.refunds r where r.sale_id = s.id), 0)
         - coalesce((select sum(p.amount_cents) from public.sale_payments p where p.sale_id = s.id), 0)
         + coalesce((select sum(r.total_cents) from public.refunds r where r.sale_id = s.id), 0)) > 0;
+
+alter table public.sales enable trigger sales_module;
 
 comment on view public.customer_balances is
   'One row per unsettled sale that still owes money. owed_cents is total - goods returned - paid + cash refunded: the cash a refund handed over is a payment running backwards, and leaving it out forgave the customer the same amount twice. Matches settle_sale_balance''s v_owed and the ledger''s 1100 for the sale exactly.';

@@ -14,9 +14,7 @@ import { Caveat } from '@/components/ui/caveat';
 import { useAuth } from '@/hooks/use-auth';
 import { scopeToLocation } from '@/lib/location-reporting';
 import { formatAccountingCents, formatCompactCents } from '@/lib/currency';
-import { listAccounts, listPostedLines } from '@/lib/ledger';
-import { payableDebitCents } from '@/lib/ledger-math';
-import { toDateColumn } from '@/lib/period';
+import { getPayableState, type PayableState } from '@/lib/ledger';
 import {
   balanceCents,
   INVOICE_STATUS_LABELS,
@@ -61,6 +59,13 @@ export function InvoicesTab({
   const { width } = useWindowDimensions();
   const compact = width < 860;
   const canManage = can('invoices.manage');
+  // Post History gates on `ledger.close` in the database, and the hub hides the
+  // card without it. A reader who cannot open that door is shown NOTHING in the
+  // unposted case rather than a `wrong` pointing at a dead end: they can neither
+  // act on it nor be given the other remedy, because for them the other remedy
+  // is the destructive one. The delivery branch below is unaffected -- once the
+  // history is posted the diagnosis is exclusive and anyone can act on it.
+  const canCloseLedger = can('ledger.close');
 
   // Two sets, because the tiles and the list want different things: the
   // tiles need every unpaid bill however old, the list needs what was issued
@@ -80,14 +85,20 @@ export function InvoicesTab({
   // position, and the values update underneath. First found in inventory.tsx.
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // How far 2000 Accounts Payable has gone into DEBIT, which is the wrong way
-  // round for a liability. See the caveat below and payableDebitCents().
+  // How far 2000 Accounts Payable has gone into DEBIT -- the wrong way round for
+  // a liability -- and whether this shop still has history waiting to be posted,
+  // which is what decides WHICH caveat below is honest. One row, summed by the
+  // database: see getPayableState() and 20260908001700.
+  //
+  // NULL IS THE SAFE STATE AND THE INITIAL ONE. It means "we do not know", and
+  // every branch below says nothing when it is null. A zero here would be a
+  // claim -- that the payable is healthy -- made before anything has been read.
   //
   // Shop-wide and as of today, deliberately unaffected by `locationFilter` and
   // by the date range: a liability that has gone negative is a fact about the
   // books as they stand, and slicing it by branch or by window would let the
   // reader make it disappear by changing a picker.
-  const [payableDebit, setPayableDebit] = useState(0);
+  const [payable, setPayable] = useState<PayableState | null>(null);
 
   const reload = useCallback(async () => {
     if (!shop) return;
@@ -107,21 +118,20 @@ export function InvoicesTab({
 
     // SEPARATE FROM THE FETCH ABOVE, AND ITS FAILURE IS NOT THIS SCREEN'S
     // ERROR. Reading the ledger needs `ledger.view`, which somebody who holds
-    // `invoices.manage` may well not have -- RLS on journal_entries and
-    // journal_lines then returns no rows rather than an error, which reads as a
-    // payable of zero and simply shows no caveat. That is the right
-    // degradation: a bookkeeper who cannot open the trial balance is not the
-    // person this note is for. Anything that DOES throw is swallowed for the
-    // same reason -- a qualification failing to load must not blank the list of
-    // bills it was meant to qualify.
+    // `invoices.manage` may well not have -- the function then answers with no
+    // rows, getPayableState() turns that into null, and no caveat shows. That is
+    // the right degradation: a bookkeeper who cannot open the trial balance is
+    // not the person this note is for. Anything that DOES throw is swallowed for
+    // the same reason -- a qualification failing to load must not blank the list
+    // of bills it was meant to qualify.
+    //
+    // FAILING TO NULL, NOT TO ZERO. Zero is a real answer that means "your
+    // payable is fine", and asserting it because a request failed is the same
+    // class of mistake as the truncation this call was written to remove.
     try {
-      const [accounts, lines] = await Promise.all([
-        listAccounts(shop.id),
-        listPostedLines(shop.id, toDateColumn(new Date())),
-      ]);
-      setPayableDebit(payableDebitCents(accounts, lines));
+      setPayable(await getPayableState(shop.id));
     } catch {
-      setPayableDebit(0);
+      setPayable(null);
     }
   }, [shop, dateRange]);
 
@@ -227,13 +237,45 @@ export function InvoicesTab({
             showing a bad number with nothing to say so, and this one persists
             until the delivery is entered -- there is no reading of it that
             becomes stale. The proper fix is the invoices<->stock_receipts link
-            in phase 3; until then this is the whole defence. */}
-        {payableDebit > 0 ? (
+            in phase 3; until then this is the whole defence.
+
+            BUT THE DIAGNOSIS IS ONLY EXCLUSIVE ONCE THE HISTORY IS POSTED, AND
+            OFFERING IT BEFORE THEN IS DESTRUCTIVE. A bill of ANY category
+            entered before auto-posting shipped credited nothing, while paying it
+            today posts a live Dr 2000. So a shop that has not pressed Post
+            History can drive 2000 into debit by paying an old RENT bill -- and
+            "record the delivery" for a rent bill means inventing goods that
+            never arrived: stock inflated, 1200 inflated, 2000 credited for a
+            delivery that does not exist. Data corruption offered as a remedy, on
+            a daily door.
+
+            So the unposted case gets its OWN sentence and its own action rather
+            than being suppressed. Suppressing would put the screen back where it
+            was before this caveat existed -- a negative payable arriving on a
+            balance sheet with nothing to explain it -- and it would do so for
+            exactly the shops most likely to hit it, the ones that have not
+            finished setting up. Post History is also the honest next step
+            whatever the eventual cause: it is idempotent, it destroys nothing,
+            and afterwards the figure has either resolved or the delivery
+            diagnosis above IS exclusive. */}
+        {payable !== null && payable.debitCents > 0 && payable.hasUnposted ? (
+          canCloseLedger ? (
+            <Caveat
+              tone="wrong"
+              action={{
+                label: 'Post your history',
+                onPress: () => router.push({ pathname: '/accounting', params: { tab: 'accounting', view: 'backfill' } }),
+              }}
+            >
+              {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. You still have trading history that has not reached the ledger, so bills you entered earlier were never recorded as money owed while payments you make now are. Post your history first — that is what this figure is waiting on.`}
+            </Caveat>
+          ) : null
+        ) : payable !== null && payable.debitCents > 0 ? (
           <Caveat
             tone="wrong"
             action={{ label: 'Record the delivery in Inventory', onPress: () => router.push('/inventory') }}
           >
-            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payableDebit)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself.`}
+            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself.`}
           </Caveat>
         ) : null}
       </BentoCard>

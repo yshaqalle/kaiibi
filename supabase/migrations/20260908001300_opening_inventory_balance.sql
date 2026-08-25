@@ -167,22 +167,46 @@
 -- null` in the replay above. But there is a reason here sharper than
 -- consistency, and it is the one that decides it:
 --
---   NOTHING WILL EVER TAKE AN UNCOSTED PRODUCT BACK OUT OF 1200. A sale of it
---   posts no COGS (its frozen unit_cost_cents is null and the sales statement
---   excludes it); a count variance on it posts nothing; a delivery of it is
---   excluded from the receipt's value. Its whole life is invisible to account
---   1200. So a shop that opened with 50 uncosted units would carry their value
---   in 1200 FOR EVER -- inventory permanently overstated by a figure that can
---   never be worked off, growing every time somebody imports another uncosted
---   line. Valuing them at zero is the only treatment under which 1200 stays
---   equal to the stock it can actually account for.
+--   NOTHING TAKES AN UNCOSTED PRODUCT BACK OUT OF 1200 WHILE IT STAYS
+--   UNCOSTED. A sale of it posts no COGS (its frozen unit_cost_cents is null
+--   and the sales statement excludes it); a count variance on it posts
+--   nothing; a delivery of it is excluded from the receipt's value. So a shop
+--   that opened with 50 uncosted units and left them that way would, if we
+--   valued them here, carry their value in 1200 FOR EVER -- inventory
+--   permanently overstated by a figure that can never be worked off, growing
+--   every time somebody imports another uncosted line. Valuing them at zero is
+--   the only treatment under which 1200 stays equal to the stock it can
+--   actually account for.
 --
--- Which is not the same as saying the stock is worthless. It is saying the
--- LEDGER has nothing to say about it, which is true, and the place that says so
--- is the Inventory Valuation report's uncosted disclosure -- not a number
--- invented here. In particular NOT price_cents: valuing stock at what the shop
--- hopes to sell it for capitalises unearned profit into an asset, which is the
--- one thing every inventory standard in existence forbids.
+-- THAT ARGUMENT IS NOT CLOSED, AND SAYING IT WAS WOULD BE THE WORSE ERROR.
+-- "Invisible to 1200" holds only until the product IS costed, and the moment it
+-- is, 1200 is permanently UNDERSTATED by the opening quantity. receive_stock
+-- (20260907000000) costs the ENTIRE HOLDING at the delivery's price when stock
+-- was uncosted -- it cannot weight an average against a cost that does not
+-- exist -- so:
+--
+--   50 units uncosted        -> 0 in the opening gap
+--   a delivery of 10 @ 100   -> cost_cents becomes 100, Dr 1200 by 1,000
+--   selling all 60           -> Cr 1200 by 6,000
+--   1200 ends at            -> -5,000
+--
+-- which is the same negative asset this migration exists to remove, and the
+-- opening marker means the backfill can never come back and correct it. The
+-- exclusion is still right -- there is no honest value to put on stock nobody
+-- has priced, and inventing one is worse than a gap -- but the residue is real:
+-- costing a product that already had stock is a REVALUATION, and a revaluation
+-- has to reach the ledger. That is phase 3's work (see
+-- docs/superpowers/plans/2026-08-24-auto-posting.md, residue), not something
+-- this file has disposed of. Check 12b in verify-backfill.sql puts a costed
+-- delivery onto uncosted opening stock and asserts the number 1200 really ends
+-- at, so nobody can re-derive "1200 can never go negative again" from a comment.
+--
+-- None of which is to say the stock is worthless. It is to say the LEDGER has
+-- nothing to say about it, which is true, and the place that says so is the
+-- Inventory Valuation report's uncosted disclosure -- not a number invented
+-- here. In particular NOT price_cents: valuing stock at what the shop hopes to
+-- sell it for capitalises unearned profit into an asset, which is the one thing
+-- every inventory standard in existence forbids.
 --
 -- ---------------------------------------------------------------------------
 -- THE DATE
@@ -340,11 +364,19 @@
 -- ---------------------------------------------------------------------------
 --
 -- Character for character what 20260908001100 defined, moved down one layer so
--- the opening arm can read it. Read that migration's header for why each of the
--- eight predicates is a trap; nothing about them has changed here.
+-- the opening arm can read it. Nothing about the predicates has changed, AND
+-- NEITHER HAS THE COMMENT ON EACH ARM: they come across with the SQL. Each one
+-- names the trap its predicate exists to avoid, and a copy-forward that keeps
+-- the code and drops the reasoning leaves the next reader with eight clauses
+-- that look like they could be simplified. 20260908001100's header carries the
+-- same list in prose; these are the per-arm half of it.
 create or replace view public.unposted_ledger_source_rows
 with (security_invoker = true) as
 
+  -- Sales. The money predicate is the exact disjunction of the six line groups
+  -- backfill_shop_ledger builds, copied from it -- a false negative here would
+  -- under-report a sale that really does carry money, and a false positive
+  -- would promise an entry the replay will not write.
   select s.shop_id,
          'sale'::text as source_kind,
          s.id         as source_id,
@@ -369,6 +401,7 @@ with (security_invoker = true) as
 
   union all
 
+  -- Refunds. No shop_id of their own -- tenancy comes through the sale.
   select s.shop_id, 'refund'::text, r.id, public.shop_local_date(r.created_at)
     from public.refunds r
     join public.sales s on s.id = r.sale_id
@@ -380,6 +413,8 @@ with (security_invoker = true) as
 
   union all
 
+  -- Settlements. is_settlement IS THE FILTER. A sale's own tenders are folded
+  -- into the sale's entry and keep a null pointer for ever.
   select s.shop_id, 'settlement'::text, sp.id, public.shop_local_date(sp.created_at)
     from public.sale_payments sp
     join public.sales s on s.id = sp.sale_id
@@ -389,6 +424,8 @@ with (security_invoker = true) as
 
   union all
 
+  -- Stock receipts, at the delivery's costed value. An uncosted line is
+  -- excluded rather than zeroed.
   select r.shop_id, 'receipt'::text, r.id, public.shop_local_date(r.created_at)
     from public.stock_receipts r
    where r.journal_entry_id is null
@@ -398,6 +435,8 @@ with (security_invoker = true) as
 
   union all
 
+  -- Stock counts, at the net variance. A count that found what it expected is
+  -- not an accounting event.
   select c.shop_id, 'count'::text, c.id, public.shop_local_date(c.created_at)
     from public.stock_counts c
    where c.journal_entry_id is null
@@ -407,6 +446,11 @@ with (security_invoker = true) as
 
   union all
 
+  -- Supplier payments. No shop_id -- tenancy comes through the invoice. Dated
+  -- paid_on, which is already a date. (20260908001600 later denormalises a
+  -- shop_id onto this table for a cascade guard. The join stays: that column is
+  -- maintained by a trigger for a delete-time question, and reading tenancy off
+  -- the invoice is what makes the view's answer the invoice's answer.)
   select i.shop_id, 'invoice_payment'::text, ip.id, ip.paid_on
     from public.invoice_payments ip
     join public.invoices i on i.id = ip.invoice_id
@@ -414,6 +458,8 @@ with (security_invoker = true) as
 
   union all
 
+  -- Pay runs. Posted only: a draft has paid nobody, and a run returned to draft
+  -- had its pointer cleared on purpose.
   select r.shop_id, 'payroll'::text, r.id,
          public.shop_local_date(coalesce(r.posted_at, r.period_end::timestamptz))
     from public.payroll_runs r
@@ -422,6 +468,11 @@ with (security_invoker = true) as
 
   union all
 
+  -- Expenses, with the four exclusions the replay carries. Two of them --
+  -- count-derived rows, and the inventory_purchase half of a bill -- leave a
+  -- row unposted for ever by design, and verify-backfill.sql check 5 exempts
+  -- both for that reason. They must be excluded HERE too or the door promises
+  -- entries the replay will never write.
   select e.shop_id, 'expense'::text, e.id, e.occurred_on
     from public.expenses e
    where e.journal_entry_id is null
@@ -557,17 +608,30 @@ language sql stable as $$
          then 0::bigint
          else
            -- What the shop actually holds, at weighted-average cost. An
-           -- uncosted product contributes nothing -- see the header: nothing
-           -- will ever take it back OUT of 1200 either.
+           -- uncosted product contributes nothing -- see the header: while it
+           -- stays uncosted nothing takes it back OUT of 1200 either, and the
+           -- day somebody costs it, 1200 is understated by this quantity for
+           -- good. That residue is phase 3's revaluation work, not a reason to
+           -- invent a value here.
            coalesce((select sum(p.stock::bigint * p.cost_cents)
                        from public.products p
                       where p.shop_id = p_shop_id and p.cost_cents is not null), 0)
-           -- ...less what the ledger already holds against 1200...
+           -- ...less what the ledger already holds against 1200. POSTED AND
+           -- REVERSED ONLY, matching listPostedLines() in src/lib/ledger.ts and
+           -- therefore the Trial Balance the reader will compare this against. A
+           -- draft has not reached the books -- post_journal_entry refuses to
+           -- touch a posted entry and a draft can still be edited or thrown away
+           -- -- so counting one here would net an opening balance against stock
+           -- movement nobody has agreed to yet, and the two screens would
+           -- disagree by exactly that amount. A reversal and its mirror are BOTH
+           -- kept, for the same reason the trial balance keeps them: they net to
+           -- nothing, and dropping either would unbalance the figure.
            - coalesce((select sum(l.amount_cents)
                          from public.journal_lines l
                          join public.journal_entries e on e.id = l.entry_id
                          join public.accounts a on a.id = l.account_id
-                        where e.shop_id = p_shop_id and a.code = '1200'), 0)
+                        where e.shop_id = p_shop_id and a.code = '1200'
+                          and e.status in ('posted', 'reversed')), 0)
            -- ...less what the replay is about to add to it. Zero after a run.
            - public.unposted_inventory_movement(p_shop_id)
          end;

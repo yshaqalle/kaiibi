@@ -919,6 +919,34 @@ begin
       raise exception 'FAIL: a payment whose entry is genuinely missing was deleted in silence -- the shop-deletion guard has swallowed a real inconsistency';
     end if;
 
+    -- 26. invoice_payments.shop_id is DERIVED, and a caller cannot write it.
+    --
+    -- The column is documented as "never written by a caller" and the reversal
+    -- guard trusts it to say which shop a row belongs to. Nothing else enforces
+    -- that: the `write invoice_payments` policy (20260804000300) is `for all`
+    -- and both halves of it read the INVOICE's shop, never this row's shop_id --
+    -- so an UPDATE that moves shop_id and leaves invoice_id alone passes RLS
+    -- untouched. The only thing standing in front of it is the trigger, and a
+    -- trigger scoped `update of invoice_id` would not even fire.
+    --
+    -- MUTATION (proves this check): put `of invoice_id` back on
+    -- invoice_payments_set_shop. Expected: FAIL: a caller moved a payment's
+    -- shop_id to another shop and it stuck.
+    declare
+      v_other_shop uuid;
+      v_moved      uuid;
+      v_after      uuid;
+    begin
+      insert into public.shops (owner_id, name) values (v_owner_id, 'Second Shop')
+        returning id into v_other_shop;
+      v_moved := public.record_invoice_payment(v_live_bill, 1300, public.shop_local_date(), 'cash');
+      update public.invoice_payments set shop_id = v_other_shop where id = v_moved;
+      select shop_id into v_after from public.invoice_payments where id = v_moved;
+      if v_after <> v_shop_id then
+        raise exception 'FAIL: a caller moved a payment''s shop_id to another shop and it stuck (now %)', v_after;
+      end if;
+    end;
+
     perform set_config('role', 'authenticated', true);
   end;
 

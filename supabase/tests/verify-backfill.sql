@@ -187,6 +187,18 @@ declare
   v_shop_empty  uuid;   -- 19: no stock, no history
   v_shop_uncost uuid;   -- 21: costed and uncosted stock side by side
   v_shop_blind  uuid;   -- 21: nothing but uncosted stock
+  -- 21b: uncosted opening stock that is COSTED LATER, by a delivery. The one
+  -- shape under which the exclusion in 21 leaves 1200 negative for good.
+  v_shop_later  uuid;
+  v_loc_later   uuid;
+  v_mat_later   uuid;
+  v_rice_later  uuid;
+  v_sale_later  uuid;
+  v_onhand      bigint;
+  -- 21c: a shop carrying a DRAFT 1200 line, which the trial balance excludes and
+  -- the opening gap must exclude too.
+  v_shop_draft  uuid;
+  v_draft_entry uuid;
   v_shop_short  uuid;   -- 18b: a ledger claiming more stock than the shelf has
   v_loc2        uuid;
   v_prod2       uuid;
@@ -2376,6 +2388,161 @@ begin
   v_posted := public.backfill_shop_ledger(v_shop_blind);
   if v_posted <> 0 then
     raise exception 'FAIL: a shop holding nothing but uncosted stock was given % entries -- the ledger has no figure for that stock and must not invent one', v_posted;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 21b. ...AND WHAT THAT COSTS, WHEN THE PRODUCT IS COSTED LATER.
+  ---------------------------------------------------------------------------
+  -- CHECK 21 IS NOT THE WHOLE STORY, AND THIS CHECK EXISTS SO NOBODY CAN READ
+  -- IT AS IF IT WERE. 20260908001300's header used to argue the exclusion by
+  -- saying an uncosted product's whole life is invisible to 1200. That holds
+  -- only while it STAYS uncosted. receive_stock (20260907000000) costs the
+  -- ENTIRE HOLDING at the delivery's price when the prior cost is null -- it has
+  -- nothing to weight an average against -- so the opening quantity acquires a
+  -- cost it never contributed, and 1200 is understated by exactly that from then
+  -- on. The opening marker means a second backfill can never come back for it.
+  --
+  -- The numbers, all live-path:
+  --   8 sacks of rice at 200, 50 uncosted mats  -> opening Dr 1200  1600
+  --   a delivery of 10 mats at 100              -> Dr 1200          1000  (all
+  --                                                60 mats now cost 100 each)
+  --   all 60 mats sold                          -> Cr 1200         -6000
+  --   1200 ends at                                                 -3400
+  -- while the shelf still holds 1600 of rice. THE ASSET IS NEGATIVE AGAIN, and
+  -- it is short by 5000 -- the 50 opening units at the 100 they were later given.
+  --
+  -- The exclusion is still right: there is no honest value for stock nobody has
+  -- priced, and inventing one is worse than a gap. What is wrong is calling the
+  -- argument closed. Costing a product that already has stock is a REVALUATION
+  -- and revaluations have to reach the ledger; that is phase 3's, and it is in
+  -- the plan's residue list.
+  --
+  -- MUTATION (proves this check): none is needed to make it red -- it asserts a
+  -- defect that is PRESENT. Change the expected -3400 to 1600 (what a ledger
+  -- with no residue would hold) and it reddens immediately, which is the same
+  -- thing said the other way round: the day phase 3 fixes this, this check
+  -- fails and its message tells whoever is reading why.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Later-costed Shop')
+    returning id into v_shop_later;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_later, 'Main', true) returning id into v_loc_later;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_later, 'Sack of rice', 5000, 200, 8) returning id into v_rice_later;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_later, 'Prayer mat', 900, null, 50) returning id into v_mat_later;
+
+  -- The opening balance, taken BEFORE anything costs the mats -- the moment
+  -- check 21 stops at, and the moment the marker is written.
+  v_posted := public.backfill_shop_ledger(v_shop_later);
+  if v_posted <> 1 then
+    raise exception 'FAIL: the later-costed shop''s replay wrote % entries, expected 1 (the opening balance alone)', v_posted;
+  end if;
+
+  -- The delivery. Ten mats at 100, through the live RPC, because it is the
+  -- RPC's costing rule -- not the ledger's -- that creates the residue.
+  perform public.receive_stock(v_shop_later, v_loc_later,
+    jsonb_build_array(jsonb_build_object('product_id', v_mat_later, 'quantity', 10, 'unit_cost_cents', 100)),
+    'Berbera Wholesale', null, null);
+
+  select cost_cents into v_rows from public.products where id = v_mat_later;
+  -- `is distinct from`, not `<>`. The plausible mutation here -- dropping
+  -- `or v_product.cost_cents is null` from receive_stock's average -- leaves the
+  -- product UNCOSTED, and `null <> 100` is null, so a `<>` test would sail
+  -- straight past the thing it was written to catch.
+  if v_rows is distinct from 100 then
+    raise exception 'FIXTURE: the mats cost % after the delivery, expected 100 -- receive_stock no longer costs an uncosted holding whole, and this check is arguing about something that has changed', v_rows;
+  end if;
+
+  -- All sixty out through the till, at the 100 they now carry.
+  select public.complete_sale(v_shop_later,
+    jsonb_build_array(jsonb_build_object('product_id', v_mat_later, 'quantity', 60, 'discount_cents', 0)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 54000, 'tendered_cents', 54000)),
+    null, null, null, null, 0, null, null, v_loc_later, 0) into v_sale_later;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_later and a.code = '1200';
+  -- What the shelf is worth now: the rice only, the mats are gone.
+  select coalesce(sum(p.stock::bigint * p.cost_cents), 0) into v_onhand
+    from public.products p where p.shop_id = v_shop_later and p.cost_cents is not null;
+  if v_onhand <> 1600 then
+    raise exception 'FIXTURE: the shelf is worth %, expected 1600 (eight sacks at 200)', v_onhand;
+  end if;
+  if v_ledger <> -3400 then
+    raise exception 'FAIL: 1200 reads % for the later-costed shop, expected -3400. This check asserts a KNOWN residue: uncosted opening stock that is costed later leaves 1200 understated by the opening quantity at its new cost (50 x 100 = 5000 here). If this is now 1600 the phase-3 revaluation has landed -- delete this check and the residue entry with it', v_ledger;
+  end if;
+  if v_onhand - v_ledger <> 5000 then
+    raise exception 'FAIL: 1200 is short by %, expected 5000 -- the fifty opening mats at the 100 the delivery gave them', v_onhand - v_ledger;
+  end if;
+
+  -- And the marker is the reason it stays that way: a second replay writes no
+  -- second opening balance and therefore cannot correct the 5000.
+  v_posted := public.backfill_shop_ledger(v_shop_later);
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_later and source = 'opening';
+  if v_rows <> 1 then
+    raise exception 'FAIL: the later-costed shop has % opening entries after a second replay, expected 1', v_rows;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_later and a.code = '1200';
+  if v_ledger <> -3400 then
+    raise exception 'FAIL: a second replay moved 1200 to % -- the opening marker is supposed to make this unreachable', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 21c. A DRAFT ENTRY IS NOT PART OF WHAT THE LEDGER HOLDS.
+  ---------------------------------------------------------------------------
+  -- opening_inventory_gap subtracts "what the ledger already holds against
+  -- 1200", and until this check that term counted EVERY journal_lines row --
+  -- drafts included. The trial balance does not: listPostedLines() in
+  -- src/lib/ledger.ts takes `posted` and `reversed` only, and a draft has not
+  -- reached the books (it can still be edited or thrown away; post_journal_entry
+  -- is the moment it becomes a fact). Two definitions of "what the ledger holds",
+  -- one screen apart, and the opening balance is the number a shop's first
+  -- balance sheet rests on.
+  --
+  -- A draft Dr 1200 of 1000 on a shop holding 3000 of stock. Counted, the shop
+  -- opens at 2000 and its balance sheet is short by exactly the draft; ignored,
+  -- it opens at the 3000 it actually holds.
+  --
+  -- MUTATION (proves this check): drop `and e.status in ('posted','reversed')`
+  -- from opening_inventory_gap's ledger term. Expected: FAIL: the draft-lined
+  -- shop opened at 2000, expected 3000.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Draft-lined Shop')
+    returning id into v_shop_draft;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_draft, 'Main', true);
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_draft, 'Tin of ghee', 900, 300, 10);
+
+  insert into public.journal_entries
+      (shop_id, period_id, entry_date, reference, description, source, status, created_by)
+    values (v_shop_draft, public.open_period_for(v_shop_draft, public.shop_local_date()),
+            public.shop_local_date(), 'DRAFT-1', 'A draft nobody has posted', 'manual', 'draft', v_user_id)
+    returning id into v_draft_entry;
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_draft_entry, a.id, 1000 from public.accounts a
+     where a.shop_id = v_shop_draft and a.code = '1200';
+  insert into public.journal_lines (entry_id, account_id, amount_cents)
+    select v_draft_entry, a.id, -1000 from public.accounts a
+     where a.shop_id = v_shop_draft and a.code = '3000';
+
+  v_posted := public.backfill_shop_ledger(v_shop_draft);
+  if v_posted <> 1 then
+    raise exception 'FAIL: the draft-lined shop''s replay wrote % entries, expected 1 (the opening balance alone)', v_posted;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_draft and a.code = '1200' and e.source = 'opening';
+  if v_ledger <> 3000 then
+    raise exception 'FAIL: the draft-lined shop opened at %, expected 3000 (ten tins at 300). 2000 means an unposted draft was counted as part of what the ledger holds, which the trial balance beside it does not do', v_ledger;
   end if;
 
   ---------------------------------------------------------------------------

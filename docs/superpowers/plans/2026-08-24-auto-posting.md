@@ -156,7 +156,9 @@ Stated so a reviewer can see the edges rather than infer them.
 | Loyalty liability (2300) | See **Open** below. |
 | The *manual-journal screen's* void button | `reverse_journal_entry` already exists from phase 1 and keeps its `ledger.post` gate. **The posting doors do not use it** — every one of them writes its mirror inline, because a cashier or a shopkeeper holds a till or an expense permission, never a ledger one. See Tasks 5b, 5c and 7c. |
 | ~~`deleteInvoice` reversing a bill **and its payments** together~~ | **No longer out — shipped in Task 7d.** This row said reversing one half was worse than reversing neither, which was true *only* for a bill paid in full and left an unpaid one stranding its whole cost for ever. `reverse_invoice_payment_entry()` reverses the payments on the same cascade, so both halves come off together. Asserted by `verify-posting-bills.sql` checks 16–20 and `verify-posting-expenses.sql` check 17. |
-| Matching a bill to the delivery it pays for | The `invoices`↔`stock_receipts` link, and the whole `inventory_purchase` residue that turns on it — **in both directions**, see Task 7b. Phase 3. **The under-stated direction is no longer silent:** the Bills screen now shows a `wrong`-toned `Caveat` whenever `2000` is in debit, naming the amount and pointing at the fix (`invoices-tab.tsx`, `payableDebitCents()` in `ledger-math.ts`, `invoices-payable-caveat.test.tsx`). The number is still wrong; it no longer arrives without explanation on a shop's first balance sheet. |
+| Matching a bill to the delivery it pays for | The `invoices`↔`stock_receipts` link, and the whole `inventory_purchase` residue that turns on it — **in both directions**, see Task 7b. Phase 3. **The under-stated direction is no longer silent:** the Bills screen shows a `wrong`-toned `Caveat` whenever `2000` is in debit, naming the amount. The figure and the diagnosis both come from `public.accounts_payable_debit()` (`20260908001700`) — **one row, summed in the database.** It replaced a client-side sum over `listPostedLines()`, which fetched every journal line the shop had ever posted and which PostgREST truncates at `max-rows` (1000) with no error, so past that the accusation was computed over an arbitrary prefix of the journal. **The caveat now has two branches, because the diagnosis is only exclusive once history is posted:** a bill of any category entered before auto-posting shipped credited nothing while paying it today posts a live `Dr 2000`, so a shop that has not pressed Post History can drive `2000` into debit by paying an old *rent* bill — and "record the delivery" would have it invent goods that never arrived. The function therefore returns `has_unposted` beside the amount; when anything is waiting the copy and the action point at **Post History** instead, and a reader without `ledger.close` (who could act on neither remedy) is shown nothing. `invoices-tab.tsx`, `getPayableState()` in `ledger.ts`, `invoices-payable-caveat.test.tsx`, `verify-posting-bills.sql` check 21. The number is still wrong; it no longer arrives without explanation, and it no longer offers a destructive fix. |
+| **Revaluing a product that is costed *after* it already had stock** | **New, and it is the honest half of the opening-balance argument.** `opening_inventory_gap` excludes uncosted stock, argued on the grounds that an uncosted product's whole life is invisible to `1200`. **That holds only while it stays uncosted.** `receive_stock` (`20260907000000`) costs the *entire holding* at the delivery's price when the prior cost is null, so the opening quantity acquires a cost it never contributed: 50 uncosted units open at 0, a delivery of 10 @ 100 costs all 60 and debits `1200` by 1,000, selling all 60 credits `1200` by 6,000, and `1200` ends at **−5,000** — the same negative asset the opening balance exists to remove. The opening marker means a second replay can never correct it. **The exclusion is still right** (there is no honest value for stock nobody has priced, and `price_cents` capitalises unearned profit), so what is owed is a **revaluation entry** when `products.cost_cents` moves on a product that already holds stock. Phase 3. Asserted as a *present* defect by `verify-backfill.sql` check 21b, whose message says to delete it and this row together when the revaluation lands. |
+| Two findings from the 2026-08-25 follow-up review, numbered **6** and **10** | Deferred by the reviewer rather than by this work, and their text was not carried into the fix brief — so they are recorded here as open and unstated. Recover them from the review before phase 3 plans around this list. |
 | ~~A **deleted stock receipt** leaving its `Dr 1200 / Cr 2000` standing~~ | **No longer out — shipped in `20260908001500`.** Latent rather than live (`stock_receipts` has no delete policy, no client delete and no Delete Delivery button — verified, not assumed), and closed before the button exists because the same hole has been found three times on this branch after it shipped. `reverse_stock_receipt_entry()`, an `AFTER DELETE` trigger, mirrors the entry negated, files it under the source it reverses, marks the original `reversed`, and is a no-op for an uncosted delivery, an already-reversed entry and a shop being deleted. **Its shop-deletion skip runs BEFORE the entry is read** — `journal_entries.shop_id` cascades in the same statement and its branch fires first, so `reverse_invoice_payment_entry`'s ordering fails here. The delivery's *payment* (an `inventory_purchase` `expenses` row) cascades off the same delete and is reversed by `reverse_expense_entry`, so both halves come off together. Asserted by `verify-posting-inventory.sql` checks 10–12. |
 | Re-opening a closed period for the backfill, or refusing a locked one | `backfill_shop_ledger` creates only the periods that do not exist and creates those open; an existing month keeps its status and receives entries anyway. A per-row `open_period_for` is what would abort a shop's replay half-way and leave it with half a ledger. **The door names the exposure instead** — see Task 10. |
 
@@ -2941,3 +2943,42 @@ proves it.
 copy-forward guard in `accumulated-rpc-edits.test.ts` gained an entry pinning
 that the shop guard sits *above* the entry lookup, since the wrong order is what
 shipped). `npm run lint` unchanged at 81 problems (49 errors, 32 warnings).
+
+---
+
+## Post-merge fix 3: the review of the four follow-ups (2026-08-25)
+
+**Critical — the re-open in `20260908001400` would have aborted its own deployment.**
+Its one-shot `update public.sales set settled_at = null …` re-opens the sales the old
+receivables formula closed with money still outstanding. `public.sales` carries
+`sales_module BEFORE INSERT OR UPDATE` (`20260818000400`), and `shop_has_module()`
+returns **false outright** for a suspended shop (`20260818000200`) — a live
+platform-admin switch. One suspended shop holding one part-paid, part-cash-refunded
+settled sale would have raised `module_not_included` on the first row and rolled the
+whole `supabase db push` back, taking `20260908001500` and `20260908001600` — which fixes
+a live production defect — with it. Nothing could catch it: the statement runs against an
+empty database at migration time, and `verify-balances` check 35 re-executes it against a
+fixture shop that *has* `pos`.
+
+Fixed the way this repo already documents for `products` (`20260819000000`): the update is
+wrapped in `alter table public.sales disable trigger sales_module` / `… enable`, with the
+rationale carried across. This is a data repair performed by the system, not a write by a
+shop. **`verify-balances` check 36** builds a stranded sale, suspends the shop, asserts
+`shop_has_module(shop,'pos')` is false, runs the statement, asserts the sale re-opens, and
+asserts the gate is back on afterwards.
+
+**The other findings.** The Bills caveat's destructive-remedy branch and its whole-journal
+fetch are both in *What is NOT in this plan* above. `opening_inventory_gap`'s ledger term
+now filters to `posted`/`reversed`, matching the trial balance beside it
+(`verify-backfill` check 21c). The eight per-arm comments dropped when
+`unposted_ledger_source_rows` was copied out of `20260908001100` are restored with the SQL
+they explain. `invoice_payments_set_shop` fires on **every** update rather than
+`update of invoice_id`: the `write invoice_payments` policy is `for all` and checks the
+*invoice*, never `shop_id`, so a client could move a payment's `shop_id` to another shop
+they own and the narrow trigger would never fire (`verify-ledger` check 26). Post History's
+"nothing waiting" caveat no longer claims "your opening stock is recorded", which is false
+for a shop whose stock is entirely uncosted and which therefore never got an opening entry.
+
+`npm run test:db` **25 → 25** (every check landed in an existing file). `npx tsc --noEmit`
+clean, `npm test` 142 suites / **2316** tests, `npm run lint` unchanged at 81 problems
+(49 errors, 32 warnings).

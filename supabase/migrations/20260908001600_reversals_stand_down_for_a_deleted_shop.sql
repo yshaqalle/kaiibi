@@ -94,10 +94,24 @@ comment on column public.invoice_payments.shop_id is
 -- disagree and no writer has to know the column exists.
 --
 -- BEFORE, so the value is in the row RLS then checks and the row the not-null
--- then sees. `update of invoice_id` rather than every update: moving a payment
--- to another bill is the only edit that can change the answer, and firing on
--- every update would put a select on the invoice in front of writes that do not
--- need one.
+-- then sees.
+--
+-- EVERY UPDATE, NOT `update of invoice_id`. Narrowing it to the invoice column
+-- looks like a saving -- moving a payment to another bill is the only edit that
+-- can legitimately change the answer -- and it is a hole. The `write
+-- invoice_payments` policy (20260804000300) is `for all`, and both its USING and
+-- its WITH CHECK read the INVOICE's shop, never this row's shop_id. So a client
+-- holding invoices.manage on two of their own shops could
+-- `update invoice_payments set shop_id = <the other shop>` on a payment: the
+-- policy sees the invoice unchanged and permits it, and a trigger listening only
+-- for invoice_id never fires to put the value back. The column is documented as
+-- derived and never written by a caller, and this is what makes that true rather
+-- than merely intended.
+--
+-- The cost is one select on `invoices` per payment update. invoice_payments is
+-- updated by nothing in the app -- payments are inserted and deleted, never
+-- edited -- so the saving it buys is on a path that does not exist, while the
+-- hole it opens is on one a client can reach directly over PostgREST.
 create or replace function public.set_invoice_payment_shop() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
@@ -114,11 +128,11 @@ end;
 $$;
 
 comment on function public.set_invoice_payment_shop() is
-  'BEFORE INSERT / UPDATE OF invoice_id on invoice_payments. Fills shop_id from the bill the payment is against, so the denormalised column cannot drift from its invoice whichever of the three writers -- record_invoice_payment, a client insert under the `write invoice_payments` policy, or a test fixture -- put the row there.';
+  'BEFORE INSERT OR UPDATE on invoice_payments -- every update, not just one of invoice_id. Fills shop_id from the bill the payment is against, so the denormalised column cannot drift from its invoice whichever of the three writers -- record_invoice_payment, a client insert under the `write invoice_payments` policy, or a test fixture -- put the row there, and so a direct write to shop_id under that `for all` policy is overwritten rather than kept.';
 
 drop trigger if exists invoice_payments_set_shop on public.invoice_payments;
 create trigger invoice_payments_set_shop
-  before insert or update of invoice_id on public.invoice_payments
+  before insert or update on public.invoice_payments
   for each row execute function public.set_invoice_payment_shop();
 
 -- ---------------------------------------------------------------------------
