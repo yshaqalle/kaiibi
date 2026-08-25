@@ -1217,3 +1217,12 @@ export type StorefrontProduct = {
   stock: number;
   imageUrl: string | null;
 };
+
+// get_public_delivery_areas' shape -- no id, no sort_order, because the
+// function already returns them pre-sorted (order by a.sort_order, a.name)
+// and a checkout form has no use for an area's id, only its name (the value
+// place_storefront_order matches against) and its fee.
+export type PublicDeliveryArea = {
+  name: string;
+  feeCents: number;
+};
