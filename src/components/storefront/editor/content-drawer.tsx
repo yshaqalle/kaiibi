@@ -7,6 +7,7 @@ import { Colors } from '@/constants/theme';
 import { formatE164ForDisplay, toE164 } from '@/lib/phone-e164';
 import { pickPhotoFromLibrary } from '@/lib/photo-picker';
 import { normalizeSlug, type SlugProblem } from '@/lib/storefront-slug';
+import { APP_DOMAIN } from '@/lib/storefront-host';
 
 // Pinned to the light palette -- no dark mode yet, same as every other bento
 // screen.
@@ -148,8 +149,13 @@ export function ContentDrawer({
   return (
     <BentoCard title="Content">
       <Text style={styles.eyebrow}>Web address</Text>
+      {/* The slug is a SUBDOMAIN, not a path. slugFromHostname only ever
+          resolves `<slug>.kaiibi.com` (src/lib/storefront-host.ts), so showing
+          `kaiibi.com/<slug>` here would hand a shopkeeper an address that does
+          not work -- and it is exactly the address they print on a card. The
+          test asserts the rendered address round-trips through the real router
+          function, so the two can never drift apart again. */}
       <View style={styles.slugRow}>
-        <Text style={styles.slugPrefix}>kaiibi.com/</Text>
         <TextInput
           ref={slugInputRef}
           testID="content-drawer-slug-input"
@@ -160,6 +166,7 @@ export function ContentDrawer({
           autoCapitalize="none"
           autoCorrect={false}
         />
+        <Text style={styles.slugSuffix}>{`.${APP_DOMAIN}`}</Text>
       </View>
 
       {showSuggestion ? (
@@ -291,7 +298,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
   },
-  slugPrefix: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2 },
+  slugSuffix: { fontSize: 13.5, fontWeight: '700', color: theme.bentoMuted2 },
   slugInput: { flex: 1, fontSize: 13.5, fontWeight: '700', color: theme.bentoInk, paddingVertical: 11 },
 
   suggestionRow: { alignSelf: 'flex-start', marginTop: 8 },

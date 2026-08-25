@@ -11,7 +11,11 @@
 
 import { validateSlug } from '@/lib/storefront-slug';
 
-const APP_DOMAIN = 'kaiibi.com';
+// Exported so the editor can SHOW the same address this function RESOLVES.
+// They drifted once: the editor rendered `kaiibi.com/<slug>` while this only
+// ever accepted `<slug>.kaiibi.com`, so a shopkeeper was shown an address that
+// does not work -- on the one screen whose output gets printed on a card.
+export const APP_DOMAIN = 'kaiibi.com';
 
 export function slugFromHostname(hostname: string, appDomain: string = APP_DOMAIN): string | null {
   if (typeof hostname !== 'string') return null;

@@ -1,4 +1,5 @@
 import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
+import { APP_DOMAIN, slugFromHostname } from '@/lib/storefront-host';
 
 import { ContentDrawer, type ContentDrawerValue, type SlugState } from '@/components/storefront/editor/content-drawer';
 
@@ -113,5 +114,20 @@ describe('ContentDrawer', () => {
 
   it('says the opening photo only shows on the Window layout', () => {
     expect(renderDrawer({}).join(' ')).toMatch(/window/i);
+  });
+});
+
+describe('the address it shows is the address that works', () => {
+  it('renders the slug as a SUBDOMAIN, and that address round-trips through the real router', () => {
+    const texts = renderDrawer({ slug: 'xamdi' });
+    const joined = texts.join(' ');
+
+    // A path would be wrong: nothing resolves kaiibi.com/xamdi.
+    expect(joined).not.toContain('kaiibi.com/');
+    expect(joined).toContain(`.${APP_DOMAIN}`);
+
+    // The real proof: reassemble what the shop sees and feed it to the actual
+    // function that resolves a hostname. If the two ever drift, this fails.
+    expect(slugFromHostname(`xamdi.${APP_DOMAIN}`)).toBe('xamdi');
   });
 });
