@@ -2391,37 +2391,50 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
-  -- 21b. ...AND WHAT THAT COSTS, WHEN THE PRODUCT IS COSTED LATER.
+  -- 21b. ...AND THE REVALUATION THAT CLOSES IT, WHEN THE PRODUCT IS COSTED
+  --      LATER.
   ---------------------------------------------------------------------------
   -- CHECK 21 IS NOT THE WHOLE STORY, AND THIS CHECK EXISTS SO NOBODY CAN READ
-  -- IT AS IF IT WERE. 20260908001300's header used to argue the exclusion by
+  -- IT AS IF IT WERE. 20260908001300's header argued the exclusion partly by
   -- saying an uncosted product's whole life is invisible to 1200. That holds
-  -- only while it STAYS uncosted. receive_stock (20260907000000) costs the
-  -- ENTIRE HOLDING at the delivery's price when the prior cost is null -- it has
-  -- nothing to weight an average against -- so the opening quantity acquires a
-  -- cost it never contributed, and 1200 is understated by exactly that from then
-  -- on. The opening marker means a second backfill can never come back for it.
+  -- only while it STAYS uncosted. receive_stock costs the ENTIRE HOLDING at the
+  -- delivery's price when the prior cost is null -- it has nothing to weight an
+  -- average against -- so the opening quantity acquires a cost it never
+  -- contributed. Until 20260908001800 nothing put that cost into the ledger,
+  -- and the opening marker meant a second backfill could never come back for
+  -- it:
   --
-  -- The numbers, all live-path:
   --   8 sacks of rice at 200, 50 uncosted mats  -> opening Dr 1200  1600
   --   a delivery of 10 mats at 100              -> Dr 1200          1000  (all
   --                                                60 mats now cost 100 each)
   --   all 60 mats sold                          -> Cr 1200         -6000
-  --   1200 ends at                                                 -3400
-  -- while the shelf still holds 1600 of rice. THE ASSET IS NEGATIVE AGAIN, and
-  -- it is short by 5000 -- the 50 opening units at the 100 they were later given.
+  --   1200 USED TO END AT                                          -3400
   --
-  -- The exclusion is still right: there is no honest value for stock nobody has
-  -- priced, and inventing one is worse than a gap. What is wrong is calling the
-  -- argument closed. Costing a product that already has stock is a REVALUATION
-  -- and revaluations have to reach the ledger; that is phase 3's, and it is in
-  -- the plan's residue list.
+  -- while the shelf still held 1600 of rice. A NEGATIVE ASSET, short by exactly
+  -- 5000 -- the 50 opening units at the 100 they were later given. That was
+  -- asserted here as a present defect for as long as it was one.
   --
-  -- MUTATION (proves this check): none is needed to make it red -- it asserts a
-  -- defect that is PRESENT. Change the expected -3400 to 1600 (what a ledger
-  -- with no residue would hold) and it reddens immediately, which is the same
-  -- thing said the other way round: the day phase 3 fixes this, this check
-  -- fails and its message tells whoever is reading why.
+  -- 20260908001800 posts the missing entry at the moment the cost appears:
+  -- Dr 1200 / Cr 3000 Owner's Capital for the units already on the shelf, which
+  -- is the same treatment and the same account the opening balance gives the
+  -- same stock. So the delivery now adds 1000 + 5000 and:
+  --
+  --   1200 ENDS AT                                                  1600
+  --
+  -- equal to the shelf, which is the property this whole area exists to keep.
+  -- The exclusion in opening_inventory_gap is UNCHANGED and still right: there
+  -- is no honest value for stock nobody has priced. What has changed is that
+  -- the day somebody prices it, the ledger hears about it.
+  --
+  -- MUTATION (proves this check): delete the `if v_reval_cents > 0 then ... end
+  -- if;` block at the foot of receive_stock in 20260908001800. Expected:
+  -- 'FAIL: 1200 reads -3400 for the later-costed shop, expected 1600'.
+  --
+  -- The two assertions are deliberately not the same statement: the first pins
+  -- the ABSOLUTE figure, so a mutation that moved both 1200 and the shelf
+  -- together cannot satisfy it, and the second pins the AGREEMENT, so a
+  -- mutation that got 1600 by some other route is still caught the moment the
+  -- shelf changes.
   insert into public.shops (owner_id, name) values (v_user_id, 'Later-costed Shop')
     returning id into v_shop_later;
   insert into public.shop_locations (shop_id, name, is_primary)
@@ -2470,15 +2483,28 @@ begin
   if v_onhand <> 1600 then
     raise exception 'FIXTURE: the shelf is worth %, expected 1600 (eight sacks at 200)', v_onhand;
   end if;
-  if v_ledger <> -3400 then
-    raise exception 'FAIL: 1200 reads % for the later-costed shop, expected -3400. This check asserts a KNOWN residue: uncosted opening stock that is costed later leaves 1200 understated by the opening quantity at its new cost (50 x 100 = 5000 here). If this is now 1600 the phase-3 revaluation has landed -- delete this check and the residue entry with it', v_ledger;
+  if v_ledger <> 1600 then
+    raise exception 'FAIL: 1200 reads % for the later-costed shop, expected 1600 -- the rice, which is all that is left on the shelf. -3400 means the revaluation in 20260908001800 did not post and the fifty opening mats went out through COGS at a cost the ledger was never given (50 x 100 = 5000)', v_ledger;
   end if;
-  if v_onhand - v_ledger <> 5000 then
-    raise exception 'FAIL: 1200 is short by %, expected 5000 -- the fifty opening mats at the 100 the delivery gave them', v_onhand - v_ledger;
+  if v_ledger <> v_onhand then
+    raise exception 'FAIL: 1200 reads % against a shelf worth % -- an opening balance and a revaluation together must leave the two equal; they differ by %', v_ledger, v_onhand, v_onhand - v_ledger;
+  end if;
+  -- Exactly one revaluation, and it is filed under 'stock' rather than
+  -- 'opening'. 'opening' would balance and would read beautifully -- and it
+  -- would set opening_inventory_gap's idempotency marker, so a shop whose first
+  -- delivery revalued something would never get the opening balance this whole
+  -- file is about.
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_later and description = 'Existing stock valued' and source = 'stock';
+  if v_rows <> 1 then
+    raise exception 'FAIL: the later-costed shop holds % revaluation entries filed under ''stock'', expected 1', v_rows;
   end if;
 
-  -- And the marker is the reason it stays that way: a second replay writes no
-  -- second opening balance and therefore cannot correct the 5000.
+  -- And the marker still holds: a second replay writes no second opening
+  -- balance. It has nothing left to correct now -- which is the point. The
+  -- revaluation happened at the moment the cost appeared, on the live path,
+  -- rather than waiting for a replay that would never have been allowed to
+  -- come back for it.
   v_posted := public.backfill_shop_ledger(v_shop_later);
   select count(*) into v_rows from public.journal_entries
    where shop_id = v_shop_later and source = 'opening';
@@ -2490,8 +2516,8 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_later and a.code = '1200';
-  if v_ledger <> -3400 then
-    raise exception 'FAIL: a second replay moved 1200 to % -- the opening marker is supposed to make this unreachable', v_ledger;
+  if v_ledger <> 1600 then
+    raise exception 'FAIL: a second replay moved 1200 to %, expected it to stay at 1600 -- the opening marker is supposed to make a second opening balance unreachable', v_ledger;
   end if;
 
   ---------------------------------------------------------------------------

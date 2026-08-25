@@ -221,6 +221,21 @@ const RECEIVE_STOCK_EDITS: Edit[] = [
   // The PROPERTY, not a variable name -- the same discipline the edit_sale
   // entry above applies. now()::date resolves in UTC and Somalia is UTC+3.
   ['20260908000400', 'the entry is dated in shop-local time', 'shop_local_date'],
+  // Costing a product that ALREADY HELD STOCK is a revaluation: the delivery
+  // prices the whole holding (there is nothing to average against), so the
+  // units on the shelf acquire a value the ledger has never carried a cent of
+  // and that nothing else will ever put there. Without this entry, 50 uncosted
+  // units + a delivery of 10 @ 100 + selling all 60 leaves 1200 at -5,000.
+  //
+  // The token is the ARITHMETIC -- the shop-wide prior quantity at the new
+  // cost -- not a variable name and not `v_reval_cents`, which a copy-forward
+  // could keep as a declaration while dropping the accumulation that fills it.
+  ['20260908001800', 'stock costed after it was already on the shelf is revalued', 'v_prior_qty::bigint * v_new_cost'],
+  // And the counterpart, which is the half a build gets wrong. These goods are
+  // not owed to a supplier (2000), not a loss (5100) and not income (4xxx) --
+  // they are the owner's own stock, measurable for the first time, exactly as
+  // the opening balance in 20260908001300 treats it.
+  ['20260908001800', "the revaluation credits 3000 Owner's Capital", "'code', '3000'"],
 ];
 
 // The five that follow, plus delete_sale, joined this file at the phase 2b

@@ -49,6 +49,32 @@
 --      AFTER trigger on the parent, so the shops row is already gone when the
 --      reversal trigger fires and a mirror entry would violate
 --      journal_entries.shop_id immediately.
+--  13. COSTING A PRODUCT THAT ALREADY HELD STOCK IS A REVALUATION, and it
+--      posts its own entry: Dr 1200 / Cr 3000 Owner's Capital for the units
+--      that were on the shelf before anyone priced them (20260908001800).
+--      Five parts, on a shop of their own so that "1200 equals the value of
+--      stock on hand" can be asserted SHOP-WIDE -- which is the property the
+--      whole thing exists for, and the only one that cannot be satisfied by an
+--      entry that merely balances. The three cases that must post NOTHING run
+--      before the one that must post something, so a mutation that revalues
+--      where it should not is reported by the check that is about it rather
+--      than by the worked example's arithmetic downstream.
+--        13a. a delivery onto ZERO stock posts no revaluation -- there is
+--             nothing on the shelf to revalue, and the units arriving are
+--             already carried by the delivery's own entry.
+--        13b. a delivery onto COSTED stock posts no revaluation -- the units
+--             on the shelf already carry a cost and 1200 already holds it.
+--             The weighted average moving is not a revaluation.
+--        13c. an UNCOSTED delivery onto uncosted stock posts nothing at all,
+--             neither entry. The product stays unpriced and there is nothing
+--             to revalue to.
+--        13d. the worked example. 50 uncosted units, a delivery of 10 @ 100,
+--             then all 60 sold. Without the revaluation 1200 ends at -5,000.
+--        13e. deleting the delivery reverses the DELIVERY and leaves the
+--             revaluation standing. Nothing un-costs the product, so those
+--             units are still valued and 1200 must still say so. This is why
+--             the revaluation is a second entry rather than two extra lines
+--             on the delivery's own.
 --
 -- Deliberately NOT `set role authenticated`, for the same reason
 -- verify-posting-sales.sql is not: this script stays superuser so RLS never
@@ -84,6 +110,18 @@ declare
   v_del_shop      uuid;
   v_del_loc       uuid;
   v_del_prod      uuid;
+  -- Check 13, the revaluation. Its own shop, so 1200 can be tied to the whole
+  -- shelf rather than to one entry.
+  v_rev_shop      uuid;
+  v_rev_loc       uuid;
+  v_rev_tea       uuid;   -- nothing on the shelf at all                (13a)
+  v_rev_coffee    uuid;   -- costed by its first delivery, then a second (13b)
+  v_rev_sample    uuid;   -- 30 uncosted, and an uncosted delivery       (13c)
+  v_rev_mat       uuid;   -- 50 uncosted, costed later by a delivery     (13d)
+  v_rev_entry     uuid;
+  v_onhand        bigint;
+  v_ledger        bigint;
+  v_loc           uuid;
 begin
   -- shops.owner_id, stock_receipts.created_by and stock_counts.created_by all
   -- reference auth.users(id), so the fixture "person" needs a real row there
@@ -490,6 +528,395 @@ begin
   end if;
   if exists (select 1 from public.stock_receipts where shop_id = v_del_shop) then
     raise exception 'FAIL: a stock receipt outlived the shop it belonged to';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 13. COSTING STOCK THAT WAS ALREADY ON THE SHELF (20260908001800).
+  ---------------------------------------------------------------------------
+  --
+  --     receive_stock costs the ENTIRE HOLDING at the delivery's price when the
+  --     prior cost is null -- it has nothing to weight an average against. The
+  --     units already on the shelf therefore acquire a value the ledger has
+  --     never carried a cent of, and until 20260908001800 nothing ever put one
+  --     there: a sale of an uncosted product posts no COGS, a count variance on
+  --     it posts nothing, and an uncosted delivery is excluded from the
+  --     receipt's value. So the shelf became valuable and 1200 did not, and the
+  --     next sale credited 1200 for stock it had never been debited for.
+  --
+  --     A SHOP OF ITS OWN, and that is the design of this check rather than
+  --     tidiness. The property being asserted is not "the entry balances" --
+  --     every wrong version of this balances -- it is 1200 EQUALS THE VALUE OF
+  --     THE STOCK ON HAND, shop-wide, after five deliveries and a sale. That
+  --     can only be said about a shop whose whole ledger history was written
+  --     here, so the four products below start with no ledger of any kind and
+  --     every cent that reaches 1200 is put there by a call in this block.
+  --
+  --     THE THREE CASES THAT MUST POST NOTHING RUN FIRST, AND THE ORDER IS
+  --     LOAD-BEARING. Every mutation that posts a revaluation where none
+  --     belongs also disturbs the worked example's arithmetic, so with the
+  --     worked example first it would be 13d's figures that reddened and the
+  --     message would name the wrong defect. Running the negative cases ahead
+  --     of it means each one is caught by the check that is actually about it.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Revalued Stock Shop')
+    returning id into v_rev_shop;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_rev_shop, 'Main', true) returning id into v_rev_loc;
+
+  --     50 mats nobody ever priced -- the shopkeeper's own opening stock, of
+  --     which the ledger can say nothing at all while it stays uncosted.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_rev_shop, 'Prayer mat', 900, null, 50) returning id into v_rev_mat;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_rev_shop, 'Coffee', 3000, null, 0) returning id into v_rev_coffee;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_rev_shop, 'Tea', 2000, null, 0) returning id into v_rev_tea;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_rev_shop, 'Sample', 400, null, 30) returning id into v_rev_sample;
+
+  -- 13a. A DELIVERY ONTO ZERO STOCK POSTS NO REVALUATION. v_new_cost := v_cost
+  --      here too -- there is nothing to average against -- but there is also
+  --      nothing on the shelf, and the units that arrive are already carried by
+  --      the delivery's own entry. Revaluing here counts the delivery twice.
+  --
+  --      MUTATION: value the whole holding AFTER the upsert and drop the
+  --      quantity guard with it --
+  --        if v_product.cost_cents is null then
+  --          v_reval_cents := v_reval_cents + (v_prior_qty + v_qty)::bigint * v_new_cost;
+  --        end if;
+  --      which is the reading that follows from "all of these units now cost
+  --      this, so value all of them". Expected: 'FAIL: a delivery onto an empty
+  --      shelf posted 1 revaluation entries, expected 0'.
+  --
+  --      IT TAKES BOTH HALVES, and that is worth knowing before anyone
+  --      simplifies either. Dropping `and v_prior_qty > 0` on its own is a
+  --      NO-OP -- the arithmetic becomes `0 * v_new_cost`, which is 0, which
+  --      the `if v_reval_cents > 0` guard at the foot suppresses exactly as
+  --      before -- and it was run and confirmed green. Using the post-upsert
+  --      quantity on its own never reaches an empty shelf at all, because the
+  --      guard stops it; it is caught downstream by 13d's amount instead
+  --      ('the revaluation debits 1200 by 6000, expected 5000'). Only together
+  --      do they post a revaluation for stock that was not there, which is
+  --      what this check is for and why the guard stays.
+  perform public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_rev_tea, 'quantity', 20, 'unit_cost_cents', 50)));
+  select count(*) into v_entries from public.journal_entries
+   where shop_id = v_rev_shop and description = 'Existing stock valued';
+  if v_entries <> 0 then
+    raise exception 'FAIL: a delivery onto an empty shelf posted % revaluation entries, expected 0', v_entries;
+  end if;
+
+  -- 13b. A DELIVERY ONTO COSTED STOCK POSTS NO REVALUATION. The units on the
+  --      shelf already carry a cost and 1200 already holds it; revaluing them
+  --      would post the whole holding a second time.
+  --
+  --      Coffee is costed by its first delivery (10 @ 300, onto nothing) and
+  --      then receives a second (10 @ 500) against a prior cost. The weighted
+  --      average moves 300 -> 400 and NOTHING is revalued, even though the cost
+  --      of every unit on the shelf did change -- which is the distinction this
+  --      check is for: a moving average is already in 1200 by construction,
+  --      because every delivery that moved it debited what it paid.
+  --
+  --      MUTATION: hoist the revaluation out of the null-cost branch, so it
+  --      runs after the whole `if v_prior_qty <= 0 or ... else ... end if` on
+  --      whatever v_new_cost came out of it:
+  --        if v_prior_qty > 0 then
+  --          v_reval_cents := v_reval_cents + v_prior_qty::bigint * v_new_cost;
+  --        end if;
+  --      Run against this file it is CHECK 10 that goes red first -- 'FAIL:
+  --      fixture -- the delivery should have raised 1200 by 9100, it moved by
+  --      56350' -- because check 10's delivery also lands on costed stock and
+  --      it is measuring 1200 shop-wide. That is the same defect reported
+  --      earlier, and check 10 is incidentally a second guard on it. Run this
+  --      case on its own and it reports what it is for: 'FAIL: a delivery onto
+  --      costed stock posted 1 revaluation entries, expected 0' -- confirmed by
+  --      running exactly the three statements below against the mutated
+  --      function in a fixture of their own.
+  --
+  --      Note that leaving the block WHERE IT IS and merely dropping
+  --      `v_product.cost_cents is null and` from its condition is a NO-OP, run
+  --      and confirmed green: the block already sits inside the branch taken
+  --      only when the prior cost is null or the shelf is empty, so the clause
+  --      it loses was already implied there. The hoist is what changes an
+  --      answer.
+  perform public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_rev_coffee, 'quantity', 10, 'unit_cost_cents', 300)));
+  perform public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_rev_coffee, 'quantity', 10, 'unit_cost_cents', 500)));
+  select cost_cents into v_amount from public.products where id = v_rev_coffee;
+  if v_amount <> 400 then
+    raise exception 'FIXTURE: coffee costs % after two deliveries, expected a weighted 400', v_amount;
+  end if;
+  select count(*) into v_entries from public.journal_entries
+   where shop_id = v_rev_shop and description = 'Existing stock valued';
+  if v_entries <> 0 then
+    raise exception 'FAIL: a delivery onto costed stock posted % revaluation entries, expected 0 -- 1200 already holds what those units cost', v_entries;
+  end if;
+
+  -- 13c. AN UNCOSTED DELIVERY ONTO UNCOSTED STOCK POSTS NOTHING AT ALL --
+  --      neither the delivery's entry (check 2) nor a revaluation. The product
+  --      is still unpriced afterwards, so there is no value to revalue TO, and
+  --      inventing one is what isUncosted() exists to prevent.
+  --
+  --      MUTATION: hoist the revaluation out of the `if v_cost is not null`
+  --      block and value the line at what the shop sells it for --
+  --      `v_prior_qty::bigint * coalesce(v_cost, v_product.price_cents)` --
+  --      which is the wrong answer this codebase warns about everywhere and the
+  --      one a build reaches for when told an uncosted line is not free.
+  --      Expected: 'FAIL: an uncosted delivery onto uncosted stock wrote a
+  --      journal entry; there is no figure for either half of it'.
+  --
+  --      Note what that mutation does NOT redden. Check 2 above is the same
+  --      shape and stays green, because product A is costed by the time it
+  --      runs and the condition never fires for it -- so this is not a
+  --      duplicate of check 2, it is the only place an uncosted line meets
+  --      uncosted stock.
+  select count(*) into v_entries from public.journal_entries where shop_id = v_rev_shop;
+  v_receipt_id := public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_rev_sample, 'quantity', 5)));
+  if (select journal_entry_id from public.stock_receipts where id = v_receipt_id) is not null then
+    raise exception 'FAIL: an uncosted delivery onto uncosted stock posted a delivery entry';
+  end if;
+  if (select count(*) from public.journal_entries where shop_id = v_rev_shop) <> v_entries then
+    raise exception 'FAIL: an uncosted delivery onto uncosted stock wrote a journal entry; there is no figure for either half of it';
+  end if;
+  --      The reason it must post nothing, asserted rather than assumed: the
+  --      product is STILL uncosted. A build that quietly treated the missing
+  --      cost as 0 would leave cost_cents = 0 here and pass both assertions
+  --      above, because a zero revaluation posts nothing either way.
+  select cost_cents into v_amount from public.products where id = v_rev_sample;
+  if v_amount is not null then
+    raise exception 'FAIL: an uncosted delivery left the sample costed at % -- null is a question nobody answered, 0 is an answer', v_amount;
+  end if;
+
+  -- 13d. THE WORKED EXAMPLE. 50 uncosted mats, a delivery of 10 at 100 that
+  --      prices all sixty, then all sixty out through the till.
+  --
+  --      Two entries are expected, not one:
+  --        Dr 1200  1000 / Cr 2000  1000   the ten that arrived
+  --        Dr 1200  5000 / Cr 3000  5000   the fifty that were already here
+  --
+  --      MUTATION: delete the `if v_reval_cents > 0 then ... end if;` block at
+  --      the foot of receive_stock. Expected: 'FAIL: the delivery that first
+  --      costed 50 mats posted 0 revaluation entries, expected exactly 1'.
+  select coalesce(sum(l.amount_cents), 0) into v_base_1200
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_rev_shop and a.code = '1200';
+
+  v_receipt_id := public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_rev_mat, 'quantity', 10, 'unit_cost_cents', 100)));
+
+  --      The fixture's own premise, checked before anything is concluded from
+  --      it. `is distinct from`, not `<>`: the plausible mutation here -- losing
+  --      `or v_product.cost_cents is null` from the average -- leaves the
+  --      product UNCOSTED, and `null <> 100` is null, so a `<>` test sails
+  --      straight past the thing it was written to catch.
+  select cost_cents into v_amount from public.products where id = v_rev_mat;
+  if v_amount is distinct from 100 then
+    raise exception 'FIXTURE: the mats cost % after the delivery, expected 100 -- receive_stock no longer costs an uncosted holding whole, and check 13 is arguing about something that has changed', v_amount;
+  end if;
+
+  select count(*) into v_entries from public.journal_entries
+   where shop_id = v_rev_shop and description = 'Existing stock valued';
+  if v_entries <> 1 then
+    raise exception 'FAIL: the delivery that first costed 50 mats posted % revaluation entries, expected exactly 1', v_entries;
+  end if;
+
+  --      And it is a SECOND entry, not the delivery's own. Merged into it, the
+  --      delivery's 1200 debit would stop equalling what the supplier is owed
+  --      and deleting the delivery would take the revaluation with it (13e).
+  select journal_entry_id into v_entry from public.stock_receipts where id = v_receipt_id;
+  select id into v_rev_entry from public.journal_entries
+   where shop_id = v_rev_shop and description = 'Existing stock valued';
+  if v_rev_entry = v_entry then
+    raise exception 'FAIL: the revaluation was folded into the delivery''s own entry; it must be a separate one';
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '2000';
+  if v_amount <> -1000 then
+    raise exception 'FAIL: the delivery should owe the supplier 1000 -- ten mats at 100 -- got %. 6000 means the revaluation was credited to the supplier', -v_amount;
+  end if;
+
+  --      The amounts. 50 x 100 = 5000: the quantity that was already there, at
+  --      the cost the delivery gave the whole holding.
+  --
+  --      MUTATION: change `v_prior_qty::bigint * v_new_cost` to
+  --      `v_qty::bigint * v_new_cost` -- revaluing the delivered units instead
+  --      of the ones on the shelf. Expected: 'FAIL: the revaluation debits 1200
+  --      by 1000, expected 5000'.
+  --
+  --      SECOND MUTATION, the one that says why the quantity is read before the
+  --      upsert: `(v_prior_qty + v_qty)::bigint * v_new_cost`, valuing the
+  --      holding as it stands after the delivery. Expected: 'FAIL: the
+  --      revaluation debits 1200 by 6000, expected 5000' -- the ten delivered
+  --      units counted twice, once here and once in the delivery's own entry.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_rev_entry and a.code = '1200';
+  if v_amount <> 5000 then
+    raise exception 'FAIL: the revaluation debits 1200 by %, expected 5000 (the fifty mats already on the shelf, at the 100 the delivery gave them)', v_amount;
+  end if;
+
+  --      3000 Owner's Capital. These goods are not owed to a supplier, are not
+  --      a loss and are not income -- they are the shopkeeper's own stock,
+  --      measurable for the first time, which is what the opening balance in
+  --      20260908001300 credits 3000 for. Asserted against the ACCOUNT, and the
+  --      P&L accounts asserted ABSENT: 5100 or a 4xxx would balance just as
+  --      happily while putting a gain or a loss into the month a delivery
+  --      happened to land in, for units bought long before it.
+  --
+  --      MUTATION: change the credit's `'code', '3000'` to `'code', '5100'`.
+  --      Expected: 'FAIL: the revaluation credits 3000 Owner''s Capital by 0,
+  --      expected -5000'.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_rev_entry and a.code = '3000';
+  if v_amount <> -5000 then
+    raise exception 'FAIL: the revaluation credits 3000 Owner''s Capital by %, expected -5000', v_amount;
+  end if;
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_rev_entry and (a.code like '4%' or a.code like '5%' or a.code like '6%' or a.code = '2000')) then
+    raise exception 'FAIL: a revaluation must not touch the P&L or a payable -- nothing was sold, lost or bought';
+  end if;
+
+  --      Source, date and location. 'stock', and emphatically NOT 'opening',
+  --      which is the trap: opening_inventory_gap's idempotency marker is an
+  --      entry with source 'opening' carrying a line on 1200, so a revaluation
+  --      filed under it would tell every future backfill that this shop had
+  --      already been opened and suppress the opening balance it exists to
+  --      complete.
+  --
+  --      MUTATION: change the revaluation's p_source from 'stock' to 'opening'.
+  --      Expected: 'FAIL: the revaluation files under ''opening'''.
+  select source, entry_date, location_id into v_text, v_date, v_loc
+    from public.journal_entries where id = v_rev_entry;
+  if v_text <> 'stock' then
+    raise exception 'FAIL: the revaluation files under ''%'', expected ''stock'' -- ''opening'' would set the backfill''s idempotency marker and suppress the shop''s real opening balance', v_text;
+  end if;
+  if v_date <> public.shop_local_date() then
+    raise exception 'FAIL: the revaluation should be dated %, got %', public.shop_local_date(), v_date;
+  end if;
+  --      No location: v_prior_qty is summed across every branch, so most of
+  --      these units are not at the one that signed for the pallet.
+  if v_loc is not null then
+    raise exception 'FAIL: the revaluation carries a location; the stock it values is shop-wide';
+  end if;
+
+  --      Mid-state, before anything is sold, and computed by hand: the delivery
+  --      must have moved 1200 by sixty mats at 100 = 6000, of which 1000 is the
+  --      ten that arrived and 5000 the fifty that were already there.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_rev_shop and a.code = '1200';
+  if v_ledger - v_base_1200 <> 6000 then
+    raise exception 'FAIL: the delivery moved 1200 by %, expected 6000 (sixty mats at 100). 1000 means only the delivered ten reached the ledger', v_ledger - v_base_1200;
+  end if;
+
+  --      ALL SIXTY OUT THROUGH THE TILL, at the 100 they now carry, and then
+  --      the property the whole migration exists for:
+  --
+  --        1200 EQUALS THE VALUE OF THE STOCK ON HAND.
+  --
+  --      Computed independently of anything receive_stock does -- by hand, and
+  --      cross-checked against the shelf:
+  --        mats     60 sold of 60, 0 left            0
+  --        coffee   20 at a weighted 400          8000
+  --        tea      20 at 50                      1000
+  --        sample   35, still unpriced               0
+  --                                              -----
+  --                                               9000
+  --      and 1200 = 1000 (tea) + 8000 (coffee) + 6000 (mats) - 6000 (COGS).
+  --
+  --      WITHOUT THE REVALUATION 1200 READS 4000 AGAINST A SHELF WORTH 9000 --
+  --      and on a shop holding nothing but the mats it reads -5,000 outright,
+  --      a negative asset. That is the number this check is really about.
+  select public.complete_sale(v_rev_shop,
+    jsonb_build_array(jsonb_build_object('product_id', v_rev_mat, 'quantity', 60, 'discount_cents', 0)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 54000, 'tendered_cents', 54000)),
+    null, null, null, null, 0, null, null, v_rev_loc, 0) into v_entry;
+
+  select coalesce(sum(p.stock::bigint * p.cost_cents), 0) into v_onhand
+    from public.products p where p.shop_id = v_rev_shop and p.cost_cents is not null;
+  if v_onhand <> 9000 then
+    raise exception 'FIXTURE: the shelf is worth %, expected 9000 -- check 13''s arithmetic has moved', v_onhand;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_rev_shop and a.code = '1200';
+  if v_ledger <> v_onhand then
+    raise exception 'FAIL: 1200 Inventory reads % against a shelf worth % -- they must agree. 4000 means the fifty mats that were costed after the fact never reached the ledger, and the shop''s inventory is understated by exactly the 5000 they were given', v_ledger, v_onhand;
+  end if;
+
+  -- 13e. DELETING THE DELIVERY REVERSES THE DELIVERY, AND LEAVES THE
+  --      REVALUATION STANDING.
+  --
+  --      This is the reason the revaluation is a SECOND entry rather than two
+  --      more lines on the delivery's own. stock_receipts_reverse_on_delete
+  --      (20260908001500) mirrors whatever stock_receipts.journal_entry_id
+  --      points at. Nothing un-costs a product when its delivery is deleted --
+  --      products.cost_cents keeps the value the delivery gave it, and the
+  --      units that were already on the shelf are still on it -- so the
+  --      revaluation is still TRUE after the delivery is gone, and reversing it
+  --      would leave 1200 short by the whole of it.
+  --
+  --      Its own shop, because it is asserting a shop-wide total after a
+  --      deletion and 13d's shop has just had its arithmetic pinned.
+  --
+  --      MUTATION: merge the two entries -- give the delivery's
+  --      post_journal_entry call a third line, `('3000', -v_reval_cents)`, add
+  --      v_reval_cents to its 1200 debit, and delete the second call. Expected:
+  --      13d's 'FAIL: the delivery that first costed 50 mats posted 0
+  --      revaluation entries, expected exactly 1' fires first -- the merged
+  --      entry is not called 'Existing stock valued' -- which is the same
+  --      finding said earlier. Run this check on its own (comment 13a-13d out)
+  --      and it reports 'FAIL: deleting the delivery moved 1200 by -6000,
+  --      expected -1000'.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Revalued Then Deleted Shop')
+    returning id into v_del_shop;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_del_shop, 'Main', true) returning id into v_del_loc;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_del_shop, 'Bag of flour', 1200, null, 20) returning id into v_del_prod;
+
+  --      4 @ 250 = 1000 delivered, 20 @ 250 = 5000 revalued. The two are
+  --      different numbers so the assertion below can tell which one moved.
+  v_receipt_id := public.receive_stock(v_del_shop, v_del_loc, jsonb_build_array(
+    jsonb_build_object('product_id', v_del_prod, 'quantity', 4, 'unit_cost_cents', 250)));
+  select journal_entry_id into v_entry from public.stock_receipts where id = v_receipt_id;
+  select id into v_rev_entry from public.journal_entries
+   where shop_id = v_del_shop and description = 'Existing stock valued';
+  if v_entry is null or v_rev_entry is null then
+    raise exception 'FIXTURE: check 13e expects both a delivery entry and a revaluation, got % and %', v_entry, v_rev_entry;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_base_1200
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_del_shop and a.code = '1200';
+
+  delete from public.stock_receipts where id = v_receipt_id;
+
+  select status into v_text from public.journal_entries where id = v_entry;
+  if v_text is distinct from 'reversed' then
+    raise exception 'FAIL: the deleted delivery''s own entry should read ''reversed'', it reads %', coalesce(v_text, 'gone');
+  end if;
+  select status into v_text from public.journal_entries where id = v_rev_entry;
+  if v_text is distinct from 'posted' then
+    raise exception 'FAIL: the revaluation should still read ''posted'' after the delivery is deleted, it reads % -- nothing un-costed the product, so those units are still valued', coalesce(v_text, 'gone');
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_del_shop and a.code = '1200';
+  if v_amount - v_base_1200 <> -1000 then
+    raise exception 'FAIL: deleting the delivery moved 1200 by %, expected -1000 -- the revaluation was reversed with it', v_amount - v_base_1200;
   end if;
 
   perform set_config('request.jwt.claims', null, true);

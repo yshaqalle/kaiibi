@@ -178,28 +178,41 @@
 --   the only treatment under which 1200 stays equal to the stock it can
 --   actually account for.
 --
--- THAT ARGUMENT IS NOT CLOSED, AND SAYING IT WAS WOULD BE THE WORSE ERROR.
--- "Invisible to 1200" holds only until the product IS costed, and the moment it
--- is, 1200 is permanently UNDERSTATED by the opening quantity. receive_stock
--- (20260907000000) costs the ENTIRE HOLDING at the delivery's price when stock
--- was uncosted -- it cannot weight an average against a cost that does not
--- exist -- so:
+-- THAT SECOND SENTENCE WAS TRUE ONLY OF A PRODUCT THAT STAYS UNCOSTED, AND
+-- 20260908001800 IS WHAT MAKES THE PARAGRAPH ABOVE SAFE TO READ.
+--
+-- As written when this file shipped, "nothing takes an uncosted product back
+-- out of 1200" holds until the product IS costed, and the moment it is, 1200
+-- was permanently UNDERSTATED by the opening quantity. receive_stock costs the
+-- ENTIRE HOLDING at the delivery's price when stock was uncosted -- it cannot
+-- weight an average against a cost that does not exist -- so:
 --
 --   50 units uncosted        -> 0 in the opening gap
 --   a delivery of 10 @ 100   -> cost_cents becomes 100, Dr 1200 by 1,000
 --   selling all 60           -> Cr 1200 by 6,000
---   1200 ends at            -> -5,000
+--   1200 USED TO END AT     -> -5,000
 --
 -- which is the same negative asset this migration exists to remove, and the
--- opening marker means the backfill can never come back and correct it. The
--- exclusion is still right -- there is no honest value to put on stock nobody
--- has priced, and inventing one is worse than a gap -- but the residue is real:
--- costing a product that already had stock is a REVALUATION, and a revaluation
--- has to reach the ledger. That is phase 3's work (see
--- docs/superpowers/plans/2026-08-24-auto-posting.md, residue), not something
--- this file has disposed of. Check 12b in verify-backfill.sql puts a costed
--- delivery onto uncosted opening stock and asserts the number 1200 really ends
--- at, so nobody can re-derive "1200 can never go negative again" from a comment.
+-- opening marker meant the backfill could never come back and correct it.
+--
+-- THE EXCLUSION ABOVE IS UNCHANGED AND STILL RIGHT -- there is no honest value
+-- to put on stock nobody has priced, and inventing one is worse than a gap.
+-- What was missing was the other end: costing a product that already had stock
+-- is a REVALUATION, and a revaluation has to reach the ledger.
+-- 20260908001800 posts it, at the moment the cost appears, as its own entry --
+-- Dr 1200 Inventory / Cr 3000 Owner's Capital for the units already on the
+-- shelf, the same treatment and the same account this file gives the same
+-- stock. The delivery above now debits 1,000 + 5,000 and 1200 ends at 0
+-- against an empty shelf, not at -5,000.
+--
+-- NOTHING IN THIS FILE CHANGED, AND THAT IS THE RESULT. A revaluation is a
+-- posted entry with a line on 1200, so it enters opening_inventory_gap's second
+-- term the moment it is written; it has no source row, so it never enters the
+-- third term or unposted_ledger_sources, and the door and the replay still
+-- cannot disagree about what a run will write. Check 21b in verify-backfill.sql
+-- runs the whole sequence above and asserts the number 1200 really ends at, so
+-- nobody can re-derive either "1200 can never go negative again" or the
+-- superseded residue from a comment.
 --
 -- None of which is to say the stock is worthless. It is to say the LEDGER has
 -- nothing to say about it, which is true, and the place that says so is the
@@ -609,10 +622,10 @@ language sql stable as $$
          else
            -- What the shop actually holds, at weighted-average cost. An
            -- uncosted product contributes nothing -- see the header: while it
-           -- stays uncosted nothing takes it back OUT of 1200 either, and the
-           -- day somebody costs it, 1200 is understated by this quantity for
-           -- good. That residue is phase 3's revaluation work, not a reason to
-           -- invent a value here.
+           -- stays uncosted nothing takes it back OUT of 1200 either. The day
+           -- somebody costs it, receive_stock posts the revaluation itself
+           -- (20260908001800, Dr 1200 / Cr 3000), which lands in the ledger
+           -- term below; it was never a reason to invent a value here.
            coalesce((select sum(p.stock::bigint * p.cost_cents)
                        from public.products p
                       where p.shop_id = p_shop_id and p.cost_cents is not null), 0)
