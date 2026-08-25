@@ -126,9 +126,16 @@ Two decisions already made that the plan must honour:
   - Months close automatically 10 days after they end, and close even when
     the human checklist is not clean, marked "closed with exceptions".
 
-One still open, and it belongs in the plan's Open section: whether
-shrinkage sits in cost of sales or operating expenses. Recommended: leave
-it in operating expenses, where the Count door already puts it.
+A third, RESOLVED on 2026-08-23 and no longer open: shrinkage sits in
+COST OF SALES, not operating expenses. `5100 Inventory Shrinkage` shipped
+seeded as `type = 'cost_of_sales'` and `statement_lines()` groups it there,
+because it groups by `accounts.type`. A unit that is stolen or breaks is
+never sold, so its cost reaches COGS by no other path, and gross profit
+otherwise reads high by exactly that amount every month, invisibly.
+
+Expect the visible consequence and do not re-open it as a bug: against the
+old numbers gross profit FALLS by the shrinkage, operating expenses FALL by
+the same amount, and net profit is UNCHANGED.
 ```
 
 Then execute with the same shape as 3b.
