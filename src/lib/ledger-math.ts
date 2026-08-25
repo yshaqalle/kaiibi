@@ -35,6 +35,22 @@ export function isBalanced(lines: { amountCents: number }[]): boolean {
 
 export type PostedLine = { accountId: string; amountCents: number };
 
+// HOW FAR ACCOUNTS PAYABLE HAS GONE THE WRONG WAY IS NOT COMPUTED HERE, AND
+// PUTTING IT BACK WOULD REINTRODUCE THE DEFECT IT WAS REMOVED FOR.
+//
+// It used to be `payableDebitCents(accounts, lines)` over the rows
+// `listPostedLines()` returned -- which is EVERY journal line the shop has ever
+// posted, and PostgREST caps a response at `max-rows` (1000 by default) with no
+// error and no marker. Past that the netting ran over an arbitrary prefix of the
+// journal and the Bills screen showed a confident `wrong` accusation, with a
+// destructive action attached, to shops whose payable was perfectly healthy.
+//
+// The sum now happens where the rows are: public.accounts_payable_debit()
+// (20260908001700), reached through getPayableState() in ledger.ts. It also
+// returns whether the shop has unposted history, because the amount alone cannot
+// tell a missing DELIVERY from a bill that simply has not been replayed yet, and
+// the two have opposite remedies.
+
 export type TrialBalanceRow = {
   accountId: string;
   code: string;

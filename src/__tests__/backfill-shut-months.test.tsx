@@ -1,5 +1,6 @@
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
+import { BackfillView } from '@/components/accounting/ledger/backfill-view';
 import { Caveat } from '@/components/ui/caveat';
 import type { UnpostedSummary } from '@/lib/ledger-backfill';
 
@@ -49,14 +50,15 @@ jest.mock('@/hooks/use-auth', () => ({
   useAuth: () => ({ shop: { id: 'shop-1' }, can: () => true }),
 }));
 jest.mock('@/lib/ledger', () => ({
-  // Lazily, not `mockResolvedValue(mockSummary)`: the import below is hoisted
-  // above these declarations, so the fixture is still uninitialised when this
-  // factory runs.
+  // Lazily, not `mockResolvedValue(mockSummary)`: BackfillView is imported at
+  // the TOP of this file and babel-plugin-jest-hoist lifts these jest.mock()
+  // calls above the requires that import generates -- so this factory runs
+  // before `mockSummary` has been assigned. A factory that read the fixture
+  // eagerly would capture `undefined` for ever; an arrow that reads it when the
+  // screen actually fetches sees the value the test set.
   listUnpostedLedgerCounts: jest.fn(() => Promise.resolve(mockSummary)),
   backfillShopLedger: jest.fn(() => Promise.resolve(0)),
 }));
-
-import { BackfillView } from '@/components/accounting/ledger/backfill-view';
 
 async function render(): Promise<ReactTestRenderer> {
   let tree: ReactTestRenderer | undefined;

@@ -238,6 +238,13 @@ export function buildReceiptFromSale(
             // under it. No refund stamps settled_at, so nothing else caught it.
             - (sale.refunds ?? []).reduce((sum, r) => sum + r.goodsCents, 0)
             - (sale.payments ?? []).reduce((sum, p) => sum + p.amountCents, 0)
+            // ...and the cash that DID go back is added on again, because money
+            // leaving the drawer is a payment running backwards. Subtracting the
+            // goods without restoring the cash forgives the same amount twice --
+            // the defect 20260908001400 fixed in the view and in
+            // settle_sale_balance, which this line has to keep step with or a
+            // receipt understates a debt the server will still collect.
+            + (sale.refunds ?? []).reduce((sum, r) => sum + r.totalCents, 0)
         )
       : 0,
     createdAt: sale.createdAt,

@@ -129,32 +129,48 @@ describe('buildReceiptFromSale', () => {
   });
 
   it('counts goods returned against the debt, not just money taken', () => {
-    // 8474 of goods, 5000 paid, 2000 of goods handed back: 1474 left. Without the
-    // refund term this printed 3474 -- a debt the customer had partly settled by
-    // returning the goods, with their name under it. No refund stamps settled_at,
-    // so nothing else would have caught it.
+    // 8474 of goods, nothing paid, 3474 of goods handed back and no cash out
+    // (there was none to hand over): 5000 left. Without the goods term this
+    // printed the whole 8474 -- a debt the customer had partly settled by
+    // returning the goods, with their name under it. No refund stamps
+    // settled_at, so nothing else would have caught it.
     const built = buildReceiptFromSale(
-      sale({ settledAt: null, payments: [paid(5000)], refunds: [returned(2000)] }),
+      sale({ settledAt: null, payments: [], refunds: [returned(3474, 0)] }),
       shop
     );
-    expect(built.balanceDueCents).toBe(1474);
+    expect(built.balanceDueCents).toBe(5000);
   });
 
-  it('prints no balance once the returns and payments cover the sale', () => {
+  it('prints no balance once every unit has come back', () => {
     const built = buildReceiptFromSale(
-      sale({ settledAt: null, payments: [paid(5000)], refunds: [returned(3474)] }),
+      sale({ settledAt: null, payments: [], refunds: [returned(8474, 0)] }),
       shop
     );
     expect(built.balanceDueCents).toBe(0);
   });
 
-  it('measures the debt by goods returned, not by the cash that went back', () => {
-    // A credit return hands back less cash than the goods were worth. The debt
-    // falls by the goods; using the cash figure would keep chasing the difference.
+  it('leaves the debt alone when the return was paid out in full', () => {
+    // 5000 paid, 2000 of goods back, and the customer is handed their 2000 over
+    // the counter. They now hold 6474 of goods having paid 3000 net, so the 3474
+    // they owe has not moved.
+    //
+    // This printed 1474 until 20260908001400: the goods came off the debt and
+    // the cash never went back on, forgiving the same 2000 twice.
+    const built = buildReceiptFromSale(
+      sale({ settledAt: null, payments: [paid(5000)], refunds: [returned(2000, 2000)] }),
+      shop
+    );
+    expect(built.balanceDueCents).toBe(3474);
+  });
+
+  it('moves the debt by the difference when a return is only partly cashed out', () => {
+    // A credit return hands back no more cash than the shop ever took: 3000 of
+    // goods against 1000 collected pays out 1000. The debt falls by the goods
+    // and rises again by the cash, so it moves by the 2000 between them.
     const built = buildReceiptFromSale(
       sale({ settledAt: null, payments: [paid(1000)], refunds: [returned(3000, 1000)] }),
       shop
     );
-    expect(built.balanceDueCents).toBe(8474 - 3000 - 1000);
+    expect(built.balanceDueCents).toBe(8474 - 3000 - 1000 + 1000);
   });
 });

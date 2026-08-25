@@ -294,6 +294,17 @@ const SETTLE_SALE_BALANCE_EDITS: Edit[] = [
   // exactly this fix on the drawer side; a ledger stamped with the sale's
   // branch puts the same cash in two branches that can never be reconciled.
   ['20260908000360', "the entry carries the settling till's store, not the sale's", 'coalesce(v_session.location_id, v_sale.location_id)'],
+  // THE MONEY ONE for this function. v_owed subtracts the VALUE of the goods
+  // returned and adds the CASH handed back on again -- the cash leaving the
+  // drawer is a payment running backwards. Without the second half this RPC
+  // refused to collect more than the understated figure and then stamped
+  // settled_at, stranding the difference in 1100 Accounts Receivable where no
+  // screen in the app could reach it. The token is the whole expression, not
+  // `v_cash_refunded`: a rewrite that declares the variable, reads it and never
+  // adds it satisfies the name and loses the money. customer_balances computes
+  // the identical arithmetic and the two must never diverge.
+  ['20260908001400', 'the cash a refund handed back is still owed',
+    'v_sale.total_cents - v_refunded - v_paid + v_cash_refunded'],
 ];
 
 const RECORD_INVOICE_PAYMENT_EDITS: Edit[] = [
@@ -487,6 +498,26 @@ const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
   // home for them. This one entry is here because it is the cheapest to lose in
   // a copy-forward and the most expensive to be without.
   ['20260908000700', 'the replay is serialised per shop', 'pg_advisory_xact_lock(74921'],
+  // THE OPENING BALANCE. There is no source row for stock that was already on
+  // the shelf when the shop started using kaiibi -- a product created with
+  // `stock: 40` writes no stock_receipts row -- so the replay recorded that
+  // stock LEAVING and nothing arriving, and 1200 Inventory sat in credit with
+  // the trial balance at zero. Three tokens, because losing any one of them
+  // brings the negative asset back in a different way.
+  ['20260908001300', 'the opening stock balance is posted', "'Opening stock', 'opening', 'posted'"],
+  ['20260908001300', 'its amount is the gap between the shelf and the ledger', 'public.opening_inventory_gap(p_shop_id)'],
+  ['20260908001300', 'it is dated where the ledger begins, never the day of the run', 'public.opening_inventory_date(p_shop_id)'],
+  // ...and the early `if v_written = 0 then return 0` MUST NOT COME BACK. It
+  // was an optimisation over statements that are already no-ops on an empty
+  // map, and it skips the opening balance entirely -- which is precisely the
+  // state the shop this was found on is in: already backfilled, nothing left
+  // unposted, and 1200 still negative.
+  //
+  // NOT EXPRESSIBLE HERE, because this file asserts the PRESENCE of a token and
+  // that one is about an absence. It is asserted behaviourally instead, by
+  // verify-backfill.sql check 21: a shop whose only work is its opening balance
+  // -- no sales, no deliveries, nothing in _bf_map at all -- must have one
+  // entry written for it, and an early return makes that check read 0.
 ];
 
 // The two doors that MUTATE or DESTROY a row which has already posted, added by
@@ -552,11 +583,56 @@ const REVERSE_INVOICE_PAYMENT_ENTRY_EDITS: Edit[] = [
   ['20260908001000', 'an entry already reversed is a no-op, not an error', "if v_old.status = 'reversed' then return null"],
   // A payment recorded before 20260908000500 shipped posted nothing.
   ['20260908001000', 'a payment that posted nothing is a no-op', 'if old.journal_entry_id is null then return null'],
-  // Read off the ENTRY: invoice_payments has no shop_id, and on a cascade from
-  // `shops` its invoice has gone too.
-  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = v_old.shop_id'],
+  // A SHOP BEING DELETED WRITES NO MIRROR ENTRY. The edit is 20260908001000's
+  // and stays; only the row it reads the shop from moved. It used to read the
+  // ENTRY (`v_old.shop_id`), because invoice_payments had no shop_id of its own
+  // -- and that is precisely what broke delete_shop in production: on a cascade
+  // from `shops` the entry is destroyed BEFORE this trigger runs, so the guard
+  // was reading a row that was no longer there and the function raised about a
+  // missing entry instead of standing down. 20260908001600 gave
+  // invoice_payments its own shop_id so the guard reads the row being deleted.
+  ['20260908001000', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
+  // AND IT COMES BEFORE THE ENTRY IS READ, which is the whole of the fix -- a
+  // guard below the lookup never gets to run, because the lookup is what fails.
+  // Pinned as the join between the two, not as either one alone: both halves
+  // were present in the broken version, in the wrong order.
+  [
+    '20260908001600',
+    'the shop guard runs before the entry is looked up',
+    'where id = old.shop_id) then\n    return null;\n  end if;\n\n  select * into v_old',
+  ],
   ['20260908001000', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
   ['20260908001000', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
+];
+
+// The delivery side of the same door, added by 20260908001500. `stock_receipts`
+// has no delete policy and no client delete today, so this is the one reversal
+// in the set that was built BEFORE its hole opened -- which makes it the easiest
+// to lose, because nothing in the app exercises it. Losing any entry here leaves
+// 1200 Inventory carrying stock that is not on the shelf and 2000 Accounts
+// Payable carrying money owed for a delivery the shop says never arrived, with
+// every entry still balancing and the trial balance still zeroing.
+const REVERSE_STOCK_RECEIPT_ENTRY_EDITS: Edit[] = [
+  ['20260908001500', 'a deleted delivery reverses the entry it posted', 'reverses_entry_id = v_reversal_id'],
+  ['20260908001500', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  ['20260908001500', 'the reversal is filed under the source it reverses', "v_old.source, 'posted'"],
+  ['20260908001500', 'the original is marked reversed and linked to its mirror',
+    "set status = 'reversed', reverses_entry_id = v_reversal_id"],
+  // An UNCOSTED delivery posts no entry at all -- an ordinary delivery, not an
+  // edge case. Raising here would make deleting one fail outright.
+  ['20260908001500', 'a delivery that posted nothing is a no-op', 'if old.journal_entry_id is null then return null'],
+  // Reachable from the manual ledger screen's void, and from every call of a
+  // future Delete Delivery RPC that reverses inline before deleting -- the shape
+  // delete_invoice_payment already has.
+  ['20260908001500', 'an entry already reversed is a no-op, not an error', "if v_old.status = 'reversed' then return null"],
+  // TODAY THIS IS THE ONLY ROUTE INTO THE TRIGGER AT ALL. stock_receipts.shop_id
+  // cascades from `shops`, the cascade is an AFTER trigger on the parent, and
+  // journal_entries.shop_id is not deferrable -- so a mirror entry written here
+  // aborts the whole shop deletion. Read off old.shop_id: stock_receipts carries
+  // one, unlike invoice_payments.
+  ['20260908001500', 'a shop being deleted writes no mirror entry', 'from public.shops where id = old.shop_id'],
+  ['20260908001500', 'a reversal whose period has closed is redated, not refused', 'select status into v_old_period_status'],
+  ['20260908001500', 'the redated description survives a null period status', "coalesce(v_old_period_status, 'not open')"],
 ];
 
 const DELETE_INVOICE_PAYMENT_EDITS: Edit[] = [
@@ -596,6 +672,7 @@ describe.each([
   ['post_expense_to_ledger', POST_EXPENSE_TO_LEDGER_EDITS],
   ['reverse_expense_entry', REVERSE_EXPENSE_ENTRY_EDITS],
   ['reverse_invoice_payment_entry', REVERSE_INVOICE_PAYMENT_ENTRY_EDITS],
+  ['reverse_stock_receipt_entry', REVERSE_STOCK_RECEIPT_ENTRY_EDITS],
   ['delete_invoice_payment', DELETE_INVOICE_PAYMENT_EDITS],
   ['backfill_shop_ledger', BACKFILL_SHOP_LEDGER_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {

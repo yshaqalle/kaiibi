@@ -1183,6 +1183,122 @@ begin
     raise exception 'FAIL: the never-posted payment row survived its own delete';
   end if;
 
+  ---------------------------------------------------------------------------
+  -- 21. THE FIGURE THE BILLS SCREEN ACCUSES A SHOP WITH.
+  ---------------------------------------------------------------------------
+  -- accounts_payable_debit() (20260908001700) is what the Bills tab reads to
+  -- decide whether to show its `wrong`-toned caveat -- "your books say suppliers
+  -- owe YOU 412.50". It replaced a client-side sum over listPostedLines(), which
+  -- fetched EVERY journal line the shop had ever posted and which PostgREST
+  -- truncates at max-rows (1000) with no error: past that the accusation was
+  -- computed over an arbitrary prefix of the journal.
+  --
+  -- Four things have to hold, and each is a different way of being confidently
+  -- wrong.
+  --
+  --   a) it agrees with the ledger, clamped. A liability sitting in credit is
+  --      not a defect and must read 0, not a negative number the screen would
+  --      have to know to ignore.
+  --   b) a DRAFT does not count. The trial balance beside it takes posted and
+  --      reversed only, and a draft Dr 2000 that moved this figure would put a
+  --      `wrong` on a screen while the trial balance said everything was fine.
+  --   c) when the account really is in debit it reports the AMOUNT. "Something
+  --      is wrong" is not actionable; a number is.
+  --   d) it says whether the shop still has history waiting -- because the
+  --      amount alone cannot tell a missing DELIVERY (fix: record it) from a
+  --      bill entered before posting shipped (fix: Post History), and the first
+  --      remedy applied to the second case invents stock that never arrived.
+  --
+  -- MUTATIONS: drop the `greatest(..., 0)` -> (a) fails, reporting the credit
+  -- balance. Drop `e.status in ('posted','reversed')` -> (b) fails. Replace the
+  -- `exists` with `false` -> (d) fails.
+  declare
+    v_ap_debit  bigint;
+    v_ap_unpost boolean;
+    v_ap_net    bigint;
+    v_draft_e   uuid;
+    v_ghost_pay uuid;
+  begin
+    -- (a) Against the ledger's own arithmetic rather than against a constant,
+    -- so the twenty checks above cannot drift out from under this one.
+    select coalesce(sum(l.amount_cents), 0) into v_ap_net
+      from public.journal_lines l
+      join public.journal_entries e on e.id = l.entry_id
+      join public.accounts a on a.id = l.account_id
+     where e.shop_id = v_shop_id and a.code = '2000'
+       and e.status in ('posted', 'reversed')
+       and e.entry_date <= public.shop_local_date();
+    select debit_cents, has_unposted into v_ap_debit, v_ap_unpost
+      from public.accounts_payable_debit(v_shop_id);
+    if v_ap_debit <> greatest(v_ap_net, 0) then
+      raise exception 'FAIL: accounts_payable_debit says % where 2000 nets to % (clamped: %)',
+        v_ap_debit, v_ap_net, greatest(v_ap_net, 0);
+    end if;
+
+    -- (b) A draft big enough to be unmistakable, left in place: the figure must
+    -- not move by a cent.
+    insert into public.journal_entries
+        (shop_id, period_id, entry_date, reference, description, source, status, created_by)
+      values (v_shop_id, public.open_period_for(v_shop_id, public.shop_local_date()),
+              public.shop_local_date(), 'AP-DRAFT-1', 'A draft nobody has posted', 'manual', 'draft', v_user_id)
+      returning id into v_draft_e;
+    insert into public.journal_lines (entry_id, account_id, amount_cents)
+      select v_draft_e, a.id, 500000 from public.accounts a
+       where a.shop_id = v_shop_id and a.code = '2000';
+    insert into public.journal_lines (entry_id, account_id, amount_cents)
+      select v_draft_e, a.id, -500000 from public.accounts a
+       where a.shop_id = v_shop_id and a.code = '1000';
+    select debit_cents into v_ap_debit from public.accounts_payable_debit(v_shop_id);
+    if v_ap_debit <> greatest(v_ap_net, 0) then
+      raise exception 'FAIL: a DRAFT Dr 2000 moved the payable to % -- the trial balance beside this screen does not count drafts', v_ap_debit;
+    end if;
+
+    -- (c) Now genuinely in debit, by an amount no other figure in this file
+    -- shares. Posted as a manual entry rather than by paying a bill, because
+    -- what is under test is the reading, not the route.
+    perform public.post_journal_entry(v_shop_id, public.shop_local_date(),
+      'Payable driven the wrong way round',
+      jsonb_build_array(
+        jsonb_build_object('code', '2000', 'amount_cents', 41250 - v_ap_net),
+        jsonb_build_object('code', '1000', 'amount_cents', v_ap_net - 41250)),
+      null);
+    select debit_cents into v_ap_debit from public.accounts_payable_debit(v_shop_id);
+    if v_ap_debit <> 41250 then
+      raise exception 'FAIL: 2000 is 41250 into debit and the screen would say %', v_ap_debit;
+    end if;
+
+    -- (d) Nothing waiting, then something, then nothing again. The something is
+    -- a payment row with a null pointer, which is exactly the shape every
+    -- pre-posting shop is full of -- check 20 above is where it comes from.
+    if v_ap_unpost then
+      raise exception 'FAIL: the fixture shop has unposted rows before check 21 puts one there, so this check cannot tell the flag from a constant';
+    end if;
+    insert into public.invoice_payments (invoice_id, amount_cents, paid_on, method, created_by)
+      values (v_invoice_id, 250, public.shop_local_date(), 'cash', v_user_id)
+      returning id into v_ghost_pay;
+    update public.invoice_payments set journal_entry_id = null where id = v_ghost_pay;
+    select has_unposted into v_ap_unpost from public.accounts_payable_debit(v_shop_id);
+    if not v_ap_unpost then
+      raise exception 'FAIL: a payment that never reached the ledger is not reported as unposted -- the Bills screen would offer the destructive remedy';
+    end if;
+    delete from public.invoice_payments where id = v_ghost_pay;
+    select has_unposted into v_ap_unpost from public.accounts_payable_debit(v_shop_id);
+    if v_ap_unpost then
+      raise exception 'FAIL: the flag stayed true after the only unposted row was removed';
+    end if;
+
+    -- And the gate. `ledger.view`, which is exactly what RLS on journal_lines
+    -- enforced before the sum moved into a SECURITY DEFINER function -- so a
+    -- reader who could not see this figure yesterday still cannot. NO ROWS, not
+    -- a zero: zero is a real answer here and it means "your payable is fine".
+    perform set_config('request.jwt.claims', json_build_object('sub', v_user_two)::text, true);
+    select count(*) into v_rows from public.accounts_payable_debit(v_shop_id);
+    if v_rows <> 0 then
+      raise exception 'FAIL: a member holding only expenses.manage was given the shop''s payable balance';
+    end if;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
+  end;
+
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';
