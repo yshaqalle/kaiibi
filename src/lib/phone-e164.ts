@@ -46,7 +46,15 @@ export function toE164(input: string, defaultCountry: string = DEFAULT_COUNTRY):
     const afterCountryCode = digits.startsWith(defaultCountry)
       ? digits.slice(defaultCountry.length)
       : null;
-    if (afterCountryCode === null || afterCountryCode.length < 7) {
+    if (afterCountryCode === null) {
+      // No country-code prefix and no international claim (no +, no 00).
+      // A Somali subscriber number is 9 digits; anything longer than that
+      // is not evidence of a local number, just ambiguous bare digits —
+      // guessing the default country would silently mint a real number
+      // belonging to a stranger. Refuse rather than guess.
+      if (digits.length > 9) return null;
+      digits = defaultCountry + digits;
+    } else if (afterCountryCode.length < 7) {
       digits = defaultCountry + digits;
     }
   }
