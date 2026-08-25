@@ -1,11 +1,13 @@
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, router, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { useEffect } from 'react';
+import { Platform, useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { AuthProvider } from '@/hooks/use-auth';
 import { LocaleProvider } from '@/hooks/use-locale';
 import { useUnlockedOrientation } from '@/hooks/use-orientation';
+import { slugFromHostname } from '@/lib/storefront-host';
 import { TillKeypad } from '@/components/till-keypad';
 
 SplashScreen.preventAutoHideAsync();
@@ -13,6 +15,17 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   useUnlockedOrientation();
+  // Web ships as one SPA behind a catch-all rewrite, so `xamdi.kaiibi.com` and
+  // the app itself load the same bundle. The hostname is the only thing that
+  // tells them apart, and it is read once at boot. slugFromHostname fails
+  // closed, so localhost and preview hosts always get the app.
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const slug = slugFromHostname(window.location.hostname);
+    if (slug && !window.location.pathname.startsWith('/s/')) {
+      router.replace(`/s/${slug}`);
+    }
+  }, []);
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       {/* Above AuthProvider deliberately: language doesn't depend on a
