@@ -522,7 +522,7 @@ begin
   -- exactly as it did. What changed is what the branch CLAIMS: it is an admitted
   -- gap for rows entered before the door existed, not an assertion that a
   -- delivery recognised anything. Check 6b below is the arm that carries the
-  -- claim now, and check 6c is the door itself.
+  -- claim now; the door itself lives in verify-posting-bills.sql, check 24.
   select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
   alter table public.invoices disable trigger invoices_guard_delivery_link;
   insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,

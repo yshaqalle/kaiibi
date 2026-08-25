@@ -99,14 +99,34 @@
 --     line on the balance sheet that no report knows how to present and that
 --     nothing will ever clear.
 --
--- 3000 is what is left, and it is not a residual choice: this IS owner's
--- capital. The shopkeeper put these goods into the business before the app
--- could measure them, exactly as they put in the opening stock, and the
--- opening entry credits 3000 for precisely that. A revaluation of the opening
--- holding and the opening balance itself are the same transaction discovered
--- at two different moments, and they must land in the same place or a shop's
--- capital account depends on whether it happened to be costed before or after
--- somebody pressed Post History.
+-- 3000 is what is left, and it is not a residual choice for the population this
+-- was written about: stock the shopkeeper put into the business before the app
+-- could measure it. A product created with `stock: 40` writes no delivery and
+-- no ledger row of any kind, and the opening entry credits 3000 for precisely
+-- that. A revaluation of the opening holding and the opening balance itself are
+-- the same transaction discovered at two different moments, and they must land
+-- in the same place or a shop's capital account depends on whether it happened
+-- to be costed before or after somebody pressed Post History.
+--
+-- THERE IS A SECOND POPULATION, AND 3000 IS ONLY THE BEST AVAILABLE ACCOUNT FOR
+-- IT -- not a description of it. `v_prior_qty` is whatever is on the shelf, and
+-- the in-app path that fills it is not opening stock at all: a delivery
+-- RECORDED THROUGH RESTOCK WITH THE COST FIELD LEFT EMPTY (an ordinary outcome
+-- -- stock-restock-modal.tsx leaves it empty on purpose and receive_stock
+-- accepts a null cost), later costed by a second delivery of the same product.
+-- Those units came from a supplier. They may still be owed for. Calling them
+-- owner's capital says the shopkeeper contributed goods they in fact bought,
+-- and if the first delivery is later billed the payable is raised against 2000
+-- while its stock sits against 3000.
+--
+-- It is still 3000, because every alternative is worse and none of them is
+-- knowable here: 2000 states a debt no bill supports (and makes the
+-- accounts-payable caveat accuse the shop of an unrecorded delivery), and a
+-- P&L account puts a gain into the month a later delivery happened to land in.
+-- What the entry cannot do is claim to know which population a unit came from.
+-- Its description -- 'Existing stock valued' -- is deliberately about the
+-- MEASUREMENT rather than about where the goods came from, and this paragraph
+-- is what a reader who finds 3000 moving on a trading shop should be sent to.
 --
 -- IT IS A PLUG, AND IT ABSORBS ERROR, the same way the opening balance does.
 -- That is accepted for the same reason and mitigated the same way: it is ONE

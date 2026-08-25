@@ -200,8 +200,32 @@ begin
   -- backfill_shop_ledger's receipt statement both use to decide whether a
   -- delivery is an accounting event at all. Three copies of one question would
   -- be two too many; this is the same question asked at the door.
+  --
+  -- AND IT MUST NOT SAY "RECEIVE IT AGAIN". That was this message's first
+  -- wording and it is the one instruction here that produces a wrong number
+  -- rather than refusing one. An uncosted delivery is an ORDINARY outcome --
+  -- stock-restock-modal.tsx leaves the cost field empty on purpose and
+  -- receive_stock accepts a null cost -- so this refusal is reached by shops
+  -- that did nothing unusual, and it is the only remedy the app offers them.
+  -- Followed, on 50 units already on the shelf: re-receiving 50 @ 100 upserts
+  -- product_location_stock to 100 units, costs the holding at 100, posts the
+  -- delivery's Dr 1200 5,000 / Cr 2000 5,000 AND 20260908001800's revaluation
+  -- of the fifty that were already there, Dr 1200 5,000 / Cr 3000 5,000.
+  -- Inventory overstated by 5,000 against a shelf holding fifty, equity
+  -- overstated by 5,000, and the trial balance perfectly zero. There is no
+  -- undo: stock_receipts has one policy (`read stock_receipts`), no delete, no
+  -- update, no RPC and no UI, so the only correction left is a stock count,
+  -- which books the phantom as Dr 5100 Inventory Shrinkage. A migration
+  -- written to stop the app producing a wrong-but-balanced number must not
+  -- ship copy that produces one.
+  --
+  -- What the message says instead is the truth: the costs cannot be added to a
+  -- delivery afterwards, so this bill cannot be attached to that one. The two
+  -- remedies named are the two that exist -- a different delivery, or a bill
+  -- that is not for goods saying so -- and the prevention is named last,
+  -- because it is the only thing that stops the state recurring.
   if v_value_cents = 0 then
-    raise exception 'That delivery was received without any costs on it, so nothing was ever recorded as owed for it and this bill would have nothing to settle. Receive it again with what it cost, and enter this bill against that one.'
+    raise exception 'That delivery was received without any costs on it, so nothing was ever recorded as owed for it and this bill would have nothing to settle -- and what a delivery cost cannot be added to it afterwards. Do not receive the same goods again to put a cost on them: they would be counted twice, once on your shelf and once in your books, and nothing can take that back. Pick the delivery this bill really pays for, or, if this bill is not for goods, change what it is for. Next time, enter what each line cost as you receive it.'
       using errcode = 'P0001';
   end if;
 
@@ -241,10 +265,29 @@ create trigger invoices_delivery_link_is_final
 -- unposted_ledger_counts: the `not exists` against `invoices` has to see EVERY
 -- bill to be true, and under invoker rights a reader whose RLS hid one bill
 -- would be offered a delivery that is already on it.
-create or replace function public.unbilled_stock_receipts(p_shop_id uuid, p_limit integer default 25)
+--
+-- THE LIMIT AND THE SEARCH ARE WHAT MAKE A MANDATORY FIELD SATISFIABLE. No bill
+-- that exists today carries a link, so the `not exists` leaves EVERY delivery
+-- the shop has ever received unbilled -- the list does not start short and grow,
+-- it starts at the whole history. At the 25 this function first shipped with,
+-- the ordinary weekly pattern (receive through the week, sit down on Friday and
+-- enter the bills) pushes the older half off the end, and the form then disables
+-- Save on a field whose only permitted value is not on the list. The only escape
+-- left is to mis-classify the bill, which puts goods into 6400 Supplies -- the
+-- exact tap the whole migration exists to make harmless.
+--
+-- So: 100 rather than 25, and a search that runs IN THE DATABASE rather than
+-- over the page already fetched, because the delivery a shop cannot find is by
+-- definition the one past the end of the page. The search matches what the row
+-- SHOWS -- supplier, reference, and the date as it is printed -- so a person
+-- typing what is in front of them finds the row they are looking at.
+create or replace function public.unbilled_stock_receipts(p_shop_id uuid, p_limit integer default 100,
+                                                          p_search text default null)
 returns table (id uuid, received_at timestamptz, supplier_name text, reference text,
                location_id uuid, item_count bigint, value_cents bigint)
 language plpgsql stable security definer set search_path = public as $$
+declare
+  v_search text := nullif(btrim(coalesce(p_search, '')), '');
 begin
   if not public.has_shop_permission(p_shop_id, 'invoices.manage') then
     raise exception 'Choosing the delivery a bill pays for needs invoices.manage.' using errcode = 'P0001';
@@ -259,15 +302,24 @@ begin
     from public.stock_receipts r
    where r.shop_id = p_shop_id
      and not exists (select 1 from public.invoices bill where bill.stock_receipt_id = r.id)
+     -- `%` around the term, and the columns are nullable -- a delivery with no
+     -- supplier and no reference simply does not match a search, which is
+     -- right, rather than dropping out of an unsearched list.
+     and (v_search is null
+          or r.supplier_name ilike '%' || v_search || '%'
+          or r.reference ilike '%' || v_search || '%'
+          -- The date AS THE PICKER PRINTS IT (`receivedAt.slice(0, 10)`), so a
+          -- person typing 2026-08 or 08-19 gets the rows they can see.
+          or to_char(r.created_at, 'YYYY-MM-DD') like '%' || v_search || '%')
    order by r.created_at desc
-   limit greatest(coalesce(p_limit, 25), 0);
+   limit greatest(coalesce(p_limit, 100), 0);
 end;
 $$;
 
-comment on function public.unbilled_stock_receipts(uuid, integer) is
-  'Deliveries this shop has received that are not yet on a bill, newest first, with their line count and costed value. Uncosted deliveries are returned at value 0 rather than hidden -- guard_invoice_delivery_link refuses to link one and says why, which is more useful than a delivery that is simply missing from the list. Gates on invoices.manage.';
+comment on function public.unbilled_stock_receipts(uuid, integer, text) is
+  'Deliveries this shop has received that are not yet on a bill, newest first, with their line count and costed value. Uncosted deliveries are returned at value 0 rather than hidden -- guard_invoice_delivery_link refuses to link one and says why, which is more useful than a delivery that is simply missing from the list. p_search matches the supplier, the reference or the date as the picker prints it, and it runs here rather than over the page already fetched, because a delivery past the end of the page is exactly the one a shop cannot find. Gates on invoices.manage.';
 
-grant execute on function public.unbilled_stock_receipts(uuid, integer) to authenticated;
+grant execute on function public.unbilled_stock_receipts(uuid, integer, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. The branch, keyed on the link

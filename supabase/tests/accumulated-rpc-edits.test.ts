@@ -538,11 +538,16 @@ const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
   // The C4 pair, and the two halves must move together: the row is replayed
   // (the filter) AND it credits 2000 rather than the 1010 Bank its literal
   // 'other' payment_method maps to (the branch).
-  // The token is the OPENING of the exclusion rather than the whole of it,
-  // because 20260908001900 widened what is inside the brackets. What it pins is
-  // unchanged and is the point: the exclusion is NARROW -- some bills, not every
-  // bill -- so an ordinary bill's mirrored row is replayed like any other cost.
+  // TWO TOKENS, because the property is the NARROWING and the opening of the
+  // exclusion does not carry it. 20260908001900 widened what is inside the
+  // brackets, so the whole original token no longer appears -- but the opening
+  // on its own (`and not (e.invoice_id is not null`) is satisfied by
+  // `and not (e.invoice_id is not null)`, which excludes EVERY bill from the
+  // replay: the exact opposite of what this entry is here to pin, and green.
+  // The second token is the narrowing half, and it is the one that fails if the
+  // brackets ever collapse back to "no bill is replayed".
   ['20260908000700', "a bill's mirrored expense row IS replayed", 'and not (e.invoice_id is not null'],
+  ['20260908000700', 'and the exclusion stays NARROW -- some bills, not every bill', "and (e.category = 'inventory_purchase'"],
   ['20260908000700', 'a replayed bill credits 2000 Accounts Payable, not a wallet', "when e.invoice_id is not null then '2000'"],
   // 20260908001900, and its twin lives in post_expense_to_ledger above. THE
   // REPLAY AND THE LIVE PATH MUST AGREE: a bill that names its delivery posts

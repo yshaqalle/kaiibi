@@ -310,6 +310,8 @@ recorded at all. products.stock knows nothing.<br>
 
 <p class="note">One new field, between the store picker and the category chips. It reads &ldquo;Not for a delivery&rdquo; by default and is available on <b>every</b> category, not just the goods one &mdash; because the over&#8209;stated case is precisely a goods bill wearing another category, and a field that only appeared for <code>inventory_purchase</code> would never be shown to the person making that mistake.</p>
 
+<p class="note"><b>The search is not a nicety, it is what makes a mandatory field satisfiable.</b> No bill that exists today carries a link, so &ldquo;not yet on a bill&rdquo; starts as <i>every delivery the shop has ever received</i> &mdash; the list does not grow into being long, it begins that way. Receive through the week, sit down on Friday to enter the bills, and the older half is already past the end of the page; Save is then disabled on a field whose one permitted value is not on the list, and mis&#8209;classifying the bill (goods into <code>6400 Supplies</code>) is the only way out. So the page is <b>100</b> rather than 25, and the search runs <b>in the database</b> (<code>unbilled_stock_receipts</code>' <code>p_search</code>) rather than over the rows already fetched &mdash; the delivery a shop cannot find is by definition the one past the end of the page. It matches what the row <i>shows</i>: supplier, reference, and the date as it is printed.</p>
+
 <div class="pair two">
   <div>
     <div class="frameHead"><b>New bill &mdash; a delivery picked</b> <i>invoice-editor-modal.tsx</i></div>
@@ -331,7 +333,8 @@ recorded at all. products.stock knows nothing.<br>
 
         <div class="newmark" style="border-radius:12px">
           <div class="d-lbl">WHICH DELIVERY THIS BILL IS FOR</div>
-          <div class="d-pick">
+          <div class="d-in" style="color:#9ca3af">Search by supplier, reference or date</div>
+          <div class="d-pick" style="margin-top:8px">
             <div class="d-pk">
               <div><div class="t">Hodan Wholesale &middot; HW&#8209;4471</div><div class="s">22 Aug &middot; Main branch &middot; 14 items</div></div>
               <div><span class="v">48.00</span> <span class="tick">&#10003;</span></div>
@@ -417,7 +420,7 @@ recorded at all. products.stock knows nothing.<br>
         </div>
         <div class="d-cav wrong newmark" style="margin-top:12px">
           <span class="dot"></span>
-          <p>You are recording a bill for goods, but no delivery is waiting for one. Receive the delivery in Inventory first &mdash; that is what puts the goods on your shelf <i>and</i> records what you owe for them. Then come back and this bill will have something to point at.
+          <p>You are recording a bill for goods, but no delivery is waiting for one. If these goods were never received into Inventory, receive them there first &mdash; that is what puts them on your shelf <i>and</i> records what you owe for them &mdash; then come back and this bill will have something to point at. If the delivery <i>is</i> already recorded, it is on another bill: find that one rather than receiving the same goods twice, which cannot be undone.
           <span class="act">Receive a delivery in Inventory</span></p>
         </div>
       </div>
@@ -436,10 +439,11 @@ recorded at all. products.stock knows nothing.<br>
             <div><span class="v" style="color:#9ca3af">&mdash;</span></div>
           </div>
         </div>
-        <p class="d-warn newmark">That delivery was received without any costs, so it never reached your books &mdash; there is nothing owed against it for this bill to settle. Receive it again with what it cost, and link this bill to that one.</p>
+        <p class="d-warn newmark">That delivery was received without any costs on it, so it never reached your books &mdash; there is nothing owed against it for this bill to settle, and what it cost can&rsquo;t be added to it now. Don&rsquo;t receive the same goods again to put a cost on them: they would be counted twice, on your shelf and in your books, and nothing can take that back. Pick the delivery this bill really pays for, or, if this bill isn&rsquo;t for goods, change what it&rsquo;s for. Next time, enter what each line cost as you receive it.</p>
       </div>
     </div>
     <p class="note" style="margin-top:10px">The uncosted delivery is shown rather than hidden, because a shopkeeper looking for <i>their</i> delivery and not finding it concludes the picker is broken. It is listed, greyed, and the refusal explains itself. The same predicate the ledger uses decides it: a delivery's costed value, non&#8209;zero &mdash; the one <code>unposted_ledger_source_rows</code>' receipt arm already carries.</p>
+    <p class="note" style="margin-top:10px"><b>It must not say &ldquo;receive it again&rdquo;, and the first draft of this mockup did.</b> An uncosted delivery is an <i>ordinary</i> outcome &mdash; the restock sheet leaves the cost field empty on purpose and <code>receive_stock</code> accepts a null cost &mdash; so this refusal is reached by shops that did nothing unusual, and its sentence is the only remedy the app offers them. Followed on 50 units already on the shelf: re&#8209;receiving 50&nbsp;@&nbsp;100 upserts the stock to <b>100 units</b>, posts the delivery's <code>Dr 1200 5,000 / Cr 2000 5,000</code> <i>and</i> <code>20260908001800</code>'s revaluation <code>Dr 1200 5,000 / Cr 3000 5,000</code>. Inventory overstated by 5,000 against a shelf holding fifty, equity overstated by 5,000, trial balance perfectly zero &mdash; and no undo: <code>stock_receipts</code> has one policy, <code>read stock_receipts</code>, so the only correction left is a stock count booking the phantom as <code>Dr 5100 Inventory Shrinkage</code>. A change written to stop the app producing a wrong&#8209;but&#8209;balanced number must not ship copy that produces one. <b>Save is blocked too</b>, not only warned: without a term for the uncosted delivery in <code>canSave</code>, typing an amount re&#8209;enables it and the database's refusal comes back.</p>
   </div>
 </div>
 </section>
@@ -461,7 +465,7 @@ recorded at all. products.stock knows nothing.<br>
     </div>
     <div class="d-cav wrong">
       <span class="dot"></span>
-      <p>Your books currently say suppliers owe <b>YOU 412.50</b>, which is the wrong way round. It happens when a bill for goods gets paid but the delivery behind it was never entered in Inventory &mdash; the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself. New bills for goods can no longer be entered this way.
+      <p>Your books currently say suppliers owe <b>YOU 412.50</b>, which is the wrong way round. It happens when a bill for goods gets paid but the delivery behind it was never entered in Inventory &mdash; the payment comes off money the books never saw arrive. Enter that missing delivery &mdash; only one that was never received, because receiving the same goods twice cannot be undone &mdash; and this corrects itself. New bills for goods can no longer be entered this way.
       <span class="act">Record the delivery in Inventory</span></p>
     </div>
   </div>
@@ -483,7 +487,7 @@ recorded at all. products.stock knows nothing.<br>
           <span class="d-bamt">380.00 owed</span>
         </div>
       </div>
-      <div class="d-bm" style="margin-top:9px">A stock purchase with no delivery behind it. Paying it will push Accounts Payable the wrong way &mdash; record the delivery in Inventory, or delete this bill and enter it again against one.</div>
+      <div class="d-bm" style="margin-top:9px">A stock purchase with no delivery behind it. Paying it pushes Accounts Payable the wrong way. If that delivery is already in Inventory, delete this bill and enter it again against it. Record the delivery only if those goods were never received into Inventory at all &mdash; receiving the same goods twice cannot be undone.</div>
       <div class="d-acts"><span class="d-pay">Record payment</span><span class="d-grey">Edit</span></div>
     </div>
   </div>
@@ -570,6 +574,10 @@ recorded at all. products.stock knows nothing.<br>
   <div class="vx mid">
     <b>A bill that arrives before the goods.</b>
     <p>Refused, with the reason. There is no delivery to name yet, and a payable for inventory the shop does not hold is a prepayment rather than a stock purchase. The remedy is to enter it when the goods land. Named here because a refusal a user cannot explain is how a feature stops being used.</p>
+  </div>
+  <div class="vx mid">
+    <b>A bill for a delivery that was received with no costs on it.</b>
+    <p>Refused, and there is <b>no in&#8209;app way to put the cost on afterwards</b>: <code>stock_receipts</code> has one policy, <code>read stock_receipts</code>, and no update, no delete, no RPC and no UI. So the bill can be entered under what it is really for, or not at all. What the copy must never say &mdash; and said, until this review &mdash; is <i>receive it again</i>: that doubles the stock, posts a delivery entry and a revaluation on top of it, and cannot be undone by anything except a stock count booking the difference as shrinkage. The real fix is either editable delivery costs or a bill that can carry the cost onto the delivery it names; both are phase&nbsp;3.</p>
   </div>
   <div class="vx bad">
     <b>A goods bill entered under another category and NOT linked.</b>

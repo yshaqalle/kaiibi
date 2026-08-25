@@ -2,6 +2,7 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 import { InvoiceEditorModal } from '@/components/accounting/invoice-editor-modal';
 import { DateInput } from '@/components/date-input';
+import { listUnbilledDeliveries } from '@/lib/stock-receipts';
 import type { Invoice, NewInvoiceInput, UnbilledDelivery } from '@/types/models';
 
 // A BILL FOR GOODS HAS TO SAY WHICH DELIVERY IT PAYS FOR.
@@ -158,8 +159,12 @@ describe('the bill form and the delivery it pays for', () => {
     mockDeliveries = [];
     const { tree } = await render(null);
     const message = String(tree.root.findByProps({ testID: 'invoice-delivery-required' }).props.children);
-    expect(message).toContain('Receive it in Inventory first');
+    expect(message).toContain('receive them there first');
     expect(message).not.toContain('Pick the delivery above');
+    // CONDITIONAL, NOT A STEP. The list also empties because every delivery is
+    // already on a bill, and "go and receive it" told to that shop is an
+    // instruction to receive the same goods twice — which nothing can undo.
+    expect(message).toContain('If these goods were never received into Inventory');
     expect(tree.root.findByProps({ testID: 'invoice-save' }).props.disabled).toBe(true);
   });
 
@@ -206,7 +211,7 @@ describe('the bill form and the delivery it pays for', () => {
     expect(onSave.mock.calls[0][0]).toMatchObject({ category: 'supplies', stockReceiptId: 'recv-1' });
   });
 
-  it('explains an uncosted delivery rather than hiding it', async () => {
+  it('explains an uncosted delivery rather than hiding it, and never says to receive it again', async () => {
     mockDeliveries = [UNCOSTED];
     const { tree } = await render(null);
     // Listed, so the shopkeeper can find the delivery they are holding paper for.
@@ -215,8 +220,57 @@ describe('the bill form and the delivery it pays for', () => {
     press(tree, `invoice-delivery-${UNCOSTED.id}`);
     const message = String(tree.root.findByProps({ testID: 'invoice-delivery-uncosted' }).props.children);
     expect(message).toContain('never reached your books');
+    // THE SENTENCE THAT MUST NOT COME BACK. "Receive it again with what it cost"
+    // was this message's first wording, and following it doubles the stock: the
+    // re-receive upserts the quantity, posts the delivery's Dr 1200 / Cr 2000
+    // AND the revaluation's Dr 1200 / Cr 3000, and stock_receipts has a read
+    // policy and nothing else, so nothing takes it back.
+    expect(message).toContain('Don’t receive the same goods again');
+    expect(message).not.toContain('Receive it again');
     // And no prefill: 0 is not this delivery's value, it is the absence of one.
     expect(amountInput(tree).props.value).toBe('');
+  });
+
+  it('keeps Save refused for an uncosted delivery even once an amount is typed', async () => {
+    // Without a term for this in canSave, `needsDelivery` is satisfied by the id
+    // alone — it knows nothing about the value — so typing an amount re-enables
+    // Save and the form hands back the refusal it exists to prevent.
+    mockDeliveries = [UNCOSTED];
+    const { tree } = await render(null);
+    press(tree, `invoice-delivery-${UNCOSTED.id}`);
+    await act(async () => { amountInput(tree).props.onChangeText('128.00'); });
+    await fillRequiredFields(tree);
+
+    expect(tree.root.findByProps({ testID: 'invoice-save' }).props.disabled).toBe(true);
+    expect(has(tree, 'invoice-delivery-uncosted')).toBe(true);
+  });
+
+  it('searches the database rather than the page already fetched', async () => {
+    // No bill that exists today carries a link, so every delivery the shop has
+    // ever received is unbilled — the list starts at the whole history, and the
+    // delivery a shop cannot find is by definition past the end of the page.
+    // Filtering what came back would leave that one unreachable, and a
+    // mandatory field with no reachable value leaves mis-classifying the bill
+    // as the only way to save it.
+    const { tree } = await render(null);
+    const search = tree.root.findByProps({ testID: 'invoice-delivery-search' });
+    await act(async () => { search.props.onChangeText('BT-0912'); });
+    expect(listUnbilledDeliveries).toHaveBeenLastCalledWith('shop-1', 'BT-0912');
+  });
+
+  it('does not tell a searching shop to go and receive a delivery it already has', async () => {
+    // An empty list under a search term means "nothing matches", not "you have
+    // no deliveries" — and the receive instruction is the one that cannot be
+    // undone if it is followed by mistake.
+    mockDeliveries = [];
+    const { tree } = await render(null);
+    const search = tree.root.findByProps({ testID: 'invoice-delivery-search' });
+    await act(async () => { search.props.onChangeText('nothing matches this'); });
+
+    const message = String(tree.root.findByProps({ testID: 'invoice-delivery-required' }).props.children);
+    expect(message).toContain('Nothing matches that search');
+    expect(message).not.toContain('receive');
+    expect(tree.root.findByProps({ testID: 'invoice-save' }).props.disabled).toBe(true);
   });
 
   it('names a difference between the bill and the delivery rather than blocking it', async () => {
@@ -245,7 +299,12 @@ describe('the bill form and the delivery it pays for', () => {
 
     const message = String(tree.root.findByProps({ testID: 'invoice-delivery-fixed' }).props.children);
     expect(message).toContain('pushes Accounts Payable the wrong way');
-    expect(message).toContain('Record the delivery in Inventory');
+    // THE SAFE REMEDY FIRST, and the other one conditioned. Every bill entered
+    // before the link existed looks like this, including the many whose
+    // delivery WAS received properly — for those, "record the delivery" is an
+    // instruction to receive the same goods twice.
+    expect(message).toContain('delete this bill and enter it again against it');
+    expect(message).toContain('Only if those goods were never received');
     expect(message).toContain('cannot be added afterwards');
     // ...and editing it is still possible. A form that refused to save an old
     // bill because of a link it cannot set would be a worse bug than the one the

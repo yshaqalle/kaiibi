@@ -284,7 +284,7 @@ export function InvoicesTab({
             tone="wrong"
             action={{ label: 'Record the delivery in Inventory', onPress: () => router.push('/inventory') }}
           >
-            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter the missing delivery and this corrects itself. New bills for goods now have to name their delivery, so this cannot happen again.`}
+            {`Your books currently say suppliers owe YOU ${formatAccountingCents(payable.debitCents)}, which is the wrong way round. It happens when a bill for goods gets paid but the delivery was never entered in Inventory — the payment comes off money the books never saw arrive. Enter that missing delivery — only one that was never received, because receiving the same goods twice cannot be undone — and this corrects itself. New bills for goods now have to name their delivery, so this cannot happen again.`}
           </Caveat>
         ) : null}
       </BentoCard>
@@ -333,10 +333,23 @@ export function InvoicesTab({
                     </Text>
                   </View>
                 </View>
+                {/* THE SAFE REMEDY FIRST. This flag is on every goods bill
+                    entered before the link existed, and for most of them the
+                    delivery WAS received properly — only the link is missing,
+                    because there was none to set. "Record the delivery in
+                    Inventory" told to one of those is an instruction to receive
+                    the same goods a second time: the quantity doubles, the
+                    delivery posts Dr 1200 / Cr 2000 and the revaluation posts
+                    Dr 1200 / Cr 3000, and stock_receipts has a read policy and
+                    nothing else, so nothing takes it back. Delete-and-re-enter
+                    is correct either way, so it leads; receiving is named only
+                    for goods that never reached Inventory at all. */}
                 {unlinkedGoods && (
                   <Text style={styles.cardFlag} testID={`invoice-unlinked-${invoice.id}`}>
-                    A stock purchase with no delivery behind it. Paying it pushes Accounts Payable the wrong way — record
-                    the delivery in Inventory, or delete this bill and enter it again against one.
+                    A stock purchase with no delivery behind it. Paying it pushes Accounts Payable the wrong way. If that
+                    delivery is already in Inventory, delete this bill and enter it again against it. Record the delivery
+                    only if those goods were never received into Inventory at all — receiving the same goods twice cannot
+                    be undone.
                   </Text>
                 )}
                 {canManage && (

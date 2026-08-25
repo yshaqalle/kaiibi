@@ -2506,11 +2506,15 @@ begin
   if v_onhand <> 1600 then
     raise exception 'FIXTURE: the shelf is worth %, expected 1600 (eight sacks at 200)', v_onhand;
   end if;
-  if v_ledger <> 1600 then
-    raise exception 'FAIL: 1200 reads % for the later-costed shop, expected 1600 -- the rice, which is all that is left on the shelf. -3400 means the revaluation in 20260908001800 did not post and the fifty opening mats went out through COGS at a cost the ledger was never given (50 x 100 = 5000)', v_ledger;
-  end if;
+  -- ONE ASSERTION, AND IT IS THE AGREEMENT ONE. There used to be two here --
+  -- `v_ledger <> 1600` and then `v_ledger <> v_onhand` -- and the second could
+  -- not fail: the line above pins v_onhand to the literal 1600 and the line
+  -- before it pinned v_ledger to the same literal, so it read as an independent
+  -- agreement check while being dead code. The shelf is the fixture (1600,
+  -- checked above); the ledger is what is under test, and it is compared
+  -- against the shelf rather than against a second copy of the same number.
   if v_ledger <> v_onhand then
-    raise exception 'FAIL: 1200 reads % against a shelf worth % -- an opening balance and a revaluation together must leave the two equal; they differ by %', v_ledger, v_onhand, v_onhand - v_ledger;
+    raise exception 'FAIL: 1200 reads % for the later-costed shop against a shelf worth % -- an opening balance and a revaluation together must leave the two equal. -3400 means the revaluation in 20260908001800 did not post and the fifty opening mats went out through COGS at a cost the ledger was never given (50 x 100 = 5000)', v_ledger, v_onhand;
   end if;
   -- Exactly one revaluation, and it is filed under 'stock' rather than
   -- 'opening'. 'opening' would balance and would read beautifully -- and it

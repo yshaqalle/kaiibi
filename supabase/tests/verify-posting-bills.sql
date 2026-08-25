@@ -115,7 +115,7 @@ declare
   v_pay_one_e     uuid;
   v_pay_two_e     uuid;
   v_was_1000      bigint;
-  -- Checks 22-24: the bill that names the delivery it pays for.
+  -- Checks 22-25: the bill that names the delivery it pays for.
   v_prod          uuid;
   v_delivery      uuid;   -- costed, and the one the linked bill points at.
   v_dry_delivery  uuid;   -- received with no costs on it, so it reached no book.
@@ -125,6 +125,20 @@ declare
   v_2000_now      bigint;
   v_6400_was      bigint;
   v_ap_now        bigint;
+  -- Check 24e: another tenant's delivery, and the shop it belongs to.
+  v_other_shop    uuid;
+  v_other_loc     uuid;
+  v_other_prod    uuid;
+  v_other_deliv   uuid;
+  -- Check 24f: a shop with `accounting` but NOT `inventory`, which no seeded
+  -- plan is -- so this fixture builds the plan as well as the shop.
+  v_nomod_shop    uuid;
+  v_nomod_loc     uuid;
+  v_nomod_plan    uuid;
+  v_bill_nomod    uuid;
+  -- Check 25: what the picker offers.
+  v_free_deliv    uuid;   -- costed, unbilled, and the one it must return.
+  v_picked        record;
 begin
   -- shops.owner_id and shop_members.user_id both reference auth.users(id), so
   -- the fixture "people" need real rows there before anything else.
@@ -1466,7 +1480,7 @@ begin
   end if;
 
   ---------------------------------------------------------------------------
-  -- 24. THE DOOR. FOUR REFUSALS, EACH ITS OWN FAILURE IF IT GOES.
+  -- 24. THE DOOR. SIX ARMS, EACH ITS OWN FAILURE IF IT GOES.
   ---------------------------------------------------------------------------
   -- (a) A goods bill must name a delivery.
   --     MUTATION: delete the raise in guard_invoice_delivery_link's null arm.
@@ -1552,6 +1566,231 @@ begin
   if not v_raised then
     raise exception 'FAIL: two bills were allowed to name the same delivery -- paying both would credit 2000 once and debit it twice';
   end if;
+
+  -- (e) A DELIVERY FROM ANOTHER SHOP CANNOT BE NAMED, and this is the arm that
+  --     matters most of the six: guard_invoice_delivery_link is SECURITY
+  --     DEFINER, so without the shop test a caller who guessed a uuid would
+  --     read back, through the two messages BELOW it, whether that delivery
+  --     exists in some other tenant and whether it was costed. Its own comment
+  --     in 20260908001900 says so. It was pinned only by a presence token in
+  --     accumulated-rpc-edits.test.ts -- text, not behaviour -- so deleting the
+  --     arm and its token together left every check green.
+  --
+  --     MUTATION: delete the `if v_receipt_shop is distinct from new.shop_id`
+  --     raise. Expected: 'FAIL: a bill named another shop's delivery' -- the
+  --     costed one falls through to a link across tenants, which is the leak
+  --     itself rather than the probe.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Someone Else''s Shop')
+    returning id into v_other_shop;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_other_shop, 'Main', true) returning id into v_other_loc;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_other_shop, 'Their sugar', 9000, null, 0) returning id into v_other_prod;
+  -- COSTED, deliberately. An uncosted one would be refused by the value arm
+  -- below even with the shop test gone, and this check would pass against the
+  -- mutation it is written for.
+  v_other_deliv := public.receive_stock(
+    v_other_shop, v_other_loc,
+    jsonb_build_array(jsonb_build_object('product_id', v_other_prod, 'quantity', 4, 'unit_cost_cents', 2500)),
+    'Their Wholesaler', 'TW-0001', null);
+
+  v_raised := false;
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents, stock_receipt_id)
+      values (v_shop_id, v_loc_id, 'Their Wholesaler', 'BW-9005', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 10000, v_other_deliv);
+  exception when others then
+    if sqlerrm not like 'That delivery does not belong to this shop%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a bill named another shop''s delivery -- one tenant''s payable would be settled by another''s bill';
+  end if;
+
+  -- ...and a uuid that names NOTHING gets the same sentence, which is what
+  -- makes the messages useless for probing. v_receipt_shop stays null, `null is
+  -- distinct from <shop>` is true, and the caller learns only that it is not
+  -- theirs -- not whether it exists.
+  v_raised := false;
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents, stock_receipt_id)
+      values (v_shop_id, v_loc_id, 'Nobody', 'BW-9006', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 10000,
+              '00000000-0000-0000-0000-0000000000ff');
+  exception when others then
+    -- A foreign key would also refuse this, with a raw constraint name. That is
+    -- a refusal too, and the assertion accepts it: what must not happen is the
+    -- row going in.
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a bill named a delivery that does not exist';
+  end if;
+
+  -- (f) A SHOP WITH NO `inventory` MODULE KEEPS TODAY'S BEHAVIOUR. receive_stock
+  --     is gated on that module (20260902000000), so such a shop cannot record a
+  --     delivery at all, and demanding one would refuse a bill it has no way to
+  --     satisfy -- bricking stock-purchase bills for a whole class of shop. The
+  --     gate was pinned only by a presence token, like (e).
+  --
+  --     No seeded plan has `accounting` without `inventory`, and an entitlement
+  --     override can only ADD one, so the fixture builds the plan. Everything
+  --     here rolls back with the rest of the script.
+  --
+  --     MUTATION: delete `and public.shop_has_module(new.shop_id, 'inventory')`
+  --     from the null arm. Expected: 'FAIL: a shop with no inventory module was
+  --     refused a stock-purchase bill'.
+  insert into public.plans (key, name, modules, is_public, active)
+    values ('verify-bills-no-inventory', 'Books only', array['pos', 'accounting'], false, true)
+    returning id into v_nomod_plan;
+  insert into public.shops (owner_id, name) values (v_user_id, 'Books Only Shop')
+    returning id into v_nomod_shop;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_nomod_shop, 'Main', true) returning id into v_nomod_loc;
+  update public.shop_subscriptions set plan_id = v_nomod_plan where shop_id = v_nomod_shop;
+
+  -- The fixture's own premise. Without both of these the insert below could
+  -- succeed for the wrong reason -- or fail on `invoices_module` and be read as
+  -- the door refusing it.
+  if public.shop_has_module(v_nomod_shop, 'inventory') then
+    raise exception 'FIXTURE: the books-only shop still has the inventory module -- check 24f is not testing the gate';
+  end if;
+  if not public.shop_has_module(v_nomod_shop, 'accounting') then
+    raise exception 'FIXTURE: the books-only shop lost the accounting module, so it cannot hold a bill at all';
+  end if;
+
+  -- Caught and re-raised as a FAIL, so losing the gate reports what happened
+  -- rather than aborting the script with the shopkeeper-facing sentence and
+  -- leaving the reader to work out which insert it came from.
+  begin
+    insert into public.invoices (shop_id, location_id, vendor_name, invoice_number,
+                                 category, issued_on, due_on, amount_cents)
+      values (v_nomod_shop, v_nomod_loc, 'Paper Wholesale', 'BO-0001', 'inventory_purchase',
+              public.shop_local_date(), public.shop_local_date() + 14, 18000)
+      returning id into v_bill_nomod;
+  exception when others then
+    raise exception 'FAIL: a shop with no inventory module was refused a stock-purchase bill ("%") -- receive_stock is gated on that module, so it has no way to record the delivery the door is demanding', sqlerrm;
+  end;
+
+  -- ...and it posts nothing, which is the same admitted gap check 23 asserts.
+  -- A shop that cannot record a delivery cannot have one recognised for it
+  -- either, and the arm must not quietly start posting Dr 1200 for these.
+  if (select journal_entry_id from public.expenses where invoice_id = v_bill_nomod) is not null then
+    raise exception 'FAIL: a goods bill in a shop with no inventory module posted an entry -- there is no delivery behind it to recognise';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 25. WHAT THE PICKER OFFERS. unbilled_stock_receipts, behaviourally.
+  ---------------------------------------------------------------------------
+  -- The only new SECURITY DEFINER surface on this branch, and it had no
+  -- coverage of any kind: nothing in supabase/tests referenced it, and the
+  -- component test mocks the module that calls it. What is asserted here is
+  -- what a mock cannot: the tenancy scope, the already-billed exclusion, the
+  -- permission gate, and the two bigint figures the form actually uses --
+  -- value_cents drives the amount prefill and the differs-warning, and it
+  -- arrives over PostgREST as a string.
+
+  -- A second costed delivery in THIS shop, unbilled, with a value no other
+  -- figure in this file shares: 6 x 1450 = 8700.
+  v_free_deliv := public.receive_stock(
+    v_shop_id, v_loc_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod, 'quantity', 6, 'unit_cost_cents', 1450)),
+    'Hodan Wholesale', 'HW-4471', null);
+
+  -- (a) THE ALREADY-BILLED EXCLUSION. v_delivery is on v_bill_linked (check
+  --     22); it must not be offered again, or two bills would name it and the
+  --     payable would go negative by a whole delivery's value.
+  --     MUTATION: delete the `and not exists (select 1 from public.invoices
+  --     bill where bill.stock_receipt_id = r.id)` clause. Expected: 'FAIL: the
+  --     picker offered a delivery that is already on a bill'.
+  if exists (select 1 from public.unbilled_stock_receipts(v_shop_id) u where u.id = v_delivery) then
+    raise exception 'FAIL: the picker offered a delivery that is already on a bill -- two bills naming one delivery drive 2000 negative by its whole value';
+  end if;
+  if not exists (select 1 from public.unbilled_stock_receipts(v_shop_id) u where u.id = v_free_deliv) then
+    raise exception 'FAIL: the picker did not offer an unbilled delivery -- a mandatory field with nothing in it cannot be satisfied';
+  end if;
+  -- And the uncosted one IS offered, at 0. Hiding it makes a shopkeeper who
+  -- cannot find their delivery conclude the picker is broken; the door refuses
+  -- the link and says why, which is the more useful answer.
+  select * into v_picked from public.unbilled_stock_receipts(v_shop_id) u where u.id = v_dry_delivery;
+  if not found then
+    raise exception 'FAIL: an uncosted delivery is missing from the picker -- it must be offered and then refused, not hidden';
+  end if;
+  if v_picked.value_cents <> 0 then
+    raise exception 'FAIL: the uncosted delivery is offered at %, expected 0', v_picked.value_cents;
+  end if;
+
+  -- (b) THE FIGURES. One line, six units at 1450. value_cents is what the form
+  --     prefills the amount with and what the differs-warning compares against,
+  --     so a sum over the wrong column is a wrong number typed into a bill.
+  --     MUTATION: drop `* ri.quantity` from the value sum. Expected: 'FAIL: the
+  --     picker values the delivery at 1450, expected 8700'.
+  select * into v_picked from public.unbilled_stock_receipts(v_shop_id) u where u.id = v_free_deliv;
+  if v_picked.value_cents <> 8700 then
+    raise exception 'FAIL: the picker values the delivery at %, expected 8700 (six at 1450)', v_picked.value_cents;
+  end if;
+  if v_picked.item_count <> 1 then
+    raise exception 'FAIL: the picker counts % lines on a one-line delivery', v_picked.item_count;
+  end if;
+  if v_picked.supplier_name <> 'Hodan Wholesale' or v_picked.reference <> 'HW-4471' then
+    raise exception 'FAIL: the picker returned % / % -- the two things a person recognises their delivery by',
+      v_picked.supplier_name, v_picked.reference;
+  end if;
+
+  -- (c) THE TENANCY SCOPE. Another shop's delivery must never appear, and this
+  --     function is SECURITY DEFINER -- RLS is not what keeps it out, the
+  --     `r.shop_id = p_shop_id` predicate is.
+  --     MUTATION: delete `where r.shop_id = p_shop_id`. Expected: 'FAIL: the
+  --     picker offered a delivery belonging to another shop'.
+  if exists (select 1 from public.unbilled_stock_receipts(v_shop_id) u where u.id = v_other_deliv) then
+    raise exception 'FAIL: the picker offered a delivery belonging to another shop';
+  end if;
+
+  -- (d) THE SEARCH, which is what makes a mandatory field satisfiable once a
+  --     shop has more deliveries than a page. It runs in the database rather
+  --     than over the rows already fetched, because the delivery a shop cannot
+  --     find is by definition the one past the end of the page.
+  --     MUTATION: delete the `or r.reference ilike ...` arm. Expected: 'FAIL: a
+  --     search for a delivery's reference did not find it'.
+  if not exists (select 1 from public.unbilled_stock_receipts(v_shop_id, 100, 'HW-4471') u
+                  where u.id = v_free_deliv) then
+    raise exception 'FAIL: a search for a delivery''s reference did not find it';
+  end if;
+  if not exists (select 1 from public.unbilled_stock_receipts(v_shop_id, 100, 'hodan') u
+                  where u.id = v_free_deliv) then
+    raise exception 'FAIL: a search for part of a supplier''s name, in the wrong case, did not find it';
+  end if;
+  -- A search still cannot reach across shops: it narrows the scoped set.
+  if exists (select 1 from public.unbilled_stock_receipts(v_shop_id, 100, 'Their Wholesaler') u) then
+    raise exception 'FAIL: a search found another shop''s delivery -- p_search must narrow the scope, never widen it';
+  end if;
+  -- And a term that matches nothing returns nothing rather than everything --
+  -- the failure a mis-built LIKE gives, and the one that would offer the wrong
+  -- delivery to somebody who typed carefully.
+  if exists (select 1 from public.unbilled_stock_receipts(v_shop_id, 100, 'zzz-no-such-delivery') u) then
+    raise exception 'FAIL: a search that matches nothing returned rows';
+  end if;
+
+  -- (e) THE PERMISSION GATE. `invoices.manage`, the permission the bill form
+  --     itself needs. v_user_two holds expenses.manage and nothing else, and
+  --     the function is SECURITY DEFINER, so without the explicit check it
+  --     would hand a shop's whole delivery history to anyone who could call it.
+  --     MUTATION: delete the has_shop_permission raise. Expected: 'FAIL: a
+  --     member without invoices.manage was given the shop's deliveries'.
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_two)::text, true);
+  v_raised := false;
+  begin
+    select count(*) into v_rows from public.unbilled_stock_receipts(v_shop_id);
+  exception when others then
+    if sqlerrm not like 'Choosing the delivery a bill pays for needs invoices.manage%' then raise; end if;
+    v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: a member without invoices.manage was given the shop''s deliveries';
+  end if;
+  perform set_config('request.jwt.claims', json_build_object('sub', v_user_id)::text, true);
 
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';

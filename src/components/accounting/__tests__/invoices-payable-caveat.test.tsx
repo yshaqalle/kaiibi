@@ -243,10 +243,17 @@ describe('a bill that names no delivery', () => {
     const flag = tree.root.findByProps({ testID: 'invoice-unlinked-inv-1' });
     const message = String(flag.props.children);
     expect(message).toContain('pushes Accounts Payable the wrong way');
-    // Recording the delivery credits 2000 and corrects stock records that are
-    // already out; deleting reverses the bill AND its payments together.
-    expect(message).toContain('record the delivery in Inventory');
-    expect(message).toContain('delete this bill and enter it again against one');
+    // DELETE-AND-RE-ENTER FIRST, RECEIVING ONLY AS A CONDITION. This flag is on
+    // every goods bill entered before the link existed, and for most of them
+    // the delivery WAS received — only the link is missing, because there was
+    // none to set. Telling one of those to "record the delivery in Inventory"
+    // is telling it to receive the same goods a second time: the quantity
+    // doubles, a delivery entry and a revaluation both post, and stock_receipts
+    // has a read policy and nothing else, so nothing takes it back. Deleting
+    // reverses the bill AND its payments together and is correct either way.
+    expect(message).toContain('delete this bill and enter it again against it');
+    expect(message).toContain('Record the delivery only if those goods were never received');
+    expect(message).toContain('cannot be undone');
   });
 
   it('is silent for a goods bill that DOES name one', async () => {

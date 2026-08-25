@@ -54,6 +54,19 @@ export function InvoiceEditorModal({
   // shown to the person making exactly that mistake.
   const [deliveryId, setDeliveryId] = useState<string | null>(invoice?.stockReceiptId ?? null);
   const [deliveries, setDeliveries] = useState<UnbilledDelivery[] | null>(null);
+  // THE SEARCH IS WHAT KEEPS THE FIELD SATISFIABLE. No bill that exists today
+  // carries a link, so every delivery the shop has ever received is unbilled —
+  // the list starts at the whole history rather than growing into it, and the
+  // ordinary pattern (receive through the week, enter the bills on Friday)
+  // pushes the older half past the end of any page. A mandatory field whose one
+  // permitted value is not on the list leaves mis-classifying the bill as the
+  // only way out, which puts goods into 6400 Supplies.
+  //
+  // It runs in the database (`unbilled_stock_receipts`' p_search), not over the
+  // rows already fetched: the delivery a shop cannot find is by definition the
+  // one past the end of the page.
+  const [search, setSearch] = useState('');
+  const searching = search.trim().length > 0;
 
   // Only for a NEW bill. An existing one's link cannot move, so a list of
   // alternatives would be a control that looks like it fixes something and does
@@ -61,20 +74,30 @@ export function InvoiceEditorModal({
   useEffect(() => {
     if (invoice) return;
     let live = true;
-    listUnbilledDeliveries(shopId)
+    listUnbilledDeliveries(shopId, search.trim() || null)
       .then((rows) => { if (live) setDeliveries(rows); })
       // Failing to an EMPTY LIST, not to null. Null means "still loading" and
       // would leave the goods branch below saying nothing at all; an empty list
       // is the honest answer to "what can I link to" when the question could not
       // be answered, and it is the one that keeps Save refused.
       .catch(() => { if (live) setDeliveries([]); });
+    // `live` is the whole ordering story: a slower answer to an earlier search
+    // term lands after this effect has been torn down and is dropped, so the
+    // list can never be showing the results of a term the person has moved on
+    // from.
     return () => { live = false; };
-  }, [shopId, invoice]);
+  }, [shopId, invoice, search]);
 
   const amountCents = toCents(amount);
   const issuedDate = parseDateInput(issuedOn);
   const dueDate = parseDateInput(dueOn);
-  const selectedDelivery = deliveries?.find((d) => d.id === deliveryId) ?? null;
+  // HELD, NOT LOOKED UP IN THE LIST. Searching re-queries the list, so a chosen
+  // delivery can leave it while it is still chosen — and a `find` over the
+  // current page would then read as "nothing is picked" while `deliveryId` is
+  // still what gets saved. Every warning below, and the Save block, would switch
+  // off for a link the database is about to refuse.
+  const [picked, setPicked] = useState<UnbilledDelivery | null>(null);
+  const selectedDelivery = picked;
   // A goods bill has to name a delivery, and the database enforces it. Blocking
   // Save here as well is not belt and braces: the alternative is a form that
   // takes everything the person typed, sends it, and hands back a paragraph.
@@ -85,6 +108,11 @@ export function InvoiceEditorModal({
   // refusing to record them would be worse.
   const linkedAmountDiffers =
     selectedDelivery !== null && amountCents > 0 && amountCents !== selectedDelivery.valueCents;
+  // AND THE DATABASE REFUSES AN UNCOSTED ONE. Without this term, picking an
+  // uncosted delivery and then typing an amount re-enables Save — `needsDelivery`
+  // is satisfied by the id and knows nothing about the value — and the form
+  // hands back the refusal it exists to prevent.
+  const uncostedDelivery = selectedDelivery !== null && selectedDelivery.valueCents === 0;
   // The DB has no constraint that due >= issued (a shop may legitimately be
   // handed a bill already past due), so this is guidance rather than a block.
   const dueBeforeIssued = Boolean(issuedDate && dueDate && dueDate < issuedDate);
@@ -95,7 +123,7 @@ export function InvoiceEditorModal({
 
   const canSave =
     amountCents > 0 && Boolean(invoiceNumber.trim()) && Boolean(issuedDate) && Boolean(dueDate)
-    && !belowPaid && !needsDelivery && !saving;
+    && !belowPaid && !needsDelivery && !uncostedDelivery && !saving;
 
   // Picking a delivery fills the amount from what that delivery cost, because
   // the payable already standing against it is exactly that figure. Only when
@@ -103,6 +131,7 @@ export function InvoiceEditorModal({
   // form arguing with them.
   const pickDelivery = (delivery: UnbilledDelivery | null) => {
     setDeliveryId(delivery?.id ?? null);
+    setPicked(delivery);
     if (delivery && delivery.valueCents > 0 && toCents(amount) === 0) {
       setAmount((delivery.valueCents / 100).toFixed(2));
     }
@@ -220,12 +249,33 @@ export function InvoiceEditorModal({
               <Text style={styles.note} testID="invoice-delivery-fixed">
                 {invoice.stockReceiptId
                   ? 'This bill is against a delivery you received, so it did not add to your stock value again — paying it clears what you owed for that delivery. Which delivery a bill is for is fixed when the bill is entered.'
+                  // THE ORDER OF THE TWO REMEDIES IS THE SAFETY. Every bill
+                  // entered before the link existed looks like this, including
+                  // the ones whose delivery WAS received properly — for those,
+                  // "record the delivery in Inventory" is an instruction to
+                  // receive the same goods a second time, which doubles the
+                  // stock and cannot be undone. Delete-and-re-enter is the
+                  // remedy that is safe either way, so it goes first, and
+                  // receiving is named only for goods that never arrived on
+                  // the books at all.
                   : category === 'inventory_purchase'
-                    ? 'This bill names no delivery, so nothing was ever recorded as owed for it — paying it pushes Accounts Payable the wrong way. Record the delivery in Inventory, or delete this bill and enter it again against one. The link cannot be added afterwards.'
+                    ? 'This bill names no delivery, so nothing was ever recorded as owed for it — paying it pushes Accounts Payable the wrong way. If that delivery is already in Inventory, delete this bill and enter it again against it. Only if those goods were never received into Inventory at all should you record the delivery — receiving the same goods twice cannot be undone. The link cannot be added afterwards.'
                     : 'This bill names no delivery. Which delivery a bill is for is fixed when the bill is entered and cannot be changed afterwards.'}
               </Text>
             ) : (
-              <View style={styles.pick}>
+              <View>
+                {/* Above the list, always — a search that only appears once the
+                    list is long is invisible to the person whose delivery is
+                    already off the end of it. */}
+                <TextInput
+                  value={search}
+                  onChangeText={setSearch}
+                  placeholder="Search by supplier, reference or date"
+                  placeholderTextColor="#9B9B9B"
+                  testID="invoice-delivery-search"
+                  style={[styles.input, styles.searchInput]}
+                />
+                <View style={styles.pick}>
                 {(deliveries ?? []).map((delivery) => {
                   const active = delivery.id === deliveryId;
                   const uncosted = delivery.valueCents === 0;
@@ -258,18 +308,26 @@ export function InvoiceEditorModal({
                 <Pressable onPress={() => pickDelivery(null)} style={[styles.pickRow, styles.pickRowLast]} testID="invoice-delivery-none">
                   <View style={styles.pickMain}>
                     <Text style={styles.pickTitle}>
-                      {deliveries !== null && deliveries.length === 0 ? 'No deliveries waiting for a bill' : 'Not for a delivery'}
+                      {deliveries !== null && deliveries.length === 0
+                        ? searching ? 'No delivery matches that search' : 'No deliveries waiting for a bill'
+                        : 'Not for a delivery'}
                     </Text>
                     <Text style={styles.pickMeta} numberOfLines={2}>
                       {deliveries === null
                         ? 'Loading your deliveries…'
                         : deliveries.length === 0
-                          ? 'Every delivery you have received is already on a bill'
+                          // "Every delivery is already on a bill" is a claim about
+                          // the shop, and a search term makes it false — the rows
+                          // it would describe are simply filtered out.
+                          ? searching
+                            ? 'Clear the search to see every delivery waiting for a bill'
+                            : 'Every delivery you have received is already on a bill'
                           : 'Rent, utilities, transport — anything that is not goods'}
                     </Text>
                   </View>
                   {deliveryId === null && <Text style={styles.pickTick}>✓</Text>}
                 </Pressable>
+                </View>
               </View>
             )}
             {/* Two different sentences, because they need two different next
@@ -280,15 +338,36 @@ export function InvoiceEditorModal({
             {needsDelivery && (
               <Text style={styles.warning} testID="invoice-delivery-required">
                 {deliveries !== null && deliveries.length === 0
-                  ? 'A stock purchase has to say which delivery it pays for, so your stock and your books agree about the same goods — and no delivery is waiting for a bill. Receive it in Inventory first, then enter this bill against it. Or, if this bill is not for goods, change what it’s for.'
+                  ? searching
+                    // A THIRD SENTENCE, because "receive it in Inventory first"
+                    // is advice to record a delivery that may well already be
+                    // recorded and merely filtered out by the search — and
+                    // receiving the same goods twice cannot be undone.
+                    ? 'A stock purchase has to say which delivery it pays for, so your stock and your books agree about the same goods. Nothing matches that search — clear it to see every delivery waiting for a bill.'
+                    // "Receive it in Inventory first" is right for goods that
+                    // never arrived on the books and wrong for goods whose
+                    // delivery is already on another bill — which is the other
+                    // way this list empties. So it is stated as a condition,
+                    // not as a step: receiving the same goods twice cannot be
+                    // undone.
+                    : 'A stock purchase has to say which delivery it pays for, so your stock and your books agree about the same goods — and no delivery is waiting for a bill. If these goods were never received into Inventory, receive them there first and then enter this bill against that delivery. Or, if this bill is not for goods, change what it’s for.'
                   : 'A stock purchase has to say which delivery it pays for, so your stock and your books agree about the same goods. Pick the delivery above — or, if this bill is not for goods, change what it’s for.'}
               </Text>
             )}
-            {selectedDelivery !== null && selectedDelivery.valueCents === 0 && (
+            {/* NEVER "RECEIVE IT AGAIN". That was this message's first wording,
+                and it is the one instruction on this screen that produces a
+                wrong number instead of refusing one: re-receiving 50 units
+                already on the shelf doubles the quantity, posts the delivery's
+                Dr 1200 / Cr 2000 AND the revaluation's Dr 1200 / Cr 3000, and
+                there is no undo — `stock_receipts` has a read policy and
+                nothing else. See the same paragraph in 20260908001900. */}
+            {uncostedDelivery && (
               <Text style={styles.warning} testID="invoice-delivery-uncosted">
                 That delivery was received without any costs on it, so it never reached your books — there is nothing
-                owed against it for this bill to settle. Receive it again with what it cost, and enter this bill
-                against that one.
+                owed against it for this bill to settle, and what it cost can’t be added to it now. Don’t receive the
+                same goods again to put a cost on them: they would be counted twice, on your shelf and in your books,
+                and nothing can take that back. Pick the delivery this bill really pays for, or, if this bill isn’t for
+                goods, change what it’s for. Next time, enter what each line cost as you receive it.
               </Text>
             )}
             {linkedAmountDiffers && (
@@ -366,6 +445,13 @@ function extractErrorMessage(err: unknown, fallback: string): string {
     const message = (err as { message: string }).message;
     if (message.includes('invoices_shop_id_invoice_number_key')) return 'A bill with that number already exists.';
     if (message.includes('invoices_not_overpaid')) return 'That amount is less than what has already been paid.';
+    // ONE BILL PER DELIVERY. The picker only offers unbilled deliveries, so this
+    // is reached by two people entering bills at once — and every other refusal
+    // on this path arrives as a written sentence, where this one would arrive as
+    // `duplicate key value violates unique constraint`.
+    if (message.includes('invoices_stock_receipt_id_key')) {
+      return 'Another bill already names that delivery. A delivery can only be on one bill — open that bill instead, or pick a different delivery.';
+    }
     return message;
   }
   return fallback;
@@ -390,6 +476,7 @@ const styles = StyleSheet.create({
   // list of buttons: it is one field with several possible values, and it sits
   // between two fields that read as grey wells.
   pick: { backgroundColor: '#F2F2F2', borderRadius: 10, paddingHorizontal: 12 },
+  searchInput: { marginBottom: 8 },
   pickRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: '#E4E4E4' },
   pickRowLast: { borderBottomWidth: 0 },
   pickMain: { flex: 1, minWidth: 0 },

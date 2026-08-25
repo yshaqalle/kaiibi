@@ -13,10 +13,22 @@ import type { UnbilledDelivery } from '@/types/models';
 // That is the same truncation `accounts_payable_debit` (20260908001700) was
 // written to remove from the Bills screen.
 
-export async function listUnbilledDeliveries(shopId: string, limit = 25): Promise<UnbilledDelivery[]> {
+// `search` goes to the database rather than filtering what came back, and the
+// limit is 100 rather than a page a shop grows out of. NO EXISTING BILL CARRIES
+// A LINK, so "not yet on a bill" starts as every delivery the shop has ever
+// received — the list does not grow into being long, it begins that way, and a
+// delivery past the end of the page is exactly the one the person is hunting
+// for. The field is mandatory for a goods bill, so a delivery that cannot be
+// found leaves mis-classifying the bill as the only way to save it.
+export async function listUnbilledDeliveries(
+  shopId: string,
+  search: string | null = null,
+  limit = 100
+): Promise<UnbilledDelivery[]> {
   const { data, error } = await supabase.rpc('unbilled_stock_receipts', {
     p_shop_id: shopId,
     p_limit: limit,
+    p_search: search,
   });
   if (error) throw error;
   return ((data ?? []) as Record<string, unknown>[]).map((row) => ({

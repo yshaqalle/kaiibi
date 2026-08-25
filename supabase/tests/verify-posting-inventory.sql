@@ -117,6 +117,7 @@ declare
   v_rev_tea       uuid;   -- nothing on the shelf at all                (13a)
   v_rev_coffee    uuid;   -- costed by its first delivery, then a second (13b)
   v_rev_sample    uuid;   -- 30 uncosted, and an uncosted delivery       (13c)
+  v_rev_bag       uuid;   -- 12 uncosted, and a FREE delivery onto them  (13c-ii)
   v_rev_mat       uuid;   -- 50 uncosted, costed later by a delivery     (13d)
   v_rev_entry     uuid;
   v_onhand        bigint;
@@ -572,6 +573,12 @@ begin
     values (v_rev_shop, 'Tea', 2000, null, 0) returning id into v_rev_tea;
   insert into public.products (shop_id, name, price_cents, cost_cents, stock)
     values (v_rev_shop, 'Sample', 400, null, 30) returning id into v_rev_sample;
+  --     Twelve carrier bags nobody has priced, about to be given a cost of
+  --     ZERO by a free delivery. They contribute nothing to the shelf's value
+  --     either way (12 x 0), so 13d's arithmetic is untouched by their being
+  --     here.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_rev_shop, 'Carrier bag', 100, null, 12) returning id into v_rev_bag;
 
   -- 13a. A DELIVERY ONTO ZERO STOCK POSTS NO REVALUATION. v_new_cost := v_cost
   --      here too -- there is nothing to average against -- but there is also
@@ -688,6 +695,58 @@ begin
     raise exception 'FAIL: an uncosted delivery left the sample costed at % -- null is a question nobody answered, 0 is an answer', v_amount;
   end if;
 
+  -- 13c-ii. A FREE DELIVERY ONTO UNCOSTED STOCK. A cost of ZERO, which is a
+  --      different branch from 13c's ABSENT one and the only case in which the
+  --      revaluation's arithmetic comes out at 0: v_prior_qty is positive by
+  --      the condition and v_new_cost is non-negative, so `12 x 0` is the one
+  --      product that can be zero.
+  --
+  --      This is what the `if v_reval_cents > 0` guard at the foot of
+  --      receive_stock is for, and the consequence of losing it is not a
+  --      misleading entry -- it is a FAILED DELIVERY. journal_lines carries
+  --      `check (amount_cents <> 0)`, so a zero-value entry RAISES, and the
+  --      raise propagates out of receive_stock and takes the whole delivery
+  --      down with it: the goods do not reach the shelf at all.
+  --
+  --      MUTATION: `v_new_cost := nullif(v_cost, 0)` in receive_stock's
+  --      null-cost branch -- "a cost of zero is the same as no cost", which is
+  --      the confusion isUncosted() exists about. Run, and observed: 'FAIL: a
+  --      free delivery left the bags costed at <NULL>, expected 0'.
+  --
+  --      THE OBVIOUS MUTATION HERE REDDENS SOMETHING ELSE FIRST, and that is
+  --      worth recording rather than claiming this check caught it. Changing
+  --      `if v_reval_cents > 0` to `>= 0` makes EVERY delivery that revalues
+  --      nothing post a zero-line entry, so the script dies at its FIRST
+  --      delivery -- 'new row for relation "journal_lines" violates check
+  --      constraint "journal_lines_amount_cents_check"' -- hundreds of lines
+  --      above this block. The guard is genuinely covered; it is simply covered
+  --      by every delivery in the file at once, which is why this check pins
+  --      the free-delivery case by its own facts (the goods landed, the cost is
+  --      0 and not null) instead. `<> 0` is a NO-OP: zero is the excluded value
+  --      either way.
+  select count(*) into v_entries from public.journal_entries where shop_id = v_rev_shop;
+  begin
+    v_receipt_id := public.receive_stock(v_rev_shop, v_rev_loc, jsonb_build_array(
+      jsonb_build_object('product_id', v_rev_bag, 'quantity', 5, 'unit_cost_cents', 0)));
+  exception when others then
+    raise exception 'FAIL: a free delivery onto uncosted stock raised "%" -- a zero revaluation must post nothing, not take the delivery down with it', sqlerrm;
+  end;
+  if (select count(*) from public.journal_entries where shop_id = v_rev_shop) <> v_entries then
+    raise exception 'FAIL: a free delivery onto uncosted stock wrote a journal entry -- the shelf it values is worth nothing and 1200 must not move';
+  end if;
+  --      And the goods DID arrive: seventeen bags, and a cost of 0 that is an
+  --      answer rather than a gap. A build that refused the delivery would fail
+  --      the assertions above; one that quietly skipped the costing would leave
+  --      cost_cents null here and pass them.
+  select stock into v_entries from public.products where id = v_rev_bag;
+  if v_entries <> 17 then
+    raise exception 'FAIL: a free delivery left % bags on the shelf, expected 17 -- the goods arrived whatever the ledger did', v_entries;
+  end if;
+  select cost_cents into v_amount from public.products where id = v_rev_bag;
+  if v_amount is distinct from 0 then
+    raise exception 'FAIL: a free delivery left the bags costed at %, expected 0 -- a recorded zero is a price somebody gave, and isUncosted() is careful about the difference', v_amount;
+  end if;
+
   -- 13d. THE WORKED EXAMPLE. 50 uncosted mats, a delivery of 10 at 100 that
   --      prices all sixty, then all sixty out through the till.
   --
@@ -779,6 +838,21 @@ begin
   if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
               where l.entry_id = v_rev_entry and (a.code like '4%' or a.code like '5%' or a.code like '6%' or a.code = '2000')) then
     raise exception 'FAIL: a revaluation must not touch the P&L or a payable -- nothing was sold, lost or bought';
+  end if;
+  --      TWO LINES, AND NO THIRD. Everything above names an account and asks
+  --      what is on it; none of them can see a line on an account nobody
+  --      thought to list. A third line would have to net to zero across some
+  --      other pair to keep post_journal_entry happy, which is exactly the
+  --      shape that hides in a balanced entry -- 1010 Bank against 1000 Cash
+  --      would sail past every assertion above while telling the shop money
+  --      moved between its wallets.
+  --
+  --      MUTATION: add a third and fourth element to the revaluation's
+  --      jsonb_build_array -- Dr 1000 1 / Cr 1010 1. Expected: 'FAIL: the
+  --      revaluation carries 4 lines, expected exactly 2'.
+  select count(*) into v_entries from public.journal_lines where entry_id = v_rev_entry;
+  if v_entries <> 2 then
+    raise exception 'FAIL: the revaluation carries % lines, expected exactly 2 -- one debit on 1200 and one credit on 3000, and nothing else', v_entries;
   end if;
 
   --      Source, date and location. 'stock', and emphatically NOT 'opening',
