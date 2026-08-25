@@ -1531,6 +1531,21 @@ git commit -m "feat(storefront): product tile whose no-photo case is the design"
 
 - [ ] **Step 1: Write the failing test**
 
+**Testing convention — read before writing the test.** `@testing-library/react-native` is NOT a dependency of this repo. Component tests use `react-test-renderer` with a text-flattening helper; copy the pattern from `src/components/__tests__/list-card.test.tsx`:
+
+```tsx
+import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
+
+function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
+  if (node == null) return [];
+  if (typeof node === 'string') return [node];
+  if (Array.isArray(node)) return node.flatMap(textsIn);
+  return textsIn(node.children as ReactTestRendererJSON[] | null);
+}
+```
+
+Wrap `create(...)` in `act(...)`, then assert against `textsIn(tree.toJSON())` — e.g. `expect(texts).toContain('Xamdi Electronics')` and `expect(texts.filter((t) => t === name).length).toBe(2)`. The assertions below are expressed with `screen.getByText` for readability; translate each into the equivalent `textsIn` assertion. Do not add a new testing dependency.
+
 Create `src/components/__tests__/storefront-view.test.tsx`:
 
 ```tsx
@@ -1903,6 +1918,21 @@ git commit -m "feat(storefront): three photo-optional themes over six palettes"
 - Produces: route `/s/[slug]`; a hostname redirect at app boot.
 
 - [ ] **Step 1: Write the failing test**
+
+**Testing convention — read before writing the test.** `@testing-library/react-native` is NOT a dependency of this repo. Component tests use `react-test-renderer` with a text-flattening helper; copy the pattern from `src/components/__tests__/list-card.test.tsx`:
+
+```tsx
+import { act, create, type ReactTestRendererJSON } from 'react-test-renderer';
+
+function textsIn(node: ReactTestRendererJSON | ReactTestRendererJSON[] | string | null): string[] {
+  if (node == null) return [];
+  if (typeof node === 'string') return [node];
+  if (Array.isArray(node)) return node.flatMap(textsIn);
+  return textsIn(node.children as ReactTestRendererJSON[] | null);
+}
+```
+
+Wrap `create(...)` in `act(...)`, then assert against `textsIn(tree.toJSON())` — e.g. `expect(texts).toContain('Xamdi Electronics')` and `expect(texts.filter((t) => t === name).length).toBe(2)`. The assertions below are expressed with `screen.getByText` for readability; translate each into the equivalent `textsIn` assertion. Do not add a new testing dependency.
 
 Create `src/__tests__/storefront-route.test.tsx`:
 
