@@ -371,7 +371,7 @@ git commit -m "feat(storefront): slug rules, which are DNS's rules"
 
 ### Task 3: Phone normalisation to E.164
 
-Every WhatsApp link needs E.164. `shops.contact_phone` is free text and cannot be dialled.
+Every WhatsApp link needs E.164. The existing phone is `shop_locations.contact_phone`, free text, and cannot be dialled.
 
 **Files:**
 - Create: `src/lib/phone-e164.ts`
