@@ -80,6 +80,32 @@
 --      asserts the REPLAY reaches the same figures, because a backfill that
 --      posted history one way while the trigger posts new rows another way
 --      would leave a shop's books changing shape on the date it was migrated.
+--  3i-2. AND 1200 EQUALS WHAT IS ON THE SHELF, which no check in this file
+--      asserted until the opening balance existed. The movements alone sum to
+--      -8600 here: a NEGATIVE ASSET over a trial balance of exactly zero, which
+--      is the state a real shop was found in after 54 entries that all
+--      reconciled. Every check in this file passed while it was true.
+--  17. THE SHOP IT WAS FOUND ON, in miniature: stock typed into a product form,
+--      never received, partly sold. Its own shop, because "where did this stock
+--      come from" is answered once per shop and for ever.
+--  18. A SHOP WHOSE STOCK REALLY DID ARRIVE gets no opening entry at all --
+--      the delivery already debited 1200 and an opening balance on top would
+--      count the goods twice, with the trial balance still zero.
+-- 18b. AND THE OTHER DIRECTION. A ledger claiming more stock than the shelf
+--      holds is corrected the other way, Cr 1200 / Dr 3000. The only negative
+--      gap in this file, and without it a `greatest(0, ...)` clamp survives
+--      every check here while leaving an OVERSTATED asset -- the more dangerous
+--      of the two directions.
+--  19. NO STOCK, NO HISTORY: nothing is posted. journal_lines refuses a zero
+--      amount, so an unconditional opening entry would fail every new shop's
+--      first backfill with a constraint violation.
+--  20. RE-RUNNING WRITES NO SECOND OPENING BALANCE, including after a
+--      re-costing -- which is the half the amount guard cannot cover and the
+--      marker exists for.
+--  21. AN UNCOSTED PRODUCT CONTRIBUTES NOTHING, asserted against the plausible
+--      wrong answer (its selling price) rather than against zero, because
+--      "nothing" and "zero" are the same number and a check that could not tell
+--      them apart would prove nothing.
 --  3k. THE SAME EQUIVALENCE FOR A BILL AND ITS PAYMENT. Entering the bill
 --      recognises Dr the category's account / Cr 2000; paying it debits 2000;
 --      and what is left in 2000 across the pair is what the bill still owes.
@@ -150,6 +176,20 @@ declare
   v_seq       integer;
   v_max_ref   text;
   v_product   uuid;
+  -- The opening balance the door predicts before the replay runs, held so
+  -- check 3i can assert the replay posted exactly it.
+  v_open_expected bigint;
+  -- Checks 17-21, the opening balance's own shops. Each is a different answer
+  -- to "where did this stock come from", and they are separate shops rather
+  -- than states of one because the question is settled per shop, once, for ever.
+  v_shop_import uuid;   -- 17, 20: stock typed into a product form, never received
+  v_shop_recvd  uuid;   -- 18: stock that really did arrive through a delivery
+  v_shop_empty  uuid;   -- 19: no stock, no history
+  v_shop_uncost uuid;   -- 21: costed and uncosted stock side by side
+  v_shop_blind  uuid;   -- 21: nothing but uncosted stock
+  v_shop_short  uuid;   -- 18b: a ledger claiming more stock than the shelf has
+  v_loc2        uuid;
+  v_prod2       uuid;
 begin
   v_old_at    := (v_old_day + time '22:30')::timestamp at time zone 'UTC';
   v_old_local := public.shop_local_date(v_old_at);
@@ -183,8 +223,21 @@ begin
   -- nullable (a product deleted since the sale sets it null), and leaving it
   -- null keeps refund_sale_items' stock movement out of a fixture that is
   -- about the ledger.
-  insert into public.products (shop_id, name, price_cents, cost_cents)
-    values (v_shop_id, 'Sack of rice', 5000, 200) returning id into v_product;
+  --
+  -- AND IT OPENS WITH EIGHT SACKS ON THE SHELF, which is the fixture's whole
+  -- statement about the opening balance. `stock` on the products row is what
+  -- the product form and CSV import write, and product_opening_stock
+  -- (20260810000000) turns it into a product_location_stock row at the primary
+  -- location. NO stock_receipts ROW IS WRITTEN, because nothing was received --
+  -- the shopkeeper was describing what was already there. That is the hole
+  -- 20260908001300 exists to fill: the replay records this stock leaving, in
+  -- COGS and in shrinkage, and had no record of it ever arriving.
+  --
+  -- Eight at 200 = 1600, which is what 1200 Inventory must read once everything
+  -- has posted. It is deliberately the same eight the stock count below counted,
+  -- so the fixture describes one coherent shelf rather than two.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_id, 'Sack of rice', 5000, 200, 8) returning id into v_product;
 
   ---------------------------------------------------------------------------
   -- SALE A -- the till sale, three months back, with a LINE-LEVEL discount.
@@ -622,29 +675,51 @@ begin
   --
   -- And sale = 4, not 5: sale E carries no money and is never replayed, so a
   -- view missing the six-term "carries money" disjunction reads 5.
+  --
+  -- opening = 1, AND IT IS THE ONE ROW HERE WITH NO SOURCE ROW BEHIND IT. The
+  -- opening balance is something a run WRITES, so the door has to count it or
+  -- the button promises fewer entries than it posts -- and its existence
+  -- depends on an AMOUNT the door cannot see directly, because part of that
+  -- amount is lines the replay has not written yet. opening_inventory_gap()
+  -- is the single definition both sides call; see 20260908001300's header. A
+  -- door that simply omitted the ninth kind would say 14 and write 15.
+  --
+  -- MUTATION (proves this row): drop the opening arm from
+  -- unposted_ledger_sources. Expected: FAIL: unposted_ledger_counts disagrees
+  -- with the replay, got: ... (no opening=1).
   select sum(rows_unposted), min(oldest_on) into v_rows, v_bf_oldest
     from public.unposted_ledger_counts(v_shop_id);
 
   select string_agg(kind || '=' || rows_unposted, ' ' order by kind) into v_text
     from public.unposted_ledger_counts(v_shop_id);
-  if v_text <> 'count=1 expense=4 invoice_payment=1 payroll=1 receipt=1 refund=2 sale=4 settlement=0' then
+  if v_text <> 'count=1 expense=4 invoice_payment=1 opening=1 payroll=1 receipt=1 refund=2 sale=4 settlement=0' then
     raise exception 'FAIL: unposted_ledger_counts disagrees with the replay, got: %', v_text;
   end if;
 
-  -- All eight kinds come back even at zero: "nothing to do" is the state this
+  -- All nine kinds come back even at zero: "nothing to do" is the state this
   -- door is in for ever after its first run, and a list that drops its empty
   -- rows cannot be told apart from one that failed to look.
   select count(*) into v_bf_kinds from public.unposted_ledger_counts(v_shop_id);
-  if v_bf_kinds <> 8 then
-    raise exception 'FAIL: unposted_ledger_counts returned % kinds, expected all 8 including the zeroes', v_bf_kinds;
+  if v_bf_kinds <> 9 then
+    raise exception 'FAIL: unposted_ledger_counts returned % kinds, expected all 9 including the zeroes', v_bf_kinds;
   end if;
+
+  -- AND THE AMOUNT THE DOOR PREDICTS IS THE AMOUNT THE REPLAY POSTS. Captured
+  -- here, before anything is written, and asserted against the opening entry's
+  -- own 1200 line further down (check 3i). This is the pin on the hardest part
+  -- of 20260908001300: the door has to know the opening balance BEFORE the
+  -- lines that determine it exist, which it does by predicting the replay's own
+  -- inventory movement off the same eight predicates. If that prediction ever
+  -- drifts from what the line statements actually write, this is what reddens
+  -- rather than the door quietly promising the wrong figure.
+  v_open_expected := public.opening_inventory_gap(v_shop_id);
 
   v_posted := public.backfill_shop_ledger(v_shop_id);
   if v_rows <> v_posted then
     raise exception 'FAIL: the door said % rows were unposted, the replay wrote % entries', v_rows, v_posted;
   end if;
-  if v_posted <> 14 then
-    raise exception 'FAIL: expected 14 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 3 expenses incl. the bill, 1 delivery payment), got %', v_posted;
+  if v_posted <> 15 then
+    raise exception 'FAIL: expected 15 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 3 expenses incl. the bill, 1 delivery payment, 1 opening balance), got %', v_posted;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1044,11 +1119,18 @@ begin
   -- 1200 is derived from the four source tables rather than pinned to -7900,
   -- because each of the four terms is written by a different lines statement
   -- and the total is what proves they agree.
+  --
+  -- THE OPENING ENTRY IS EXCLUDED FROM THIS ONE, and included in the two below
+  -- it. What this figure measures is the MOVEMENTS -- the four lines statements
+  -- agreeing with the rows they replay -- and it is exactly as sharp as it was
+  -- before 20260908001300. What it is no longer is the shop's inventory: -8600
+  -- is a negative asset, which is the whole defect that migration exists to
+  -- remove, and asserting the total against it would pin the defect in place.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
-   where e.shop_id = v_shop_id and a.code = '1200';
+   where e.shop_id = v_shop_id and a.code = '1200' and e.source <> 'opening';
   select coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
                      from public.stock_receipt_items ri
                      join public.stock_receipts r on r.id = ri.receipt_id
@@ -1070,8 +1152,96 @@ begin
                       and e2.stock_count_id is null), 0)
     into v_report;
   if v_ledger <> v_report then
-    raise exception 'FAIL: 1200 Inventory is % but the deliveries, count, sales, returns and write-offs say % -- off by %',
+    raise exception 'FAIL: the 1200 Inventory MOVEMENTS are % but the deliveries, count, sales, returns and write-offs say % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 3i-2. AND 1200 IS WHAT IS ACTUALLY ON THE SHELF. THE HEADLINE ASSERTION.
+  ---------------------------------------------------------------------------
+  -- The movements above sum to -8600: a NEGATIVE ASSET, over books whose trial
+  -- balance is perfectly zero. That is the state a real shop was found in --
+  -- 1200 in credit $1,100 after 54 entries that all reconciled -- and it is
+  -- what 20260908001300 exists to end. Every check in this file passed while it
+  -- was true, which is why this one had to be added rather than inferred.
+  --
+  -- 1600, spelled out: eight sacks of rice on the shelf at 200 each. The
+  -- fixture's product is created with `stock: 8` and no stock_receipts row
+  -- behind it, exactly as a product form or a CSV import leaves things, and the
+  -- count above counted the same eight. ASSERTED AS A LITERAL, computed by hand
+  -- from the fixture, NOT as sum(stock * cost_cents) -- that is the expression
+  -- the migration itself uses, and re-running it here would be the same
+  -- arithmetic twice: it would pass a build that valued stock at price_cents,
+  -- or at zero, or not at all, as long as both sides moved together.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  if v_ledger <> 1600 then
+    raise exception 'FAIL: 1200 Inventory reads % after the replay, expected 1600 -- eight sacks at 200 is what is on the shelf. -8600 means no opening balance was posted and the asset is negative; 10200 means the opening balance was posted without the movements being netted off it', v_ledger;
+  end if;
+
+  -- ...and it got there through ONE opening entry, of the amount the door
+  -- predicted before the run. 10200 = 1600 on the shelf + 8600 the ledger had
+  -- taken out of it, and it is the value of the stock the shop must have opened
+  -- with: 43 sacks' worth of goods that no delivery ever accounted for.
+  --
+  -- Both halves are asserted. The 1200 debit is what makes the balance sheet
+  -- true; the 3000 credit is where it came from, and a build that debited 1200
+  -- against 5100 or 4000 would pass every other check in this file while
+  -- inventing profit or cost out of nothing.
+  --
+  -- MUTATION (proves the 1600): drop the "less what the ledger already holds
+  -- against 1200" term from opening_inventory_gap, i.e. open with today's stock
+  -- and nothing else -- the first framing 20260908001300's header rejects.
+  -- Expected: FAIL: 1200 Inventory reads -7000 after the replay, expected 1600.
+  --
+  -- MUTATION (proves the door/replay pin below): drop the
+  -- `- public.unposted_inventory_movement(p_shop_id)` term. THE REPLAY IS
+  -- UNAFFECTED -- by the time it calls the function that term is already zero,
+  -- which is the property the whole design rests on -- so only the DOOR moves,
+  -- and the pin is the only thing in this file that can see it. Expected:
+  -- FAIL: the door predicted an opening balance of 1600 and the replay posted
+  -- 10200.
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_id and source = 'opening';
+  if v_rows <> 1 then
+    raise exception 'FAIL: % opening entries were written, expected exactly 1', v_rows;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200' and e.source = 'opening';
+  if v_ledger <> 10200 then
+    raise exception 'FAIL: the opening entry debits % to 1200 Inventory, expected 10200 (1600 on the shelf plus the 8600 the replay took out of it)', v_ledger;
+  end if;
+  if v_ledger <> v_open_expected then
+    raise exception 'FAIL: the door predicted an opening balance of % and the replay posted % -- the Post History card promises a figure the run does not write',
+      v_open_expected, v_ledger;
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '3000';
+  if v_ledger <> -10200 then
+    raise exception 'FAIL: 3000 Owner''s Capital is % after the opening entry, expected -10200 -- opening stock is capital the owner put in, not revenue and not a reversal of cost', v_ledger;
+  end if;
+
+  -- And no location on either line. The amount is a shop-level residue: a large
+  -- part of what it nets off carries no location at all (sales.location_id
+  -- arrived in 20260809000000, expenses.location_id in 20260816000000), so a
+  -- per-branch split would charge today's shelf to the branches while the
+  -- shop's own history fell into a null bucket. See 20260908001300's header.
+  if exists (select 1 from public.journal_lines l
+               join public.journal_entries e on e.id = l.entry_id
+              where e.shop_id = v_shop_id and e.source = 'opening'
+                and (l.location_id is not null or e.location_id is not null)) then
+    raise exception 'FAIL: the opening entry carries a location -- the plug is shop-level and a branch figure derived from it would be exact-looking and unfounded';
   end if;
 
   select coalesce(sum(l.amount_cents), 0) into v_ledger
@@ -1344,8 +1514,21 @@ begin
     raise exception 'FAIL: revenue is % after a second run, expected 27000', v_ledger;
   end if;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
-  if v_rows <> 15 then
-    raise exception 'FAIL: a second run left % entries, expected 15', v_rows;
+  if v_rows <> 16 then
+    raise exception 'FAIL: a second run left % entries, expected 16', v_rows;
+  end if;
+
+  -- AND NO SECOND OPENING BALANCE. The eight replays are held down by
+  -- journal_entry_id; the opening entry has no source row and therefore no
+  -- pointer, so it is held down by opening_inventory_gap() returning 0 once one
+  -- exists. Counted separately from the total above because a second opening
+  -- entry would be balanced, would leave the trial balance at zero, and would
+  -- simply double the shop's inventory -- the same shape of failure this file's
+  -- check 10 exists for on settlements.
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_id and source = 'opening';
+  if v_rows <> 1 then
+    raise exception 'FAIL: a second backfill left % opening entries, expected 1', v_rows;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1451,8 +1634,8 @@ begin
   -- replayed history.
   select string_agg(distinct source, ',' order by source) into v_text
     from public.journal_entries where shop_id = v_shop_id;
-  if v_text <> 'bill,count,manual,payment,payroll,refund,sale,settlement,stock' then
-    raise exception 'FAIL: the sources written are "%", expected bill,count,manual,payment,payroll,refund,sale,settlement,stock', v_text;
+  if v_text <> 'bill,count,manual,opening,payment,payroll,refund,sale,settlement,stock' then
+    raise exception 'FAIL: the sources written are "%", expected bill,count,manual,opening,payment,payroll,refund,sale,settlement,stock', v_text;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1570,7 +1753,7 @@ begin
   -- pay runs clears 9,999 inside a busy year, and this is exactly where a shop
   -- crosses it for the first time.
   --
-  -- Set to 9998, so the fourteen entries this run writes span 9998, 9999 and then
+  -- Set to 9998, so the fifteen entries this run writes span 9998, 9999 and then
   -- five digits. The assertion is on the reference TEXT, not on the unique
   -- index: 'JE-YYYY-1000' does not collide with anything in this fixture, so a
   -- truncating build would write it, look fine, and collide only on the shop
@@ -1579,8 +1762,8 @@ begin
    where shop_id = v_shop_id and year = to_char(public.shop_local_date(), 'YYYY');
 
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 14 then
-    raise exception 'FAIL: a closed period stopped the backfill, only % of 14 entries written', v_posted;
+  if v_posted <> 15 then
+    raise exception 'FAIL: a closed period stopped the backfill, only % of 15 entries written', v_posted;
   end if;
 
   -- AND NEITHER SHUT MONTH MOVED. This is the behaviour the door now has to
@@ -1797,6 +1980,396 @@ begin
   end if;
   if v_text not like '%update public.expenses e set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''expense'' and m.source_id = e.id and e.journal_entry_id is null;%' then
     raise exception 'FAIL: the expenses back-link does not re-check journal_entry_id is null';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 17. THE SHOP THE WHOLE THING WAS FOUND ON: STOCK THAT NEVER ARRIVED.
+  ---------------------------------------------------------------------------
+  -- A separate shop, because "where did this stock come from" is answered once
+  -- per shop and for ever, and four different answers cannot be four states of
+  -- the same one.
+  --
+  -- This is the shape of every shop that started using kaiibi with a shelf
+  -- already full: twenty bags of flour typed into the product form at 100 each,
+  -- no stock_receipts row anywhere, five of them sold. The replay records the
+  -- five leaving -- Cr 1200 by 500 -- and, before 20260908001300, recorded
+  -- nothing arriving. 1200 read MINUS 500: a negative asset, over a trial
+  -- balance of exactly zero, which is why fourteen checks above this one passed
+  -- while it was true.
+  --
+  -- The figures are chosen so that every one can be read off the fixture rather
+  -- than recomputed with the migration's own expression:
+  --   opened with     20 x 100 = 2000   <- what the opening entry must say
+  --   sold             5 x 100 =  500   <- what the sale's COGS took out
+  --   on the shelf     15 x 100 = 1500  <- what 1200 must read at the end
+  --
+  -- THE MUTATIONS THIS SHOP OWNS ARE THE TWO AT ITS DATE ASSERTION BELOW. Its
+  -- 1200 and 3000 figures are the same property check 3i-2 pins on the main
+  -- fixture, and a mutation to the amount reddens there first -- valuing stock
+  -- at nothing gives "1200 Inventory reads 0 after the replay, expected 1600"
+  -- from check 3i-2, never from here. That is not a reason to drop these
+  -- assertions: this shop's arithmetic is three numbers a reader can hold in
+  -- their head (20 bought, 5 sold, 15 left), where the main fixture's is
+  -- fourteen entries deep, so this is where the failure is legible.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Imported Shop')
+    returning id into v_shop_import;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_import, 'Main', true) returning id into v_loc2;
+
+  -- `stock: 20` on the products row is what the product form and CSV import
+  -- write. product_opening_stock turns it into a product_location_stock row;
+  -- nothing writes a stock_receipts row, because nothing was received.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_import, 'Bag of flour', 900, 100, 20) returning id into v_prod2;
+
+  -- RUNG THREE MONTHS AGO, reusing the main fixture's old instant, and the age
+  -- is load-bearing rather than colour. Dated ten days ago -- which is what this
+  -- shop had at first -- "the first of the month the ledger begins in" and "the
+  -- first of the month the backfill was run in" ARE THE SAME DAY for most of
+  -- any month, and a build that stamped the opening balance with the day of the
+  -- run passed this check and every other one in the file. Three months back
+  -- separates them every day of the year.
+  insert into public.sales
+      (shop_id, location_id, created_by, payment_method, total_cents, item_count,
+       created_at, discount_cents, tax_cents, settled_at)
+    values (v_shop_import, v_loc2, v_user_id, 'cash', 1500, 5,
+            v_old_at, 0, 0, v_old_at)
+    returning id into v_sale_a;
+  insert into public.sale_items
+      (sale_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents)
+    values (v_sale_a, 'Bag of flour', 300, 5, 1500, 0, 100);
+  insert into public.sale_payments (sale_id, method, amount_cents, created_at)
+    values (v_sale_a, 'cash', 1500, v_old_at);
+  -- The five that were sold, taken off the shelf. Written directly for the
+  -- reason the whole fixture is: this is what pre-phase-2b history looks like,
+  -- and complete_sale would have posted the sale's entry and left nothing to
+  -- replay.
+  update public.product_location_stock set stock = 15
+   where product_id = v_prod2 and location_id = v_loc2;
+
+  v_posted := public.backfill_shop_ledger(v_shop_import);
+  if v_posted <> 2 then
+    raise exception 'FAIL: the imported shop''s replay wrote % entries, expected 2 (the sale and the opening balance)', v_posted;
+  end if;
+
+  -- THE ASSERTION THIS WHOLE TASK IS FOR. 1500, and above all NOT -500.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_import and a.code = '1200';
+  if v_ledger <> 1500 then
+    raise exception 'FAIL: the imported shop''s 1200 Inventory reads %, expected 1500 (fifteen bags at 100 still on the shelf). -500 means no opening balance was posted and the asset is negative; 2000 means the sale''s cost was not netted off the opening figure', v_ledger;
+  end if;
+  if v_ledger < 0 then
+    raise exception 'FAIL: 1200 Inventory is NEGATIVE at % -- a shop cannot hold less than no stock, and this is the exact state the opening balance exists to remove', v_ledger;
+  end if;
+
+  -- And the opening entry says what the shop OPENED with -- 20 x 100 -- which
+  -- is a fact about the fixture and not about the migration's arithmetic.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_import and a.code = '1200' and e.source = 'opening';
+  if v_ledger <> 2000 then
+    raise exception 'FAIL: the opening entry debits % to 1200, expected 2000 -- the twenty bags the shop started with, at 100 each', v_ledger;
+  end if;
+
+  -- Dated the first of the month the ledger begins in, never the day of the
+  -- run. Stamped at run time, every balance sheet the shop could draw for any
+  -- date before today would still show 1200 negative -- the defect, moved
+  -- rather than fixed -- and it would come right only at the instant somebody
+  -- happened to press the button.
+  --
+  -- MUTATION (proves this check): make opening_inventory_date read
+  -- public.shop_local_date() instead of the ledger's own oldest date. Expected:
+  -- FAIL: the opening entry is dated <the 1st of this month>, expected <the 1st
+  -- of the sale's month>. THIS MUTATION SURVIVED THE FIRST TIME IT WAS RUN,
+  -- because the shop's sale was ten days old and the two months coincided; the
+  -- sale is three months back now for exactly that reason.
+  --
+  -- MUTATION (proves the date_trunc): drop it, giving the day of the first
+  -- trade rather than the first of its month. Expected: FAIL: the opening
+  -- entry is dated <the 14th>, expected <the 1st>.
+  select e.entry_date into v_date from public.journal_entries e
+   where e.shop_id = v_shop_import and e.source = 'opening';
+  if v_date <> date_trunc('month', v_old_local::timestamp)::date then
+    raise exception 'FAIL: the opening entry is dated %, expected % -- the first day of the month the shop''s ledger begins in',
+      v_date, date_trunc('month', v_old_local::timestamp)::date;
+  end if;
+  if v_date > (select min(e2.entry_date) from public.journal_entries e2
+                where e2.shop_id = v_shop_import and e2.source <> 'opening') then
+    raise exception 'FAIL: the opening balance is dated after the first thing the shop did -- stock cannot be sold before it is on the books';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 18. A SHOP WHOSE STOCK REALLY DID ARRIVE. NO DOUBLE COUNT.
+  ---------------------------------------------------------------------------
+  -- The delivery already debits 1200. If the opening balance were "today's
+  -- stock at today's cost" -- the first framing 20260908001300's header rejects
+  -- -- this shop's inventory would read 5000 for 2500 of goods, and the trial
+  -- balance would still be zero because 3000 Owner's Capital would carry the
+  -- other half.
+  --
+  -- Nothing is posted here, and that is the point: under a moving weighted
+  -- average the running total of 1200 IS quantity x cost, so on-hand less the
+  -- ledger is zero and there is nothing to open with.
+  --
+  -- MUTATION (proves this check): drop the `if v_open_cents <> 0` guard around
+  -- step 6b. This shop is the first one in the file with a gap of exactly zero,
+  -- so it is where an unconditional opening entry stops being a design opinion
+  -- and becomes a database error. Expected: ERROR: new row for relation
+  -- "journal_lines" violates check constraint "journal_lines_amount_cents_check".
+  --
+  -- The other mutation this shop was written for -- dropping the "less what the
+  -- ledger already holds against 1200" term, so the delivery is counted twice
+  -- -- reddens check 3i-2 on the main fixture first, at -7000. Kept anyway,
+  -- because a total on a fourteen-entry fixture cannot say WHICH double count
+  -- happened and this can.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Delivered Shop')
+    returning id into v_shop_recvd;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_recvd, 'Main', true) returning id into v_loc2;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_recvd, 'Crate of tea', 1000, 250, 0) returning id into v_prod2;
+
+  insert into public.stock_receipts (shop_id, location_id, created_by, supplier_name, created_at)
+    values (v_shop_recvd, v_loc2, v_user_id, 'Berbera Wholesale', now() - interval '9 days')
+    returning id into v_receipt;
+  insert into public.stock_receipt_items (receipt_id, product_id, product_name, quantity, unit_cost_cents)
+    values (v_receipt, v_prod2, 'Crate of tea', 10, 250);
+  -- What receive_stock would have put on the shelf. Written directly for the
+  -- same reason as everything else in this file.
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod2, v_loc2, 10);
+
+  v_posted := public.backfill_shop_ledger(v_shop_recvd);
+  if v_posted <> 1 then
+    raise exception 'FAIL: the delivered shop''s replay wrote % entries, expected 1 (the delivery alone -- its stock is already accounted for)', v_posted;
+  end if;
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_recvd and source = 'opening';
+  if v_rows <> 0 then
+    raise exception 'FAIL: a shop whose stock all arrived through deliveries was given % opening entries -- the goods would be counted twice', v_rows;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_recvd and a.code = '1200';
+  if v_ledger <> 2500 then
+    raise exception 'FAIL: the delivered shop''s 1200 Inventory reads %, expected 2500 (ten crates at 250) -- 5000 means the delivery was counted once by the receipt and again by an opening balance', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 18b. THE OTHER DIRECTION: A LEDGER CLAIMING MORE STOCK THAN THE SHELF HAS.
+  ---------------------------------------------------------------------------
+  -- Ten crates arrived at 250 and two are there now, with nothing recording
+  -- what happened to the other eight -- a shelf re-imported downwards, or goods
+  -- consumed by a shop that never ran a count. The ledger says 2500, the shelf
+  -- says 500, and the correction runs the other way: Cr 1200 / Dr 3000.
+  --
+  -- THIS IS THE ONLY SHOP IN THIS FILE WITH A NEGATIVE GAP, and without it the
+  -- sign clamp is untested. `greatest(0, ...)` -- "an opening balance cannot be
+  -- negative", which sounds obviously true -- survives every other check here,
+  -- including 17 and 18, and leaves exactly the shops whose books OVERSTATE an
+  -- asset with a 1200 that lies. That is the more dangerous of the two
+  -- directions and it was the one nothing looked at.
+  --
+  -- The counterpart is still 3000 and deliberately NOT 5100 Inventory
+  -- Shrinkage, which is the more obvious reading. An opening entry states a
+  -- balance-sheet position; routing this to 5100 would put a loss into the
+  -- P&L of the shop's first month, back-dated, for stock mostly lost later than
+  -- that -- and would make one entry mean two different things depending on its
+  -- sign. A shop whose gap really is shrinkage has a better instrument: a stock
+  -- count, which posts Dr 5100 / Cr 1200 with a date and a reason, after which
+  -- this computes to zero. See 20260908001300's header.
+  --
+  -- MUTATION (proves this check): wrap opening_inventory_gap's result in
+  -- greatest(0, ...). Expected: FAIL: the shrunken shop's replay wrote 1
+  -- entries, expected 2.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Shrunken Shop')
+    returning id into v_shop_short;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_short, 'Main', true) returning id into v_loc2;
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_short, 'Crate of tea', 1000, 250, 2) returning id into v_prod2;
+
+  insert into public.stock_receipts (shop_id, location_id, created_by, supplier_name, created_at)
+    values (v_shop_short, v_loc2, v_user_id, 'Berbera Wholesale', now() - interval '8 days')
+    returning id into v_receipt;
+  insert into public.stock_receipt_items (receipt_id, product_id, product_name, quantity, unit_cost_cents)
+    values (v_receipt, v_prod2, 'Crate of tea', 10, 250);
+
+  v_posted := public.backfill_shop_ledger(v_shop_short);
+  if v_posted <> 2 then
+    raise exception 'FAIL: the shrunken shop''s replay wrote % entries, expected 2 (the delivery and a NEGATIVE opening balance). 1 means the gap was clamped at zero and 1200 is left overstating the shelf by 2000', v_posted;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_short and a.code = '1200';
+  if v_ledger <> 500 then
+    raise exception 'FAIL: the shrunken shop''s 1200 Inventory reads %, expected 500 (two crates at 250 actually on the shelf)', v_ledger;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_short and a.code = '1200' and e.source = 'opening';
+  if v_ledger <> -2000 then
+    raise exception 'FAIL: the opening entry moves % on 1200, expected -2000 -- the books held stock the shelf does not', v_ledger;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_short and a.code = '5100';
+  if v_ledger <> 0 then
+    raise exception 'FAIL: 5100 Inventory Shrinkage reads % on the shrunken shop, expected 0 -- an opening entry states a balance-sheet position and must not put a loss into the first month''s cost of sales', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 19. NO STOCK, NO HISTORY: NOTHING IS POSTED AT ALL.
+  ---------------------------------------------------------------------------
+  -- A shop that has just been created. There is no opening position to record,
+  -- and a zero opening entry is not merely pointless -- journal_lines carries
+  -- check (amount_cents <> 0), so it cannot be written. A build that posted one
+  -- unconditionally would fail every brand-new shop's first backfill with a
+  -- constraint violation from the database, which is the worst possible place
+  -- for this to be noticed.
+  --
+  -- The `if v_open_cents <> 0` guard is proved by check 18, which reaches a
+  -- zero gap first. What is left for THIS shop is the case the guard is not
+  -- enough for on its own: there is no ledger here at all, so
+  -- opening_inventory_date falls back to the current month and step 6b would
+  -- have to create the accounting period itself. A build that posted here would
+  -- fail on the period before it ever reached the amount.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Empty Shop')
+    returning id into v_shop_empty;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_empty, 'Main', true);
+
+  v_posted := public.backfill_shop_ledger(v_shop_empty);
+  if v_posted <> 0 then
+    raise exception 'FAIL: a shop with no stock and no history had % entries written', v_posted;
+  end if;
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_empty;
+  if v_rows <> 0 then
+    raise exception 'FAIL: a shop with no stock and no history holds % journal entries', v_rows;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 20. RE-RUNNING WRITES NO SECOND OPENING BALANCE -- INCLUDING AFTER A
+  --     RE-COSTING, WHICH IS THE HALF THAT NEEDS THE MARKER.
+  ---------------------------------------------------------------------------
+  -- Two runs, and they test different guards. This matters, because ONE OF THEM
+  -- IS UNTESTABLE BY THE OTHER and a check that only did the first would leave
+  -- half the idempotency unasserted while looking complete.
+  --
+  --   (a) A PLAIN RE-RUN is held down by the AMOUNT. The opening entry's own
+  --       Dr 1200 is part of what the ledger holds against 1200, so the gap
+  --       recomputes to zero. Deleting the marker test entirely changes nothing
+  --       here -- which is exactly why (b) exists.
+  --   (b) AFTER A RE-COSTING the amount guard is gone: the product's
+  --       cost_cents moves from 100 to 300, on-hand goes from 1500 to 4500, the
+  --       ledger does not move, and the gap reads 3000. Without the marker a
+  --       second "opening balance" is posted -- a correction, back-dated into
+  --       the shop's first month, wearing the name of an opening balance and
+  --       silently revaluing stock that phase 3 has not built the entry for.
+  --
+  -- MUTATION (proves (b), and nothing else in this file proves it): drop the
+  -- `exists (an entry with source = 'opening' and a line on 1200)` case from
+  -- opening_inventory_gap. Expected: FAIL: re-running after a re-costing wrote
+  -- 1 more entries.
+  v_posted := public.backfill_shop_ledger(v_shop_import);
+  if v_posted <> 0 then
+    raise exception 'FAIL: a second run on the imported shop wrote % more entries', v_posted;
+  end if;
+
+  update public.products set cost_cents = 300 where id = (
+    select id from public.products where shop_id = v_shop_import limit 1);
+
+  v_posted := public.backfill_shop_ledger(v_shop_import);
+  if v_posted <> 0 then
+    raise exception 'FAIL: re-running after a re-costing wrote % more entries -- a revaluation is not an opening balance, and back-dating one into the shop''s first month is not where it belongs', v_posted;
+  end if;
+  select count(*) into v_rows from public.journal_entries
+   where shop_id = v_shop_import and source = 'opening';
+  if v_rows <> 1 then
+    raise exception 'FAIL: the imported shop holds % opening entries after three runs, expected 1', v_rows;
+  end if;
+  -- And the door agrees there is nothing left to do, which is what the empty
+  -- state on the Post History card rests on.
+  select coalesce(sum(rows_unposted), 0) into v_rows
+    from public.unposted_ledger_counts(v_shop_import);
+  if v_rows <> 0 then
+    raise exception 'FAIL: the door still shows % rows waiting on a shop that has been backfilled three times', v_rows;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 21. AN UNCOSTED PRODUCT CONTRIBUTES NOTHING -- NOT ZERO, AND NOT ITS PRICE.
+  ---------------------------------------------------------------------------
+  -- isUncosted() draws this line everywhere in the codebase: null is a question
+  -- nobody answered, zero is an answer. Here there is a reason sharper than
+  -- consistency, and it is the one that decides it -- NOTHING WILL EVER TAKE AN
+  -- UNCOSTED PRODUCT BACK OUT OF 1200. Selling it posts no COGS (its frozen
+  -- unit_cost_cents is null), counting it posts no variance, receiving it is
+  -- excluded from the delivery's value. So a shop opened with 50 uncosted units
+  -- would carry their value for ever, growing with every uncosted line anybody
+  -- imported.
+  --
+  -- The trap this check is written around: "contributes nothing" and
+  -- "contributes zero" ARE THE SAME NUMBER, so a mutation swapping one for the
+  -- other is invisible and asserting the total alone would prove nothing. What
+  -- separates them is what a build would use INSTEAD of null, and the plausible
+  -- wrong answer is price_cents -- valuing stock at what the shop hopes to sell
+  -- it for, which capitalises unearned profit into an asset.
+  --
+  -- 8 costed at 200 = 1600, beside 50 uncosted the shop lists at 900. The
+  -- uncosted line is worth 45000 at price, so the two answers are unmistakable.
+  --
+  -- MUTATION (proves this check): value stock at
+  -- coalesce(p.cost_cents, p.price_cents). Expected: FAIL: the half-costed
+  -- shop's opening balance is 46600, expected 1600.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Half-costed Shop')
+    returning id into v_shop_uncost;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_uncost, 'Main', true);
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_uncost, 'Sack of rice', 5000, 200, 8);
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_uncost, 'Prayer mat', 900, null, 50);
+
+  v_posted := public.backfill_shop_ledger(v_shop_uncost);
+  if v_posted <> 1 then
+    raise exception 'FAIL: the half-costed shop''s replay wrote % entries, expected 1 (the opening balance alone)', v_posted;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_uncost and a.code = '1200';
+  if v_ledger <> 1600 then
+    raise exception 'FAIL: the half-costed shop''s opening balance is %, expected 1600 (eight sacks at 200; the fifty uncosted mats contribute nothing). 46600 means uncosted stock was valued at its selling price', v_ledger;
+  end if;
+
+  -- ...and a shop with NOTHING BUT uncosted stock opens with nothing at all.
+  -- The ledger has nothing to say about that stock, which is true; the place
+  -- that says so is the Inventory Valuation report's uncosted disclosure, not a
+  -- figure invented here.
+  insert into public.shops (owner_id, name) values (v_user_id, 'Uncosted Shop')
+    returning id into v_shop_blind;
+  insert into public.shop_locations (shop_id, name, is_primary)
+    values (v_shop_blind, 'Main', true);
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_blind, 'Prayer mat', 900, null, 50);
+
+  v_posted := public.backfill_shop_ledger(v_shop_blind);
+  if v_posted <> 0 then
+    raise exception 'FAIL: a shop holding nothing but uncosted stock was given % entries -- the ledger has no figure for that stock and must not invent one', v_posted;
   end if;
 
   ---------------------------------------------------------------------------

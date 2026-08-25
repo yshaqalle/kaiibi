@@ -132,8 +132,8 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
 // and the gate that matters is the one inside them.
 
 /**
- * How many rows of each kind are waiting to reach the ledger, and how far back
- * the oldest goes. Reads only; writes nothing and takes no lock.
+ * How many entries of each kind a replay would write, and how far back the
+ * oldest goes. Reads only; writes nothing and takes no lock.
  *
  * The counting is entirely the database's. `unposted_ledger_counts` reads the
  * `unposted_ledger_sources` view, which carries the same eight per-kind
@@ -141,6 +141,11 @@ export async function reverseJournalEntry(entryId: string, reason: string): Prom
  * will not write. Doing it here instead would be a second definition of
  * "unposted", and it would be wrong in ways that look right (a sale's own
  * tenders keep a null `journal_entry_id` for ever).
+ *
+ * The ninth kind, `opening`, is the shop's opening stock balance and is not a
+ * source row at all: it is the value of stock that was on the shelf before the
+ * app recorded any delivery, and whether one is still needed is an arithmetic
+ * question about the ledger rather than a lookup. See 20260908001300.
  */
 export async function listUnpostedLedgerCounts(shopId: string): Promise<UnpostedSummary> {
   // TWO CALLS, IN PARALLEL, AND BOTH MUST SUCCEED. The exposure is not a nicety

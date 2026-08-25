@@ -487,6 +487,26 @@ const BACKFILL_SHOP_LEDGER_EDITS: Edit[] = [
   // home for them. This one entry is here because it is the cheapest to lose in
   // a copy-forward and the most expensive to be without.
   ['20260908000700', 'the replay is serialised per shop', 'pg_advisory_xact_lock(74921'],
+  // THE OPENING BALANCE. There is no source row for stock that was already on
+  // the shelf when the shop started using kaiibi -- a product created with
+  // `stock: 40` writes no stock_receipts row -- so the replay recorded that
+  // stock LEAVING and nothing arriving, and 1200 Inventory sat in credit with
+  // the trial balance at zero. Three tokens, because losing any one of them
+  // brings the negative asset back in a different way.
+  ['20260908001300', 'the opening stock balance is posted', "'Opening stock', 'opening', 'posted'"],
+  ['20260908001300', 'its amount is the gap between the shelf and the ledger', 'public.opening_inventory_gap(p_shop_id)'],
+  ['20260908001300', 'it is dated where the ledger begins, never the day of the run', 'public.opening_inventory_date(p_shop_id)'],
+  // ...and the early `if v_written = 0 then return 0` MUST NOT COME BACK. It
+  // was an optimisation over statements that are already no-ops on an empty
+  // map, and it skips the opening balance entirely -- which is precisely the
+  // state the shop this was found on is in: already backfilled, nothing left
+  // unposted, and 1200 still negative.
+  //
+  // NOT EXPRESSIBLE HERE, because this file asserts the PRESENCE of a token and
+  // that one is about an absence. It is asserted behaviourally instead, by
+  // verify-backfill.sql check 21: a shop whose only work is its opening balance
+  // -- no sales, no deliveries, nothing in _bf_map at all -- must have one
+  // entry written for it, and an early return makes that check read 0.
 ];
 
 // The two doors that MUTATE or DESTROY a row which has already posted, added by

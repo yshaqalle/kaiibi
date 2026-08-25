@@ -142,7 +142,7 @@ export function BackfillView({
             variant="bento"
           />
           {total > 0 ? (
-            <StatTile value={String(summary?.kindsWithRows ?? 0)} label="Kinds" hint="of the eight replayed" variant="bento" />
+            <StatTile value={String(summary?.kindsWithRows ?? 0)} label="Kinds" hint="of the nine posted" variant="bento" />
           ) : null}
           {summary?.oldestOn ? (
             <StatTile value={formatDay(summary.oldestOn)} label="Oldest" hint="the entry's own date" variant="bento" />
@@ -207,16 +207,34 @@ export function BackfillView({
               : `${written.toLocaleString()} ${written === 1 ? 'entry was' : 'entries were'} written, each dated when the thing it records happened. Your Trial Balance and every ledger report now cover your whole trading history rather than only the period since posting was switched on.`}
           </Caveat>
         ) : total > 0 ? (
-          <Caveat tone="context">
-            Each entry is dated when the thing happened, not today — so a sale rung two years ago lands two years ago. A
-            month you have never traded in is created for it, open. A month that already exists keeps whatever status it
-            has: a closed or locked one is not re-opened and not closed again, it simply receives the entries. Your Trial
-            Balance and every report that reads the ledger will change.
-          </Caveat>
+          <>
+            <Caveat tone="context">
+              Each entry is dated when the thing happened, not today — so a sale rung two years ago lands two years ago.
+              A month you have never traded in is created for it, open. A month that already exists keeps whatever
+              status it has: a closed or locked one is not re-opened and not closed again, it simply receives the
+              entries. Your Trial Balance and every report that reads the ledger will change.
+            </Caveat>
+            {/* Its own caveat rather than a paragraph inside the one above,
+                and not only because Caveat takes a single string. Opening
+                stock is the only line on this card that is not a replay of
+                something the shop did, it is the only one that touches the
+                owner's capital, and it is the one a reader will not be
+                expecting. Held back when there is none to post, so the shop
+                whose stock all arrived through deliveries is not told about an
+                entry it will never get. */}
+            {(summary?.lines.find((line) => line.kind === 'opening')?.count ?? 0) > 0 ? (
+              <Caveat tone="context">
+                One of these is your opening stock: what was already on your shelf before you began recording
+                deliveries, recorded as stock the business owns against the capital you put in. Without it your stock
+                would read as a negative amount, because the app can see it being sold and never saw it arrive.
+              </Caveat>
+            ) : null}
+          </>
         ) : (
           <Caveat tone="context" action={{ label: 'See the ledger in Journals', onPress: () => onOpenView('journals') }}>
-            Every sale, refund, delivery, stock count, supplier payment, pay run and expense has reached the ledger. New
-            ones post as they happen, so there is nothing here to press — this door is only for history.
+            Every sale, refund, delivery, stock count, supplier payment, pay run and expense has reached the ledger, and
+            your opening stock is recorded. New ones post as they happen, so there is nothing here to press — this door
+            is only for history.
           </Caveat>
         )}
 
@@ -229,7 +247,8 @@ export function BackfillView({
             <Text style={styles.confirmTitle}>{`Post ${total.toLocaleString()} ${total === 1 ? 'entry' : 'entries'}?`}</Text>
             <Text style={styles.confirmBody}>
               Every past sale, refund, delivery, stock count, supplier payment, pay run and expense that has not reached
-              the ledger gets one journal entry, dated when it happened.
+              the ledger gets one journal entry, dated when it happened — plus one entry for the stock that was already
+              on your shelf before you began recording deliveries, dated where your records start.
             </Text>
             <Text style={styles.confirmBody}>
               <Text style={styles.confirmStrong}>Nothing already in the ledger changes</Text>, and running this again later
