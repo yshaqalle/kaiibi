@@ -85,6 +85,52 @@ begin
     raise exception 'FAIL: delivery fee did not round-trip';
   end if;
 
+  -- ------------------------------------------------ 6. a draft page is invisible
+  if exists (select 1 from public.get_public_storefront('xamdi')) then
+    raise exception 'FAIL: an unpublished storefront was readable';
+  end if;
+
+  update public.storefronts set published_at = now() where shop_id = v_shop_id;
+
+  if not exists (select 1 from public.get_public_storefront('xamdi')) then
+    raise exception 'FAIL: a published storefront was not readable';
+  end if;
+
+  -- ------------------------------------------------ 7. an unknown slug is silent
+  if exists (select 1 from public.get_public_storefront('no-such-shop')) then
+    raise exception 'FAIL: an unknown slug returned a row';
+  end if;
+
+  -- ------------------------------------------------ 8. only listed products, never cost
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock, is_listed_online)
+    values (v_shop_id, 'Anker 20W charger', 1200, 700, 5, true);
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock, is_listed_online)
+    values (v_shop_id, 'Trade-only cable', 500, 100, 5, false);
+
+  if (select count(*) from public.get_public_storefront_products('xamdi')) <> 1 then
+    raise exception 'FAIL: the public product list did not honour is_listed_online';
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'get_public_storefront_products'
+      and column_name like '%cost%'
+  ) then
+    raise exception 'FAIL: the public product function exposes a cost column';
+  end if;
+
+  -- The belt-and-braces version: whatever the function returns, cost must not be
+  -- findable in it. A future edit that adds `select p.*` fails here.
+  if exists (
+    select 1
+    from public.get_public_storefront_products('xamdi') pp
+    where (to_jsonb(pp) ? 'cost_cents')
+  ) then
+    raise exception 'FAIL: cost_cents leaked into the public product payload';
+  end if;
+
   raise notice 'PASS: storefront schema';
   raise exception 'rollback_marker';
 exception
