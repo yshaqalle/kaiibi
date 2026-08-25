@@ -160,7 +160,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
         placeholder="Full name"
         placeholderTextColor={colors.muted}
       />
-      {nameError ? <Text style={[styles.error, { color: '#98452a' }]}>{nameError}</Text> : null}
+      {nameError ? <Text style={[styles.error, { color: colors.danger }]}>{nameError}</Text> : null}
 
       <Text style={[styles.label, styles.spaced, { color: colors.ink }]}>Phone</Text>
       <TextInput
@@ -176,7 +176,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
         placeholderTextColor={colors.muted}
         keyboardType="phone-pad"
       />
-      {phoneError ? <Text style={[styles.error, { color: '#98452a' }]}>{phoneError}</Text> : null}
+      {phoneError ? <Text style={[styles.error, { color: colors.danger }]}>{phoneError}</Text> : null}
 
       {/* Property 4: nothing below this point mounts unless the shop both
           offers delivery AND has priced at least one area -- a disabled
@@ -242,7 +242,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
                   );
                 })}
               </View>
-              {areaError ? <Text style={[styles.error, { color: '#98452a' }]}>{areaError}</Text> : null}
+              {areaError ? <Text style={[styles.error, { color: colors.danger }]}>{areaError}</Text> : null}
 
               <TextInput
                 testID="checkout-form-landmark-input"
@@ -256,7 +256,7 @@ export function CheckoutForm({ cart, colors, offersDelivery, areas, onSubmit }: 
                 placeholderTextColor={colors.muted}
                 multiline
               />
-              {landmarkError ? <Text style={[styles.error, { color: '#98452a' }]}>{landmarkError}</Text> : null}
+              {landmarkError ? <Text style={[styles.error, { color: colors.danger }]}>{landmarkError}</Text> : null}
             </>
           ) : null}
         </>

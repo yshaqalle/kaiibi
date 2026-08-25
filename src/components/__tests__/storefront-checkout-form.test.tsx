@@ -253,4 +253,36 @@ describe('CheckoutForm', () => {
     const { tree } = renderForm();
     expect(texts(tree).some((t) => /pay.*collection.*delivery/i.test(t))).toBe(true);
   });
+
+  // Regression: error text used to hard-code clay's own accent (#98452a) as
+  // the error colour on every palette, so a shop on any other palette saw an
+  // unrelated rust-brown. Error text must come from the palette handed in
+  // (colors.danger), never a literal -- proven here on 'saffron', a palette
+  // whose own accent (#8a5a05) is the out-of-stock amber, to also confirm the
+  // error colour is never confused with that.
+  it("renders error text in the given palette's danger colour, never a hard-coded literal", () => {
+    const saffron = paletteColors('saffron');
+    let tree!: ReactTestRenderer;
+    act(() => {
+      tree = create(
+        <CheckoutForm
+          cart={cart}
+          colors={saffron}
+          offersDelivery={true}
+          areas={areas}
+          onSubmit={jest.fn()}
+        />,
+      );
+    });
+    press(tree, 'checkout-form-submit');
+    const [nameErrorNode] = tree.root.findAll(
+      (node) =>
+        typeof node.props?.children === 'string' &&
+        node.props.children === 'Add your name so the shop knows who is ordering.',
+    );
+    const flatStyle = [nameErrorNode.props.style].flat(Infinity).reduce((acc, s) => ({ ...acc, ...s }), {});
+    expect(flatStyle.color).toBe(saffron.danger);
+    expect(flatStyle.color).not.toBe('#98452a');
+    expect(flatStyle.color).not.toBe(saffron.accent); // saffron's accent IS the out-of-stock amber
+  });
 });

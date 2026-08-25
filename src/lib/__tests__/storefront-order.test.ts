@@ -289,4 +289,22 @@ describe('placeOrderViaWhatsApp', () => {
     expect(openExternalUrl).not.toHaveBeenCalled();
     expect(loadCart(SLUG).lines).toHaveLength(2);
   });
+
+  // On web, openExternalUrl does synchronous DOM work (document.createElement,
+  // a.click()) that a Trusted-Types CSP or similar can make throw. That throw
+  // must never read back as "the order failed" -- the order already landed
+  // and the cart is already cleared by the time it happens, so a caller must
+  // still get the placed order back, not a rejected promise.
+  it('still resolves with the placed order when opening the WhatsApp link throws', async () => {
+    rpc.mockResolvedValue({ data: collectResponse, error: null });
+    saveCart(cartWithLines());
+    openExternalUrl.mockImplementation(() => {
+      throw new Error('Trusted Types: assignment to href rejected');
+    });
+
+    const order = await placeOrderViaWhatsApp(SLUG, cartWithLines(), details, 'Xamdi Grocers', '+252634456789');
+
+    expect(order.number).toBe(7);
+    expect(loadCart(SLUG)).toEqual({ slug: SLUG, lines: [] });
+  });
 });

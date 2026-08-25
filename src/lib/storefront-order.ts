@@ -139,7 +139,20 @@ export async function placeOrderViaWhatsApp(
   shopWhatsappE164: string
 ): Promise<PlacedOrder> {
   const order = await placeOrder(slug, cart, details);
-  const message = buildOrderMessage(order, shopName);
-  openExternalUrl(waLink(shopWhatsappE164, message));
+
+  // The order above is the fact that matters -- it is already written and the
+  // cart already cleared. Opening wa.me is a convenience on top, not part of
+  // that fact, so a failure here (openExternalUrl does synchronous DOM work
+  // on web -- document.createElement, a.click() -- that a Trusted-Types CSP
+  // or a blocked popup can make throw) must never surface as a rejected
+  // promise. A caller awaiting this must not be able to mistake "the chat
+  // didn't open" for "the order failed": the order already exists either way.
+  try {
+    const message = buildOrderMessage(order, shopName);
+    openExternalUrl(waLink(shopWhatsappE164, message));
+  } catch {
+    // Swallowed deliberately -- see comment above.
+  }
+
   return order;
 }
