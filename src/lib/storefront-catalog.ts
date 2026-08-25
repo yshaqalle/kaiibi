@@ -14,6 +14,8 @@
 // token. A shop picks from these; it does not get a hex field. A free colour
 // picker is how a page ends up yellow on white and published.
 
+import { parseHex } from '@/lib/contrast';
+
 export type StorefrontTheme = 'market' | 'counter' | 'window';
 export type StorefrontPalette = 'ink' | 'palm' | 'clay' | 'sea' | 'saffron' | 'plum';
 
@@ -22,6 +24,7 @@ export type PaletteColors = {
   soft: string;   // tiles, the no-photo fallback, insets
   ink: string;    // all type
   accent: string; // buttons and the active filter, always with white on it
+  muted: string;  // secondary type -- a city subtitle, an about paragraph
 };
 
 export const THEMES: { key: StorefrontTheme; label: string; description: string }[] = [
@@ -44,7 +47,9 @@ export const PALETTES: { key: StorefrontPalette; label: string; suits: string }[
 export const DEFAULT_THEME: StorefrontTheme = 'market';
 export const DEFAULT_PALETTE: StorefrontPalette = 'ink';
 
-const COLORS: Record<StorefrontPalette, PaletteColors> = {
+type BasePaletteColors = Omit<PaletteColors, 'muted'>;
+
+const COLORS: Record<StorefrontPalette, BasePaletteColors> = {
   ink:     { ground: '#ffffff', soft: '#f4f4f5', ink: '#141418', accent: '#141418' },
   palm:    { ground: '#fbfcfa', soft: '#eef4ef', ink: '#12211a', accent: '#1f6b45' },
   clay:    { ground: '#fdfaf7', soft: '#f5ede6', ink: '#241a14', accent: '#98452a' },
@@ -53,11 +58,45 @@ const COLORS: Record<StorefrontPalette, PaletteColors> = {
   plum:    { ground: '#fdfafc', soft: '#f5ecf2', ink: '#221420', accent: '#8a2c62' },
 };
 
+// Secondary type -- a city subtitle, an about paragraph -- needs to read as
+// quieter than the shop name without falling below body-text contrast. The
+// palette has no fifth token for it, so it is derived: ink blended toward
+// ground by a fixed proportion, kept as a hex so it's testable with
+// contrastRatio rather than an RN opacity trick that isn't.
+//
+// 0.34 is tuned, not arbitrary: every palette's ink starts at 7:1+ on its own
+// ground (enforced by the 'palette contrast' tests above), and saffron is the
+// tightest palette in the set once ink is blended toward ground -- at 0.34 it
+// still clears 4.5:1 with headroom (~5.3:1). Raising the blend closes that
+// headroom and eventually fails WCAG AA on saffron; lowering it makes muted
+// stop reading as quieter than full ink.
+const MUTED_BLEND = 0.34;
+
+function blendHex(from: string, to: string, amount: number): string {
+  const a = parseHex(from);
+  const b = parseHex(to);
+  if (!a || !b) return from;
+  const clamp = (n: number) => Math.max(0, Math.min(255, Math.round(n)));
+  const mix = (x: number, y: number) => clamp(x + (y - x) * amount);
+  const hex = (n: number) => n.toString(16).padStart(2, '0');
+  return `#${hex(mix(a.r, b.r))}${hex(mix(a.g, b.g))}${hex(mix(a.b, b.b))}`;
+}
+
+export function mutedInk(palette: StorefrontPalette): string {
+  const c = COLORS[palette] ?? COLORS[DEFAULT_PALETTE];
+  return blendHex(c.ink, c.ground, MUTED_BLEND);
+}
+
 export function paletteColors(palette: StorefrontPalette): PaletteColors {
-  return COLORS[palette] ?? COLORS[DEFAULT_PALETTE];
+  const key = COLORS[palette] ? palette : DEFAULT_PALETTE;
+  return { ...COLORS[key], muted: mutedInk(key) };
 }
 
 // NOT part of any palette, and deliberately not themeable. Green is what makes
 // a WhatsApp button get tapped; recolouring it to a shop's accent trades the
 // affordance for a colour nobody asked for.
 export const WHATSAPP_GREEN = '#1f7a4d';
+// The text colour on the fixed WhatsApp green above -- stays fixed for the
+// same reason the green does, so it's catalogued rather than a stray literal
+// on the button label.
+export const WHATSAPP_INK = '#ffffff';

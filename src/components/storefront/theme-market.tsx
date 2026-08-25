@@ -9,7 +9,7 @@ export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
       <View style={styles.nav}>
         <View>
           <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
-          {storefront.city ? <Text style={styles.sub}>{storefront.city}</Text> : null}
+          {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
         </View>
         <WhatsAppButton storefront={storefront} />
       </View>
@@ -17,7 +17,7 @@ export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
       {storefront.headline ? (
         <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
       ) : null}
-      {storefront.about ? <Text style={styles.about}>{storefront.about}</Text> : null}
+      {storefront.about ? <Text style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text> : null}
 
       {products.length === 0 ? (
         <EmptyState colors={colors} />
@@ -42,9 +42,9 @@ export function ThemeMarket({ storefront, products, colors }: ThemeProps) {
 const styles = StyleSheet.create({
   nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12 },
   shopName: { fontSize: 19, fontWeight: '800', letterSpacing: -0.4 },
-  sub: { fontSize: 11.5, color: '#6a6a72' },
+  sub: { fontSize: 11.5 },
   headline: { fontSize: 22, fontWeight: '800', letterSpacing: -0.5, paddingHorizontal: 14, paddingTop: 4 },
-  about: { fontSize: 13, color: '#57575e', paddingHorizontal: 14, paddingTop: 5 },
+  about: { fontSize: 13, paddingHorizontal: 14, paddingTop: 5 },
   grid: { padding: 14, gap: 12 },
   row: { gap: 12 },
   cell: { flex: 1 },

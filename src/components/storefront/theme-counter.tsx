@@ -25,7 +25,7 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
       <View style={[styles.nav, { borderBottomColor: colors.ink }]}>
         <View>
           <Text style={[styles.shopName, { color: colors.ink }]}>{storefront.shopName}</Text>
-          {storefront.city ? <Text style={styles.sub}>{storefront.city}</Text> : null}
+          {storefront.city ? <Text style={[styles.sub, { color: colors.muted }]}>{storefront.city}</Text> : null}
         </View>
         <WhatsAppButton storefront={storefront} />
       </View>
@@ -61,7 +61,7 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
 const styles = StyleSheet.create({
   nav: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14, gap: 12, borderBottomWidth: 2 },
   shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
-  sub: { fontSize: 11.5, color: '#6b675c' },
+  sub: { fontSize: 11.5 },
   headline: { fontSize: 19, fontWeight: '700', paddingHorizontal: 14, paddingTop: 12 },
   section: { paddingHorizontal: 14, paddingTop: 14 },
   sectionHead: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },

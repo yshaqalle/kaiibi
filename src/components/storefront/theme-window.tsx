@@ -21,7 +21,7 @@ export function ThemeWindow({ storefront, products, colors }: ThemeProps) {
         {storefront.headline ? (
           <Text style={[styles.heroHead, { color: colors.ink }]}>{storefront.headline}</Text>
         ) : null}
-        {storefront.about ? <Text style={styles.heroAbout}>{storefront.about}</Text> : null}
+        {storefront.about ? <Text style={[styles.heroAbout, { color: colors.muted }]}>{storefront.about}</Text> : null}
       </View>
 
       {products.length === 0 ? (
@@ -50,7 +50,7 @@ const styles = StyleSheet.create({
   hero: { marginHorizontal: 16, borderRadius: 20, padding: 24, overflow: 'hidden' },
   heroImage: { ...StyleSheet.absoluteFill },
   heroHead: { fontSize: 28, fontWeight: '800', letterSpacing: -0.8, lineHeight: 31 },
-  heroAbout: { fontSize: 13.5, color: '#4a463d', marginTop: 9 },
+  heroAbout: { fontSize: 13.5, marginTop: 9 },
   grid: { padding: 16, gap: 16 },
   row: { gap: 16 },
   cell: { flex: 1 },

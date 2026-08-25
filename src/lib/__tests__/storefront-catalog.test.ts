@@ -41,6 +41,20 @@ describe('palette contrast', () => {
   });
 });
 
+describe('muted secondary text', () => {
+  const keys = PALETTES.map((p) => p.key) as StorefrontPalette[];
+
+  it.each(keys)('%s keeps muted text readable on its ground', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.muted, c.ground)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(keys)('%s makes muted text quieter than full ink', (key) => {
+    const c = paletteColors(key);
+    expect(contrastRatio(c.muted, c.ground)).toBeLessThan(contrastRatio(c.ink, c.ground));
+  });
+});
+
 describe('WhatsApp green', () => {
   it('is fixed, because it is a recognised affordance and not a brand colour', () => {
     expect(WHATSAPP_GREEN).toBe('#1f7a4d');

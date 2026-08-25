@@ -24,7 +24,8 @@ export function StorefrontView({
   storefront: PublicStorefront;
   products: StorefrontProduct[];
 }) {
-  const themeKey = (storefront.theme in RENDERERS ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
+  const hasTheme = Object.prototype.hasOwnProperty.call(RENDERERS, storefront.theme);
+  const themeKey = (hasTheme ? storefront.theme : DEFAULT_THEME) as StorefrontTheme;
   const Renderer = RENDERERS[themeKey];
   const colors = paletteColors((storefront.palette ?? DEFAULT_PALETTE) as StorefrontPalette);
   return <Renderer storefront={storefront} products={products} colors={colors} />;

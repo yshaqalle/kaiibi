@@ -57,6 +57,15 @@ describe('StorefrontView', () => {
     expect(texts.filter((t) => t === 'Anker 20W charger').length).toBeGreaterThan(0);
   });
 
+  it('falls back to Market when the stored theme is an inherited prototype property, not thrown or garbage', () => {
+    let texts: string[] = [];
+    expect(() => {
+      texts = renderView({ ...shop, theme: 'constructor' }, products);
+    }).not.toThrow();
+    expect(texts).toContain('Xamdi Electronics');
+    expect(texts.filter((t) => t === 'Anker 20W charger').length).toBeGreaterThan(0);
+  });
+
   it('offers WhatsApp when there is a number', () => {
     const texts = renderView(shop, products);
     expect(texts.filter((t) => t === 'Message on WhatsApp').length).toBeGreaterThan(0);
