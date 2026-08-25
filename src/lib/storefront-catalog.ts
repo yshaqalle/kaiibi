@@ -82,19 +82,33 @@ function blendHex(from: string, to: string, amount: number): string {
   return `#${hex(mix(a.r, b.r))}${hex(mix(a.g, b.g))}${hex(mix(a.b, b.b))}`;
 }
 
+// `palette` is an untrusted string from a database row -- a `COLORS[palette]`
+// truthiness check resolves through the prototype chain for keys like
+// 'constructor', so it must be an OWN-property check, the same discipline
+// storefront-view.tsx applies to RENDERERS.
+function paletteKey(palette: StorefrontPalette): StorefrontPalette {
+  return Object.prototype.hasOwnProperty.call(COLORS, palette) ? palette : DEFAULT_PALETTE;
+}
+
 export function mutedInk(palette: StorefrontPalette): string {
-  const c = COLORS[palette] ?? COLORS[DEFAULT_PALETTE];
+  const c = COLORS[paletteKey(palette)];
   return blendHex(c.ink, c.ground, MUTED_BLEND);
 }
 
 export function paletteColors(palette: StorefrontPalette): PaletteColors {
-  const key = COLORS[palette] ? palette : DEFAULT_PALETTE;
+  const key = paletteKey(palette);
   return { ...COLORS[key], muted: mutedInk(key) };
 }
 
 // NOT part of any palette, and deliberately not themeable. Green is what makes
 // a WhatsApp button get tapped; recolouring it to a shop's accent trades the
 // affordance for a colour nobody asked for.
+//
+// This is a DIFFERENT constant of the same name from
+// src/components/platform/whatsapp-button.tsx's WHATSAPP_GREEN (#1fa855).
+// That one is the brand green as-is; this one is darkened because this page's
+// contrast test demands 4.5:1 for white text on top of it. Import from this
+// module for the storefront, not the platform one.
 export const WHATSAPP_GREEN = '#1f7a4d';
 // The text colour on the fixed WhatsApp green above -- stays fixed for the
 // same reason the green does, so it's catalogued rather than a stray literal

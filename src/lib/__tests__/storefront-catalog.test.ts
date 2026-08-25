@@ -1,7 +1,7 @@
 import { contrastRatio } from '@/lib/contrast';
 import {
   THEMES, PALETTES, DEFAULT_THEME, DEFAULT_PALETTE,
-  paletteColors, WHATSAPP_GREEN,
+  paletteColors, mutedInk, WHATSAPP_GREEN,
   type StorefrontPalette,
 } from '@/lib/storefront-catalog';
 
@@ -63,7 +63,37 @@ describe('WhatsApp green', () => {
 
   it('is in no palette, so no shop can recolour it by picking one', () => {
     for (const p of PALETTES) {
-      expect(paletteColors(p.key).accent).not.toBe(WHATSAPP_GREEN);
+      const c = paletteColors(p.key);
+      expect(c.ground).not.toBe(WHATSAPP_GREEN);
+      expect(c.soft).not.toBe(WHATSAPP_GREEN);
+      expect(c.ink).not.toBe(WHATSAPP_GREEN);
+      expect(c.accent).not.toBe(WHATSAPP_GREEN);
     }
+  });
+});
+
+// paletteColors and mutedInk both look up an untrusted string key in COLORS, a
+// plain object. `COLORS['constructor']` resolves through the prototype chain
+// to Object's constructor -- a function, which is truthy -- so a `?`/`??`
+// check that only asks "is this falsy" treats 'constructor' as a hit rather
+// than an unknown key, and spreads a function into the palette instead of
+// falling back to DEFAULT_PALETTE. Same hole StorefrontView was already fixed
+// for (Object.prototype.hasOwnProperty.call(RENDERERS, ...)); this asserts the
+// other half, at the two functions that actually own the palette fallback.
+describe('palette lookup does not fall through the prototype chain', () => {
+  const poisoned = ['constructor', 'toString', 'hasOwnProperty', 'valueOf', 'not-a-real-palette'];
+
+  it.each(poisoned)('paletteColors(%s) falls back to the ink palette', (bad) => {
+    const c = paletteColors(bad as StorefrontPalette);
+    expect(c).toEqual(paletteColors('ink'));
+    expect(c.ground).toBe('#ffffff');
+    expect(c.soft).toBe('#f4f4f5');
+    expect(c.ink).toBe('#141418');
+    expect(c.accent).toBe('#141418');
+    expect(typeof c.muted).toBe('string');
+  });
+
+  it.each(poisoned)('mutedInk(%s) falls back to the ink palette blend', (bad) => {
+    expect(mutedInk(bad as StorefrontPalette)).toBe(mutedInk('ink'));
   });
 });
