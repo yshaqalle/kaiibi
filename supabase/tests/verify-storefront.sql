@@ -2,6 +2,14 @@
 --
 -- Everything runs inside one DO block whose EXCEPTION clause rolls the whole lot
 -- back, so it leaves no rows behind -- same shape as verify-entitlements.sql.
+--
+-- Most of this runs as postgres, which is a superuser and bypasses RLS and
+-- grants both -- so by itself it only exercises each function's WHERE clause,
+-- never the anon grant the three public functions actually depend on. The
+-- checks that call get_public_storefront, get_public_storefront_products and
+-- get_public_delivery_areas switch to `anon` with `set local role` immediately
+-- beforehand and `reset role` immediately after, so the setup writes around
+-- them keep running as postgres.
 
 \set ON_ERROR_STOP on
 
@@ -87,12 +95,20 @@ begin
   end if;
 
   -- ------------------------------------------------ 6. a draft page is invisible
+  -- Read as anon from here on, whenever the read goes through one of the three
+  -- public functions -- this is the boundary the grant actually protects.
+  set local role anon;
+  if current_user <> 'anon' then
+    raise exception 'FAIL: set local role anon did not take effect (current_user = %)', current_user;
+  end if;
   if exists (select 1 from public.get_public_storefront('xamdi')) then
     raise exception 'FAIL: an unpublished storefront was readable';
   end if;
+  reset role;
 
   update public.storefronts set published_at = now() where shop_id = v_shop_id;
 
+  set local role anon;
   if not exists (select 1 from public.get_public_storefront('xamdi')) then
     raise exception 'FAIL: a published storefront was not readable';
   end if;
@@ -101,6 +117,7 @@ begin
   if exists (select 1 from public.get_public_storefront('no-such-shop')) then
     raise exception 'FAIL: an unknown slug returned a row';
   end if;
+  reset role;
 
   -- ------------------------------------------------ 8. only listed products, never cost
   insert into public.products (shop_id, name, price_cents, cost_cents, stock, is_listed_online)
@@ -108,9 +125,11 @@ begin
   insert into public.products (shop_id, name, price_cents, cost_cents, stock, is_listed_online)
     values (v_shop_id, 'Trade-only cable', 500, 100, 5, false);
 
+  set local role anon;
   if (select count(*) from public.get_public_storefront_products('xamdi')) <> 1 then
     raise exception 'FAIL: the public product list did not honour is_listed_online';
   end if;
+  reset role;
 
   -- Postgres does not register a function's RETURNS TABLE columns in
   -- information_schema.columns -- there is no table there to register them
@@ -136,6 +155,7 @@ begin
 
   -- The belt-and-braces version: whatever the function returns, cost must not be
   -- findable in it. A future edit that adds `select p.*` fails here.
+  set local role anon;
   if exists (
     select 1
     from public.get_public_storefront_products('xamdi') pp
@@ -143,6 +163,24 @@ begin
   ) then
     raise exception 'FAIL: cost_cents leaked into the public product payload';
   end if;
+
+  -- And the boundary the function exists to enforce in the first place: anon
+  -- must not be able to read the table underneath it at all. The function's
+  -- explicit column list is only a guarantee while it is the sole path in --
+  -- a policy that let anon select from products directly would make this
+  -- whole SECURITY DEFINER, explicit-column-list design moot, because a
+  -- client could just widen its own query to `select *` and reach
+  -- cost_cents. Confirmed by hand: this raises "permission denied for table
+  -- products".
+  v_raised := false;
+  begin
+    perform 1 from public.products limit 1;
+  exception when insufficient_privilege then v_raised := true;
+  end;
+  if not v_raised then
+    raise exception 'FAIL: anon could read the products table directly';
+  end if;
+  reset role;
 
   -- ------------------------------------------------ 9. delivery areas are gated by the storefront module too
   -- get_public_storefront and get_public_storefront_products both end their
@@ -157,9 +195,11 @@ begin
   -- above exists to prevent.
   update public.storefronts set offers_delivery = true where shop_id = v_shop_id;
 
+  set local role anon;
   if not exists (select 1 from public.get_public_delivery_areas('xamdi')) then
     raise exception 'FAIL: a published shop offering delivery did not expose its delivery areas';
   end if;
+  reset role;
 
   select id into v_free_id from public.plans where key = 'free';
   update public.shop_subscriptions
@@ -170,9 +210,11 @@ begin
     raise exception 'FAIL: a shop on Free still has the storefront module';
   end if;
 
+  set local role anon;
   if exists (select 1 from public.get_public_delivery_areas('xamdi')) then
     raise exception 'FAIL: delivery areas leaked for a shop whose storefront module was revoked';
   end if;
+  reset role;
 
   -- ------------------------------------------------ 10. reserved slugs are rejected at the DB, not just the client
   -- validateSlug in src/lib/storefront-slug.ts has no production caller that

@@ -96,6 +96,14 @@ as $$
   order by a.sort_order, a.name;
 $$;
 
+-- Postgres grants execute to PUBLIC on every new function, which on a definer
+-- function means anon (and anyone else) too, regardless of the explicit
+-- grants below. Revoked first, so the grants are the whole list of who can
+-- call these.
+revoke execute on function public.get_public_storefront(text) from public;
+revoke execute on function public.get_public_storefront_products(text) from public;
+revoke execute on function public.get_public_delivery_areas(text) from public;
+
 grant execute on function public.get_public_storefront(text) to anon, authenticated;
 grant execute on function public.get_public_storefront_products(text) to anon, authenticated;
 grant execute on function public.get_public_delivery_areas(text) to anon, authenticated;
