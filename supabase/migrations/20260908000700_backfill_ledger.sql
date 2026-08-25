@@ -1,0 +1,769 @@
+-- Replay every existing row into the ledger, so the books describe the shop's
+-- whole life rather than only the period since phase 2b shipped.
+--
+-- ## Why this does not call post_journal_entry
+--
+-- Two structural reasons, not a preference:
+--
+--   1. open_period_for RAISES on a closed or locked month. A shop that closed a
+--      period during phase 1 would abort the replay part-way, leaving the books
+--      in a state strictly worse than not having started -- half a year of
+--      history posted, the rest not, and no way to tell which half from the
+--      ledger. The backfill therefore creates every period it needs UP FRONT
+--      and never consults open_period_for.
+--   2. open_period_for opens periods one at a time, on first use. Fine for the
+--      interactive path it was written for; wasteful across three years of
+--      history, where the whole set is known before the first entry is written.
+--
+-- The deferred balance trigger on journal_lines still runs -- it is a
+-- constraint trigger on the table, not something post_journal_entry installs --
+-- so the guarantee that every entry sums to zero is unchanged. Only the
+-- convenience wrapper is skipped, and THIS IS THE ONLY THING IN THE CODEBASE
+-- THAT SKIPS IT.
+--
+-- ## References come from journal_entry_sequences, not from count(*)
+--
+-- 20260908000150 replaced post_journal_entry's `count(*) + 1` with an atomic
+-- per-shop-per-year counter, because the count raced the
+-- `unique (shop_id, reference)` index and failed concurrent sales. A backfill
+-- that invented its own numbering -- a second series, a 'R'/'E' prefix, a
+-- restart at 1 -- would collide with every reference the live path has already
+-- allocated for that year, and the collision would surface as a unique
+-- violation on whichever side ran second.
+--
+-- So this reads from the SAME counter, in the same one-statement
+-- read-and-increment. The only difference is that it reserves a BLOCK of n
+-- numbers instead of one:
+--
+--   ... do update set next_number = next_number + n returning next_number - n
+--
+-- which takes the same row lock, leaves the counter holding the number the next
+-- caller gets, and hands this run a contiguous range nobody else can be inside.
+-- One statement per year, not one per entry -- which is what makes the replay
+-- linear instead of quadratic.
+--
+-- ## Backfilled entries carry their TRUE source
+--
+-- 'sale', 'refund', 'settlement', 'stock', 'count', 'payment', 'payroll',
+-- 'bill' -- never a 'backfill' marker. A P&L must not care whether an entry was
+-- posted live or replayed, and any report filtering on source would silently
+-- drop replayed history. ('backfill' is not a permitted value anyway:
+-- journal_entries.source's CHECK lists exactly manual, sale, refund,
+-- settlement, bill, payment, payroll, stock, count, transfer, asset,
+-- depreciation, close, opening.)
+--
+-- ## Idempotency
+--
+-- Driven entirely by journal_entry_id being null on the source row. Re-running
+-- writes nothing and returns 0. This matters more than it sounds: the first run
+-- of a real backfill always finds something the verification disagrees with,
+-- and the fix is to correct the mapping and run it again.
+--
+-- ## THE FOUR WAYS THIS DOUBLE-COUNTS, AND WHAT STOPS EACH
+--
+-- 1. EXPENSES MIRRORING SOMETHING ALREADY POSTED. post_payroll_run writes BOTH
+--    a journal entry AND an expenses row carrying payroll_run_id;
+--    sync_invoice_expense mirrors every bill into expenses carrying invoice_id,
+--    and that cost's liability side is posted by receive_stock and settled by
+--    record_invoice_payment. Replaying either would count 6200 Salaries and
+--    Wages and every stocked cost TWICE -- with the trial balance still zero,
+--    because both entries individually balance, so nothing else would catch it.
+--    The expense replay below applies exactly the exclusion
+--    20260908000750's post_expense_to_ledger() applies, for exactly its reason.
+--
+-- 2. sale_payments.journal_entry_id IS NULL DOES NOT MEAN "UNPOSTED". Only
+--    SETTLEMENT rows ever carry their own entry; complete_sale folds the
+--    initial payments into the sale's entry and leaves those rows null forever.
+--    The settlement replay filters `is_settlement and journal_entry_id is null`
+--    -- never journal_entry_id alone, which would post a second entry for every
+--    till payment on every sale in the shop's history.
+--
+-- 3. ANYTHING ALREADY CARRYING A journal_entry_id IS ALREADY POSTED. Every map
+--    below is driven by that column being null. This is not an optimisation: a
+--    shop is backfilled while Task 7b's expense trigger is live, so the filter
+--    is what stops the two paths posting the same row.
+--
+-- 4. A PRE-TASK-3 SALE THAT WAS LATER REFUNDED OR SETTLED HAS ALREADY HAD A
+--    ONE-SIDED ENTRY POSTED AGAINST IT. refund_sale_items credited 1100 and
+--    settle_sale_balance cleared it, but the debit that put the receivable
+--    there was never posted, because the sale predates posting -- so those
+--    shops' 1100 currently reads negative.
+--
+--    THE FIX IS THE REPLAY ITSELF, and it needs nothing extra. The sale's own
+--    entry supplies the missing debit, at the FULL original receivable
+--    (total_cents less what the till took), because:
+--      * settlement payments are excluded from the till total, so the 1100
+--        debit is the receivable as it stood when the sale was rung up -- and
+--        the settlement entries that already exist credit it back down;
+--      * the receivable is NOT reduced by refunds, because the refund entry
+--        that already exists has already credited 1100 by its own share.
+--    Getting either of those wrong -- netting settlements or refunds into the
+--    sale line -- would leave 1100 permanently understated by exactly the
+--    amount the existing entries already moved. A sale is replayed on its own
+--    terms; what happened to it afterwards was posted at the time.
+--
+-- ## Dates
+--
+-- Every entry is dated from its SOURCE ROW, never from the run. A replay that
+-- stamped everything today would put three years of trading into this month and
+-- leave every past period empty.
+--
+-- Where the source carries a timestamptz, the date is public.shop_local_date()
+-- of it -- the same expression the live path evaluates, applied at the moment
+-- the live path would have evaluated it. Never a bare ::date, which resolves in
+-- the session's timezone (UTC on Supabase) while every market kaiibi serves is
+-- UTC+3, so a sale at 01:30 local on the 1st would land in the previous month.
+-- Where the source carries a plain `date` (expenses.occurred_on,
+-- invoice_payments.paid_on) it is used as-is: there is no moment in time to
+-- resolve, and wrapping it would be a no-op cast through a function that
+-- expects a timestamptz.
+--
+-- THE ONE DATE THAT HAD TO BE DECIDED. A pay run's live entry is dated
+-- shop_local_date() -- the day it was POSTED -- while the expenses row it
+-- writes alongside is dated period_end. 20260908000500 names the divergence and
+-- leaves it to this task. The replay uses shop_local_date(posted_at): that IS
+-- what the live path wrote, evaluated at the true moment rather than at replay
+-- time, so a replayed pay run and a live one land on the same day. period_end
+-- was rejected because it would put the replay in a different month from every
+-- pay run posted since phase 2b shipped, making "wages by month" depend on when
+-- the shop was backfilled. The expense row's period_end date never reaches the
+-- ledger at all, because that row is excluded (see 1 above), so there is no
+-- second date to reconcile.
+--
+-- ## What this does NOT redirect
+--
+-- Task 3b's complete_sale and Task 7b's expense trigger redirect a row whose
+-- month has closed into the open one. This does not: it inserts periods
+-- directly and leaves them open, and a month that a shop CLOSED during phase 1
+-- is closed over a ledger that did not yet contain this history -- so re-dating
+-- into it is the honest treatment, not a violation of the close. The
+-- consequence for the tie-out is stated in verify-backfill.sql: an expense
+-- total must be compared shop-wide, not per month, because the live trigger's
+-- redirect and this replay legitimately put a back-dated expense in different
+-- months.
+
+create or replace function public.backfill_shop_ledger(p_shop_id uuid)
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  v_year    text;
+  v_count   integer;
+  v_first   integer;
+  v_written integer := 0;
+  v_bad     text;
+begin
+  -- ledger.close, not ledger.post. Rewriting a shop's entire history is the
+  -- heaviest thing anyone can do to these books -- heavier than posting one
+  -- entry -- and only the Owner role carries it.
+  if not public.has_shop_permission(p_shop_id, 'ledger.close') then
+    raise exception 'Backfilling the ledger needs ledger.close.' using errcode = 'P0001';
+  end if;
+
+  -- The map from source row to the entry it will get, carried across the three
+  -- statements that need it (entries, back-links, lines). The entry id is
+  -- generated HERE rather than taken from a RETURNING clause, because
+  -- INSERT ... RETURNING cannot return a column it did not insert and the lines
+  -- have to be joined back to their source row.
+  --
+  -- ON COMMIT DROP, so a second call in a later transaction starts clean and a
+  -- failed call leaves nothing behind.
+  create temporary table if not exists _bf_map (
+    source_kind text,
+    source_id   uuid,
+    entry_id    uuid,
+    on_date     date,
+    location_id uuid,
+    description text,
+    source      text,
+    reference   text
+  ) on commit drop;
+  delete from _bf_map;
+
+  -- ── 1. Every unposted row, of every kind ────────────────────────────────
+
+  -- Sales. Dated the shop's local date of created_at, matching complete_sale.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'sale', s.id, gen_random_uuid(), public.shop_local_date(s.created_at),
+         s.location_id, 'Sale ' || s.id::text, 'sale'
+    from public.sales s
+   where s.shop_id = p_shop_id and s.journal_entry_id is null;
+
+  -- Refunds. refunds has NO shop_id column -- the tenancy comes through the
+  -- sale, and so does the location, which is what refund_sale_items stamps.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'refund', r.id, gen_random_uuid(), public.shop_local_date(r.created_at),
+         s.location_id, 'Refund ' || r.id::text || ' on sale ' || s.id::text, 'refund'
+    from public.refunds r
+    join public.sales s on s.id = r.sale_id
+   where s.shop_id = p_shop_id and r.journal_entry_id is null
+     and (r.goods_cents <> 0 or r.total_cents <> 0
+          or exists (select 1 from public.refund_items ri
+                       join public.sale_items si on si.id = ri.sale_item_id
+                      where ri.refund_id = r.id and si.unit_cost_cents is not null));
+
+  -- Settlements. `is_settlement` IS THE FILTER, not journal_entry_id alone.
+  -- complete_sale folds a sale's initial payments into the sale's own entry and
+  -- leaves those rows' journal_entry_id null forever, so driving off the column
+  -- by itself would post a second entry for every till payment ever taken.
+  --
+  -- The location is the SETTLING till's, not the sale's: the money is handed
+  -- over days later at whatever till is open, which may be another branch.
+  -- 20260908000360 makes exactly this fix on the live path.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'settlement', sp.id, gen_random_uuid(), public.shop_local_date(sp.created_at),
+         coalesce(rs.location_id, s.location_id),
+         'Balance settled on sale ' || s.id::text, 'settlement'
+    from public.sale_payments sp
+    join public.sales s on s.id = sp.sale_id
+    left join public.register_sessions rs on rs.id = sp.register_session_id
+   where s.shop_id = p_shop_id
+     and sp.is_settlement
+     and sp.journal_entry_id is null
+     and sp.amount_cents <> 0;
+
+  -- Stock receipts, at the delivery's costed value. An uncosted line is
+  -- excluded, not zeroed -- the delivery's value is unknown, and posting 0
+  -- would understate stock by exactly what nobody wrote down.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'receipt', r.id, gen_random_uuid(), public.shop_local_date(r.created_at),
+         r.location_id, 'Stock received', 'stock'
+    from public.stock_receipts r
+   where r.shop_id = p_shop_id and r.journal_entry_id is null
+     and coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
+                     from public.stock_receipt_items ri
+                    where ri.receipt_id = r.id and ri.unit_cost_cents is not null), 0) <> 0;
+
+  -- Stock counts, at the net variance. Exactly zero posts nothing: a count that
+  -- found what it expected is not an accounting event.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'count', c.id, gen_random_uuid(), public.shop_local_date(c.created_at),
+         c.location_id, 'Stock count variance', 'count'
+    from public.stock_counts c
+   where c.shop_id = p_shop_id and c.journal_entry_id is null
+     and coalesce((select sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity))
+                     from public.stock_count_items ci
+                    where ci.count_id = c.id and ci.unit_cost_cents is not null), 0) <> 0;
+
+  -- Supplier payments. invoice_payments has NO shop_id -- the tenancy and the
+  -- store both come through the invoice. Dated paid_on, which is already a
+  -- date: the ledger and the bill's payment history cannot then disagree about
+  -- when the money moved.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'invoice_payment', ip.id, gen_random_uuid(), ip.paid_on,
+         i.location_id, 'Supplier paid', 'payment'
+    from public.invoice_payments ip
+    join public.invoices i on i.id = ip.invoice_id
+   where i.shop_id = p_shop_id and ip.journal_entry_id is null and ip.amount_cents <> 0;
+
+  -- Pay runs. POSTED runs only: a draft has not paid anybody, and
+  -- unpost_payroll_run clears journal_entry_id when it returns a run to draft,
+  -- so a run that was posted and then unposted would otherwise be replayed as
+  -- though it had never been undone -- re-recognising wages the shop reversed
+  -- on purpose, and orphaning the reversal entry that explains why.
+  --
+  -- payroll_runs has NO paid_on column. See this file's header for why the date
+  -- is shop_local_date(posted_at) and not period_end.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'payroll', r.id, gen_random_uuid(),
+         public.shop_local_date(coalesce(r.posted_at, r.period_end::timestamptz)),
+         r.location_id, 'Payroll', 'payroll'
+    from public.payroll_runs r
+   where r.shop_id = p_shop_id and r.journal_entry_id is null
+     and r.status = 'posted' and r.total_cents > 0;
+
+  -- Expenses. THE THREE EXCLUSIONS, copied from post_expense_to_ledger() for
+  -- its reasons -- see 1 in this file's header, and 20260908000750's own
+  -- exclusion block, which names post_payroll_run by name.
+  --
+  -- log_recurring_bill's rows set NEITHER column and are deliberately included:
+  -- nothing else posts for them, and they are real costs the shop incurred.
+  --
+  -- occurred_on, not created_at: a receipt is often logged days after the
+  -- purchase and it is the purchase that decides the period.
+  insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
+  select 'expense', e.id, gen_random_uuid(), e.occurred_on,
+         e.location_id, 'Expense ' || e.id::text, 'bill'
+    from public.expenses e
+   where e.shop_id = p_shop_id
+     and e.journal_entry_id is null
+     and e.payroll_run_id is null
+     and e.invoice_id is null
+     and e.amount_cents <> 0;
+
+  select count(*) into v_written from _bf_map;
+  if v_written = 0 then
+    return 0;
+  end if;
+
+  -- ── 2. Every period the replay needs, created UP FRONT and left OPEN ─────
+  --
+  -- This is the statement that makes a closed month survivable. Doing it per
+  -- row through open_period_for is what would abort the replay half-way.
+  insert into public.accounting_periods (shop_id, starts_on, ends_on)
+  select distinct p_shop_id,
+         date_trunc('month', m.on_date)::date,
+         (date_trunc('month', m.on_date) + interval '1 month - 1 day')::date
+    from _bf_map m
+  on conflict (shop_id, starts_on) do nothing;
+
+  -- ── 3. References, from journal_entry_sequences ─────────────────────────
+  --
+  -- One reservation per YEAR, not per entry. The upsert takes a row lock on the
+  -- counter, so a sale being rung up concurrently blocks here rather than
+  -- reading a number this run has already taken.
+  for v_year in select distinct to_char(m.on_date, 'YYYY') from _bf_map m order by 1 loop
+    select count(*) into v_count from _bf_map m where to_char(m.on_date, 'YYYY') = v_year;
+
+    insert into public.journal_entry_sequences (shop_id, year, next_number)
+      values (p_shop_id, v_year, v_count + 1)
+      on conflict (shop_id, year) do update
+        set next_number = public.journal_entry_sequences.next_number + v_count
+      returning next_number - v_count into v_first;
+
+    -- Numbered by date within the year, so the journal reads in the order the
+    -- shop actually traded. (kind, id) is the tiebreaker and the key: an id is
+    -- unique within a table but two tables can hand out the same uuid in
+    -- principle, and the pair is what _bf_map is keyed on everywhere else.
+    update _bf_map m
+       set reference = 'JE-' || v_year || '-' || lpad((v_first + n.rn - 1)::text, 4, '0')
+      from (select source_kind, source_id,
+                   row_number() over (order by on_date, source_kind, source_id) as rn
+              from _bf_map where to_char(on_date, 'YYYY') = v_year) n
+     where m.source_kind = n.source_kind and m.source_id = n.source_id;
+  end loop;
+
+  -- ── 4. The entries ──────────────────────────────────────────────────────
+  --
+  -- The period lookup is `order by starts_on desc limit 1` rather than a bare
+  -- scalar subquery: step 2 only guarantees a month-shaped period exists, and a
+  -- scalar subquery that found two overlapping periods would abort the whole
+  -- replay with "more than one row returned by a subquery" -- an error about
+  -- SQL for a problem about periods.
+  insert into public.journal_entries
+      (id, shop_id, period_id, entry_date, reference, description, source, status, location_id, created_by)
+  select m.entry_id, p_shop_id,
+         (select ap.id from public.accounting_periods ap
+           where ap.shop_id = p_shop_id and m.on_date between ap.starts_on and ap.ends_on
+           order by ap.starts_on desc limit 1),
+         m.on_date, m.reference, m.description, m.source, 'posted', m.location_id, auth.uid()
+    from _bf_map m;
+
+  -- ── 5. The back-links, which are what make this idempotent ──────────────
+  update public.sales s set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'sale' and m.source_id = s.id;
+  update public.refunds r set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'refund' and m.source_id = r.id;
+  update public.sale_payments sp set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'settlement' and m.source_id = sp.id;
+  update public.stock_receipts sr set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'receipt' and m.source_id = sr.id;
+  update public.stock_counts sc set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'count' and m.source_id = sc.id;
+  update public.invoice_payments ip set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'invoice_payment' and m.source_id = ip.id;
+  update public.payroll_runs pr set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'payroll' and m.source_id = pr.id;
+  update public.expenses e set journal_entry_id = m.entry_id
+    from _bf_map m where m.source_kind = 'expense' and m.source_id = e.id;
+
+  -- ── 6. The lines, one statement per kind ────────────────────────────────
+  --
+  -- Every one is a UNION ALL of the line kinds, filtered to non-zero at the
+  -- end. That filter is what lets the COGS pair, the receivable and the
+  -- discount line disappear rather than post a zero: journal_lines carries
+  -- check (amount_cents <> 0), and a zero line would take the whole replay
+  -- down.
+
+  ---------------------------------------------------------------------------
+  -- Sales -- 20260908000300's shape exactly.
+  ---------------------------------------------------------------------------
+  --
+  -- THE ADD-BACK IS THE PART THAT IS EASY TO GET WRONG, and getting it wrong is
+  -- invisible. complete_sale's item loop computes
+  -- `v_line := price_cents * qty - line_discount` and accumulates THAT, so
+  -- sale_items.line_total_cents is already NET of the line and promotion
+  -- discounts. Revenue is credited at LIST, so the sum of
+  -- sale_items.discount_cents has to be added back to it -- and the same figure
+  -- has to appear in the 4200 contra, alongside the order discount and the
+  -- points redeemed.
+  --
+  -- Crediting 4000 with a bare sum(line_total_cents) balances perfectly (both
+  -- sides move by the same amount) and understates revenue by every promotion
+  -- the shop ever ran, leaving 4200 reading zero for a shop whose discounts are
+  -- all promotions -- which is the app's main discount mechanism. It also
+  -- ties against a check that re-derives revenue from line_total_cents, which
+  -- is the same arithmetic twice. verify-backfill.sql asserts 4000 against
+  -- unit_price_cents * quantity for exactly that reason.
+  --
+  -- Balanced by construction, and this is the proof. Writing G for
+  -- sum(line_total_cents), I for sum(item discount), D for sales.discount_cents,
+  -- R for points_redeemed_cents, T for tax_cents and P for what the till took:
+  -- complete_sale computed total = G - D - R + T. The debits are P plus the
+  -- receivable (total - P) plus the contra (D + R + I) = total + D + R + I =
+  -- G + I + T. The credits are revenue (G + I) plus tax (T). Equal. The COGS
+  -- pair is a self-balancing debit and credit of one amount and does not
+  -- disturb it.
+  with agg as (
+    select m.entry_id, m.location_id, m.source_id,
+           s.total_cents, s.tax_cents, s.discount_cents, s.points_redeemed_cents,
+           -- Settlements EXCLUDED: they arrive later and post their own entry
+           -- against 1100. Including them here would shrink the receivable this
+           -- sale created by money the settlement entry has already credited
+           -- away, and 1100 would end up understated by every settlement ever
+           -- taken. See 4 in this file's header.
+           coalesce((select sum(sp.amount_cents) from public.sale_payments sp
+                      where sp.sale_id = m.source_id and not sp.is_settlement), 0) as till_cents,
+           coalesce((select sum(si.line_total_cents) from public.sale_items si
+                      where si.sale_id = m.source_id), 0) as net_lines_cents,
+           coalesce((select sum(si.discount_cents) from public.sale_items si
+                      where si.sale_id = m.source_id), 0) as item_discount_cents,
+           -- The cost FROZEN on the line at sale time, never products.cost_cents
+           -- -- otherwise a restock rewrites this sale's gross profit and with
+           -- it every closed month's. Uncosted lines contribute nothing rather
+           -- than zero: a free sample really does cost nothing, an unpriced
+           -- product is a question nobody answered.
+           coalesce((select sum(si.unit_cost_cents::bigint * si.quantity) from public.sale_items si
+                      where si.sale_id = m.source_id and si.unit_cost_cents is not null), 0) as cogs_cents
+      from _bf_map m join public.sales s on s.id = m.source_id
+     where m.source_kind = 'sale'
+  )
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      -- One debit per tender actually used. A single lumped line would make the
+      -- drawer and the wallet impossible to reconcile separately, which is most
+      -- of what a cash position is for.
+      select m.entry_id, m.location_id,
+             public.account_code_for_payment_method(sp.method) as code,
+             sum(sp.amount_cents)::bigint as amount_cents,
+             'Payment by ' || sp.method as memo
+        from _bf_map m
+        join public.sale_payments sp on sp.sale_id = m.source_id
+       where m.source_kind = 'sale' and not sp.is_settlement
+       group by m.entry_id, m.location_id, sp.method
+
+      union all
+      -- What was left on account. DERIVED -- there is no sale_balances table;
+      -- a balance is the sale's total less what the till took.
+      select g.entry_id, g.location_id, '1100',
+             (g.total_cents - g.till_cents)::bigint, 'Left on account' from agg g
+
+      union all
+      select g.entry_id, g.location_id, '4200',
+             (g.discount_cents + g.points_redeemed_cents + g.item_discount_cents)::bigint,
+             'Discounts and points' from agg g
+
+      union all
+      select g.entry_id, g.location_id, '4000',
+             -(g.net_lines_cents + g.item_discount_cents)::bigint, 'Sale at list' from agg g
+
+      union all
+      select g.entry_id, g.location_id, '2100', -g.tax_cents::bigint, 'Sales tax' from agg g
+
+      union all
+      select g.entry_id, g.location_id, '5000', g.cogs_cents, 'Cost of goods sold' from agg g
+      union all
+      select g.entry_id, g.location_id, '1200', -g.cogs_cents, 'Stock sold' from agg g
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Refunds -- 20260908000360's shape.
+  ---------------------------------------------------------------------------
+  --
+  --   Dr 4100 Sales Returns       the merchandise coming back, net of tax
+  --   Dr 2100 Sales Tax Payable   the tax share coming back
+  --   Cr 1000/1010/1020/1021      the cash actually handed over, one line per
+  --                               tender it came in on, pro-rated
+  --   Cr 1100 Accounts Receivable the rest, which reduces what is still owed
+  --   Dr 1200 / Cr 5000           the cost of the goods coming back
+  --
+  -- 4100, never a negative 4000: a refund that reduced Sales Revenue would make
+  -- a month's revenue depend on when the return happened rather than when the
+  -- sale did.
+  --
+  -- goods_cents and total_cents are read from the STORED refund row and never
+  -- recomputed. Refunds issued before 20260820000200 used the old gross-based
+  -- figure, and recomputing would quietly "correct" a refund the customer
+  -- received months ago into something they did not get.
+  --
+  -- The tender denominator is what had been collected AT THE TIME OF THE REFUND
+  -- (`sp.created_at <= r.created_at`), not everything ever collected on the
+  -- sale. A settlement taken after the refund was not a tender the refund could
+  -- have gone back out of. Either way the lines sum to total_cents exactly --
+  -- largest remainder guarantees it -- so the tie-out is unaffected; the split
+  -- across tenders is what improves.
+  with ref as (
+    select m.entry_id, m.location_id, m.source_id, r.created_at as refunded_at,
+           r.goods_cents, r.total_cents,
+           case when s.total_cents > 0
+                then round(r.goods_cents::numeric * coalesce(s.tax_cents, 0) / s.total_cents)::integer
+                else 0 end as tax_back,
+           coalesce((select sum(si.unit_cost_cents::bigint * ri.quantity)
+                       from public.refund_items ri
+                       join public.sale_items si on si.id = ri.sale_item_id
+                      where ri.refund_id = m.source_id and si.unit_cost_cents is not null), 0) as cogs_back,
+           coalesce((select sum(sp.amount_cents) from public.sale_payments sp
+                      where sp.sale_id = s.id and sp.created_at <= r.created_at), 0) as collected_cents,
+           s.id as sale_id
+      from _bf_map m
+      join public.refunds r on r.id = m.source_id
+      join public.sales s on s.id = r.sale_id
+     where m.source_kind = 'refund'
+  ),
+  -- LARGEST REMAINDER. Every tender gets floor(share) and the cents left over
+  -- go one each to the largest fractional parts. Chosen over "give the whole
+  -- difference to the biggest method" because every line then lands within a
+  -- cent of its exact share and none can come out NEGATIVE -- a negative credit
+  -- is a debit, i.e. a refund that puts money INTO a tender. Ties break on the
+  -- bigger tender then the method name, so a replay is deterministic.
+  per_method as (
+    select f.entry_id, f.location_id, sp.method, sum(sp.amount_cents)::numeric as collected,
+           f.total_cents, f.collected_cents
+      from ref f
+      join public.sale_payments sp on sp.sale_id = f.sale_id
+     where sp.amount_cents <> 0 and sp.created_at <= f.refunded_at and f.total_cents > 0
+     group by f.entry_id, f.location_id, sp.method, f.total_cents, f.collected_cents
+  ),
+  ranked as (
+    select entry_id, location_id, method, total_cents,
+           floor(total_cents::numeric * collected / collected_cents)::integer as base,
+           sum(floor(total_cents::numeric * collected / collected_cents)::integer) over (partition by entry_id) as base_total,
+           row_number() over (
+             partition by entry_id
+             order by (total_cents::numeric * collected / collected_cents)
+                      - floor(total_cents::numeric * collected / collected_cents) desc,
+                      collected desc, method) as rn
+      from per_method
+  )
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select f.entry_id, f.location_id, '4100' as code,
+             (f.goods_cents - f.tax_back)::bigint as amount_cents, 'Goods returned' as memo from ref f
+      union all
+      select f.entry_id, f.location_id, '2100', f.tax_back::bigint, 'Tax on the return' from ref f
+      union all
+      select k.entry_id, k.location_id,
+             public.account_code_for_payment_method(k.method),
+             -(k.base + case when k.rn <= k.total_cents - k.base_total then 1 else 0 end)::bigint,
+             'Refunded by ' || k.method
+        from ranked k
+      union all
+      -- The generalisation of "cash if it was paid, receivable if it was not".
+      -- On a sale paid in full this is zero and omitted; on one nobody has paid,
+      -- the cash lines are. An if/else on "is anything still owed" gets the
+      -- part-paid sale wrong in both directions.
+      select f.entry_id, f.location_id, '1100',
+             -(f.goods_cents - f.total_cents)::bigint, 'Reduced what is owed' from ref f
+      union all
+      select f.entry_id, f.location_id, '1200',  f.cogs_back, 'Stock returned' from ref f
+      union all
+      select f.entry_id, f.location_id, '5000', -f.cogs_back, 'Cost reversed' from ref f
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Settlements -- Dr the tender, Cr 1100. NO REVENUE.
+  ---------------------------------------------------------------------------
+  --
+  -- The revenue was recognised when the sale was rung up and the receivable is
+  -- what recorded it. Recognising it again when the money arrives is the
+  -- classic double-count, and it would show up as a shop whose credit sales
+  -- earn twice.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select m.entry_id, m.location_id,
+             public.account_code_for_payment_method(sp.method) as code,
+             sp.amount_cents::bigint as amount_cents, 'Settlement received' as memo
+        from _bf_map m join public.sale_payments sp on sp.id = m.source_id
+       where m.source_kind = 'settlement'
+      union all
+      select m.entry_id, m.location_id, '1100',
+             -sp.amount_cents::bigint, 'Cleared from receivables'
+        from _bf_map m join public.sale_payments sp on sp.id = m.source_id
+       where m.source_kind = 'settlement'
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Stock receipts -- Dr 1200 Inventory, Cr 2000 Accounts Payable.
+  ---------------------------------------------------------------------------
+  --
+  -- 2000, not cash: receive_stock records goods ARRIVING and says nothing about
+  -- whether they were paid for. Paying the supplier is record_invoice_payment,
+  -- replayed above, which debits 2000 back down.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select m.entry_id, m.location_id, '1200' as code,
+             sum(ri.unit_cost_cents::bigint * ri.quantity) as amount_cents,
+             'Delivery received' as memo
+        from _bf_map m join public.stock_receipt_items ri on ri.receipt_id = m.source_id
+       where m.source_kind = 'receipt' and ri.unit_cost_cents is not null
+       group by m.entry_id, m.location_id
+      union all
+      select m.entry_id, m.location_id, '2000',
+             -sum(ri.unit_cost_cents::bigint * ri.quantity), 'Owed to supplier'
+        from _bf_map m join public.stock_receipt_items ri on ri.receipt_id = m.source_id
+       where m.source_kind = 'receipt' and ri.unit_cost_cents is not null
+       group by m.entry_id, m.location_id
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Stock counts -- 1200 by the variance, 5100 by its negative.
+  ---------------------------------------------------------------------------
+  --
+  -- One signed pair covers both directions, and that is not a shortcut: short
+  -- means variance < 0, so 1200 is credited and 5100 debited; found means
+  -- variance > 0 and both flip. save_stock_count writes them as two branches
+  -- purely so each has its own memo, which is reproduced here by a case.
+  --
+  -- 5100 sits in COST OF SALES, above gross profit -- not in operating
+  -- expenses, where the Count door's stock_loss expense lands. A unit that is
+  -- stolen or breaks is never sold, so its cost enters COGS by no other path
+  -- and gross profit reads high by exactly that amount, every month, invisibly.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select v.entry_id, v.location_id, '1200' as code, v.variance_cents as amount_cents,
+             case when v.variance_cents < 0 then 'Written off' else 'Stock found' end as memo
+        from (
+          select m.entry_id, m.location_id,
+                 sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity)) as variance_cents
+            from _bf_map m join public.stock_count_items ci on ci.count_id = m.source_id
+           where m.source_kind = 'count' and ci.unit_cost_cents is not null
+           group by m.entry_id, m.location_id) v
+      union all
+      select v.entry_id, v.location_id, '5100', -v.variance_cents,
+             case when v.variance_cents < 0 then 'Stock short' else 'Shrinkage reversed' end
+        from (
+          select m.entry_id, m.location_id,
+                 sum(ci.unit_cost_cents::bigint * (ci.counted_quantity - ci.previous_quantity)) as variance_cents
+            from _bf_map m join public.stock_count_items ci on ci.count_id = m.source_id
+           where m.source_kind = 'count' and ci.unit_cost_cents is not null
+           group by m.entry_id, m.location_id) v
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Supplier payments -- Dr 2000 Accounts Payable, Cr the wallet.
+  ---------------------------------------------------------------------------
+  --
+  -- NO expense line. The cost was recognised when the bill arrived; this moves
+  -- money against the liability that recognition created. Posting 6xxx again
+  -- here would double every cost the shop has -- the other half of the
+  -- invoice_id exclusion on the expense replay.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select m.entry_id, m.location_id, '2000' as code,
+             ip.amount_cents::bigint as amount_cents, 'Bill paid' as memo
+        from _bf_map m join public.invoice_payments ip on ip.id = m.source_id
+       where m.source_kind = 'invoice_payment'
+      union all
+      select m.entry_id, m.location_id,
+             public.account_code_for_payment_method(ip.method),
+             -ip.amount_cents::bigint, 'Paid by ' || ip.method
+        from _bf_map m join public.invoice_payments ip on ip.id = m.source_id
+       where m.source_kind = 'invoice_payment'
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Pay runs -- Dr 6200 Salaries and Wages, Cr 1000 Cash.
+  ---------------------------------------------------------------------------
+  --
+  -- Cash, not 2200 Wages Payable: post_payroll_run records a run that HAS been
+  -- paid. Accruing wages owed but unpaid is phase 3's work.
+  --
+  -- The run's own total_cents, which post_payroll_run wrote from the sum of its
+  -- lines at post time. Re-summing payroll_run_lines would be a second opinion
+  -- on the same arithmetic against rows that may have been edited since, and
+  -- would post a figure that differs from the expense row the run produced.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select m.entry_id, m.location_id, '6200' as code,
+             pr.total_cents::bigint as amount_cents, 'Wages' as memo
+        from _bf_map m join public.payroll_runs pr on pr.id = m.source_id
+       where m.source_kind = 'payroll'
+      union all
+      select m.entry_id, m.location_id, '1000',
+             -pr.total_cents::bigint, 'Paid out'
+        from _bf_map m join public.payroll_runs pr on pr.id = m.source_id
+       where m.source_kind = 'payroll'
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  ---------------------------------------------------------------------------
+  -- Expenses -- Dr whatever the category maps to, Cr the wallet it left.
+  ---------------------------------------------------------------------------
+  --
+  -- The mapping is what makes a balance sheet possible: 'inventory_purchase'
+  -- goes to 1200 Inventory (an ASSET) and 'owner_draw' to 3100 Owner's Draw
+  -- (CONTRA-EQUITY), so they stop being expenses here rather than being
+  -- filtered out of a subtotal by a list somebody has to remember to maintain.
+  --
+  -- Cr the account the PAYMENT METHOD maps to, not 1000 for everything.
+  -- Hardcoding 1000 would make the till count disagree with the ledger for
+  -- every zaad or eDahab expense.
+  insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
+  select x.entry_id, a.id, x.amount_cents, x.location_id, x.memo
+    from (
+      select m.entry_id, m.location_id,
+             public.account_code_for_expense_category(e.category) as code,
+             e.amount_cents::bigint as amount_cents,
+             replace(e.category, '_', ' ') as memo
+        from _bf_map m join public.expenses e on e.id = m.source_id
+       where m.source_kind = 'expense'
+      union all
+      select m.entry_id, m.location_id,
+             public.account_code_for_payment_method(e.payment_method),
+             -e.amount_cents::bigint, 'Paid by ' || e.payment_method
+        from _bf_map m join public.expenses e on e.id = m.source_id
+       where m.source_kind = 'expense'
+    ) x
+    join public.accounts a on a.shop_id = p_shop_id and a.code = x.code and a.archived_at is null
+   where x.amount_cents <> 0;
+
+  -- ── 7. Nothing was written half-way ─────────────────────────────────────
+  --
+  -- The joins above drop a line whose account is missing or archived from the
+  -- shop's chart. The deferred balance trigger catches that at COMMIT when SOME
+  -- lines survive -- "this entry does not balance" -- but an entry that lost
+  -- ALL of its lines has zero, and assert_journal_balances deliberately allows
+  -- zero (it is the legitimate end state of a draft's lines being deleted). So
+  -- an entry could be left standing with nothing under it and the trial balance
+  -- would still zero.
+  --
+  -- Raised rather than skipped. If the replay cannot express a row, the mapping
+  -- is wrong and the whole run should stop -- a backfill that quietly wrote a
+  -- referenced-but-empty entry is exactly the "close is worse than none" state
+  -- this task exists to avoid.
+  select string_agg(m.source_kind || ' ' || m.source_id::text, ', ')
+    into v_bad
+    from _bf_map m
+   where (select count(*) from public.journal_lines l where l.entry_id = m.entry_id) < 2;
+  if v_bad is not null then
+    raise exception 'Backfill could not build a complete entry for: %. The chart of accounts is missing something, or the source rows carry no money.', v_bad
+      using errcode = 'P0001';
+  end if;
+
+  return v_written;
+end;
+$$;
+
+comment on function public.backfill_shop_ledger(uuid) is
+  'Replays every unposted sale, refund, settlement, stock receipt, stock count, supplier payment, pay run and expense into the ledger and returns how many entries it wrote. Idempotent -- driven by journal_entry_id being null, so a second run writes nothing. Inserts journal_entries and journal_lines directly rather than through post_journal_entry, because open_period_for raises on a closed month and would abort the replay half-way; the deferred balance trigger still runs. References come from journal_entry_sequences, reserved a year at a time.';
+
+grant execute on function public.backfill_shop_ledger(uuid) to authenticated;
