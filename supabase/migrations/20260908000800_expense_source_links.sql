@@ -1,0 +1,264 @@
+-- An expenses row can say which delivery or which stock-take it belongs to,
+-- and post_expense_to_ledger branches on the answer.
+--
+-- ## The defect this closes
+--
+-- Two client flows write an expenses row on top of an RPC that has ALREADY
+-- posted the same economic event:
+--
+--   * stock-restock-modal.tsx ticks "Also log this as an inventory purchase"
+--     and calls createExpense('inventory_purchase') after receive_stock.
+--     receive_stock posted Dr 1200 Inventory / Cr 2000 Accounts Payable.
+--     20260908000750's trigger then posted Dr 1200 / Cr 1000 for the SAME
+--     goods -- inventory counted twice, and a payable invented against a
+--     supplier who was paid in cash. Both entries balance, so the trial balance
+--     still zeroes and nothing anywhere goes red.
+--   * stock-count-modal.tsx does the same with 'stock_loss' after
+--     save_stock_count, which posted Dr 5100 Shrinkage / Cr 1200 Inventory. The
+--     trigger then posted Dr 5100 / Cr 1000: shrinkage doubled, and cash
+--     credited for stock nobody sold.
+--
+-- ## Why the checkboxes and the rows stay
+--
+-- The Expenses screen and every expense report read the `expenses` table, not
+-- the ledger. Deleting the rows -- or excluding both categories from the
+-- trigger and leaving the rows unposted -- would either remove a line a shop
+-- can see today or leave the ledger short of a cash movement that really
+-- happened. What was wrong is not that the rows exist. It is WHAT THEY POST.
+--
+-- And the two cases are not the same defect:
+--
+--   * A RESTOCK EXPENSE IS NOT A DUPLICATE. The receipt records goods
+--     ARRIVING; it says nothing about payment, which is exactly why it credits
+--     2000 (see 20260908000400's own note on payable-not-cash). The expense
+--     records that the shop PAID. So the honest entry for it is
+--     Dr 2000 Accounts Payable / Cr the payment method's wallet -- settling the
+--     payable the receipt just raised, which is precisely what
+--     record_invoice_payment does for a bill. Debiting 1200 a second time is
+--     the whole of the bug: it recognises the asset twice and never clears the
+--     liability, so a shop that pays cash on delivery accumulates a payable
+--     that grows for ever.
+--   * A COUNT EXPENSE IS A DUPLICATE. save_stock_count posts BOTH sides of the
+--     event and no money moves when stock walks out of the door. There is
+--     nothing left to post, so it posts nothing.
+--
+-- ## But a STANDALONE row in either category must still post
+--
+-- Someone can type an inventory_purchase or a stock_loss straight into the
+-- Expenses screen with no receipt and no count behind it, and both are real:
+--
+--   * standalone inventory_purchase -> Dr 1200 / Cr wallet. Goods bought and
+--     paid for in one step. Unchanged, and already correct.
+--   * standalone stock_loss -> Dr 5100 / Cr 1200. THIS IS A SECOND FIX, not a
+--     restatement of the first. Losing stock does not spend money: crediting a
+--     wallet asserts a payment nobody made and leaves 1200 carrying stock that
+--     is not on the shelf. The write-down has to come out of inventory. This
+--     was wrong before the double-post existed and would still be wrong with
+--     the double-post gone.
+--
+-- Telling the two apart needs a link the table did not have. `expenses` knew
+-- about invoices and pay runs and nothing else, which is why the trigger could
+-- not tell a receipt's payment from a hand-typed stock purchase. That missing
+-- link is the root cause; the two columns below are it.
+
+-- on delete cascade, matching invoice_id (20260804000300) and payroll_run_id
+-- (20260804000400). Neither parent is ever deleted in practice -- stock_receipts
+-- and stock_counts have no delete policy at all and no RPC removes one, by the
+-- same append-only design their own migrations set out -- so the only path that
+-- reaches this cascade is a shop being deleted, where taking the expense with
+-- it is right.
+alter table public.expenses
+  add column if not exists stock_receipt_id uuid references public.stock_receipts(id) on delete cascade;
+alter table public.expenses
+  add column if not exists stock_count_id uuid references public.stock_counts(id) on delete cascade;
+
+create index if not exists expenses_stock_receipt_id_idx on public.expenses(stock_receipt_id);
+create index if not exists expenses_stock_count_id_idx on public.expenses(stock_count_id);
+
+comment on column public.expenses.stock_receipt_id is
+  'The delivery this payment settles. Set by the Restock sheet''s "also log this as an inventory purchase" tick. Its entry is Dr 2000 Accounts Payable / Cr the wallet -- the receipt already debited 1200.';
+comment on column public.expenses.stock_count_id is
+  'The stock-take this write-off belongs to. Set by the Count sheet''s "also log this as a stock loss" tick. Posts NOTHING: save_stock_count already posted both sides and no money moved.';
+
+-- The branch below reads the four link columns in a fixed order, so a row
+-- carrying two of them would post whichever one is tested first and hide the
+-- other. Nothing writes two today -- sync_invoice_expense sets invoice_id
+-- alone, post_payroll_run payroll_run_id alone, and each modal one of the new
+-- pair -- and this makes that an enforced fact rather than a habit.
+alter table public.expenses
+  drop constraint if exists expenses_one_source_link;
+alter table public.expenses
+  add constraint expenses_one_source_link
+  check (num_nonnulls(invoice_id, payroll_run_id, stock_receipt_id, stock_count_id) <= 1);
+
+-- ---------------------------------------------------------------------------
+-- The six-way branch. Read 20260908000750's exclusion block before changing it.
+-- ---------------------------------------------------------------------------
+--
+--   payroll_run_id set   -> nothing   (post_payroll_run posted its own entry)
+--   invoice_id set       -> nothing   (the bill recognised the cost)
+--   journal_entry_id set -> nothing   (already posted; the backfill sets this)
+--   stock_count_id set   -> nothing   (save_stock_count posted both sides)
+--   stock_receipt_id set -> Dr 2000 / Cr wallet
+--   standalone stock_loss        -> Dr 5100 / Cr 1200
+--   standalone anything else     -> Dr the category's account / Cr wallet
+--
+-- The first four all `return null` and are kept as four separate statements
+-- rather than one `or`: each is skipped for a DIFFERENT reason, and a reader
+-- deciding whether one can be removed needs to see which.
+create or replace function public.post_expense_to_ledger() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_debit_code   text;
+  v_credit_code  text;
+  v_debit_memo   text;
+  v_credit_memo  text;
+  v_period_status text;
+  v_posted_date  date;
+  v_entry_id     uuid;
+begin
+  -- See the exclusion block in 20260908000750. Do not remove these without
+  -- reading it; post_payroll_run is named there by name.
+  if new.payroll_run_id is not null then return null; end if;
+  if new.invoice_id is not null then return null; end if;
+  if new.journal_entry_id is not null then return null; end if;
+  -- The fourth exclusion, and the one this migration adds. save_stock_count
+  -- posts Dr 5100 / Cr 1200 for the whole variance in the same transaction that
+  -- moved the units, and nothing was paid for -- so there is no second entry to
+  -- write. Posting one here doubled 5100 and credited a till that never opened.
+  if new.stock_count_id is not null then return null; end if;
+
+  if new.stock_receipt_id is not null then
+    -- SETTLING THE PAYABLE THE RECEIPT RAISED, not buying the goods again.
+    -- receive_stock has already put the delivery into 1200 against 2000; this
+    -- row is the money going out. Hardcoded '2000' rather than routed through
+    -- account_code_for_expense_category, because the category on the row is
+    -- 'inventory_purchase' (which maps to 1200) and it is the LINK, not the
+    -- category, that decides what this is. record_invoice_payment writes the
+    -- same shape for a bill.
+    v_debit_code  := '2000';
+    v_credit_code := public.account_code_for_payment_method(new.payment_method);
+    v_debit_memo  := 'Delivery paid';
+    v_credit_memo := 'Paid by ' || new.payment_method;
+  elsif new.category = 'stock_loss' then
+    -- A standalone write-off, with no count behind it. Cr 1200, NEVER a wallet:
+    -- stock that is stolen, broken or expired costs the shop the stock, not the
+    -- till. Crediting cash here balances perfectly and makes the drawer
+    -- disagree with the ledger by the whole of the shop's shrinkage, while
+    -- leaving 1200 carrying units that are not on the shelf.
+    --
+    -- 5100 rather than account_code_for_expense_category is a no-op today --
+    -- the map sends 'stock_loss' to 5100 -- and is written out because the pair
+    -- has to move together: the point of this branch is the CONTRA, and reading
+    -- one side from the map would invite someone to "simplify" it back into the
+    -- generic branch and take the 1200 with it.
+    v_debit_code  := '5100';
+    v_credit_code := '1200';
+    v_debit_memo  := 'stock loss';
+    v_credit_memo := 'Written off';
+  else
+    v_debit_code := public.account_code_for_expense_category(new.category);
+    -- The wallet the money actually left, not 1000 Cash for everything.
+    -- expenses.payment_method carries the same four values invoice_payments.method
+    -- does and account_code_for_expense_category's sibling already maps them.
+    -- Hardcoding 1000 would make the till count disagree with the ledger for
+    -- every zaad or eDahab expense, and leave 1020/1021 permanently understated
+    -- on the balance sheet this phase exists to make possible -- the exact defect
+    -- verify-posting-bills.sql check 2 exists to catch on the supplier-payment
+    -- side. For the common case (payment_method defaults to 'cash') this IS
+    -- '1000'.
+    v_credit_code := public.account_code_for_payment_method(new.payment_method);
+    v_debit_memo  := replace(new.category, '_', ' ');
+    v_credit_memo := 'Paid by ' || new.payment_method;
+  end if;
+
+  -- occurred_on, not today: 20260804000200 makes the point that a receipt is
+  -- often logged days after the purchase and it is the PURCHASE date that
+  -- decides the period. It is already a `date` column, so it is exempt from the
+  -- shop_local_date() rule -- there is no moment in time to resolve against a
+  -- server timezone, and wrapping it would be a no-op cast through a function
+  -- that expects a timestamptz.
+  --
+  -- A BACK-DATED EXPENSE WHOSE MONTH HAS CLOSED POSTS TO THE OPEN ONE, which
+  -- is Task 3b's treatment of a back-dated sale and is here for a stronger
+  -- reason: the expense editor has a free date field
+  -- (expense-editor-modal.tsx:101), so back-dating is not an import edge case,
+  -- it is the ordinary way a receipt from last week gets entered. Without this,
+  -- open_period_for would raise `This period is closed` and a plain expense
+  -- insert -- something that works today -- would start failing outright.
+  --
+  -- READ, not caught. An exception handler around post_journal_entry would also
+  -- swallow an unbalanced entry, an unknown account code or a missing chart of
+  -- accounts and retry them into the current month as though the only thing
+  -- wrong were the date.
+  select status into v_period_status
+    from public.accounting_periods
+   where shop_id = new.shop_id and new.occurred_on between starts_on and ends_on;
+
+  -- No row means open_period_for will create it open, so only an EXISTING
+  -- non-open period redirects. Treating a missing row as shut would redate
+  -- every expense in a month the shop has not traded in yet.
+  if v_period_status is not null and v_period_status <> 'open' then
+    v_posted_date := public.shop_local_date();
+  else
+    v_posted_date := new.occurred_on;
+  end if;
+
+  -- The description carries the expense id so the link is readable in both
+  -- directions -- expenses.journal_entry_id gets you from the row to the entry,
+  -- and a journal of four hundred lines all reading 'Expense' gets you nowhere
+  -- back. Task 8's backfill reconciles replayed entries against their source
+  -- rows and wants the same link.
+  --
+  -- coalesce on v_period_status even though the branch above cannot leave it
+  -- NULL while the dates differ: `||` with a NULL operand yields NULL for the
+  -- WHOLE expression, and post_journal_entry then refuses the row with
+  -- "A journal entry needs a description." -- an error about descriptions for a
+  -- bug about dates. The same trap 20260908000300 documents.
+  v_entry_id := public.post_journal_entry(
+    new.shop_id,
+    v_posted_date,
+    'Expense ' || new.id::text
+      || case when v_posted_date <> new.occurred_on
+              then ' (incurred ' || to_char(new.occurred_on, 'YYYY-MM-DD')
+                   || '; that period is ' || coalesce(v_period_status, 'not open')
+                   || ', so it is recognised here)'
+              else '' end,
+    jsonb_build_array(
+      jsonb_build_object('code', v_debit_code,  'amount_cents',  new.amount_cents,
+                         'memo', v_debit_memo),
+      jsonb_build_object('code', v_credit_code, 'amount_cents', -new.amount_cents,
+                         'memo', v_credit_memo)),
+    -- The store the cost belongs to travels onto the entry, for the reason
+    -- 20260816000000 exists: a cost with no store drops out of that store's
+    -- P&L. Null stays null for a business-wide expense, which is a real value
+    -- and not a gap.
+    new.location_id,
+    'bill');
+
+  -- AFTER INSERT, so `new` is not writable -- assigning to it here would be
+  -- silently discarded rather than rejected. The row is updated instead.
+  --
+  -- AFTER rather than BEFORE deliberately: post_journal_entry's description
+  -- carries new.id, and in a BEFORE INSERT trigger that id is the default the
+  -- row is ABOUT to get -- which is fine -- but the entry would also be written
+  -- before the row's own constraints (amount_cents > 0, the category CHECK,
+  -- enforce_shop_module) had all been proved. AFTER means the ledger only ever
+  -- learns about an expense the table has already accepted.
+  update public.expenses set journal_entry_id = v_entry_id where id = new.id;
+
+  return null;
+end;
+$$;
+
+comment on function public.post_expense_to_ledger() is
+  'AFTER INSERT on expenses. Posts nothing for a row carrying payroll_run_id, invoice_id, stock_count_id or an existing journal_entry_id -- something else already posted that event. A row carrying stock_receipt_id posts Dr 2000 Accounts Payable / Cr the wallet, settling the payable receive_stock raised. A standalone stock_loss posts Dr 5100 / Cr 1200. Everything else posts Dr the category''s account / Cr the payment method''s wallet.';
+
+-- Unchanged from 20260908000750, restated because the function was replaced and
+-- a reader of this file should not have to open the last one to learn where the
+-- trigger is. Row-level, so an insert of several expenses at once posts one
+-- entry each.
+drop trigger if exists expenses_post_to_ledger on public.expenses;
+create trigger expenses_post_to_ledger
+  after insert on public.expenses
+  for each row execute function public.post_expense_to_ledger();

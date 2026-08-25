@@ -1463,6 +1463,14 @@ describe('logging the shortfall', () => {
       vendorId: null,
       paymentMethod: 'cash',
       note: 'Stock-take',
+      // THE LINK BACK TO THE STOCK-TAKE, and the reason this row is not a
+      // double-post. save_stock_count has already recorded the whole write-off
+      // as Dr 5100 Inventory Shrinkage / Cr 1200 Inventory, and nothing was
+      // paid for -- so this row exists for the Expenses screen and posts
+      // nothing at all. Drop the id and it takes the standalone path: shrinkage
+      // doubles and `paymentMethod: 'cash'` above credits a till that never
+      // opened, with every journal entry still balancing.
+      stockCountId: 'count-1',
     });
   });
 
@@ -1646,6 +1654,14 @@ describe('logging the shortfall from a sheet', () => {
     });
     await act(async () => pressableWithText(tree, 'By sheet').props.onPress());
     await act(async () => pressableWithText(tree, 'Upload a filled sheet').props.onPress());
+    // A DIFFERENT count id per store, in plan order (Main then Branch), so the
+    // assertion below can tell "each row carries its own stock-take" from
+    // "both rows carry whichever one came back first". The second is the case
+    // that matters: an expense pointing at ANOTHER store's count is skipped by
+    // the trigger while its own count's write-off is only posted once, which
+    // reads as correct on every account and is not.
+    saveStockCount.mockReset();
+    saveStockCount.mockResolvedValueOnce('count-main').mockResolvedValueOnce('count-branch');
     await act(async () => pressableLabelled(tree, 'Log the shortfall as stock loss').props.onPress());
     await act(async () => pressableLabelled(tree, 'Save counts').props.onPress());
 
@@ -1656,8 +1672,18 @@ describe('logging the shortfall from a sheet', () => {
     // first-store attribution bug shows up as a wrong number, not merely a
     // wrong count of calls.
     expect(createExpense.mock.calls.map((call) => call[1])).toEqual([
-      expect.objectContaining({ locationId: 'loc-1', amountCents: 1383, category: 'stock_loss' }),
-      expect.objectContaining({ locationId: 'loc-2', amountCents: 1200, category: 'stock_loss' }),
+      expect.objectContaining({
+        locationId: 'loc-1',
+        amountCents: 1383,
+        category: 'stock_loss',
+        stockCountId: 'count-main',
+      }),
+      expect.objectContaining({
+        locationId: 'loc-2',
+        amountCents: 1200,
+        category: 'stock_loss',
+        stockCountId: 'count-branch',
+      }),
     ]);
   });
 

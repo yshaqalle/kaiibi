@@ -189,6 +189,7 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/migrations/20260908000650_post_sale_edit.sql` | Task 5b. `edit_sale`, copied forward: reverse, re-post, re-point. |
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
 | `supabase/migrations/20260908000750_post_expenses.sql` | Task 7b. The `AFTER INSERT` trigger on `expenses`. Numbered after the backfill because it was added once the backfill's number was already claimed; neither depends on the other's objects, so the order they apply in does not matter. |
+| `supabase/migrations/20260908000800_expense_source_links.sql` | The final review's C1/C2 fix. Adds `expenses.stock_receipt_id` and `expenses.stock_count_id` and replaces `post_expense_to_ledger()` with the six-way branch. See the correction under Task 7b. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
@@ -2019,6 +2020,29 @@ So a naive trigger double-posts. `6200 Salaries and Wages` and `1000 Cash` would
 
 **The trigger skips any row where `payroll_run_id is not null`, `invoice_id is not null`, or `journal_entry_id is not null`.** The third is the same guard Task 2's column exists for, and it is what stops a backfill running against a live trigger from posting twice. `log_recurring_bill` sets **neither** of the first two and is deliberately **not** excluded — nothing else posts for it, and it is a real cost the shop just incurred.
 
+#### CORRECTED after the final whole-branch review: three exclusions is not enough, and one branch is not enough
+
+The review found two Criticals no per-task review could see, because each looked only at its own diff. **`stock-restock-modal.tsx` calls `createExpense('inventory_purchase')` after `receiveStock`**, and **`stock-count-modal.tsx` calls `createExpense('stock_loss')` after `saveStockCount`** — in both cases on top of an RPC that has already posted the event. `receive_stock` posts `Dr 1200 / Cr 2000`; the trigger then posted `Dr 1200 / Cr 1000` for the same goods, doubling inventory and inventing a payable against a supplier paid in cash. `save_stock_count` posts `Dr 5100 / Cr 1200`; the trigger then posted `Dr 5100 / Cr 1000`, doubling shrinkage and crediting a till that never opened. Every entry balances, so the trial balance stays at zero and nothing goes red.
+
+**The checkboxes and the rows stay.** The Expenses screen and the expense reports read `expenses`, not the ledger; removing either is a visible product change. What was wrong is *what they post*. And the two cases are not the same defect: a restock expense **is not a duplicate** (the receipt records goods arriving, the expense records that cash was paid, so it must settle the payable), while a count expense **is** (nothing is left to record, and no money moved).
+
+**Root cause: `expenses` had no link to a receipt or a count**, so the trigger could not tell a linked row from a standalone one. `20260908000800_expense_source_links.sql` adds `stock_receipt_id` and `stock_count_id` (with a `CHECK` that at most one of the four link columns is set), both modals set them, and the trigger branches six ways:
+
+| Row | Posts |
+|---|---|
+| `payroll_run_id` set | nothing — `post_payroll_run` wrote its own entry |
+| `invoice_id` set | nothing — the bill recognised the cost |
+| `journal_entry_id` set | nothing — already posted; the backfill sets this |
+| `stock_count_id` set | nothing — `save_stock_count` posted both sides |
+| `stock_receipt_id` set | `Dr 2000 Accounts Payable / Cr <the payment method's wallet>` |
+| standalone `inventory_purchase` | `Dr 1200 / Cr <wallet>` — bought and paid for in one step |
+| standalone `stock_loss` | `Dr 5100 / Cr 1200` — **not** a wallet |
+| any other category | `Dr <the category's account> / Cr <wallet>` |
+
+**Standalone `stock_loss` crediting `1200` is a second fix, not a restatement of the first.** It was wrong before the double-post existed and would still be wrong with the double-post gone: losing stock costs the shop the stock, not the till, and crediting cash balances perfectly while leaving `1200` carrying units that are not on the shelf.
+
+`verify-posting-expenses.sql` gains checks 9–12 for the pairs and the two standalone cases; `verify-backfill.sql` gains both historical pairs plus a standalone `stock_loss`, and asserts the replay reaches the same figures.
+
 #### Two decisions the brief left to the implementation
 
 **`p_source` is `'bill'`, not `'payment'`.** `'payment'` is already taken by `record_invoice_payment`, whose entry is `Dr 2000 / Cr a wallet` and touches no expense account at all. Reusing it would make `where source = 'payment'` return two structurally different entries, and any phase-3 report grouping by source would mix a liability settlement with a cost recognition. `'bill'` is the recognition of a cost the shop has incurred — `20260904000300`'s own comment on `entry_date` uses *"a bill entered on 3 September for August utilities"* as the example — and no other door uses it.
@@ -2096,6 +2120,12 @@ The backfill therefore creates the periods it needs up front, generates referenc
 The reason is Task 7b's reason, unchanged: `post_payroll_run` writes **both** a journal entry and an `expenses` row carrying `payroll_run_id` and category `salaries_wages`, which the map sends to `6200`. `sync_invoice_expense` mirrors every bill into `expenses` carrying `invoice_id`, and that cost's liability side is posted by `receive_stock` and settled by `record_invoice_payment`. Replaying either row would count `6200 Salaries and Wages` and every stocked cost **twice** — **with the trial balance still zero**, because both entries individually balance. Task 8's own tie-out compares the replay against the live path, so a replay that copies the trigger's exclusion wrongly and a trigger that has it right disagree by exactly the wages; a replay that copies it wrongly in the *same* way the trigger would have been wrong agrees perfectly and is wrong twice.
 
 Because a shop may be backfilled while the trigger is live, the `journal_entry_id is null` filter is not an optimisation — it is what stops the two paths posting the same expense.
+
+**CORRECTED with Task 7b: the replay branches exactly as the trigger branches.** The exclusion is now **four** — `stock_count_id is not null` joins the other three, because `save_stock_count` posted both sides of that write-off itself. It is the only exclusion that leaves a row with `journal_entry_id` null **for ever by design**, so `verify-backfill.sql` check 5 excludes it there too or it would be red on a correct replay. And for the rows the replay *does* handle, it takes the same three-way branch the trigger takes: `stock_receipt_id` set → `Dr 2000 / Cr <wallet>`; standalone `stock_loss` → `Dr 5100 / Cr 1200`; anything else → `Dr <the category's account> / Cr <wallet>`.
+
+**Historical rows predate both columns and have them null, so they take the standalone path — and that is correct, not a gap being papered over.** Those rows were written before the ledger existed: there is no receipt entry for a null `stock_receipt_id` to settle, because `receive_stock` posted nothing at the time, and the replay writes that receipt's own `Dr 1200 / Cr 2000` from `stock_receipts` in the same run. A historical `inventory_purchase` therefore has to debit `1200` on its own account. Only rows written after `20260908000800` shipped carry a link, and for those the receipt entry exists and the settlement has something to settle.
+
+The two columns are added by `20260908000800`, which applies **after** this migration. That forward reference is safe: a `plpgsql` body is only syntax-checked at `CREATE` time — column names resolve on first execution — and `backfill_shop_ledger` is never called during a migration run.
 
 - [ ] **Step 1: Write the failing test**
 

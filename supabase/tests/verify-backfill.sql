@@ -68,6 +68,15 @@
 --      the expenses row sync_invoice_expense mirrors from a bill is not
 --      replayed on top of the bill's liability.
 --  11. Backfilled entries carry their TRUE source, never a 'backfill' marker.
+--  3j. THE TWO CLIENT PAIRS REPLAY EXACTLY AS THE LIVE PATH POSTS THEM, which
+--      is the deliverable this whole phase turns on. The Restock sheet writes
+--      an inventory_purchase expense carrying stock_receipt_id on top of a
+--      receipt, and the Count sheet a stock_loss expense carrying
+--      stock_count_id on top of a stock-take. verify-posting-expenses.sql
+--      checks 9 and 10 assert what the LIVE trigger does with each; this file
+--      asserts the REPLAY reaches the same figures, because a backfill that
+--      posted history one way while the trigger posts new rows another way
+--      would leave a shop's books changing shape on the date it was migrated.
 --
 -- Deliberately NOT `set role authenticated`, for the reason
 -- verify-posting-expenses.sql is not: this script stays superuser so RLS never
@@ -97,6 +106,10 @@ declare
   v_invoice   uuid;
   v_run_id    uuid;
   v_expense   uuid;
+  -- The two client-written expense rows that sit ON TOP of an RPC that already
+  -- posted the event. See the fixture block below and check 3j.
+  v_recpt_exp uuid;
+  v_count_exp uuid;
   v_entry     uuid;
   v_ledger    bigint;
   v_report    bigint;
@@ -351,6 +364,65 @@ begin
     values (v_shop_id, v_loc_id, public.shop_local_date() - 8, 2500, 'rent', 'cash', 'Shop rent', v_user_id)
     returning id into v_expense;
 
+  ---------------------------------------------------------------------------
+  -- THE TWO CLIENT PAIRS. THE THIRD AND FOURTH DOUBLE-COUNT TRAPS.
+  ---------------------------------------------------------------------------
+  -- These are the rows the Restock sheet and the Count sheet write when the
+  -- "also log this" tick is on, reproduced as history: each sits on top of an
+  -- RPC that has ALREADY posted the event, and each carries the link column
+  -- 20260908000800 added so the replay can tell it from a hand-typed row.
+  --
+  --   * The delivery above is 10 sacks at 200 = 2000, recorded as
+  --     Dr 1200 / Cr 2000. This row is the shop PAYING for it, so the replay
+  --     must write Dr 2000 / Cr 1000 -- settling the payable, not buying the
+  --     goods a second time. Without the branch it debits 1200 again and the
+  --     shop's stock reads 2000 too high with a payable that is never cleared.
+  --     2000 exactly, because a delivery paid IN FULL is the case where 2000
+  --     nets to nothing and the arithmetic says so out loud.
+  --   * The count above is 2 sacks short at 200 = 400, recorded as
+  --     Dr 5100 / Cr 1200. Nothing was paid. This row must post NOTHING, and it
+  --     is the only row in this fixture that stays unposted for ever by design
+  --     (check 5 excludes it for that reason). Without the exclusion 5100 reads
+  --     800 for 400 of shrinkage and 1000 Cash is credited for stock nobody
+  --     sold.
+  --
+  -- Both are dated with their RPC's row so the replay's period arithmetic sees
+  -- a realistic pair rather than two rows in the same day.
+  insert into public.expenses
+      (shop_id, location_id, occurred_on, amount_cents, category, payment_method, note,
+       created_by, stock_receipt_id)
+    values (v_shop_id, v_loc_id, public.shop_local_date() - 4, 2000, 'inventory_purchase',
+            'cash', 'Paid on delivery', v_user_id, v_receipt)
+    returning id into v_recpt_exp;
+
+  insert into public.expenses
+      (shop_id, location_id, occurred_on, amount_cents, category, payment_method, note,
+       created_by, stock_count_id)
+    values (v_shop_id, v_loc_id, public.shop_local_date() - 3, 400, 'stock_loss',
+            'cash', 'Stock-take', v_user_id, v_count_id)
+    returning id into v_count_exp;
+
+  ---------------------------------------------------------------------------
+  -- A STANDALONE stock_loss -- no count behind it. A crate dropped.
+  ---------------------------------------------------------------------------
+  -- This one the replay IS responsible for, and it must post Dr 5100 / Cr 1200:
+  -- losing stock costs the shop the stock, not the till. Crediting the wallet
+  -- the row's payment_method names -- which is what the replay did before
+  -- 20260908000800 -- balances perfectly and ties every P&L total, while
+  -- leaving 1200 carrying units that are not on the shelf and the drawer
+  -- disagreeing with the ledger by the whole of the shop's shrinkage.
+  --
+  -- IT IS HERE BECAUSE WITHOUT IT THE STANDALONE BRANCH IS UNTESTED. The only
+  -- other stock_loss row in this fixture carries stock_count_id and is excluded
+  -- from the replay entirely, so deleting the Cr 1200 branch changed nothing
+  -- anywhere -- a mutation that survives, which is a finding about this file
+  -- and not about the migration. 700, so it cannot be confused with the count's
+  -- 400 and 1100 is unmistakably the pair.
+  insert into public.expenses
+      (shop_id, location_id, occurred_on, amount_cents, category, payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date() - 2, 700, 'stock_loss',
+            'cash', 'Crate dropped', v_user_id);
+
   alter table public.expenses enable trigger expenses_post_to_ledger;
 
   ---------------------------------------------------------------------------
@@ -445,12 +517,14 @@ begin
   ---------------------------------------------------------------------------
   -- 2. The backfill posts every unposted row and says how many.
   ---------------------------------------------------------------------------
-  -- Eleven: four sales, two refunds, one receipt, one count, one supplier
-  -- payment, one pay run, one expense. NOT the settlement (already posted),
-  -- NOT the payroll expense row, NOT the invoice's mirrored expense row.
+  -- Thirteen: four sales, two refunds, one receipt, one count, one supplier
+  -- payment, one pay run, one rent expense, one standalone stock_loss, and the
+  -- delivery's payment. NOT the settlement (already posted), NOT the payroll
+  -- expense row, NOT the invoice's mirrored expense row, and NOT the count's
+  -- stock_loss row -- save_stock_count already posted both sides of that one.
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 11 then
-    raise exception 'FAIL: expected 11 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 1 expense), got %', v_posted;
+  if v_posted <> 13 then
+    raise exception 'FAIL: expected 13 entries (4 sales, 2 refunds, 1 receipt, 1 count, 1 supplier payment, 1 pay run, 2 expenses, 1 delivery payment), got %', v_posted;
   end if;
 
   ---------------------------------------------------------------------------
@@ -586,14 +660,32 @@ begin
   -- RUN's entry rather than through its expenses row. If the payroll row were
   -- replayed, 6200 would read 14000 and this is 7000 out; if the invoice's
   -- mirrored row were replayed, 6400 would read 5000 and this is 5000 out.
+  --
+  -- The two stock-linked rows come out of the report side as well, and for a
+  -- reason that is NOT the exclusions: neither one lands on an account of type
+  -- 'expense' at all. The delivery's payment debits 2000 Accounts Payable (a
+  -- LIABILITY) and the count's stock_loss row posts nothing. This total is
+  -- "operating expenses", so a row that is not one has no business on either
+  -- side of it. 3j is where those two are checked, by the accounts they
+  -- actually move.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.type = 'expense';
+  --
+  -- The three NON-OPERATING categories come out too, and not because of any
+  -- exclusion: account_code_for_expense_category sends 'inventory_purchase' to
+  -- 1200 (an ASSET), 'owner_draw' to 3100 (CONTRA-EQUITY) and 'stock_loss' to
+  -- 5100 (COST OF SALES), so none of the three ever lands on an account of type
+  -- 'expense'. That is the whole point of the map -- they stop being expenses
+  -- because of where they sit rather than because a reporting helper remembers
+  -- to filter them -- and this total is about OPERATING expenses. 3i pins 5100.
   select coalesce((select sum(e2.amount_cents) from public.expenses e2
                     where e2.shop_id = v_shop_id
-                      and e2.payroll_run_id is null and e2.invoice_id is null), 0)
+                      and e2.payroll_run_id is null and e2.invoice_id is null
+                      and e2.stock_receipt_id is null and e2.stock_count_id is null
+                      and e2.category not in ('inventory_purchase', 'owner_draw', 'stock_loss')), 0)
        + coalesce((select sum(pr.total_cents) from public.payroll_runs pr
                     where pr.shop_id = v_shop_id and pr.status = 'posted'), 0)
     into v_report;
@@ -637,13 +729,19 @@ begin
   ---------------------------------------------------------------------------
   -- 3f. THE SUPPLIER SIDE. 2000 Accounts Payable.
   ---------------------------------------------------------------------------
-  -- The delivery raises 2000 by its costed value and the payment draws it back
-  -- down: 2000 received, 3000 paid, so 2000 nets to +1000 (a DEBIT balance on a
-  -- liability account, because this fixture pays a bill for goods that arrived
-  -- on a different delivery -- which is exactly what a real shop's two tables
-  -- look like). A credit of 2000 and a debit of 3000 sum to +1000, which is
-  -- what the assertion below requires and what the report side computes as
-  -- payments less receipts.
+  -- The delivery raises 2000 by its costed value and TWO things draw it back
+  -- down: the supplier payment recorded against the bill, and the Restock
+  -- sheet's expense row settling the delivery it was written for. 2000
+  -- received, 3000 paid on the bill, 2000 paid on delivery, so 2000 nets to
+  -- +3000 (a DEBIT balance on a liability account, because this fixture pays a
+  -- bill for goods that arrived on a different delivery -- which is exactly
+  -- what a real shop's two tables look like).
+  --
+  -- The third term is the one this check gained. Without it -- i.e. with the
+  -- replay debiting 1200 for a receipt-linked expense, as it did before
+  -- 20260908000800 -- the ledger reads +1000, the report side reads +3000, and
+  -- this is 2000 out in the direction that says the shop still owes a supplier
+  -- it paid on the doorstep.
   select coalesce(sum(l.amount_cents), 0) into v_ledger
     from public.journal_lines l
     join public.accounts a on a.id = l.account_id
@@ -651,13 +749,15 @@ begin
    where e.shop_id = v_shop_id and a.code = '2000';
   select coalesce((select sum(ip.amount_cents) from public.invoice_payments ip
                      join public.invoices i on i.id = ip.invoice_id where i.shop_id = v_shop_id), 0)
+       + coalesce((select sum(e2.amount_cents) from public.expenses e2
+                    where e2.shop_id = v_shop_id and e2.stock_receipt_id is not null), 0)
        - coalesce((select sum(ri.unit_cost_cents::bigint * ri.quantity)
                      from public.stock_receipt_items ri
                      join public.stock_receipts r on r.id = ri.receipt_id
                     where r.shop_id = v_shop_id and ri.unit_cost_cents is not null), 0)
     into v_report;
   if v_ledger <> v_report then
-    raise exception 'FAIL: 2000 Accounts Payable is % but the receipts and payments say % -- off by %',
+    raise exception 'FAIL: 2000 Accounts Payable is % but the receipts, bill payments and delivery payments say % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
   end if;
 
@@ -680,7 +780,15 @@ begin
   --   1000 Cash   +6400 (sale A) +1000 (sale B till) +500 (sale B settlement)
   --               +8000 (sale C) +4300 (sale D)
   --               -4000 (refund C) -2150 (refund D's cash share)
-  --               -7000 (pay run) -2500 (rent)                  =  4550
+  --               -7000 (pay run) -2500 (rent)
+  --               -2000 (the delivery paid on the doorstep)      =  2550
+  --
+  --   THE STOCK-TAKE IS NOT IN THAT LIST, and its absence is the assertion.
+  --   The Count sheet's stock_loss row is 400 and touches no wallet at all:
+  --   nothing was paid for stock that walked out. A replay that posted it would
+  --   read 2150 here -- the till 400 light, with the shop's shrinkage as the
+  --   only explanation and no way to see that from a shrinkage total.
+  --
   --   1020 Zaad   +2000 (sale A) +2000 (sale D) -1000 (refund D) =  3000
   --   1021 eDahab -3000 (the supplier paid by eDahab)            = -3000
   --   1010 Bank    nothing in this fixture uses the 'other'
@@ -695,8 +803,8 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '1000';
-  if v_ledger <> 4550 then
-    raise exception 'FAIL: 1000 Cash is %, expected 4550 -- the till and the ledger disagree by %', v_ledger, v_ledger - 4550;
+  if v_ledger <> 2550 then
+    raise exception 'FAIL: 1000 Cash is %, expected 2550 -- the till and the ledger disagree by %', v_ledger, v_ledger - 2550;
   end if;
 
   select coalesce(sum(l.amount_cents), 0) into v_ledger
@@ -776,8 +884,17 @@ begin
   --
   --   1200 = +2000 (delivery) -400 (count, 2 sacks short at 200)
   --          -12000 (the cost of everything sold: 6000 + 1000 + 3000 + 2000)
-  --          +2500 (the cost of what came back: 1500 + 1000)     = -7900
-  --   5100 = +400 (the count's other half)                       =    400
+  --          +2500 (the cost of what came back: 1500 + 1000)
+  --          -700 (the standalone write-off's contra)            = -8600
+  --   5100 = +400 (the count's other half)
+  --          +700 (the standalone write-off)                     =   1100
+  --
+  -- NEITHER FIGURE CHANGED WHEN THE TWO CLIENT ROWS JOINED THE FIXTURE, AND
+  -- THAT IS THE POINT. The delivery's payment settles 2000 and never touches
+  -- 1200; the stock-take's write-off posts nothing at all. Before
+  -- 20260908000800 those two rows added +2000 to 1200 and +400 to 5100 -- the
+  -- shop's stock and its whole shrinkage, both doubled, with every entry
+  -- balancing. These two assertions are what would have caught it.
   --
   -- 1200 is derived from the four source tables rather than pinned to -7900,
   -- because each of the four terms is written by a different lines statement
@@ -803,9 +920,12 @@ begin
                      join public.sale_items si on si.id = ri2.sale_item_id
                      join public.sales s on s.id = si.sale_id
                     where s.shop_id = v_shop_id and si.unit_cost_cents is not null), 0)
+       - coalesce((select sum(e2.amount_cents) from public.expenses e2
+                    where e2.shop_id = v_shop_id and e2.category = 'stock_loss'
+                      and e2.stock_count_id is null), 0)
     into v_report;
   if v_ledger <> v_report then
-    raise exception 'FAIL: 1200 Inventory is % but the deliveries, count, sales and returns say % -- off by %',
+    raise exception 'FAIL: 1200 Inventory is % but the deliveries, count, sales, returns and write-offs say % -- off by %',
       v_ledger, v_report, v_ledger - v_report;
   end if;
 
@@ -814,8 +934,59 @@ begin
     join public.accounts a on a.id = l.account_id
     join public.journal_entries e on e.id = l.entry_id
    where e.shop_id = v_shop_id and a.code = '5100';
-  if v_ledger <> 400 then
-    raise exception 'FAIL: 5100 Inventory Shrinkage is %, expected 400 (two sacks short at 200) -- the count''s cost side went to another account', v_ledger;
+  if v_ledger <> 1100 then
+    raise exception 'FAIL: 5100 Inventory Shrinkage is %, expected 1100 (400 from the count, 700 from the standalone write-off) -- 1500 = the count''s stock_loss expense was replayed on top of the count', v_ledger;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 3j. THE TWO CLIENT PAIRS, REPLAYED THE WAY THE LIVE PATH POSTS THEM.
+  ---------------------------------------------------------------------------
+  -- THIS IS THE EQUIVALENCE THE WHOLE PHASE TURNS ON. verify-posting-expenses
+  -- checks 9 and 10 assert what the trigger does with a row written today;
+  -- these assert the replay reaches the same accounts and the same figures for
+  -- the same pair sitting in history. If the two ever part company, a shop's
+  -- books change shape on the day it is migrated -- and the totals above would
+  -- not show it, because a replay and a trigger that disagree still each
+  -- balance.
+  --
+  -- Written per ENTRY rather than as a shop-wide total, deliberately: 3f and 3i
+  -- already tie the totals, and a total cannot distinguish "the delivery's
+  -- payment settled 2000" from "something else moved 2000 by the same amount".
+  --
+  -- (a) The delivery and its payment, together, leave 2000 at nothing. The
+  --     receipt credited 2000 and the expense debits the same 2000 back: a shop
+  --     that pays cash on the doorstep must not accumulate a payable that grows
+  --     for ever.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '2000'
+     and l.entry_id in (select journal_entry_id from public.stock_receipts where id = v_receipt
+                        union all
+                        select journal_entry_id from public.expenses where id = v_recpt_exp);
+  if v_ledger <> 0 then
+    raise exception 'FAIL: the delivery and the expense that paid for it leave 2000 Accounts Payable at %, expected 0 (-2000 = the payment debited 1200 instead of settling the payable)', v_ledger;
+  end if;
+
+  -- (b) ...and 1200 moved ONCE across the pair, by the delivery alone.
+  select coalesce(sum(l.amount_cents), 0) into v_ledger
+    from public.journal_lines l
+    join public.accounts a on a.id = l.account_id
+   where a.code = '1200'
+     and l.entry_id in (select journal_entry_id from public.stock_receipts where id = v_receipt
+                        union all
+                        select journal_entry_id from public.expenses where id = v_recpt_exp);
+  if v_ledger <> 2000 then
+    raise exception 'FAIL: 1200 Inventory moved % across the delivery and its payment, expected 2000 (4000 = the goods were recognised twice)', v_ledger;
+  end if;
+
+  -- (c) The stock-take's expense row was not replayed at all. Asserted on the
+  --     row rather than on 5100, which 3i already pins: this is the statement
+  --     that the row is DELIBERATELY left unposted for ever, not one the replay
+  --     happened to miss.
+  select journal_entry_id into v_entry from public.expenses where id = v_count_exp;
+  if v_entry is not null then
+    raise exception 'FAIL: the stock-take''s stock_loss expense was replayed -- save_stock_count already posted Dr 5100 / Cr 1200 for it';
   end if;
 
   ---------------------------------------------------------------------------
@@ -886,9 +1057,15 @@ begin
    where shop_id = v_shop_id and status = 'posted' and journal_entry_id is null;
   if v_rows <> 0 then raise exception 'FAIL: % posted pay runs are still unposted', v_rows; end if;
 
+  -- stock_count_id is excluded here and nowhere else in check 5: it is the one
+  -- exclusion that leaves a row with journal_entry_id null FOR EVER by design.
+  -- save_stock_count posted both sides of that write-off itself, so there is no
+  -- entry for the row to point at and never will be. Dropping the clause would
+  -- make this check red on a correct replay -- the exact shape of no-op-in-
+  -- reverse this suite has been bitten by before.
   select count(*) into v_rows from public.expenses
    where shop_id = v_shop_id and journal_entry_id is null
-     and payroll_run_id is null and invoice_id is null;
+     and payroll_run_id is null and invoice_id is null and stock_count_id is null;
   if v_rows <> 0 then raise exception 'FAIL: % expenses are still unposted', v_rows; end if;
 
   ---------------------------------------------------------------------------
@@ -907,8 +1084,8 @@ begin
     raise exception 'FAIL: revenue is % after a second run, expected 27000', v_ledger;
   end if;
   select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
-  if v_rows <> 12 then
-    raise exception 'FAIL: a second run left % entries, expected 12', v_rows;
+  if v_rows <> 14 then
+    raise exception 'FAIL: a second run left % entries, expected 14', v_rows;
   end if;
 
   ---------------------------------------------------------------------------
@@ -1067,7 +1244,7 @@ begin
   -- pay runs clears 9,999 inside a busy year, and this is exactly where a shop
   -- crosses it for the first time.
   --
-  -- Set to 9998, so the eleven entries this run writes span 9998, 9999 and then
+  -- Set to 9998, so the thirteen entries this run writes span 9998, 9999 and then
   -- five digits. The assertion is on the reference TEXT, not on the unique
   -- index: 'JE-YYYY-1000' does not collide with anything in this fixture, so a
   -- truncating build would write it, look fine, and collide only on the shop
@@ -1076,8 +1253,8 @@ begin
    where shop_id = v_shop_id and year = to_char(public.shop_local_date(), 'YYYY');
 
   v_posted := public.backfill_shop_ledger(v_shop_id);
-  if v_posted <> 11 then
-    raise exception 'FAIL: a closed period stopped the backfill, only % of 11 entries written', v_posted;
+  if v_posted <> 13 then
+    raise exception 'FAIL: a closed period stopped the backfill, only % of 13 entries written', v_posted;
   end if;
 
   if not exists (select 1 from public.journal_entries

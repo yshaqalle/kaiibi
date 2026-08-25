@@ -71,11 +71,15 @@
 --    a journal entry AND an expenses row carrying payroll_run_id;
 --    sync_invoice_expense mirrors every bill into expenses carrying invoice_id,
 --    and that cost's liability side is posted by receive_stock and settled by
---    record_invoice_payment. Replaying either would count 6200 Salaries and
---    Wages and every stocked cost TWICE -- with the trial balance still zero,
---    because both entries individually balance, so nothing else would catch it.
---    The expense replay below applies exactly the exclusion
---    20260908000750's post_expense_to_ledger() applies, for exactly its reason.
+--    record_invoice_payment. The Count sheet writes a stock_loss row carrying
+--    stock_count_id on top of a save_stock_count that already posted Dr 5100 /
+--    Cr 1200. Replaying any of the three would count 6200 Salaries and Wages,
+--    every stocked cost, or the shop's whole shrinkage TWICE -- with the trial
+--    balance still zero, because both entries individually balance, so nothing
+--    else would catch it. The expense replay below applies exactly the
+--    exclusions post_expense_to_ledger() applies (20260908000750, extended by
+--    20260908000800), for exactly their reasons -- and takes the same branch it
+--    takes for the rows it does replay.
 --
 -- 2. sale_payments.journal_entry_id IS NULL DOES NOT MEAN "UNPOSTED". Only
 --    SETTLEMENT rows ever carry their own entry; complete_sale folds the
@@ -331,12 +335,27 @@ begin
    where r.shop_id = p_shop_id and r.journal_entry_id is null
      and r.status = 'posted' and r.total_cents > 0;
 
-  -- Expenses. THE THREE EXCLUSIONS, copied from post_expense_to_ledger() for
-  -- its reasons -- see 1 in this file's header, and 20260908000750's own
-  -- exclusion block, which names post_payroll_run by name.
+  -- Expenses. THE FOUR EXCLUSIONS, copied from post_expense_to_ledger() for its
+  -- reasons -- see 1 in this file's header, and the exclusion blocks in
+  -- 20260908000750 (which names post_payroll_run by name) and 20260908000800.
   --
-  -- log_recurring_bill's rows set NEITHER column and are deliberately included:
-  -- nothing else posts for them, and they are real costs the shop incurred.
+  -- stock_count_id is the fourth, added by 20260908000800: save_stock_count
+  -- posts Dr 5100 / Cr 1200 for the whole variance itself and nothing was paid,
+  -- so a count's stock_loss expense row has no entry of its own. It is the ONLY
+  -- exclusion here that leaves a row permanently unposted by design --
+  -- verify-backfill.sql check 5 excludes it for that reason.
+  --
+  -- FORWARD REFERENCE, AND IT IS SAFE. stock_count_id and stock_receipt_id are
+  -- added by 20260908000800, which applies AFTER this file. A plpgsql body is
+  -- only syntax-checked at CREATE time -- table and column names are resolved
+  -- when the statement first executes -- and backfill_shop_ledger is never
+  -- called during a migration run. The alternative, splitting the two columns
+  -- into a migration numbered before this one, puts the ALTER TABLE and the
+  -- branch that reads it in different files for no gain.
+  --
+  -- log_recurring_bill's rows set NONE of the four and are deliberately
+  -- included: nothing else posts for them, and they are real costs the shop
+  -- incurred.
   --
   -- occurred_on, not created_at: a receipt is often logged days after the
   -- purchase and it is the purchase that decides the period.
@@ -348,6 +367,7 @@ begin
      and e.journal_entry_id is null
      and e.payroll_run_id is null
      and e.invoice_id is null
+     and e.stock_count_id is null
      and e.amount_cents <> 0;
 
   select count(*) into v_written from _bf_map;
@@ -845,13 +865,45 @@ begin
    where x.amount_cents <> 0;
 
   ---------------------------------------------------------------------------
-  -- Expenses -- Dr whatever the category maps to, Cr the wallet it left.
+  -- Expenses -- THE SAME THREE-WAY BRANCH THE LIVE TRIGGER TAKES.
   ---------------------------------------------------------------------------
   --
-  -- The mapping is what makes a balance sheet possible: 'inventory_purchase'
-  -- goes to 1200 Inventory (an ASSET) and 'owner_draw' to 3100 Owner's Draw
-  -- (CONTRA-EQUITY), so they stop being expenses here rather than being
-  -- filtered out of a subtotal by a list somebody has to remember to maintain.
+  -- 20260908000800 gave post_expense_to_ledger a branch, and this replay
+  -- carries it character for character. If the two ever disagree, history and
+  -- live behaviour disagree, and the whole of Task 8 turns on their not doing
+  -- so -- verify-backfill.sql exists to hold them together.
+  --
+  --   stock_receipt_id set  -> Dr 2000 Accounts Payable / Cr the wallet
+  --   standalone stock_loss -> Dr 5100 Inventory Shrinkage / Cr 1200 Inventory
+  --   anything else         -> Dr the category's account / Cr the wallet
+  --
+  -- (Rows carrying stock_count_id never reach here -- step 1 excluded them,
+  -- because save_stock_count posted the whole entry itself.)
+  --
+  -- A receipt-linked row SETTLES the payable receive_stock raised; it does not
+  -- buy the goods again. Its category is 'inventory_purchase', which the map
+  -- sends to 1200 -- and 1200 is exactly what the delivery already debited, so
+  -- taking the category here is the double-count this branch exists to stop.
+  --
+  -- A standalone stock_loss credits 1200, never a wallet. Losing stock costs
+  -- the shop the stock, not the till.
+  --
+  -- HISTORICAL ROWS PREDATE BOTH COLUMNS AND WILL HAVE THEM NULL, so they take
+  -- the standalone path -- AND THAT IS RIGHT, not a gap the replay is papering
+  -- over. Those rows were written before the ledger existed: there is no
+  -- receipt entry for a null stock_receipt_id to settle, because receive_stock
+  -- posted nothing at the time, and the replay posts that receipt's own
+  -- Dr 1200 / Cr 2000 from stock_receipts in the same run. A historical
+  -- inventory_purchase therefore has to debit 1200 on its own account, exactly
+  -- as it does today. The only rows that carry a link are ones written after
+  -- 20260908000800 shipped -- and for those the receipt entry exists, so the
+  -- settlement has something to settle.
+  --
+  -- The mapping in the third branch is what makes a balance sheet possible:
+  -- 'inventory_purchase' goes to 1200 Inventory (an ASSET) and 'owner_draw' to
+  -- 3100 Owner's Draw (CONTRA-EQUITY), so they stop being expenses here rather
+  -- than being filtered out of a subtotal by a list somebody has to remember to
+  -- maintain.
   --
   -- Cr the account the PAYMENT METHOD maps to, not 1000 for everything.
   -- Hardcoding 1000 would make the till count disagree with the ledger for
@@ -874,15 +926,25 @@ begin
          x.amount_cents, x.location_id, x.memo
     from (
       select m.entry_id, m.location_id, 'expense ' || m.source_id::text as src,
-             public.account_code_for_expense_category(e.category) as code,
+             case when e.stock_receipt_id is not null then '2000'
+                  when e.category = 'stock_loss'      then '5100'
+                  else public.account_code_for_expense_category(e.category)
+             end as code,
              e.amount_cents::bigint as amount_cents,
-             replace(e.category, '_', ' ') as memo
+             case when e.stock_receipt_id is not null then 'Delivery paid'
+                  else replace(e.category, '_', ' ')
+             end as memo
         from _bf_map m join public.expenses e on e.id = m.source_id
        where m.source_kind = 'expense'
       union all
       select m.entry_id, m.location_id, 'expense ' || m.source_id::text,
-             public.account_code_for_payment_method(e.payment_method),
-             -e.amount_cents::bigint, 'Paid by ' || e.payment_method
+             case when e.stock_receipt_id is null and e.category = 'stock_loss' then '1200'
+                  else public.account_code_for_payment_method(e.payment_method)
+             end,
+             -e.amount_cents::bigint,
+             case when e.stock_receipt_id is null and e.category = 'stock_loss' then 'Written off'
+                  else 'Paid by ' || e.payment_method
+             end
         from _bf_map m join public.expenses e on e.id = m.source_id
        where m.source_kind = 'expense'
     ) x

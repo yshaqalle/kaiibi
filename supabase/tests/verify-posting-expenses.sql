@@ -38,6 +38,25 @@
 --      rather than raising. The expense editor has a free date field, so this
 --      is the ordinary way last week's receipt is entered, and without the
 --      redirect an insert that works today would start failing outright.
+--   9. THE RESTOCK DOUBLE-POST. The Restock sheet's "also log this as an
+--      inventory purchase" tick writes an expenses row AFTER receive_stock has
+--      already posted Dr 1200 Inventory / Cr 2000 Accounts Payable. Built here
+--      as the real pair -- receive_stock, then the row with stock_receipt_id
+--      set -- and asserted as "1200 moved ONCE and 2000 nets to zero". The row
+--      is not a duplicate of the delivery, it is the shop PAYING for it, so it
+--      settles the payable instead of buying the goods again.
+--  10. THE COUNT DOUBLE-POST. save_stock_count posts BOTH sides of a write-off
+--      and no money moves, so the Count sheet's stock_loss row posts nothing at
+--      all. Asserted as "5100 moved ONCE and no wallet moved by a single cent".
+--  11. A STANDALONE inventory_purchase -- no receipt behind it -- still debits
+--      1200 and must NOT touch 2000. Check 3 owns the 1200 half; the 2000 half
+--      is asserted there too, because a trigger that took check 9's branch for
+--      every inventory_purchase would leave stock never entering the books.
+--  12. A STANDALONE stock_loss debits 5100 and credits 1200 -- NOT A WALLET.
+--      This is wrong today even with the double-post gone: losing stock costs
+--      the shop the stock, not the till, and crediting cash balances perfectly
+--      while making the drawer disagree with the ledger by the whole of the
+--      shop's shrinkage and leaving 1200 holding units that are not there.
 --
 -- Deliberately NOT `set role authenticated`, for the same reason
 -- verify-posting-bills.sql is not: this script stays superuser so RLS never
@@ -73,6 +92,21 @@ declare
   v_date       date;
   v_on         date;
   v_closed_on  date;
+  -- Checks 9 and 10: the real receive_stock / save_stock_count pair.
+  v_prod_id    uuid;
+  v_receipt_id uuid;
+  v_count_id   uuid;
+  -- Shop-wide opening balances, taken immediately before each pair. Every
+  -- assertion in 9 and 10 is a DELTA rather than a total, because checks 1-8
+  -- have already moved 1200 (the standalone purchase) and 1000 (nearly
+  -- everything) and a total would be measuring this script's whole history.
+  v_was_1000   bigint;
+  v_was_1010   bigint;
+  v_was_1020   bigint;
+  v_was_1021   bigint;
+  v_was_1200   bigint;
+  v_was_2000   bigint;
+  v_was_5100   bigint;
 begin
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
   select u, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -219,6 +253,18 @@ begin
    where l.entry_id = v_entry and l.amount_cents > 0;
   if v_text <> 'asset' then
     raise exception 'FAIL: the debit side of a stock purchase is a %, expected asset', v_text;
+  end if;
+  -- CHECK 11: and it does NOT touch 2000 Accounts Payable. This row has no
+  -- receipt behind it -- nobody recorded a delivery, so no payable was ever
+  -- raised and there is nothing to settle. A trigger that took check 9's
+  -- receipt branch for EVERY inventory_purchase would debit 2000 here, drive a
+  -- liability the shop does not have into a debit balance, and leave stock
+  -- never entering the books at all. The `1200` assertion above catches that
+  -- too; this names it, because the two branches are one `if` apart and this is
+  -- the message that says which side of it went wrong.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '2000') then
+    raise exception 'FAIL: a standalone stock purchase touched 2000 Accounts Payable -- it settled a payable no delivery ever raised';
   end if;
 
   ---------------------------------------------------------------------------
@@ -422,6 +468,263 @@ begin
    where l.entry_id = v_entry and a.code = '6600';
   if v_amount <> 6605 then
     raise exception 'FAIL: expected Dr 6600 Maintenance and repairs 6605, got %', v_amount;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 9. THE RESTOCK DOUBLE-POST. A delivery and the expense that PAID for it.
+  ---------------------------------------------------------------------------
+  -- stock-restock-modal.tsx calls receiveStock and then, if the tick is on,
+  -- createExpense('inventory_purchase'). receive_stock has already posted
+  -- Dr 1200 Inventory / Cr 2000 Accounts Payable for these goods. Before
+  -- 20260908000800 the trigger then posted Dr 1200 / Cr 1000 for the SAME
+  -- goods: inventory recognised twice, and a payable invented against a
+  -- supplier who was handed cash on the doorstep. Both entries balance, the
+  -- trial balance still zeroes, and nothing anywhere goes red -- which is why
+  -- this check has to be built as the REAL PAIR rather than as an assertion
+  -- about one expense row in isolation.
+  --
+  -- The expense is not a duplicate of the delivery. The receipt says goods
+  -- ARRIVED (and deliberately says nothing about payment -- see
+  -- 20260908000400's "Payable, not cash"); the expense says the shop PAID. So
+  -- the honest entry is Dr 2000 / Cr the wallet, settling what the receipt
+  -- raised, exactly as record_invoice_payment does for a bill.
+  --
+  -- 30 at 431 = 12930. 431 is prime and 12930 is reached by no other pair of
+  -- figures in this script, so a doubled 1200 (25860) cannot be mistaken for
+  -- anything else.
+  insert into public.products (shop_id, name, price_cents, cost_cents, stock)
+    values (v_shop_id, 'Restock Rice', 9000, null, 0) returning id into v_prod_id;
+
+  select coalesce(sum(l.amount_cents), 0) into v_was_1200
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  select coalesce(sum(l.amount_cents), 0) into v_was_2000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+
+  v_receipt_id := public.receive_stock(v_shop_id, v_loc_id, jsonb_build_array(
+    jsonb_build_object('product_id', v_prod_id, 'quantity', 30, 'unit_cost_cents', 431)));
+
+  -- THE LINK IS THE WHOLE FIX. Without stock_receipt_id this row takes the
+  -- standalone path and debits 1200 a second time.
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by, stock_receipt_id)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 12930, 'inventory_purchase', 'cash',
+            'Paid on delivery', v_user_id, v_receipt_id)
+    returning id into v_expense_id;
+
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is null then
+    raise exception 'FAIL: the delivery''s inventory_purchase expense did not post -- the cash that left the till is nowhere in the ledger';
+  end if;
+
+  -- 1200 MOVED EXACTLY ONCE. Measured shop-wide across BOTH entries, which is
+  -- the only way the double is visible: each entry balances on its own and a
+  -- per-entry assertion would pass with the duplicate sitting beside it.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+  if v_amount - v_was_1200 <> 12930 then
+    raise exception 'FAIL: 1200 Inventory moved % across the delivery and its expense, expected 12930 (25860 = the goods were recognised twice)',
+      v_amount - v_was_1200;
+  end if;
+
+  -- AND 2000 NETS TO ZERO. The receipt credited it 12930; the expense debits
+  -- the same 12930 back down, because the delivery was paid in full. A shop
+  -- that pays cash on delivery must not accumulate a payable that grows for
+  -- ever.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '2000';
+  if v_amount - v_was_2000 <> 0 then
+    raise exception 'FAIL: 2000 Accounts Payable moved % across a delivery paid in full, expected 0 (-12930 = the payable was raised and never settled)',
+      v_amount - v_was_2000;
+  end if;
+
+  -- The cash really did leave.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount - v_was_1000 <> -12930 then
+    raise exception 'FAIL: 1000 Cash moved % paying for a 12930 delivery, expected -12930', v_amount - v_was_1000;
+  end if;
+
+  -- And the expense's OWN entry names 2000, not 1200. Asserted separately from
+  -- the shop-wide delta because a pair of compensating lines -- Dr 1200 12930
+  -- and Cr 1200 12930 on this entry -- would leave the delta at 12930 and be
+  -- exactly the kind of thing a totals check cannot see.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code = '1200') then
+    raise exception 'FAIL: the delivery''s payment touched 1200 Inventory -- it should settle 2000 Accounts Payable, not buy the goods again';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 10. THE COUNT DOUBLE-POST. A stock-take and its stock_loss expense.
+  ---------------------------------------------------------------------------
+  -- stock-count-modal.tsx calls saveStockCount and then, if the tick is on,
+  -- createExpense('stock_loss'). save_stock_count has already posted
+  -- Dr 5100 Inventory Shrinkage / Cr 1200 Inventory for the whole variance.
+  -- Before 20260908000800 the trigger then posted Dr 5100 / Cr 1000: shrinkage
+  -- doubled, and a till that never opened was credited for stock nobody sold.
+  --
+  -- Unlike check 9 this row IS a duplicate. Nothing was paid for; there is no
+  -- second half of the event left to record. So it posts NOTHING, and the row
+  -- stays in `expenses` for the Expenses screen and the expense reports, which
+  -- read that table and not the ledger.
+  --
+  -- Check 9 left 30 units at a cost of 431 (nothing else in this shop has
+  -- stock). Counting 18 is 12 short: 12 x 431 = 5172, and again no other figure
+  -- in this script is near it, so a doubled 5100 (10344) is unmistakable.
+  select coalesce(sum(l.amount_cents), 0) into v_was_5100
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '5100';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1000
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1010
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1010';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1020
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  select coalesce(sum(l.amount_cents), 0) into v_was_1021
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1021';
+  select count(*) into v_before from public.journal_entries where shop_id = v_shop_id;
+
+  v_count_id := public.save_stock_count(v_shop_id, v_loc_id, jsonb_build_array(
+    jsonb_build_object('product_id', v_prod_id, 'counted_quantity', 18, 'reason', 'theft_or_loss')));
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by, stock_count_id)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 5172, 'stock_loss', 'cash',
+            'Stock-take', v_user_id, v_count_id)
+    returning id into v_expense_id;
+
+  -- ONE new entry, the count's. Not two.
+  select count(*) into v_rows from public.journal_entries where shop_id = v_shop_id;
+  if v_rows - v_before <> 1 then
+    raise exception 'FAIL: a stock-take and its stock_loss expense wrote % entries, expected 1 (the count''s) -- the expense posted a second one',
+      v_rows - v_before;
+  end if;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is not null then
+    raise exception 'FAIL: the count''s stock_loss expense carries a journal entry of its own -- save_stock_count already posted both sides';
+  end if;
+
+  -- 5100 MOVED EXACTLY ONCE.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '5100';
+  if v_amount - v_was_5100 <> 5172 then
+    raise exception 'FAIL: 5100 Inventory Shrinkage moved % across the count and its expense, expected 5172 (10344 = the loss was recognised twice)',
+      v_amount - v_was_5100;
+  end if;
+
+  -- AND NO CASH ACCOUNT MOVED AT ALL. All four wallets, one at a time: nothing
+  -- was bought, nothing was paid, and a stock-take that debits a drawer is the
+  -- half of this defect a shrinkage total would never show. The four are
+  -- checked separately because the trigger credits the account the row's
+  -- payment_method maps to, and 'cash' is only the default -- a shop that left
+  -- the picker on zaad would drain 1020 instead and a single 1000 assertion
+  -- would pass.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1000';
+  if v_amount <> v_was_1000 then
+    raise exception 'FAIL: 1000 Cash moved % on a stock-take, expected 0 -- the till was credited for stock nobody sold', v_amount - v_was_1000;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1010';
+  if v_amount <> v_was_1010 then
+    raise exception 'FAIL: 1010 Bank moved % on a stock-take, expected 0', v_amount - v_was_1010;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1020';
+  if v_amount <> v_was_1020 then
+    raise exception 'FAIL: 1020 Zaad moved % on a stock-take, expected 0', v_amount - v_was_1020;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1021';
+  if v_amount <> v_was_1021 then
+    raise exception 'FAIL: 1021 eDahab moved % on a stock-take, expected 0', v_amount - v_was_1021;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 12. A STANDALONE stock_loss debits 5100 and credits 1200. NOT A WALLET.
+  ---------------------------------------------------------------------------
+  -- Someone types a write-off straight into the Expenses screen with no count
+  -- behind it -- a crate dropped, a fridge that failed overnight. Nothing else
+  -- posts for it, so this row must, and it has to come out of INVENTORY:
+  -- losing stock costs the shop the stock, not the till. Crediting a wallet
+  -- balances perfectly, ties every P&L total, and leaves the drawer disagreeing
+  -- with the ledger by the whole of the shop's shrinkage while 1200 goes on
+  -- carrying units that are not on the shelf.
+  --
+  -- payment_method 'cash' deliberately: it is the column's default and the only
+  -- honest value in a field that does not apply here, so a trigger that reaches
+  -- for the wallet map has something to reach for. It must not.
+  select coalesce(sum(l.amount_cents), 0) into v_was_1200
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+    join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id and a.code = '1200';
+
+  insert into public.expenses (shop_id, location_id, occurred_on, amount_cents, category,
+                               payment_method, note, created_by)
+    values (v_shop_id, v_loc_id, public.shop_local_date(), 3777, 'stock_loss', 'cash',
+            'Crate dropped', v_user_id)
+    returning id into v_expense_id;
+  select journal_entry_id into v_entry from public.expenses where id = v_expense_id;
+  if v_entry is null then
+    raise exception 'FAIL: a standalone stock_loss did not post -- nothing else posts for it, so the loss is nowhere in the books';
+  end if;
+
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '5100';
+  if v_amount <> 3777 then
+    raise exception 'FAIL: expected Dr 5100 Inventory Shrinkage 3777, got %', v_amount;
+  end if;
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.accounts a on a.id = l.account_id
+   where l.entry_id = v_entry and a.code = '1200';
+  if v_amount <> -3777 then
+    raise exception 'FAIL: expected Cr 1200 Inventory -3777 on a standalone stock_loss, got % -- a write-down comes out of stock, not out of a wallet', v_amount;
+  end if;
+  -- And no wallet at all. Named by TYPE-free code list rather than by 1000
+  -- alone, for the reason check 10 gives: 'cash' is only the default.
+  if exists (select 1 from public.journal_lines l join public.accounts a on a.id = l.account_id
+              where l.entry_id = v_entry and a.code in ('1000', '1010', '1020', '1021')) then
+    raise exception 'FAIL: a standalone stock_loss credited a wallet -- the shop did not pay anyone for stock that walked out';
+  end if;
+  -- The whole shop still zeroes, after everything checks 9-12 added.
+  select coalesce(sum(l.amount_cents), 0) into v_amount
+    from public.journal_lines l join public.journal_entries e on e.id = l.entry_id
+   where e.shop_id = v_shop_id;
+  if v_amount <> 0 then
+    raise exception 'FAIL: the trial balance does not zero, off by %', v_amount;
   end if;
 
   perform set_config('request.jwt.claims', null, true);
