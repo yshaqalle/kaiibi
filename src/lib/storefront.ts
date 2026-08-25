@@ -17,8 +17,11 @@ export async function getPublicStorefront(slug: string): Promise<PublicStorefron
     city: row.city ?? null,
     slug: row.slug,
     whatsappE164: row.whatsapp_e164 ?? null,
-    // An unknown key falls back rather than rendering an unstyled page. The DB
-    // constrains these, so this is the second line of defence, not the first.
+    // This only substitutes on null/undefined -- an unrecognised but present
+    // string (the DB should never emit one; this is not where that is
+    // guarded against) passes straight through. The real fallback for an
+    // unknown key lives at render time, in StorefrontView (theme) and
+    // paletteColors (palette).
     theme: row.theme ?? DEFAULT_THEME,
     palette: row.palette ?? DEFAULT_PALETTE,
     headline: row.headline ?? null,

@@ -21,6 +21,7 @@ export default function StorefrontScreen() {
 
   useEffect(() => {
     let cancelled = false;
+    setState({ status: 'loading' });
     (async () => {
       try {
         const shop = await getPublicStorefront(String(slug));
