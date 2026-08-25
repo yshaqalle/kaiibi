@@ -334,6 +334,99 @@ begin
     raise exception 'FAIL: record_invoice_payment still defaults p_paid_on in the server timezone';
   end if;
 
+  ---------------------------------------------------------------------------
+  -- 9. A BACK-DATED SUPPLIER PAYMENT INTO A CLOSED MONTH IS REDATED, NOT REFUSED.
+  ---------------------------------------------------------------------------
+  -- record_invoice_payment was the only posting site in this phase with a
+  -- USER-CHOSEN date and no closed-period redirect.
+  -- src/components/accounting/record-payment-modal.tsx gives the user a free
+  -- date field and post_journal_entry calls open_period_for, which RAISES on a
+  -- closed month -- so a shop that closed January and then, in February,
+  -- recorded a supplier payment dated 28 January was told
+  -- "This period is closed — posting into it is refused. Re-open it first."
+  -- on the Bills screen, for an operation that worked before this branch.
+  --
+  -- Task 7b's justification for the expense trigger applies verbatim, and this
+  -- is the answer 20260908000300 and 20260908000650 already give: recognise it
+  -- in the OPEN period, carrying the true date and the period's status in the
+  -- description. The PAYMENT ROW keeps p_paid_on either way -- the money really
+  -- did move that day; only its recognition moves.
+  --
+  -- MUTATION (proves this check): change the redirect's condition to `if false`
+  -- so the entry is always dated p_paid_on. Expected: open_period_for's own
+  -- `This period is closed` before any assertion below is reached.
+  v_date := (date_trunc('month', public.shop_local_date()::timestamp) - interval '2 months')::date + 12;
+  perform public.open_period_for(v_shop_id, v_date);
+  update public.accounting_periods set status = 'closed'
+   where shop_id = v_shop_id and v_date between starts_on and ends_on;
+  if not found then
+    raise exception 'FAIL: no accounting_periods row covering % to close', v_date;
+  end if;
+
+  v_payment_id := public.record_invoice_payment(v_invoice_id, 1000, v_date, 'cash');
+  select journal_entry_id into v_entry from public.invoice_payments where id = v_payment_id;
+  if v_entry is null then
+    raise exception 'FAIL: a payment back-dated into a closed month did not post';
+  end if;
+
+  select entry_date, description into v_date, v_text from public.journal_entries where id = v_entry;
+  if v_date <> public.shop_local_date() then
+    raise exception 'FAIL: a payment back-dated into a closed month posted on %, expected the current period (%)',
+      v_date, public.shop_local_date();
+  end if;
+  -- The journal has to SAY why it is here. Without this, the only record of a
+  -- January payment sitting in February lives on the source row, and the
+  -- journal -- which is what an auditor reads -- shows an unexplained entry.
+  if v_text not like '%that period is closed%' then
+    raise exception 'FAIL: the redated payment entry does not say why it moved: %', v_text;
+  end if;
+  -- The payment ROW keeps the date the user chose.
+  select paid_on into v_date from public.invoice_payments where id = v_payment_id;
+  if v_date = public.shop_local_date() then
+    raise exception 'FAIL: the redirect moved the payment row''s own paid_on, not just its recognition';
+  end if;
+
+  -- THE CONTROL, and checks 9 and this are a pair: neither is worth anything
+  -- alone, because an implementation that redated EVERY payment to today would
+  -- pass the half above. A month with no period row is not "closed" -- it is a
+  -- month nobody has traded in, and open_period_for creates it open on demand.
+  v_date := (date_trunc('month', public.shop_local_date()::timestamp) - interval '4 months')::date + 9;
+  v_payment_id := public.record_invoice_payment(v_invoice_id, 700, v_date, 'cash');
+  select journal_entry_id into v_entry from public.invoice_payments where id = v_payment_id;
+  select entry_date into v_paid_on from public.journal_entries where id = v_entry;
+  if v_paid_on <> v_date then
+    raise exception 'FAIL: a payment dated into an OPEN month posted on %, expected its own date %', v_paid_on, v_date;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 10. A REVERSAL CARRIES THE SAME SOURCE AS THE ENTRY IT REVERSES.
+  ---------------------------------------------------------------------------
+  -- Nothing asserted this until the phase 2b final review, and the two sites
+  -- that write reversals had drifted to OPPOSITE conventions: unpost_payroll_run
+  -- filed its reversal as 'payroll' and said why, edit_sale filed its as
+  -- 'manual' (inherited from reverse_journal_entry, whose 'manual' is correct
+  -- for IT and deliberate -- see 20260904000500). The rule is now pinned:
+  -- a reversal files under the SAME source as its original, so a reader
+  -- filtering a source sees both halves of the pair rather than one.
+  --
+  -- Check 7's unpost+repost has already produced the reversal this reads.
+  select string_agg(rev.reference || ' is ' || rev.source || ' but reverses an entry that is '
+                    || orig.source, '; ') into v_text
+    from public.journal_entries rev
+    join public.journal_entries orig on orig.id = rev.reverses_entry_id
+   where rev.shop_id = v_shop_id and rev.status = 'posted' and rev.source <> orig.source;
+  if v_text is not null then
+    raise exception 'FAIL: a reversal is filed under a different source from the entry it reverses -- %', v_text;
+  end if;
+  -- Not vacuous: check 7 produced exactly one, and it must be a payroll one.
+  select count(*) into v_rows
+    from public.journal_entries rev
+    join public.journal_entries orig on orig.id = rev.reverses_entry_id
+   where rev.shop_id = v_shop_id and rev.status = 'posted' and rev.source = 'payroll';
+  if v_rows <> 1 then
+    raise exception 'FAIL: % payroll reversals exist, expected 1 from check 7 -- check 10 is not looking at anything', v_rows;
+  end if;
+
   perform set_config('request.jwt.claims', null, true);
   raise notice 'ALL CHECKS PASSED';
   raise exception 'rollback fixture';

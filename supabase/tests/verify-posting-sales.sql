@@ -164,6 +164,15 @@ declare
   v_entry_rev      uuid;
   v_entry_settle   uuid;
   v_line_count     bigint;
+  -- Checks 23-25, added by the phase 2b final review.
+  -- 24 deletes a sale that carries all three kinds of entry at once.
+  v_sale_id_del    uuid;
+  v_entry_refund   uuid;
+  -- 25's product: priced at ZERO with a null cost. complete_sale prices off
+  -- products.price_cents, never the item's unit_price_cents, so a zero-value
+  -- sale needs a zero-priced product rather than a zero in the payload.
+  v_prod_free      uuid;
+  v_bad            text;
 begin
   -- shops.owner_id references auth.users(id), so the fixture "people" need real
   -- rows there before anything else.
@@ -1063,6 +1072,15 @@ begin
   insert into public.product_location_stock (product_id, location_id, stock)
     values (v_prod_split, v_loc_id, 100);
 
+  -- Check 25. Price ZERO and cost NULL: a genuine giveaway, which is a
+  -- different thing from v_prod_uncosted (priced at 900, cost unknown). The
+  -- pair is what makes the two failure modes separable -- 4 is about an
+  -- unpriced product, 25 is about a sale that moves no money at all.
+  insert into public.products (shop_id, name, price_cents, cost_cents)
+    values (v_shop_id, 'Posting Freebie', 0, null) returning id into v_prod_free;
+  insert into public.product_location_stock (product_id, location_id, stock)
+    values (v_prod_free, v_loc_id, 100);
+
   v_sale_id := public.complete_sale(
     v_shop_id,
     jsonb_build_array(jsonb_build_object('product_id', v_prod_split, 'quantity', 3, 'unit_price_cents', 200)),
@@ -1553,6 +1571,217 @@ begin
      and l.entry_id in (v_entry_orig, v_entry_rev, v_entry_settle, v_entry);
   if v_amount <> -3000 then
     raise exception 'FAIL: 4000 Revenue nets to % over this sale''s four entries, expected -3000', v_amount;
+  end if;
+
+  -- 23. A REVERSAL CARRIES THE SAME SOURCE AS THE ENTRY IT REVERSES.
+  --
+  --     Nothing asserted this until the final review, and the two sites that
+  --     write reversals had drifted to OPPOSITE conventions: edit_sale filed
+  --     its reversal as 'manual' (inherited from reverse_journal_entry, whose
+  --     'manual' is correct for IT -- see 20260904000500) while
+  --     unpost_payroll_run filed its as 'payroll' and said why.
+  --
+  --     The consequence is silent and it is a reporting one, which is the kind
+  --     nothing here would otherwise catch: `where source = 'sale'` returns an
+  --     edited sale's ORIGINAL entry and its REPLACEMENT but NOT the reversal
+  --     that cancels the original, so a phase-3 report grouping by source shows
+  --     that sale's revenue TWICE. In the other direction the manual-journal
+  --     view lists entries nobody typed. Both entries balance, the trial
+  --     balance zeroes, and every total in this file ties.
+  --
+  --     Asserted over the whole shop rather than at one call site: by this point
+  --     checks 19-22 have produced four reversals between them, and the rule is
+  --     phase-wide. A mirror is an entry that is POSTED and names another entry
+  --     in reverses_entry_id; the original also carries the link, in the
+  --     opposite direction, but is 'reversed'.
+  --
+  --     MUTATION (proves this check): put `'manual'` back as the source of
+  --     edit_sale's reversal. Expected: this check names the pair.
+  select string_agg(rev.reference || ' is ' || rev.source || ' but reverses '
+                    || coalesce(orig.reference, '(unreferenced)') || ', which is ' || orig.source, '; ')
+    into v_bad
+    from public.journal_entries rev
+    join public.journal_entries orig on orig.id = rev.reverses_entry_id
+   where rev.shop_id = v_shop_id
+     and rev.status = 'posted'
+     and rev.source <> orig.source;
+  if v_bad is not null then
+    raise exception 'FAIL: a reversal is filed under a different source from the entry it reverses -- %. A report grouping by source then shows one half of the pair and not the other.', v_bad;
+  end if;
+
+  -- ...and the rule is not vacuously true. Without this, deleting every
+  -- reversal in the codebase would leave check 23 green.
+  select count(*) into v_line_count
+    from public.journal_entries rev
+    join public.journal_entries orig on orig.id = rev.reverses_entry_id
+   where rev.shop_id = v_shop_id and rev.status = 'posted' and rev.source = 'sale';
+  if v_line_count < 3 then
+    raise exception 'FAIL: only % sale reversals exist in this shop, expected at least 3 from checks 19-22 -- check 23 is not looking at anything', v_line_count;
+  end if;
+
+  -- 24. DELETING A SALE REVERSES EVERY ENTRY IT IS RESPONSIBLE FOR --
+  --     ITS OWN, ITS REFUND'S AND ITS SETTLEMENT'S.
+  --
+  --     delete_sale restored the stock and reversed the loyalty points and left
+  --     the ledger completely alone. sales.journal_entry_id carries no ON
+  --     DELETE, so the entry outlived the sale, still 'posted', described by a
+  --     uuid that resolved to nothing -- and sale_payments and refunds both
+  --     CASCADE, so a credit sale that was refunded and later settled left
+  --     THREE such entries. Every one of them still balanced, so the trial
+  --     balance still zeroed and nothing anywhere went red, while 4000 kept
+  --     revenue for a sale that no longer exists and 1200 stayed credited for
+  --     stock that is back on the shelf. The backfill can never repair it:
+  --     there is no source row left to replay.
+  --
+  --     The fixture carries all three kinds at once, because reversing only the
+  --     sale's own entry MOVES the problem rather than fixing it -- the refund's
+  --     4100 and the settlement's Dr Cash / Cr 1100 would be left standing over
+  --     nothing, and 1100 would end up permanently negative.
+  --
+  --     ASSERTED AS "EVERY ACCOUNT NETS TO ZERO ACROSS ALL SIX ENTRIES", which
+  --     is the whole property in one statement and is independent of the
+  --     figures: a deleted sale must leave the books exactly as it found them.
+  --
+  --     MUTATIONS (prove this check): (a) skip the reversal loop entirely;
+  --     (b) reverse only the sale's own entry, dropping the refund and
+  --     settlement branches of the union.
+  v_sale_id_del := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_b, 'quantity', 2, 'unit_price_cents', 3000)),
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 2000)),
+    null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
+  select journal_entry_id into v_entry_orig from public.sales where id = v_sale_id_del;
+
+  perform public.settle_sale_balance(
+    v_sale_id_del,
+    jsonb_build_array(jsonb_build_object('method', 'cash', 'amount_cents', 1500)));
+  select journal_entry_id into v_entry_settle from public.sale_payments
+   where sale_id = v_sale_id_del and is_settlement order by created_at desc limit 1;
+
+  select id into v_item_a from public.sale_items where sale_id = v_sale_id_del limit 1;
+  v_refund_id := public.refund_sale_items(
+    v_sale_id_del,
+    jsonb_build_array(jsonb_build_object('sale_item_id', v_item_a, 'quantity', 1)));
+  select journal_entry_id into v_entry_refund from public.refunds where id = v_refund_id;
+
+  if v_entry_orig is null or v_entry_settle is null or v_entry_refund is null then
+    raise exception 'FAIL: the fixture for check 24 did not post all three entries (sale %, settlement %, refund %)',
+      v_entry_orig, v_entry_settle, v_entry_refund;
+  end if;
+
+  perform public.delete_sale(v_sale_id_del);
+
+  if exists (select 1 from public.sales where id = v_sale_id_del) then
+    raise exception 'FAIL: delete_sale did not delete the sale';
+  end if;
+
+  -- All three originals reversed. Named individually so the message says WHICH
+  -- one was forgotten -- a mutation that reverses the sale's entry and not the
+  -- other two is the realistic half-fix.
+  select string_agg(x.what || ' is ' || e.status, ', ' order by x.what) into v_bad
+    from (values (v_entry_orig, 'the sale''s entry'),
+                 (v_entry_settle, 'the settlement''s entry'),
+                 (v_entry_refund, 'the refund''s entry')) as x(id, what)
+    join public.journal_entries e on e.id = x.id
+   where e.status <> 'reversed';
+  if v_bad is not null then
+    raise exception 'FAIL: deleting the sale left an entry posted over a source row that no longer exists -- %', v_bad;
+  end if;
+
+  -- Three mirrors, each filed under its own original's source. This is check 23
+  -- applied to the entries a delete produces, and it is asserted here as well
+  -- because the sources are three DIFFERENT values -- 'sale', 'settlement' and
+  -- 'refund' -- so a delete_sale that wrote one literal for all three would
+  -- satisfy check 23's edit_sale pairs and still be wrong.
+  select string_agg(rev.source || ' reverses ' || orig.source, ', ' order by orig.source) into v_bad
+    from public.journal_entries orig
+    join public.journal_entries rev on rev.id = orig.reverses_entry_id
+   where orig.id in (v_entry_orig, v_entry_settle, v_entry_refund)
+     and rev.source <> orig.source;
+  if v_bad is not null then
+    raise exception 'FAIL: a deletion''s reversal is filed under the wrong source -- %', v_bad;
+  end if;
+
+  select count(*) into v_line_count from public.journal_entries
+   where shop_id = v_shop_id and reverses_entry_id in (v_entry_orig, v_entry_settle, v_entry_refund)
+     and status = 'posted';
+  if v_line_count <> 3 then
+    raise exception 'FAIL: deleting the sale wrote % reversals, expected 3 (its own entry, its refund''s and its settlement''s)', v_line_count;
+  end if;
+
+  -- THE PROPERTY ITSELF. Every account touched by any of the six entries nets
+  -- to exactly zero. Independent of the figures, so it cannot be satisfied by
+  -- reproducing the arithmetic, and it fails for a partial reversal in whatever
+  -- direction the partial reversal is wrong.
+  select string_agg(a.code || ' nets ' || t.net::text, ', ' order by a.code) into v_bad
+    from (
+      select l.account_id, sum(l.amount_cents) as net
+        from public.journal_lines l
+       where l.entry_id in (v_entry_orig, v_entry_settle, v_entry_refund)
+          or l.entry_id in (select id from public.journal_entries
+                             where reverses_entry_id in (v_entry_orig, v_entry_settle, v_entry_refund))
+       group by l.account_id
+       having sum(l.amount_cents) <> 0) t
+    join public.accounts a on a.id = t.account_id;
+  if v_bad is not null then
+    raise exception 'FAIL: a deleted sale did not leave the books as it found them -- %. Every account touched by the sale, its refund and its settlement must net to zero once all three are reversed.', v_bad;
+  end if;
+
+  -- 25. A SALE THAT MOVES NO MONEY POSTS NOTHING, AND STILL SUCCEEDS.
+  --
+  --     Every line complete_sale builds is conditional, so a basket of free
+  --     samples left on account against a named customer -- legal since
+  --     p_allow_balance shipped -- produces an EMPTY line array.
+  --     post_journal_entry then raised `A journal entry needs at least two
+  --     lines; this one has 0.` and took the whole sale down: a new failure, at
+  --     the till, for an operation that worked before this branch.
+  --
+  --     The honest answer is that nothing happened in accounting terms.
+  --     journal_lines carries check (amount_cents <> 0), so there is no
+  --     zero-value entry to write even if one were wanted, and
+  --     sales.journal_entry_id stays null on purpose -- which is why the
+  --     backfill carries the same predicate (verify-backfill check 13).
+  --
+  --     MUTATION (proves this check): remove the `jsonb_array_length(v_lines) >
+  --     0` guard from complete_sale. Expected: the sale raises before any
+  --     assertion here is reached.
+  v_sale_id := public.complete_sale(
+    v_shop_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_free, 'quantity', 3, 'unit_price_cents', 0)),
+    '[]'::jsonb,
+    null, null, null, null, 0, v_customer_id, null, v_loc_id, 0, null, true);
+
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  if v_entry is not null then
+    raise exception 'FAIL: a zero-value sale was given a journal entry -- there is no line to put under one';
+  end if;
+  if exists (select 1 from public.journal_entries
+              where shop_id = v_shop_id and description like '%' || v_sale_id::text || '%') then
+    raise exception 'FAIL: an entry in the journal describes a sale that moved no money';
+  end if;
+  -- The stock still moved, which is the point of the sale succeeding at all.
+  if not exists (select 1 from public.product_location_stock
+                  where product_id = v_prod_free and location_id = v_loc_id and stock = 97) then
+    raise exception 'FAIL: the zero-value sale did not take its three units out of stock';
+  end if;
+
+  -- And editing it is not a new way to hit the same raise. edit_sale builds its
+  -- replacement the same way, so without the same guard an edit to a zero-value
+  -- sale fails on a POS screen with a ledger error.
+  perform public.edit_sale(
+    v_sale_id,
+    jsonb_build_array(jsonb_build_object('product_id', v_prod_free, 'quantity', 2, 'unit_price_cents', 0)),
+    '[]'::jsonb,
+    null, null, null, 0, v_customer_id, true);
+  select journal_entry_id into v_entry from public.sales where id = v_sale_id;
+  if v_entry is not null then
+    raise exception 'FAIL: editing a zero-value sale posted an entry';
+  end if;
+
+  -- ...and deleting it reverses nothing rather than raising on a null entry id.
+  perform public.delete_sale(v_sale_id);
+  if exists (select 1 from public.sales where id = v_sale_id) then
+    raise exception 'FAIL: a zero-value sale could not be deleted';
   end if;
 
   raise notice 'ALL CHECKS PASSED';

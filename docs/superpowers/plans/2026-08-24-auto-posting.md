@@ -106,6 +106,18 @@ This repo re-creates `complete_sale` and `edit_sale` **in full** in every migrat
 
 **Task 3 must add an entry to `COMPLETE_SALE_EDITS`.** A migration that copies `complete_sale` forward and drops the posting side is exactly the failure that test exists to catch — it caught a lost loyalty guard that was unenforced for four migrations.
 
+### A reversal carries the same source as the entry it reverses
+
+*(Pinned by the final whole-branch review, as finding I5. It was not pinned while the phase was being built, and the two sites that write reversals drifted to opposite conventions: `edit_sale` filed its reversal as `'manual'`, inherited from `reverse_journal_entry`; `unpost_payroll_run` filed its as `'payroll'` and explained why.)*
+
+**A reversal's `source` is the `source` of the entry it reverses.** `'sale'` reverses `'sale'`, `'refund'` reverses `'refund'`, `'settlement'` reverses `'settlement'`, `'payroll'` reverses `'payroll'`.
+
+The failure is a reporting one, and it is silent: `where source = 'sale'` returns an edited sale's original entry **and** its replacement but **not** the reversal cancelling the original, so any phase-3 report grouping by source shows that sale's revenue twice. In the other direction the manual-journal view lists entries nobody typed. Both entries balance, the trial balance zeroes, and every totals check ties.
+
+`public.reverse_journal_entry` is the **one deliberate exception** and is not to be changed. Its `'manual'` is the true source of the entry it writes: it gates on `ledger.post`, so its reversal really was typed by a human at the manual-entry screen. The posting RPCs are the opposite case — each is gated on its own door's permission, each passes `p_source <> 'manual'` for that reason, and each reverses **inline** so it never reaches that function. The reason is written at the function in `20260904000500_journal_rpcs.sql`.
+
+Asserted by check 23 of `verify-posting-sales.sql` and check 10 of `verify-posting-bills.sql`, both of which sweep every reversal in the fixture shop and both of which assert the sweep is not vacuous.
+
 ### References come from `journal_entry_sequences`, not from `count(*)`
 
 `20260908000150_journal_entry_sequence.sql` replaced `post_journal_entry`'s reference allocation. It used to be `'JE-'||year||'-'||lpad(count(*)+1)` over the shop's entries for that year, which under READ COMMITTED handed two concurrent posters the same reference — the second died on `unique (shop_id, reference)` with a raw constraint name, and there is no application-layer retry (`src/lib/sales.ts` does `if (error) throw error`). Tolerable while only the manual-entry screen posted; not once every sale does.
@@ -190,6 +202,7 @@ Treating a redeemed point as a discount is defensible, conventional for small re
 | `supabase/migrations/20260908000700_backfill_ledger.sql` | `backfill_shop_ledger(uuid)`. |
 | `supabase/migrations/20260908000750_post_expenses.sql` | Task 7b. The `AFTER INSERT` trigger on `expenses`. Numbered after the backfill because it was added once the backfill's number was already claimed; neither depends on the other's objects, so the order they apply in does not matter. |
 | `supabase/migrations/20260908000800_expense_source_links.sql` | The final review's C1/C2 fix. Adds `expenses.stock_receipt_id` and `expenses.stock_count_id` and replaces `post_expense_to_ledger()` with the six-way branch. See the correction under Task 7b. |
+| `supabase/migrations/20260908000900_post_sale_delete.sql` | Task 5c, the final review's C3 fix. `delete_sale`, copied forward from `20260820000100`: reverse the sale's entry, its refunds' and its settlements', then delete. Numbered after the backfill for the same reason `20260908000750` is — the number was already claimed — and it depends on nothing either of them creates. |
 | `supabase/tests/verify-shop-local-date.sql` | `shop_local_date()` crosses the UTC/local month boundary correctly and is `immutable`. |
 | `supabase/tests/verify-posting-map.sql` | Every enum value maps to a live account. |
 | `supabase/tests/verify-posting-sales.sql` | Sale, credit sale, refund, settlement entries. |
@@ -1636,6 +1649,52 @@ git commit -m "fix(accounting): an edited sale reverses its entry and re-posts"
 
 ---
 
+### Task 5c: a deleted sale reverses everything it is responsible for
+
+*(Added by the final whole-branch review, as finding C3 — the Critical a per-task review structurally could not see, because `delete_sale` appears in no task's diff.)*
+
+**Files:** `supabase/migrations/20260908000900_post_sale_delete.sql` (new), `supabase/tests/verify-posting-sales.sql`, `supabase/tests/accumulated-rpc-edits.test.ts`.
+
+**Interfaces:** `public.delete_sale(p_sale_id uuid) returns void` — unchanged signature, copied forward **in full** from `20260820000100_loyalty_balance_rules.sql`, its newest definition.
+
+#### The hole
+
+`delete_sale` restores the stock, reverses the loyalty points and deletes the sale. `sales.journal_entry_id` carries **no `ON DELETE`**, so from the moment Task 3 shipped the entry outlived the sale — still `status = 'posted'`, described by a uuid resolving to nothing. `sale_payments` and `refunds` both **cascade** (`0005_sale_payments.sql:3`, `20260802015200_refunds.sql:7`), so a credit sale that was refunded and later settled left **three** such entries.
+
+It is reachable from the UI: `src/components/accounting/transactions-tab.tsx:224` → `src/lib/sales.ts:123`.
+
+A manager deleting a mis-rung 6,300 sale leaves `4000` holding 6,000 of revenue, `5000` holding 2,200 of COGS, `1200` credited for stock that is back on the shelf and `2100` holding the tax. Every entry still balances, so the trial balance still zeroes and nothing goes red. **Task 8's backfill can never repair it**: the replay is driven by source rows and there is no source row left to replay.
+
+#### The treatment
+
+Task 5b's, minus the replacement. Reverse, inside the same transaction, **before** the delete — `refunds` and `sale_payments` cascade, so after the delete there is nothing left to read the entry ids from and the entries are unreachable for ever.
+
+**Inline, not `reverse_journal_entry`.** That function requires `ledger.post`. This door gates on **`sales.edit`** — the real permission name; `src/lib/permissions.ts:80` labels it *"Edit/delete sales"* and there is no `sales.delete`. A manager removing a mis-rung sale must not need a ledger permission, which is the same finding that has every posting call pass `p_source <> 'manual'`.
+
+**THE CASCADED ENTRIES ARE REVERSED TOO. This is the decision, and it is stated in a comment at the loop.** Reversing only the sale's own entry **moves** the orphan problem rather than fixing it, and leaves the books worse than doing nothing: the sale's revenue and receivable come back out while the refund's `4100` and the settlement's `Dr Cash / Cr 1100` stay standing, so the ledger shows a shop that returned goods it never sold and collected cash against a receivable that no longer exists — and `1100` ends up permanently **negative** by the settled amount. So all three kinds are reversed, in one loop, each mirror the mirror of its own original.
+
+**Each reversal carries the source of the entry it reverses**, read off the original row rather than written as a literal — the three kinds are three different sources (`'sale'`, `'refund'`, `'settlement'`) and one literal would be wrong for two of them. See *A reversal carries the same source as the entry it reverses* in Global Constraints.
+
+**The closed-period redirect**, with `coalesce(v_old_period_status, 'not open')`, exactly as `edit_sale` has it: read rather than caught, so a broken chart of accounts is not swallowed and retried into the current month.
+
+**The sale row is read `for update`.** New here, and stated rather than smuggled: the function reads `sales.journal_entry_id` and then writes entries derived from it with nothing serialising the two, so two concurrent deletes could both write a reversal. Same shape as `edit_sale`'s and `settle_sale_balance`'s locks.
+
+`delete_sale` is **not** one of the two functions `20260905000000_complete_sale_lock_order.sql` patches by string-replacing `pg_proc.prosrc` — that migration touches `complete_sale` and `edit_sale` only — so there is no invisible edit to carry forward. Confirm with:
+
+```bash
+grep -rln "create or replace function public.delete_sale(" supabase/migrations/ | sort | tail -1
+```
+
+#### Checks and mutations
+
+`verify-posting-sales.sql` check 24 builds one sale carrying all three kinds of entry — part paid at the till, settled later, then partly refunded — deletes it, and asserts: the sale row is gone; all three originals are `reversed`, named individually so the message says which was forgotten; three mirrors exist, each under its own original's source; and **every account touched by any of the six entries nets to exactly zero**. That last one is the whole property in one statement and is independent of the figures.
+
+Mutations: **(a)** skip the reversal loop entirely; **(b)** reverse only the sale's own entry, dropping the refund and settlement branches of the union; **(c)** write `'manual'` as the reversal's source instead of the original's.
+
+Add a `DELETE_SALE_EDITS` list to `accumulated-rpc-edits.test.ts` — this function now carries posting code and is re-created in full by every migration touching it.
+
+---
+
 ### Task 6: `receive_stock` and `save_stock_count` post
 
 **Files:**
@@ -2126,6 +2185,35 @@ Because a shop may be backfilled while the trigger is live, the `journal_entry_i
 **Historical rows predate both columns and have them null, so they take the standalone path — and that is correct, not a gap being papered over.** Those rows were written before the ledger existed: there is no receipt entry for a null `stock_receipt_id` to settle, because `receive_stock` posted nothing at the time, and the replay writes that receipt's own `Dr 1200 / Cr 2000` from `stock_receipts` in the same run. A historical `inventory_purchase` therefore has to debit `1200` on its own account. Only rows written after `20260908000800` shipped carry a link, and for those the receipt entry exists and the settlement has something to settle.
 
 The two columns are added by `20260908000800`, which applies **after** this migration. That forward reference is safe: a `plpgsql` body is only syntax-checked at `CREATE` time — column names resolve on first execution — and `backfill_shop_ledger` is never called during a migration run.
+
+#### The backfill must be SERIALISED PER SHOP, and every back-link must re-check
+
+*(Added by the final whole-branch review, as finding I6. The first implementation had neither.)*
+
+"Idempotent, because it is driven by `journal_entry_id is null`" is a statement about two runs **separated in time**. It says nothing about two runs **overlapping**, and under `READ COMMITTED` two overlapping runs both succeed:
+
+* A snapshots every unposted row into `_bf_map` and starts writing entries.
+* B, a moment later, snapshots **the same rows** — A has committed nothing — and builds a second complete set with its own ids.
+* B blocks on A's row locks at the back-links, and when A commits, B **re-evaluates its `WHERE` against the row version A committed**. A `WHERE` that does not mention `journal_entry_id` matches anyway and **overwrites** A's pointer.
+
+Two complete sets of entries; every source row points at B's; A's are posted and orphaned; every account reads double — **with the trial balance still at zero**, because both sets individually balance, and with both runs returning a positive count.
+
+Two things are required, and both are wanted:
+
+1. **`perform pg_advisory_xact_lock(74921, hashtext(p_shop_id::text));` as the first thing after the permission gate.** Transaction-scoped, keyed on the shop. This is what stops the orphaned entries from ever being written. `post_payroll_run` takes exactly this lock (classid `74920`) for a far smaller race, and rewriting a shop's entire history is the heaviest thing anyone can do to these books. **Register the classid** in `post_payroll_run`'s `ADVISORY LOCK CLASSID REGISTRY` comment — Postgres has one global advisory keyspace and a collision makes two unrelated features block each other.
+2. **`and <table>.journal_entry_id is null` on ALL EIGHT back-links** in step 5. This is what makes the losing update a no-op rather than a clobber. Missing one re-opens the hole for that table alone.
+
+The race cannot be reproduced from a `verify-*.sql` script: every fixture row lives in an uncommitted transaction, and a second session — via `dblink` or otherwise — cannot see any of it. So the sequential half is behavioural (check 6: a second run writes nothing) and the guard itself is asserted **structurally**, from `pg_get_functiondef`, in check 14 — comment-stripped and whitespace-normalised, with one assertion per back-link so the message names the table that lost its re-check.
+
+#### `sales` needs a "carries money" predicate like every other kind
+
+*(Added by the final whole-branch review, as finding I7.)*
+
+Every other source kind in step 1 filters on the row carrying money — a receipt with no costed line, a count with zero net variance, a payment of zero. `sales` did not. A **zero-value sale** is legal and reachable (`p_allow_balance`, `20260831000100`): free samples priced at 0, left on account against a named customer. It produces **no journal line at all** — every amount is zero and `amount_cents <> 0` throws them away — so it was given an entry with nothing under it and **step 7 aborted the entire shop's replay** with *"could not build a complete entry"*, over one giveaway from two years ago.
+
+The predicate is the exact disjunction of the six line groups step 6 builds, not a proxy for them: a false negative would silently skip a sale that **does** carry money. At least one non-zero line implies at least two, because the six groups balance by construction — so the predicate is also exactly the condition step 7's two-line guard tests for.
+
+**The same bug is live**, and is fixed in the same commit: `complete_sale` (and `edit_sale`) now skip `post_journal_entry` entirely when the line array is empty, where before such a sale **failed at the till** with *"A journal entry needs at least two lines; this one has 0."* — a new failure mode for an operation that worked before this branch. `sales.journal_entry_id` stays null on such a sale, permanently and by design, which is why `verify-backfill.sql` check 5 exempts the fixture's zero-valued sale by id and check 13 asserts it was skipped for the right reason.
 
 - [ ] **Step 1: Write the failing test**
 

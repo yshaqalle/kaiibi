@@ -61,6 +61,25 @@
 -- ledger permission. It is the same shape -- a mirror entry with negated
 -- lines, then `status = 'reversed'` on the original, which is the one update
 -- refuse_posted_entry_edit() permits.
+--
+-- Its reversal is filed under source 'payroll', matching the entry it reverses.
+-- That is now the phase-wide convention rather than this file's local taste:
+-- A REVERSAL CARRIES THE SAME SOURCE AS ITS ORIGINAL. 20260908000650 wrote
+-- 'manual' here (inherited from reverse_journal_entry) and has been corrected;
+-- 20260908000900's delete_sale reads the source off the original row. See the
+-- plan's Global Constraints. reverse_journal_entry itself keeps 'manual', which
+-- is correct for it and deliberate: it is the manual door, its caller typed the
+-- reversal by hand, and it gates on ledger.post to prove it.
+--
+-- ## The closed-period redirect on record_invoice_payment
+--
+-- record_invoice_payment was the only posting site in the phase with a
+-- USER-CHOSEN date and no redirect -- record-payment-modal.tsx has a free date
+-- field, and post_journal_entry raises on a closed month. A back-dated supplier
+-- payment into a closed January therefore started failing on the Bills screen
+-- for an operation that worked before this branch. It now redirects to the open
+-- period exactly as 20260908000300 and 20260908000650 do, with the true date and
+-- the period's status in the description. Written out at the call site.
 
 -- ---------------------------------------------------------------------------
 -- record_invoice_payment -- reproduced from 20260804000300_invoices.sql, its
@@ -84,6 +103,15 @@ declare
   v_invoice public.invoices%rowtype;
   v_payment_id uuid;
   v_entry_id uuid;
+  -- The status of the period p_paid_on falls in, or NULL when no row exists for
+  -- that month. NULL is not "closed" and not "open" either -- it is "nobody has
+  -- traded in this month", which open_period_for turns into an open period on
+  -- demand. Getting that backwards would redate every payment into a month
+  -- nobody has posted to yet.
+  v_period_status text;
+  -- Where the entry is actually recognised. Equal to p_paid_on except when that
+  -- month has been closed or locked.
+  v_posted_date date;
 begin
   select * into v_invoice from public.invoices where id = p_invoice_id for update;
   if v_invoice.id is null then
@@ -121,15 +149,63 @@ begin
   --
   -- Dated p_paid_on, which is the date the payment row itself carries -- so
   -- the ledger and the bill's payment history cannot disagree about when the
-  -- money moved.
+  -- money moved. UNLESS that month is shut; see the redirect below.
   --
   -- The bill's store travels onto the entry. The plan passed null; a payment
   -- against the Berbera store's bill would then post with no store at all and
   -- drop out of that store's cash picture, which is exactly the bug
   -- 20260816000000 exists to close on the expense side. Null stays null for a
   -- business-wide bill, which is a real value and not a gap.
+
+  -- ── The closed-period redirect ──────────────────────────────────────────
+  --
+  -- THIS WAS THE ONE POSTING SITE WITH A USER-CHOSEN DATE AND NO REDIRECT.
+  -- src/components/accounting/record-payment-modal.tsx gives the user a free
+  -- date field, and post_journal_entry calls open_period_for, which RAISES on a
+  -- closed or locked month. So a shop that closed January and then, in
+  -- February, recorded a supplier payment dated 28 January got
+  -- "This period is closed — posting into it is refused. Re-open it first."
+  -- on the Bills screen -- for an operation that worked before this branch.
+  --
+  -- Task 7b's justification applies verbatim ("the expense editor has a free
+  -- date field"), and this is the same answer 20260908000300 gave for a
+  -- backdated sale and 20260908000650 for a correction to a closed month:
+  -- recognise it in the OPEN period, with the true date and the period's status
+  -- written into the description. Redating is what closing MEANS.
+  --
+  -- READ, not caught. open_period_for raises for any non-open period, and
+  -- catching that exception would also swallow an unbalanced entry, an unknown
+  -- account code or a missing chart of accounts -- and quietly retry them into
+  -- the current month as though the only thing wrong were the date.
+  --
+  -- The PAYMENT ROW keeps p_paid_on either way. The money really did move that
+  -- day; only its recognition moves, and the description says so.
+  select status into v_period_status
+    from public.accounting_periods
+   where shop_id = v_invoice.shop_id and p_paid_on between starts_on and ends_on;
+
+  -- No row means open_period_for will create it open, so only an EXISTING
+  -- non-open period redirects.
+  if v_period_status is not null and v_period_status <> 'open' then
+    v_posted_date := public.shop_local_date();
+  else
+    v_posted_date := p_paid_on;
+  end if;
+
   v_entry_id := public.post_journal_entry(
-    v_invoice.shop_id, p_paid_on, 'Supplier paid',
+    v_invoice.shop_id, v_posted_date,
+    -- coalesce on the status for the reason 20260908000300 found the hard way:
+    -- the branch above cannot set v_posted_date <> p_paid_on while
+    -- v_period_status is NULL, but if that invariant is ever broken by an edit
+    -- up there the whole description becomes NULL and post_journal_entry
+    -- refuses the payment with `A journal entry needs a description.` -- an
+    -- error about descriptions for a bug about dates.
+    'Supplier paid'
+      || case when v_posted_date <> p_paid_on
+              then ' (paid ' || to_char(p_paid_on, 'YYYY-MM-DD')
+                   || '; that period is ' || coalesce(v_period_status, 'not open')
+                   || ', so it is recognised here)'
+              else '' end,
     jsonb_build_array(
       jsonb_build_object('code', '2000', 'amount_cents',  p_amount_cents, 'memo', 'Bill paid'),
       jsonb_build_object('code', public.account_code_for_payment_method(p_method),
@@ -188,6 +264,7 @@ begin
   -- shared by every feature in the database. The two-argument form reserves a
   -- classid so a future caller can't collide with payroll posting:
   --   74920 = payroll posting (this function)
+  --   74921 = ledger backfill (public.backfill_shop_ledger, 20260908000700)
   -- Pick a distinct, non-round classid for any new advisory lock. 1, 2 and 100
   -- are what a naive caller reaches for, which is exactly why they're unsafe.
   select shop_id into v_lock_shop from public.payroll_runs where id = p_run_id;

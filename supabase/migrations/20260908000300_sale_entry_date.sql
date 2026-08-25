@@ -690,38 +690,66 @@ begin
     v_posted_date := v_entry_date;
   end if;
 
-  -- The description carries the sale id, so the link is readable in both
-  -- directions. sales.journal_entry_id gets you from the sale to the entry; a
-  -- bare 'Sale' got you nowhere back, and a journals list of four hundred rows
-  -- all reading 'Sale' is not a journal anybody can audit. Task 8's backfill
-  -- has to reconcile replayed entries against their source rows and wants the
-  -- same link.
+  -- A SALE THAT MOVES NO MONEY POSTS NOTHING, rather than failing at the till.
   --
-  -- And when the two dates differ, it carries the sale's TRUE date and the
-  -- status that pushed it here. Without that, the only record of why an August
-  -- sale is sitting in October lives on the source row, and the journal -- the
-  -- thing an auditor actually reads -- shows an unexplained October entry.
-  v_entry_id := public.post_journal_entry(
-    p_shop_id,
-    v_posted_date,
-    'Sale ' || v_sale_id::text
-      -- coalesce, even though the branch above cannot set v_posted_date <>
-      -- v_entry_date while v_period_status is NULL. `||` with a NULL operand
-      -- yields NULL for the WHOLE expression, so if that invariant is ever
-      -- broken by an edit up there the description becomes NULL and
-      -- post_journal_entry refuses the sale with `A journal entry needs a
-      -- description.` -- an error about descriptions for a bug about dates,
-      -- on the hot path. Found by mutating the redirect condition to `if true`.
-      || case when v_posted_date <> v_entry_date
-              then ' (sold ' || to_char(v_entry_date, 'YYYY-MM-DD')
-                   || '; that period is ' || coalesce(v_period_status, 'not open')
-                   || ', so it is recognised here)'
-              else '' end,
-    v_lines,
-    v_location_id,
-    'sale');
+  -- Every line above is conditional, so v_lines really can come out empty: a
+  -- basket of free samples (price 0, no frozen cost), no tax, no discount, and
+  -- left on account against a named customer, which p_allow_balance
+  -- (20260831000100) makes legal. item_count > 0, so the "a sale must have at
+  -- least one item" guard passes; v_total_cents is 0, so there is no payment
+  -- and no receivable either.
+  --
+  -- Handed to post_journal_entry, that raised
+  -- `A journal entry needs at least two lines; this one has 0.` and took the
+  -- whole sale down -- a NEW failure, at the till, for an operation that worked
+  -- before this branch. The honest answer is that nothing happened in
+  -- accounting terms and there is nothing to record: journal_lines carries
+  -- check (amount_cents <> 0), so there is no zero-value entry to write even if
+  -- one were wanted.
+  --
+  -- sales.journal_entry_id therefore stays NULL on such a sale, permanently and
+  -- on purpose. Task 8's backfill applies the SAME predicate rather than trying
+  -- to replay it later (20260908000700, step 1's sales map) -- without that, one
+  -- historical giveaway aborts an entire shop's replay at step 7.
+  --
+  -- Checked on the array rather than on v_total_cents: the six line groups are
+  -- what decide, and a sale can carry a zero total and still move money (a
+  -- 100%-discounted line credits 4000 and debits 4200, and a costed line posts
+  -- the 5000/1200 pair either way).
+  if jsonb_array_length(v_lines) > 0 then
+    -- The description carries the sale id, so the link is readable in both
+    -- directions. sales.journal_entry_id gets you from the sale to the entry; a
+    -- bare 'Sale' got you nowhere back, and a journals list of four hundred rows
+    -- all reading 'Sale' is not a journal anybody can audit. Task 8's backfill
+    -- has to reconcile replayed entries against their source rows and wants the
+    -- same link.
+    --
+    -- And when the two dates differ, it carries the sale's TRUE date and the
+    -- status that pushed it here. Without that, the only record of why an August
+    -- sale is sitting in October lives on the source row, and the journal -- the
+    -- thing an auditor actually reads -- shows an unexplained October entry.
+    v_entry_id := public.post_journal_entry(
+      p_shop_id,
+      v_posted_date,
+      'Sale ' || v_sale_id::text
+        -- coalesce, even though the branch above cannot set v_posted_date <>
+        -- v_entry_date while v_period_status is NULL. `||` with a NULL operand
+        -- yields NULL for the WHOLE expression, so if that invariant is ever
+        -- broken by an edit up there the description becomes NULL and
+        -- post_journal_entry refuses the sale with `A journal entry needs a
+        -- description.` -- an error about descriptions for a bug about dates,
+        -- on the hot path. Found by mutating the redirect condition to `if true`.
+        || case when v_posted_date <> v_entry_date
+                then ' (sold ' || to_char(v_entry_date, 'YYYY-MM-DD')
+                     || '; that period is ' || coalesce(v_period_status, 'not open')
+                     || ', so it is recognised here)'
+                else '' end,
+      v_lines,
+      v_location_id,
+      'sale');
 
-  update public.sales set journal_entry_id = v_entry_id where id = v_sale_id;
+    update public.sales set journal_entry_id = v_entry_id where id = v_sale_id;
+  end if;
   -- ── end posting side ────────────────────────────────────────────────────
 
   return v_sale_id;

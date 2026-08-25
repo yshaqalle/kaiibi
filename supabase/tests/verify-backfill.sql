@@ -99,6 +99,9 @@ declare
   v_item_c    uuid;
   v_sale_d    uuid;
   v_item_d    uuid;
+  -- SALE E, the zero-valued one. Named here because check 5 has to exempt it
+  -- by id: it is the one sale row that stays unposted for ever, by design.
+  v_sale_e    uuid;
   v_refund_id uuid;
   v_refund_d  uuid;
   v_receipt   uuid;
@@ -283,6 +286,35 @@ begin
     returning id into v_refund_d;
   insert into public.refund_items (refund_id, sale_item_id, quantity, amount_cents)
     values (v_refund_d, v_item_d, 1, 3150);
+
+  ---------------------------------------------------------------------------
+  -- SALE E -- ZERO-VALUED. THE ONE THAT ABORTED THE WHOLE SHOP'S REPLAY.
+  ---------------------------------------------------------------------------
+  -- Free samples handed to a named customer and left on account. Legal since
+  -- p_allow_balance shipped (20260831000100): item_count is 1, so complete_sale's
+  -- "a sale must have at least one item" guard passes; the line is priced at 0
+  -- with no frozen cost, so total_cents is 0 and there is no payment, no
+  -- receivable, no tax, no discount and no COGS.
+  --
+  -- `sales` was the ONLY source kind in step 1 of the backfill with no "carries
+  -- money" predicate -- every other one has had one since it was written. So this
+  -- row was mapped, given an entry and a reference, produced not one journal line
+  -- (every amount is zero and `amount_cents <> 0` throws them all away), and
+  -- step 7's two-line guard then aborted THE ENTIRE SHOP'S REPLAY with
+  -- "Backfill could not build a complete entry". One giveaway from two years ago
+  -- and the shop cannot be backfilled at all.
+  --
+  -- It is not paid, not settled and not refunded, so it contributes zero to
+  -- every tie-out in check 3 and cannot make any of them pass by coincidence.
+  insert into public.sales
+      (shop_id, location_id, created_by, payment_method, total_cents, item_count,
+       created_at, discount_cents, tax_cents, points_redeemed_cents)
+    values (v_shop_id, v_loc_id, v_user_id, 'unpaid', 0, 1,
+            now() - interval '7 days', 0, 0, 0)
+    returning id into v_sale_e;
+  insert into public.sale_items
+      (sale_id, product_name, unit_price_cents, quantity, line_total_cents, discount_cents, unit_cost_cents)
+    values (v_sale_e, 'Free sample', 0, 1, 0, 0, null);
 
   ---------------------------------------------------------------------------
   -- A delivery and a stock count.
@@ -1026,8 +1058,14 @@ begin
   ---------------------------------------------------------------------------
   -- A backfill that quietly skipped rows would pass every total above, because
   -- both sides would be short by the same amount.
+  -- Sale E is exempt for the same reason the stock_count_id expense row below
+  -- is: it carries no money, so there is no entry for it to point at and never
+  -- will be. Exempted by ID rather than by re-stating the replay's own "carries
+  -- money" predicate, which would be the same arithmetic twice and would pass a
+  -- replay that skipped a sale that DOES carry money. Check 13 is what asserts
+  -- this one was skipped for the right reason.
   select count(*) into v_rows from public.sales
-   where shop_id = v_shop_id and journal_entry_id is null;
+   where shop_id = v_shop_id and journal_entry_id is null and id <> v_sale_e;
   if v_rows <> 0 then raise exception 'FAIL: % sales are still unposted', v_rows; end if;
 
   select count(*) into v_rows from public.refunds r
@@ -1343,6 +1381,108 @@ begin
   if not exists (select 1 from public.journal_entries
                   where shop_id = v_shop_id and reference like 'JE-%-0001') then
     raise exception 'FAIL: no JE-YYYY-0001 survives -- the zero-padded four-digit form was not preserved';
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 13. A ZERO-VALUED SALE IS SKIPPED, AND THE REPLAY COMPLETES.
+  ---------------------------------------------------------------------------
+  -- `sales` was the only source kind in step 1 with no "carries money"
+  -- predicate. Sale E (see the fixture) produces no journal line at all, so it
+  -- used to be given an entry with nothing under it and step 7 aborted THE WHOLE
+  -- SHOP'S REPLAY -- every check above this one included.
+  --
+  -- That the replay completes is asserted by the mere fact that this line is
+  -- reached: without the predicate, check 2's own call raises
+  -- "Backfill could not build a complete entry for: sale <uuid>" and nothing
+  -- after it runs. What is asserted HERE is that it was skipped rather than
+  -- posted empty -- three ways, because "no entry" has three observable halves
+  -- and a replay could get any one of them right by accident.
+  if exists (select 1 from public.sales where id = v_sale_e and journal_entry_id is not null) then
+    raise exception 'FAIL: the zero-valued sale was given a journal entry -- it moves no money and has no lines to put under one';
+  end if;
+  if exists (select 1 from public.journal_entries
+              where shop_id = v_shop_id and description like '%' || v_sale_e::text || '%') then
+    raise exception 'FAIL: an entry in the journal describes the zero-valued sale, which posted nothing';
+  end if;
+  -- And no referenced-but-empty entry survives anywhere in the shop. This is
+  -- the state step 7 exists to refuse, and check 8's re-run has written the
+  -- whole ledger a second time since check 2, so it covers both runs.
+  if exists (select 1 from public.journal_entries e
+              where e.shop_id = v_shop_id
+                and (select count(*) from public.journal_lines l where l.entry_id = e.id) < 2) then
+    raise exception 'FAIL: the shop holds a journal entry with fewer than two lines';
+  end if;
+  -- The positive control. If the predicate were simply "skip sales", checks 3a
+  -- and 5 would have gone red -- but they are totals, and a total can be right
+  -- for the wrong reason. This says the four money-carrying sales each got one.
+  select count(*) into v_rows from public.sales
+   where shop_id = v_shop_id and journal_entry_id is not null;
+  if v_rows <> 4 then
+    raise exception 'FAIL: % sales carry an entry, expected 4 (A, B, C and D) -- the "carries money" predicate is skipping sales that do', v_rows;
+  end if;
+
+  ---------------------------------------------------------------------------
+  -- 14. THE CONCURRENCY GUARD: THE SHOP LOCK AND ALL EIGHT BACK-LINK RE-CHECKS.
+  ---------------------------------------------------------------------------
+  -- Read from the live function source, and this is one of the few places in
+  -- this suite where that is the STRONGEST available assertion rather than a
+  -- second-best one.
+  --
+  -- The defect is a race between two overlapping calls: both snapshot the same
+  -- unposted rows, both build a complete set of entries, and the second blocks
+  -- on the first's row locks at step 5 and then -- under READ COMMITTED --
+  -- re-evaluates its WHERE against the row version the first committed. A WHERE
+  -- that does not mention journal_entry_id matches anyway and OVERWRITES the
+  -- pointer, leaving the first run's entries posted and orphaned and every
+  -- account in the shop doubled, with the trial balance still at zero.
+  --
+  -- It cannot be reproduced from this script. Every fixture row here lives in an
+  -- uncommitted transaction that is rolled back at the end, and a second session
+  -- -- via dblink or otherwise -- opens a new connection that cannot see any of
+  -- it. The sequential half IS behavioural and is check 6 (a second run writes
+  -- nothing). What is left, and what actually decides whether the race is
+  -- closed, is whether the guard is present at all: the lock, and the re-check
+  -- on every one of the eight back-links. Missing ONE of the eight re-opens the
+  -- hole for that table alone -- which is precisely the kind of partial fix a
+  -- totals-based check cannot see.
+  --
+  -- Whitespace-normalised so the assertion does not depend on how the statement
+  -- is wrapped, and comment-stripped first so a token cannot be satisfied by
+  -- prose ABOUT the rule -- the trap that made verify-posting-sales check 15
+  -- fail against correct code on its first run.
+  select regexp_replace(
+           regexp_replace(pg_get_functiondef('public.backfill_shop_ledger(uuid)'::regprocedure),
+                          '--[^\n]*', '', 'g'),
+           '\s+', ' ', 'g')
+    into v_text;
+
+  if v_text not like '%pg_advisory_xact_lock(74921, hashtext(p_shop_id::text))%' then
+    raise exception 'FAIL: backfill_shop_ledger takes no per-shop advisory lock -- two overlapping replays each write a complete set of entries and one set is orphaned';
+  end if;
+
+  if v_text not like '%update public.sales s set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''sale'' and m.source_id = s.id and s.journal_entry_id is null;%' then
+    raise exception 'FAIL: the sales back-link does not re-check journal_entry_id is null -- a concurrent replay''s pointer can be overwritten';
+  end if;
+  if v_text not like '%update public.refunds r set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''refund'' and m.source_id = r.id and r.journal_entry_id is null;%' then
+    raise exception 'FAIL: the refunds back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.sale_payments sp set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''settlement'' and m.source_id = sp.id and sp.journal_entry_id is null;%' then
+    raise exception 'FAIL: the settlements back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.stock_receipts sr set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''receipt'' and m.source_id = sr.id and sr.journal_entry_id is null;%' then
+    raise exception 'FAIL: the stock receipts back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.stock_counts sc set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''count'' and m.source_id = sc.id and sc.journal_entry_id is null;%' then
+    raise exception 'FAIL: the stock counts back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.invoice_payments ip set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''invoice_payment'' and m.source_id = ip.id and ip.journal_entry_id is null;%' then
+    raise exception 'FAIL: the supplier payments back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.payroll_runs pr set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''payroll'' and m.source_id = pr.id and pr.journal_entry_id is null;%' then
+    raise exception 'FAIL: the pay runs back-link does not re-check journal_entry_id is null';
+  end if;
+  if v_text not like '%update public.expenses e set journal_entry_id = m.entry_id from _bf_map m where m.source_kind = ''expense'' and m.source_id = e.id and e.journal_entry_id is null;%' then
+    raise exception 'FAIL: the expenses back-link does not re-check journal_entry_id is null';
   end if;
 
   perform set_config('request.jwt.claims', null, true);

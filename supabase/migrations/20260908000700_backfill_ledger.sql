@@ -208,6 +208,41 @@ begin
     raise exception 'Backfilling the ledger needs ledger.close.' using errcode = 'P0001';
   end if;
 
+  -- ── Serialised per shop, and this is not belt-and-braces ─────────────────
+  --
+  -- The idempotency argument in this file's header ("driven entirely by
+  -- journal_entry_id being null") is a statement about two runs SEPARATED IN
+  -- TIME. It says nothing about two runs overlapping, and under READ COMMITTED
+  -- two overlapping runs both work:
+  --
+  --   A snapshots every unposted row into its own _bf_map and starts writing.
+  --   B, a moment later, snapshots THE SAME ROWS -- A has committed nothing --
+  --   and builds a second complete set of entries with its own ids.
+  --   B then blocks on A's row locks at the back-links in step 5, and when A
+  --   commits, B RE-EVALUATES its WHERE against the new row versions. Before
+  --   this change that WHERE did not mention journal_entry_id at all, so B's
+  --   update matched anyway and OVERWROTE A's pointer.
+  --
+  -- The result is two complete sets of entries; every source row points at B's;
+  -- A's are orphaned but posted; and every account in the shop reads double,
+  -- with the trial balance still at zero because both sets individually
+  -- balance. Nothing in the verification would catch it, because both runs
+  -- return a positive count and the ledger self-consistently ties.
+  --
+  -- Two things close it, and both are wanted. The re-check on each back-link
+  -- (`and <table>.journal_entry_id is null`, step 5) makes B's update a no-op
+  -- rather than a clobber. This lock stops B from writing the entries at all,
+  -- which is what keeps the ledger free of a set of orphans nobody can explain.
+  -- Rewriting a shop's whole history is far heavier than posting one pay run,
+  -- and post_payroll_run takes exactly this lock for a far smaller race.
+  --
+  -- Transaction-scoped, so it releases on commit or rollback with nothing to
+  -- unlock explicitly. Keyed on the shop, so backfilling one shop never blocks
+  -- another. classid 74921, registered in post_payroll_run's ADVISORY LOCK
+  -- CLASSID REGISTRY (20260908000500) -- Postgres has one global advisory
+  -- keyspace and a collision would make two unrelated features block each other.
+  perform pg_advisory_xact_lock(74921, hashtext(p_shop_id::text));
+
   -- The map from source row to the entry it will get, carried across the three
   -- statements that need it (entries, back-links, lines). The entry id is
   -- generated HERE rather than taken from a RETURNING clause, because
@@ -246,11 +281,54 @@ begin
   -- ── 1. Every unposted row, of every kind ────────────────────────────────
 
   -- Sales. Dated the shop's local date of created_at, matching complete_sale.
+  --
+  -- ...AND FILTERED TO SALES THAT CARRY MONEY, which every other kind below has
+  -- always been and this one was not. A zero-value sale is legal and reachable:
+  -- p_allow_balance (20260831000100) lets a sale be left on account, and a
+  -- basket of free samples priced at 0 against a named customer is exactly that
+  -- -- item_count > 0, so complete_sale's own guard passes, and total_cents = 0.
+  -- Such a sale produces no journal line at all (every amount below is zero and
+  -- `amount_cents <> 0` throws them away), leaving a referenced entry with
+  -- nothing under it -- and step 7 then aborts THE WHOLE SHOP'S REPLAY with
+  -- "could not build a complete entry", over one giveaway from two years ago.
+  --
+  -- The predicate is the exact disjunction of the six line groups built in step
+  -- 6, not a proxy for them, because a false negative here would silently skip a
+  -- sale that does carry money:
+  --   * a non-settlement payment      -> the tender debits
+  --   * total_cents <> what the till took -> the 1100 receivable
+  --   * order discount / points / line discount -> the 4200 contra
+  --   * list price (unit_price * qty) -> the 4000 credit
+  --   * tax_cents                     -> the 2100 credit
+  --   * frozen cost                   -> the 5000/1200 pair
+  -- At least one non-zero line means at least two, because the six groups are
+  -- balanced by construction -- so this is also exactly the condition step 7's
+  -- two-line guard tests for.
+  --
+  -- The same defect exists on the LIVE path and is fixed there too:
+  -- complete_sale now skips post_journal_entry entirely when v_lines is empty
+  -- (20260908000300), where before it failed the sale at the till with
+  -- "A journal entry needs at least two lines; this one has 0."
   insert into _bf_map (source_kind, source_id, entry_id, on_date, location_id, description, source)
   select 'sale', s.id, gen_random_uuid(), public.shop_local_date(s.created_at),
          s.location_id, 'Sale ' || s.id::text, 'sale'
     from public.sales s
-   where s.shop_id = p_shop_id and s.journal_entry_id is null;
+   where s.shop_id = p_shop_id and s.journal_entry_id is null
+     and (coalesce(s.tax_cents, 0) <> 0
+          or coalesce(s.discount_cents, 0) <> 0
+          or coalesce(s.points_redeemed_cents, 0) <> 0
+          or s.total_cents <> coalesce((select sum(sp.amount_cents)
+                                          from public.sale_payments sp
+                                         where sp.sale_id = s.id and not sp.is_settlement), 0)
+          or exists (select 1 from public.sale_payments sp
+                      where sp.sale_id = s.id and not sp.is_settlement and sp.amount_cents <> 0)
+          or coalesce((select sum(si.unit_price_cents::bigint * si.quantity)
+                         from public.sale_items si where si.sale_id = s.id), 0) <> 0
+          or coalesce((select sum(si.discount_cents)
+                         from public.sale_items si where si.sale_id = s.id), 0) <> 0
+          or coalesce((select sum(si.unit_cost_cents::bigint * si.quantity)
+                         from public.sale_items si
+                        where si.sale_id = s.id and si.unit_cost_cents is not null), 0) <> 0);
 
   -- Refunds. refunds has NO shop_id column -- the tenancy comes through the
   -- sale, and so does the location, which is what refund_sale_items stamps.
@@ -454,22 +532,44 @@ begin
     from _bf_map m;
 
   -- ── 5. The back-links, which are what make this idempotent ──────────────
+  --
+  -- EVERY ONE RE-CHECKS `journal_entry_id is null`, and dropping that from any
+  -- of the eight re-opens the concurrency hole the advisory lock at the top of
+  -- this function describes. Step 1's filter is not enough on its own: it was
+  -- evaluated against a snapshot taken before anything else could have written,
+  -- and under READ COMMITTED an UPDATE that blocks on another transaction's row
+  -- lock re-evaluates its WHERE against the row version that transaction
+  -- committed. A WHERE that no longer mentions the column matches anyway and
+  -- CLOBBERS the pointer the other run just wrote -- leaving its entries posted
+  -- and orphaned, and every account doubled with the trial balance still zero.
+  --
+  -- With the re-check, the losing update matches nothing and writes nothing.
+  -- Belt AND braces, deliberately: the lock is what stops the orphan entries
+  -- ever being written, this is what stops the pointer being taken away.
   update public.sales s set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'sale' and m.source_id = s.id;
+    from _bf_map m where m.source_kind = 'sale' and m.source_id = s.id
+     and s.journal_entry_id is null;
   update public.refunds r set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'refund' and m.source_id = r.id;
+    from _bf_map m where m.source_kind = 'refund' and m.source_id = r.id
+     and r.journal_entry_id is null;
   update public.sale_payments sp set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'settlement' and m.source_id = sp.id;
+    from _bf_map m where m.source_kind = 'settlement' and m.source_id = sp.id
+     and sp.journal_entry_id is null;
   update public.stock_receipts sr set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'receipt' and m.source_id = sr.id;
+    from _bf_map m where m.source_kind = 'receipt' and m.source_id = sr.id
+     and sr.journal_entry_id is null;
   update public.stock_counts sc set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'count' and m.source_id = sc.id;
+    from _bf_map m where m.source_kind = 'count' and m.source_id = sc.id
+     and sc.journal_entry_id is null;
   update public.invoice_payments ip set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'invoice_payment' and m.source_id = ip.id;
+    from _bf_map m where m.source_kind = 'invoice_payment' and m.source_id = ip.id
+     and ip.journal_entry_id is null;
   update public.payroll_runs pr set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'payroll' and m.source_id = pr.id;
+    from _bf_map m where m.source_kind = 'payroll' and m.source_id = pr.id
+     and pr.journal_entry_id is null;
   update public.expenses e set journal_entry_id = m.entry_id
-    from _bf_map m where m.source_kind = 'expense' and m.source_id = e.id;
+    from _bf_map m where m.source_kind = 'expense' and m.source_id = e.id
+     and e.journal_entry_id is null;
 
   -- ── 6. The lines, one statement per kind ────────────────────────────────
   --

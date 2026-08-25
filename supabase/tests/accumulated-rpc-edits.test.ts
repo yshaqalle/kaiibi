@@ -121,6 +121,12 @@ const COMPLETE_SALE_EDITS: Edit[] = [
   // sale, so without this a shop that has closed any month fails the whole row
   // group with a ledger error on an import screen.
   ['20260908000300', 'a sale whose period has closed is redated, not refused', 'v_period_status'],
+  // A sale that moves no money posts NOTHING rather than raising. Every line is
+  // conditional, so a basket of free samples left on account (legal since
+  // p_allow_balance) builds an empty array and post_journal_entry answered
+  // `A journal entry needs at least two lines; this one has 0.` -- a new
+  // failure, at the till, for an operation that worked before this branch.
+  ['20260908000900', 'a sale that moves no money posts nothing', 'jsonb_array_length(v_lines)'],
 ];
 
 const EDIT_SALE_EDITS: Edit[] = [
@@ -168,6 +174,15 @@ const EDIT_SALE_EDITS: Edit[] = [
   // The item loop folds each line's discount into v_line before adding it to
   // v_gross_cents, so v_gross_cents is already NET of them.
   ['20260908000650', 'every discount reaches 4200', 'v_item_discount_cents'],
+  // The reversal files under 'sale', not the 'manual' this block first
+  // inherited from reverse_journal_entry. A reversal carries the SAME SOURCE as
+  // the entry it reverses, or `where source = 'sale'` returns an edited sale's
+  // original and its replacement but not the reversal cancelling the original
+  // -- and a report grouping by source shows that sale's revenue twice.
+  ['20260908000900', "the reversal is filed under 'sale', not 'manual'", "'sale', 'posted', v_old_location_id"],
+  // Same as complete_sale's: an edit that leaves the sale worth nothing posts
+  // nothing rather than failing on a ledger error at a POS screen.
+  ['20260908000900', 'an edit that leaves the sale worth nothing posts nothing', 'jsonb_array_length(v_lines)'],
 ];
 
 // receive_stock joins this file at three definitions, and it belongs here more
@@ -208,6 +223,169 @@ const RECEIVE_STOCK_EDITS: Edit[] = [
   ['20260908000400', 'the entry is dated in shop-local time', 'shop_local_date'],
 ];
 
+// The five that follow, plus delete_sale, joined this file at the phase 2b
+// final review. Until then it guarded four functions while EIGHT carried
+// posting code -- and the guard is not about the posting code alone. A
+// function that is re-created in full by every migration touching it needs an
+// entry for every edit that matters, or a copy from the wrong ancestor takes
+// it out silently.
+//
+// refund_sale_items is the strongest omission of the five and the reason the
+// list was written in this order. It has NINE full reproductions and it carries
+// two edits that pay customers the wrong amount if either is lost:
+// 20260820000200 (a refund is scaled to what the customer actually paid, not to
+// the line totals -- 163 cents too much on the report's own $19.99 example) and
+// 20260831000200 (the goods/cash split, without which refunding a credit sale
+// nobody has paid a cent on takes the full amount out of the drawer). Neither
+// is visible in a totals check that recomputes the same way the function does.
+
+const REFUND_SALE_ITEMS_EDITS: Edit[] = [
+  // The clamp, not merely a mention of the balance: a refund the shop agreed to
+  // give must never post the customer a NEGATIVE points balance.
+  ['20260820000100', 'a clawback never drives the balance negative', 'greatest(coalesce(v_balance, 0), 0)'],
+  // Redeemed points come back all-or-nothing on a FULL return, exactly once.
+  ['20260820000100', 'a redemption is reversed once, and only on a full return', "'redeem_reversed'"],
+  // THE MONEY ONE. The per-line loop apportions line_total_cents, which knows
+  // nothing about the order discount, the points redeemed or the tax. The
+  // amounts are scaled to sales.total_cents CUMULATIVELY and then differenced,
+  // so refunding a sale in pieces returns exactly what refunding it at once
+  // would. The token is the COMPUTATION, not the variable name: a rewrite that
+  // neuters the scaling and leaves `v_cum_goods_cents integer;` standing in the
+  // declarations would satisfy a name and lose the money.
+  ['20260820000200', 'a refund is scaled to what the customer actually paid, cumulatively',
+    'round(v_sale_total_cents::numeric * v_cum_gross_all / v_sale_gross_cents)'],
+  // THE OTHER MONEY ONE. goods_cents is what came back; total_cents is the CASH
+  // handed over, capped at what was actually collected and not already
+  // refunded. Lose the cap and refunding a credit sale nobody has paid takes
+  // the full amount out of the till. The token is the cap, not the column.
+  ['20260831000200', 'cash handed back is capped at what was collected', 'least(v_goods_cents, greatest(v_collected_cents'],
+  ['20260908000350', 'a refund posts to the ledger', 'post_journal_entry('],
+  // 4100 Sales Returns, never a negative 4000: a refund that reduced Sales
+  // Revenue would make a month's revenue depend on when the return happened
+  // rather than on when the sale did.
+  ['20260908000350', 'a return debits 4100 Sales Returns, never 4000', "'code', '4100'"],
+  // The PROPERTY, not a variable name. A bare now()::date resolves in UTC and
+  // every market kaiibi serves is UTC+3. The trailing comma pins it to the
+  // entry-date ARGUMENT: the function also carries a comment explaining the
+  // rule, and a token that matched the explanation would survive the defect.
+  ['20260908000350', 'the entry is dated in shop-local time', 'public.shop_local_date(),'],
+  // A refund on a split-tender sale credits every tender it came in on, in
+  // proportion. One lumped line against the biggest method disagrees with
+  // register_session_expected, which pro-rates the same refund the same way --
+  // so the drawer count and the ledger drift apart with nothing to explain it.
+  ['20260908000360', 'a refund credits every tender it came in on', 'public.account_code_for_payment_method(method)'],
+  // LARGEST REMAINDER, not "give the difference to the biggest method": every
+  // line then lands within a cent of its exact share and none can come out
+  // NEGATIVE -- a negative credit is a refund that puts money INTO a tender.
+  ['20260908000360', 'the pro-rata split uses largest remainder', 'row_number() over (order by exact - floor(exact) desc'],
+];
+
+const SETTLE_SALE_BALANCE_EDITS: Edit[] = [
+  ['20260908000350', 'settling a balance posts to the ledger', 'post_journal_entry('],
+  // Dr the tender / Cr 1100, and NO revenue. The revenue was recognised when
+  // the sale was rung up and the receivable is what recorded it; recognising it
+  // again when the money arrives is the classic double-count. 1100 is what says
+  // this entry clears a debt rather than earning anything.
+  ['20260908000350', 'a settlement clears the receivable rather than posting revenue', "'code', '1100'"],
+  ['20260908000350', 'the money lands in the wallet the method maps to', 'public.account_code_for_payment_method(v_method)'],
+  ['20260908000350', 'the entry is dated in shop-local time', 'public.shop_local_date(),'],
+  // The SETTLING till's store, not the sale's. Money handed over days later at
+  // whatever till is open -- possibly another branch. 20260831000300 makes
+  // exactly this fix on the drawer side; a ledger stamped with the sale's
+  // branch puts the same cash in two branches that can never be reconciled.
+  ['20260908000360', "the entry carries the settling till's store, not the sale's", 'coalesce(v_session.location_id, v_sale.location_id)'],
+];
+
+const RECORD_INVOICE_PAYMENT_EDITS: Edit[] = [
+  ['20260908000500', 'paying a supplier posts to the ledger', 'post_journal_entry('],
+  // Dr 2000 Accounts Payable and NO expense line. The cost was recognised when
+  // the bill arrived; posting 6xxx again here would double every cost the shop
+  // has, and the wrong entry balances perfectly.
+  ['20260908000500', 'a payment settles 2000 Accounts Payable and posts no expense', "'code', '2000'"],
+  ['20260908000500', 'the credit lands on the wallet the method maps to', 'account_code_for_payment_method(p_method)'],
+  // The DEFAULT, not the parameter. p_paid_on is a date and is exempt from the
+  // shop_local_date() rule; its default was not, and src/lib/invoices.ts omits
+  // p_paid_on whenever the user does not pick a date -- so `default
+  // current_date` decided the date in UTC for the common case.
+  ['20260908000500', "p_paid_on defaults to the shop's local date", 'p_paid_on date default public.shop_local_date()'],
+  // The one posting site with a user-chosen date. record-payment-modal.tsx has
+  // a free date field and post_journal_entry raises on a closed month, so
+  // without the redirect a back-dated supplier payment fails on the Bills
+  // screen for an operation that worked before phase 2b.
+  ['20260908000500', 'a payment back-dated into a closed month is redated, not refused', 'select status into v_period_status'],
+];
+
+const POST_PAYROLL_RUN_EDITS: Edit[] = [
+  ['20260804020100', 'a line with a blocking warning and no amount stops the run', 'warning_blocking'],
+  // Per-member, not shop-wide. Overlapping drafts are the normal mode once pay
+  // cadence is per member, and without this the same member is paid twice.
+  ['20260804030100', 'an overlapping run cannot pay the same member twice', 'r.period_start <= v_run.period_end'],
+  // The row lock covers THIS run only, so two overlapping runs sharing a member
+  // each locked a different row and neither saw the other's uncommitted status.
+  ['20260804040000', 'posting is serialised per shop by an advisory lock', 'pg_advisory_xact_lock'],
+  // The run's store travels onto the cost it produces, or a pay run for one
+  // store posts a business-wide expense and that store's P&L shows its revenue
+  // with none of its labour against it.
+  ['20260816000000', "the run's store travels onto the expense it produces", 'v_run.location_id'],
+  ['20260908000500', 'a pay run posts to the ledger', 'post_journal_entry('],
+  // Cash, not 2200 Wages Payable: a posted run HAS been paid. 6200/2200
+  // balances just as happily while saying the opposite about the staff.
+  ['20260908000500', 'a posted run credits 1000 Cash, not 2200 Wages Payable', "'code', '1000'"],
+  // The PROPERTY. payroll_runs has no paid_on, so the entry is dated the shop's
+  // local date; current_date resolves in UTC and Somalia is UTC+3, so a
+  // late-evening run lands on the wrong day and, at a month boundary,
+  // permanently in the wrong period.
+  ['20260908000500', 'the entry is dated in shop-local time', 'shop_local_date'],
+  // A draft still holding an entry id is a state nothing can produce. Refused
+  // loudly rather than overwritten: overwriting orphans the old entry and
+  // doubles 6200 with a trial balance that still zeroes.
+  ['20260908000500', 'a run already carrying an entry is refused, not overwritten', 'already carries a ledger entry'],
+];
+
+const UNPOST_PAYROLL_RUN_EDITS: Edit[] = [
+  // unpost is a live button (src/lib/payroll.ts:141). Without the reversal,
+  // unpost -> re-post orphans the first entry and 6200 reads double the wages
+  // actually paid, WITH THE TRIAL BALANCE STILL ZERO.
+  ['20260908000500', 'unposting reverses the entry rather than orphaning it', 'reverses_entry_id'],
+  // The mirror's lines are NEGATED. A reversal that copied them unchanged nets
+  // to double rather than to nothing, and every per-entry check still passes.
+  ['20260908000500', 'the reversal mirrors the lines, negated', '-amount_cents'],
+  // A reversal carries the SAME SOURCE as the entry it reverses, so a reader
+  // filtering the payroll source sees both halves of the pair. See the plan's
+  // Global Constraints; edit_sale and delete_sale follow the same rule.
+  ['20260908000500', 'the reversal is filed under the source it reverses', "'payroll', 'posted'"],
+  // Clearing the pointer is what lets the run be posted again without doubling
+  // 6200 -- the other half of post_payroll_run's refusal above.
+  ['20260908000500', 'the pointer is cleared so a re-post cannot double 6200', 'journal_entry_id = null'],
+  ['20260908000500', 'a reversal whose period has closed is redated, not refused', 'v_old_period_status'],
+];
+
+const DELETE_SALE_EDITS: Edit[] = [
+  ['20260810000100', 'stock goes back to the location it came off', 'product_location_stock'],
+  ['20260820000100', 'a clawback never drives the balance negative', 'greatest(coalesce(v_balance, 0), 0)'],
+  // The C3 of the phase 2b final review. sales.journal_entry_id carries no ON
+  // DELETE, so before this the entry outlived the sale -- still posted,
+  // described by a uuid resolving to nothing -- and the backfill can never
+  // repair it because there is no source row left to replay.
+  ['20260908000900', 'deleting a sale reverses its journal entry', 'reverses_entry_id'],
+  // sale_payments and refunds both CASCADE off sales, so their entries are
+  // orphaned by the same delete. Reversing only the sale's own entry MOVES the
+  // problem: the refund's 4100 and the settlement's Dr Cash / Cr 1100 would be
+  // left standing over nothing and 1100 would go permanently negative.
+  ['20260908000900', "the refunds' entries are reversed too", 'from public.refunds r'],
+  ['20260908000900', "the settlements' entries are reversed too", 'from public.sale_payments sp'],
+  // Read off the original row, never written as a literal: the three kinds are
+  // three different sources ('sale', 'refund', 'settlement') and one literal
+  // would be wrong for two of them.
+  ['20260908000900', 'a reversal carries the source of the entry it reverses', 'v_dead.source, '],
+  // The row is locked before its entry ids are read, or two concurrent deletes
+  // both write a reversal and the original is reversed twice.
+  ['20260908000900', 'the sale row is locked before its entry ids are read', 'where id = p_sale_id for update'],
+  // sales.edit, never a ledger permission -- which is why the reversal is
+  // written out inline rather than through reverse_journal_entry.
+  ['20260908000900', 'deleting a sale needs sales.edit, not ledger.post', "'sales.edit'"],
+];
+
 const SAVE_STOCK_COUNT_EDITS: Edit[] = [
   ['20260908000600', 'a count variance posts to the ledger', 'post_journal_entry('],
   // 5100 sits in COST OF SALES, above gross profit -- not in the 6000s, where
@@ -224,6 +402,12 @@ const SAVE_STOCK_COUNT_EDITS: Edit[] = [
 describe.each([
   ['complete_sale', COMPLETE_SALE_EDITS],
   ['edit_sale', EDIT_SALE_EDITS],
+  ['delete_sale', DELETE_SALE_EDITS],
+  ['refund_sale_items', REFUND_SALE_ITEMS_EDITS],
+  ['settle_sale_balance', SETTLE_SALE_BALANCE_EDITS],
+  ['record_invoice_payment', RECORD_INVOICE_PAYMENT_EDITS],
+  ['post_payroll_run', POST_PAYROLL_RUN_EDITS],
+  ['unpost_payroll_run', UNPOST_PAYROLL_RUN_EDITS],
   ['receive_stock', RECEIVE_STOCK_EDITS],
   ['save_stock_count', SAVE_STOCK_COUNT_EDITS],
 ] as const)('%s keeps every edit ever made to it', (fn, edits) => {

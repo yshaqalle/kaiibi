@@ -44,6 +44,15 @@
 -- deliberately NOT weakened: the manual-entry screen is its other caller and
 -- that door must keep gating.
 --
+-- ...and NOT its source either. The reversal below is filed under 'sale', not
+-- the 'manual' this block first inherited from reverse_journal_entry. A
+-- REVERSAL CARRIES THE SAME SOURCE AS THE ENTRY IT REVERSES -- otherwise
+-- `where source = 'sale'` returns an edited sale's original and its replacement
+-- but not the reversal that cancels the original, and any report grouping by
+-- source shows that sale's revenue twice while the manual-journal view shows an
+-- entry nobody typed. Pinned in the plan's Global Constraints and asserted by
+-- check 23 of verify-posting-sales.sql.
+--
 -- ## Why a reversal can be redated, when reverse_journal_entry never redates
 --
 -- reverse_journal_entry dates a reversal to the ORIGINAL entry's date, on
@@ -671,7 +680,16 @@ begin
                        || '; that period is ' || coalesce(v_old_period_status, 'not open')
                        || ', so the reversal is recognised here)'
                   else '' end,
-        'manual', 'posted', v_old_location_id, v_old_entry_id, auth.uid())
+        -- 'sale', NOT 'manual'. This file originally inherited 'manual' from
+        -- reverse_journal_entry and it was wrong: a reader filtering
+        -- `source = 'sale'` then saw an edited sale's ORIGINAL entry and its
+        -- REPLACEMENT but not the reversal cancelling the original, so any
+        -- report grouping by source showed that sale's revenue twice -- while
+        -- the manual-journal view showed an entry nobody typed. The convention
+        -- is now pinned phase-wide: A REVERSAL CARRIES THE SAME SOURCE AS THE
+        -- ENTRY IT REVERSES. unpost_payroll_run (20260908000500) already did
+        -- this; delete_sale (20260908000900) reads it off the original row.
+        'sale', 'posted', v_old_location_id, v_old_entry_id, auth.uid())
       returning id into v_reversal_id;
 
     insert into public.journal_lines (entry_id, account_id, amount_cents, location_id, memo)
@@ -803,26 +821,39 @@ begin
     v_posted_date := v_entry_date;
   end if;
 
-  -- The description carries the sale id, so the link reads in both directions,
-  -- and says the entry is a correction rather than an original posting. When
-  -- the two dates differ it also carries the sale's TRUE date and the status
-  -- that pushed it here -- without that, the only record of why an August sale
-  -- is recognised in October lives on the source row, and the journal, which is
-  -- what an auditor reads, shows an unexplained October entry.
-  v_entry_id := public.post_journal_entry(
-    v_shop_id,
-    v_posted_date,
-    'Sale ' || p_sale_id::text || ' (edited)'
-      || case when v_posted_date <> v_entry_date
-              then ' (sold ' || to_char(v_entry_date, 'YYYY-MM-DD')
-                   || '; that period is ' || coalesce(v_period_status, 'not open')
-                   || ', so it is recognised here)'
-              else '' end,
-    v_lines,
-    v_location_id,
-    -- 'sale', never 'manual'. post_journal_entry gates the manual source on
-    -- ledger.post; the caller here holds sales.edit and must not need more.
-    'sale');
+  -- A SALE THAT MOVES NO MONEY POSTS NOTHING, exactly as complete_sale now does
+  -- (20260908000300). Every line above is conditional, so an edit that leaves
+  -- the sale at zero -- free samples on account, which p_allow_balance makes
+  -- legal -- builds an empty array, and post_journal_entry would raise
+  -- `A journal entry needs at least two lines; this one has 0.` and fail the
+  -- whole edit. The reversal above still stands: whatever the sale used to be
+  -- worth has been taken back out, and the new figures are worth nothing, so
+  -- journal_entry_id is set back to NULL rather than left pointing at an entry
+  -- that no longer describes the sale.
+  if jsonb_array_length(v_lines) > 0 then
+    -- The description carries the sale id, so the link reads in both directions,
+    -- and says the entry is a correction rather than an original posting. When
+    -- the two dates differ it also carries the sale's TRUE date and the status
+    -- that pushed it here -- without that, the only record of why an August sale
+    -- is recognised in October lives on the source row, and the journal, which is
+    -- what an auditor reads, shows an unexplained October entry.
+    v_entry_id := public.post_journal_entry(
+      v_shop_id,
+      v_posted_date,
+      'Sale ' || p_sale_id::text || ' (edited)'
+        || case when v_posted_date <> v_entry_date
+                then ' (sold ' || to_char(v_entry_date, 'YYYY-MM-DD')
+                     || '; that period is ' || coalesce(v_period_status, 'not open')
+                     || ', so it is recognised here)'
+                else '' end,
+      v_lines,
+      v_location_id,
+      -- 'sale', never 'manual'. post_journal_entry gates the manual source on
+      -- ledger.post; the caller here holds sales.edit and must not need more.
+      'sale');
+  else
+    v_entry_id := null;
+  end if;
 
   update public.sales set journal_entry_id = v_entry_id where id = p_sale_id;
   -- ── end posting side ────────────────────────────────────────────────────
