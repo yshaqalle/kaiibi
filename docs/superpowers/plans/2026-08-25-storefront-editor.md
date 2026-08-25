@@ -268,13 +268,16 @@ git commit -m "feat(storefront): shop-side data layer for the editor"
 
 **Interfaces:**
 - Consumes: `THEMES`, `PALETTES`, `paletteColors` (`src/lib/storefront-catalog.ts`).
-- Produces: `<DesignStrip theme palette onThemeChange onPaletteChange />` where the two handlers are `(key) => void`.
+- Produces: `<DesignStrip theme palette neverPublished onThemeChange onPaletteChange />` where the handlers are `(key) => void` and `neverPublished: boolean` says the shop has never published.
+
+**Correction, found during implementation:** an earlier draft gated the "Chosen for you" badge on `publishedAt` while passing no such prop, so the first implementer derived it from `theme === DEFAULT_THEME && palette === DEFAULT_PALETTE`. That conflates "never touched" with "currently equals the default", so a shop that deliberately returns to Market/Ink after customising is wrongly told the design was chosen for it. `neverPublished` is the fix, and **Task 7 must pass it** as `storefront.publishedAt === null`.
 
 **Properties:**
 
 1. Renders every entry in `THEMES` and every entry in `PALETTES` — derived from the catalogues, never a hardcoded list, so adding a seventh palette needs no change here.
 2. The selected theme and palette are distinguishable to a screen reader, not by colour alone: set `accessibilityState={{ selected: true }}`.
 3. Each colour swatch shows that palette's actual `ground`/`soft`/`accent` from `paletteColors`, so the choice is visible before it is applied.
+3a. The badge shows only when `neverPublished` is true, and depends on nothing else. It means "we picked this so you wouldn't have to"; once a shop has published, it has chosen, whatever it chose.
 4. Horizontally scrollable — on a 380px phone the three themes and six palettes do not fit, and this must stay usable on a phone-only shop.
 
 - [ ] **Step 1: Write the failing test**
@@ -535,6 +538,7 @@ git commit -m "feat(storefront): publish bar that always explains itself"
 
 **Properties:**
 
+0. Pass `neverPublished={storefront.publishedAt === null}` to `DesignStrip`. Task 3 shipped a stand-in derivation that is wrong for a shop returning to the defaults after customising; this is where the real signal lives.
 1. **The preview is the real page.** Render the actual `StorefrontView` against the shop's real `is_listed_online` products. There must be no second storefront implementation that exists only in the editor — that is how a preview starts lying.
 2. The preview reflects UNSAVED edits; customers keep seeing the published version until Publish. Say so on screen.
 3. A shop without the `storefront` module never reaches this screen — but if it somehow does, a module error from `ensureStorefront` must surface as the upgrade prompt (`describePlanError`, `src/lib/entitlements.ts:279`), not as a crash.
@@ -599,6 +603,94 @@ describe('storefront editor', () => {
 ```bash
 git add src/app/\(admin\)/storefront.tsx src/__tests__/storefront-editor-screen.test.tsx
 git commit -m "feat(storefront): the editor screen, previewing the real page"
+```
+
+---
+
+### Task 7b: A draft the shop cannot lose, and cannot leak
+
+Added after Task 7's review. The editor holds every edit in memory and writes nothing until Publish, and Task 7's own comment says why:
+
+> `storefronts` has no separate draft/live copy, so a write-on-every-keystroke would leak an unsaved edit onto a page customers are already looking at.
+
+That is correct given the schema, and it is the schema that is wrong. The screen promises *"Customers keep seeing the page you last published, until you press Publish"*, and with one row and no draft column the only way to keep that promise is to risk the shop's work. A shopkeeper who writes their page and taps Back loses all of it, silently. Both halves are fixable with one column.
+
+**Files:**
+- Create: `supabase/migrations/20260925000200_storefront_draft.sql`
+- Modify: `src/lib/storefront-admin.ts`, `src/app/(admin)/storefront.tsx`
+- Modify: `supabase/tests/verify-storefront-editor.sql`
+- Test: `src/lib/__tests__/storefront-admin.test.ts`, `src/__tests__/storefront-editor-screen.test.tsx`
+
+**Interfaces:**
+- Produces: `saveDraft(shopId: string, draft: Partial<EditableFields>): Promise<void>`, `publishDraft(shopId: string): Promise<void>`, and `ShopStorefront` gains `draft: Partial<EditableFields> | null`.
+
+**Properties:**
+
+1. `storefronts` gains a nullable `draft jsonb`. Unpublished edits live there; the live columns keep serving customers untouched.
+2. **The public read path does not change and must not.** `get_public_storefront` selects named live columns, so `draft` is invisible to customers by construction. A DB check must assert that — if a future edit widens that function, this is what catches it.
+3. Publishing copies `draft` into the live columns, sets `published_at`, and clears `draft` to null, all in one statement so a failure cannot leave half a page live.
+4. The editor autosaves into `draft`. Losing the network or navigating away costs nothing.
+5. On load, the editor shows `draft` overlaid on the live values — that is what "your unsaved changes" means. The preview keeps rendering that overlay.
+6. `slug` and `payment_mode` are NOT draftable. A slug is claimed immediately through `claim_shop_slug` because it is globally unique and cannot be provisionally reserved; `payment_mode` has one permitted value.
+7. Discarding a draft is possible and returns the editor to the live page.
+
+- [ ] **Step 1: Write the failing DB checks**
+
+Add to `supabase/tests/verify-storefront-editor.sql`, before its final `raise notice`:
+
+```sql
+  -- draft never reaches a customer
+  update public.storefronts
+     set draft = '{"headline":"HALF WRITTEN, NOT FOR CUSTOMERS"}'::jsonb,
+         published_at = now(),
+         headline = 'The published headline'
+   where shop_id = v_shop_id;
+
+  if exists (
+    select 1 from public.get_public_storefront('xamdi') g
+    where to_jsonb(g)::text like '%HALF WRITTEN%'
+  ) then
+    raise exception 'FAIL: an unpublished draft leaked into the public storefront payload';
+  end if;
+
+  if (select headline from public.get_public_storefront('xamdi')) <> 'The published headline' then
+    raise exception 'FAIL: the public page stopped showing the published headline once a draft existed';
+  end if;
+```
+
+Write two more of your own: that publishing moves the draft into the live columns and nulls `draft`, and that a failed publish leaves neither half-applied.
+
+- [ ] **Step 2: Run and watch them fail**
+
+```bash
+npm run test:db -- --no-reset
+```
+
+Expected: FAIL — `column "draft" of relation "storefronts" does not exist`.
+
+- [ ] **Step 3: Write the migration**
+
+Add the column, and a `publish_storefront(p_shop_id uuid)` function that does the copy-clear-publish atomically. It is `security definer`, so it must check `public.is_shop_member(p_shop_id)` and `public.shop_has_module(p_shop_id, 'storefront')` itself — the table triggers do not cover a function. **Follow the grant convention: `revoke execute … from public` FIRST, then `grant execute … to authenticated`.** Never `anon`.
+
+- [ ] **Step 4: Prove the grant is real**
+
+Revoke `execute` on `publish_storefront` from `authenticated`, confirm RED, restore, confirm GREEN. This is the third grant on this feature; two of the first two were silently no-ops.
+
+- [ ] **Step 5: Wire the data layer and the screen**
+
+`saveDraft` merges a patch into the existing draft rather than replacing it, so two fields edited in sequence do not clobber each other. The screen autosaves on a debounce, and Publish calls `publishDraft`.
+
+- [ ] **Step 6: Run everything**
+
+```bash
+npm test && npm run test:db
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add supabase/migrations/20260925000200_storefront_draft.sql supabase/tests/verify-storefront-editor.sql src/lib/storefront-admin.ts src/app/\(admin\)/storefront.tsx src/lib/__tests__/storefront-admin.test.ts src/__tests__/storefront-editor-screen.test.tsx
+git commit -m "feat(storefront): a draft the shop cannot lose and customers cannot see"
 ```
 
 ---

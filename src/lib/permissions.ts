@@ -171,6 +171,10 @@ const ROUTE_PERMISSIONS: { prefix: string; permission: Permission | Permission[]
   // single permission.
   { prefix: '/accounting', permission: 'sales.view' },
   { prefix: '/settings', permission: 'settings.access' },
+  // Reached from Settings -> Storefront (Task 8), so it is gated the same way
+  // Settings itself is: a staff member who cannot open Settings must not be
+  // able to reach the editor for the shop's public page by typing the URL.
+  { prefix: '/storefront', permission: 'settings.access' },
 ];
 
 export function permissionForPath(pathname: string): Permission[] | null {

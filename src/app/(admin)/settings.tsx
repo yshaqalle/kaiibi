@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -44,6 +44,7 @@ export default function SettingsScreen() {
   // assigned to one store still administers the rest). refreshShop() is still
   // called on save so the header switcher picks the edit up too.
   const { shop, profile, session, setProfile, refreshShop, can } = useAuth();
+  const router = useRouter();
   const { width } = useWindowDimensions();
   const isWide = width >= TABLET_BREAKPOINT;
 
@@ -139,6 +140,13 @@ export default function SettingsScreen() {
     reload();
   }, [reload]);
 
+  // Covers a deep link seeded straight into activeNav's initial state (e.g.
+  // ?nav=storefront from elsewhere in the app) -- handleSelectNav intercepts
+  // the interactive path, but the URL-seeded path skips it entirely.
+  useEffect(() => {
+    if (activeNav === 'storefront') router.replace('/storefront');
+  }, [activeNav, router]);
+
   const brandUsage = useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of products) if (p.brand) counts.set(p.brand, (counts.get(p.brand) ?? 0) + 1);
@@ -169,8 +177,15 @@ export default function SettingsScreen() {
   if (!shop) return null;
 
   const handleSelectNav = (id: SettingsNavId) => {
-    setActiveNav(id);
     setMenuOpen(false);
+    // The editor is a full-screen route (picker strip + live preview), not a
+    // panel that fits beside the sidebar -- navigate away instead of
+    // swapping activeNav, so the switch below never has to render it.
+    if (id === 'storefront') {
+      router.push('/storefront');
+      return;
+    }
+    setActiveNav(id);
   };
 
   const activeLabel = SETTINGS_NAV.flatMap((group) => group.items).find((item) => item.id === activeNav)?.label ?? 'Settings';
@@ -348,6 +363,12 @@ export default function SettingsScreen() {
         ) : (
           <VendorsPanel shopId={shop.id} vendors={vendors} onChange={reload} />
         );
+      case 'storefront':
+        // handleSelectNav routes this id straight to the /storefront route
+        // and never sets activeNav to it -- this case only guards a stray
+        // deep link (e.g. ?nav=storefront), which should render nothing
+        // rather than crash on an unhandled id.
+        return null;
     }
   })();
 

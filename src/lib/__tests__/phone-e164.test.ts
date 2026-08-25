@@ -56,6 +56,27 @@ describe('toE164 — malformed international input', () => {
   });
 });
 
+describe('toE164 — an unmarked foreign number is refused, not guessed', () => {
+  it('refuses a long bare-digit number that cannot be a local subscriber', () => {
+    // A UK mobile typed with no +, no 00, no trunk zero. Guessing 252 here
+    // produces a real number belonging to a stranger.
+    expect(toE164('447700900123')).toBeNull();
+  });
+
+  it('still accepts a bare local subscriber number', () => {
+    expect(toE164('634456789')).toBe('+252634456789');
+  });
+
+  it('still accepts a number already carrying the country code', () => {
+    expect(toE164('252634456789')).toBe('+252634456789');
+  });
+
+  it('still passes an explicitly international number through', () => {
+    expect(toE164('+447700900123')).toBe('+447700900123');
+    expect(toE164('00447700900123')).toBe('+447700900123');
+  });
+});
+
 describe('formatE164ForDisplay', () => {
   it('groups a Somali number readably', () => {
     expect(formatE164ForDisplay('+252634456789')).toBe('+252 63 4456789');
