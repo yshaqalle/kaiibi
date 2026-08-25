@@ -4,7 +4,7 @@
 // chain resolve without real credentials -- do not delete this as unused.
 jest.mock('@/lib/supabase', () => ({ supabase: {} }));
 
-import { isSettingsNavId } from '@/components/settings/settings-sidebar';
+import { isSettingsNavId, SETTINGS_NAV } from '@/components/settings/settings-sidebar';
 
 describe('isSettingsNavId', () => {
   it('accepts a real panel id', () => {
@@ -17,5 +17,22 @@ describe('isSettingsNavId', () => {
     expect(isSettingsNavId('nonsense')).toBe(false);
     expect(isSettingsNavId(undefined)).toBe(false);
     expect(isSettingsNavId(42)).toBe(false);
+  });
+});
+
+describe('storefront nav entry', () => {
+  const item = SETTINGS_NAV.flatMap((g) => g.items).find((i) => i.id === 'storefront');
+
+  it('exists and is labelled for a shopkeeper', () => {
+    expect(item).toBeDefined();
+    expect(item!.label).toBe('Storefront');
+  });
+
+  it('is gated on the storefront module, so an unentitled shop never sees it', () => {
+    expect(item!.module).toBe('storefront');
+  });
+
+  it('passes the id guard, which is written out by hand and easy to forget', () => {
+    expect(isSettingsNavId('storefront')).toBe(true);
   });
 });

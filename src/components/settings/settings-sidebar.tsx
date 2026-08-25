@@ -19,6 +19,7 @@ export type SettingsNavId =
   | 'catalog'
   | 'inventory'
   | 'promotions'
+  | 'storefront'
   | 'payments'
   | 'tax'
   | 'loyalty'
@@ -31,7 +32,7 @@ export type SettingsNavId =
 const SETTINGS_NAV_IDS: SettingsNavId[] = [
   'profile', 'security', 'billing', 'notifications', 'business', 'locations',
   'roles', 'vendors', 'receipt', 'catalog', 'inventory', 'promotions',
-  'payments', 'tax', 'loyalty', 'cashiers', 'registers',
+  'payments', 'tax', 'loyalty', 'cashiers', 'registers', 'storefront',
 ];
 
 export function isSettingsNavId(value: unknown): value is SettingsNavId {
@@ -77,6 +78,7 @@ export const SETTINGS_NAV: NavGroup[] = [
       { id: 'roles', label: 'Roles', icon: 'shield-checkmark-outline', permission: 'staff.manage' },
       { id: 'vendors', label: 'Vendors', icon: 'briefcase-outline' },
       { id: 'receipt', label: 'Receipt', icon: 'receipt-outline' },
+      { id: 'storefront', label: 'Storefront', icon: 'globe-outline', module: 'storefront' },
     ],
   },
   {
