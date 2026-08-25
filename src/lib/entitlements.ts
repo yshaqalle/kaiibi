@@ -26,6 +26,7 @@ export type Module =
   | 'payroll'
   | 'budgets'
   | 'promotions'
+  | 'storefront'
   | 'scheduling'
   | 'multi_location'
   | 'multi_currency'
@@ -41,6 +42,7 @@ export const MODULES: { key: Module; label: string; description: string }[] = [
   { key: 'payroll', label: 'Payroll', description: 'Run pay periods and post wages to the books.' },
   { key: 'budgets', label: 'Budgets', description: 'Set category budgets and track recurring bills.' },
   { key: 'promotions', label: 'Promotions', description: 'Automatic discounts across the store or a category.' },
+  { key: 'storefront', label: 'Online storefront', description: 'A public page customers can browse and order from.' },
   { key: 'scheduling', label: 'Team schedule', description: "Plan who works when, ahead of time." },
   { key: 'multi_location', label: 'Multiple stores', description: 'Open more than one branch and move stock between them.' },
   { key: 'multi_currency', label: 'Multiple currencies', description: 'Take payment in more than one currency.' },
