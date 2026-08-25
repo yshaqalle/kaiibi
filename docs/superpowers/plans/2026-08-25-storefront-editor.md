@@ -268,13 +268,16 @@ git commit -m "feat(storefront): shop-side data layer for the editor"
 
 **Interfaces:**
 - Consumes: `THEMES`, `PALETTES`, `paletteColors` (`src/lib/storefront-catalog.ts`).
-- Produces: `<DesignStrip theme palette onThemeChange onPaletteChange />` where the two handlers are `(key) => void`.
+- Produces: `<DesignStrip theme palette neverPublished onThemeChange onPaletteChange />` where the handlers are `(key) => void` and `neverPublished: boolean` says the shop has never published.
+
+**Correction, found during implementation:** an earlier draft gated the "Chosen for you" badge on `publishedAt` while passing no such prop, so the first implementer derived it from `theme === DEFAULT_THEME && palette === DEFAULT_PALETTE`. That conflates "never touched" with "currently equals the default", so a shop that deliberately returns to Market/Ink after customising is wrongly told the design was chosen for it. `neverPublished` is the fix, and **Task 7 must pass it** as `storefront.publishedAt === null`.
 
 **Properties:**
 
 1. Renders every entry in `THEMES` and every entry in `PALETTES` — derived from the catalogues, never a hardcoded list, so adding a seventh palette needs no change here.
 2. The selected theme and palette are distinguishable to a screen reader, not by colour alone: set `accessibilityState={{ selected: true }}`.
 3. Each colour swatch shows that palette's actual `ground`/`soft`/`accent` from `paletteColors`, so the choice is visible before it is applied.
+3a. The badge shows only when `neverPublished` is true, and depends on nothing else. It means "we picked this so you wouldn't have to"; once a shop has published, it has chosen, whatever it chose.
 4. Horizontally scrollable — on a 380px phone the three themes and six palettes do not fit, and this must stay usable on a phone-only shop.
 
 - [ ] **Step 1: Write the failing test**
@@ -535,6 +538,7 @@ git commit -m "feat(storefront): publish bar that always explains itself"
 
 **Properties:**
 
+0. Pass `neverPublished={storefront.publishedAt === null}` to `DesignStrip`. Task 3 shipped a stand-in derivation that is wrong for a shop returning to the defaults after customising; this is where the real signal lives.
 1. **The preview is the real page.** Render the actual `StorefrontView` against the shop's real `is_listed_online` products. There must be no second storefront implementation that exists only in the editor — that is how a preview starts lying.
 2. The preview reflects UNSAVED edits; customers keep seeing the published version until Publish. Say so on screen.
 3. A shop without the `storefront` module never reaches this screen — but if it somehow does, a module error from `ensureStorefront` must surface as the upgrade prompt (`describePlanError`, `src/lib/entitlements.ts:279`), not as a crash.
