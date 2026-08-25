@@ -1,5 +1,6 @@
-import { Linking, Pressable, StyleSheet, Text } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 
+import { openExternalUrl } from '@/lib/external-url';
 import { waLink } from '@/lib/storefront';
 import { WHATSAPP_GREEN, WHATSAPP_INK, type PaletteColors } from '@/lib/storefront-catalog';
 import type { PublicStorefront, StorefrontProduct } from '@/types/models';
@@ -20,7 +21,7 @@ export function WhatsAppButton({ storefront }: { storefront: PublicStorefront })
   if (!storefront.whatsappE164) return null;
   const href = waLink(storefront.whatsappE164, `Hello ${storefront.shopName}, I have a question.`);
   return (
-    <Pressable style={styles.wa} onPress={() => Linking.openURL(href)} accessibilityRole="link">
+    <Pressable style={styles.wa} onPress={() => openExternalUrl(href)} accessibilityRole="link">
       <Text style={styles.waText}>Message on WhatsApp</Text>
     </Pressable>
   );
