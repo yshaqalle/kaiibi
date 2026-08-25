@@ -46,16 +46,20 @@ describe('ProductTile', () => {
     expect(texts).toContain('$12.00');
   });
 
-  it('names the product in the tile when there is no photo', () => {
+  it('names the product in the fallback tile exactly once when there is no photo', () => {
     const texts = renderTile(base);
-    // The fallback repeats the name as a label inside the image area, so the
-    // tile reads as a price label rather than a missing picture.
-    expect(countOf(texts, 'Anker 20W charger')).toBe(2);
+    // The fallback IS the label -- the body must not repeat the name, or the
+    // tile reads as a rendering bug rather than a deliberate price-label look.
+    expect(countOf(texts, 'Anker 20W charger')).toBe(1);
+    expect(texts).toContain('$12.00');
+    expect(texts).toContain('In stock');
   });
 
-  it('does not repeat the name when there is a photo', () => {
+  it('names the product in the body exactly once when there is a photo', () => {
     const texts = renderTile({ ...base, imageUrl: 'https://example.test/a.jpg' });
     expect(countOf(texts, 'Anker 20W charger')).toBe(1);
+    expect(texts).toContain('$12.00');
+    expect(texts).toContain('In stock');
   });
 
   it('marks an out-of-stock product without hiding it', () => {

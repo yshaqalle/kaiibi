@@ -1,4 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
+import Head from 'expo-router/head';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
@@ -61,7 +62,32 @@ export default function StorefrontScreen() {
     );
   }
 
-  return <StorefrontView storefront={state.shop} products={state.products} />;
+  return (
+    <>
+      <StorefrontHead shop={state.shop} />
+      <StorefrontView storefront={state.shop} products={state.products} />
+    </>
+  );
+}
+
+// Rendered only from the `ready` branch above -- never from `loading` or
+// `missing`. A title or description carrying the shop's name on the missing
+// page would leak exactly what that page exists to hide (see the note at the
+// top of this file), so this component must never be reachable from there.
+function StorefrontHead({ shop }: { shop: PublicStorefront }) {
+  const title = shop.city ? `${shop.shopName} — ${shop.city}` : shop.shopName;
+  const description = shop.headline ?? shop.about ?? `${shop.shopName} on Kaiibi.`;
+
+  return (
+    <Head>
+      <title>{title}</title>
+      <meta name="description" content={description} />
+      <meta property="og:title" content={title} />
+      <meta property="og:description" content={description} />
+      <meta property="og:type" content="website" />
+      {shop.heroImageUrl ? <meta property="og:image" content={shop.heroImageUrl} /> : null}
+    </Head>
+  );
 }
 
 const styles = StyleSheet.create({

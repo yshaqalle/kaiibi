@@ -32,9 +32,11 @@ export function ProductTile({ product, colors }: Props) {
       )}
 
       <View style={styles.body}>
-        <Text style={[styles.name, { color: colors.ink }]} numberOfLines={2}>
-          {product.name}
-        </Text>
+        {product.imageUrl ? (
+          <Text style={[styles.name, { color: colors.ink }]} numberOfLines={2}>
+            {product.name}
+          </Text>
+        ) : null}
         <Text style={[styles.price, { color: colors.ink }]}>{formatCents(product.priceCents)}</Text>
         <Text style={[styles.stock, { color: outOfStock ? '#8a5a05' : '#1f7a4d' }]}>
           {outOfStock ? 'Out of stock — ask us' : 'In stock'}
@@ -48,7 +50,7 @@ const styles = StyleSheet.create({
   tile: { borderWidth: 1, borderRadius: 14, overflow: 'hidden' },
   image: { aspectRatio: 1, width: '100%' },
   fallback: { justifyContent: 'flex-end', padding: 10 },
-  fallbackText: { fontSize: 13, fontWeight: '800', lineHeight: 17 },
+  fallbackText: { fontSize: 16, fontWeight: '800', lineHeight: 20 },
   body: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 11 },
   name: { fontSize: 12.5, fontWeight: '700', lineHeight: 16, minHeight: 32 },
   price: { fontSize: 15, fontWeight: '800', marginTop: 5 },

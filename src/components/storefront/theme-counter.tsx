@@ -39,6 +39,7 @@ export function ThemeCounter({ storefront, products, colors }: ThemeProps) {
         {storefront.headline ? (
           <Text style={[styles.headline, { color: colors.ink }]}>{storefront.headline}</Text>
         ) : null}
+        {storefront.about ? <Text style={[styles.about, { color: colors.muted }]}>{storefront.about}</Text> : null}
 
         {products.length === 0 ? (
           <EmptyState colors={colors} />
@@ -72,6 +73,7 @@ const styles = StyleSheet.create({
   shopName: { fontSize: 18, fontWeight: '800', letterSpacing: 0.4 },
   sub: { fontSize: 11.5 },
   headline: { fontSize: 19, fontWeight: '700', paddingHorizontal: 14, paddingTop: 12 },
+  about: { fontSize: 13, paddingHorizontal: 14, paddingTop: 5 },
   section: { paddingHorizontal: 14, paddingTop: 14 },
   sectionHead: { fontSize: 11, fontWeight: '800', letterSpacing: 1.5 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 11, borderBottomWidth: 1 },
